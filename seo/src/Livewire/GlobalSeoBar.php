@@ -28,6 +28,9 @@ class GlobalSeoBar extends Component
 
     public bool $writingSplitEnabled = false;
 
+    /** Planner-only active month (YYYY-MM), synced via Livewire event + URL on ContentProjectSeoAuditPlanner. */
+    public string $plannerActiveMonth = '';
+
     public function mount(): void
     {
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
@@ -37,6 +40,14 @@ class GlobalSeoBar extends Component
             $this->applyContext($this->resolvePreferredKeywordIntelligenceContext($resolver));
         } else {
             $this->applyContext($resolver->current());
+        }
+
+        if (SeoPanelRoutes::isProjectPlannerSeoAudit()) {
+            $this->plannerActiveMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+                \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::parseOrNull(
+                    request()->query('month'),
+                ),
+            );
         }
 
         $actualRole = SeoAccessControl::actualRole();
@@ -169,7 +180,20 @@ class GlobalSeoBar extends Component
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'writingSplitEnabled' => $this->writingSplitEnabled,
+            'showPlannerActiveMonth' => SeoPanelRoutes::isProjectPlannerSeoAudit(),
+            'plannerMonthOptions' => SeoPanelRoutes::isProjectPlannerSeoAudit()
+                ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::selectOptions()
+                : [],
         ]);
+    }
+
+    public function updatedPlannerActiveMonth(mixed $value): void
+    {
+        $month = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+            is_string($value) ? $value : null,
+        );
+        $this->plannerActiveMonth = $month;
+        $this->dispatch('seo-planner-month-changed', month: $month);
     }
 
     private function syncWritingSplitPreference(): void

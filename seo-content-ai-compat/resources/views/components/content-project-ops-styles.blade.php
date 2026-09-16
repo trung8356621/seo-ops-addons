@@ -1227,19 +1227,25 @@
                 min-height: 0;
                 overflow: auto;
             }
-            /* Gen AI focused: Improve + Site Planning hidden; AI workspace full width */
+            /* Gen AI focused: hide Improve only; keep Create + Site Planning (~65/35) */
             .cp-plan-grid.is-ai-focused {
-                grid-template-columns: minmax(0, 1fr);
+                grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
             }
-            .cp-plan-grid.is-ai-focused > [data-planner-card="improve"],
-            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
+            .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
                 display: none;
             }
         }
-        /* Mobile / all breakpoints: hide Improve + Site Planning while AI focus */
-        .cp-plan-grid.is-ai-focused > [data-planner-card="improve"],
-        .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
+        /* Mobile / all breakpoints: hide Improve only while AI focus; Site Planning stays */
+        .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
             display: none;
+        }
+        @media (max-width: 1023px) {
+            .cp-plan-grid.is-ai-focused {
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
+                display: flex;
+            }
         }
         .cp-plan-card--with-sticky-cta {
             display: flex;

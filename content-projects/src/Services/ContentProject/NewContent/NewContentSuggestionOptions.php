@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent;
 
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
 /**
  * Create-new planner options. Quantity + optional notes + content type (post|product)
@@ -93,6 +94,7 @@ final class NewContentSuggestionOptions
             'focus' => $focus,
             'notes' => $notes,
             'note_items' => $noteItems,
+            'planning_month' => ContentProjectMonthContext::normalize($input['planning_month'] ?? null),
             'post_type' => $contentType,
             'content_type' => $contentType,
             'taxonomy' => trim((string) ($input['taxonomy'] ?? '')),
@@ -151,6 +153,7 @@ final class NewContentSuggestionOptions
             'post_type' => $normalized['post_type'],
             'notes' => $normalized['notes'],
             'note_items' => $normalized['note_items'],
+            'planning_month' => $normalized['planning_month'] ?? ContentProjectMonthContext::current(),
             'automation_policy' => $automationPolicy,
             'primary_language' => $primaryLanguage,
             'site_id' => $resolvedSiteId,

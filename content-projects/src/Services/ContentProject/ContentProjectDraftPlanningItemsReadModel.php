@@ -10,6 +10,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditCheckIndexUrl;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -22,6 +24,7 @@ final class ContentProjectDraftPlanningItemsReadModel
      *     review?: string,
      *     type?: string,
      *     domain?: string,
+     *     planning_month?: string|null,
      * }  $filters
      * @return array{
      *     rows: list<array<string, mixed>>,
@@ -40,6 +43,7 @@ final class ContentProjectDraftPlanningItemsReadModel
         $projectId = (int) $project->getKey();
         $hasPlanningReviewed = Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at');
         $domainFilter = $this->normalizeDomainFilter($filters['domain'] ?? 'all');
+        $monthFilter = ContentProjectMonthContext::parseOrNull($filters['planning_month'] ?? null);
 
         $query = SeoProjectTask::query()
             ->where('project_id', $projectId)
@@ -64,6 +68,18 @@ final class ContentProjectDraftPlanningItemsReadModel
         foreach ($tasks as $task) {
             if (! $task instanceof SeoProjectTask) {
                 continue;
+            }
+            if ($monthFilter !== null) {
+                $taskMonth = PlanningMonthBackfill::resolve([
+                    'planning_month' => $task->planning_month ?? null,
+                    'created_at' => $task->created_at,
+                    'target_date' => $task->target_date,
+                    'project_month' => $project->month ?? null,
+                    'project_is_draft' => true,
+                ]);
+                if ($taskMonth !== $monthFilter) {
+                    continue;
+                }
             }
             $row = $this->mapRow($task, $projectId, $hasPlanningReviewed);
             // Defense: recovered site_id may still disagree with a concrete domain query edge-case.

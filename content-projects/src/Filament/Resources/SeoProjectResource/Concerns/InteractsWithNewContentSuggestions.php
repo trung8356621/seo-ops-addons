@@ -691,6 +691,9 @@ trait InteractsWithNewContentSuggestions
             'post_type' => $postType,
             'content_type' => $postType,
             'taxonomy' => '',
+            'planning_month' => method_exists($this, 'resolvePlannerActiveMonth')
+                ? $this->resolvePlannerActiveMonth()
+                : null,
         ]);
     }
 

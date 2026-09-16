@@ -118,7 +118,13 @@ final class SplitDraftContentProjectService
                 throw new RuntimeException('Draft project disappeared or is no longer Draft.');
             }
 
-            $resolved = $this->resolveItems($lockedDraft, $selectionMode, $quantity, $itemIds);
+            $resolved = $this->resolveItems(
+                $lockedDraft,
+                $selectionMode,
+                $quantity,
+                $itemIds,
+                $month->format('Y-m'),
+            );
             $taskIds = $resolved['task_ids'];
             if ($taskIds === []) {
                 throw new InvalidArgumentException('No reviewed Draft items to move.');
@@ -394,9 +400,10 @@ final class SplitDraftContentProjectService
         string $selectionMode,
         ?int $quantity,
         array $itemIds,
+        ?string $planningMonth = null,
     ): array {
         $mode = strtolower(trim($selectionMode));
-        $available = $this->orderedReviewedDraftTaskIds($draft);
+        $available = $this->orderedReviewedDraftTaskIds($draft, null, $planningMonth);
         $availableCount = count($available);
 
         if ($mode === SplitDraftContentProjectCommand::MODE_ALL
@@ -681,10 +688,14 @@ final class SplitDraftContentProjectService
      * Eligible split set: planning_reviewed_at IS NOT NULL.
      *
      * @param  int|null  $siteId  null = all domains; >0 = that site; 0 = unassigned only
+     * @param  string|null  $planningMonth  YYYY-MM; null = no month filter (legacy callers)
      * @return list<int>
      */
-    public function orderedReviewedDraftTaskIds(SeoProject $draft, ?int $siteId = null): array
-    {
+    public function orderedReviewedDraftTaskIds(
+        SeoProject $draft,
+        ?int $siteId = null,
+        ?string $planningMonth = null,
+    ): array {
         $query = SeoProjectTask::query()
             ->where('project_id', (int) $draft->getKey())
             ->whereNull('archived_at')
@@ -706,6 +717,32 @@ final class SplitDraftContentProjectService
             });
         }
 
+        $month = ContentProjectMonthContext::parseOrNull($planningMonth);
+        if ($month !== null && Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $monthDate = ContentProjectMonthContext::toDateString($month);
+            $tasks = $query->get([
+                'id',
+                'planning_month',
+                'created_at',
+                'target_date',
+            ]);
+
+            $ids = [];
+            foreach ($tasks as $task) {
+                $resolved = \Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill::resolve([
+                    'planning_month' => $task->planning_month ?? null,
+                    'created_at' => $task->created_at,
+                    'target_date' => $task->target_date,
+                    'project_is_draft' => true,
+                ]);
+                if ($resolved === $month) {
+                    $ids[] = (int) $task->getKey();
+                }
+            }
+
+            return $ids;
+        }
+
         return $query
             ->pluck('id')
             ->map(static fn (mixed $id): int => (int) $id)
@@ -718,9 +755,12 @@ final class SplitDraftContentProjectService
         return count($this->orderedDraftTaskIds($draft));
     }
 
-    public function currentReviewedDraftItemCount(SeoProject $draft, ?int $siteId = null): int
-    {
-        return count($this->orderedReviewedDraftTaskIds($draft, $siteId));
+    public function currentReviewedDraftItemCount(
+        SeoProject $draft,
+        ?int $siteId = null,
+        ?string $planningMonth = null,
+    ): int {
+        return count($this->orderedReviewedDraftTaskIds($draft, $siteId, $planningMonth));
     }
 
     public function currentMonth(): Carbon

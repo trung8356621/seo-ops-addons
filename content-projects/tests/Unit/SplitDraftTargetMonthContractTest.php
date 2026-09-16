@@ -19,7 +19,7 @@ use Tests\Support\LegacyAddonPath;
  */
 final class SplitDraftTargetMonthContractTest extends TestCase
 {
-    public function test_modal_defaults_target_month_to_current(): void
+    public function test_modal_defaults_target_month_to_active_month_ssot(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
 
@@ -30,14 +30,15 @@ final class SplitDraftTargetMonthContractTest extends TestCase
         );
 
         self::assertStringContainsString('public string $draftSplitTargetMonth', $trait);
+        self::assertStringContainsString('resolveDraftSplitActiveMonth', $trait);
         self::assertStringContainsString(
-            '$this->draftSplitTargetMonth = ContentProjectMonthContext::current();',
+            '$this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();',
             $trait,
         );
         self::assertSame(
-            2,
+            0,
             substr_count($trait, '$this->draftSplitTargetMonth = ContentProjectMonthContext::current();'),
-            'default current month on mount + open modal',
+            'must not reset modal month to wall-clock current()',
         );
 
         Carbon::setTestNow();
@@ -113,7 +114,7 @@ final class SplitDraftTargetMonthContractTest extends TestCase
         self::assertStringContainsString('planAllocations($taskIds, $assigneeIds, $month)', $service);
         self::assertStringContainsString("->whereDate('month', \$month->format('Y-m-d'))", $service);
         self::assertStringContainsString('itemBreakdownByUserId', $capacity);
-        self::assertStringContainsString('archived_count', $capacity);
+        self::assertStringContainsString("'archived'", $capacity);
         self::assertStringContainsString('STATUS_DRAFT', $capacity);
         self::assertStringContainsString('Shared Planning Draft excluded', $capacity);
 

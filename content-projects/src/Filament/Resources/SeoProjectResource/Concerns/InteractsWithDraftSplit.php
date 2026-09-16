@@ -50,7 +50,7 @@ trait InteractsWithDraftSplit
     {
         $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
         $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
-        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
+        $this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();
         $this->draftSplitIncludedUserIds = [];
         $this->draftSplitModalOpen = false;
         $this->draftSplitError = null;
@@ -67,6 +67,7 @@ trait InteractsWithDraftSplit
         $reviewed = $splitter->currentReviewedDraftItemCount(
             $project,
             $this->resolvePublishDraftSiteScope(),
+            $this->resolveDraftSplitActiveMonth(),
         );
         if ($reviewed <= 0) {
             Notification::make()
@@ -86,10 +87,27 @@ trait InteractsWithDraftSplit
         // Quantity = reviewed pool size (user may lower). MAX_EXECUTION_PROJECT_ITEMS is
         // packing per project (overflow -2/-3), NOT the Publish batch ceiling.
         $this->draftSplitQuantity = max(1, $reviewed);
-        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
+        // Modal mirrors planner activeMonth SSOT — do not reset to wall-clock current.
+        $this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();
         $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
         $this->draftSplitError = null;
         $this->draftSplitModalOpen = true;
+    }
+
+    /**
+     * Prefer route-local activeMonth when available (SEO Audit Planner).
+     */
+    protected function resolveDraftSplitActiveMonth(): string
+    {
+        if (method_exists($this, 'resolvePlannerActiveMonth')) {
+            return ContentProjectMonthContext::normalize($this->resolvePlannerActiveMonth());
+        }
+
+        if (property_exists($this, 'activeMonth') && is_string($this->activeMonth) && $this->activeMonth !== '') {
+            return ContentProjectMonthContext::normalize($this->activeMonth);
+        }
+
+        return ContentProjectMonthContext::current();
     }
 
     public function closeDraftSplitModal(): void
@@ -129,6 +147,10 @@ trait InteractsWithDraftSplit
         $this->draftSplitTargetMonth = ContentProjectMonthContext::normalize(
             is_string($value) ? $value : null,
         );
+        // Keep single SSOT with planner activeMonth when present.
+        if (property_exists($this, 'activeMonth')) {
+            $this->activeMonth = $this->draftSplitTargetMonth;
+        }
     }
 
     /**
@@ -387,7 +409,11 @@ trait InteractsWithDraftSplit
 
         $splitter = app(SplitDraftContentProjectService::class);
         $siteScope = $this->resolvePublishDraftSiteScope();
-        $reviewed = $splitter->currentReviewedDraftItemCount($project, $siteScope);
+        $reviewed = $splitter->currentReviewedDraftItemCount(
+            $project,
+            $siteScope,
+            $this->resolveDraftSplitActiveMonth(),
+        );
         // Domain-scoped Publish reports the eligible (reviewed) pool, not whole Shared Draft.
         $total = $siteScope !== null
             ? $reviewed
@@ -626,6 +652,7 @@ trait InteractsWithDraftSplit
         $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount(
             $project,
             $this->resolvePublishDraftSiteScope(),
+            $this->resolveDraftSplitActiveMonth(),
         );
         if ($reviewed < 1) {
             $this->draftSplitQuantity = 1;
@@ -670,7 +697,11 @@ trait InteractsWithDraftSplit
     protected function resolvePublishEligibleTaskIds(SeoProject $project): array
     {
         $scoped = app(SplitDraftContentProjectService::class)
-            ->orderedReviewedDraftTaskIds($project, $this->resolvePublishDraftSiteScope());
+            ->orderedReviewedDraftTaskIds(
+                $project,
+                $this->resolvePublishDraftSiteScope(),
+                $this->resolveDraftSplitActiveMonth(),
+            );
 
         $selected = $this->normalizeSelectedIds($this->selectedTaskIds ?? []);
         if ($selected === []) {

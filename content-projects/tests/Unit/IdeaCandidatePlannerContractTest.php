@@ -49,6 +49,8 @@ final class IdeaCandidatePlannerContractTest extends TestCase
             (string) (new ReflectionClass(VocabularySuggestStagingQuery::class))->getFileName(),
         ));
         self::assertStringContainsString('exclude_draft_duplicates', $src);
+        self::assertStringContainsString('excludeConsumedVocabularyCandidates', $src);
+        self::assertStringContainsString('seo_content_project_consumed_ideas', $src);
         self::assertStringContainsString('SeoHidden', $src);
         self::assertStringContainsString('PER_PAGE_DEFAULT = 20', $src);
         self::assertStringNotContainsString('PromptResult', $src);
@@ -64,7 +66,7 @@ final class IdeaCandidatePlannerContractTest extends TestCase
 
         self::assertStringContainsString('SOURCE_VOCABULARY_SUGGEST', $src);
         self::assertStringContainsString('TYPE_CREATE', $src);
-        self::assertStringContainsString('plannedCreateKeywordNorms', $src);
+        self::assertStringContainsString('IdeaCandidateConsumptionService', $src);
         self::assertStringContainsString('SeoAuditSuggestionPlannerService', $src);
         self::assertStringNotContainsString('PromptRun', $src);
         self::assertStringNotContainsString('AiRoute', $src);

@@ -112,6 +112,8 @@ final class McpPlanningAndSitePlanningContractTest extends TestCase
         self::assertStringContainsString('STATUS_COMPLETED', $src);
         self::assertStringContainsString('STATUS_PARTIAL', $src);
         self::assertStringContainsString('KIND_EXECUTED', $src);
+        self::assertStringContainsString('SitePlanningActiveUnitAggregator', $src);
+        self::assertStringContainsString('activeMonth', $src);
     }
 
     public function test_site_planning_month_window_crosses_year(): void

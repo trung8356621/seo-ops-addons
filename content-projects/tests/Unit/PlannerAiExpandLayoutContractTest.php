@@ -26,7 +26,7 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
         self::assertStringNotContainsString('cp-plan-improve-float', $draft);
     }
 
-    public function test_desktop_defaults_to_equal_columns_and_ai_focus_hides_improve(): void
+    public function test_desktop_defaults_to_equal_columns_and_ai_focus_keeps_site_planning(): void
     {
         $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
 
@@ -35,13 +35,18 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
             $css,
         );
         self::assertStringContainsString('.cp-plan-grid.is-ai-focused', $css);
-        self::assertStringContainsString('grid-template-columns: minmax(0, 1fr)', $css);
+        self::assertStringContainsString('grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)', $css);
         self::assertStringContainsString(
             '.cp-plan-grid.is-ai-focused > [data-planner-card="improve"]',
             $css,
         );
-        self::assertStringContainsString(
-            '.cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"]',
+        // Site Planning must NOT be hidden in AI-focused mode.
+        self::assertStringNotContainsString(
+            '.cp-plan-grid.is-ai-focused > [data-planner-card="improve"],'."\n".'            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"]',
+            $css,
+        );
+        self::assertDoesNotMatchRegularExpression(
+            '/\.cp-plan-grid\.is-ai-focused\s*>\s*\[data-planner-card="site-planning"\]\s*\{\s*display:\s*none/',
             $css,
         );
         self::assertStringContainsString('display: none', $css);

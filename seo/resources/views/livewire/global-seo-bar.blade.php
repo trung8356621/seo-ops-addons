@@ -25,6 +25,24 @@
         </div>
     @endif
 
+    @if ($showPlannerActiveMonth ?? false)
+        <div
+            class="flex items-center gap-1.5"
+            data-planner-active-month="1"
+            wire:loading.class="opacity-60"
+            wire:target="plannerActiveMonth"
+        >
+            <span class="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">
+                {{ __('seo-content-ai::filament.projects.planner_active_month') }}
+            </span>
+            <x-select wire:model.live="plannerActiveMonth" size="sm" wrapClass="x-select-wrap--narrow">
+                @foreach ($plannerMonthOptions as $opt)
+                    <option value="{{ $opt['value'] }}">{{ $opt['label'] }}</option>
+                @endforeach
+            </x-select>
+        </div>
+    @endif
+
     @if($showContentProjectPicker ?? false)
         <div class="flex items-center gap-1.5">
             <span class="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ __('seo-content-ai::filament.global_bar.content_project') }}</span>

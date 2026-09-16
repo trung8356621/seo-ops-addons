@@ -22,7 +22,9 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningAttributionWriter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Models\Site;
@@ -132,6 +134,8 @@ final class NewContentSuggestionPlannerService
             NewContentSuggestionOptions::taskPostType((string) ($options['post_type'] ?? $options['content_type'] ?? 'post')),
             (int) $run->getKey(),
             $actorId,
+            is_array($options['note_items'] ?? null) ? $options['note_items'] : [],
+            ContentProjectMonthContext::normalize($options['planning_month'] ?? null),
         );
 
         $breakdown = is_array($filtered['duplicate_breakdown'] ?? null)
@@ -621,6 +625,10 @@ final class NewContentSuggestionPlannerService
                         $postType,
                         (int) $run->getKey(),
                         $actorId,
+                        $batchNoteItems,
+                        ContentProjectMonthContext::normalize(
+                            $options['planning_month'] ?? null,
+                        ),
                     );
                     $allTaskIds = array_merge($allTaskIds, $taskIds);
                     $allResults = array_merge($allResults, $filtered['results']);
@@ -1302,11 +1310,8 @@ final class NewContentSuggestionPlannerService
     }
 
     /**
-     * @param  list<array{keyword: string, title: string, description: string, product_type?: string, gallery_description?: string, fingerprint: string, suggestion_reason?: string, source_signal?: string}>  $candidates
-     * @return list<int>
-     */
-    /**
-     * @param  list<array{keyword: string, title: string, description: string, product_type?: string, gallery_description?: string, fingerprint: string, suggestion_reason?: string, source_signal?: string}>  $candidates
+     * @param  list<array{keyword: string, title: string, description: string, product_type?: string, gallery_description?: string, fingerprint: string, suggestion_reason?: string, source_signal?: string, cluster_ref?: string, dna_phrases?: list<string>}>  $candidates
+     * @param  list<array<string, mixed>>  $noteItems
      * @return list<int>
      */
     private function persistCreateItems(
@@ -1316,6 +1321,8 @@ final class NewContentSuggestionPlannerService
         string $postType,
         int $plannerRunId,
         ?int $actorId,
+        array $noteItems = [],
+        ?string $planningMonth = null,
     ): array {
         if ($candidates === []) {
             return [];
@@ -1323,6 +1330,25 @@ final class NewContentSuggestionPlannerService
 
         $taskIds = [];
         $workingSiteId = (int) $site->getKey();
+        $month = ContentProjectMonthContext::normalize($planningMonth);
+        $monthDate = ContentProjectMonthContext::toDateString($month);
+        $allowedClusterRefs = [];
+        $clusterNameByRef = [];
+        foreach ($noteItems as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $ref = trim((string) ($item['cluster_ref'] ?? ''));
+            if ($ref === '') {
+                continue;
+            }
+            $allowedClusterRefs[] = $ref;
+            $name = trim((string) ($item['cluster_name_snapshot'] ?? ''));
+            if ($name !== '') {
+                $clusterNameByRef[$ref] = $name;
+            }
+        }
+        $attributionWriter = app(PlanningAttributionWriter::class);
 
         DB::connection('omi_seo_ai')->transaction(function () use (
             $project,
@@ -1331,6 +1357,11 @@ final class NewContentSuggestionPlannerService
             $postType,
             $plannerRunId,
             $actorId,
+            $month,
+            $monthDate,
+            $allowedClusterRefs,
+            $clusterNameByRef,
+            $attributionWriter,
             &$taskIds,
         ): void {
             $session = $this->allocator->begin($project);
@@ -1389,7 +1420,7 @@ final class NewContentSuggestionPlannerService
                 }
 
                 $occupied = $session->occupiedCount($target);
-                $task = SeoProjectTask::query()->create([
+                $taskPayload = [
                     'project_id' => (int) $target->getKey(),
                     'site_id' => $workingSiteId,
                     'type' => SeoProjectTask::TYPE_CREATE,
@@ -1403,12 +1434,18 @@ final class NewContentSuggestionPlannerService
                     'status' => SeoProjectTask::STATUS_PENDING,
                     'article_id' => null,
                     'target_date' => $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
-                ]);
+                ];
+                if (\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+                    $taskPayload['planning_month'] = $monthDate;
+                }
+
+                $task = SeoProjectTask::query()->create($taskPayload);
                 $session->recordAdded($target);
                 $taskId = (int) $task->getKey();
                 $taskIds[] = $taskId;
 
-                SeoContentProjectItemOrigin::query()->updateOrCreate(
+                /** @var SeoContentProjectItemOrigin $origin */
+                $origin = SeoContentProjectItemOrigin::query()->updateOrCreate(
                     ['project_task_id' => $taskId],
                     [
                         'project_id' => (int) $project->getKey(),
@@ -1421,6 +1458,18 @@ final class NewContentSuggestionPlannerService
                         'created_at' => now(),
                     ],
                 );
+
+                $clusterRef = trim((string) ($candidate['cluster_ref'] ?? ''));
+                $dnaPhrases = is_array($candidate['dna_phrases'] ?? null) ? $candidate['dna_phrases'] : [];
+                $attributionWriter->writeForTask($task, $origin, [
+                    'planning_month' => $month,
+                    'planner_run_id' => $plannerRunId,
+                    'source_type' => SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+                    'cluster_ref' => $clusterRef,
+                    'cluster_name_snapshot' => $clusterNameByRef[$clusterRef] ?? null,
+                    'dna_phrases' => $dnaPhrases,
+                    'allowed_cluster_refs' => $allowedClusterRefs,
+                ]);
             }
             $session->syncTouchedCounters();
         });

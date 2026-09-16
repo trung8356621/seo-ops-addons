@@ -22,6 +22,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDra
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Support\DomainContext;
@@ -78,6 +79,13 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     #[Url(as: 'draft_domain', except: 'all')]
     public string $draftDomainFilter = 'all';
 
+    /**
+     * Planner active month (YYYY-MM). Query SSOT: ?month=2026-10
+     * Anchors Site Planning highlight, Draft month filter, attribution stamp, and Draft split.
+     */
+    #[Url(as: 'month', except: null)]
+    public ?string $activeMonth = null;
+
     public ?SeoProject $project = null;
 
     /** @var list<int> */
@@ -114,6 +122,9 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
         $this->draftDomainFilter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+        $this->activeMonth = ContentProjectMonthContext::normalize(
+            ContentProjectMonthContext::parseOrNull($this->activeMonth) ?? request()->query('month'),
+        );
 
         $this->migrateLegacyPlannerSiteQuery();
         $this->ensureConcreteGlobalWorkingSite();
@@ -390,6 +401,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             'review' => $this->draftReviewFilter,
             'type' => $this->draftTypeFilter,
             'domain' => $this->draftDomainFilter,
+            'planning_month' => $this->resolvePlannerActiveMonth(),
         ]);
     }
 
@@ -859,7 +871,44 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     public function sitePlanningPayload(): array
     {
         return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
-            ->overview();
+            ->overview(null, $this->resolvePlannerActiveMonth());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function sitePlanningCellDetail(int $siteId, string $planningMonth): array
+    {
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
+            ->cellDetail($siteId, $planningMonth);
+    }
+
+    public function resolvePlannerActiveMonth(): string
+    {
+        return ContentProjectMonthContext::normalize($this->activeMonth);
+    }
+
+    public function updatedActiveMonth(mixed $value): void
+    {
+        $this->activeMonth = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
+        $this->draftSplitTargetMonth = $this->activeMonth;
+        $this->selectedTaskIds = [];
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public function getActiveMonthOptions(): array
+    {
+        return ContentProjectMonthContext::selectOptions();
+    }
+
+    #[On('seo-planner-month-changed')]
+    public function onPlannerMonthChangedFromGlobalBar(mixed $month = null): void
+    {
+        $this->activeMonth = ContentProjectMonthContext::normalize(is_string($month) ? $month : null);
+        $this->draftSplitTargetMonth = $this->activeMonth;
+        $this->selectedTaskIds = [];
     }
 
     private function applyPlanningKeyword(SeoProjectTask $task, string $keyword): void
@@ -1066,6 +1115,8 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         if ($draftDomain !== 'all') {
             $params['draft_domain'] = $draftDomain;
         }
+
+        $params['month'] = $this->resolvePlannerActiveMonth();
 
         $domain = trim((string) request()->query('domain', ''));
         if ($domain !== '') {

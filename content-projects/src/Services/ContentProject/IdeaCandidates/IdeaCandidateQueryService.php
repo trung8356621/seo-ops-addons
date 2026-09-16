@@ -98,8 +98,9 @@ final class IdeaCandidateQueryService
         }
 
         $excludeDraft = (bool) ($filters['exclude_draft_duplicates'] ?? true);
-        if ($excludeDraft && $draft instanceof SeoProject && $draft->isDraftPlanning()) {
-            $this->excludePlannedCreateDuplicates($query, $draft);
+        if ($excludeDraft) {
+            // Tombstone identity (site + source_type + source_keyword_id) — not Draft task text.
+            $this->excludeConsumedVocabularyCandidates($query, $siteId);
         }
 
         $total = (clone $query)->count();
@@ -174,6 +175,8 @@ final class IdeaCandidateQueryService
             ->whereIn('id', $keywordIds)
             ->get(['id', 'phrase', 'type', 'source']);
 
+        $consumed = $this->consumptionMap($siteId, $rows->map(static fn (Keyword $k): int => (int) $k->id)->all());
+
         $evidenceByKeyword = $this->loadEvidenceMap(
             $rows->map(static fn (Keyword $k): int => (int) $k->id)->all(),
             $siteId,
@@ -182,6 +185,9 @@ final class IdeaCandidateQueryService
         $out = [];
         foreach ($rows as $keyword) {
             $kid = (int) $keyword->id;
+            if (isset($consumed[$kid])) {
+                continue;
+            }
             $phrase = Keyword::decodePhrase((string) ($keyword->phrase ?? ''));
             if ($phrase === '') {
                 continue;
@@ -246,47 +252,34 @@ final class IdeaCandidateQueryService
     }
 
     /**
+     * Exclude candidates already consumed for this site (tombstone SSOT).
+     * Do NOT match against current Draft keyword/title/source_content text.
+     *
      * @param  Builder<Keyword>  $query
      */
-    private function excludePlannedCreateDuplicates(Builder $query, SeoProject $draft): void
+    private function excludeConsumedVocabularyCandidates(Builder $query, int $siteId): void
     {
-        $rawLowers = $this->plannedCreatePhraseLowers($draft);
-        if ($rawLowers === []) {
+        if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_content_project_consumed_ideas')) {
             return;
         }
 
-        $keys = array_keys($rawLowers);
-        $placeholders = implode(',', array_fill(0, count($keys), '?'));
-        $query->whereRaw('LOWER(TRIM(phrase)) NOT IN ('.$placeholders.')', $keys);
+        $query->whereNotIn('id', function ($sub) use ($siteId): void {
+            $sub->select('source_keyword_id')
+                ->from('seo_content_project_consumed_ideas')
+                ->where('site_id', $siteId)
+                ->where('source_type', IdeaCandidateSource::KEY_VOCABULARY_SUGGEST)
+                ->whereNotNull('source_keyword_id');
+        });
     }
 
     /**
-     * @return array<string, true>
+     * @param  list<int>  $keywordIds
+     * @return array<int, true>
      */
-    private function plannedCreatePhraseLowers(SeoProject $draft): array
+    private function consumptionMap(int $siteId, array $keywordIds): array
     {
-        $projectId = (int) $draft->getKey();
-        if ($projectId <= 0) {
-            return [];
-        }
-
-        $out = [];
-        $rows = SeoProjectTask::query()
-            ->where('project_id', $projectId)
-            ->whereNull('archived_at')
-            ->where('type', SeoProjectTask::TYPE_CREATE)
-            ->get(['keyword', 'title', 'source_content']);
-
-        foreach ($rows as $task) {
-            foreach ([(string) ($task->keyword ?? ''), (string) ($task->title ?? ''), (string) ($task->source_content ?? '')] as $raw) {
-                $lower = mb_strtolower(trim($raw), 'UTF-8');
-                if ($lower !== '') {
-                    $out[$lower] = true;
-                }
-            }
-        }
-
-        return $out;
+        return app(IdeaCandidateConsumptionService::class)
+            ->consumedKeywordIdMap($siteId, IdeaCandidateSource::KEY_VOCABULARY_SUGGEST, $keywordIds);
     }
 
     /**

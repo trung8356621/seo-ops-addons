@@ -13,10 +13,13 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionIdentity;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditSuggestionPlannerService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningAttributionWriter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
 /**
  * Add Idea Candidates → Draft items. No AI.
+ * Vocabulary Suggest CREATE consumes candidate permanently via tombstone (not Draft text).
  */
 final class IdeaCandidateDraftPlannerService
 {
@@ -30,6 +33,8 @@ final class IdeaCandidateDraftPlannerService
         private readonly IdeaCandidateQueryService $candidates,
         private readonly ContentProjectItemAllocator $allocator,
         private readonly SeoAuditSuggestionPlannerService $seoAuditPlanner,
+        private readonly IdeaCandidateConsumptionService $consumption,
+        private readonly PlanningAttributionWriter $attributionWriter,
     ) {}
 
     /**
@@ -50,6 +55,7 @@ final class IdeaCandidateDraftPlannerService
         array $articleIds = [],
         ?int $actorId = null,
         ?int $siteId = null,
+        ?string $planningMonth = null,
     ): array {
         $action = strtolower(trim($action));
         if (! in_array($action, [self::ACTION_CREATE, self::ACTION_REWRITE, self::ACTION_IMPROVE], true)) {
@@ -87,8 +93,10 @@ final class IdeaCandidateDraftPlannerService
             ];
         }
 
+        $month = ContentProjectMonthContext::normalize($planningMonth);
+
         if ($action === self::ACTION_CREATE) {
-            return $this->addCreateItems($project, $resolved, $workingSiteId);
+            return $this->addCreateItems($project, $resolved, $workingSiteId, $month);
         }
 
         return $this->addRewriteOrImprove($project, $action, $resolved, $articleIds, $actorId);
@@ -98,27 +106,32 @@ final class IdeaCandidateDraftPlannerService
      * @param  list<IdeaCandidate>  $candidates
      * @return array{added: int, duplicate_skipped: int, ineligible: int, task_ids: list<int>, action: string}
      */
-    private function addCreateItems(SeoProject $project, array $candidates, int $workingSiteId = 0): array
-    {
-        $plannedNorms = $this->candidates->plannedCreateKeywordNorms($project);
+    private function addCreateItems(
+        SeoProject $project,
+        array $candidates,
+        int $workingSiteId,
+        string $planningMonth,
+    ): array {
         $added = 0;
         $dup = 0;
         $ineligible = 0;
         $taskIds = [];
-        $batchNorms = [];
+        /** @var list<array{keyword_id: int, site_id: int}> $cleanupQueue */
+        $cleanupQueue = [];
 
         DB::connection('omi_seo_ai')->transaction(function () use (
             $project,
             $candidates,
             $workingSiteId,
+            $planningMonth,
             &$added,
             &$dup,
             &$ineligible,
             &$taskIds,
-            &$batchNorms,
-            $plannedNorms,
+            &$cleanupQueue,
         ): void {
             $session = $this->allocator->begin($project);
+            $monthDate = ContentProjectMonthContext::toDateString($planningMonth);
 
             foreach ($candidates as $candidate) {
                 if (! $candidate instanceof IdeaCandidate) {
@@ -134,13 +147,16 @@ final class IdeaCandidateDraftPlannerService
                     continue;
                 }
 
-                $norm = NewContentSuggestionIdentity::normalize($phrase);
-                if ($norm === '' || isset($plannedNorms[$norm]) || isset($batchNorms[$norm])) {
-                    $dup++;
+                $itemSiteId = $workingSiteId > 0
+                    ? $workingSiteId
+                    : (int) ($project->site_id ?? 0);
+                if ($itemSiteId <= 0) {
+                    $ineligible++;
 
                     continue;
                 }
 
+                // Capacity before claim: failed Draft create must not leave a tombstone.
                 $target = $session->projectWithRemainingCapacity();
                 if ($target === null || (int) $target->getKey() <= 0) {
                     $ineligible++;
@@ -148,14 +164,24 @@ final class IdeaCandidateDraftPlannerService
                     continue;
                 }
 
-                $itemSiteId = $workingSiteId > 0
-                    ? $workingSiteId
-                    : (int) ($target->site_id ?? $project->site_id ?? 0);
+                $claim = $this->consumption->claim(
+                    $itemSiteId,
+                    SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+                    $candidate->keywordId,
+                    $phrase,
+                    $candidate->sourceArticleId,
+                    $candidate->vocabularyGroup,
+                );
+                if (! $claim['claimed']) {
+                    $dup++;
+
+                    continue;
+                }
 
                 $occupied = $session->occupiedCount($target);
-                $task = SeoProjectTask::query()->create([
+                $taskPayload = [
                     'project_id' => (int) $target->getKey(),
-                    'site_id' => $itemSiteId > 0 ? $itemSiteId : null,
+                    'site_id' => $itemSiteId,
                     'type' => SeoProjectTask::TYPE_CREATE,
                     'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
                     'source_content' => $phrase,
@@ -164,23 +190,50 @@ final class IdeaCandidateDraftPlannerService
                     'status' => SeoProjectTask::STATUS_PENDING,
                     'article_id' => null,
                     'target_date' => $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
-                ]);
+                ];
+                if (\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+                    $taskPayload['planning_month'] = $monthDate;
+                }
+
+                $task = SeoProjectTask::query()->create($taskPayload);
                 $session->recordAdded($target);
                 $taskId = (int) $task->getKey();
                 $taskIds[] = $taskId;
-                $batchNorms[$norm] = true;
                 $added++;
 
-                $this->recordOrigin(
+                $consumedId = (int) ($claim['consumed_idea_id'] ?? 0);
+                if ($consumedId > 0) {
+                    $this->consumption->attachTask($consumedId, $taskId);
+                }
+
+                $origin = $this->recordOrigin(
                     $project,
                     $taskId,
                     $candidate,
                     provenanceArticleId: $candidate->sourceArticleId,
                 );
+
+                $this->attributionWriter->writeForTask($task, $origin, [
+                    'planning_month' => $planningMonth,
+                    'source_type' => SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+                    'source_keyword_id' => $candidate->keywordId,
+                ]);
+
+                $cleanupQueue[] = [
+                    'keyword_id' => $candidate->keywordId,
+                    'site_id' => $itemSiteId,
+                ];
             }
 
             $session->syncTouchedCounters();
         });
+
+        foreach ($cleanupQueue as $row) {
+            $this->consumption->cleanupVocabularySuggestSource(
+                (int) $row['keyword_id'],
+                (int) $row['site_id'],
+            );
+        }
 
         return [
             'added' => $added,
@@ -285,7 +338,7 @@ final class IdeaCandidateDraftPlannerService
         int $taskId,
         IdeaCandidate $candidate,
         ?int $provenanceArticleId,
-    ): void {
+    ): SeoContentProjectItemOrigin {
         $reasonCodes = [
             'vocabulary_suggest',
             'source_keyword_id:'.$candidate->keywordId,
@@ -294,7 +347,8 @@ final class IdeaCandidateDraftPlannerService
             $reasonCodes[] = 'vocab_group:'.$candidate->vocabularyGroup;
         }
 
-        SeoContentProjectItemOrigin::query()->updateOrCreate(
+        /** @var SeoContentProjectItemOrigin $origin */
+        $origin = SeoContentProjectItemOrigin::query()->updateOrCreate(
             ['project_task_id' => $taskId],
             [
                 'project_id' => (int) $project->getKey(),
@@ -313,6 +367,8 @@ final class IdeaCandidateDraftPlannerService
                 'created_at' => now(),
             ],
         );
+
+        return $origin;
     }
 
     /**

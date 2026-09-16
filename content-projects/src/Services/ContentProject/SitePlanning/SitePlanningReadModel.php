@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\VocabularySuggestStagingQuery;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Carbon\Carbon;
@@ -14,29 +14,32 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Site Planning overview: 2 past months + current + 1 future.
+ * Site Planning overview: window anchored to activeMonth (−2…+1), not always wall-clock now.
+ * Counts Draft + active execution units deduped by task id.
  */
 final class SitePlanningReadModel
 {
     public function __construct(
-        private readonly ContentProjectMonthlyWorkloadService $workload,
         private readonly SiteMonthlyContentTargetService $targets,
         private readonly McpPlanningSignalService $mcpPlanning,
+        private readonly SitePlanningActiveUnitAggregator $units = new SitePlanningActiveUnitAggregator,
     ) {}
 
     /**
      * @return array{
      *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
      *     year_groups: list<array{year: int, span: int}>,
-     *     rows: list<array<string, mixed>>
+     *     rows: list<array<string, mixed>>,
+     *     active_month: string
      * }
      */
-    public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $now = null): array
+    public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $activeMonth = null): array
     {
-        // $selectedSiteId retained for call-site compat; compact table has no detail pane.
         unset($selectedSiteId);
 
-        $anchor = CarbonImmutable::parse($now ?? now())->startOfMonth();
+        $anchorMonth = ContentProjectMonthContext::normalize($activeMonth);
+        $anchor = CarbonImmutable::createFromFormat('Y-m', $anchorMonth)?->startOfMonth()
+            ?? CarbonImmutable::now()->startOfMonth();
         $months = $this->monthWindow($anchor);
         $sites = SeoAccessControl::accessibleSitesQuery()
             ->orderBy('domain')
@@ -44,13 +47,9 @@ final class SitePlanningReadModel
 
         $plannedBySiteMonth = [];
         foreach ($months as $month) {
-            $payload = $this->workload->articlesByDomain($month['key'], ContentProjectMonthlyWorkloadService::SCOPE_ACTIVE);
-            foreach ($payload['rows'] as $row) {
-                $siteId = (int) ($row['site_id'] ?? 0);
-                if ($siteId <= 0) {
-                    continue;
-                }
-                $plannedBySiteMonth[$siteId][$month['key']] = (int) ($row['count'] ?? 0);
+            $monthKeyYm = ContentProjectMonthContext::normalize($month['key']);
+            foreach ($this->units->plannedCountsBySite($monthKeyYm) as $siteId => $count) {
+                $plannedBySiteMonth[(int) $siteId][$month['key']] = (int) $count;
             }
         }
 
@@ -74,6 +73,7 @@ final class SitePlanningReadModel
                     'target' => $target,
                     'over_target' => $planned > $target,
                     'delta' => $planned - $target,
+                    'planning_month' => ContentProjectMonthContext::normalize($month['key']),
                 ];
             }
 
@@ -90,6 +90,45 @@ final class SitePlanningReadModel
             'months' => $months,
             'year_groups' => $this->yearGroups($months),
             'rows' => $rows,
+            'active_month' => $anchorMonth,
+        ];
+    }
+
+    /**
+     * Detail panel payload for one domain × month cell.
+     *
+     * @return array<string, mixed>
+     */
+    public function cellDetail(int $siteId, string $planningMonth): array
+    {
+        $month = ContentProjectMonthContext::normalize($planningMonth);
+        $agg = $this->units->forSiteMonth($siteId, $month);
+        $domain = '';
+        if ($siteId > 0) {
+            $site = \App\Models\Site::query()->find($siteId, ['id', 'domain']);
+            $domain = trim((string) ($site?->domain ?? ''));
+        }
+
+        return [
+            'site_id' => $siteId,
+            'domain' => $domain !== '' ? $domain : '#'.$siteId,
+            'planning_month' => $month,
+            'month_label' => ContentProjectMonthContext::display($month),
+            'totals' => [
+                'planned' => $agg['planned'],
+                'draft' => $agg['draft'],
+                'execution' => $agg['execution'],
+                'by_status' => $agg['by_status'],
+            ],
+            'clusters' => $agg['clusters'],
+            'unattributed' => $agg['unattributed'],
+            'tasks' => $agg['tasks'],
+            /**
+             * planning_mcp_share = (# distinct active attributed tasks in cluster)
+             *   / (# distinct active attributed tasks for site+month) × 100
+             * actual_mcp_share = Site MCP topical profile weight (published articles), unchanged.
+             */
+            'mcp_formula' => 'planning_mcp_share = attributed_cluster_tasks / attributed_site_month_tasks × 100',
         ];
     }
 
@@ -166,7 +205,6 @@ final class SitePlanningReadModel
             return 0;
         }
 
-        // Column is source_type; status lives in result_summary JSON (see ContentProjectPlannerRunService).
         $runs = SeoContentProjectPlannerRun::query()
             ->where('site_id', $siteId)
             ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)

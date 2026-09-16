@@ -20,6 +20,7 @@ final class AddIdeaCandidatesCommand implements ContentProjectCommand
         public readonly string $action = IdeaCandidateDraftPlannerService::ACTION_CREATE,
         public readonly array $articleIds = [],
         public readonly ?int $siteId = null,
+        public readonly ?string $planningMonth = null,
     ) {}
 
     public function name(): string

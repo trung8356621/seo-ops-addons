@@ -122,6 +122,8 @@ final class NewContentSuggestionParser
         $galleryDescription = '';
         $suggestionReason = '';
         $sourceSignal = '';
+        $clusterRef = '';
+        $dnaPhrases = [];
 
         if (is_string($row)) {
             $keyword = trim($row);
@@ -130,6 +132,22 @@ final class NewContentSuggestionParser
             $title = trim((string) ($row['suggested_title'] ?? $row['title_idea'] ?? $row['title'] ?? ''));
             $suggestionReason = trim((string) ($row['suggestion_reason'] ?? $row['why'] ?? ''));
             $sourceSignal = strtolower(trim((string) ($row['source_signal'] ?? '')));
+            $clusterRef = trim((string) ($row['cluster_ref'] ?? $row['cluster_key'] ?? ''));
+            $rawDna = $row['dna_phrases'] ?? $row['dna'] ?? [];
+            if (is_array($rawDna)) {
+                foreach ($rawDna as $dnaRow) {
+                    if (is_string($dnaRow)) {
+                        $phrase = trim($dnaRow);
+                    } elseif (is_array($dnaRow)) {
+                        $phrase = trim((string) ($dnaRow['phrase'] ?? $dnaRow['value'] ?? ''));
+                    } else {
+                        $phrase = '';
+                    }
+                    if ($phrase !== '') {
+                        $dnaPhrases[] = $phrase;
+                    }
+                }
+            }
             $description = trim((string) ($row['description'] ?? ''));
             // Legacy may use brief as planning description when dedicated field absent.
             if ($description === '') {
@@ -189,6 +207,8 @@ final class NewContentSuggestionParser
             'fingerprint' => NewContentSuggestionIdentity::fingerprint($keyword, $title),
             'suggestion_reason' => $suggestionReason,
             'source_signal' => $sourceSignal,
+            'cluster_ref' => $clusterRef,
+            'dna_phrases' => array_values(array_unique($dnaPhrases)),
         ];
     }
 

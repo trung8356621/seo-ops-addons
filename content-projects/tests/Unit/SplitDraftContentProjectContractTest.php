@@ -275,7 +275,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('assigneeIds:', $trait);
         self::assertStringContainsString('targetMonth:', $trait);
         self::assertStringContainsString('draftSplitTargetMonth', $trait);
-        self::assertStringContainsString('ContentProjectMonthContext::current()', $trait);
+        self::assertStringContainsString('resolveDraftSplitActiveMonth', $trait);
+        self::assertStringContainsString('ContentProjectMonthContext::normalize', $trait);
         self::assertStringContainsString('new_allocation', $trait);
         self::assertStringContainsString('resulting', $trait);
         self::assertStringContainsString('project_count', $trait);

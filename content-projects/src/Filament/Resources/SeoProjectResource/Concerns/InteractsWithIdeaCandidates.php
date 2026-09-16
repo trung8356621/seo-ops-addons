@@ -326,6 +326,9 @@ trait InteractsWithIdeaCandidates
                     $action,
                     $articleIds,
                     $workingSiteId,
+                    method_exists($this, 'resolvePlannerActiveMonth')
+                        ? $this->resolvePlannerActiveMonth()
+                        : null,
                 ),
                 ActorContext::user(
                     auth()->id() !== null ? (int) auth()->id() : null,
