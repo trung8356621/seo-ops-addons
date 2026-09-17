@@ -65,27 +65,26 @@ final class TopicUxCompletionContractTest extends TestCase
     public function test_manual_create_service_contract(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicManualCreateService.php');
-        self::assertStringContainsString('TopicKeywordSource::MANUAL', $src);
-        self::assertStringContainsString("'is_seed' => true", $src);
-        self::assertStringContainsString('updateOrCreate', $src);
+        self::assertStringContainsString('TopicSource::MANUAL', $src);
         self::assertStringContainsString('TopicMembershipReconcileService', $src);
+        self::assertStringNotContainsString('KeywordPersistenceService', $src);
+        self::assertStringNotContainsString("'is_seed' => true", $src);
         self::assertDoesNotMatchRegularExpression('/\bcluster_key\b/', $src);
         self::assertStringNotContainsString('CreateManualTopicClusterService', $src);
         self::assertSame(TopicKeywordSource::MANUAL, 'manual');
     }
 
-    public function test_seed_resolver_includes_manual_third_source(): void
+    public function test_seed_resolver_keeps_link_list_and_product_cat_only(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicSeedResolver.php');
-        self::assertStringContainsString('manualSeeds', $src);
-        self::assertStringContainsString('TopicKeywordSource::MANUAL', $src);
+        self::assertStringNotContainsString('manualSeeds', $src);
+        self::assertStringContainsString('linkListSeeds', $src);
+        self::assertStringContainsString('productCatSeeds', $src);
         $linkPos = strpos($src, 'linkListSeeds');
         $catPos = strpos($src, 'productCatSeeds');
-        $manPos = strpos($src, 'manualSeeds');
         self::assertNotFalse($linkPos);
         self::assertNotFalse($catPos);
-        self::assertNotFalse($manPos);
-        self::assertTrue($linkPos < $catPos && $catPos < $manPos);
+        self::assertTrue($linkPos < $catPos);
     }
 
     public function test_recluster_metrics_track_manual_seeds(): void

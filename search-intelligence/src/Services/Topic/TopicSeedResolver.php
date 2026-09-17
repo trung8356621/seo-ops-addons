@@ -14,7 +14,6 @@ use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatIdenti
 use Omnichannel\Addons\SearchFoundation\Support\DomainListPresentation;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 
 /**
  * Resolve Topic seed evidence for one site.
@@ -22,13 +21,12 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
  * A) Effective Link List = WordPress ∪ Manual − Excluded (Site Sync catalog SSOT)
  * B) Every verified product_cat taxonomy term for Manufacturer (production) /
  *    Ecommerce (e-commerce), at any hierarchy depth (root or nested)
- * C) Explicit manual Topic seeds (source=manual, is_seed=true) so user-created
- *    Topics survive Recluster via seed identity
  *
+ * Manual Topics persist via seo_topics.source=manual (not keyword seeds).
  * Focus keywords / individual products are NOT seeds.
  *
  * Precedence when the same keyword_id appears in multiple sources:
- * link_list > product_cat > manual (first wins; no duplicate seed).
+ * link_list > product_cat (first wins; no duplicate seed).
  */
 final class TopicSeedResolver
 {
@@ -70,57 +68,7 @@ final class TopicSeedResolver
             }
         }
 
-        foreach ($this->manualSeeds($siteId) as $seed) {
-            if (! isset($byKeyword[$seed['keyword_id']])) {
-                $byKeyword[$seed['keyword_id']] = $seed;
-            }
-        }
-
         return array_values($byKeyword);
-    }
-
-    /**
-     * Explicit user-created Topic seeds that must survive Recluster.
-     *
-     * @return list<array{keyword_id: int, phrase: string, source: string, is_seed: true, confidence: float|null}>
-     */
-    private function manualSeeds(int $siteId): array
-    {
-        if (! TopicReclusterService::tablesReady()) {
-            return [];
-        }
-
-        $rows = SeoTopicKeyword::query()
-            ->where('site_id', $siteId)
-            ->where('is_seed', true)
-            ->where('source', TopicKeywordSource::MANUAL)
-            ->get(['keyword_id']);
-        if ($rows->isEmpty()) {
-            return [];
-        }
-
-        $keywordIds = $rows->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->filter(static fn (int $id): bool => $id > 0)->unique()->values()->all();
-        if ($keywordIds === []) {
-            return [];
-        }
-
-        $phrases = Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id');
-        $seeds = [];
-        foreach ($keywordIds as $keywordId) {
-            $phrase = trim((string) ($phrases[$keywordId] ?? ''));
-            if ($phrase === '') {
-                continue;
-            }
-            $seeds[] = [
-                'keyword_id' => $keywordId,
-                'phrase' => $phrase,
-                'source' => TopicKeywordSource::MANUAL,
-                'is_seed' => true,
-                'confidence' => 1.0,
-            ];
-        }
-
-        return $seeds;
     }
 
     /**

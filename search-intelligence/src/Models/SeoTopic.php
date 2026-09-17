@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicStatus;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 
 /**
  * Site-scoped Topic entity. name is the sole name SSOT.
@@ -20,6 +21,7 @@ final class SeoTopic extends Model
     protected $fillable = [
         'site_id',
         'name',
+        'source',
         'status',
         'is_locked',
     ];
@@ -42,5 +44,10 @@ final class SeoTopic extends Model
     public function isActive(): bool
     {
         return (string) $this->status === TopicStatus::ACTIVE;
+    }
+
+    public function isManual(): bool
+    {
+        return TopicSource::normalize($this->source ?? null) === TopicSource::MANUAL;
     }
 }

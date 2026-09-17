@@ -99,7 +99,7 @@ final class TopicListQuery
             $tags = $tagMetrics[$topicId] ?? [
                 'intent' => '',
                 'coverage' => 'unknown',
-                'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+                'canonical_source' => 'auto',
             ];
 
             if ($hasArticles && $articleCount <= 0) {

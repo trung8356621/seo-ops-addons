@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordRuleClassifier;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
@@ -129,6 +130,61 @@ final class TopicSiteKeywordService
                 'is_seo_keyword' => true,
             ];
         }
+
+        return $out;
+    }
+
+    /**
+     * Broad Topic membership discovery pool: existing current-site Dictionary keywords.
+     *
+     * Does not invent Keywords. Does not gate on is_seo_keyword=true.
+     * Excludes hard SEO-hidden rows only.
+     *
+     * @return list<array{keyword_id: int, phrase: string, is_seo_keyword: bool}>
+     */
+    public function loadTopicCandidateKeywords(int $siteId): array
+    {
+        if ($siteId <= 0) {
+            return [];
+        }
+
+        $hide = app(HideKeywordFromSeoService::class);
+        /** @var array<int, bool> $seoByKeyword */
+        $seoByKeyword = [];
+        if (self::tablesReady()) {
+            $seoByKeyword = SeoSiteKeyword::query()
+                ->where('site_id', $siteId)
+                ->get(['keyword_id', 'is_seo_keyword'])
+                ->mapWithKeys(static fn (SeoSiteKeyword $row): array => [
+                    (int) $row->keyword_id => (bool) $row->is_seo_keyword,
+                ])
+                ->all();
+        }
+
+        $out = [];
+        Keyword::query()
+            ->forSite($siteId)
+            ->orderBy('id')
+            ->chunkById(200, function ($chunk) use ($hide, $seoByKeyword, &$out): void {
+                foreach ($chunk as $keyword) {
+                    if (! $keyword instanceof Keyword) {
+                        continue;
+                    }
+                    $keywordId = (int) $keyword->id;
+                    if ($keywordId <= 0 || $hide->isHidden($keywordId)) {
+                        continue;
+                    }
+                    $phrase = trim((string) $keyword->phrase);
+                    if ($phrase === '') {
+                        continue;
+                    }
+                    $out[] = [
+                        'keyword_id' => $keywordId,
+                        'phrase' => $phrase,
+                        'is_seo_keyword' => (bool) ($seoByKeyword[$keywordId] ?? false),
+                    ];
+                }
+            });
 
         return $out;
     }

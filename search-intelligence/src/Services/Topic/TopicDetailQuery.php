@@ -53,7 +53,7 @@ final class TopicDetailQuery
         $tags = $this->tagMetrics->forTopics($siteId, [$topicId], [$topicId => $articleCount])[$topicId] ?? [
             'intent' => '',
             'coverage' => 'unknown',
-            'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+            'canonical_source' => 'auto',
             'intent_counts' => [],
         ];
 

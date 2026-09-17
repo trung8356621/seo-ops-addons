@@ -19,8 +19,8 @@ final class TopicManualMembershipAndDrawerContractTest extends TestCase
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicManualCreateService.php');
         self::assertStringContainsString('TopicMembershipReconcileService', $src);
         self::assertStringContainsString('$this->reconcile->reconcile(', $src);
-        self::assertStringContainsString("'is_seed' => true", $src);
-        self::assertStringContainsString('TopicKeywordSource::MANUAL', $src);
+        self::assertStringContainsString('TopicSource::MANUAL', $src);
+        self::assertStringNotContainsString("'is_seed' => true", $src);
         self::assertStringNotContainsString('CreateManualTopicClusterService', $src);
         self::assertStringNotContainsString('ReconcileTopicMembershipJob', $src);
         self::assertDoesNotMatchRegularExpression('/\bcluster_key\b/', $src);
@@ -36,7 +36,7 @@ final class TopicManualMembershipAndDrawerContractTest extends TestCase
         self::assertStringContainsString('rebuildForTopic', $src);
         self::assertStringContainsString('is_locked', $src);
         self::assertStringContainsString('is_seed', $src);
-        self::assertStringContainsString('loadEligibleSeoKeywords', $src);
+        self::assertStringContainsString('loadTopicCandidateKeywords', $src);
         self::assertStringNotContainsString('CreateManualTopicClusterService', $src);
         self::assertDoesNotMatchRegularExpression('/\bcluster_key\b/', $src);
         self::assertTrue(class_exists(TopicMembershipReconcileService::class));
@@ -54,10 +54,10 @@ final class TopicManualMembershipAndDrawerContractTest extends TestCase
     public function test_duplicate_reuse_is_exact_seed_or_name_only(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicManualCreateService.php');
-        self::assertStringContainsString("where('is_seed', true)", $src);
         self::assertStringContainsString('LOWER(name) = ?', $src);
         self::assertStringNotContainsString('TopicMembershipMatcher', $src);
         self::assertStringNotContainsString('LIKE', $src);
+        self::assertStringNotContainsString('keywords->upsert', $src);
     }
 
     public function test_dictionary_and_topic_share_drawer_row_contract(): void

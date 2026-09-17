@@ -60,7 +60,7 @@ final class TopicMembershipReconcileService
         }
 
         $topicName = TopicNaming::canonicalName((string) $topic->name) ?: (string) $topic->name;
-        $eligible = $this->siteKeywords->loadEligibleSeoKeywords($siteId);
+        $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
 
         /** @var array<int, SeoTopicKeyword> $memberships */
         $memberships = SeoTopicKeyword::query()

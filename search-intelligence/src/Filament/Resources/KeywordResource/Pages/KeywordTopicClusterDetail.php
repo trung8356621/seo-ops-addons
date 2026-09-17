@@ -258,6 +258,50 @@ final class KeywordTopicClusterDetail extends Page
         return $this->canDissolveTopic() && ! (bool) ($detail['is_locked'] ?? false);
     }
 
+    public function canRescanTopicKeywords(): bool
+    {
+        return $this->hasTopicMutationPermission() && ! $this->isTopicMutationLocked();
+    }
+
+    public function rescanTopicKeywords(): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $detail = $this->getDetail();
+        $label = (string) ($detail['label'] ?? $detail['name'] ?? ('#'.$this->topic));
+        if ($siteId <= 0 || ! $this->canRescanTopicKeywords()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_rescan_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $metrics = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipReconcileService::class)
+            ->reconcile($siteId, $this->topic);
+        if (! ($metrics['ok'] ?? false)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_rescan_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->clusterDataEpoch++;
+        Notification::make()
+            ->title(__('seo-content-ai::filament.keyword.topic_rescan_success_title', ['label' => $label]))
+            ->body(__('seo-content-ai::filament.keyword.topic_rescan_success_body', [
+                'checked' => (int) ($metrics['checked'] ?? 0),
+                'matched' => (int) ($metrics['matched'] ?? 0),
+                'attached' => (int) ($metrics['attached'] ?? 0),
+                'moved' => (int) ($metrics['moved'] ?? 0),
+                'skipped' => (int) ($metrics['skipped_locked'] ?? 0) + (int) ($metrics['skipped_seed'] ?? 0),
+            ]))
+            ->success()
+            ->send();
+    }
+
     public function dissolveCurrentTopic(): void
     {
         $result = $this->dissolveTopic($this->topic);

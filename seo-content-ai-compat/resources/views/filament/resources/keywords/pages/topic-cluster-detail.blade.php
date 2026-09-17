@@ -200,6 +200,27 @@
                 </div>
 
                 <div class="cluster-detail-header__actions flex flex-wrap items-center gap-2">
+                    @if ($this->canRescanTopicKeywords() || ($canEditPermission && $topicMutationsLocked))
+                        <x-filament::button
+                            type="button"
+                            color="gray"
+                            outlined
+                            wire:click="rescanTopicKeywords"
+                            wire:loading.attr="disabled"
+                            wire:loading.class="opacity-50 pointer-events-none"
+                            wire:target="rescanTopicKeywords"
+                            :disabled="$topicMutationsLocked || ! $this->canRescanTopicKeywords()"
+                            :title="$topicMutationsLocked ? __('seo-content-ai::filament.keyword.topic_recluster_mutations_locked') : null"
+                        >
+                            <span wire:loading.remove wire:target="rescanTopicKeywords">
+                                {{ __('seo-content-ai::filament.keyword.topic_rescan_action') }}
+                            </span>
+                            <span wire:loading wire:target="rescanTopicKeywords" class="inline-flex items-center gap-1.5">
+                                <x-filament::loading-indicator class="h-4 w-4" />
+                                {{ __('seo-content-ai::filament.keyword.topic_rescan_working') }}
+                            </span>
+                        </x-filament::button>
+                    @endif
                     @if ($this->canDissolveCluster() || ($canEditPermission && $topicMutationsLocked))
                         <x-filament::button
                             type="button"

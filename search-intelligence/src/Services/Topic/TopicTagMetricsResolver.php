@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
-use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 
@@ -41,7 +42,7 @@ final class TopicTagMetricsResolver
         $empty = [
             'intent' => '',
             'coverage' => 'unknown',
-            'canonical_source' => 'manual',
+            'canonical_source' => TopicSource::AUTO,
             'intent_diversity' => 0,
             'dna_branch_count' => 0,
             'intent_counts' => [],
@@ -55,6 +56,16 @@ final class TopicTagMetricsResolver
             return $out;
         }
 
+        /** @var array<int, string> $topicSourceById */
+        $topicSourceById = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->whereIn('id', $topicIds)
+            ->get(['id', 'source'])
+            ->mapWithKeys(static fn (SeoTopic $topic): array => [
+                (int) $topic->id => TopicSource::normalize($topic->source ?? null),
+            ])
+            ->all();
+
         $memberships = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
             ->whereIn('topic_id', $topicIds)
@@ -62,8 +73,6 @@ final class TopicTagMetricsResolver
 
         /** @var array<int, list<int>> $keywordIdsByTopic */
         $keywordIdsByTopic = [];
-        /** @var array<int, array<string, true>> $seedSourcesByTopic */
-        $seedSourcesByTopic = [];
         /** @var list<int> $allKeywordIds */
         $allKeywordIds = [];
 
@@ -75,12 +84,6 @@ final class TopicTagMetricsResolver
             }
             $keywordIdsByTopic[$topicId][] = $keywordId;
             $allKeywordIds[] = $keywordId;
-            if ((bool) $row->is_seed) {
-                $source = (string) $row->source;
-                if ($source !== '') {
-                    $seedSourcesByTopic[$topicId][$source] = true;
-                }
-            }
         }
 
         $allKeywordIds = array_values(array_unique($allKeywordIds));
@@ -133,8 +136,9 @@ final class TopicTagMetricsResolver
             }
             $dnaBranchCount = count($dnaValuesByTopic[$topicId] ?? []);
             $articleCount = (int) ($articleCountsByTopic[$topicId] ?? 0);
-            $seedSources = array_keys($seedSourcesByTopic[$topicId] ?? []);
-            $canonicalSource = $this->canonicalSource($keywordCount, $seedSources);
+            $canonicalSource = ($topicSourceById[$topicId] ?? TopicSource::AUTO) === TopicSource::MANUAL
+                ? TopicSource::MANUAL
+                : TopicSource::AUTO;
 
             $out[$topicId] = [
                 'intent' => $dominantIntent,
@@ -152,20 +156,5 @@ final class TopicTagMetricsResolver
         }
 
         return $out;
-    }
-
-    /**
-     * @param  list<string>  $seedSources
-     */
-    private function canonicalSource(int $keywordCount, array $seedSources): string
-    {
-        if ($keywordCount <= 0) {
-            return 'manual';
-        }
-        if (in_array(TopicKeywordSource::MANUAL, $seedSources, true)) {
-            return 'manual';
-        }
-
-        return 'auto';
     }
 }
