@@ -1,0 +1,35 @@
+---
+description: Apply when editing seo-ops-addons: peer addons, DB ownership, Topic Core, no legacy restore, cross-addon DTO-only
+alwaysApply: false
+---
+
+# seo-ops-addons — architecture contract
+
+Laravel/PHP **business logic** for SEO Ops lives in this repo as peer addons.
+
+## Ownership
+
+- Read `AGENTS.md`, `DB_OWNERSHIP_MAP.json`, `OWNERSHIP_MAP.json`, and module docs under `docs/` when relevant.
+- One addon does not add business columns to another addon's tables.
+- Cross-addon: capability / command / event / stable DTO only — no sibling implementation imports.
+- `seo-content-ai-compat` = Filament views/lang/panel bootstrap only — no new business models/services.
+
+## Topic Core
+
+- Site-scoped (`site_id`). Owner: `search-intelligence/`. Doc: `docs/modules/TOPIC_CORE.md`.
+- Do **not** restore retired Keyword Workspace / Topical Map / `cluster_key` architecture.
+
+## Database changes
+
+- Writes must respect the owning addon (`DB_OWNERSHIP_MAP.json`).
+- Before DB refactor: migration → model → writers → readers → jobs → UI/API → tests.
+- Use the `db-impact-audit` skill for the full checklist.
+- Do not keep legacy compatibility solely to satisfy stale tests unless the user asks.
+
+## Testing
+
+Prefer targeted PHPUnit (`php-addon-test` skill). Avoid full-suite runs unless warranted.
+
+## Out of scope here
+
+Frontend presentation conventions belong in `omnichannel-client`. Control-plane SaaS belongs in `ops-server`. WP-local execution belongs in `wp-seo-ai`.
