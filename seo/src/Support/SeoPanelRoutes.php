@@ -234,7 +234,6 @@ final class SeoPanelRoutes
         return self::check($route,
             'filament.seo.resources.keywords.clusters',
             'filament.seo.resources.keywords.cluster',
-            'filament.seo.resources.keywords.workspace-2',
         );
     }
 

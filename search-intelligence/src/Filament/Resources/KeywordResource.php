@@ -73,7 +73,7 @@ class KeywordResource extends SeoPanelResource
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 
     /**
-     * Sidebar: Từ khóa → dictionary / focus / link triage.
+     * Sidebar: Từ khóa → dictionary / focus / topics / link triage.
      */
     protected static bool $shouldRegisterNavigation = true;
 
@@ -122,6 +122,9 @@ class KeywordResource extends SeoPanelResource
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_focus'))
                         ->url(static::getUrl('focus'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsFocusNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_two'))
+                        ->url(static::getUrl('clusters'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsClustersNav()),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'))
                         ->url(static::getUrl('anchor-audit'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsBrokenLinksNav()),
@@ -1707,6 +1710,8 @@ class KeywordResource extends SeoPanelResource
         return [
             'index' => Pages\ListKeywords::route('/'),
             'focus' => Pages\ListFocusKeywords::route('/focus'),
+            'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
+            'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{topic}'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),
         ];
     }

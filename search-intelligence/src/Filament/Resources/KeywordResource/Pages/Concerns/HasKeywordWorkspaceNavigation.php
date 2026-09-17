@@ -159,6 +159,11 @@ trait HasKeywordWorkspaceNavigation
                 'count' => $counts['focus'],
             ],
             [
+                'key' => 'clusters',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
+                'url' => KeywordResource::getUrl('clusters'),
+            ],
+            [
                 'key' => 'anchor-audit',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'),
                 'url' => KeywordResource::getUrl('anchor-audit'),

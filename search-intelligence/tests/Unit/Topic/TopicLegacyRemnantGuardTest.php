@@ -27,6 +27,21 @@ final class TopicLegacyRemnantGuardTest extends TestCase
             self::assertStringNotContainsString('seo_topic_cluster_aliases', $src, basename($file));
             self::assertStringNotContainsString('legacyClusterKeyToTopicId', $src, basename($file));
             self::assertStringNotContainsString('TopicCompatibilityResolver', $src, basename($file));
+            self::assertStringNotContainsString('KeywordClusterService', $src, basename($file));
+        }
+    }
+
+    public function test_restored_topic_ui_pages_have_no_cluster_key(): void
+    {
+        $files = [
+            dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusters.php',
+            dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusterDetail.php',
+        ];
+        foreach ($files as $file) {
+            self::assertFileExists($file);
+            $src = (string) file_get_contents($file);
+            self::assertStringNotContainsString('cluster_key', $src, basename($file));
+            self::assertStringNotContainsString('KeywordClusterService', $src, basename($file));
         }
     }
 
