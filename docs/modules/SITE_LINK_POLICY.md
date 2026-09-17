@@ -32,7 +32,7 @@ SiteLinkPolicyResolver::forArticleEditor(Site $site): array
 | Keyword (`forKeyword`) | Domain Link List + all verified product_cat (**production / e-commerce** only); other site types = Domain Link List only |
 | Article Editor (`forArticleEditor`) | Domain Link List + all verified product_cat (all depths) + main domain |
 | Site MCP | **Unchanged** — root product_cat (`parent_term_id === 0`) → Important Pages in `SiteMcpGenerator` |
-| Topic | **Deferred** — still uses catalog `effectiveLinks` + all-depth product_cat; **not** wired to policy |
+| Topic | Uses curated Domain Link List + all-depth product_cat directly in `TopicSeedResolver` — **not** via `forKeyword()` / `forArticleEditor()` (independent Topic seed contract). See [TOPIC_CORE.md](./TOPIC_CORE.md) |
 
 Record shape (minimal):
 
@@ -62,11 +62,12 @@ verified product_cat → policy → Keyword materialization
 Provenance meta: `site.{id}.link_policy_source` = `domain_link_list` | `product_cat`.  
 Reverse path `keyword.domain_link_list.sync` skips `product_cat`.
 
-## Phase 2 (Topic)
+## Phase 2A (Topic seed sources)
 
-Topic seed semantics remain unresolved for policy wiring.  
-Current Topic runtime was **not** changed by Phase 1.  
-Next product decision: which source(s) `SiteLinkPolicy` should expose for Topic seeds (catalog inventory vs curated Domain Link List vs other).
+Settled: Topic automatic seeds = curated Domain Link List + verified product_cat all-depth.  
+Site Sync catalog is inventory only (not Topic seeds).  
+Topic does **not** call `SiteLinkPolicyResolver` — it reads the same canonical components independently so Keyword policy changes do not silently reshape Topics.  
+No public `forTopicSeed()` in Phase 2A.
 
 ## Tests
 

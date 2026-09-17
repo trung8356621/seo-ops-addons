@@ -103,17 +103,20 @@ final class TopicCoreArchitectureTest extends TestCase
         self::assertStringContainsString('siteId', $src);
     }
 
-    public function test_seed_resolver_reuses_site_link_catalog_capability(): void
+    public function test_seed_resolver_uses_curated_domain_link_list_not_catalog(): void
     {
         $path = dirname(__DIR__, 3).'/src/Services/Topic/TopicSeedResolver.php';
         $src = (string) file_get_contents($path);
-        self::assertStringContainsString('SiteLinkCatalogCapability', $src);
-        self::assertStringContainsString('effectiveLinks', $src);
-        self::assertStringContainsString('SiteMcpProductCatIdentity', $src);
+        self::assertStringContainsString('SiteDomainPromptContextService', $src);
+        self::assertStringContainsString('VerifiedProductCatLinkSource', $src);
+        self::assertStringContainsString('curatedDomainLinkRows', $src);
         self::assertStringContainsString('parent_term_id', $src);
         self::assertStringContainsString('verifiedProductCategories', $src);
+        self::assertStringNotContainsString('SiteLinkCatalogCapability', $src);
+        self::assertStringNotContainsString('effectiveLinks', $src);
         self::assertStringNotContainsString('rootProductCategories', $src);
-        self::assertStringNotContainsString('child categories are NOT', $src);
+        self::assertStringNotContainsString('->forKeyword(', $src);
+        self::assertStringNotContainsString('::forKeyword(', $src);
         self::assertStringNotContainsString('DomainLinkListKeywordSyncService', $src);
     }
 

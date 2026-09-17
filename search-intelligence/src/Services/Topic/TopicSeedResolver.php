@@ -4,37 +4,40 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
-use App\Core\Capability\CapabilityRegistry;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
-use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDiscovery;
-use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpKeywordExtractor;
+use Omnichannel\Addons\SearchFoundation\Services\SiteLink\VerifiedProductCatLinkSource;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatIdentity;
 use Omnichannel\Addons\SearchFoundation\Support\DomainListPresentation;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
-use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 
 /**
  * Resolve Topic seed evidence for one site.
  *
- * A) Effective Link List = WordPress ∪ Manual − Excluded (Site Sync catalog SSOT)
- * B) Every verified product_cat taxonomy term for Manufacturer (production) /
- *    Ecommerce (e-commerce), at any hierarchy depth (root or nested)
+ * A) Curated Domain Link List = seo_domain_prompt_context.links (keyword → URL)
+ * B) Verified product_cat at any hierarchy depth for Manufacturer (production) /
+ *    Ecommerce (e-commerce) via {@see VerifiedProductCatLinkSource}
  *
+ * Site Sync catalog (WordPress ∪ Manual − Excluded) is inventory — NOT Topic seed evidence.
  * Manual Topics persist via seo_topics.source=manual (not keyword seeds).
  * Focus keywords / individual products are NOT seeds.
  *
  * Precedence when the same keyword_id appears in multiple sources:
  * link_list > product_cat (first wins; no duplicate seed).
+ *
+ * Does not call SiteLinkPolicyResolver Keyword/Editor consumer methods —
+ * Topic seed semantics stay independent of Keyword policy composition.
  */
 final class TopicSeedResolver
 {
     public function __construct(
-        private readonly CapabilityRegistry $capabilities,
+        private readonly SiteDomainPromptContextService $promptContext,
+        private readonly VerifiedProductCatLinkSource $productCats,
         private readonly KeywordPersistenceService $keywords,
-        private readonly SiteMcpDiscovery $discovery,
-        private readonly SiteMcpKeywordExtractor $keywordExtractor,
         private readonly TopicSiteKeywordService $siteKeywords,
     ) {}
 
@@ -72,28 +75,147 @@ final class TopicSeedResolver
     }
 
     /**
+     * Read-only seed-source impact preview — does not upsert Keywords or mutate Topics.
+     *
+     * @return array{
+     *     site_id: int,
+     *     current_catalog_link_seeds: int,
+     *     new_curated_link_seeds: int,
+     *     product_cat_seeds: int,
+     *     estimated_automatic_seed_set: int,
+     *     existing_topics: int,
+     *     existing_auto_topics: int,
+     *     existing_manual_topics: int,
+     *     existing_locked_topics: int,
+     *     auto_topics_with_link_list_seed: int,
+     *     auto_topics_with_product_cat_seed: int,
+     *     estimated_stale_auto_topics: int|null,
+     *     note: string
+     * }
+     */
+    public function previewSeedEvidence(int $siteId): array
+    {
+        $empty = [
+            'site_id' => $siteId,
+            'current_catalog_link_seeds' => 0,
+            'new_curated_link_seeds' => 0,
+            'product_cat_seeds' => 0,
+            'estimated_automatic_seed_set' => 0,
+            'existing_topics' => 0,
+            'existing_auto_topics' => 0,
+            'existing_manual_topics' => 0,
+            'existing_locked_topics' => 0,
+            'auto_topics_with_link_list_seed' => 0,
+            'auto_topics_with_product_cat_seed' => 0,
+            'estimated_stale_auto_topics' => null,
+            'note' => 'invalid_site',
+        ];
+        if ($siteId <= 0) {
+            return $empty;
+        }
+
+        $curated = $this->curatedDomainLinkRows($siteId);
+        $productCat = $this->productCatSeedRows($siteId);
+
+        /** @var array<string, true> $seedKeys */
+        $seedKeys = [];
+        foreach ($curated as $row) {
+            $key = mb_strtolower(trim($row['keyword']));
+            if ($key !== '') {
+                $seedKeys[$key] = true;
+            }
+        }
+        foreach ($productCat as $row) {
+            $key = mb_strtolower(trim($row['keyword']));
+            if ($key !== '') {
+                $seedKeys[$key] = true;
+            }
+        }
+
+        $catalogLinkSeeds = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_seed', true)
+            ->where('source', TopicKeywordSource::LINK_LIST)
+            ->count();
+
+        $existingTopics = SeoTopic::query()->where('site_id', $siteId)->count();
+        $existingManual = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('source', 'manual')
+            ->count();
+        $existingLocked = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('is_locked', true)
+            ->count();
+        $existingAuto = max(0, $existingTopics - $existingManual);
+
+        $autoWithLinkList = (int) SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_seed', true)
+            ->where('source', TopicKeywordSource::LINK_LIST)
+            ->distinct()
+            ->count('topic_id');
+        $autoWithProductCat = (int) SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_seed', true)
+            ->where('source', TopicKeywordSource::PRODUCT_CAT)
+            ->distinct()
+            ->count('topic_id');
+
+        // Estimate: auto Topics whose current seed phrase is not in the new seed key set.
+        $staleEstimate = null;
+        $seedMemberships = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_seed', true)
+            ->whereIn('source', [TopicKeywordSource::LINK_LIST, TopicKeywordSource::PRODUCT_CAT])
+            ->get(['topic_id', 'keyword_id']);
+        if ($seedMemberships->isNotEmpty()) {
+            $keywordIds = $seedMemberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->unique()->all();
+            $phrases = Keyword::query()
+                ->whereIn('id', $keywordIds)
+                ->pluck('phrase', 'id');
+            /** @var array<int, true> $validTopicIds */
+            $validTopicIds = [];
+            foreach ($seedMemberships as $row) {
+                $phrase = mb_strtolower(trim((string) ($phrases[(int) $row->keyword_id] ?? '')));
+                if ($phrase !== '' && isset($seedKeys[$phrase])) {
+                    $validTopicIds[(int) $row->topic_id] = true;
+                }
+            }
+            $topicsWithAnySeed = $seedMemberships->pluck('topic_id')->map(static fn ($id): int => (int) $id)->unique()->count();
+            $staleEstimate = max(0, $topicsWithAnySeed - count($validTopicIds));
+        }
+
+        return [
+            'site_id' => $siteId,
+            'current_catalog_link_seeds' => $catalogLinkSeeds,
+            'new_curated_link_seeds' => count($curated),
+            'product_cat_seeds' => count($productCat),
+            'estimated_automatic_seed_set' => count($seedKeys),
+            'existing_topics' => $existingTopics,
+            'existing_auto_topics' => $existingAuto,
+            'existing_manual_topics' => $existingManual,
+            'existing_locked_topics' => $existingLocked,
+            'auto_topics_with_link_list_seed' => $autoWithLinkList,
+            'auto_topics_with_product_cat_seed' => $autoWithProductCat,
+            'estimated_stale_auto_topics' => $staleEstimate,
+            'note' => 'read_only_preview_no_topic_mutation',
+        ];
+    }
+
+    /**
      * @return list<array{keyword_id: int, phrase: string, source: string, is_seed: true, confidence: float|null}>
      */
     private function linkListSeeds(int $siteId): array
     {
-        $catalog = $this->capabilities->getAs(
-            SiteLinkCatalogCapability::ID,
-            SiteLinkCatalogCapability::class,
-        );
-        if (! $catalog instanceof SiteLinkCatalogCapability) {
-            return [];
-        }
-
         $seeds = [];
-        foreach ($catalog->effectiveLinks($siteId) as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $phrase = $this->phraseFromLinkRow($row);
-            if ($phrase === '') {
-                continue;
-            }
-            $keyword = $this->keywords->upsert($phrase, 'internal', $siteId, $this->urlFromLinkRow($row));
+        foreach ($this->curatedDomainLinkRows($siteId) as $row) {
+            $keyword = $this->keywords->upsert(
+                $row['keyword'],
+                'internal',
+                $siteId,
+                $row['url'],
+            );
             if (! $keyword instanceof Keyword) {
                 continue;
             }
@@ -115,60 +237,13 @@ final class TopicSeedResolver
      */
     private function productCatSeeds(int $siteId): array
     {
-        $site = Site::query()->find($siteId);
-        if (! $site instanceof Site) {
-            return [];
-        }
-
-        $websiteType = mb_strtolower(trim((string) ($site->getMeta('seo_domain_type') ?? '')));
-        if (! $this->allowsProductCatSeeds($websiteType)) {
-            return [];
-        }
-
-        $discovered = $this->discovery->discover($site);
-        $productCategories = is_array($discovered['product_categories'] ?? null)
-            ? $discovered['product_categories']
-            : [];
-        $taxonomyCapability = is_array($discovered['taxonomy_capability'] ?? null)
-            ? $discovered['taxonomy_capability']
-            : [];
-        $counts = is_array($discovered['counts'] ?? null) ? $discovered['counts'] : [];
-        $availabilityNested = is_array($discovered['availability'] ?? null)
-            ? $discovered['availability']
-            : [];
-
-        $availabilityResolved = (string) ($availabilityNested['product_cat_taxonomy'] ?? '');
-        if ($availabilityResolved === '') {
-            $availabilityResolved = SiteMcpProductCatIdentity::resolveAvailability(
-                (bool) ($taxonomyCapability['product_category_taxonomy_export'] ?? false),
-                (bool) ($taxonomyCapability['known'] ?? false),
-                (int) ($counts['product_cat_total'] ?? count($productCategories)),
-                (int) ($counts['incomplete_product_cat'] ?? 0),
-            );
-        }
-        if ($availabilityResolved === SiteMcpProductCatIdentity::AVAILABILITY_UNAVAILABLE
-            || $availabilityResolved === SiteMcpProductCatIdentity::AVAILABILITY_INCOMPLETE) {
-            return [];
-        }
-
-        $categories = $this->verifiedProductCategories($productCategories);
-        if ($categories === []) {
-            return [];
-        }
-
         $seeds = [];
-        foreach ($categories as $category) {
-            $extracted = $this->keywordExtractor->extractCategoryTopic($category);
-            $phrase = trim((string) ($extracted['keyword'] ?? ''));
-            if ($phrase === '') {
-                continue;
-            }
-            $url = trim((string) ($category['url'] ?? ''));
+        foreach ($this->productCatSeedRows($siteId) as $row) {
             $keyword = $this->keywords->upsert(
-                $phrase,
+                $row['keyword'],
                 'internal',
                 $siteId,
-                $url !== '' ? $url : null,
+                $row['url'],
             );
             if (! $keyword instanceof Keyword) {
                 continue;
@@ -179,11 +254,104 @@ final class TopicSeedResolver
                 'phrase' => (string) $keyword->phrase,
                 'source' => TopicKeywordSource::PRODUCT_CAT,
                 'is_seed' => true,
-                'confidence' => (float) ($extracted['confidence'] ?? 0.8),
+                'confidence' => 0.8,
             ];
         }
 
         return $seeds;
+    }
+
+    /**
+     * Curated Domain Link List rows only (keyword + URL required). No title/slug fallback.
+     *
+     * @return list<array{keyword: string, url: string}>
+     */
+    private function curatedDomainLinkRows(int $siteId): array
+    {
+        $site = Site::query()->find($siteId);
+        if (! $site instanceof Site) {
+            return [];
+        }
+
+        $payload = $this->promptContext->getRawPayloadForSite($site);
+        $links = is_array($payload['links'] ?? null) ? $payload['links'] : [];
+
+        return self::normalizeCuratedLinkRows($links);
+    }
+
+    /**
+     * Normalize curated Domain Link List payload rows for Topic seeds.
+     * Requires explicit keyword + URL — never invents seeds from WP titles/slugs.
+     *
+     * @param  list<mixed>  $links
+     * @return list<array{keyword: string, url: string}>
+     */
+    public static function normalizeCuratedLinkRows(array $links): array
+    {
+        $out = [];
+        /** @var array<string, true> $seen */
+        $seen = [];
+
+        foreach ($links as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $rawKeyword = trim((string) ($row['keyword'] ?? ''));
+            $url = trim((string) ($row['link'] ?? $row['url'] ?? ''));
+            if ($rawKeyword === '' || $url === '') {
+                continue;
+            }
+            $phrase = TopicNaming::canonicalName($rawKeyword) ?: $rawKeyword;
+            $dedupe = mb_strtolower($phrase);
+            if ($dedupe === '' || isset($seen[$dedupe])) {
+                continue;
+            }
+            $seen[$dedupe] = true;
+            $out[] = [
+                'keyword' => $phrase,
+                'url' => $url,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<array{keyword: string, url: string, term_id: int, parent_term_id: int}>
+     */
+    private function productCatSeedRows(int $siteId): array
+    {
+        $site = Site::query()->find($siteId);
+        if (! $site instanceof Site) {
+            return [];
+        }
+
+        $websiteType = mb_strtolower(trim((string) ($site->getMeta('seo_domain_type') ?? '')));
+        if (! $this->allowsProductCatSeeds($websiteType)) {
+            return [];
+        }
+
+        $rows = $this->productCats->forSite($site);
+        $out = [];
+        foreach ($rows as $row) {
+            $keyword = trim((string) ($row['keyword'] ?? ''));
+            $url = trim((string) ($row['url'] ?? ''));
+            $termId = (int) ($row['term_id'] ?? 0);
+            if ($keyword === '' || $url === '' || $termId <= 0) {
+                continue;
+            }
+            if (! array_key_exists('parent_term_id', $row)) {
+                continue;
+            }
+            $out[] = [
+                'keyword' => TopicNaming::canonicalName($keyword) ?: $keyword,
+                'url' => $url,
+                'term_id' => $termId,
+                'parent_term_id' => (int) $row['parent_term_id'],
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -236,38 +404,5 @@ final class TopicSeedResolver
         }
 
         return $verifiedRows;
-    }
-
-    /**
-     * @param  array<string, mixed>  $row
-     */
-    private function phraseFromLinkRow(array $row): string
-    {
-        $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
-        $candidates = [
-            $meta['focus_keyword'] ?? null,
-            $meta['anchor'] ?? null,
-            $meta['keyword'] ?? null,
-            $row['title'] ?? null,
-            $row['slug'] ?? null,
-        ];
-        foreach ($candidates as $candidate) {
-            $phrase = trim((string) $candidate);
-            if ($phrase !== '') {
-                return TopicNaming::canonicalName($phrase) ?: $phrase;
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * @param  array<string, mixed>  $row
-     */
-    private function urlFromLinkRow(array $row): ?string
-    {
-        $url = trim((string) ($row['canonical'] ?? $row['url'] ?? ''));
-
-        return $url !== '' ? $url : null;
     }
 }

@@ -1,6 +1,6 @@
 # Topic Core (site-scoped)
 
-> Last verified: 2026-09-18
+> Last verified: 2026-09-18 (Phase 2A seed-source correction)
 
 Owner: `search-intelligence/`  
 Capability: `search.topic`
@@ -17,6 +17,29 @@ seo_topic_keyword_dna    = DNA of keyword within Topic
 
 **Invariant:** Topic, membership, DNA, locks, counts, linked articles, MCP attribution, and planning downstream are always `site_id`-scoped. Same global `keyword_id` may belong to Topic A on site 3 and Topic B on site 6, or be unassigned on site 7.
 
+## Automatic Topic seed evidence
+
+```
+curated Domain Link List  (seo_domain_prompt_context.links — keyword → URL)
++
+verified product_cat      (all depths: root + child + nested)
+```
+
+| Source | Semantics |
+|---|---|
+| **Curated Domain Link List** | Explicit keyword→URL intent from `SiteDomainPromptContextService` |
+| **Verified product_cat** | Taxonomy identity via `VerifiedProductCatLinkSource` / `SiteMcpProductCatIdentity`; Manufacturer (`production`) / Ecommerce (`e-commerce`) only |
+| **Site Sync Link Catalog** | Inventory only (`SiteLinkCatalogCapability::effectiveLinks` = WordPress ∪ Manual − Excluded) — **NOT** automatic Topic seed evidence |
+
+**Membership candidate pool ≠ Topic seed pool.**  
+Candidates for attach/rescan: existing current-site Dictionary keywords (`loadTopicCandidateKeywords`) — do not invent Keywords; do not require `is_seo_keyword=true`.
+
+Manual Topics: `seo_topics.source=manual`; may have 0 members; survive recluster by `topic_id` without synthetic Keyword seeds.
+
+Precedence when the same Keyword appears in both seed sources: `link_list` > `product_cat`.
+
+Topic seed resolution does **not** call `SiteLinkPolicyResolver::forKeyword()` — Keyword policy and Topic seeds stay independently versioned. See [SITE_LINK_POLICY.md](./SITE_LINK_POLICY.md).
+
 ## Not in v1
 
 - No `cluster_key`
@@ -29,19 +52,21 @@ seo_topic_keyword_dna    = DNA of keyword within Topic
 
 Explicit only: `php artisan seo:topics-recluster {site_id} [--sync]`
 
+Read-only seed impact preview (no Topic mutation):
+
+`php artisan seo:topics-seed-preview {site_id}`
+
 Flow:
 
 1. Ensure `seo_site_keywords`
-2. Seeds (`TopicSeedResolver` — **not** `SiteLinkPolicyResolver` yet):
-   - **Site Sync Link Catalog** via `SiteLinkCatalogCapability::effectiveLinks` = WordPress ∪ Manual − Excluded  
-     (broad inventory — **not** curated Domain Link List; title may fallback as phrase)
-   - **All-depth verified product_cat** for Manufacturer (`production`) / Ecommerce (`e-commerce`), via Site MCP discovery + `SiteMcpProductCatIdentity` fail-closed rules (`parent_term_id` present; `0` = root, `>0` = nested)
+2. Seeds (`TopicSeedResolver`):
+   - Curated Domain Link List (`seo_domain_prompt_context.links`)
+   - All-depth verified product_cat for Manufacturer / Ecommerce
 3. Cluster + persist Topics / memberships
 4. Rebuild DNA
 
-Does **not** auto-run from migrations. Does **not** mutate other sites.
-
-**Phase 2:** whether Topic should consume `SiteLinkPolicyResolver` (and which sources) is **unresolved**. See [SITE_LINK_POLICY.md](./SITE_LINK_POLICY.md). Do not “fix” Topic seeds under Site Link Policy Phase 1.
+Does **not** auto-run from migrations. Does **not** mutate other sites.  
+Deploying seed-source code does **not** auto-recluster or delete Topics — operators must preview then explicitly recluster.
 
 ## Dissolve
 

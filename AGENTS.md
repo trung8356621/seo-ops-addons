@@ -42,7 +42,7 @@ Canonical doc: `docs/modules/WEBSITE_TYPE.md`. Do not rename `production` casual
 | Site Sync Link Catalog | `effectiveLinks()` = WP ∪ Manual − Excluded |
 | Site Link Policy | Read-only composition for Keyword / Editor (`SiteLinkPolicyResolver`) |
 
-Canonical: `docs/modules/SITE_LINK_POLICY.md`. Topic seeds still use catalog + all-depth product_cat (Phase 2).
+Canonical: `docs/modules/SITE_LINK_POLICY.md`. Topic seeds = curated Domain Link List + all-depth product_cat (not Site Sync catalog).
 
 ## Seeding AI vs SEO AI (permanent)
 

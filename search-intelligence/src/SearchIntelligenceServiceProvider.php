@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\SearchIntelligence\Console\PreviewTopicSeedEvidenceCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
 use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
@@ -27,6 +28,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 ReclusterSiteTopicsCommand::class,
+                PreviewTopicSeedEvidenceCommand::class,
             ]);
         }
     }

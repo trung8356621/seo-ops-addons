@@ -225,12 +225,15 @@ final class TopicSeedResolverProductCatTest extends TestCase
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicSeedResolver.php');
         self::assertStringContainsString('function resolve(int $siteId)', $src);
-        self::assertStringContainsString('effectiveLinks($siteId)', $src);
+        self::assertStringContainsString('getRawPayloadForSite', $src);
         self::assertStringContainsString("Site::query()->find(\$siteId)", $src);
         self::assertStringContainsString('upsertClassification($siteId', $src);
         self::assertDoesNotMatchRegularExpression('/\bcluster_key\b/', $src);
         self::assertStringNotContainsString('seo_topic_cluster_meta', $src);
-        self::assertStringNotContainsString('KeywordClusterService', $src);
+        self::assertStringNotContainsString('SiteLinkCatalogCapability', $src);
+        self::assertStringNotContainsString('effectiveLinks', $src);
+        self::assertStringNotContainsString('->forKeyword(', $src);
+        self::assertStringNotContainsString('::forKeyword(', $src);
     }
 
     public function test_no_root_only_filter_remains(): void

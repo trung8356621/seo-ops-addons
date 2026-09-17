@@ -17,7 +17,7 @@ final class ReclusterSiteTopicsCommand extends Command
         {site_id : Site id to recluster}
         {--sync : Run inline instead of queue}';
 
-    protected $description = 'Rebuild site-scoped Topics from Link List + verified product_cat seeds (all levels)';
+    protected $description = 'Rebuild site-scoped Topics from curated Domain Link List + verified product_cat seeds (all levels)';
 
     public function handle(TopicReclusterService $recluster): int
     {
