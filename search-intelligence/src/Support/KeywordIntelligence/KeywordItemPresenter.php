@@ -21,11 +21,13 @@ final class KeywordItemPresenter
 
     public function __construct(
         private readonly KeywordTagResolver $tags,
+        private readonly KeywordSemanticTagPresenter $semanticTags,
         private readonly HideKeywordFromSeoService $hideService,
         private readonly SkipKeywordFromMcpService $mcpSkipService,
     ) {}
 
     /**
+     * @param  list<string>|null  $dnaValues  Explicit Topic DNA values (Topic detail only). Null/empty → no DNA badges.
      * @return array<string, mixed>
      */
     public function present(
@@ -35,7 +37,7 @@ final class KeywordItemPresenter
         ?array $dnaValues = null,
         string $clusterKey = '',
     ): array {
-        unset($dnaValues, $clusterKey);
+        unset($clusterKey);
 
         $context = $context === self::CONTEXT_CLUSTER ? self::CONTEXT_CLUSTER : self::CONTEXT_DICTIONARY;
         $siteId = $siteId ?? KeywordResource::resolveKeywordSiteId($keyword) ?? SeoAccessControl::globalSiteId();
@@ -61,11 +63,17 @@ final class KeywordItemPresenter
             ]);
         }
 
+        $semanticTags = $this->semanticTags->forKeyword(
+            $keyword,
+            is_array($dnaValues) ? $dnaValues : [],
+            $siteId,
+        );
+
         return [
             'keyword_id' => $keywordId,
             'raw_phrase' => (string) $keyword->phrase,
             'display_phrase' => KeywordPhrasePresentation::present((string) $keyword->phrase),
-            'semantic_tags' => [],
+            'semantic_tags' => $semanticTags,
             'operational_tags' => $groupedTags['operational'],
             'planning_tags' => $groupedTags['planning'],
             'intent' => '',

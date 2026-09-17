@@ -19,6 +19,7 @@
         keyword: $keyword,
         context: $context,
         siteId: $siteId,
+        dnaValues: $dnaValues,
     );
 @endphp
 
@@ -134,6 +135,14 @@
             @blur="if (editing && !saving) save()"
             :disabled="saving"
         />
+
+        @if (($item['semantic_tags'] ?? []) !== [])
+            <div class="keyword-item__semantic">
+                @foreach ($item['semantic_tags'] as $tag)
+                    <span class="semantic-tag semantic-tag--{{ $tag['tone'] }}">{{ $tag['label'] }}</span>
+                @endforeach
+            </div>
+        @endif
 
         @if ($item['planning_tags'] !== [])
             <div class="keyword-item__planning">
