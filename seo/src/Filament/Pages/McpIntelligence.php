@@ -285,17 +285,15 @@ final class McpIntelligence extends SeoPanelPage
 
     public function keywordsUnclusteredUrl(): string
     {
-        return KeywordResource::getUrl('clusters');
+        return KeywordResource::getUrl('index');
     }
 
     public function clusterUrl(string $clusterKey): string
     {
-        $key = trim($clusterKey);
-        if ($key === '') {
-            return KeywordResource::getUrl('clusters');
-        }
+        unset($clusterKey);
 
-        return KeywordResource::getUrl('cluster', ['clusterKey' => $key]);
+        // Cluster topical map routes retired — fall back to keyword dictionary.
+        return KeywordResource::getUrl('index');
     }
 
     public function markdownRenderer(): McpMarkdownRenderer

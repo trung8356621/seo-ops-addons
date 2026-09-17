@@ -9,7 +9,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Models\Tag;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 
 final class KeywordTagResolver
 {
@@ -26,7 +26,8 @@ final class KeywordTagResolver
      *     internal_link_count?: int,
      *     workflow?: string|null,
      *     manual_error?: bool,
-     *     groups?: list<string>
+     *     groups?: list<string>,
+     *     seo_hidden?: bool
      * }  $state
      * @return list<string>
      */
@@ -65,14 +66,10 @@ final class KeywordTagResolver
      */
     public function forKeyword(Keyword $keyword): array
     {
-        $row = $keyword->seoClassification;
-        $classified = $row instanceof SeoKeywordClassification
-            && trim((string) ($row->phrase_kind ?? '')) !== '';
+        $hidden = app(HideKeywordFromSeoService::class)->isHidden((int) $keyword->id);
 
         return $this->resolve([
-            'classified' => $classified,
-            'phrase_kind' => $classified ? (string) $row->phrase_kind : null,
-            'is_seo_keyword' => $this->rawSeoFlag($row, $classified),
+            'seo_hidden' => $hidden,
             'internal_link_count' => (int) ($keyword->site_links_count ?? 0),
             'workflow' => $this->workflowFromKeyword($keyword),
             'manual_error' => $keyword->isManualError(),
@@ -120,100 +117,13 @@ final class KeywordTagResolver
         return $items;
     }
 
-    public function clusterLabel(Keyword $keyword): string
-    {
-        $row = $keyword->seoClassification;
-        $key = trim((string) ($row?->cluster_key ?? ''));
-        if ($key === '') {
-            return '—';
-        }
-
-        $siteId = 0;
-        try {
-            $siteId = (int) (\Omnichannel\Addons\Seo\Support\SeoAccessControl::globalSiteId() ?? 0);
-        } catch (\Throwable) {
-            $siteId = 0;
-        }
-
-        $label = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery::class)
-            ->displayLabel($key, '', $siteId > 0 ? $siteId : null);
-        $count = $this->clusterCount($key);
-        if ($count > 0) {
-            return $label.' · '.$count;
-        }
-
-        return $label;
-    }
-
-    public function clusterKey(Keyword $keyword): string
-    {
-        return trim((string) ($keyword->seoClassification?->cluster_key ?? ''));
-    }
-
     public function primarySeoTag(array $state): string
     {
-        $classified = (bool) ($state['classified'] ?? false);
-        $kind = trim((string) ($state['phrase_kind'] ?? ''));
-        $excludedKinds = [
-            KeywordRuleClassifier::KIND_SENTENCE,
-            KeywordRuleClassifier::KIND_DESCRIPTIVE_PHRASE,
-            KeywordRuleClassifier::KIND_URL_DOMAIN,
-            KeywordRuleClassifier::KIND_NOISE,
-        ];
-        $isSeo = $state['is_seo_keyword'] ?? null;
-
-        if ($isSeo === false) {
-            return KeywordTag::SEO_EXCLUDED;
-        }
-
-        if ($classified && $isSeo !== true && in_array($kind, $excludedKinds, true)) {
+        if (($state['seo_hidden'] ?? false) === true || ($state['is_seo_keyword'] ?? null) === false) {
             return KeywordTag::SEO_EXCLUDED;
         }
 
         return KeywordTag::FOCUS;
-    }
-
-    public function primaryFromClassification(?SeoKeywordClassification $row): string
-    {
-        $classified = $row instanceof SeoKeywordClassification
-            && trim((string) ($row->phrase_kind ?? '')) !== '';
-
-        return $this->primarySeoTag([
-            'classified' => $classified,
-            'phrase_kind' => $classified ? (string) $row->phrase_kind : null,
-            'is_seo_keyword' => $this->rawSeoFlag($row, $classified),
-        ]);
-    }
-
-    private function rawSeoFlag(?SeoKeywordClassification $row, bool $classified): ?bool
-    {
-        if (! $row instanceof SeoKeywordClassification) {
-            return null;
-        }
-
-        if (KeywordClassificationVisibility::hasSeoKeywordColumn() && $row->is_seo_keyword !== null) {
-            return (bool) $row->is_seo_keyword;
-        }
-
-        return $classified ? KeywordClassificationVisibility::isSeoKeyword($row) : null;
-    }
-
-    /**
-     * @param  iterable<SeoKeywordClassification>  $rows
-     * @return array{focus: int, seo_excluded: int}
-     */
-    public function countPrimaryTags(iterable $rows, int $unclassified = 0): array
-    {
-        $counts = [
-            KeywordTag::FOCUS => 0,
-            KeywordTag::SEO_EXCLUDED => 0,
-        ];
-        foreach ($rows as $row) {
-            $tag = $this->primaryFromClassification($row instanceof SeoKeywordClassification ? $row : null);
-            $counts[$tag] = ($counts[$tag] ?? 0) + 1;
-        }
-
-        return $counts;
     }
 
     /**
@@ -222,7 +132,8 @@ final class KeywordTagResolver
      *     phrase_kind?: string|null,
      *     is_seo_keyword?: bool|null,
      *     is_ambiguous?: bool,
-     *     confidence?: float|null
+     *     confidence?: float|null,
+     *     seo_hidden?: bool
      * }  $state
      */
     public function allowsAiGeneration(array $state): bool
@@ -241,7 +152,7 @@ final class KeywordTagResolver
         return [
             'phrase' => (string) $keyword->phrase,
             'tags' => array_map(static fn (array $item): string => $item['code'], $display),
-            'cluster' => $this->clusterLabel($keyword),
+            'cluster' => '—',
             'tags_label' => implode(' · ', $labels),
         ];
     }
@@ -252,7 +163,6 @@ final class KeywordTagResolver
     public static function tableEagerLoad(): array
     {
         return [
-            'seoClassification',
             'metas',
             'mainArticles.site',
             'mainArticles.wordpressLink',
@@ -353,25 +263,6 @@ final class KeywordTagResolver
         unset($keyword);
 
         return [];
-    }
-
-    /** @var array<string, int> */
-    private static array $clusterCounts = [];
-
-    private function clusterCount(string $key): int
-    {
-        if (array_key_exists($key, self::$clusterCounts)) {
-            return self::$clusterCounts[$key];
-        }
-        try {
-            self::$clusterCounts[$key] = (int) SeoKeywordClassification::query()
-                ->where('cluster_key', $key)
-                ->count();
-        } catch (\Throwable) {
-            self::$clusterCounts[$key] = 0;
-        }
-
-        return self::$clusterCounts[$key];
     }
 
     private function groupName(int $tagId): string

@@ -8,19 +8,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
 use RuntimeException;
 
 /**
- * Soft-hide keywords from SEO/clustering eligibility without deleting data or article links.
+ * Soft-hide keywords from SEO eligibility without deleting data or article links.
  */
 final class HideKeywordFromSeoService
 {
-    public function __construct(
-        private readonly PruneAutoSingletonClustersService $singletonPruner,
-    ) {}
-
     public function isHidden(int $keywordId): bool
     {
         if ($keywordId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
@@ -37,71 +31,23 @@ final class HideKeywordFromSeoService
     }
 
     /**
-     * @return array{
-     *     keyword_id: int,
-     *     phrase: string,
-     *     was_hidden: bool,
-     *     previous_cluster_key: string,
-     *     detached: bool,
-     *     pruned: int
-     * }
+     * @return array{keyword_id: int, phrase: string, was_hidden: bool}
      */
     public function hide(int $keywordId, ?int $siteId = null): array
     {
+        unset($siteId);
+
         $keyword = Keyword::query()->find($keywordId);
         if (! $keyword instanceof Keyword) {
             throw new RuntimeException('keyword_not_found');
         }
 
-        $previousCluster = '';
-        $detached = false;
-        $pruned = 0;
-
-        DB::connection('omi_seo_ai')->transaction(function () use ($keywordId, $siteId, &$previousCluster, &$detached, &$pruned): void {
-            $this->writeHiddenMeta($keywordId, true);
-
-            if (! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-                return;
-            }
-
-            $row = SeoKeywordClassification::query()->whereKey($keywordId)->first();
-            if (! $row instanceof SeoKeywordClassification) {
-                return;
-            }
-
-            $previousCluster = trim((string) ($row->cluster_key ?? ''));
-            if ($previousCluster === '') {
-                return;
-            }
-
-            $row->cluster_key = null;
-            $row->save();
-            $detached = true;
-
-            if ($siteId !== null && $siteId > 0) {
-                $touched = [$previousCluster => true];
-                $stats = $this->singletonPruner->prune($siteId, $touched);
-                $pruned = (int) ($stats['pruned'] ?? 0);
-                if (! isset($touched[$previousCluster])) {
-                    // Cluster was pruned — artifacts already cleaned.
-                    return;
-                }
-                // Cluster still exists — leave meta/DNA; counts refresh on next read.
-            }
-        });
-
-        if ($siteId !== null && $siteId > 0) {
-            TopicClusterDirtyState::mark($siteId, 'keyword_hidden');
-            SiteMcpTopicalProfileStaleState::mark($siteId, 'keyword_hidden');
-        }
+        $this->writeHiddenMeta($keywordId, true);
 
         return [
             'keyword_id' => $keywordId,
             'phrase' => (string) $keyword->phrase,
             'was_hidden' => true,
-            'previous_cluster_key' => $previousCluster,
-            'detached' => $detached,
-            'pruned' => $pruned,
         ];
     }
 
@@ -110,17 +56,14 @@ final class HideKeywordFromSeoService
      */
     public function restore(int $keywordId, ?int $siteId = null): array
     {
+        unset($siteId);
+
         $keyword = Keyword::query()->find($keywordId);
         if (! $keyword instanceof Keyword) {
             throw new RuntimeException('keyword_not_found');
         }
 
         $this->writeHiddenMeta($keywordId, false);
-
-        if ($siteId !== null && $siteId > 0) {
-            TopicClusterDirtyState::mark($siteId, 'keyword_restored');
-            SiteMcpTopicalProfileStaleState::mark($siteId, 'keyword_restored');
-        }
 
         return [
             'keyword_id' => $keywordId,

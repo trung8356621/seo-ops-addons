@@ -10,12 +10,11 @@ final class KeywordAiCandidateGuard
         private readonly KeywordNormalizer $normalizer = new KeywordNormalizer(),
         private readonly KeywordRuleClassifier $classifier = new KeywordRuleClassifier(),
         private readonly KeywordCanonicalizer $canonicalizer = new KeywordCanonicalizer(),
-        private readonly KeywordClusterKey $clusterKey = new KeywordClusterKey(),
     ) {}
 
     /**
      * @param  list<string>  $candidates
-     * @param  list<array{normalized_text: string, folded_text: string, cluster_key?: string, seo_intent?: string}>  $existing
+     * @param  list<array{normalized_text: string, folded_text: string, seo_intent?: string}>  $existing
      * @return list<array<string, mixed>>
      */
     public function evaluate(array $candidates, array $existing, string $sourceKind = KeywordSourceNormalizer::AI_GENERATED): array
@@ -26,7 +25,6 @@ final class KeywordAiCandidateGuard
             $classified = $this->classifier->classify($raw, $norm['normalized_text'], [
                 'source_kind' => $sourceKind,
             ]);
-            $cluster = $this->clusterKey->make($norm['normalized_text'], $norm['folded_text']);
             $decision = 'accept';
             $duplicateOf = null;
             $reason = 'new_valid';
@@ -46,14 +44,6 @@ final class KeywordAiCandidateGuard
                             : 'near_duplicate';
                         break;
                     }
-                    $existingCluster = (string) ($row['cluster_key'] ?? '');
-                    $existingIntent = (string) ($row['seo_intent'] ?? '');
-                    if ($existingCluster !== '' && $existingCluster === $cluster && $existingIntent !== '' && $existingIntent === $classified['seo_intent']) {
-                        $decision = 'reject';
-                        $duplicateOf = $normalized;
-                        $reason = 'cluster_intent_represented';
-                        break;
-                    }
                 }
             }
 
@@ -63,7 +53,6 @@ final class KeywordAiCandidateGuard
                 'folded_text' => $norm['folded_text'],
                 'phrase_kind' => $classified['phrase_kind'],
                 'seo_intent' => $classified['seo_intent'],
-                'cluster_key' => $cluster,
                 'is_seo_keyword' => $classified['is_seo_keyword'],
                 'decision' => $decision,
                 'reason' => $reason,

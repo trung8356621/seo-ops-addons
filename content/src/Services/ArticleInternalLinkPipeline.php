@@ -617,40 +617,8 @@ final class ArticleInternalLinkPipeline
      */
     private function topicKeywordIdsForSite(int $siteId): array
     {
-        static $cache = [];
-        if (isset($cache[$siteId])) {
-            return $cache[$siteId];
-        }
-
-        try {
-            if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-                return $cache[$siteId] = [];
-            }
-        } catch (\Throwable) {
-            return $cache[$siteId] = [];
-        }
-
-        $classifiedIds = \Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification::query()
-            ->whereNotNull('cluster_key')
-            ->where('cluster_key', '!=', '')
-            ->pluck('keyword_id')
-            ->map(static fn ($id): int => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
-        if ($classifiedIds === []) {
-            return $cache[$siteId] = [];
-        }
-
-        $ids = Keyword::query()
-            ->forSite($siteId)
-            ->whereIn('id', $classifiedIds)
-            ->pluck('id')
-            ->map(static fn ($id): int => (int) $id)
-            ->values()
-            ->all();
-
-        return $cache[$siteId] = $ids;
+        // Legacy cluster_key topic membership retired.
+        return [];
     }
 
     /**

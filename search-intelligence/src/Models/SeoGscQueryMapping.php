@@ -7,9 +7,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Models;
 use Omnichannel\Addons\SearchIntelligence\Enums\Gsc\GscMappingStatus;
 use Omnichannel\Addons\SearchIntelligence\Enums\Gsc\GscQueryMappingType;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordCluster;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKiKeyword;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKiTopic;
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,8 +29,6 @@ class SeoGscQueryMapping extends Model
         'identity_hash',
         'sample_query',
         'keyword_id',
-        'cluster_id',
-        'topic_id',
         'mapping_type',
         'confidence',
         'source',
@@ -49,8 +44,6 @@ class SeoGscQueryMapping extends Model
         'site_id' => 'integer',
         'property_id' => 'integer',
         'keyword_id' => 'integer',
-        'cluster_id' => 'integer',
-        'topic_id' => 'integer',
         'mapping_type' => GscQueryMappingType::class,
         'confidence' => 'decimal:2',
         'status' => GscMappingStatus::class,
@@ -72,21 +65,4 @@ class SeoGscQueryMapping extends Model
         return $this->belongsTo(SeoGscProperty::class, 'property_id');
     }
 
-    /** @return BelongsTo<SeoKiKeyword, $this> */
-    public function keyword(): BelongsTo
-    {
-        return $this->belongsTo(SeoKiKeyword::class, 'keyword_id');
-    }
-
-    /** @return BelongsTo<SeoKeywordCluster, $this> */
-    public function cluster(): BelongsTo
-    {
-        return $this->belongsTo(SeoKeywordCluster::class, 'cluster_id');
-    }
-
-    /** @return BelongsTo<SeoKiTopic, $this> */
-    public function topic(): BelongsTo
-    {
-        return $this->belongsTo(SeoKiTopic::class, 'topic_id');
-    }
 }

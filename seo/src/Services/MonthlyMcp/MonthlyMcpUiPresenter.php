@@ -130,17 +130,17 @@ final class MonthlyMcpUiPresenter
             'review_unclustered' => [
                 'module' => 'cluster',
                 'label' => __('seo-content-ai::filament.mcp_intelligence.action_unclustered', ['count' => $count]),
-                'url' => KeywordResource::getUrl('clusters'),
+                'url' => KeywordResource::getUrl('index'),
             ],
             'expand_cluster' => [
                 'module' => 'cluster',
                 'label' => __('seo-content-ai::filament.mcp_intelligence.action_expand_cluster', ['name' => $name !== '' ? $name : $clusterId]),
-                'url' => $clusterId !== '' ? KeywordResource::getUrl('cluster', ['clusterKey' => $clusterId]) : KeywordResource::getUrl('clusters'),
+                'url' => KeywordResource::getUrl('index'),
             ],
             'expand_group' => [
                 'module' => 'coverage',
                 'label' => __('seo-content-ai::filament.mcp_intelligence.action_expand_group', ['name' => $name]),
-                'url' => KeywordResource::getUrl('clusters'),
+                'url' => KeywordResource::getUrl('index'),
             ],
             'review_seo_findings' => [
                 'module' => 'site',

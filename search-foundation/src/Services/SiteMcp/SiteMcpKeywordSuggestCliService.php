@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
 use Omnichannel\Addons\SearchIntelligence\Services\AiKeywordDiscoveryService;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use App\Models\Site;
 use Throwable;
@@ -22,8 +20,7 @@ final class SiteMcpKeywordSuggestCliService
         private readonly SiteMcpDraft $draftStore,
         private readonly SiteMcpContextAssembler $assembler,
         private readonly SiteDomainPromptContextService $promptContext,
-        private readonly AiKeywordDiscoveryService $discovery,
-        private readonly ?SiteMcpTopicalProfileService $topicalProfile = null,
+        private readonly AiKeywordDiscoveryService $discovery
     ) {}
 
     /**
@@ -53,8 +50,8 @@ final class SiteMcpKeywordSuggestCliService
         $profile = $this->liveTopicalProfile($site);
         if (($profile['topics'] ?? []) !== []) {
             $draft['keyword_context']['topical_profile'] = $profile;
-            $draft['keyword_context']['main_topics'] = SiteMcpClusterTopicalProfileBuilder::topicNames($profile);
-            $draft['keyword_context']['main_topic_records'] = SiteMcpClusterTopicalProfileBuilder::toMainTopicRecords($profile);
+            $draft['keyword_context']['main_topics'] = [];
+            $draft['keyword_context']['main_topic_records'] = [];
         }
 
         $mainTopics = $this->mainTopics($draft, $official);
@@ -135,18 +132,14 @@ final class SiteMcpKeywordSuggestCliService
      */
     private function liveTopicalProfile(Site $site): array
     {
-        $service = $this->topicalProfile
-            ?? (app()->bound(SiteMcpTopicalProfileService::class) ? app(SiteMcpTopicalProfileService::class) : null);
-        if (! $service instanceof SiteMcpTopicalProfileService) {
-            return [
-                'source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
-                'built_at' => gmdate('c'),
-                'total_clustered_keywords' => 0,
-                'topics' => [],
-            ];
-        }
+        unset($site);
 
-        return $service->get($site);
+        return [
+            'source' => 'none',
+            'built_at' => gmdate('c'),
+            'total_clustered_keywords' => 0,
+            'topics' => [],
+        ];
     }
 
     /**

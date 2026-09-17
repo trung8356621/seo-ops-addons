@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers;
 
 use Omnichannel\Addons\SearchIntelligence\Enums\Gsc\GscPropertyStatus;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordWorkspace;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscOpportunity;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscPageMapping;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscProperty;
@@ -103,18 +102,6 @@ abstract class AbstractGscIntelligenceHandler implements ContentProjectCommandHa
         }
 
         return $opportunity;
-    }
-
-    protected function resolveWorkspace(string $workspaceRef): SeoKeywordWorkspace
-    {
-        $id = KeywordIntelligencePublicRef::resolveWorkspaceIdStrict($workspaceRef);
-        $workspace = SeoKeywordWorkspace::query()->find($id);
-
-        if (! $workspace instanceof SeoKeywordWorkspace) {
-            throw new RuntimeException('Workspace không tồn tại.');
-        }
-
-        return $workspace;
     }
 
     protected function assertCanAccessProperty(SeoGscProperty $property, ActorContext $actor): void

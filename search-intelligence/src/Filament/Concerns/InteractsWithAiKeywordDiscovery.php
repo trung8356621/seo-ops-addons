@@ -67,20 +67,20 @@ trait InteractsWithAiKeywordDiscovery
             $context = '';
             $existing = [];
             if ($siteId > 0) {
-                $classification = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService::class);
-                $builder = app(\Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordGenerationContextBuilder::class);
-                $landscape = $classification->landscape($siteId);
-                $packed = $builder->build($landscape, ['site' => (string) $siteId, 'max_topics' => 50, 'max_exclusions' => 150]);
-                $context = $builder->toPromptBlock($packed);
-                foreach ($classification->classificationRows($siteId) as $row) {
-                    if (! ($row['is_seo_keyword'] ?? false)) {
-                        continue;
-                    }
+                $normalizer = app(\Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer::class);
+                $phrases = \Omnichannel\Addons\SearchFoundation\Models\Keyword::query()
+                    ->forSite($siteId)
+                    ->where(static function ($q): void {
+                        $q->whereNull('type')->orWhere('type', '!=', \Omnichannel\Addons\SearchFoundation\Models\Keyword::TYPE_SUGGEST);
+                    })
+                    ->limit(500)
+                    ->pluck('phrase');
+                foreach ($phrases as $phrase) {
+                    $norm = $normalizer->normalize((string) $phrase);
                     $existing[] = [
-                        'normalized_text' => (string) ($row['normalized_text'] ?? ''),
-                        'folded_text' => (string) ($row['folded_text'] ?? ''),
-                        'cluster_key' => (string) ($row['cluster_key'] ?? ''),
-                        'seo_intent' => (string) ($row['seo_intent'] ?? ''),
+                        'normalized_text' => (string) ($norm['normalized_text'] ?? ''),
+                        'folded_text' => (string) ($norm['folded_text'] ?? ''),
+                        'seo_intent' => '',
                     ];
                 }
             }
@@ -103,7 +103,6 @@ trait InteractsWithAiKeywordDiscovery
                     if ($decision !== 'accept') {
                         continue;
                     }
-                    $item['cluster_key'] = $evaluated[$i]['cluster_key'] ?? null;
                     $kept[] = $item;
                 }
                 $this->suggestions = $kept;

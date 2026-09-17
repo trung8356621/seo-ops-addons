@@ -101,13 +101,7 @@ final class AgentCapabilityInventory
      */
     private static function keywordP1(): array
     {
-        return [
-            self::row('keyword_intelligence', 'keyword.import', 'Import keywords', 'write', 'keyword_intelligence.import_keywords', 'keyword.import', '/import-keywords', 'preview', 'write', 'write', 'P1'),
-            self::row('keyword_intelligence', 'keyword.analyze', 'Analyze keywords', 'write', 'keyword_intelligence.analyze_workspace', 'keyword.analyze', '/analyze-keywords', 'preview', 'write', 'write', 'P1'),
-            self::row('keyword_intelligence', 'keyword.list_workspaces', 'List keyword workspaces', 'read', 'keyword_intelligence.list_workspaces', 'keyword.list_workspaces', '/list-keyword-workspaces', 'none', 'read', 'read', 'P1'),
-            self::row('keyword_intelligence', 'keyword.list_clusters', 'List clusters', 'read', 'keyword_intelligence.list_clusters', 'keyword.list_clusters', '/list-keyword-clusters', 'none', 'read', 'read', 'P1'),
-            self::row('keyword_intelligence', 'keyword.build_topical_map', 'Build topical map', 'write', 'keyword_intelligence.build_topical_map', 'keyword.build_topical_map', '/build-topical-map', 'preview', 'write', 'write', 'P1'),
-        ];
+        return [];
     }
 
     /**

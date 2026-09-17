@@ -29,9 +29,7 @@ final class AgentSkillGroupCatalog
                 'content_project.skip_publish', 'content_project.cancel_publish', 'content_project.unschedule', 'content_project.move_schedule',
                 'content_project.return_to_content_project',
             ]],
-            ['key' => 'keywords', 'label' => 'Keywords', 'label_vi' => 'Từ khóa', 'description' => 'Import/analyze/topical map.', 'skill_keys' => [
-                'keyword.list_workspaces', 'keyword.import', 'keyword.analyze', 'keyword.build_topical_map', 'keyword.list_clusters',
-            ]],
+            ['key' => 'keywords', 'label' => 'Keywords', 'label_vi' => 'Từ khóa', 'description' => 'Keyword skills retired with workspace/topical map.', 'skill_keys' => []],
             ['key' => 'serp', 'label' => 'SERP', 'label_vi' => 'SERP', 'description' => 'Collect SERP & content gaps.', 'skill_keys' => [
                 'serp.collect', 'serp.list_content_gaps', 'serp.validate_cluster',
             ]],

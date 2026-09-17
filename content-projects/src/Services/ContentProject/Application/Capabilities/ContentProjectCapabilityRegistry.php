@@ -35,39 +35,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UnscheduleProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeSelectedKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ArchiveKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AttachClusterToTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\BuildTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CancelKeywordAnalysisCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CancelTopicalMapBuildCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateContentProjectFromKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\DeleteEmptyTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\DetachClusterFromTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ExcludeKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ImportKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MergeKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveClusterPrimaryTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveKeywordsToClusterCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SaveTopicalMapVersionCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SetTopicRelationshipCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SplitKeywordClusterCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\UpdateKeywordClassificationCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\UpdateTopicCommand;
 
 /**
- * Agent capability registry — MCP/API Agent chỉ là adapter ngoài registry này.
+ * Agent capability registry â€” MCP/API Agent chá»‰ lÃ  adapter ngoÃ i registry nÃ y.
  */
 final class ContentProjectCapabilityRegistry
 {
@@ -89,14 +59,14 @@ final class ContentProjectCapabilityRegistry
                     'attributes' => [
                         'type' => 'object',
                         'required' => true,
-                        'description' => 'Bounded project fields only (name, month, member_ref, ...). Site comes from site_ref context — not an open-ended payload and not a site switcher.',
+                        'description' => 'Bounded project fields only (name, month, member_ref, ...). Site comes from site_ref context â€” not an open-ended payload and not a site switcher.',
                     ],
                     'tasksData' => ['type' => 'array', 'required' => false],
                 ],
                 phases: null,
                 confirmation: false,
                 presentation: [
-                    'description' => 'Create a Content Project inside the explicitly supplied site context. This action does not create, discover, or switch sites. Global workflow capability — not a per-site feature flag.',
+                    'description' => 'Create a Content Project inside the explicitly supplied site context. This action does not create, discover, or switch sites. Global workflow capability â€” not a per-site feature flag.',
                     'category' => 'content_project',
                     'capability_kind' => CapabilityKind::SYSTEM_ACTION,
                     'action_domain' => 'content_project',
@@ -199,7 +169,7 @@ final class ContentProjectCapabilityRegistry
                 ],
                 confirmation: false,
                 presentation: [
-                    'description' => 'Fill Draft with SEO Audit candidates. Agent-safe — no Filament dependency.',
+                    'description' => 'Fill Draft with SEO Audit candidates. Agent-safe â€” no Filament dependency.',
                     'required_context' => ['site_ref', 'project_ref'],
                     'side_effect_level' => 'write',
                 ],
@@ -694,7 +664,7 @@ final class ContentProjectCapabilityRegistry
                 ],
                 confirmation: false,
                 presentation: [
-                    'description' => 'Module handoff — content must already be complete. Does not schedule or publish, and never calls WordPress.',
+                    'description' => 'Module handoff â€” content must already be complete. Does not schedule or publish, and never calls WordPress.',
                     'required_context' => ['site_ref', 'project_ref', 'item_refs'],
                     'side_effect_level' => 'write',
                 ],
@@ -823,481 +793,7 @@ final class ContentProjectCapabilityRegistry
                 ],
             ),
 
-            // Keyword Intelligence — additive, không phase-gate theo ContentProjectLifecyclePhase.
-            $this->cap(
-                'keyword_intelligence.create_workspace',
-                'Create a Keyword Intelligence workspace',
-                CreateKeywordWorkspaceCommand::class,
-                'keyword_intelligence.create_workspace',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'attributes' => ['type' => 'object', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.import_keywords',
-                'Import keywords into a workspace',
-                ImportKeywordsCommand::class,
-                'keyword_intelligence.import_keywords',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keywords' => ['type' => 'array', 'required' => true],
-                    'preview' => ['type' => 'boolean', 'required' => false],
-                    'keep_duplicates' => ['type' => 'boolean', 'required' => false],
-                    'source' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.analyze_workspace',
-                'Run analysis pipeline for a workspace',
-                AnalyzeKeywordWorkspaceCommand::class,
-                'keyword_intelligence.analyze_workspace',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'clustering_strategy' => ['type' => 'string', 'required' => false],
-                    'options' => ['type' => 'object', 'required' => false],
-                    'idempotency_key' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.analyze_keywords',
-                'Analyze selected keywords in a workspace',
-                AnalyzeSelectedKeywordsCommand::class,
-                'keyword_intelligence.analyze_keywords',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keyword_refs' => ['type' => 'array', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.cancel_analysis',
-                'Cancel a running keyword analysis operation',
-                CancelKeywordAnalysisCommand::class,
-                'keyword_intelligence.cancel_analysis',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'operation_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.approve_keywords',
-                'Approve or reject keywords',
-                ApproveKeywordsCommand::class,
-                'keyword_intelligence.approve_keywords',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keyword_refs' => ['type' => 'array', 'required' => true],
-                    'approve' => ['type' => 'boolean', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.exclude_keywords',
-                'Exclude or restore excluded keywords',
-                ExcludeKeywordsCommand::class,
-                'keyword_intelligence.exclude_keywords',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keyword_refs' => ['type' => 'array', 'required' => true],
-                    'exclude' => ['type' => 'boolean', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.update_keyword',
-                'Manually update keyword intent/funnel/business value',
-                UpdateKeywordClassificationCommand::class,
-                'keyword_intelligence.update_keyword',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keyword_refs' => ['type' => 'array', 'required' => true],
-                    'search_intent' => ['type' => 'string', 'required' => false],
-                    'funnel_stage' => ['type' => 'string', 'required' => false],
-                    'business_value' => ['type' => 'number', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.approve_clusters',
-                'Approve or reject keyword clusters',
-                ApproveKeywordClustersCommand::class,
-                'keyword_intelligence.approve_clusters',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_refs' => ['type' => 'array', 'required' => true],
-                    'approve' => ['type' => 'boolean', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.merge_clusters',
-                'Merge keyword clusters (preview/confirm when approved)',
-                MergeKeywordClustersCommand::class,
-                'keyword_intelligence.merge_clusters',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'source_cluster_refs' => ['type' => 'array', 'required' => true],
-                    'target_cluster_ref' => ['type' => 'string', 'required' => true],
-                    'dry_run' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.split_cluster',
-                'Split a keyword cluster into groups',
-                SplitKeywordClusterCommand::class,
-                'keyword_intelligence.split_cluster',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'source_cluster_ref' => ['type' => 'string', 'required' => true],
-                    'groups' => ['type' => 'array', 'required' => true],
-                ],
-                phases: null,
-                confirmation: true,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.move_keywords',
-                'Move keywords into a destination cluster',
-                MoveKeywordsToClusterCommand::class,
-                'keyword_intelligence.move_keywords',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'keyword_refs' => ['type' => 'array', 'required' => true],
-                    'destination_cluster_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.build_topical_map',
-                'Build the topical map from approved clusters',
-                BuildTopicalMapCommand::class,
-                'keyword_intelligence.build_topical_map',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'max_depth' => ['type' => 'integer', 'required' => false],
-                    'mode' => ['type' => 'string', 'required' => false],
-                    'include_reviewed_clusters' => ['type' => 'boolean', 'required' => false],
-                    'approved_cluster_refs' => ['type' => 'array', 'required' => false],
-                    'preserve_manual_topics' => ['type' => 'boolean', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.create_topic',
-                'Create a topic in the topical map',
-                CreateTopicCommand::class,
-                'keyword_intelligence.create_topic',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'attributes' => ['type' => 'object', 'required' => true],
-                    'parent_topic_ref' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.update_topic',
-                'Update a topic',
-                UpdateTopicCommand::class,
-                'keyword_intelligence.update_topic',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'topic_ref' => ['type' => 'string', 'required' => true],
-                    'attributes' => ['type' => 'object', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.move_topic',
-                'Move a topic under a new parent',
-                MoveTopicCommand::class,
-                'keyword_intelligence.move_topic',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'topic_ref' => ['type' => 'string', 'required' => true],
-                    'new_parent_topic_ref' => ['type' => 'string', 'required' => false],
-                    'dry_run' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
-                'keyword_intelligence.attach_cluster',
-                'Attach a cluster to a topic',
-                AttachClusterToTopicCommand::class,
-                'keyword_intelligence.attach_cluster',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'topic_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_ref' => ['type' => 'string', 'required' => true],
-                    'relationship' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.detach_cluster',
-                'Detach a cluster from a topic',
-                DetachClusterFromTopicCommand::class,
-                'keyword_intelligence.detach_cluster',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'topic_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.review_topical_map',
-                'Mark a topical map version as reviewed',
-                ReviewTopicalMapCommand::class,
-                'keyword_intelligence.review_topical_map',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'map_version_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.approve_topical_map',
-                'Approve a topical map version (gates blocking conflicts)',
-                ApproveTopicalMapCommand::class,
-                'keyword_intelligence.approve_topical_map',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'map_version_ref' => ['type' => 'string', 'required' => true],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
-                'keyword_intelligence.save_map_version',
-                'Save a snapshot of the current topical map as a new draft version',
-                SaveTopicalMapVersionCommand::class,
-                'keyword_intelligence.save_map_version',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'mode' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.preview_convert',
-                'Preview converting clusters into a Content Project',
-                PreviewContentProjectFromClustersCommand::class,
-                'keyword_intelligence.preview_convert',
-                riskLevel: 'write',
-                idempotencySupport: false,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_refs' => ['type' => 'array', 'required' => true],
-                    'project_attributes' => ['type' => 'object', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.preview_content_project',
-                'Preview converting an approved topical map into a Content Project',
-                PreviewContentProjectFromTopicalMapCommand::class,
-                'keyword_intelligence.preview_content_project',
-                riskLevel: 'write',
-                idempotencySupport: false,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'map_version_ref' => ['type' => 'string', 'required' => true],
-                    'policy' => ['type' => 'string', 'required' => false],
-                    'cluster_refs' => ['type' => 'array', 'required' => false],
-                    'project_attributes' => ['type' => 'object', 'required' => false],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'keyword_intelligence.convert_to_content_project',
-                'Convert approved clusters into a Content Project',
-                CreateContentProjectFromKeywordClustersCommand::class,
-                'keyword_intelligence.convert_to_content_project',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_refs' => ['type' => 'array', 'required' => true],
-                    'project_attributes' => ['type' => 'object', 'required' => false],
-                    'dry_run' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
-                'keyword_intelligence.create_content_project',
-                'Create a Content Project from an approved topical map',
-                CreateContentProjectFromTopicalMapCommand::class,
-                'keyword_intelligence.create_content_project',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'map_version_ref' => ['type' => 'string', 'required' => true],
-                    'policy' => ['type' => 'string', 'required' => false],
-                    'cluster_refs' => ['type' => 'array', 'required' => false],
-                    'project_attributes' => ['type' => 'object', 'required' => false],
-                    'dry_run' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                    'idempotency_key' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
-                'keyword_intelligence.archive_workspace',
-                'Archive a Keyword Intelligence workspace (read-only afterwards)',
-                ArchiveKeywordWorkspaceCommand::class,
-                'keyword_intelligence.archive_workspace',
-                riskLevel: 'destructive',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-
-            // SERP Intelligence — additive.
+            // SERP Intelligence â€” additive.
             $this->cap(
                 'serp_intelligence.create_queries',
                 'Create SERP queries in a keyword workspace',
@@ -1380,70 +876,6 @@ final class ContentProjectCapabilityRegistry
                 confirmation: false,
             ),
             $this->cap(
-                'serp_intelligence.validate_cluster',
-                'Validate a keyword cluster using SERP overlap',
-                \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ValidateClusterWithSerpCommand::class,
-                'serp_intelligence.validate_cluster',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'cluster_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'serp_intelligence.approve_evidence',
-                'Approve SERP cluster evidence',
-                \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApproveSerpClusterEvidenceCommand::class,
-                'serp_intelligence.approve_evidence',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'evidence_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-            ),
-            $this->cap(
-                'serp_intelligence.apply_intent',
-                'Apply SERP intent suggestion to cluster (confirmation when manual override)',
-                \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApplySerpIntentSuggestionCommand::class,
-                'serp_intelligence.apply_intent',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'evidence_ref' => ['type' => 'string', 'required' => true],
-                    'preview' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
-                'serp_intelligence.apply_content_action',
-                'Apply SERP content action suggestion to cluster',
-                \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApplySerpContentActionSuggestionCommand::class,
-                'serp_intelligence.apply_content_action',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'evidence_ref' => ['type' => 'string', 'required' => true],
-                    'preview' => ['type' => 'boolean', 'required' => false],
-                    'confirmation_token' => ['type' => 'string', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
-            $this->cap(
                 'serp_intelligence.review_gap',
                 'Review a SERP content gap',
                 \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ReviewSerpContentGapCommand::class,
@@ -1475,24 +907,8 @@ final class ContentProjectCapabilityRegistry
                 phases: null,
                 confirmation: false,
             ),
-            $this->cap(
-                'serp_intelligence.preview_cluster_split',
-                'Preview splitting a cluster from SERP evidence',
-                \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\PreviewSplitClusterFromSerpEvidenceCommand::class,
-                'serp_intelligence.preview_cluster_split',
-                riskLevel: 'write',
-                idempotencySupport: false,
-                dryRunSupport: true,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'evidence_ref' => ['type' => 'string', 'required' => true],
-                    'dry_run' => ['type' => 'boolean', 'required' => false],
-                ],
-                phases: null,
-                confirmation: true,
-            ),
 
-            // GSC Intelligence — additive Phase 5.
+            // GSC Intelligence â€” additive Phase 5.
             $this->cap('gsc_intelligence.create_property', 'Create a GSC property for site', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\CreateGscPropertyCommand::class, 'gsc_intelligence.create_property', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['attributes' => ['type' => 'object', 'required' => true]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.update_property', 'Update GSC property metadata', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\UpdateGscPropertyCommand::class, 'gsc_intelligence.update_property', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'attributes' => ['type' => 'object', 'required' => true]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.pause_property', 'Pause GSC property sync', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PauseGscPropertyCommand::class, 'gsc_intelligence.pause_property', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true]], phases: null, confirmation: false),
@@ -1512,17 +928,15 @@ final class ContentProjectCapabilityRegistry
             $this->cap('gsc_intelligence.reject_opportunity', 'Reject GSC opportunity', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\RejectGscOpportunityCommand::class, 'gsc_intelligence.reject_opportunity', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_ref' => ['type' => 'string', 'required' => true]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.ignore_opportunity', 'Ignore GSC opportunity', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\IgnoreGscOpportunityCommand::class, 'gsc_intelligence.ignore_opportunity', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_ref' => ['type' => 'string', 'required' => true]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.resolve_opportunity', 'Resolve GSC opportunity', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\ResolveGscOpportunityCommand::class, 'gsc_intelligence.resolve_opportunity', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_ref' => ['type' => 'string', 'required' => true], 'resolution_code' => ['type' => 'string', 'required' => false]], phases: null, confirmation: false),
-            $this->cap('gsc_intelligence.preview_add_queries', 'Preview adding GSC queries to keyword workspace', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewAddGscQueriesToKeywordWorkspaceCommand::class, 'gsc_intelligence.preview_add_queries', riskLevel: 'write', idempotencySupport: false, dryRunSupport: true, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'workspace_ref' => ['type' => 'string', 'required' => true], 'query_refs' => ['type' => 'array', 'required' => false]], phases: null, confirmation: false),
-            $this->cap('gsc_intelligence.add_queries_to_workspace', 'Add GSC queries to keyword workspace', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\AddGscQueriesToKeywordWorkspaceCommand::class, 'gsc_intelligence.add_queries_to_workspace', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'workspace_ref' => ['type' => 'string', 'required' => true], 'query_refs' => ['type' => 'array', 'required' => false], 'keep_duplicates' => ['type' => 'boolean', 'required' => false]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.preview_create_content_project', 'Preview content project from GSC opportunities', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewCreateContentProjectFromGscOpportunitiesCommand::class, 'gsc_intelligence.preview_create_content_project', riskLevel: 'write', idempotencySupport: false, dryRunSupport: true, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_refs' => ['type' => 'array', 'required' => true], 'project_attributes' => ['type' => 'object', 'required' => false]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.create_content_project', 'Create content project from approved GSC opportunities', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\CreateContentProjectFromGscOpportunitiesCommand::class, 'gsc_intelligence.create_content_project', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_refs' => ['type' => 'array', 'required' => true], 'project_attributes' => ['type' => 'object', 'required' => false], 'confirmation_token' => ['type' => 'string', 'required' => false]], phases: null, confirmation: true),
-            $this->cap('article.index_health.inspect_gsc', 'Inspect one article URL with GSC URL Inspection → Index Health', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand::class, 'article.index_health.inspect_gsc', riskLevel: 'write', idempotencySupport: false, dryRunSupport: false, inputSchema: ['article_id' => ['type' => 'integer', 'required' => true]], phases: null, confirmation: false),
+            $this->cap('article.index_health.inspect_gsc', 'Inspect one article URL with GSC URL Inspection â†’ Index Health', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand::class, 'article.index_health.inspect_gsc', riskLevel: 'write', idempotencySupport: false, dryRunSupport: false, inputSchema: ['article_id' => ['type' => 'integer', 'required' => true]], phases: null, confirmation: false),
             $this->cap('article.index_health.inspect_due_gsc', 'Queue bounded due Index Health batch via GSC URL Inspection', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexesWithGscCommand::class, 'article.index_health.inspect_due_gsc', riskLevel: 'write', idempotencySupport: false, dryRunSupport: false, inputSchema: ['site_id' => ['type' => 'integer', 'required' => true], 'article_ids' => ['type' => 'array', 'required' => false], 'limit' => ['type' => 'integer', 'required' => false], 'due_only' => ['type' => 'boolean', 'required' => false]], phases: null, confirmation: false),
 
             // Site Sync V2
-            $this->cap('site.discover', 'Discover SEO provider and site feature availability for the explicitly supplied site_ref. Returns site_feature flags — not MCP system actions.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteCommand::class, 'site.discover', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [
+            $this->cap('site.discover', 'Discover SEO provider and site feature availability for the explicitly supplied site_ref. Returns site_feature flags â€” not MCP system actions.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteCommand::class, 'site.discover', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [
                 'label' => 'site.discover',
-                'description' => 'Discover SEO provider and site feature availability for the explicitly supplied site_ref. Output keys (seo_score, focus_keyword, …) are site_feature flags — not callable MCP tools.',
+                'description' => 'Discover SEO provider and site feature availability for the explicitly supplied site_ref. Output keys (seo_score, focus_keyword, â€¦) are site_feature flags â€” not callable MCP tools.',
                 'category' => 'site_sync',
                 'capability_kind' => CapabilityKind::SYSTEM_ACTION,
                 'action_domain' => 'site_sync',
@@ -1532,7 +946,7 @@ final class ContentProjectCapabilityRegistry
                 'scopes' => ['site:read'],
                 'input_summary' => ['site_ref (required context)'],
                 'output_summary' => ['site profile', 'SEO provider', 'plugin version', 'site_feature capabilities', 'fallback status'],
-                'examples' => ['Phân tích website này đang dùng plugin SEO gì và có những khả năng nào.'],
+                'examples' => ['PhÃ¢n tÃ­ch website nÃ y Ä‘ang dÃ¹ng plugin SEO gÃ¬ vÃ  cÃ³ nhá»¯ng kháº£ nÄƒng nÃ o.'],
             ]),
             $this->cap('site.sync', 'Synchronize the explicitly supplied WordPress site. Do not use this capability to create or update Content Projects.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand::class, 'site.sync', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['mode' => ['type' => 'string', 'required' => false], 'force_snapshot' => ['type' => 'boolean', 'required' => false]], phases: null, confirmation: false, presentation: [
                 'label' => 'site.sync',
@@ -1545,10 +959,10 @@ final class ContentProjectCapabilityRegistry
                 'read_only' => false,
                 'scopes' => ['site:sync'],
                 'confirmation_modes' => ['force_full'],
-                'confirmation_note' => 'Có khi dùng `force_full`',
+                'confirmation_note' => 'CÃ³ khi dÃ¹ng `force_full`',
                 'input_summary' => ['site_ref (required context)', 'mode: incremental | bootstrap | force_full'],
-                'output_summary' => ['operation_id', 'run_id', 'trạng thái', 'tóm tắt kết quả'],
-                'examples' => ['Đồng bộ website với site_ref đã cung cấp.'],
+                'output_summary' => ['operation_id', 'run_id', 'tráº¡ng thÃ¡i', 'tÃ³m táº¯t káº¿t quáº£'],
+                'examples' => ['Äá»“ng bá»™ website vá»›i site_ref Ä‘Ã£ cung cáº¥p.'],
             ]),
             $this->cap('site.sync_keywords', 'Sync provider keywords for the explicitly supplied site_ref (+ workspace fallback). Not a Content Project action.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteKeywordsCommand::class, 'site.sync_keywords', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [
                 'label' => 'site.sync_keywords',
@@ -1559,7 +973,7 @@ final class ContentProjectCapabilityRegistry
                 'scopes' => ['site:sync'],
                 'input_summary' => ['site_ref (required context)', 'scope (optional)'],
                 'output_summary' => ['operation_id', 'keyword sync summary'],
-                'examples' => ['Đồng bộ keyword website với site_ref đã cung cấp.'],
+                'examples' => ['Äá»“ng bá»™ keyword website vá»›i site_ref Ä‘Ã£ cung cáº¥p.'],
             ]),
             $this->cap('site.sync_links', 'Sync URL catalog and validate changed links for the explicitly supplied site_ref.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteLinksCommand::class, 'site.sync_links', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [
                 'label' => 'site.sync_links',
@@ -1570,7 +984,7 @@ final class ContentProjectCapabilityRegistry
                 'scopes' => ['site:sync'],
                 'input_summary' => ['site_ref (required context)'],
                 'output_summary' => ['operation_id', 'link catalog summary'],
-                'examples' => ['Đồng bộ link website với site_ref đã cung cấp.'],
+                'examples' => ['Äá»“ng bá»™ link website vá»›i site_ref Ä‘Ã£ cung cáº¥p.'],
             ]),
             $this->cap('site.discover_contacts', 'Suggest contacts/profile for the explicitly supplied site_ref (does not overwrite manual contacts).', \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteContactsCommand::class, 'site.discover_contacts', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [
                 'label' => 'site.discover_contacts',
@@ -1582,18 +996,18 @@ final class ContentProjectCapabilityRegistry
                 'scopes' => ['site:read'],
                 'input_summary' => ['site_ref (required context)'],
                 'output_summary' => ['suggested contacts', 'profile hints'],
-                'examples' => ['Tìm contact / profile gợi ý của website với site_ref đã cung cấp.'],
+                'examples' => ['TÃ¬m contact / profile gá»£i Ã½ cá»§a website vá»›i site_ref Ä‘Ã£ cung cáº¥p.'],
             ]),
             $this->cap('site.refresh_snapshot', 'Force full snapshot sync', \Omnichannel\Addons\SiteSync\Services\Application\Commands\RefreshSiteSnapshotCommand::class, 'site.refresh_snapshot', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: true, presentation: [
                 'label' => 'site.refresh_snapshot',
-                'description' => 'Làm mới snapshot toàn site (force full).',
+                'description' => 'LÃ m má»›i snapshot toÃ n site (force full).',
                 'category' => 'site_sync',
                 'scopes' => ['site:sync'],
                 'confirmation_modes' => ['confirm'],
-                'confirmation_note' => 'Có',
+                'confirmation_note' => 'CÃ³',
                 'input_summary' => ['site_id'],
-                'output_summary' => ['operation_id', 'run_id', 'trạng thái'],
-                'examples' => ['Refresh snapshot website này.'],
+                'output_summary' => ['operation_id', 'run_id', 'tráº¡ng thÃ¡i'],
+                'examples' => ['Refresh snapshot website nÃ y.'],
             ]),
             $this->cap('site.resume_sync', 'Resume a site sync run', \Omnichannel\Addons\SiteSync\Services\Application\Commands\ResumeSiteSyncCommand::class, 'site.resume_sync', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['run_id' => ['type' => 'integer', 'required' => true]], phases: null, confirmation: false, presentation: [
                 'category' => 'site_sync',
@@ -1611,7 +1025,7 @@ final class ContentProjectCapabilityRegistry
                 'category' => 'site_sync',
                 'scopes' => ['site:sync'],
                 'confirmation_modes' => ['confirm'],
-                'confirmation_note' => 'Có',
+                'confirmation_note' => 'CÃ³',
                 'input_summary' => ['run_id'],
                 'output_summary' => ['operation_id', 'cancelled status'],
             ]),
@@ -1639,7 +1053,7 @@ final class ContentProjectCapabilityRegistry
                 'category' => 'site_sync',
                 'scopes' => ['site:sync'],
                 'confirmation_modes' => ['confirm'],
-                'confirmation_note' => 'Có',
+                'confirmation_note' => 'CÃ³',
                 'input_summary' => ['force (optional)'],
                 'output_summary' => ['operation_id', 'bootstrap status'],
             ]),
@@ -1648,7 +1062,7 @@ final class ContentProjectCapabilityRegistry
                 'visibility' => 'internal',
                 'scopes' => ['site:sync'],
                 'confirmation_modes' => ['confirm'],
-                'confirmation_note' => 'Có',
+                'confirmation_note' => 'CÃ³',
                 'input_summary' => ['dry_run', 'only'],
                 'output_summary' => ['backfill summary'],
             ]),
@@ -1697,7 +1111,7 @@ final class ContentProjectCapabilityRegistry
     }
 
     /**
-     * Pure schema builder — shared with capabilities coming from the
+     * Pure schema builder â€” shared with capabilities coming from the
      * canonical registry (core + extensions), which follow the same
      * `input_schema` shape but are not owned by this registry.
      *
@@ -1750,7 +1164,7 @@ final class ContentProjectCapabilityRegistry
     }
 
     /**
-     * Capability names never callable via MCP even when agent-exposed —
+     * Capability names never callable via MCP even when agent-exposed â€”
      * background/queue-only actions or actions with a dedicated internal
      * trigger surface (cron, workflow engine, ...).
      *
@@ -1775,7 +1189,7 @@ final class ContentProjectCapabilityRegistry
     ];
 
     /**
-     * Agent write surface — freeze rule: caps without a {@see ContentProjectAgentCommandFactory}
+     * Agent write surface â€” freeze rule: caps without a {@see ContentProjectAgentCommandFactory}
      * match arm must set presentation agent_exposed=false (and usually internal=true).
      */
     public function isAgentWriteExposed(string $name): bool
@@ -1793,7 +1207,7 @@ final class ContentProjectCapabilityRegistry
     }
 
     /**
-     * MCP is a stricter subset of the agent-exposed write surface — see
+     * MCP is a stricter subset of the agent-exposed write surface â€” see
      * class docblock in {@see \Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Mcp\ContentProjectMcpToolCatalog}.
      */
     public function isMcpWriteExposed(string $name): bool
@@ -1906,7 +1320,7 @@ final class ContentProjectCapabilityRegistry
             'confirmation_modes' => $confirmationModes,
             'confirmation_note' => array_key_exists('confirmation_note', $meta)
                 ? (is_string($meta['confirmation_note']) ? $meta['confirmation_note'] : null)
-                : ($confirmationModes !== [] ? 'Có' : 'Không'),
+                : ($confirmationModes !== [] ? 'CÃ³' : 'KhÃ´ng'),
             'input_summary' => $inputSummary,
             'output_summary' => array_values(array_map(
                 static fn (mixed $v): string => (string) $v,

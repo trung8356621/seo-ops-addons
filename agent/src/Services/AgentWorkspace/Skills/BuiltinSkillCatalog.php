@@ -22,7 +22,6 @@ final class BuiltinSkillCatalog
             ObservabilitySkills::definitions(),
             PackSkills::definitions(),
             ContentProjectSkills::definitions(),
-            KeywordIntelligenceSkills::definitions(),
             SerpIntelligenceSkills::definitions(),
             SeoAuditSkills::definitions(),
             OperationsSkills::definitions(),

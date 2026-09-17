@@ -31,7 +31,7 @@ final class CancelSerpCollectionHandler extends AbstractSerpIntelligenceHandler
         }
 
         return $this->wrap(function () use ($command, $actor): ContentProjectActionResult {
-            $workspace = $this->resolveWorkspace($command->workspaceRef);
+            $workspace = $this->resolveWorkspace($command->workspaceRef, $actor);
             $this->tenantGuard->assertCanAccessWorkspace($workspace, $actor);
 
             if (! $this->collection->cancel($command->operationRef)) {

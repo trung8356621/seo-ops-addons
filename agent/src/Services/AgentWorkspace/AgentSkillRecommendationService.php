@@ -53,16 +53,12 @@ final class AgentSkillRecommendationService
             };
         } elseif (! empty($context['workspace_ref'])) {
             $keys = [
-                'keyword.analyze',
-                'keyword.build_topical_map',
                 'serp.collect',
                 'keyword.preview_project',
             ];
         } else {
             $keys = [
                 'content_project.create',
-                'keyword.import',
-                'keyword.analyze',
                 'operations.daily_report',
                 'operations.site_health',
             ];

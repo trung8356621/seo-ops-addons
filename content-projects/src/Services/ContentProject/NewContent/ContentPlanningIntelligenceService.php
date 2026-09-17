@@ -13,7 +13,6 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNotePromptSectionBuilder;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Models\SeoMcpPeriod;
 use Omnichannel\Addons\Seo\Models\SeoMcpSourceSnapshot;
@@ -58,7 +57,6 @@ use Throwable;
 final class ContentPlanningIntelligenceService
 {
     public function __construct(
-        private readonly ?KeywordClusterQuery $clusterQuery = null,
         private readonly ?McpPeriodService $periods = null,
         private readonly ?MonthlyMcpSnapshotService $snapshots = null,
     ) {}
@@ -407,48 +405,10 @@ final class ContentPlanningIntelligenceService
      */
     private function principalKeywords(int $siteId): array
     {
-        if (! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')
-            || ! Schema::connection('omi_seo_ai')->hasTable('keywords')
-        ) {
-            return [];
-        }
+        unset($siteId);
 
-        try {
-            $siteKeywordIds = Keyword::query()
-                ->forSite($siteId)
-                ->select('keywords.id');
-
-            $rows = DB::connection('omi_seo_ai')
-                ->table('keywords as k')
-                ->join('seo_keyword_classifications as c', 'c.keyword_id', '=', 'k.id')
-                ->whereIn('k.id', $siteKeywordIds)
-                ->where('c.is_seo_keyword', true)
-                ->where('c.keyword_score', '>=', ContentPlanningIntelligenceCaps::MIN_KEYWORD_SCORE)
-                ->whereNotIn('c.phrase_kind', ContentPlanningIntelligenceCaps::EXCLUDED_PHRASE_KINDS)
-                ->orderByDesc('c.keyword_score')
-                ->orderByDesc('k.id')
-                ->limit(ContentPlanningIntelligenceCaps::PRINCIPAL_KEYWORDS)
-                ->get(['k.id', 'k.phrase', 'k.source', 'c.keyword_score', 'c.source_kind', 'c.phrase_kind']);
-        } catch (Throwable) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($rows as $row) {
-            $phrase = Keyword::decodePhrase(is_string($row->phrase ?? null) ? $row->phrase : null);
-            if ($phrase === '') {
-                continue;
-            }
-            $out[] = [
-                'keyword_id' => (int) ($row->id ?? 0),
-                'phrase' => $phrase,
-                'score' => (float) ($row->keyword_score ?? 0),
-                'coverage' => 'unknown',
-                'source' => (string) ($row->source_kind ?? $row->source ?? 'other'),
-            ];
-        }
-
-        return $out;
+        // seo_keyword_classifications / cluster scoring retired.
+        return [];
     }
 
     /**
@@ -538,107 +498,10 @@ final class ContentPlanningIntelligenceService
      */
     private function clusterSummaries(int $siteId): array
     {
-        $query = $this->clusterQuery ?? (app()->bound(KeywordClusterQuery::class) ? app(KeywordClusterQuery::class) : null);
-        if (! $query instanceof KeywordClusterQuery || ! $query->classificationsReady()) {
-            return [];
-        }
+        unset($siteId);
 
-        try {
-            \Illuminate\Pagination\Paginator::currentPageResolver(static fn (): int => 1);
-            $paginator = $query->paginateClusters($siteId, [], ContentPlanningIntelligenceCaps::CLUSTERS);
-        } catch (Throwable) {
-            return [];
-        }
-
-        $out = [];
-        $labels = [];
-        foreach ($paginator->items() as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $label = (string) ($item['label'] ?? $item['cluster_key'] ?? '');
-            $labels[] = $label;
-            $out[] = [
-                'label' => $label,
-                'keyword_count' => (int) ($item['keyword_count'] ?? 0),
-                'article_count' => (int) ($item['article_count'] ?? 0),
-                'coverage' => (string) ($item['coverage'] ?? 'unknown'),
-            ];
-        }
-
-        $dnaByLabel = [];
-        if ($labels !== [] && class_exists(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicIdeaCoverageService::class)) {
-            try {
-                $compact = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicIdeaCoverageService::class)
-                    ->planningCompact($siteId, $labels, 8);
-                foreach ($compact as $row) {
-                    $clusterLabel = (string) ($row['cluster'] ?? '');
-                    if ($clusterLabel === '') {
-                        continue;
-                    }
-                    $dnaByLabel[$clusterLabel] = [
-                        'core_articles' => (int) ($row['core_articles'] ?? 0),
-                        'dna' => is_array($row['dna'] ?? null) ? $row['dna'] : [],
-                    ];
-                }
-            } catch (Throwable) {
-                $dnaByLabel = [];
-            }
-        }
-
-        foreach ($out as $i => $row) {
-            $label = $row['label'];
-            if ($label === '' || ! isset($dnaByLabel[$label])) {
-                continue;
-            }
-            $payload = $dnaByLabel[$label];
-            $out[$i]['core_articles'] = (int) ($payload['core_articles'] ?? 0);
-            $coveredDna = [];
-            foreach ($payload['dna'] as $branch) {
-                if (! is_array($branch)) {
-                    continue;
-                }
-                $coveredDna[] = [
-                    'value' => (string) ($branch['value'] ?? ''),
-                    'articles' => (int) ($branch['articles'] ?? 0),
-                    'coverage' => (string) ($branch['coverage'] ?? 'uncovered'),
-                    'count' => (int) ($branch['articles'] ?? 0),
-                ];
-            }
-            if ($coveredDna !== []) {
-                $out[$i]['covered_dna'] = $coveredDna;
-            }
-        }
-
-        return array_values(array_filter($out, static fn (array $c): bool => $c['label'] !== ''));
-    }
-
-    /**
-     * @return list<array{title: string, coverage: string}>
-     */
-    private function existingPublishedTitles(int $siteId): array
-    {
-        try {
-            $titles = SeoArticle::query()
-                ->where('site_id', $siteId)
-                ->whereHas('wordpressLink', static fn ($q) => $q->where('observed_post_status', 'publish'))
-                ->orderByDesc('id')
-                ->limit(ContentPlanningIntelligenceCaps::EXISTING_TOPICS)
-                ->pluck('title');
-        } catch (Throwable) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($titles as $title) {
-            $t = trim((string) $title);
-            if ($t === '') {
-                continue;
-            }
-            $out[] = ['title' => $t, 'coverage' => 'covered'];
-        }
-
-        return $out;
+        // KeywordClusterQuery / TopicIdeaCoverage / DNA retired.
+        return [];
     }
 
     /**

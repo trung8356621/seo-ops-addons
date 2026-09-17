@@ -248,7 +248,7 @@ trait InteractsWithAuditNotes
 
     /**
      * Server-side Planning Seed create (Generate/normalize path). Preferred UX is client-local Alpine.
-     * Does NOT create SeoTopicClusterMeta / permanent Topic rows.
+     * Does NOT create permanent Topic rows.
      */
     public function addManualAuditNoteTopic(): void
     {

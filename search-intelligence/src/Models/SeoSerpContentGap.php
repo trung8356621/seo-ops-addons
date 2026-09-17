@@ -7,9 +7,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Models;
 use Omnichannel\Addons\SearchIntelligence\Enums\Serp\SerpContentGapStatus;
 use Omnichannel\Addons\SearchIntelligence\Enums\Serp\SerpContentGapType;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordCluster;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordWorkspace;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKiKeyword;
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,8 +24,6 @@ class SeoSerpContentGap extends Model
         'public_ref',
         'tenant_id',
         'site_id',
-        'workspace_id',
-        'cluster_id',
         'keyword_id',
         'snapshot_id',
         'gap_type',
@@ -53,8 +48,6 @@ class SeoSerpContentGap extends Model
     protected $casts = [
         'tenant_id' => 'integer',
         'site_id' => 'integer',
-        'workspace_id' => 'integer',
-        'cluster_id' => 'integer',
         'keyword_id' => 'integer',
         'snapshot_id' => 'integer',
         'gap_type' => SerpContentGapType::class,
@@ -73,24 +66,6 @@ class SeoSerpContentGap extends Model
     public function site(): BelongsTo
     {
         return $this->belongsToOnDefaultConnection(Site::class, 'site_id');
-    }
-
-    /** @return BelongsTo<SeoKeywordWorkspace, $this> */
-    public function workspace(): BelongsTo
-    {
-        return $this->belongsTo(SeoKeywordWorkspace::class, 'workspace_id');
-    }
-
-    /** @return BelongsTo<SeoKeywordCluster, $this> */
-    public function cluster(): BelongsTo
-    {
-        return $this->belongsTo(SeoKeywordCluster::class, 'cluster_id');
-    }
-
-    /** @return BelongsTo<SeoKiKeyword, $this> */
-    public function keyword(): BelongsTo
-    {
-        return $this->belongsTo(SeoKiKeyword::class, 'keyword_id');
     }
 
     /** @return BelongsTo<SeoSerpSnapshot, $this> */

@@ -3,42 +3,23 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 
+/**
+ * No-op: topic cluster meta dropped by
+ * 2026_09_17_100000_drop_legacy_keyword_workspace_and_topic_derived_tables.
+ * Basename kept for migration history compatibility.
+ */
 return new class extends Migration
 {
+    protected $connection = 'omi_seo_ai';
+
     public function up(): void
     {
-        $schema = Schema::connection('omi_seo_ai');
-        if (! $schema->hasTable('seo_topic_cluster_meta')) {
-            return;
-        }
-
-        $schema->table('seo_topic_cluster_meta', function (Blueprint $table) use ($schema): void {
-            if (! $schema->hasColumn('seo_topic_cluster_meta', 'mcp_excluded')) {
-                $table->boolean('mcp_excluded')->default(false)->after('canonical_source');
-            }
-            if (! $schema->hasColumn('seo_topic_cluster_meta', 'seo_excluded')) {
-                $table->boolean('seo_excluded')->default(false)->after('mcp_excluded');
-            }
-        });
+        // no-op — tables retired
     }
 
     public function down(): void
     {
-        $schema = Schema::connection('omi_seo_ai');
-        if (! $schema->hasTable('seo_topic_cluster_meta')) {
-            return;
-        }
-
-        $schema->table('seo_topic_cluster_meta', function (Blueprint $table) use ($schema): void {
-            if ($schema->hasColumn('seo_topic_cluster_meta', 'seo_excluded')) {
-                $table->dropColumn('seo_excluded');
-            }
-            if ($schema->hasColumn('seo_topic_cluster_meta', 'mcp_excluded')) {
-                $table->dropColumn('mcp_excluded');
-            }
-        });
+        // no-op
     }
 };

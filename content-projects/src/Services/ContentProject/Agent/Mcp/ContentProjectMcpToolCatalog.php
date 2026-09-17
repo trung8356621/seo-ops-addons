@@ -86,20 +86,6 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('content_project.get_site_health', 'Get site health snapshot for the current site context. Read-only.', ['site_ref']),
             $this->readTool('content_project.get_operation', 'Get operation log entry by operation_ref. Read-only.', ['operation_ref']),
 
-            // Keyword Intelligence — additive read surface.
-            $this->readTool('keyword_intelligence.list_workspaces', 'List keyword workspaces for site context.', []),
-            $this->readTool('keyword_intelligence.get_workspace', 'Get a keyword workspace by workspace_ref.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.list_keywords', 'List keywords in a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.list_clusters', 'List keyword clusters in a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.get_topical_map', 'Get latest topical map version for a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.list_topics', 'List topics in a keyword workspace topical map.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.get_topic', 'Get a topic by topic_ref.', ['workspace_ref', 'topic_ref']),
-            $this->readTool('keyword_intelligence.list_map_conflicts', 'List topical map conflicts for a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.list_link_suggestions', 'List topical link suggestions for a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.list_map_versions', 'List topical map versions for a workspace.', ['workspace_ref']),
-            $this->readTool('keyword_intelligence.compare_map_versions', 'Compare two topical map versions.', ['workspace_ref', 'left_map_version_ref', 'right_map_version_ref']),
-            $this->readTool('keyword_intelligence.get_conversion', 'Get a keyword→content-project conversion by conversion_ref.', ['conversion_ref']),
-            $this->readTool('keyword_intelligence.get_analysis_operation', 'Get keyword analysis operation by operation_ref.', ['operation_ref']),
 
             // SERP Intelligence — additive read surface.
             $this->readTool('serp_intelligence.list_queries', 'List SERP queries in a workspace.', ['workspace_ref']),

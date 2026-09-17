@@ -10,7 +10,6 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pag
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ListSeoProjects;
 use Omnichannel\Addons\ContentProjects\Filament\Widgets\ContentProjectQueueHealthWidget;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\ListKeywords;
 use Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence;
 use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
@@ -120,7 +119,6 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringNotContainsString('setGlobalSiteId(null)', $nav);
 
         $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(ListKeywords::class) ?: []);
-        $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(KeywordTopicClusters::class) ?: []);
 
         $bar = (string) file_get_contents((string) (new ReflectionClass(GlobalSeoBar::class))->getFileName());
         $this->assertStringContainsString('shouldPreferFirstAccessibleDomain', $bar);

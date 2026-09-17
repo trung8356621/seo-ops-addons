@@ -20,7 +20,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticleReconciler;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordWorkspaceResetService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordResetService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
@@ -44,7 +44,7 @@ final class RestartGenerationWithKeywordHandler extends AbstractPublishingHandle
         private readonly ContentProjectRerunEligibilityGuard $eligibility,
         private readonly ContentProjectExistingArticleReconciler $articleReconciler,
         private readonly ContentProjectGenerationCapabilityResolver $capability,
-        private readonly ContentProjectFreshKeywordWorkspaceResetService $workspaceReset,
+        private readonly ContentProjectFreshKeywordResetService $workspaceReset,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }

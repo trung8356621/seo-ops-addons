@@ -6,14 +6,12 @@ namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
 use App\Models\Site;
 use App\Support\RuntimeLogger;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileService;
 
 /**
  * Generate Site MCP Knowledge Profile draft.
  *
  * Hard rules:
- * - Keyword Clusters → Main Topics / topical profile (SSOT)
+ * - Topical cluster profile retired — main topics may be empty
  * - product_cat parent=0 → Important Pages only (production / e-commerce)
  * - product → never Main Topic / never important_pages
  * - never overwrite official Site MCP fields
@@ -26,8 +24,7 @@ final class SiteMcpGenerator
         private readonly SiteMcpDiscovery $discovery,
         private readonly SiteMcpDraft $draftStore,
         private readonly SiteMcpKeywordExtractor $keywords,
-        private readonly SiteMcpContactDiscovery $contactDiscovery,
-        private readonly ?SiteMcpTopicalProfileService $topicalProfile = null,
+        private readonly SiteMcpContactDiscovery $contactDiscovery
     ) {}
 
     /**
@@ -66,18 +63,14 @@ final class SiteMcpGenerator
      */
     private function resolveTopicalProfile(Site $site): array
     {
-        $service = $this->topicalProfile
-            ?? (app()->bound(SiteMcpTopicalProfileService::class) ? app(SiteMcpTopicalProfileService::class) : null);
-        if (! $service instanceof SiteMcpTopicalProfileService) {
-            return [
-                'source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
-                'built_at' => gmdate('c'),
-                'total_clustered_keywords' => 0,
-                'topics' => [],
-            ];
-        }
+        unset($site);
 
-        return $service->rebuild($site);
+        return [
+            'source' => 'none',
+            'built_at' => gmdate('c'),
+            'total_clustered_keywords' => 0,
+            'topics' => [],
+        ];
     }
 
     /**
@@ -169,7 +162,7 @@ final class SiteMcpGenerator
         $importantPages = [];
         $discoveryCandidates = [];
         $profile = is_array($topicalProfile) ? $topicalProfile : [
-            'source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
+            'source' => 'none',
             'built_at' => gmdate('c'),
             'total_clustered_keywords' => 0,
             'topics' => [],
@@ -178,8 +171,8 @@ final class SiteMcpGenerator
             $profile['topics'] = [];
         }
 
-        $mainTopicRecords = SiteMcpClusterTopicalProfileBuilder::toMainTopicRecords($profile);
-        $mainTopics = SiteMcpClusterTopicalProfileBuilder::topicNames($profile);
+        $mainTopicRecords = [];
+        $mainTopics = [];
 
         if ($strategy === 'news_manual') {
             $warnings[] = 'News site: Important Pages stay manual — generator did not auto-select pages.';
@@ -256,7 +249,7 @@ final class SiteMcpGenerator
             'version' => SiteMcpDraft::VERSION,
             'official_site_mcp_exists' => $officialExists,
             'official_fields_modified' => false,
-            'topical_source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
+            'topical_source' => 'none',
         ];
 
         return $draft;

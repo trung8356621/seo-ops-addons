@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Livewire\Attributes\On;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -20,7 +19,7 @@ trait HasKeywordWorkspaceNavigation
     /**
      * Request-scoped inventory tab counts (not table search/filter counts).
      *
-     * @var array{total: int, topics: int, dictionary: int, focus: int}|null
+     * @var array{total: int, dictionary: int, focus: int}|null
      */
     private ?array $keywordWorkspaceTabCountsCache = null;
 
@@ -106,10 +105,10 @@ trait HasKeywordWorkspaceNavigation
     }
 
     /**
-     * Inventory counts for Topics / Dictionary / Focus tabs + header Total badge.
+     * Inventory counts for Dictionary / Focus tabs + header Total badge.
      * Scoped by site + language filter only — ignores table search/filters.
      *
-     * @return array{total: int, topics: int, dictionary: int, focus: int}
+     * @return array{total: int, dictionary: int, focus: int}
      */
     public function getKeywordWorkspaceTabCounts(): array
     {
@@ -124,27 +123,16 @@ trait HasKeywordWorkspaceNavigation
             return $this->keywordWorkspaceTabCountsCache;
         }
 
-        // Total = distinct UI inventory rows (not Dictionary tab + Focus tab).
         $total = app(KeywordUiInventoryQuery::class)->count($siteId, $languageVariants);
         $dictionary = $total;
         $focus = (int) app(KeywordDictionaryQuery::class)
             ->filtered($siteId, $languageVariants, ['focus' => true])
             ->count();
 
-        if (method_exists($this, 'getSummary')) {
-            /** @var array<string, mixed> $summary */
-            $summary = $this->getSummary();
-            $topics = (int) ($summary['topic_clusters'] ?? 0);
-        } else {
-            $topics = (int) (app(KeywordClusterQuery::class)
-                ->summary($siteId, $languageVariants)['topic_clusters'] ?? 0);
-        }
-
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;
 
         return $this->keywordWorkspaceTabCountsCache = [
             'total' => $total,
-            'topics' => $topics,
             'dictionary' => $dictionary,
             'focus' => $focus,
         ];
@@ -158,12 +146,6 @@ trait HasKeywordWorkspaceNavigation
         $counts = $this->getKeywordWorkspaceTabCounts();
 
         return [
-            [
-                'key' => 'workspace-2',
-                'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
-                'url' => KeywordResource::getUrl('clusters'),
-                'count' => $counts['topics'],
-            ],
             [
                 'key' => 'index',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_dictionary'),

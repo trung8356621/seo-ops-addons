@@ -12,9 +12,8 @@ use Omnichannel\Addons\ContentProjects\Services\ArticlePipelineRerunService;
 
 /**
  * Clears working generation artifacts that could contaminate a fresh keyword restart.
- * Does not delete AI history, article identity, focus keyword, or publishing metadata.
  */
-final class ContentProjectFreshKeywordWorkspaceResetService
+final class ContentProjectFreshKeywordResetService
 {
     /**
      * @return array{article_id: int|null, cleared_metas: int}

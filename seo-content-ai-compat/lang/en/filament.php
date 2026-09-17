@@ -349,7 +349,6 @@ return [
         'classification_excluded' => 'Excluded',
         'classification_running' => 'Classifying keywords',
         'classification_progress_counts' => ':current / :total · :pct%',
-        'classification_table_missing' => 'seo_keyword_classifications is missing. Run local SEO migrations before trusting this UI.',
         'normal' => 'Normal',
         'normal_short' => 'Normal',
         'focus' => 'Focus',

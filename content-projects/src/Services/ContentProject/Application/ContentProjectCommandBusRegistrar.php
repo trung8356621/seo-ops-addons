@@ -94,66 +94,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UpdateContentProjectHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SetItemGenerationKeywordOverrideHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UpdateContentProjectItemHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeSelectedKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ApproveTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ArchiveKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AttachClusterToTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\BuildTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CancelKeywordAnalysisCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CancelTopicalMapBuildCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateContentProjectFromKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateKeywordWorkspaceCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\CreateTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\DeleteEmptyTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\DetachClusterFromTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ExcludeKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ImportKeywordsCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MergeKeywordClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveClusterPrimaryTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveKeywordsToClusterCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromClustersCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SaveTopicalMapVersionCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SetTopicRelationshipCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SplitKeywordClusterCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\UpdateKeywordClassificationCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\UpdateTopicCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\AnalyzeKeywordWorkspaceHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\AnalyzeSelectedKeywordsHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ApproveKeywordClustersHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ApproveKeywordsHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ApproveTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ArchiveKeywordWorkspaceHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\AttachClusterToTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\BuildTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CancelKeywordAnalysisHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CancelTopicalMapBuildHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CreateContentProjectFromKeywordClustersHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CreateContentProjectFromTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CreateKeywordWorkspaceHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\CreateTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\DeleteEmptyTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\DetachClusterFromTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ExcludeKeywordsHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ImportKeywordsHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\MergeKeywordClustersHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\MoveClusterPrimaryTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\MoveKeywordsToClusterHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\MoveTopicHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\PreviewContentProjectFromClustersHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\PreviewContentProjectFromTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ReviewTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\SaveTopicalMapVersionHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\SetTopicRelationshipHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\SplitKeywordClusterHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\UpdateKeywordClassificationHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\UpdateTopicHandler;
 use App\Support\RuntimeLogger;
 use Illuminate\Contracts\Foundation\Application;
 use Throwable;
@@ -215,38 +155,6 @@ final class ContentProjectCommandBusRegistrar
             ArchiveProjectItemsCommand::class => ArchiveProjectItemsHandler::class,
             RestoreContentProjectCommand::class => RestoreContentProjectHandler::class,
 
-            // Keyword Intelligence — additive, không đổi các entry Content Project ở trên.
-            CreateKeywordWorkspaceCommand::class => CreateKeywordWorkspaceHandler::class,
-            ImportKeywordsCommand::class => ImportKeywordsHandler::class,
-            AnalyzeKeywordWorkspaceCommand::class => AnalyzeKeywordWorkspaceHandler::class,
-            AnalyzeSelectedKeywordsCommand::class => AnalyzeSelectedKeywordsHandler::class,
-            CancelKeywordAnalysisCommand::class => CancelKeywordAnalysisHandler::class,
-            ApproveKeywordsCommand::class => ApproveKeywordsHandler::class,
-            ExcludeKeywordsCommand::class => ExcludeKeywordsHandler::class,
-            UpdateKeywordClassificationCommand::class => UpdateKeywordClassificationHandler::class,
-            ApproveKeywordClustersCommand::class => ApproveKeywordClustersHandler::class,
-            MergeKeywordClustersCommand::class => MergeKeywordClustersHandler::class,
-            SplitKeywordClusterCommand::class => SplitKeywordClusterHandler::class,
-            MoveKeywordsToClusterCommand::class => MoveKeywordsToClusterHandler::class,
-            BuildTopicalMapCommand::class => BuildTopicalMapHandler::class,
-            CancelTopicalMapBuildCommand::class => CancelTopicalMapBuildHandler::class,
-            CreateTopicCommand::class => CreateTopicHandler::class,
-            UpdateTopicCommand::class => UpdateTopicHandler::class,
-            MoveTopicCommand::class => MoveTopicHandler::class,
-            DeleteEmptyTopicCommand::class => DeleteEmptyTopicHandler::class,
-            AttachClusterToTopicCommand::class => AttachClusterToTopicHandler::class,
-            DetachClusterFromTopicCommand::class => DetachClusterFromTopicHandler::class,
-            MoveClusterPrimaryTopicCommand::class => MoveClusterPrimaryTopicHandler::class,
-            SetTopicRelationshipCommand::class => SetTopicRelationshipHandler::class,
-            ReviewTopicalMapCommand::class => ReviewTopicalMapHandler::class,
-            ApproveTopicalMapCommand::class => ApproveTopicalMapHandler::class,
-            SaveTopicalMapVersionCommand::class => SaveTopicalMapVersionHandler::class,
-            PreviewContentProjectFromClustersCommand::class => PreviewContentProjectFromClustersHandler::class,
-            PreviewContentProjectFromTopicalMapCommand::class => PreviewContentProjectFromTopicalMapHandler::class,
-            CreateContentProjectFromKeywordClustersCommand::class => CreateContentProjectFromKeywordClustersHandler::class,
-            CreateContentProjectFromTopicalMapCommand::class => CreateContentProjectFromTopicalMapHandler::class,
-            ArchiveKeywordWorkspaceCommand::class => ArchiveKeywordWorkspaceHandler::class,
-
             // SERP Intelligence — additive.
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\CreateSerpQueriesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\CreateSerpQueriesHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\UpdateSerpQueryCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\UpdateSerpQueryHandler::class,
@@ -257,18 +165,10 @@ final class ContentProjectCommandBusRegistrar
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\AnalyzeSerpSnapshotCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\AnalyzeSerpSnapshotHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\FetchSerpPageEvidenceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\FetchSerpPageEvidenceHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ReanalyzeSerpPageEvidenceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ReanalyzeSerpPageEvidenceHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ValidateClusterWithSerpCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ValidateClusterWithSerpHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ValidateWorkspaceClustersWithSerpCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ValidateWorkspaceClustersWithSerpHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApproveSerpClusterEvidenceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ApproveSerpClusterEvidenceHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\RejectSerpClusterEvidenceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\RejectSerpClusterEvidenceHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApplySerpIntentSuggestionCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ApplySerpIntentSuggestionHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApplySerpPageTypeSuggestionCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ApplySerpPageTypeSuggestionHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ApplySerpContentActionSuggestionCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ApplySerpContentActionSuggestionHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ReviewSerpContentGapCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ReviewSerpContentGapHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\AcceptSerpContentGapCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\AcceptSerpContentGapHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\IgnoreSerpContentGapCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\IgnoreSerpContentGapHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\ResolveSerpContentGapCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\ResolveSerpContentGapHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\PreviewSplitClusterFromSerpEvidenceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\PreviewSplitClusterFromSerpEvidenceHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\AddSerpFeatureKeywordsCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\AddSerpFeatureKeywordsHandler::class,
 
             // GSC Intelligence — additive Phase 5.
@@ -291,8 +191,6 @@ final class ContentProjectCommandBusRegistrar
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\RejectGscOpportunityCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\RejectGscOpportunityHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\IgnoreGscOpportunityCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\IgnoreGscOpportunityHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\ResolveGscOpportunityCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\ResolveGscOpportunityHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewAddGscQueriesToKeywordWorkspaceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\PreviewAddGscQueriesToKeywordWorkspaceHandler::class,
-            \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\AddGscQueriesToKeywordWorkspaceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\AddGscQueriesToKeywordWorkspaceHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewCreateContentProjectFromGscOpportunitiesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\PreviewCreateContentProjectFromGscOpportunitiesHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\CreateContentProjectFromGscOpportunitiesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\CreateContentProjectFromGscOpportunitiesHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\InspectArticleIndexWithGscHandler::class,

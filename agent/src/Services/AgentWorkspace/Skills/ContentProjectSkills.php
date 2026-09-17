@@ -60,7 +60,6 @@ final class ContentProjectSkills
                         'options' => [
                             ['value' => 'none', 'label' => 'Không có'],
                             ['value' => 'manual', 'label' => 'Nhập ngay'],
-                            ['value' => 'topical_map', 'label' => 'Lấy từ Topical Map'],
                         ],
                     ],
                     ['key' => 'items_text', 'label' => 'Danh sách bài ban đầu', 'type' => 'textarea', 'required' => false, 'help' => 'Mỗi dòng một bài / keyword'],

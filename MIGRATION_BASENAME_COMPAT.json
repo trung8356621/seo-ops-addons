@@ -830,6 +830,12 @@
             "compatibility": "basename_preserved"
         },
         {
+            "basename": "2026_09_17_100000_drop_legacy_keyword_workspace_and_topic_derived_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_09_17_100000_drop_legacy_keyword_workspace_and_topic_derived_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
             "basename": "2026_07_28_180000_create_gsc_intelligence_tables.php",
             "path": "addons/search-intelligence/database/migrations/2026_07_28_180000_create_gsc_intelligence_tables.php",
             "has_connection_property": true,

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Filament\Widgets;
 
 use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoDashboardSite;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DashboardKeywordOverviewService;
 use Filament\Widgets\Widget;
 
 class KeywordOverviewWidget extends Widget
@@ -35,11 +34,15 @@ class KeywordOverviewWidget extends Widget
             ];
         }
 
-        $overview = app(DashboardKeywordOverviewService::class)->forSite($siteId);
-
+        // DashboardKeywordOverviewService (workspace/cluster overview) retired.
         return [
             'has_site' => true,
-            'overview' => $overview,
+            'overview' => [
+                'site_id' => $siteId,
+                'totals' => [],
+                'clusters' => [],
+                'unclustered' => 0,
+            ],
         ];
     }
 }

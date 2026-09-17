@@ -9,7 +9,6 @@ use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -19,7 +18,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Keyword extends Model
 {
@@ -192,11 +190,6 @@ class Keyword extends Model
         }
 
         return [self::METRIC_RESCRAPE_KEEP => true];
-    }
-
-    public function seoClassification(): HasOne
-    {
-        return $this->hasOne(SeoKeywordClassification::class, 'keyword_id');
     }
 
     public function linkMaps(): HasMany

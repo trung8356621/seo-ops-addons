@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application;
 
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordWorkspace;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpClusterEvidence;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpContentGap;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpFeature;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpQuery;
@@ -26,8 +24,10 @@ final class SerpIntelligenceReadService
     /** @param array<string, mixed> $input */
     public function listQueries(int $siteId, string $workspaceRef, array $input = []): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
-        $query = SeoSerpQuery::query()->where('workspace_id', $workspace->id)->orderByDesc('id');
+        unset($workspaceRef);
+        $this->assertSite($siteId);
+
+        $query = SeoSerpQuery::query()->where('site_id', $siteId)->orderByDesc('id');
 
         if (trim((string) ($input['status'] ?? '')) !== '') {
             $query->where('status', (string) $input['status']);
@@ -35,13 +35,13 @@ final class SerpIntelligenceReadService
 
         $rows = $query->limit(200)->get()->map(fn (SeoSerpQuery $q): array => $this->serializeQuery($q))->all();
 
-        return ['workspace_ref' => $workspace->public_ref, 'queries' => $rows];
+        return ['site_id' => $siteId, 'queries' => $rows];
     }
 
     public function getQuery(int $siteId, string $workspaceRef, string $queryRef): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
-        $query = $this->resolveQuery($workspace, $queryRef);
+        unset($workspaceRef);
+        $query = $this->resolveQuery($siteId, $queryRef);
 
         return ['query' => $this->serializeQuery($query, true)];
     }
@@ -49,27 +49,31 @@ final class SerpIntelligenceReadService
     /** @param array<string, mixed> $input */
     public function listSnapshots(int $siteId, string $workspaceRef, array $input = []): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
+        unset($workspaceRef);
+        $this->assertSite($siteId);
         $queryRef = trim((string) ($input['query_ref'] ?? ''));
 
         $snapshotQuery = SeoSerpSnapshot::query()
-            ->where('site_id', $workspace->site_id)
+            ->where('site_id', $siteId)
             ->orderByDesc('captured_at');
 
         if ($queryRef !== '') {
-            $serpQuery = $this->resolveQuery($workspace, $queryRef);
+            $serpQuery = $this->resolveQuery($siteId, $queryRef);
             $snapshotQuery->where('serp_query_id', $serpQuery->id);
         }
 
         $rows = $snapshotQuery->limit(100)->get()->map(fn (SeoSerpSnapshot $s): array => $this->serializeSnapshot($s))->all();
 
-        return ['workspace_ref' => $workspace->public_ref, 'snapshots' => $rows];
+        return ['site_id' => $siteId, 'snapshots' => $rows];
     }
 
     public function getSnapshot(int $siteId, string $workspaceRef, string $snapshotRef): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
+        unset($workspaceRef);
         $snapshot = $this->resolveSnapshot($snapshotRef);
+        if ($siteId > 0 && (int) ($snapshot->site_id ?? 0) !== $siteId) {
+            throw new RuntimeException('SERP snapshot not found.');
+        }
 
         return ['snapshot' => $this->serializeSnapshot($snapshot, true)];
     }
@@ -77,6 +81,7 @@ final class SerpIntelligenceReadService
     /** @param array<string, mixed> $input */
     public function listResults(int $siteId, string $snapshotRef, array $input = []): array
     {
+        unset($siteId, $input);
         $snapshot = $this->resolveSnapshot($snapshotRef);
         $rows = SeoSerpResult::query()
             ->where('snapshot_id', $snapshot->id)
@@ -98,6 +103,7 @@ final class SerpIntelligenceReadService
     /** @param array<string, mixed> $input */
     public function listFeatures(int $siteId, string $snapshotRef, array $input = []): array
     {
+        unset($siteId, $input);
         $snapshot = $this->resolveSnapshot($snapshotRef);
         $rows = SeoSerpFeature::query()
             ->where('snapshot_id', $snapshot->id)
@@ -115,25 +121,16 @@ final class SerpIntelligenceReadService
 
     public function getClusterEvidence(int $siteId, string $workspaceRef, string $evidenceRef): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
-        $id = KeywordIntelligencePublicRef::resolveSerpClusterEvidenceIdStrict($evidenceRef);
-        $evidence = SeoSerpClusterEvidence::query()
-            ->where('workspace_id', $workspace->id)
-            ->where('id', $id)
-            ->first();
-
-        if (! $evidence instanceof SeoSerpClusterEvidence) {
-            throw new RuntimeException('Cluster evidence not found.');
-        }
-
-        return ['evidence' => $this->serializeEvidence($evidence)];
+        unset($siteId, $workspaceRef, $evidenceRef);
+        throw new RuntimeException('Cluster evidence retired with Keyword Workspace.');
     }
 
     /** @param array<string, mixed> $input */
     public function listContentGaps(int $siteId, string $workspaceRef, array $input = []): array
     {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
-        $query = SeoSerpContentGap::query()->where('workspace_id', $workspace->id)->orderByDesc('importance_score');
+        unset($workspaceRef);
+        $this->assertSite($siteId);
+        $query = SeoSerpContentGap::query()->where('site_id', $siteId)->orderByDesc('importance_score');
 
         if (trim((string) ($input['status'] ?? '')) !== '') {
             $query->where('status', (string) $input['status']);
@@ -146,12 +143,13 @@ final class SerpIntelligenceReadService
             'importance_score' => $g->importance_score,
         ])->all();
 
-        return ['workspace_ref' => $workspace->public_ref, 'gaps' => $rows];
+        return ['site_id' => $siteId, 'gaps' => $rows];
     }
 
     /** @param array<string, mixed> $input */
     public function listCompetitors(int $siteId, string $snapshotRef, array $input = []): array
     {
+        unset($siteId, $input);
         $snapshot = $this->resolveSnapshot($snapshotRef);
         $results = SeoSerpResult::query()->where('snapshot_id', $snapshot->id)->orderBy('position')->get()
             ->map(fn (SeoSerpResult $r): array => $r->toArray())->all();
@@ -164,6 +162,7 @@ final class SerpIntelligenceReadService
 
     public function getOperation(int $siteId, string $operationRef): array
     {
+        unset($siteId);
         $operation = $this->operations->getOperation($operationRef);
         if ($operation === null) {
             throw new RuntimeException('Operation not found.');
@@ -212,39 +211,18 @@ final class SerpIntelligenceReadService
         return $base;
     }
 
-    /** @return array<string, mixed> */
-    private function serializeEvidence(SeoSerpClusterEvidence $evidence): array
+    private function assertSite(int $siteId): void
     {
-        return [
-            'evidence_ref' => $evidence->public_ref,
-            'cluster_ref' => KeywordIntelligencePublicRef::cluster((int) $evidence->cluster_id),
-            'status' => $evidence->status?->value ?? $evidence->status,
-            'observed_intent' => $evidence->observed_intent,
-            'dominant_page_type' => $evidence->dominant_page_type?->value ?? $evidence->dominant_page_type,
-            'recommended_action' => $evidence->recommended_action,
-        ];
+        if ($siteId <= 0) {
+            throw new RuntimeException('Thiếu site_id.');
+        }
     }
 
-    private function resolveWorkspace(int $siteId, string $workspaceRef): SeoKeywordWorkspace
+    private function resolveQuery(int $siteId, string $queryRef): SeoSerpQuery
     {
-        $id = KeywordIntelligencePublicRef::resolveWorkspaceIdStrict($workspaceRef);
-        $workspace = SeoKeywordWorkspace::query()->find($id);
-
-        if (! $workspace instanceof SeoKeywordWorkspace) {
-            throw new RuntimeException('Workspace not found.');
-        }
-
-        if ($siteId > 0 && (int) $workspace->site_id !== $siteId) {
-            throw new RuntimeException('Workspace does not belong to site.');
-        }
-
-        return $workspace;
-    }
-
-    private function resolveQuery(SeoKeywordWorkspace $workspace, string $queryRef): SeoSerpQuery
-    {
+        $this->assertSite($siteId);
         $id = KeywordIntelligencePublicRef::resolveSerpQueryIdStrict($queryRef);
-        $query = SeoSerpQuery::query()->where('workspace_id', $workspace->id)->where('id', $id)->first();
+        $query = SeoSerpQuery::query()->where('site_id', $siteId)->where('id', $id)->first();
 
         if (! $query instanceof SeoSerpQuery) {
             throw new RuntimeException('SERP query not found.');

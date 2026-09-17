@@ -7,8 +7,6 @@ namespace Omnichannel\Addons\Seo\Services;
 use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
-use Omnichannel\Addons\SearchIntelligence\Jobs\ClassifyDirtyKeywordsJob;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordGenerationContextBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
@@ -25,11 +23,19 @@ use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
  */
 final class DomainSeoMcpService
 {
+    private const EMPTY_LANDSCAPE = [
+        'clusters' => [],
+        'keywords' => [],
+        'hash' => '',
+        'version' => 0,
+    ];
+
+    private const IDLE_PROGRESS = ['status' => 'idle'];
+
     public function __construct(
         private readonly SeoFindingSyncService $findings,
         private readonly LinkHealthRunService $linkHealth,
         private readonly LinkAnalysisRunService $linkAnalysis,
-        private readonly KeywordClassificationService $keywords,
         private readonly KeywordGenerationContextBuilder $generationContext,
         private readonly KeywordTagResolver $keywordTags,
         private readonly KeywordTagQuery $keywordTagQuery,
@@ -91,9 +97,9 @@ final class DomainSeoMcpService
             return ['ok' => false, 'message' => 'Unsupported analysis kind.', 'data' => []];
         }
 
+        $run = null;
         if ($kind === 'keyword_refresh') {
-            ClassifyDirtyKeywordsJob::dispatch((int) $site->id);
-            $run = null;
+            // Keyword classification pipeline retired — accept no-op refresh.
         } elseif ($kind === 'link_health') {
             $run = $this->linkHealth->start($site);
         } else {
@@ -137,8 +143,7 @@ final class DomainSeoMcpService
         $lines[] = $opps instanceof SeoFinding
             ? '- '.(int) ($opps->evidence['count'] ?? 0).' internal-link opportunities'
             : '- None prepared';
-        $kw = $this->keywords->landscape((int) $site->id);
-        $gaps = $this->gapStats($kw);
+        $gaps = $this->gapStats(self::EMPTY_LANDSCAPE);
         $lines[] = '';
         $lines[] = 'Keyword Opportunities';
         $lines[] = '- '.$gaps['weak'].' weak clusters';
@@ -253,8 +258,7 @@ final class DomainSeoMcpService
             'Priority 3 — Content opportunities',
             '- Use editor rewrite on-demand; no full-site AI scan.',
         ];
-        $kw = $this->keywords->landscape((int) $site->id);
-        $gaps = $this->gapStats($kw);
+        $gaps = $this->gapStats(self::EMPTY_LANDSCAPE);
         $lines[] = '';
         $lines[] = 'Keyword intelligence';
         $lines[] = '- Priority 1: Create content for '.$gaps['missing'].' missing clusters';
@@ -277,7 +281,7 @@ final class DomainSeoMcpService
         $link = SiteSyncSiteMeta::getJson($site, 'seo_link_analysis_snapshot') ?? [];
         $hb = SiteSyncSiteMeta::getJson($site, 'seo_wp_heartbeat') ?? [];
         $dict = SiteSyncSiteMeta::getJson($site, 'seo_keyword_dictionary') ?? [];
-        $progress = SiteSyncSiteMeta::getJson($site, KeywordClassificationService::META_PROGRESS) ?? [];
+        $progress = SiteSyncSiteMeta::getJson($site, 'seo_keyword_intelligence_progress') ?? [];
         $linkAt = $link['last_analyzed_at'] ?? null;
         $hbAt = $hb['observed_at'] ?? null;
         $classAt = $progress['last_activity_at'] ?? $progress['finished_at'] ?? null;
@@ -314,9 +318,8 @@ final class DomainSeoMcpService
      */
     private function keywordOverview(Site $site, array $freshness): array
     {
-        $kw = $this->keywords->landscape((int) $site->id);
+        $kw = self::EMPTY_LANDSCAPE;
         $c = is_array($kw['classification'] ?? null) ? $kw['classification'] : [];
-        $progress = $this->keywords->progress((int) $site->id);
         $tagCounts = $this->operationalTagCounts((int) $site->id);
         $samples = $this->keywordTagSamples((int) $site->id);
         $lines = [
@@ -334,7 +337,7 @@ final class DomainSeoMcpService
             '- Có link: '.(int) ($tagCounts[KeywordTag::HAS_LINK] ?? 0),
         ];
 
-        return $this->keywordPayload($freshness, $progress, [
+        return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
             'text' => implode("\n", $lines),
             'counts' => [
                 'raw' => (int) ($kw['raw_keywords'] ?? 0),
@@ -354,50 +357,15 @@ final class DomainSeoMcpService
      */
     private function keywordLandscape(Site $site, array $freshness): array
     {
-        $kw = $this->keywords->landscape((int) $site->id);
-        $clusters = is_array($kw['clusters'] ?? null) ? $kw['clusters'] : [];
-        $core = [];
-        $saturated = [];
-        $weak = [];
-        $missing = [];
-        foreach (array_slice($clusters, 0, 60) as $cluster) {
-            $row = [
-                'topic' => (string) ($cluster['primary'] ?? ''),
-                'coverage' => (string) ($cluster['coverage'] ?? 'unknown'),
-                'usable' => (int) ($cluster['usable_keyword_count'] ?? 0),
-            ];
-            $cov = $row['coverage'];
-            if ($cov === 'saturated') {
-                $saturated[] = $row;
-            } elseif ($cov === 'missing') {
-                $missing[] = $row;
-            } elseif ($cov === 'weak') {
-                $weak[] = $row;
-            } else {
-                $core[] = $row;
-            }
-        }
-        $lines = ['Keyword Landscape — '.(string) $site->domain, '', 'Core topics'];
-        foreach (array_slice($core, 0, 12) as $row) {
-            $lines[] = '- '.$row['topic'];
-        }
-        $lines[] = '';
-        $lines[] = 'Saturated topics';
-        foreach (array_slice($saturated, 0, 8) as $row) {
-            $lines[] = '- '.$row['topic'].' ('.$row['usable'].')';
-        }
-        $lines[] = '';
-        $lines[] = 'Weak / missing topics';
-        foreach (array_slice(array_merge($weak, $missing), 0, 12) as $row) {
-            $lines[] = '- '.$row['topic'].' ['.$row['coverage'].']';
-        }
+        $clusters = [];
+        $lines = ['Keyword Landscape — '.(string) $site->domain, '', 'Core topics', '', 'Saturated topics', '', 'Weak / missing topics'];
 
-        return $this->keywordPayload($freshness, $this->keywords->progress((int) $site->id), [
+        return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
             'text' => implode("\n", $lines),
-            'core_topics' => array_slice($core, 0, 20),
-            'saturated_topics' => array_slice($saturated, 0, 20),
-            'weak_topics' => array_slice($weak, 0, 20),
-            'missing_topics' => array_slice($missing, 0, 20),
+            'core_topics' => [],
+            'saturated_topics' => [],
+            'weak_topics' => [],
+            'missing_topics' => [],
             'cluster_count' => count($clusters),
         ]);
     }
@@ -408,35 +376,11 @@ final class DomainSeoMcpService
      */
     private function keywordGaps(Site $site, array $freshness): array
     {
-        $kw = $this->keywords->landscape((int) $site->id);
-        $clusters = is_array($kw['clusters'] ?? null) ? $kw['clusters'] : [];
-        $gaps = [];
-        foreach ($clusters as $cluster) {
-            $coverage = (string) ($cluster['coverage'] ?? '');
-            if (! in_array($coverage, ['missing', 'weak'], true) && ($cluster['intent_gaps'] ?? []) === []) {
-                continue;
-            }
-            $gaps[] = [
-                'cluster' => (string) ($cluster['primary'] ?? ''),
-                'coverage' => $coverage,
-                'reason' => $coverage === 'missing' ? 'no_target_content' : 'thin_coverage',
-                'missing_directions' => $cluster['missing_directions'] ?? [],
-                'intent_gaps' => $cluster['intent_gaps'] ?? [],
-                'target_pages' => (int) ($cluster['target_pages'] ?? 0),
-                'published' => (int) ($cluster['published'] ?? 0),
-                'planned' => (int) ($cluster['planned'] ?? 0),
-                'recommended_action' => (string) ($cluster['recommended_action'] ?? 'expand_keywords'),
-            ];
-        }
-        $gaps = array_slice($gaps, 0, 40);
         $lines = ['Keyword Gaps — '.(string) $site->domain, ''];
-        foreach (array_slice($gaps, 0, 15) as $gap) {
-            $lines[] = '- '.$gap['cluster'].' ['.$gap['coverage'].'] → '.$gap['recommended_action'];
-        }
 
-        return $this->keywordPayload($freshness, $this->keywords->progress((int) $site->id), [
+        return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
             'text' => implode("\n", $lines),
-            'gaps' => $gaps,
+            'gaps' => [],
         ]);
     }
 
@@ -447,63 +391,15 @@ final class DomainSeoMcpService
      */
     private function keywordClusterDetail(Site $site, array $freshness, array $input): array
     {
-        $key = trim((string) ($input['cluster'] ?? $input['cluster_key'] ?? $input['topic'] ?? ''));
         $limit = max(5, min(50, (int) ($input['limit'] ?? 12)));
-        $kw = $this->keywords->landscape((int) $site->id);
-        $clusters = is_array($kw['clusters'] ?? null) ? $kw['clusters'] : [];
-        $match = null;
-        foreach ($clusters as $cluster) {
-            $primary = (string) ($cluster['primary'] ?? '');
-            $ck = (string) ($cluster['cluster'] ?? '');
-            if ($key === '' || $key === $primary || $key === $ck || str_contains($primary, $key)) {
-                $match = $cluster;
-                if ($key !== '') {
-                    break;
-                }
-            }
-        }
-        if (! is_array($match)) {
-            return $this->keywordPayload($freshness, $this->keywords->progress((int) $site->id), [
-                'text' => 'Cluster not found.',
-            ]);
-        }
-        $lines = [
-            'Cluster: '.(string) ($match['primary'] ?? ''),
-            '',
-            'Primary',
-            (string) ($match['primary'] ?? ''),
-            '',
-            'Representative variants',
-        ];
-        foreach (array_slice((array) ($match['representative_variants'] ?? []), 0, $limit) as $v) {
-            $lines[] = '- '.$v;
-        }
-        $lines[] = '';
-        $lines[] = 'Queries';
-        foreach ((array) ($match['queries'] ?? []) as $q) {
-            $lines[] = '- '.$q;
-        }
-        $lines[] = '';
-        $lines[] = 'Intent coverage: '.implode(', ', (array) ($match['intent_coverage'] ?? []));
-        $lines[] = 'Target pages: '.(int) ($match['target_pages'] ?? 0);
-        $lines[] = 'Coverage: '.(string) ($match['coverage'] ?? 'unknown');
 
-        return $this->keywordPayload($freshness, $this->keywords->progress((int) $site->id), [
-            'text' => implode("\n", $lines),
-            'cluster' => $match,
+        // Cluster landscape retired with KeywordClassificationService.
+        return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
+            'text' => 'Cluster not found.',
             'keywords' => Keyword::query()
                 ->forSite((int) $site->id)
                 ->with(KeywordTagResolver::tableEagerLoad())
                 ->withCount(Keyword::linkMapCountRelations())
-                ->whereHas(
-                    'seoClassification',
-                    static function ($query) use ($match): void {
-                        $ck = (string) ($match['cluster'] ?? '');
-                        if ($ck !== '') {
-                            $query->where('cluster_key', $ck);
-                        }
-                    },
-                )
                 ->orderBy('phrase')
                 ->limit($limit)
                 ->get()
@@ -519,14 +415,13 @@ final class DomainSeoMcpService
      */
     private function keywordGenerationContext(Site $site, array $freshness, array $input): array
     {
-        $kw = $this->keywords->landscape((int) $site->id);
-        $context = $this->generationContext->build($kw, [
+        $context = $this->generationContext->build(self::EMPTY_LANDSCAPE, [
             'site' => (string) $site->domain,
             'max_topics' => (int) ($input['max_topics'] ?? 50),
             'max_exclusions' => (int) ($input['max_exclusions'] ?? 150),
         ]);
 
-        return $this->keywordPayload($freshness, $this->keywords->progress((int) $site->id), [
+        return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
             'text' => $this->generationContext->toPromptBlock($context),
             'context' => $context,
         ]);

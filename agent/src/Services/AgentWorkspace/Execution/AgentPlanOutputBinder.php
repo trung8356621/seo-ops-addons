@@ -15,10 +15,8 @@ final class AgentPlanOutputBinder
         'workspace_ref',
         'article_ref',
         'selected_item_refs',
-        'keyword_workspace_ref',
         'serp_workspace_ref',
         'operation_ref',
-        'topical_map_ref',
     ];
 
     /**

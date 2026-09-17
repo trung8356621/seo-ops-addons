@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
 use RuntimeException;
 
 /**
@@ -36,17 +35,14 @@ final class SkipKeywordFromMcpService
      */
     public function skip(int $keywordId, ?int $siteId = null): array
     {
+        unset($siteId);
+
         $keyword = Keyword::query()->find($keywordId);
         if (! $keyword instanceof Keyword) {
             throw new RuntimeException('keyword_not_found');
         }
 
         $this->writeMeta($keywordId, true);
-
-        if ($siteId !== null && $siteId > 0) {
-            TopicClusterDirtyState::mark($siteId, 'keyword_mcp_skipped');
-            SiteMcpTopicalProfileStaleState::mark($siteId, 'keyword_mcp_skipped');
-        }
 
         return [
             'keyword_id' => $keywordId,
@@ -60,17 +56,14 @@ final class SkipKeywordFromMcpService
      */
     public function restore(int $keywordId, ?int $siteId = null): array
     {
+        unset($siteId);
+
         $keyword = Keyword::query()->find($keywordId);
         if (! $keyword instanceof Keyword) {
             throw new RuntimeException('keyword_not_found');
         }
 
         $this->writeMeta($keywordId, false);
-
-        if ($siteId !== null && $siteId > 0) {
-            TopicClusterDirtyState::mark($siteId, 'keyword_mcp_restored');
-            SiteMcpTopicalProfileStaleState::mark($siteId, 'keyword_mcp_restored');
-        }
 
         return [
             'keyword_id' => $keywordId,

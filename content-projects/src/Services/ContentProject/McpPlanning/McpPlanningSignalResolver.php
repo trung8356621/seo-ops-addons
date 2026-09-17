@@ -7,11 +7,10 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Resolve canonical site / cluster / keyword for one planning item (no duplicate relations).
+ * Resolve canonical site / keyword for one planning item (no live cluster_key reads).
  */
 final class McpPlanningSignalResolver
 {
@@ -27,12 +26,11 @@ final class McpPlanningSignalResolver
     {
         $siteId = (int) ($task->site_id ?? 0);
         $keywordId = $this->resolveKeywordId($task, $origin);
-        $clusterKey = $this->resolveClusterKey($keywordId, $task, $origin);
         $approvedAt = $task->planning_reviewed_at?->toIso8601String();
 
         return [
             'site_id' => $siteId,
-            'cluster_key' => $clusterKey,
+            'cluster_key' => null,
             'keyword_id' => $keywordId,
             'approved_at' => $approvedAt,
         ];
@@ -54,7 +52,7 @@ final class McpPlanningSignalResolver
             'project_item_id' => (int) $task->getKey(),
             'source_planning_item_id' => (int) $task->getKey(),
             'site_id' => $resolved['site_id'],
-            'cluster_key' => $resolved['cluster_key'],
+            'cluster_key' => null,
             'keyword_id' => $resolved['keyword_id'],
             'approved_at' => $resolved['approved_at'],
         ]);
@@ -108,40 +106,5 @@ final class McpPlanningSignalResolver
             ->first(['id']);
 
         return $keyword instanceof Keyword ? (int) $keyword->getKey() : null;
-    }
-
-    private function resolveClusterKey(?int $keywordId, SeoProjectTask $task, ?SeoContentProjectItemOrigin $origin): ?string
-    {
-        if ($keywordId !== null && $keywordId > 0 && Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-            $key = trim((string) (DB::connection('omi_seo_ai')
-                ->table('seo_keyword_classifications')
-                ->where('keyword_id', $keywordId)
-                ->value('cluster_key') ?? ''));
-            if ($key !== '') {
-                return $key;
-            }
-        }
-
-        $articleId = (int) ($task->article_id ?? 0);
-        if ($articleId <= 0 && $origin instanceof SeoContentProjectItemOrigin) {
-            $articleId = (int) ($origin->source_article_id ?? 0);
-        }
-
-        if ($articleId > 0 && Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')
-            && Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-            $key = trim((string) (DB::connection('omi_seo_ai')
-                ->table('seo_link_maps as lm')
-                ->join('seo_keyword_classifications as c', 'c.keyword_id', '=', 'lm.keyword_id')
-                ->where('lm.target_article_id', $articleId)
-                ->whereNotNull('c.cluster_key')
-                ->where('c.cluster_key', '!=', '')
-                ->orderBy('lm.id')
-                ->value('c.cluster_key') ?? ''));
-            if ($key !== '') {
-                return $key;
-            }
-        }
-
-        return null;
     }
 }

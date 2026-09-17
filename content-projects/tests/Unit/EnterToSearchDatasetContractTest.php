@@ -74,11 +74,9 @@ final class EnterToSearchDatasetContractTest extends TestCase
     public function test_autocomplete_pickers_keep_live_debounce(): void
     {
         $existingArticle = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/view-seo-project-operations.blade.php');
-        $mcp = LegacyAddonPath::read('resources/views/filament/resources/keywords/pages/partials/mcp-group-modal.blade.php');
         $aiCenter = LegacyAddonPath::read('resources/views/filament/pages/seo-settings-ai-center.blade.php');
 
         self::assertStringContainsString('wire:model.live.debounce.300ms="selectExistingArticleQuery"', $existingArticle);
-        self::assertStringContainsString('wire:model.live.debounce.250ms="mcpGroupSearch"', $mcp);
         self::assertStringContainsString('wire:model.live.debounce.300ms="modelSearch"', $aiCenter);
         self::assertStringContainsString('wire:model.live.debounce.300ms="pickerSearch"', $aiCenter);
     }

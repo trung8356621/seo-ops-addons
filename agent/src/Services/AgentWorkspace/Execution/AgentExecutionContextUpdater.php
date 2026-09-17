@@ -18,7 +18,6 @@ final class AgentExecutionContextUpdater
         'workspace_ref',
         'article_ref',
         'selected_item_refs',
-        'keyword_workspace_ref',
         'serp_workspace_ref',
         'last_execution_ref',
     ];
@@ -34,7 +33,7 @@ final class AgentExecutionContextUpdater
         ];
 
         $data = $result->data;
-        foreach (['project_ref', 'workspace_ref', 'article_ref', 'keyword_workspace_ref', 'serp_workspace_ref'] as $key) {
+        foreach (['project_ref', 'workspace_ref', 'article_ref', 'serp_workspace_ref'] as $key) {
             if (isset($data[$key]) && is_string($data[$key]) && trim($data[$key]) !== '') {
                 $patch[$key] = trim($data[$key]);
             }

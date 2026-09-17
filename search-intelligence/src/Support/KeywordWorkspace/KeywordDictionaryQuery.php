@@ -8,17 +8,13 @@ use Illuminate\Database\Eloquent\Builder;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordRuleClassifier;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
 
 /**
  * Single filtered base query for Keyword Dictionary UI.
  *
- * Listing / pagination / summary cards / classification counters must all
- * start from {@see filtered()} with the same site + language + filter bag.
+ * Listing / pagination / summary cards must all start from {@see filtered()}
+ * with the same site + language + filter bag.
  */
 final class KeywordDictionaryQuery
 {
@@ -29,14 +25,10 @@ final class KeywordDictionaryQuery
     /**
      * @param  list<string>|null  $languageVariants
      * @param  array{
-     *     cluster_key?: string|null,
      *     search?: string|null,
      *     focus?: bool,
      *     seo_hidden?: bool|null,
      *     tags?: list<mixed>,
-     *     kinds?: list<mixed>,
-     *     intents?: list<mixed>,
-     *     sources?: list<mixed>,
      *     types?: list<mixed>,
      * }  $filters
      * @return Builder<Keyword>
@@ -62,16 +54,9 @@ final class KeywordDictionaryQuery
             $query->whereHas('mainArticles');
         }
 
-        $query = $this->applyClusterKey($query, isset($filters['cluster_key']) ? (string) $filters['cluster_key'] : null);
         $query = $this->applySearch($query, isset($filters['search']) ? (string) $filters['search'] : null);
         $query = $this->applySeoHidden($query, array_key_exists('seo_hidden', $filters) ? $filters['seo_hidden'] : null);
         $query = app(KeywordTagQuery::class)->apply($query, is_array($filters['tags'] ?? null) ? $filters['tags'] : []);
-        $query = KeywordClassificationVisibility::applyKindFilter(
-            $query,
-            is_array($filters['kinds'] ?? null) ? $filters['kinds'] : [],
-        );
-        $query = $this->applyIntents($query, is_array($filters['intents'] ?? null) ? $filters['intents'] : []);
-        $query = $this->applySources($query, is_array($filters['sources'] ?? null) ? $filters['sources'] : []);
         $query = $this->applyTypes($query, is_array($filters['types'] ?? null) ? $filters['types'] : []);
 
         return $query;
@@ -88,27 +73,6 @@ final class KeywordDictionaryQuery
             ->pluck('id')
             ->map(static fn ($id): int => (int) $id)
             ->all();
-    }
-
-    /**
-     * @param  Builder<Keyword>  $query
-     * @return Builder<Keyword>
-     */
-    public function applyClusterKey(Builder $query, ?string $clusterKey): Builder
-    {
-        $key = trim((string) ($clusterKey ?? ''));
-        if ($key === '') {
-            return $query;
-        }
-
-        if ($key === '_none') {
-            return app(KeywordClusterEligibility::class)->applyUnclusteredSeoKeywordScope($query);
-        }
-
-        return $query->whereHas(
-            'seoClassification',
-            static fn (Builder $classification): Builder => $classification->where('cluster_key', $key),
-        );
     }
 
     /**
@@ -201,52 +165,6 @@ final class KeywordDictionaryQuery
                     );
             })->where('review_status', 'active'),
             false,
-        );
-    }
-
-    /**
-     * @param  Builder<Keyword>  $query
-     * @param  list<mixed>  $intents
-     * @return Builder<Keyword>
-     */
-    public function applyIntents(Builder $query, array $intents): Builder
-    {
-        $allowed = KeywordRuleClassifier::intents();
-        $selected = collect($intents)
-            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
-            ->values()
-            ->all();
-        if ($selected === []) {
-            return $query;
-        }
-
-        return $query->whereHas(
-            'seoClassification',
-            static fn (Builder $classification): Builder => $classification->whereIn('seo_intent', $selected),
-        );
-    }
-
-    /**
-     * @param  Builder<Keyword>  $query
-     * @param  list<mixed>  $sources
-     * @return Builder<Keyword>
-     */
-    public function applySources(Builder $query, array $sources): Builder
-    {
-        $allowed = KeywordSourceNormalizer::all();
-        $selected = collect($sources)
-            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
-            ->values()
-            ->all();
-        if ($selected === []) {
-            return $query;
-        }
-
-        return $query->whereHas(
-            'seoClassification',
-            static fn (Builder $classification): Builder => $classification->whereIn('source_kind', $selected),
         );
     }
 

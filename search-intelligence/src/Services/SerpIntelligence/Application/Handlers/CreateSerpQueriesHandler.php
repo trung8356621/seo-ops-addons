@@ -35,7 +35,7 @@ final class CreateSerpQueriesHandler extends AbstractSerpIntelligenceHandler
         }
 
         return $this->wrap(function () use ($command, $actor): ContentProjectActionResult {
-            $workspace = $this->resolveWorkspace($command->workspaceRef);
+            $workspace = $this->resolveWorkspace($command->workspaceRef, $actor);
             $this->tenantGuard->assertCanAccessWorkspace($workspace, $actor);
             $this->assertNotArchived($workspace);
 
@@ -71,12 +71,8 @@ final class CreateSerpQueriesHandler extends AbstractSerpIntelligenceHandler
                     'public_ref' => 'pending',
                     'tenant_id' => $workspace->tenant_id,
                     'site_id' => $workspace->site_id,
-                    'workspace_id' => $workspace->id,
                     'keyword_id' => isset($row['keyword_ref'])
                         ? KeywordIntelligencePublicRef::resolveKeywordIdStrict((string) $row['keyword_ref'])
-                        : null,
-                    'cluster_id' => isset($row['cluster_ref'])
-                        ? KeywordIntelligencePublicRef::resolveClusterIdStrict((string) $row['cluster_ref'])
                         : null,
                     'query' => $queryText,
                     'normalized_query' => $normalizedQuery,

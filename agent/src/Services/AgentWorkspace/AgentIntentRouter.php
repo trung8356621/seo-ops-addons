@@ -167,8 +167,8 @@ final class AgentIntentRouter
         $normalized = mb_strtolower($text);
 
         $rules = [
-            ['keywords' => ['phân tích từ khóa', 'analyze keyword', 'gom nhóm từ khóa', 'tìm keyword cơ hội'], 'skill' => 'keyword.analyze', 'confidence' => 0.85],
-            ['keywords' => ['topical map', 'xây topical', 'build topical'], 'skill' => 'keyword.build_topical_map', 'confidence' => 0.85],
+            ['keywords' => ['phân tích từ khóa', 'analyze keyword', 'gom nhóm từ khóa', 'tìm keyword cơ hội'], 'skill' => 'confidence' => 0.85],
+            ['keywords' => ['topical map', 'xây topical', 'build topical'], 'skill' => 'confidence' => 0.85],
             ['keywords' => ['thu thập serp', 'collect serp', 'import serp', 'phân tích top 10'], 'skill' => 'serp.collect', 'confidence' => 0.8],
             ['keywords' => ['content gap', 'xem content gap', 'list content gap'], 'skill' => 'serp.list_content_gaps', 'confidence' => 0.82],
             ['keywords' => ['báo cáo hôm nay', 'daily report'], 'skill' => 'operations.daily_report', 'confidence' => 0.9],

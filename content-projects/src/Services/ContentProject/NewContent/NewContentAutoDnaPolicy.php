@@ -87,8 +87,8 @@ final class NewContentAutoDnaPolicy
             '- placement=before → DNA is guided BEFORE the base topic/keyword; placement=after → AFTER. Do not invert.',
             '- Repeated phrase slots (e.g. quà tặng ×3) = repeated semantic demand, NOT permission to duplicate search intent — diversify angles.',
             '- Avoid cannibalizing / duplicate search intent vs existing Articles, Draft items, and ideas already accepted in this run; preserve site primary language and Planning Intelligence.',
-            '- For manual_seed: do NOT require SeoTopicClusterMeta, cluster_key, MCP, focus articles, or membership in the current keyword inventory. Generate genuinely NEW keyword opportunities from seed_text when useful.',
-            '- For cluster: use cluster name, MCP, existing DNA, keyword inventory, and focus articles to expand an existing semantic area.',
+            '- For manual_seed: do NOT require MCP, focus articles, or membership in the current keyword inventory. Generate genuinely NEW keyword opportunities from seed_text when useful.',
+            '- For cluster: use the note-item label, MCP signals, and keyword inventory to expand an existing semantic area (live cluster_key DNA is unavailable).',
         ];
 
         if ($meta['total_topic_target'] < $qty) {

@@ -19,8 +19,6 @@
         keyword: $keyword,
         context: $context,
         siteId: $siteId,
-        dnaValues: $dnaValues,
-        clusterKey: $clusterKey,
     );
 @endphp
 
@@ -137,14 +135,6 @@
             :disabled="saving"
         />
 
-        @if ($item['semantic_tags'] !== [])
-            <div class="keyword-item__semantic">
-                @foreach ($item['semantic_tags'] as $tag)
-                    <span class="semantic-tag semantic-tag--{{ $tag['tone'] }}">{{ $tag['label'] }}</span>
-                @endforeach
-            </div>
-        @endif
-
         @if ($item['planning_tags'] !== [])
             <div class="keyword-item__planning">
                 @foreach ($item['planning_tags'] as $tag)
@@ -162,22 +152,7 @@
         @endif
 
         <div class="keyword-item__footer">
-            @if ($item['show_cluster'] && $item['cluster_label'] !== '—')
-                <span class="keyword-item__cluster">
-                    {{ __('seo-content-ai::filament.keyword.cluster_label') }}:
-                    @if ($item['cluster_url'])
-                        <a href="{{ $item['cluster_url'] }}" class="keyword-item__cluster-link">{{ $item['cluster_label'] }}</a>
-                    @else
-                        {{ $item['cluster_label'] }}
-                    @endif
-                </span>
-            @endif
-
             <span class="keyword-item__meta-line">
-                @if ($item['intent_label'] !== '')
-                    <span class="keyword-item__intent">{{ $item['intent_label'] }}</span>
-                    <span class="keyword-item__sep">·</span>
-                @endif
                 @if ((int) $item['article_count'] > 0)
                     <button
                         type="button"
@@ -224,14 +199,6 @@
                         </button>
                         <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})" @click="menuOpen = false">
                             {{ __('seo-content-ai::filament.keyword.keyword_item_view_linked_articles') }}
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            class="keyword-item__menu-item"
-                            @click="menuOpen = false; $dispatch('open-modal', { id: 'keyword-move-cluster-modal' }); $wire.prepareMoveClusterModal({{ $item['keyword_id'] }})"
-                        >
-                            {{ __('seo-content-ai::filament.keyword.keyword_item_move_cluster') }}
                         </button>
                         @if ($item['can_skip_mcp'])
                             <button

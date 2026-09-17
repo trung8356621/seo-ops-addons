@@ -11,7 +11,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Conte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Agent\KeywordIntelligenceReadService;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Agent\GscIntelligenceReadService;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Agent\SerpIntelligenceReadService;
 use InvalidArgumentException;
@@ -36,21 +35,6 @@ final class ContentProjectAgentGateway
         'content_project.get_site_health',
         'content_project.get_operation',
         'content_project.planning_intelligence',
-
-        // Keyword Intelligence — additive read surface.
-        'keyword_intelligence.list_workspaces',
-        'keyword_intelligence.get_workspace',
-        'keyword_intelligence.list_keywords',
-        'keyword_intelligence.list_clusters',
-        'keyword_intelligence.get_topical_map',
-        'keyword_intelligence.list_topics',
-        'keyword_intelligence.get_topic',
-        'keyword_intelligence.list_map_conflicts',
-        'keyword_intelligence.list_link_suggestions',
-        'keyword_intelligence.list_map_versions',
-        'keyword_intelligence.compare_map_versions',
-        'keyword_intelligence.get_conversion',
-        'keyword_intelligence.get_analysis_operation',
 
         // SERP Intelligence — additive read surface.
         'serp_intelligence.list_queries',
@@ -110,7 +94,6 @@ final class ContentProjectAgentGateway
         private readonly ContentProjectAgentSessionService $sessions,
         private readonly ContentProjectPreviewToken $previewToken,
         private readonly ContentProjectCommandBus $commandBus,
-        private readonly KeywordIntelligenceReadService $keywordReads,
         private readonly SerpIntelligenceReadService $serpReads,
         private readonly GscIntelligenceReadService $gscReads,
         private readonly \Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService $seoAuditReads,
@@ -357,21 +340,6 @@ final class ContentProjectAgentGateway
             'content_project.get_site_health' => $this->reads->getSiteHealth($context, $input),
             'content_project.get_operation' => ['operation' => $this->reads->getOperation($context, $input)],
             'content_project.planning_intelligence' => $this->reads->getPlanningIntelligence($context, $input),
-
-            // Keyword Intelligence — additive read surface.
-            'keyword_intelligence.list_workspaces' => $this->keywordReads->listWorkspaces($context, $input),
-            'keyword_intelligence.get_workspace' => $this->keywordReads->getWorkspace($context, $input),
-            'keyword_intelligence.list_keywords' => $this->keywordReads->listKeywords($context, $input),
-            'keyword_intelligence.list_clusters' => $this->keywordReads->listClusters($context, $input),
-            'keyword_intelligence.get_topical_map' => $this->keywordReads->getTopicalMap($context, $input),
-            'keyword_intelligence.list_topics' => $this->keywordReads->listTopics($context, $input),
-            'keyword_intelligence.get_topic' => $this->keywordReads->getTopic($context, $input),
-            'keyword_intelligence.list_map_conflicts' => $this->keywordReads->listMapConflicts($context, $input),
-            'keyword_intelligence.list_link_suggestions' => $this->keywordReads->listLinkSuggestions($context, $input),
-            'keyword_intelligence.list_map_versions' => $this->keywordReads->listMapVersions($context, $input),
-            'keyword_intelligence.compare_map_versions' => $this->keywordReads->compareMapVersions($context, $input),
-            'keyword_intelligence.get_conversion' => $this->keywordReads->getConversion($context, $input),
-            'keyword_intelligence.get_analysis_operation' => $this->keywordReads->getAnalysisOperation($context, $input),
 
             // SERP Intelligence — additive read surface.
             'serp_intelligence.list_queries' => $this->serpReads->listQueries($context, $input),

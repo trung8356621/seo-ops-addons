@@ -4,10 +4,6 @@
 
     /** @var \Omnichannel\Addons\SearchFoundation\Models\Keyword $record */
     $record = $getRecord();
-    $livewire = $getLivewire();
-    $dnaMap = property_exists($livewire, 'dictionaryKeywordDnaMap') && is_array($livewire->dictionaryKeywordDnaMap)
-        ? $livewire->dictionaryKeywordDnaMap
-        : [];
     $siteId = (int) (KeywordResource::resolveKeywordSiteId($record) ?? 0) ?: null;
 @endphp
 
@@ -15,8 +11,6 @@
     'keyword' => $record,
     'context' => KeywordItemPresenter::CONTEXT_DICTIONARY,
     'siteId' => $siteId,
-    'dnaValues' => $dnaMap[(int) $record->id] ?? null,
-    'clusterKey' => '',
     'showCheckbox' => false,
     'showActions' => false,
 ])

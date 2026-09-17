@@ -81,12 +81,7 @@ final class PlanningAttributionWriter
             $dnaPhrases = [];
         }
 
-        // Keyword→cluster resolve is only for Vocabulary Suggest (no note_items allow-list).
-        // Never use it to invent attribution for multi-topic AI note batches.
-        if ($clusterRef === '' && $allowed === [] && $sourceKeywordId !== null && $sourceKeywordId > 0) {
-            $resolved = $this->resolver->resolve($task, $origin);
-            $clusterRef = trim((string) ($resolved['cluster_key'] ?? ''));
-        }
+        // Live cluster_key resolve retired — keep only caller-provided / allow-list snapshots.
 
         // Single-cluster batch fallback when AI omitted cluster_ref (explicit, tested).
         if ($clusterRef === '' && count($allowed) === 1) {

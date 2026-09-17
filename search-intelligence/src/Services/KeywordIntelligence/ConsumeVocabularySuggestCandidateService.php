@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\VocabularySuggestStagingQuery;
@@ -17,8 +15,7 @@ use RuntimeException;
 
 /**
  * Physically remove a Vocabulary Suggest staging candidate from a site after Draft consume.
- * Idempotent. Never mutates global classification while the keyword is still shared.
- * Hard-deletes global keyword only when orphaned after site detach.
+ * Idempotent. Hard-deletes global keyword only when orphaned after site detach.
  *
  * @phpstan-type ConsumeResult array{
  *   keyword_id: int,
@@ -26,15 +23,13 @@ use RuntimeException;
  *   detached: bool,
  *   deleted: bool,
  *   already_absent: bool,
- *   shared_with_other_sites: bool,
- *   classification_cleared: bool
+ *   shared_with_other_sites: bool
  * }
  */
 final class ConsumeVocabularySuggestCandidateService
 {
     public function __construct(
         private readonly KeywordPersistenceService $persistence,
-        private readonly PruneAutoSingletonClustersService $singletonPruner,
     ) {}
 
     /**
@@ -58,7 +53,6 @@ final class ConsumeVocabularySuggestCandidateService
                 'deleted' => false,
                 'already_absent' => true,
                 'shared_with_other_sites' => false,
-                'classification_cleared' => false,
             ];
         }
 
@@ -91,13 +85,11 @@ final class ConsumeVocabularySuggestCandidateService
                 'deleted' => $deleted,
                 'already_absent' => true,
                 'shared_with_other_sites' => $shared,
-                'classification_cleared' => false,
             ];
         }
 
         $shared = false;
         $deleted = false;
-        $classificationCleared = false;
 
         DB::connection('omi_seo_ai')->transaction(function () use (
             $keyword,
@@ -105,25 +97,17 @@ final class ConsumeVocabularySuggestCandidateService
             $siteId,
             &$shared,
             &$deleted,
-            &$classificationCleared,
         ): void {
-            // Ownership check BEFORE any global mutation. Detach site-local data first.
             $this->persistence->detachKeywordFromSite($keyword, $siteId);
 
             $shared = $this->isSharedWithOtherSites($keywordId, $siteId);
             if ($shared) {
-                // Keep global seo_keyword_classifications.cluster_key for other sites.
-                // Site-local MCP/cluster dirty flags still refresh for the consuming site.
                 return;
             }
 
-            $classificationCleared = $this->clearClassificationIfOrphan($keywordId, $siteId);
             KeywordOrphanCleanup::deleteUnusedByIds([$keywordId]);
             $deleted = ! Keyword::query()->whereKey($keywordId)->exists();
         });
-
-        TopicClusterDirtyState::mark($siteId, 'vocabulary_suggest_consumed');
-        SiteMcpTopicalProfileStaleState::mark($siteId, 'vocabulary_suggest_consumed');
 
         return [
             'keyword_id' => $keywordId,
@@ -132,38 +116,7 @@ final class ConsumeVocabularySuggestCandidateService
             'deleted' => $deleted,
             'already_absent' => false,
             'shared_with_other_sites' => $shared,
-            'classification_cleared' => $classificationCleared,
         ];
-    }
-
-    /**
-     * Clear global classification only when keyword is not shared with another site.
-     */
-    private function clearClassificationIfOrphan(int $keywordId, int $siteId): bool
-    {
-        if (! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-            return false;
-        }
-
-        $row = DB::connection('omi_seo_ai')->table('seo_keyword_classifications')
-            ->where('keyword_id', $keywordId)
-            ->first(['keyword_id', 'cluster_key']);
-
-        if ($row === null) {
-            return false;
-        }
-
-        $previousCluster = trim((string) ($row->cluster_key ?? ''));
-        DB::connection('omi_seo_ai')->table('seo_keyword_classifications')
-            ->where('keyword_id', $keywordId)
-            ->update(['cluster_key' => null]);
-
-        if ($previousCluster !== '' && $siteId > 0) {
-            $touched = [$previousCluster => true];
-            $this->singletonPruner->prune($siteId, $touched);
-        }
-
-        return true;
     }
 
     public function isSharedWithOtherSites(int $keywordId, int $excludeSiteId): bool

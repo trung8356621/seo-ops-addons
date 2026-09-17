@@ -1029,7 +1029,7 @@ final class AgentWorkspaceApplicationService
 
         $groups = [
             'Content' => ['content_project.create', 'content_project.generate', 'content_project.start_review', 'content_project.schedule'],
-            'Planning' => ['keyword.import', 'keyword.analyze', 'keyword.build_topical_map'],
+            'Planning' => [],
             'Knowledge' => ['knowledge.list', 'knowledge.add', 'knowledge.search'],
             'Automations' => ['automation.list', 'automation.create', 'automation.run', 'automation.history'],
             'Monitoring' => ['operations.operation_status', 'content_project.publishing_queue', 'operations.site_health'],

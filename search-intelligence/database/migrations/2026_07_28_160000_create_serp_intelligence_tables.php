@@ -190,32 +190,6 @@ return new class extends Migration
             });
         }
 
-        if (! $schema->hasTable('seo_serp_cluster_evidence')) {
-            $schema->create('seo_serp_cluster_evidence', function (Blueprint $table): void {
-                $table->id();
-                $table->string('public_ref', 64)->unique();
-                $table->unsignedBigInteger('tenant_id')->nullable()->index();
-                $table->unsignedBigInteger('site_id')->index();
-                $table->unsignedBigInteger('workspace_id')->index();
-                $table->unsignedBigInteger('cluster_id')->index();
-                $table->json('snapshot_refs')->nullable();
-                $table->string('observed_intent', 32)->nullable();
-                $table->json('observed_page_types')->nullable();
-                $table->string('dominant_page_type', 32)->nullable();
-                $table->decimal('serp_overlap_score', 5, 2)->nullable();
-                $table->decimal('intent_consistency_score', 5, 2)->nullable();
-                $table->decimal('cluster_confidence', 5, 2)->nullable();
-                $table->string('recommended_action', 64)->nullable();
-                $table->string('recommended_content_type', 64)->nullable();
-                $table->json('reason_codes')->nullable();
-                $table->json('warnings')->nullable();
-                $table->string('status', 32)->default('draft')->index();
-                $table->unsignedBigInteger('reviewed_by')->nullable();
-                $table->timestamp('reviewed_at')->nullable();
-                $table->timestamps();
-            });
-        }
-
         if (! $schema->hasTable('seo_serp_content_gaps')) {
             $schema->create('seo_serp_content_gaps', function (Blueprint $table): void {
                 $table->id();
@@ -253,7 +227,6 @@ return new class extends Migration
         $schema = Schema::connection($this->connection);
 
         $schema->dropIfExists('seo_serp_content_gaps');
-        $schema->dropIfExists('seo_serp_cluster_evidence');
         $schema->dropIfExists('seo_serp_page_evidence');
         $schema->dropIfExists('seo_serp_features');
         $schema->dropIfExists('seo_serp_results');

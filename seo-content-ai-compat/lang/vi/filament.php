@@ -349,7 +349,6 @@ return [
         'classification_excluded' => 'Loại khỏi SEO',
         'classification_running' => 'Đang phân loại keyword',
         'classification_progress_counts' => ':current / :total · :pct%',
-        'classification_table_missing' => 'Thiếu bảng seo_keyword_classifications. Chạy migration SEO local trước khi tin UI này.',
         'normal' => 'Normal',
         'normal_short' => 'Normal',
         'focus' => 'Focus',

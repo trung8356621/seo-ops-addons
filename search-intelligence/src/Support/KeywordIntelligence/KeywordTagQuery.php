@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence;
 
 use Illuminate\Database\Eloquent\Builder;
 use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
@@ -48,51 +49,19 @@ final class KeywordTagQuery
             return $query->whereHasAnyTagId([$groupId]);
         }
 
-        $excludedKinds = [
-            KeywordRuleClassifier::KIND_SENTENCE,
-            KeywordRuleClassifier::KIND_DESCRIPTIVE_PHRASE,
-            KeywordRuleClassifier::KIND_URL_DOMAIN,
-            KeywordRuleClassifier::KIND_NOISE,
-        ];
+        $hiddenMeta = static function (Builder $meta): Builder {
+            return $meta
+                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                ->where('meta_value', '1');
+        };
 
         return match ($tag) {
-            KeywordTag::SEO_EXCLUDED => $query->whereHas(
-                'seoClassification',
-                static function (Builder $classification) use ($excludedKinds): void {
-                    $classification->where(function (Builder $inner) use ($excludedKinds): void {
-                        $inner->where('is_seo_keyword', false)
-                            ->orWhere(function (Builder $kinds) use ($excludedKinds): void {
-                                $kinds->whereNull('is_seo_keyword')
-                                    ->whereIn('phrase_kind', $excludedKinds);
-                            });
-                    });
-                },
-            ),
+            KeywordTag::SEO_EXCLUDED => $query->whereHas('metas', $hiddenMeta),
             KeywordTag::ERROR => $query->whereIn('review_status', [
                 KeywordReviewStatus::Danger->value,
                 KeywordReviewStatus::Warning->value,
             ]),
-            KeywordTag::FOCUS => $query->where(function (Builder $outer) use ($excludedKinds): void {
-                $outer
-                    ->whereDoesntHave('seoClassification')
-                    ->orWhereHas(
-                        'seoClassification',
-                        static function (Builder $classification) use ($excludedKinds): void {
-                            $classification->where(function (Builder $inner) use ($excludedKinds): void {
-                                $inner->where('is_seo_keyword', true)
-                                    ->orWhere(function (Builder $fallback) use ($excludedKinds): void {
-                                        $fallback
-                                            ->whereNull('is_seo_keyword')
-                                            ->where(function (Builder $kind) use ($excludedKinds): void {
-                                                $kind->whereNull('phrase_kind')
-                                                    ->orWhere('phrase_kind', '')
-                                                    ->orWhereNotIn('phrase_kind', $excludedKinds);
-                                            });
-                                    });
-                            });
-                        },
-                    );
-            }),
+            KeywordTag::FOCUS => $query->whereDoesntHave('metas', $hiddenMeta),
             KeywordTag::HAS_LINK => $query->whereHas(
                 'linkMaps',
                 static fn (Builder $maps): Builder => $maps->where('status', '!=', SeoLinkMapStatus::Ignored->value),

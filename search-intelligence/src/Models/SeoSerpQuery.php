@@ -7,9 +7,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Models;
 use Omnichannel\Addons\SearchIntelligence\Enums\Serp\SerpDevice;
 use Omnichannel\Addons\SearchIntelligence\Enums\Serp\SerpQueryStatus;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordCluster;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordWorkspace;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKiKeyword;
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,9 +25,7 @@ class SeoSerpQuery extends Model
         'public_ref',
         'tenant_id',
         'site_id',
-        'workspace_id',
         'keyword_id',
-        'cluster_id',
         'query',
         'normalized_query',
         'identity_hash',
@@ -51,9 +46,7 @@ class SeoSerpQuery extends Model
     protected $casts = [
         'tenant_id' => 'integer',
         'site_id' => 'integer',
-        'workspace_id' => 'integer',
         'keyword_id' => 'integer',
-        'cluster_id' => 'integer',
         'device' => SerpDevice::class,
         'status' => SerpQueryStatus::class,
         'settings' => 'array',
@@ -66,24 +59,6 @@ class SeoSerpQuery extends Model
     public function site(): BelongsTo
     {
         return $this->belongsToOnDefaultConnection(Site::class, 'site_id');
-    }
-
-    /** @return BelongsTo<SeoKeywordWorkspace, $this> */
-    public function workspace(): BelongsTo
-    {
-        return $this->belongsTo(SeoKeywordWorkspace::class, 'workspace_id');
-    }
-
-    /** @return BelongsTo<SeoKiKeyword, $this> */
-    public function keyword(): BelongsTo
-    {
-        return $this->belongsTo(SeoKiKeyword::class, 'keyword_id');
-    }
-
-    /** @return BelongsTo<SeoKeywordCluster, $this> */
-    public function cluster(): BelongsTo
-    {
-        return $this->belongsTo(SeoKeywordCluster::class, 'cluster_id');
     }
 
     /** @return HasMany<SeoSerpSnapshot, $this> */

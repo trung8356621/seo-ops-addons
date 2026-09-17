@@ -32,7 +32,7 @@ final class ImportSerpSnapshotHandler extends AbstractSerpIntelligenceHandler
         }
 
         return $this->wrap(function () use ($command, $actor): ContentProjectActionResult {
-            $workspace = $this->resolveWorkspace($command->workspaceRef);
+            $workspace = $this->resolveWorkspace($command->workspaceRef, $actor);
             $this->tenantGuard->assertCanAccessWorkspace($workspace, $actor);
             $this->assertNotArchived($workspace);
 

@@ -15,7 +15,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleRuntimeStatusResolver;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecisionService;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordWorkspaceResetService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordResetService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunItemService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowStepRetryService;
@@ -770,7 +770,7 @@ final class ContentProjectRunEngine
             if (($decision->meta['needs_workspace_reset'] ?? false) === true) {
                 $task = SeoProjectTask::query()->find((int) $dispatch['task_id']);
                 if ($task instanceof SeoProjectTask) {
-                    app(ContentProjectFreshKeywordWorkspaceResetService::class)->resetForTask($task);
+                    app(ContentProjectFreshKeywordResetService::class)->resetForTask($task);
                 }
             }
 

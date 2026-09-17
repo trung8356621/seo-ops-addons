@@ -11,9 +11,6 @@ use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordRuleClassifier;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
@@ -76,7 +73,7 @@ class KeywordResource extends SeoPanelResource
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 
     /**
-     * Sidebar: Từ khóa → dictionary / focus / clusters / link triage.
+     * Sidebar: Từ khóa → dictionary / focus / link triage.
      */
     protected static bool $shouldRegisterNavigation = true;
 
@@ -125,9 +122,6 @@ class KeywordResource extends SeoPanelResource
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_focus'))
                         ->url(static::getUrl('focus'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsFocusNav()),
-                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_two'))
-                        ->url(static::getUrl('clusters'))
-                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsClustersNav()),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'))
                         ->url(static::getUrl('anchor-audit'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsBrokenLinksNav()),
@@ -308,105 +302,6 @@ class KeywordResource extends SeoPanelResource
                         return $labels === []
                             ? null
                             : __('seo-content-ai::filament.keyword.operational_tags').': '.implode(', ', $labels);
-                    }),
-                Tables\Filters\Filter::make('seo_classification')
-                    ->label(__('seo-content-ai::filament.keyword.advanced_classification'))
-                    ->form([
-                        Forms\Components\Select::make('kinds')
-                            ->label(__('seo-content-ai::filament.keyword.advanced_classification'))
-                            ->options(KeywordClassificationVisibility::filterOptions())
-                            ->multiple()
-                            ->searchable()
-                            ->preload()
-                            ->native(false),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return KeywordClassificationVisibility::applyKindFilter($query, $data['kinds'] ?? []);
-                    })
-                    ->indicateUsing(function (array $data): ?string {
-                        $labels = collect($data['kinds'] ?? [])
-                            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->map(static fn (string $kind): string => KeywordClassificationVisibility::label($kind))
-                            ->values()
-                            ->all();
-
-                        return $labels === []
-                            ? null
-                            : __('seo-content-ai::filament.keyword.advanced_classification').': '.implode(', ', $labels);
-                    }),
-                Tables\Filters\Filter::make('seo_intent')
-                    ->label(__('seo-content-ai::filament.keyword.advanced_intent'))
-                    ->form([
-                        Forms\Components\Select::make('intents')
-                            ->label(__('seo-content-ai::filament.keyword.advanced_intent'))
-                            ->options(KeywordRuleClassifier::intentFilterOptions())
-                            ->multiple()
-                            ->native(false),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        $allowed = KeywordRuleClassifier::intents();
-                        $intents = collect($data['intents'] ?? [])
-                            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
-                            ->values()
-                            ->all();
-                        if ($intents === []) {
-                            return $query;
-                        }
-
-                        return $query->whereHas(
-                            'seoClassification',
-                            static fn (Builder $classification): Builder => $classification->whereIn('seo_intent', $intents),
-                        );
-                    })
-                    ->indicateUsing(function (array $data): ?string {
-                        $labels = collect($data['intents'] ?? [])
-                            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->map(static fn (string $intent): string => KeywordRuleClassifier::intentLabel($intent))
-                            ->filter(static fn (string $label): bool => $label !== '')
-                            ->values()
-                            ->all();
-
-                        return $labels === []
-                            ? null
-                            : __('seo-content-ai::filament.keyword.advanced_intent').': '.implode(', ', $labels);
-                    }),
-                Tables\Filters\Filter::make('source_kind')
-                    ->label(__('seo-content-ai::filament.keyword.advanced_source'))
-                    ->form([
-                        Forms\Components\Select::make('sources')
-                            ->label(__('seo-content-ai::filament.keyword.advanced_source'))
-                            ->options(KeywordSourceNormalizer::filterOptions())
-                            ->multiple()
-                            ->native(false),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        $allowed = KeywordSourceNormalizer::all();
-                        $sources = collect($data['sources'] ?? [])
-                            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
-                            ->values()
-                            ->all();
-                        if ($sources === []) {
-                            return $query;
-                        }
-
-                        return $query->whereHas(
-                            'seoClassification',
-                            static fn (Builder $classification): Builder => $classification->whereIn('source_kind', $sources),
-                        );
-                    })
-                    ->indicateUsing(function (array $data): ?string {
-                        $labels = collect($data['sources'] ?? [])
-                            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->map(static fn (string $source): string => KeywordSourceNormalizer::label($source))
-                            ->filter(static fn (string $label): bool => $label !== '')
-                            ->values()
-                            ->all();
-
-                        return $labels === []
-                            ? null
-                            : __('seo-content-ai::filament.keyword.advanced_source').': '.implode(', ', $labels);
                     }),
                 Tables\Filters\Filter::make('keyword_type')
                     ->label(__('seo-content-ai::filament.keyword.legacy_type'))
@@ -1803,11 +1698,7 @@ class KeywordResource extends SeoPanelResource
 
         return $query->where(function (Builder $inner) use ($like, $foldedLike): void {
             $inner->whereRaw('LOWER(phrase) LIKE ?', [$like])
-                ->orWhereHas('seoClassification', function (Builder $classification) use ($like, $foldedLike): void {
-                    $classification
-                        ->where('normalized_text', 'like', $like)
-                        ->orWhere('folded_text', 'like', $foldedLike);
-                });
+                ->orWhereRaw('LOWER(phrase) LIKE ?', [$foldedLike]);
         });
     }
 
@@ -1817,9 +1708,6 @@ class KeywordResource extends SeoPanelResource
             'index' => Pages\ListKeywords::route('/'),
             'focus' => Pages\ListFocusKeywords::route('/focus'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),
-            'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
-            'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{clusterKey}'),
-            'workspace-2' => Pages\KeywordWorkspaceTwo::route('/workspace-2'),
         ];
     }
 }

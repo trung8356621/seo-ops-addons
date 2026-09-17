@@ -23,7 +23,7 @@ final class AcceptSerpContentGapHandler extends AbstractSerpIntelligenceHandler
         }
 
         return $this->wrap(function () use ($command, $actor): ContentProjectActionResult {
-            $workspace = $this->resolveWorkspace($command->workspaceRef);
+            $workspace = $this->resolveWorkspace($command->workspaceRef, $actor);
             $this->tenantGuard->assertCanAccessWorkspace($workspace, $actor);
 
             $gap = $this->resolveGap($command->gapRef);

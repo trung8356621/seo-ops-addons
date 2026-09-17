@@ -92,45 +92,7 @@ final class SeoFindingSyncService
             } catch (\Throwable) {
             }
         }
-
-        $landscape = $this->jsonMeta($site, \Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService::META_LANDSCAPE);
-        $kwFindings = 0;
-        foreach ((array) ($landscape['clusters'] ?? []) as $cluster) {
-            if (! is_array($cluster) || $kwFindings >= 20) {
-                break;
-            }
-            $coverage = (string) ($cluster['coverage'] ?? '');
-            $primary = (string) ($cluster['primary'] ?? $cluster['cluster'] ?? '');
-            if ($primary === '') {
-                continue;
-            }
-            $entity = substr($primary, 0, 80);
-            if ($coverage === 'missing') {
-                $seen[] = $this->upsert($siteId, 'keyword_cluster_missing', 'medium', 'keyword_cluster', $entity, [
-                    'cluster' => $primary,
-                    'usable' => (int) ($cluster['usable_keyword_count'] ?? 0),
-                ], 'Tạo nội dung cho cụm còn thiếu.', 'keyword_landscape');
-                $kwFindings++;
-            } elseif ($coverage === 'weak') {
-                $seen[] = $this->upsert($siteId, 'keyword_cluster_weak', 'low', 'keyword_cluster', $entity, [
-                    'cluster' => $primary,
-                    'usable' => (int) ($cluster['usable_keyword_count'] ?? 0),
-                ], 'Mở rộng coverage cụm yếu.', 'keyword_landscape');
-                $kwFindings++;
-            } elseif ($coverage === 'saturated') {
-                $seen[] = $this->upsert($siteId, 'keyword_cluster_saturated', 'info', 'keyword_cluster', $entity, [
-                    'cluster' => $primary,
-                    'usable' => (int) ($cluster['usable_keyword_count'] ?? 0),
-                ], 'Không sinh thêm keyword paraphrase cho cụm đã bão hòa.', 'keyword_landscape');
-                $kwFindings++;
-            } elseif (($cluster['intent_gaps'] ?? []) !== []) {
-                $seen[] = $this->upsert($siteId, 'keyword_intent_gap', 'low', 'keyword_cluster', $entity, [
-                    'cluster' => $primary,
-                    'intent_gaps' => $cluster['intent_gaps'],
-                ], 'Bổ sung intent còn thiếu trong cụm.', 'keyword_landscape');
-                $kwFindings++;
-            }
-        }
+        // KeywordClassificationService landscape / cluster findings retired.
 
         $openIds = array_filter(array_map(
             static fn ($row) => $row instanceof SeoFinding ? (int) $row->id : 0,

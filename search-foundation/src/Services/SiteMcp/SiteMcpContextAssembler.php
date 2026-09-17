@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
-use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
 
 /**
  * Build final prompt context blocks for Site MCP consumers.
@@ -184,7 +183,7 @@ final class SiteMcpContextAssembler
                 $lines[] = '(none selected)';
             } else {
                 $activeShown = 0;
-                $maxActive = SiteMcpClusterTopicalProfileBuilder::MAX_PROMPT_ACTIVE_TOPICS;
+                $maxActive = 12;
                 foreach ($selected as $name) {
                     $row = $topicByName[mb_strtolower($name)] ?? null;
                     if (! is_array($row)) {

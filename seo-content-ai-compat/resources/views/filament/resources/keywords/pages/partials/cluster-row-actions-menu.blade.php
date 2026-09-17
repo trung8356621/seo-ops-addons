@@ -139,39 +139,6 @@
                 </span>
             </button>
         @endif
-        @if ($mcpGrouped)
-            <button
-                type="button"
-                class="keyword-item__menu-item"
-                @click="open = false; $dispatch('mcp-group-modal-open', { clusterKey: {{ \Illuminate\Support\Js::from($clusterKey) }} })"
-            >
-                {{ __('seo-content-ai::filament.keyword.topic_mcp_group_manage_action') }}
-            </button>
-            <button
-                type="button"
-                class="keyword-item__menu-item"
-                wire:click="ungroupMcp({{ \Illuminate\Support\Js::from($clusterKey) }})"
-                wire:loading.attr="disabled"
-                wire:target="ungroupMcp"
-                @click="open = false"
-            >
-                <span wire:loading.remove wire:target="ungroupMcp">
-                    {{ __('seo-content-ai::filament.keyword.topic_mcp_ungroup_action') }}
-                </span>
-                <span wire:loading wire:target="ungroupMcp" class="inline-flex items-center gap-1.5">
-                    <x-filament::loading-indicator class="h-4 w-4" />
-                    {{ __('seo-content-ai::filament.keyword.topic_mcp_ungroup_action') }}
-                </span>
-            </button>
-        @else
-            <button
-                type="button"
-                class="keyword-item__menu-item"
-                @click="open = false; $dispatch('mcp-group-modal-open', { clusterKey: {{ \Illuminate\Support\Js::from($clusterKey) }} })"
-            >
-                {{ __('seo-content-ai::filament.keyword.topic_mcp_group_action') }}
-            </button>
-        @endif
         @if ($canDissolve)
             <button
                 type="button"

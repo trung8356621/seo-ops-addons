@@ -12,17 +12,13 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordDetailDrawer;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordItemActions;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordDnaService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
-use App\Core\Operations\LongRunningProgress;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
@@ -35,9 +31,7 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Tables;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Table;
-use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Url;
 
@@ -53,12 +47,6 @@ class ListKeywords extends ListRecords
 
     #[Url(as: 'stat')]
     public ?string $dictionaryStatFilter = null;
-
-    #[Url(as: 'cluster')]
-    public ?string $clusterKeyFilter = null;
-
-    /** @var array<int, list<string>> */
-    public array $dictionaryKeywordDnaMap = [];
 
     public function mount(): void
     {
@@ -86,19 +74,6 @@ class ListKeywords extends ListRecords
     protected function getActiveKeywordWorkspaceKey(): string
     {
         return 'index';
-    }
-
-    protected function paginateTableQuery(Builder $query): Paginator
-    {
-        $paginator = parent::paginateTableQuery($query);
-        $ids = collect($paginator->items())
-            ->map(static fn (Keyword $keyword): int => (int) $keyword->getKey())
-            ->all();
-        $this->dictionaryKeywordDnaMap = $ids === []
-            ? []
-            : app(KeywordDnaService::class)->displayValuesForKeywords($ids);
-
-        return $paginator;
     }
 
     public function assignToContentProjectAction(): Actions\Action
@@ -190,7 +165,6 @@ class ListKeywords extends ListRecords
 
         $table
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
-            // Card filters only — cluster/search/advanced filters live in KeywordDictionaryQuery.
             ->modifyQueryUsing(fn (Builder $query): Builder => $this->applyDictionaryCardFilter($query));
 
         return $table
@@ -226,60 +200,6 @@ class ListKeywords extends ListRecords
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    public function getClassificationSummary(): array
-    {
-        $query = $this->buildDictionaryFilteredQuery();
-        if (! $query instanceof Builder) {
-            return KeywordClassificationVisibility::summarizeForKeywordIds([]);
-        }
-
-        $ids = (clone $query)
-            ->pluck('id')
-            ->map(static fn ($id): int => (int) $id)
-            ->all();
-
-        return KeywordClassificationVisibility::summarizeForKeywordIds($ids);
-    }
-
-    /**
-     * @return array{visible: bool, running: bool, label: string, counts: string}|null
-     */
-    public function getKeywordIntelligenceProgress(): ?array
-    {
-        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        if ($siteId <= 0) {
-            return null;
-        }
-
-        $progress = app(KeywordClassificationService::class)->readProgress($siteId);
-        if (! $progress instanceof LongRunningProgress) {
-            return null;
-        }
-
-        $running = in_array($progress->status, ['queued', 'running'], true);
-        if (! $running) {
-            return null;
-        }
-
-        $current = (int) $progress->current;
-        $total = max(1, (int) $progress->total);
-        $pct = (int) round(($current / $total) * 100);
-
-        return [
-            'visible' => true,
-            'running' => true,
-            'label' => __('seo-content-ai::filament.keyword.classification_running'),
-            'counts' => __('seo-content-ai::filament.keyword.classification_progress_counts', [
-                'current' => number_format($current),
-                'total' => number_format($total),
-                'pct' => $pct,
-            ]),
-        ];
-    }
-
     public function applyDictionaryStatFilter(string $statKey): void
     {
         $allowed = ['total', 'active', 'errors'];
@@ -306,8 +226,6 @@ class ListKeywords extends ListRecords
     protected function listPageTableActions(): array
     {
         return [
-            // Copy lives in the same actions <td> as "..." — not a separate ViewColumn.
-            // Clipboard is handled client-side by keyword-quick-copy-script (capture click).
             Tables\Actions\Action::make('quick_copy')
                 ->label(__('seo-content-ai::filament.keyword.quick_copy'))
                 ->icon('heroicon-o-clipboard-document')
@@ -329,12 +247,6 @@ class ListKeywords extends ListRecords
                 Tables\Actions\Action::make('item_view_linked')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_view_linked_articles'))
                     ->action(fn (Keyword $record): mixed => $this->openKeywordLinkedArticles((int) $record->id)),
-                Tables\Actions\Action::make('item_move_cluster')
-                    ->label(__('seo-content-ai::filament.keyword.keyword_item_move_cluster'))
-                    ->extraAttributes(fn (Keyword $record): array => [
-                        'x-on:click' => "\$dispatch('open-modal', { id: 'keyword-move-cluster-modal' })",
-                    ])
-                    ->action(fn (Keyword $record): mixed => $this->prepareMoveClusterModal((int) $record->id)),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
                     ->visible(function (Keyword $record): bool {
@@ -376,8 +288,6 @@ class ListKeywords extends ListRecords
                 ->icon('heroicon-o-ellipsis-horizontal')
                 ->iconButton()
                 ->color('gray')
-                // No Filament tippy tooltip: ActionGroup iconButton already has an accessible
-                // label, and tippy instances leak ("hide() on destroyed instance") when rows morph.
                 ->extraAttributes([
                     'class' => 'keyword-row-action keyword-row-action--menu',
                     'title' => __('seo-content-ai::filament.keyword.keyword_item_actions'),
@@ -427,27 +337,16 @@ class ListKeywords extends ListRecords
         ];
     }
 
-    /**
-     * Keyword dictionary is domain-scoped via GlobalSeoBar (default: first accessible domain).
-     * Filters (cluster/search/advanced) are applied here via KeywordDictionaryQuery — Filament
-     * filter/search hooks are no-ops to avoid double-scoping.
-     */
     protected function getTableQuery(): ?Builder
     {
         return $this->buildDictionaryFilteredQuery();
     }
 
-    /**
-     * Filament would re-apply table filter callbacks; DictionaryQuery already consumed tableFilters.
-     */
     protected function applyFiltersToTableQuery(Builder $query): Builder
     {
         return $query;
     }
 
-    /**
-     * Search is applied inside KeywordDictionaryQuery from getTableSearch().
-     */
     protected function applySearchToTableQuery(Builder $query): Builder
     {
         return $query;
@@ -475,14 +374,10 @@ class ListKeywords extends ListRecords
 
     /**
      * @return array{
-     *     cluster_key: string|null,
      *     search: string|null,
      *     focus: bool,
      *     seo_hidden: bool|null,
      *     tags: list<mixed>,
-     *     kinds: list<mixed>,
-     *     intents: list<mixed>,
-     *     sources: list<mixed>,
      *     types: list<mixed>
      * }
      */
@@ -498,14 +393,10 @@ class ListKeywords extends ListRecords
         }
 
         return [
-            'cluster_key' => $this->clusterKeyFilter,
             'search' => $this->getTableSearch(),
             'focus' => $this->getKeywordWorkspaceMode() === 'focus',
             'seo_hidden' => $seoHidden,
             'tags' => (array) (($this->getTableFilterState('operational_tags') ?? [])['tags'] ?? []),
-            'kinds' => (array) (($this->getTableFilterState('seo_classification') ?? [])['kinds'] ?? []),
-            'intents' => (array) (($this->getTableFilterState('seo_intent') ?? [])['intents'] ?? []),
-            'sources' => (array) (($this->getTableFilterState('source_kind') ?? [])['sources'] ?? []),
             'types' => (array) (($this->getTableFilterState('keyword_type') ?? [])['types'] ?? []),
         ];
     }
@@ -531,7 +422,7 @@ class ListKeywords extends ListRecords
     {
         $actions = [];
 
-                $actions[] = Actions\Action::make('add_keywords')
+        $actions[] = Actions\Action::make('add_keywords')
             ->label(__('seo-content-ai::filament.keyword.add_keyword'))
             ->icon('heroicon-o-plus')
             ->form([

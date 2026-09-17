@@ -122,14 +122,14 @@ final class AgentSkillInputResolver
             ];
         }
 
-        if ($skill->key === 'keyword.import') {
+        if ($skill->key === ) {
             return [
                 'workspace_ref' => (string) ($input['workspace_ref'] ?? ''),
                 'keywords' => $this->linesToKeywords((string) ($input['keywords_text'] ?? '')),
             ];
         }
 
-        if ($skill->key === 'keyword.analyze') {
+        if ($skill->key === ) {
             $useSiteMcp = $input['use_site_mcp'] ?? $input['use-site-mcp'] ?? 'yes';
             if (is_bool($useSiteMcp)) {
                 $useSiteMcpFlag = $useSiteMcp;
@@ -151,7 +151,7 @@ final class AgentSkillInputResolver
             ];
         }
 
-        if ($skill->key === 'keyword.build_topical_map') {
+        if ($skill->key === ) {
             return [
                 'workspace_ref' => (string) ($input['workspace_ref'] ?? ''),
                 'mode' => (string) ($input['mode'] ?? 'balanced'),

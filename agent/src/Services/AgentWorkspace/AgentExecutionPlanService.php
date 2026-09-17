@@ -32,9 +32,9 @@ final class AgentExecutionPlanService
         }
 
         $steps = [
-            ['skill_key' => 'keyword.analyze', 'title' => 'Phân tích Keyword Workspace'],
-            ['skill_key' => 'keyword.list_clusters', 'title' => 'Review cluster'],
-            ['skill_key' => 'keyword.build_topical_map', 'title' => 'Xây Topical Map'],
+            ['skill_key' => 'title' => 'Phân tích Keyword Workspace'],
+            ['skill_key' => 'title' => 'Review cluster'],
+            ['skill_key' => 'title' => 'Xây Topical Map'],
             ['skill_key' => 'keyword.preview_project', 'title' => 'Preview Content Project'],
             ['skill_key' => 'content_project.create', 'title' => 'Tạo Content Project'],
         ];

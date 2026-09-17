@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers;
 
-use Omnichannel\Addons\SearchIntelligence\Enums\KeywordIntelligence\KeywordWorkspaceStatus;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKeywordWorkspace;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpQuery;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpSnapshot;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -17,6 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Applicati
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\SerpIntelligenceActionCodes;
 use InvalidArgumentException;
 use RuntimeException;
+use stdClass;
 
 abstract class AbstractSerpIntelligenceHandler implements ContentProjectCommandHandler
 {
@@ -25,19 +24,30 @@ abstract class AbstractSerpIntelligenceHandler implements ContentProjectCommandH
         protected readonly ContentProjectPreviewToken $previewToken,
     ) {}
 
-    protected function resolveWorkspace(string $workspaceRef): SeoKeywordWorkspace
+    /**
+     * Site-scoped context (Keyword Workspace retired). $workspaceRef ignored.
+     *
+     * @return object{id: int, site_id: int, tenant_id: int, public_ref: string, archived_at: null}
+     */
+    protected function resolveWorkspace(string $workspaceRef, ?ActorContext $actor = null): object
     {
-        $id = KeywordIntelligencePublicRef::resolveWorkspaceIdStrict($workspaceRef);
-        $workspace = SeoKeywordWorkspace::query()->find($id);
-
-        if (! $workspace instanceof SeoKeywordWorkspace) {
-            throw new RuntimeException('Workspace không tồn tại.');
+        unset($workspaceRef);
+        $siteId = (int) ($actor?->siteId ?? 0);
+        if ($siteId <= 0) {
+            throw new RuntimeException('Thiếu site_id.');
         }
 
-        return $workspace;
+        $ctx = new stdClass;
+        $ctx->id = $siteId;
+        $ctx->site_id = $siteId;
+        $ctx->tenant_id = 0;
+        $ctx->public_ref = 'site_'.$siteId;
+        $ctx->archived_at = null;
+
+        return $ctx;
     }
 
-    protected function resolveQuery(string $queryRef, ?SeoKeywordWorkspace $workspace = null): SeoSerpQuery
+    protected function resolveQuery(string $queryRef, ?object $workspace = null): SeoSerpQuery
     {
         $id = KeywordIntelligencePublicRef::resolveSerpQueryIdStrict($queryRef);
         $query = SeoSerpQuery::query()->find($id);
@@ -46,8 +56,8 @@ abstract class AbstractSerpIntelligenceHandler implements ContentProjectCommandH
             throw new RuntimeException('SERP query không tồn tại.');
         }
 
-        if ($workspace !== null && (int) ($query->workspace_id ?? 0) !== (int) $workspace->id) {
-            throw new RuntimeException('SERP query không thuộc workspace.');
+        if ($workspace !== null && (int) ($query->site_id ?? 0) !== (int) $workspace->site_id) {
+            throw new RuntimeException('SERP query không thuộc site.');
         }
 
         return $query;
@@ -69,11 +79,9 @@ abstract class AbstractSerpIntelligenceHandler implements ContentProjectCommandH
         return $snapshot;
     }
 
-    protected function assertNotArchived(SeoKeywordWorkspace $workspace): void
+    protected function assertNotArchived(object $workspace): void
     {
-        if ($workspace->archived_at !== null || $workspace->status === KeywordWorkspaceStatus::Archived) {
-            throw new RuntimeException('Workspace archived.');
-        }
+        unset($workspace);
     }
 
     /**
@@ -148,11 +156,11 @@ abstract class AbstractSerpIntelligenceHandler implements ContentProjectCommandH
      * @param  array<string, mixed>  $extra
      * @return array<string, mixed>
      */
-    protected function buildFingerprint(string $action, int $workspaceId, array $extra = []): array
+    protected function buildFingerprint(string $action, int $siteId, array $extra = []): array
     {
         return array_merge([
             'action' => $action,
-            'workspace_id' => $workspaceId,
+            'site_id' => $siteId,
         ], $extra);
     }
 

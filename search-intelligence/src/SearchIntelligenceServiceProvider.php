@@ -6,9 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
-use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
-use Omnichannel\Addons\SearchIntelligence\Observers\KeywordIntelligenceDirtyObserver;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -25,10 +22,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Keyword::observe(KeywordIntelligenceDirtyObserver::class);
-        Keyword::resolveRelationUsing('seoClassification', static function (Keyword $keyword) {
-            return $keyword->hasOne(SeoKeywordClassification::class, 'keyword_id');
-        });
+        // Classification / dirty observers removed — no seo_keyword_classifications.
     }
 
     private function registerCapabilities(): void

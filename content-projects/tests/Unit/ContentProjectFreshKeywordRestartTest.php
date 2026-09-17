@@ -11,7 +11,7 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pag
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBusRegistrar;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestartGenerationWithKeywordHandler;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordWorkspaceResetService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordResetService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionCatalog;
@@ -81,13 +81,13 @@ final class ContentProjectFreshKeywordRestartTest extends TestCase
     public function test_handler_preserves_item_identity_and_resets_workspace_only(): void
     {
         $handler = (string) file_get_contents((new ReflectionClass(RestartGenerationWithKeywordHandler::class))->getFileName());
-        self::assertStringContainsString('ContentProjectFreshKeywordWorkspaceResetService', $handler);
+        self::assertStringContainsString('ContentProjectFreshKeywordResetService', $handler);
         self::assertStringContainsString('resetForTask', $handler);
         self::assertStringContainsString('validateFull', $handler);
         self::assertStringNotContainsString('commitCanonicalKeyword', $handler);
         self::assertStringNotContainsString('fresh_create', $handler);
 
-        $reset = (string) file_get_contents((new ReflectionClass(ContentProjectFreshKeywordWorkspaceResetService::class))->getFileName());
+        $reset = (string) file_get_contents((new ReflectionClass(ContentProjectFreshKeywordResetService::class))->getFileName());
         self::assertStringContainsString('ArticleAiHistoryPendingDraftStore::META_KEY', $reset);
         self::assertStringNotContainsString('SeoPromptResult', $reset);
     }

@@ -185,39 +185,8 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Quotas\ContentProjectQuotaGuard::class);
 
-        // Keyword Intelligence — services + application layer.
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordIntentClassifier::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordScoringService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordManualOverrideGuard::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordCandidateBucketer::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordDuplicateResolver::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNearDuplicateDetector::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordExistingContentIndex::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterPrimaryKeywordSelector::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterMutationService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordImportService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordExistingContentMapper::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordWorkspaceAnalysisLock::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordTopicalMapBuildLock::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalMapHierarchyValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalCoverageService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalInternalLinkSuggestionService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalMapConflictDetector::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalMapVersionDiffService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterContentActionResolver::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\PillarTopicSelector::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalMapBuilder::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordTopicalMapMutationService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordTopicalMapToContentProjectConverter::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordWorkspaceAnalysisService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordToContentProjectConverter::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Support\KeywordIntelligenceTenantGuard::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Quotas\KeywordIntelligenceQuotaGuard::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\KeywordIntelligenceReadService::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Agent\KeywordIntelligenceReadService::class);
+        // Keyword Intelligence Workspace/TopicalMap/Cluster bindings removed — classification tables dropped.
+
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpSnapshotPersistService::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpImportSnapshotService::class);
@@ -541,7 +510,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->mergeConfigFrom(__DIR__.'/config/content_project_agent.php', 'seo-content-ai.content_project_agent');
         $this->mergeConfigFrom(__DIR__.'/config/extension_sdk.php', 'seo-content-ai.extension_sdk');
         $this->mergeConfigFrom(__DIR__.'/config/seo_architecture.php', 'seo-content-ai.seo_architecture');
-        $this->mergeConfigFrom(__DIR__.'/config/keyword_intelligence.php', 'seo-content-ai.keyword_intelligence');
         $this->mergeConfigFrom(__DIR__.'/config/gsc_intelligence.php', 'seo-content-ai.gsc_intelligence');
         $this->mergeConfigFrom(__DIR__.'/config/article_editor.php', 'seo-content-ai.article_editor');
         $this->mergeConfigFrom(__DIR__.'/config/article_list.php', 'seo-content-ai.article_list');
@@ -684,9 +652,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\SiteSync\Console\RunLinkHealthCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\RunLinkAnalysisCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\PollWordPressHeartbeatCommand::class,
-                \Omnichannel\Addons\SearchIntelligence\Console\ClassifyKeywordsCommand::class,
-                \Omnichannel\Addons\SearchIntelligence\Console\ReconcileFocusArticleTopicsCommand::class,
-                \Omnichannel\Addons\SearchIntelligence\Console\KeywordIntelligenceReportCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\ReconcileSiteSyncCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\BackfillSiteSyncV2Command::class,
                 \Omnichannel\Addons\Seo\Console\BackfillSiteManualLinksCommand::class,
@@ -1189,7 +1154,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 'seo_image_optimization_settings',
                 'seo_keyword_analysis_operations',
                 'seo_keyword_article_mappings',
-                'seo_keyword_clusters',
                 'seo_keyword_relationships',
                 'seo_keyword_workspaces',
                 'seo_keywords',
@@ -1211,9 +1175,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 'seo_rank_keyword_group_items',
                 'seo_rank_keyword_groups',
                 'seo_tasks',
-                'seo_topic_cluster_links',
-                'seo_topical_map_versions',
-                'seo_topics',
                 'seo_watermark_settings',
                 'seo_wp_media_backups',
                 'seo_wp_media_edited_pending',

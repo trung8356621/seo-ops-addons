@@ -42,13 +42,10 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-6"
             preset="filament-table"
-            targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,dictionaryStatFilter,clusterKeyFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
+            targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,dictionaryStatFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
         >
             @if ($showDictionaryChrome)
                 @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
-                @if ($this->getKeywordWorkspaceMode() !== 'focus')
-                    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-classification-summary')
-                @endif
             @endif
 
             <div
@@ -147,8 +144,6 @@
             </div>
         </x-seo-content-ai::list-table-loading-shell>
     </div>
-
-    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-move-cluster-modal')
 
     <x-filament-actions::modals />
 

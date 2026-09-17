@@ -250,11 +250,8 @@ class GlobalSeoBar extends Component
     {
         return SeoPanelRoutes::is(
             'filament.seo.resources.keywords.index',
-            'filament.seo.resources.keywords.clusters',
-            'filament.seo.resources.keywords.cluster',
             'filament.seo.resources.keywords.focus',
             'filament.seo.resources.keywords.anchor-audit',
-            'filament.seo.resources.keywords.workspace-2',
         );
     }
 
