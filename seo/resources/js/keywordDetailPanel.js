@@ -44,7 +44,7 @@ function extractRecordKeyFromRow(row) {
 }
 
 function highlightRow(root, keywordId) {
-    root.querySelectorAll('.fi-ta-row.keyword-row-selected, [data-keyword-detail-row].keyword-row-selected').forEach((row) => {
+    root.querySelectorAll('[data-keyword-detail-row].keyword-row-selected').forEach((row) => {
         row.classList.remove('keyword-row-selected');
     });
 
@@ -52,9 +52,7 @@ function highlightRow(root, keywordId) {
         return;
     }
 
-    const row = root.querySelector(
-        `[data-keyword-detail-row][data-keyword-id="${keywordId}"], .fi-ta-row[data-keyword-id="${keywordId}"]`,
-    );
+    const row = root.querySelector(`[data-keyword-detail-row][data-keyword-id="${keywordId}"]`);
     row?.classList.add('keyword-row-selected');
 }
 
@@ -88,28 +86,32 @@ function handleKeywordRowSelect(root, config, recordKey) {
     panelController?.openPanel(keywordId);
 }
 
-function installRowClickLayers(root, config) {
+const ROW_INTERACTIVE_SELECTOR = [
+    'a',
+    'button',
+    'input',
+    'textarea',
+    'select',
+    'label',
+    '[role="button"]',
+    '[role="menuitem"]',
+    '[role="menu"]',
+    '.keyword-item__actions',
+    '.keyword-item__menu',
+    '.keyword-item__menu-btn',
+    '.fi-ta-selection-cell',
+    '.fi-ta-actions-cell',
+].join(',');
+
+/**
+ * Stamp shared drawer contract on every keyword row (Filament or Topic).
+ * Click handling is delegated once per .keyword-table-shell — no per-cell listeners.
+ */
+function stampKeywordDetailRows(root) {
     const tableShell = root.querySelector('.keyword-table-shell');
     if (!tableShell) {
         return;
     }
-
-    const interactiveSelector = [
-        'a',
-        'button',
-        'input',
-        'textarea',
-        'select',
-        'label',
-        '[role="button"]',
-        '[role="menuitem"]',
-        '[role="menu"]',
-        '.keyword-item__actions',
-        '.keyword-item__menu',
-        '.keyword-item__menu-btn',
-        '.fi-ta-selection-cell',
-        '.fi-ta-actions-cell',
-    ].join(',');
 
     tableShell.querySelectorAll('.fi-ta-row, [data-keyword-detail-row]').forEach((row) => {
         const recordKey = extractRecordKeyFromRow(row);
@@ -117,8 +119,9 @@ function installRowClickLayers(root, config) {
             return;
         }
 
-        row.dataset.keywordId = recordKey;
         row.setAttribute('data-keyword-detail-row', '');
+        row.setAttribute('data-keyword-id', recordKey);
+        row.dataset.keywordId = recordKey;
 
         row.querySelectorAll('td').forEach((cell) => {
             if (
@@ -128,34 +131,60 @@ function installRowClickLayers(root, config) {
                 return;
             }
 
-            // Drop legacy full-cell overlays — they blocked nested controls (… menu).
             cell.querySelectorAll(':scope > .keyword-row-click-layer').forEach((layer) => {
                 layer.remove();
             });
-
             cell.classList.add('keyword-row-click-cell');
-
-            if (cell.dataset.keywordRowClickBound === '1') {
-                return;
-            }
-
-            cell.dataset.keywordRowClickBound = '1';
-
-            cell.addEventListener('click', (event) => {
-                const target = event.target;
-                if (!(target instanceof Element)) {
-                    return;
-                }
-
-                if (target.closest(interactiveSelector)) {
-                    return;
-                }
-
-                event.preventDefault();
-                event.stopPropagation();
-                handleKeywordRowSelect(root, config, recordKey);
-            });
         });
+    });
+}
+
+function installRowClickLayers(root, config) {
+    const tableShell = root.querySelector('.keyword-table-shell');
+    if (!tableShell) {
+        return;
+    }
+
+    tableShell.__keywordRowConfig = config;
+    tableShell.__keywordRowRoot = root;
+    stampKeywordDetailRows(root);
+
+    if (tableShell.dataset.keywordRowDelegationBound === '1') {
+        if (config?.selectedKeywordId) {
+            highlightRow(root, Number(config.selectedKeywordId));
+        }
+
+        return;
+    }
+
+    tableShell.dataset.keywordRowDelegationBound = '1';
+
+    tableShell.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+
+        if (target.closest(ROW_INTERACTIVE_SELECTOR)) {
+            return;
+        }
+
+        const row = target.closest('[data-keyword-detail-row]');
+        if (!row || !tableShell.contains(row)) {
+            return;
+        }
+
+        const recordKey = extractRecordKeyFromRow(row);
+        if (!recordKey) {
+            return;
+        }
+
+        const activeRoot = tableShell.__keywordRowRoot ?? root;
+        const activeConfig = tableShell.__keywordRowConfig ?? config;
+
+        event.preventDefault();
+        event.stopPropagation();
+        handleKeywordRowSelect(activeRoot, activeConfig, recordKey);
     });
 
     if (config?.selectedKeywordId) {
@@ -163,7 +192,8 @@ function installRowClickLayers(root, config) {
     }
 }
 
-function createKeywordDetailPanel(root, config) {
+function createKeywordDetailPanel(root, initialConfig) {
+    let config = initialConfig ?? {};
     const layout = root;
     const panel = root.querySelector('[data-keyword-detail-panel]');
     const phraseEl = root.querySelector('[data-keyword-detail-phrase]');
@@ -179,6 +209,17 @@ function createKeywordDetailPanel(root, config) {
     const deleteBtn = root.querySelector('[data-keyword-detail-delete]');
     const closeBtn = root.querySelector('[data-keyword-detail-close]');
     const backdrop = root.querySelector('[data-keyword-detail-backdrop]');
+    const listeners = new AbortController();
+    const { signal } = listeners;
+
+    function refreshConfig() {
+        const next = readConfig();
+        if (next) {
+            config = next;
+        }
+
+        return config;
+    }
 
     const state = {
         open: false,
@@ -318,6 +359,7 @@ function createKeywordDetailPanel(root, config) {
             return;
         }
 
+        refreshConfig();
         const component = resolveLivewireComponent(config);
         if (!component) {
             setPanelOpen(true);
@@ -332,7 +374,7 @@ function createKeywordDetailPanel(root, config) {
 
         loadController?.abort();
         loadController = new AbortController();
-        const { signal } = loadController;
+        const { signal: loadSignal } = loadController;
 
         state.keywordId = id;
         state.loading = true;
@@ -344,7 +386,7 @@ function createKeywordDetailPanel(root, config) {
         try {
             const result = await component.call('loadKeywordDetailPanel', id);
 
-            if (signal.aborted) {
+            if (loadSignal.aborted) {
                 return;
             }
 
@@ -375,7 +417,7 @@ function createKeywordDetailPanel(root, config) {
             showContentState();
             state.loading = false;
         } catch (error) {
-            if (signal.aborted || error?.name === 'AbortError') {
+            if (loadSignal.aborted || error?.name === 'AbortError') {
                 return;
             }
 
@@ -406,6 +448,7 @@ function createKeywordDetailPanel(root, config) {
         setAnalyzeButton('');
 
         if (notifyLivewire) {
+            refreshConfig();
             resolveLivewireComponent(config)?.call('closeSidebar');
         }
     }
@@ -415,26 +458,26 @@ function createKeywordDetailPanel(root, config) {
             return;
         }
         closePanel(true);
-    });
+    }, { signal });
     backdrop?.addEventListener('click', () => {
         if (isAssignDrawerOpen()) {
             return;
         }
         closePanel(true);
-    });
+    }, { signal });
 
     // Plain button — avoid Filament Alpine/wire:loading rewriting class every Livewire tick.
     analyzeBtn?.addEventListener('click', (event) => {
         if (analyzeBtn.classList.contains('is-disabled') || analyzeBtn.getAttribute('aria-disabled') === 'true') {
             event.preventDefault();
         }
-    });
+    }, { signal });
 
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && state.open && !isAssignDrawerOpen()) {
             closePanel(true);
         }
-    });
+    }, { signal });
 
     contentEl?.addEventListener('click', (event) => {
         const assignArticleButton = event.target.closest('[data-assign-article]');
@@ -442,7 +485,7 @@ function createKeywordDetailPanel(root, config) {
             event.preventDefault();
 
             const articleId = Number(assignArticleButton.dataset.assignArticle);
-            const siteId = Number(assignArticleButton.dataset.articleSiteId || 0);
+            const siteId = Number(assignArticleButton.dataset.articleSiteId || config.siteId || 0);
             if (!Number.isFinite(articleId) || articleId <= 0) {
                 return;
             }
@@ -482,7 +525,7 @@ function createKeywordDetailPanel(root, config) {
             keyword_ids: Number.isFinite(keywordId) && keywordId > 0 ? [keywordId] : [],
             map_id: mapId,
         });
-    });
+    }, { signal });
 
     return {
         openPanel,
@@ -490,6 +533,12 @@ function createKeywordDetailPanel(root, config) {
         isOpen: () => state.open,
         restoreLayoutOpenClass,
         getKeywordId: () => state.keywordId,
+        getLivewireId: () => String(refreshConfig()?.livewireId ?? ''),
+        dispose: () => {
+            listeners.abort();
+            loadController?.abort();
+            loadController = null;
+        },
     };
 }
 
@@ -564,31 +613,42 @@ export function toggleKeywordDictionaryFilters() {
     page.classList.toggle('keyword-filters-expanded', data.areFiltersOpen);
 }
 
-function bindTableRowLayersOnce(root, config) {
+function bindTableRowLayersOnce() {
     if (window.__keywordRowLayersBound) {
-        installRowClickLayers(root, config);
-
         return;
     }
 
     window.__keywordRowLayersBound = true;
 
     window.Livewire?.hook('morph.updated', ({ el }) => {
-        if (!el?.closest?.('.keyword-table-shell') && !el?.querySelector?.('.keyword-table-shell')) {
-            // Still restore layout class if ListKeywords morph wiped is-panel-open.
+        const layout = document.querySelector('.keyword-detail-layout');
+        const latestConfig = readConfig();
+
+        if (!layout || !latestConfig) {
             panelController?.restoreLayoutOpenClass?.();
 
             return;
         }
 
-        const layout = document.querySelector('.keyword-detail-layout');
-        const latestConfig = readConfig();
+        const touchedTable = el?.closest?.('.keyword-table-shell')
+            || el?.querySelector?.('.keyword-table-shell')
+            || el?.closest?.('.keyword-detail-layout')
+            || el?.querySelector?.('.keyword-detail-layout');
 
-        if (!layout || !latestConfig) {
+        if (!touchedTable && !el?.closest?.('[data-keyword-detail-panel]')) {
+            panelController?.restoreLayoutOpenClass?.();
+
             return;
         }
 
+        const currentLivewireId = panelController?.getLivewireId?.() ?? '';
+        if (!panelController || currentLivewireId !== String(latestConfig.livewireId ?? '')) {
+            panelController?.dispose?.();
+            panelController = createKeywordDetailPanel(layout, latestConfig);
+        }
+
         installRowClickLayers(layout, latestConfig);
+        stampKeywordDetailRows(layout);
         panelController?.restoreLayoutOpenClass?.();
     });
 }
@@ -610,8 +670,15 @@ export function initKeywordDetailPanel() {
 
     window.toggleKeywordDictionaryFilters = toggleKeywordDictionaryFilters;
 
-    panelController = createKeywordDetailPanel(root, config);
+    const nextLivewireId = String(config.livewireId ?? '');
+    const currentLivewireId = panelController?.getLivewireId?.() ?? '';
+    if (!panelController || currentLivewireId !== nextLivewireId || panelController.getKeywordId === undefined) {
+        panelController?.dispose?.();
+        panelController = createKeywordDetailPanel(root, config);
+    }
+
     bindLivewireEventsOnce();
-    bindTableRowLayersOnce(root, config);
+    bindTableRowLayersOnce();
     installRowClickLayers(root, config);
+    stampKeywordDetailRows(root);
 }

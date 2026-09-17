@@ -153,7 +153,8 @@ trait InteractsWithKeywordDetailDrawer
     }
 
     /**
-     * Optional site scope for Topic detail drawer. Dictionary leaves this null.
+     * Site scope for drawer article/link counts when workspace has an active site.
+     * Dictionary and Topic both override / inherit via workspace site id.
      */
     protected function keywordDetailDrawerSiteScope(): ?int
     {

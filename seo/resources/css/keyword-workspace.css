@@ -1366,19 +1366,23 @@ body.keyword-drawer-open {
     pointer-events: none !important;
 }
 
-.keyword-master-detail-page .fi-ta-row.keyword-row-selected > td {
+.keyword-master-detail-page .fi-ta-row.keyword-row-selected > td,
+.keyword-master-detail-page [data-keyword-detail-row].keyword-row-selected > td {
     background-color: rgb(var(--ws-violet-100) / 0.65) !important;
 }
 
-.keyword-master-detail-page .fi-ta-row.keyword-row-selected > td:first-child {
+.keyword-master-detail-page .fi-ta-row.keyword-row-selected > td:first-child,
+.keyword-master-detail-page [data-keyword-detail-row].keyword-row-selected > td:first-child {
     box-shadow: inset 4px 0 0 0 rgb(var(--ws-violet-600));
 }
 
-.dark .keyword-master-detail-page .fi-ta-row.keyword-row-selected > td {
+.dark .keyword-master-detail-page .fi-ta-row.keyword-row-selected > td,
+.dark .keyword-master-detail-page [data-keyword-detail-row].keyword-row-selected > td {
     background-color: rgb(var(--ws-violet-600) / 0.15) !important;
 }
 
-.dark .keyword-master-detail-page .fi-ta-row.keyword-row-selected > td:first-child {
+.dark .keyword-master-detail-page .fi-ta-row.keyword-row-selected > td:first-child,
+.dark .keyword-master-detail-page [data-keyword-detail-row].keyword-row-selected > td:first-child {
     box-shadow: inset 4px 0 0 0 rgb(167 139 250);
 }
 
@@ -3145,12 +3149,26 @@ body.keyword-drawer-open {
     background: transparent;
 }
 
-.topic-keyword-member-table .topic-keyword-member-row:hover {
+.topic-keyword-member-table .topic-keyword-member-row {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    border-bottom: 1px solid rgb(243 244 246);
+}
+
+.dark .topic-keyword-member-table .topic-keyword-member-row {
+    border-bottom-color: rgb(30 41 59);
+}
+
+.topic-keyword-member-table .topic-keyword-member-row:last-child {
+    border-bottom: 0;
+}
+
+.topic-keyword-member-table .topic-keyword-member-row:hover > td {
     background: rgb(249 250 251);
 }
 
-.dark .topic-keyword-member-table .topic-keyword-member-row:hover {
-    background: rgb(30 41 59);
+.dark .topic-keyword-member-table .topic-keyword-member-row:hover > td {
+    background: rgb(255 255 255 / 0.03);
 }
 
 .topic-keyword-member-table .keyword-item-table-cell .keyword-item {

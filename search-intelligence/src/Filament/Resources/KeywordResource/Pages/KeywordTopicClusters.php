@@ -254,10 +254,18 @@ final class KeywordTopicClusters extends Page
         $titleKey = ($result['reused'] ?? false)
             ? 'seo-content-ai::filament.keyword.topic_quick_create_reused'
             : 'seo-content-ai::filament.keyword.topic_quick_create_success';
-        Notification::make()
+        $reconcile = is_array($result['reconcile'] ?? null) ? $result['reconcile'] : [];
+        $attached = (int) ($reconcile['attached'] ?? 0) + (int) ($reconcile['moved'] ?? 0);
+        $body = $attached > 0
+            ? __('seo-content-ai::filament.keyword.topic_quick_create_attached', ['count' => $attached])
+            : null;
+        $notification = Notification::make()
             ->title(__($titleKey, ['label' => $label]))
-            ->success()
-            ->send();
+            ->success();
+        if (is_string($body) && $body !== '') {
+            $notification->body($body);
+        }
+        $notification->send();
 
         $this->clusterSearch = '';
         $this->clusterSearchInput = '';

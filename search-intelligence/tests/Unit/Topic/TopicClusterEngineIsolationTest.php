@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicClusterEngine;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipMatcher;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
@@ -15,8 +16,9 @@ final class TopicClusterEngineIsolationTest extends TestCase
 {
     public function test_same_keyword_can_seed_independent_topic_shapes_per_run(): void
     {
+        $phrases = new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer);
         $engine = new TopicClusterEngine(
-            new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer),
+            new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
         );
 

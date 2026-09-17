@@ -499,4 +499,9 @@ class ListKeywords extends ListRecords
 
         return $actions;
     }
+
+    protected function keywordDetailDrawerSiteScope(): ?int
+    {
+        return $this->resolveKeywordWorkspaceSiteId();
+    }
 }

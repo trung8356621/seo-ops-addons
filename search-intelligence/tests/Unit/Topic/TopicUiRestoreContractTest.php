@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicClusterEngine;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipMatcher;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSeedIdentityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
@@ -110,8 +111,9 @@ final class TopicUiRestoreContractTest extends TestCase
 
     public function test_unmatched_seo_keyword_still_does_not_become_topic(): void
     {
+        $phrases = new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer);
         $engine = new TopicClusterEngine(
-            new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer),
+            new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
         );
         $topics = $engine->cluster(
@@ -222,7 +224,9 @@ final class TopicUiRestoreContractTest extends TestCase
             'cluster-detail-header__title',
             'cluster-detail-header__stats',
             'cluster-detail-dna-panel',
-            'keyword-item-list',
+            'topic-keyword-member-table',
+            'data-keyword-detail-row',
+            'keyword-item-table-cell',
             'keyword-detail-drawer',
             'saveTopicName',
             '@dblclick',

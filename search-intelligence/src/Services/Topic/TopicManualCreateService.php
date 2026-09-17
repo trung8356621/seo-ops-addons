@@ -20,6 +20,7 @@ final class TopicManualCreateService
     public function __construct(
         private readonly KeywordPersistenceService $keywords,
         private readonly TopicSiteKeywordService $siteKeywords,
+        private readonly TopicMembershipReconcileService $reconcile,
     ) {}
 
     /**
@@ -28,27 +29,35 @@ final class TopicManualCreateService
      *     error: ?string,
      *     topic_id: int|null,
      *     topic_name: string|null,
-     *     reused: bool
+     *     reused: bool,
+     *     reconcile: array{
+     *         checked: int,
+     *         matched: int,
+     *         attached: int,
+     *         moved: int,
+     *         skipped_locked: int,
+     *         skipped_seed: int
+     *     }|null
      * }
      */
     public function create(int $siteId, string $phrase): array
     {
         $name = TopicNaming::canonicalName($phrase);
         if ($siteId <= 0 || $name === '') {
-            return ['ok' => false, 'error' => 'invalid_args', 'topic_id' => null, 'topic_name' => null, 'reused' => false];
+            return $this->fail('invalid_args');
         }
         if (! TopicReclusterService::tablesReady()) {
-            return ['ok' => false, 'error' => 'topic_tables_missing', 'topic_id' => null, 'topic_name' => null, 'reused' => false];
+            return $this->fail('topic_tables_missing');
         }
 
         $keyword = $this->keywords->upsert($name, 'internal', $siteId, null);
         if (! $keyword instanceof Keyword) {
-            return ['ok' => false, 'error' => 'keyword_upsert_failed', 'topic_id' => null, 'topic_name' => null, 'reused' => false];
+            return $this->fail('keyword_upsert_failed');
         }
         $this->siteKeywords->upsertClassification($siteId, $keyword, TopicKeywordSource::MANUAL);
         $keywordId = (int) $keyword->id;
 
-        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $name, $keywordId): array {
+        $created = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $name, $keywordId): array {
             $existingSeed = SeoTopicKeyword::query()
                 ->where('site_id', $siteId)
                 ->where('keyword_id', $keywordId)
@@ -103,6 +112,52 @@ final class TopicManualCreateService
                 'reused' => false,
             ];
         });
+
+        if (! ($created['ok'] ?? false) || (int) ($created['topic_id'] ?? 0) <= 0) {
+            return array_merge($this->fail((string) ($created['error'] ?? 'create_failed')), [
+                'reconcile' => null,
+            ]);
+        }
+
+        $metrics = $this->reconcile->reconcile($siteId, (int) $created['topic_id']);
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'topic_id' => (int) $created['topic_id'],
+            'topic_name' => (string) ($created['topic_name'] ?? $name),
+            'reused' => (bool) ($created['reused'] ?? false),
+            'reconcile' => [
+                'checked' => (int) ($metrics['checked'] ?? 0),
+                'matched' => (int) ($metrics['matched'] ?? 0),
+                'attached' => (int) ($metrics['attached'] ?? 0),
+                'moved' => (int) ($metrics['moved'] ?? 0),
+                'skipped_locked' => (int) ($metrics['skipped_locked'] ?? 0),
+                'skipped_seed' => (int) ($metrics['skipped_seed'] ?? 0),
+            ],
+        ];
+    }
+
+    /**
+     * @return array{
+     *     ok: bool,
+     *     error: ?string,
+     *     topic_id: int|null,
+     *     topic_name: string|null,
+     *     reused: bool,
+     *     reconcile: null
+     * }
+     */
+    private function fail(string $error): array
+    {
+        return [
+            'ok' => false,
+            'error' => $error,
+            'topic_id' => null,
+            'topic_name' => null,
+            'reused' => false,
+            'reconcile' => null,
+        ];
     }
 
     private function ensureManualSeed(int $siteId, int $topicId, int $keywordId): void

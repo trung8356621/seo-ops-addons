@@ -1,8 +1,9 @@
 @php
     $keywordDetailPanelConfig = [
         'livewireId' => $this->getId(),
-        'errorLabel' => __('seo-content-ai::filament.keyword.drawer_load_error'),
+        'siteId' => $this->resolveKeywordWorkspaceSiteId(),
         'selectedKeywordId' => $this->selectedKeywordId,
+        'errorLabel' => __('seo-content-ai::filament.keyword.drawer_load_error'),
     ];
     $workspaceCss = base_path('addons/seo/resources/css/keyword-workspace.css');
     $showDictionaryChrome = true;

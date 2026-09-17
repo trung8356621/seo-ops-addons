@@ -17,8 +17,9 @@
     $reclusterPollAttr = $reclusterRunning ? 'wire:poll.5s="pollReclusterResult"' : '';
     $keywordDetailPanelConfig = [
         'livewireId' => $this->getId(),
-        'errorLabel' => __('seo-content-ai::filament.keyword.drawer_load_error'),
+        'siteId' => $siteId > 0 ? $siteId : $this->resolveKeywordWorkspaceSiteId(),
         'selectedKeywordId' => $this->selectedKeywordId,
+        'errorLabel' => __('seo-content-ai::filament.keyword.drawer_load_error'),
     ];
 
     $keywordModelsById = collect();
@@ -262,7 +263,7 @@
                             @endphp
                             @if ($keyword instanceof Keyword)
                                 <tr
-                                    class="topic-keyword-member-row border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+                                    class="topic-keyword-member-row"
                                     data-keyword-detail-row
                                     data-keyword-id="{{ (int) $keyword->id }}"
                                 >

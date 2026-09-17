@@ -66,6 +66,7 @@ final class TopicUxCompletionContractTest extends TestCase
         self::assertStringContainsString('TopicKeywordSource::MANUAL', $src);
         self::assertStringContainsString("'is_seed' => true", $src);
         self::assertStringContainsString('updateOrCreate', $src);
+        self::assertStringContainsString('TopicMembershipReconcileService', $src);
         self::assertDoesNotMatchRegularExpression('/\bcluster_key\b/', $src);
         self::assertStringNotContainsString('CreateManualTopicClusterService', $src);
         self::assertSame(TopicKeywordSource::MANUAL, 'manual');
@@ -121,7 +122,8 @@ final class TopicUxCompletionContractTest extends TestCase
         $js = (string) file_get_contents(dirname(__DIR__, 4).'/seo/resources/js/keywordDetailPanel.js');
         self::assertStringContainsString('[data-keyword-detail-row]', $js);
         self::assertStringContainsString("getAttribute('data-keyword-id')", $js);
-        self::assertStringContainsString('interactiveSelector', $js);
+        self::assertStringContainsString('ROW_INTERACTIVE_SELECTOR', $js);
+        self::assertStringContainsString('stampKeywordDetailRows', $js);
         self::assertStringContainsString('.fi-ta-row, [data-keyword-detail-row]', $js);
     }
 

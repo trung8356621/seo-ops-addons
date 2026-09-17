@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicClusterEngine;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipMatcher;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSeedIdentityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
@@ -19,8 +20,10 @@ final class TopicReclusterPatchRegressionTest extends TestCase
 {
     private function engine(): TopicClusterEngine
     {
+        $phrases = new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer);
+
         return new TopicClusterEngine(
-            new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer),
+            new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
         );
     }

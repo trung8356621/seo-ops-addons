@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 
 /**
@@ -17,7 +16,7 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNor
 final class TopicClusterEngine
 {
     public function __construct(
-        private readonly TopicPhraseResolver $phrases,
+        private readonly TopicMembershipMatcher $matcher,
         private readonly KeywordNormalizer $normalizer,
     ) {}
 
@@ -147,11 +146,7 @@ final class TopicClusterEngine
 
     private function phraseMatchesTopic(string $phrase, string $topicName): bool
     {
-        if ($this->phrases->containsCanonicalCore($phrase, $topicName)) {
-            return true;
-        }
-
-        return $this->phrases->containsCanonicalCoreForTopic($phrase, $topicName);
+        return $this->matcher->matches($phrase, $topicName);
     }
 
     /**
