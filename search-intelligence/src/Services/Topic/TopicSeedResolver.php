@@ -19,9 +19,10 @@ use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
  * Resolve Topic seed evidence for one site.
  *
  * A) Effective Link List = WordPress ∪ Manual − Excluded (Site Sync catalog SSOT)
- * B) Verified root product_cat for Manufacturer (production) / Ecommerce (e-commerce)
+ * B) Every verified product_cat taxonomy term for Manufacturer (production) /
+ *    Ecommerce (e-commerce), at any hierarchy depth (root or nested)
  *
- * Focus keywords / individual products / child categories are NOT seeds.
+ * Focus keywords / individual products are NOT seeds.
  */
 final class TopicSeedResolver
 {
@@ -146,13 +147,13 @@ final class TopicSeedResolver
             return [];
         }
 
-        $roots = $this->rootProductCategories($productCategories);
-        if ($roots === []) {
+        $categories = $this->verifiedProductCategories($productCategories);
+        if ($categories === []) {
             return [];
         }
 
         $seeds = [];
-        foreach ($roots as $category) {
+        foreach ($categories as $category) {
             $extracted = $this->keywordExtractor->extractCategoryTopic($category);
             $phrase = trim((string) ($extracted['keyword'] ?? ''));
             if ($phrase === '') {
@@ -195,12 +196,17 @@ final class TopicSeedResolver
     }
 
     /**
+     * All verified product_cat terms at any depth (parent_term_id = 0 or > 0).
+     *
+     * Rejects individual products, non-product_cat taxonomies, invalid term_id,
+     * and rows that fail SiteMcpProductCatIdentity::normalizeVerified().
+     *
      * @param  list<array<string, mixed>>  $productCategories
      * @return list<array<string, mixed>>
      */
-    private function rootProductCategories(array $productCategories): array
+    public static function verifiedProductCategories(array $productCategories): array
     {
-        $roots = [];
+        $verifiedRows = [];
         foreach ($productCategories as $row) {
             if (! is_array($row)) {
                 continue;
@@ -214,20 +220,18 @@ final class TopicSeedResolver
             if ((int) ($verified['term_id'] ?? 0) <= 0) {
                 continue;
             }
+            // parent_term_id must be present (0 = root, >0 = nested) — never invent hierarchy.
             if (! array_key_exists('parent_term_id', $verified)) {
-                continue;
-            }
-            if ((int) $verified['parent_term_id'] !== 0) {
                 continue;
             }
             $pageType = mb_strtolower(trim((string) ($verified['page_type'] ?? $row['page_type'] ?? '')));
             if (in_array($pageType, ['product', 'products'], true)) {
                 continue;
             }
-            $roots[] = $verified;
+            $verifiedRows[] = $verified;
         }
 
-        return $roots;
+        return $verifiedRows;
     }
 
     /**

@@ -111,6 +111,9 @@ final class TopicCoreArchitectureTest extends TestCase
         self::assertStringContainsString('effectiveLinks', $src);
         self::assertStringContainsString('SiteMcpProductCatIdentity', $src);
         self::assertStringContainsString('parent_term_id', $src);
+        self::assertStringContainsString('verifiedProductCategories', $src);
+        self::assertStringNotContainsString('rootProductCategories', $src);
+        self::assertStringNotContainsString('child categories are NOT', $src);
         self::assertStringNotContainsString('DomainLinkListKeywordSyncService', $src);
     }
 
