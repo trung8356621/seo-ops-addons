@@ -43,7 +43,7 @@ final class KeywordTopicClusters extends Page
 
     public bool $hasArticles = false;
 
-    public string $clusterSort = 'name_asc';
+    public string $clusterSort = 'topical_share_desc';
 
     public int $clusterDataEpoch = 0;
 

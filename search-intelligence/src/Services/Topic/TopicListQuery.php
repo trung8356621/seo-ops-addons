@@ -67,6 +67,16 @@ final class TopicListQuery
         /** @var list<int> $topicIds */
         $topicIds = $topics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
 
+        // Site-wide article counts (same site isolation as TopicLinkedArticleCounter)
+        // so Topical Share denominator is the full site, not the search-filtered page.
+        $allSiteTopicIds = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+        $siteArticleCounts = $this->articleCounter->countForTopics($siteId, $allSiteTopicIds);
+        $shares = (new TopicTopicalShareCalculator)->percentages($siteArticleCounts);
+
         $memberCounts = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
             ->whereIn('topic_id', $topicIds)
@@ -75,15 +85,13 @@ final class TopicListQuery
             ->get()
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
 
-        $articleCounts = $this->articleCounter->countForTopics($siteId, $topicIds);
-
         $rows = [];
         foreach ($topics as $topic) {
             $topicId = (int) $topic->id;
             $counts = $memberCounts->get($topicId);
             $keywordCount = (int) ($counts->member_count ?? 0);
             $lockedMemberCount = (int) ($counts->locked_member_count ?? 0);
-            $articleCount = (int) ($articleCounts[$topicId] ?? 0);
+            $articleCount = (int) ($siteArticleCounts[$topicId] ?? 0);
             $isTopicLocked = (bool) $topic->is_locked;
 
             if ($hasArticles && $articleCount <= 0) {
@@ -109,7 +117,7 @@ final class TopicListQuery
                 'intent' => '',
                 'coverage' => 'unknown',
                 'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
-                'topical_share' => null,
+                'topical_share' => (float) ($shares[$topicId] ?? 0.0),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
             ];
@@ -187,6 +195,8 @@ final class TopicListQuery
                 'keywords_asc' => ((int) $a['keyword_count']) <=> ((int) $b['keyword_count']),
                 'articles_desc' => ((int) $b['article_count']) <=> ((int) $a['article_count']),
                 'articles_asc' => ((int) $a['article_count']) <=> ((int) $b['article_count']),
+                'topical_share_desc' => ((float) $b['topical_share']) <=> ((float) $a['topical_share']),
+                'topical_share_asc' => ((float) $a['topical_share']) <=> ((float) $b['topical_share']),
                 default => strcmp((string) $a['name'], (string) $b['name']),
             };
         });

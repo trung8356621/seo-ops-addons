@@ -241,28 +241,48 @@
                 </details>
             @endif
 
-            <div class="keyword-item-list space-y-2" wire:key="cluster-keyword-list-{{ $this->clusterDataEpoch }}">
-                @forelse ($keywords as $member)
-                    @php
-                        $keyword = $member instanceof Keyword
-                            ? $member
-                            : $keywordModelsById->get((int) (is_array($member) ? ($member['keyword_id'] ?? $member['id'] ?? 0) : 0));
-                    @endphp
-                    @if ($keyword instanceof Keyword)
-                        @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [
-                            'keyword' => $keyword,
-                            'context' => 'cluster',
-                            'siteId' => $siteId,
-                            'dnaValues' => $dnaMap[(int) $keyword->id] ?? [],
-                            'clusterKey' => '',
-                            'showCheckbox' => false,
-                        ])
-                    @endif
-                @empty
-                    <p class="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                        {{ __('seo-content-ai::filament.keyword.topic_empty_cluster_keywords') }}
-                    </p>
-                @endforelse
+            <div
+                class="keyword-dictionary-table-card topic-keyword-member-table overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700"
+                wire:key="cluster-keyword-list-{{ $this->clusterDataEpoch }}"
+            >
+                <table class="w-full table-auto">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="keyword-item-table-header px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-gray-500">
+                                {{ __('seo-content-ai::filament.keyword.phrase_short') }}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse ($keywords as $member)
+                            @php
+                                $keyword = $member instanceof Keyword
+                                    ? $member
+                                    : $keywordModelsById->get((int) (is_array($member) ? ($member['keyword_id'] ?? $member['id'] ?? 0) : 0));
+                            @endphp
+                            @if ($keyword instanceof Keyword)
+                                <tr class="topic-keyword-member-row border-b border-gray-100 last:border-b-0 dark:border-gray-800">
+                                    <td class="keyword-item-table-cell p-0 align-top">
+                                        @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [
+                                            'keyword' => $keyword,
+                                            'context' => 'cluster',
+                                            'siteId' => $siteId,
+                                            'dnaValues' => $dnaMap[(int) $keyword->id] ?? [],
+                                            'clusterKey' => '',
+                                            'showCheckbox' => false,
+                                        ])
+                                    </td>
+                                </tr>
+                            @endif
+                        @empty
+                            <tr>
+                                <td class="px-4 py-8 text-sm text-gray-500">
+                                    {{ __('seo-content-ai::filament.keyword.topic_empty_cluster_keywords') }}
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
             <div>{{ $keywords->links() }}</div>
         @else

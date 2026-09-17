@@ -161,20 +161,22 @@
         @endif
 
         <div class="keyword-item__footer">
-            <span class="keyword-item__meta-line">
-                @if ((int) $item['article_count'] > 0)
-                    <button
-                        type="button"
-                        class="keyword-item__articles-btn"
-                        wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})"
-                        wire:loading.attr="disabled"
-                    >
-                        {{ $item['article_count_label'] }}
-                    </button>
-                @else
-                    <span class="keyword-item__articles">{{ $item['article_count_label'] }}</span>
-                @endif
-            </span>
+            @if (! empty($item['show_article_meta']) || (int) $item['article_count'] > 0)
+                <span class="keyword-item__meta-line">
+                    @if ((int) $item['article_count'] > 0)
+                        <button
+                            type="button"
+                            class="keyword-item__articles-btn"
+                            wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})"
+                            wire:loading.attr="disabled"
+                        >
+                            {{ $item['article_count_label'] }}
+                        </button>
+                    @elseif (($item['article_count_label'] ?? '') !== '')
+                        <span class="keyword-item__articles">{{ $item['article_count_label'] }}</span>
+                    @endif
+                </span>
+            @endif
         </div>
     </div>
 

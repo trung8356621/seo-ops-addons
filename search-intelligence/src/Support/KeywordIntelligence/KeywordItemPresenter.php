@@ -69,6 +69,16 @@ final class KeywordItemPresenter
             $siteId,
         );
 
+        $articleCountLabel = '';
+        if ($articleCount > 0) {
+            $articleCountLabel = trans_choice('seo-content-ai::filament.keyword.topic_row_article_count', $articleCount, [
+                'count' => number_format($articleCount),
+            ]);
+        } elseif ($context !== self::CONTEXT_CLUSTER) {
+            // Dictionary keeps the em dash placeholder; Topic member rows hide it.
+            $articleCountLabel = '—';
+        }
+
         return [
             'keyword_id' => $keywordId,
             'raw_phrase' => (string) $keyword->phrase,
@@ -79,11 +89,8 @@ final class KeywordItemPresenter
             'intent' => '',
             'intent_label' => '',
             'article_count' => $articleCount,
-            'article_count_label' => $articleCount > 0
-                ? trans_choice('seo-content-ai::filament.keyword.topic_row_article_count', $articleCount, [
-                    'count' => number_format($articleCount),
-                ])
-                : '—',
+            'article_count_label' => $articleCountLabel,
+            'show_article_meta' => $articleCountLabel !== '',
             'show_cluster' => false,
             'context' => $context,
             'can_edit_phrase' => KeywordResource::canEdit($keyword),

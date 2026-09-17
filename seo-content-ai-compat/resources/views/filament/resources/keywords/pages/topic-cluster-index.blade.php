@@ -212,6 +212,8 @@
                     <option value="unlocked">{{ __('seo-content-ai::filament.keyword.topic_lock_filter_unlocked') }}</option>
                 </x-select>
                 <x-select size="sm" wire:model.live="clusterSort">
+                    <option value="topical_share_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_desc') }}</option>
+                    <option value="topical_share_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_asc') }}</option>
                     <option value="articles_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_desc') }}</option>
                     <option value="articles_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_asc') }}</option>
                     <option value="keywords_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_keywords_desc') }}</option>
@@ -441,8 +443,11 @@
                             </div>
                         </div>
 
-                        <div class="cluster-index-row__share">
-                            <span>—</span>
+                        <div
+                            class="cluster-index-row__share"
+                            title="{{ __('seo-content-ai::filament.keyword.topic_topical_share_tooltip') }}"
+                        >
+                            <span>{{ \Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicTopicalShareCalculator::formatPercent((float) ($row['topical_share'] ?? 0)) }}</span>
                         </div>
 
                         <div class="cluster-index-row__actions">

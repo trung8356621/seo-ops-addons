@@ -3145,6 +3145,18 @@ body.keyword-drawer-open {
     background: transparent;
 }
 
+.topic-keyword-member-table .topic-keyword-member-row:hover {
+    background: rgb(249 250 251);
+}
+
+.dark .topic-keyword-member-table .topic-keyword-member-row:hover {
+    background: rgb(30 41 59);
+}
+
+.topic-keyword-member-table .keyword-item-table-cell .keyword-item {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .keyword-item__phrase,
 .keyword-row__phrase {
     font-weight: 600;
