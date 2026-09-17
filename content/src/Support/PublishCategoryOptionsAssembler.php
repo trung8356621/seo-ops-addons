@@ -21,10 +21,13 @@ final class PublishCategoryOptionsAssembler
      *     status: array<string, array{ok: bool, code: string, message: string, taxonomy: string}>
      * }
      */
-    public function forSite(int $siteId): array
+    public function forSite(int $siteId, ?string $lang = null): array
     {
-        $category = $this->catalog->getTerms($siteId, PublishingTaxonomyCatalog::TAXONOMY_CATEGORY);
-        $productCat = $this->catalog->getTerms($siteId, PublishingTaxonomyCatalog::TAXONOMY_PRODUCT_CAT);
+        $lang = ArticleLanguageCode::normalize(trim((string) $lang));
+        $lang = $lang !== '' ? $lang : null;
+
+        $category = $this->catalog->getTerms($siteId, PublishingTaxonomyCatalog::TAXONOMY_CATEGORY, $lang);
+        $productCat = $this->catalog->getTerms($siteId, PublishingTaxonomyCatalog::TAXONOMY_PRODUCT_CAT, $lang);
 
         return [
             'category' => $this->optionsFromResult($category),

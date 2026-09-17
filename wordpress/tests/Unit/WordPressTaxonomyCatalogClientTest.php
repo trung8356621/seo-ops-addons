@@ -74,6 +74,46 @@ final class WordPressTaxonomyCatalogClientTest extends TestCase
         $this->assertSame([], $result->items);
     }
 
+    public function test_passes_language_query_to_wordpress(): void
+    {
+        Http::fake([
+            'https://example.test/wp-json/omi-seo-ai/v1/taxonomy-catalog/product_cat*' => Http::response([
+                'schema' => 'taxonomy_catalog.v1',
+                'taxonomy' => 'product_cat',
+                'items' => [
+                    ['id' => 10, 'name' => 'Balo VI', 'parent' => 0],
+                ],
+            ], 200),
+        ]);
+
+        $result = (new WordPressTaxonomyCatalogClient())->fetch($this->mockSite(), 'product_cat', 'vi');
+
+        $this->assertTrue($result->ok);
+        Http::assertSent(function ($request): bool {
+            return str_contains($request->url(), '/taxonomy-catalog/product_cat')
+                && $request['lang'] === 'vi';
+        });
+    }
+
+    public function test_omits_lang_query_when_not_supplied(): void
+    {
+        Http::fake([
+            'https://example.test/wp-json/omi-seo-ai/v1/taxonomy-catalog/category' => Http::response([
+                'taxonomy' => 'category',
+                'items' => [
+                    ['id' => 1, 'name' => 'All', 'parent' => 0],
+                ],
+            ], 200),
+        ]);
+
+        (new WordPressTaxonomyCatalogClient())->fetch($this->mockSite(), 'category');
+
+        Http::assertSent(function ($request): bool {
+            return str_contains($request->url(), '/taxonomy-catalog/category')
+                && ! array_key_exists('lang', $request->data());
+        });
+    }
+
     private function mockSite(): Site
     {
         $site = Mockery::mock(Site::class);

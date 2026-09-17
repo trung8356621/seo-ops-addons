@@ -17,7 +17,7 @@ final class WordPressPublishingTaxonomyCatalog implements PublishingTaxonomyCata
         private readonly WordPressTaxonomyCatalogClient $client,
     ) {}
 
-    public function getTerms(int $siteId, string $taxonomy): PublishingTaxonomyCatalogResult
+    public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
     {
         $taxonomy = strtolower(trim($taxonomy));
         if (! in_array($taxonomy, self::SUPPORTED, true)) {
@@ -28,7 +28,8 @@ final class WordPressPublishingTaxonomyCatalog implements PublishingTaxonomyCata
             );
         }
 
-        $key = $siteId.':'.$taxonomy;
+        $langKey = strtolower(trim((string) $lang));
+        $key = $siteId.':'.$taxonomy.':'.$langKey;
         if (isset($this->memo[$key])) {
             return $this->memo[$key];
         }
@@ -50,6 +51,6 @@ final class WordPressPublishingTaxonomyCatalog implements PublishingTaxonomyCata
             );
         }
 
-        return $this->memo[$key] = $this->client->fetch($site, $taxonomy);
+        return $this->memo[$key] = $this->client->fetch($site, $taxonomy, $langKey !== '' ? $langKey : null);
     }
 }

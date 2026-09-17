@@ -12,9 +12,9 @@ use Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalogResult;
  */
 final class UnavailablePublishingTaxonomyCatalog implements PublishingTaxonomyCatalog
 {
-    public function getTerms(int $siteId, string $taxonomy): PublishingTaxonomyCatalogResult
+    public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
     {
-        unset($siteId);
+        unset($siteId, $lang);
 
         return PublishingTaxonomyCatalogResult::unavailable(
             strtolower(trim($taxonomy)),

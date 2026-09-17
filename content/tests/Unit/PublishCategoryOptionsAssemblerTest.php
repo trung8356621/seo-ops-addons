@@ -15,9 +15,9 @@ final class PublishCategoryOptionsAssemblerTest extends TestCase
     {
         $catalog = new class implements PublishingTaxonomyCatalog
         {
-            public function getTerms(int $siteId, string $taxonomy): PublishingTaxonomyCatalogResult
+            public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
             {
-                unset($siteId);
+                unset($siteId, $lang);
                 if ($taxonomy === self::TAXONOMY_CATEGORY) {
                     return PublishingTaxonomyCatalogResult::ok($taxonomy, [
                         ['id' => 1, 'name' => 'Tin tức', 'parent' => 0],
@@ -49,13 +49,39 @@ final class PublishCategoryOptionsAssemblerTest extends TestCase
         self::assertSame('product_cat', $bundle['status']['product_category']['taxonomy']);
     }
 
+    public function test_forwards_article_language_to_catalog(): void
+    {
+        $seen = [];
+        $catalog = new class($seen) implements PublishingTaxonomyCatalog
+        {
+            /** @param array<int, array{siteId: int, taxonomy: string, lang: ?string}> $seen */
+            public function __construct(private array &$seen) {}
+
+            public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
+            {
+                $this->seen[] = ['siteId' => $siteId, 'taxonomy' => $taxonomy, 'lang' => $lang];
+
+                return PublishingTaxonomyCatalogResult::ok($taxonomy, [
+                    ['id' => 1, 'name' => 'Only', 'parent' => 0],
+                ]);
+            }
+        };
+
+        (new PublishCategoryOptionsAssembler($catalog))->forSite(7, 'en');
+
+        self::assertSame([
+            ['siteId' => 7, 'taxonomy' => 'category', 'lang' => 'en'],
+            ['siteId' => 7, 'taxonomy' => 'product_cat', 'lang' => 'en'],
+        ], $seen);
+    }
+
     public function test_unavailable_catalog_returns_empty_options_without_article_fallback(): void
     {
         $catalog = new class implements PublishingTaxonomyCatalog
         {
-            public function getTerms(int $siteId, string $taxonomy): PublishingTaxonomyCatalogResult
+            public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
             {
-                unset($siteId);
+                unset($siteId, $lang);
 
                 return PublishingTaxonomyCatalogResult::unavailable($taxonomy, 'http', 'taxonomy catalog HTTP 500');
             }

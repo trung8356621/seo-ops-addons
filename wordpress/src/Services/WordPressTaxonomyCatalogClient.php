@@ -37,7 +37,7 @@ final class WordPressTaxonomyCatalogClient
         return ['token' => $token, 'base' => rtrim($base, '/'), 'error' => null];
     }
 
-    public function fetch(Site $site, string $taxonomy): PublishingTaxonomyCatalogResult
+    public function fetch(Site $site, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult
     {
         $taxonomy = strtolower(trim($taxonomy));
         if (! in_array($taxonomy, PublishingTaxonomyCatalog::SUPPORTED, true)) {
@@ -53,6 +53,7 @@ final class WordPressTaxonomyCatalogClient
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang,
                 'code' => 'auth',
                 'error' => $auth['error'],
             ]);
@@ -60,15 +61,22 @@ final class WordPressTaxonomyCatalogClient
             return PublishingTaxonomyCatalogResult::unavailable($taxonomy, 'auth', $auth['error']);
         }
 
+        $query = [];
+        $lang = strtolower(trim((string) $lang));
+        if ($lang !== '') {
+            $query['lang'] = $lang;
+        }
+
         try {
             $response = Http::timeout(20)
                 ->acceptJson()
                 ->withToken($auth['token'])
-                ->get($auth['base'].'/wp-json/omi-seo-ai/v1/taxonomy-catalog/'.$taxonomy);
+                ->get($auth['base'].'/wp-json/omi-seo-ai/v1/taxonomy-catalog/'.$taxonomy, $query);
         } catch (ConnectionException $e) {
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang !== '' ? $lang : null,
                 'code' => 'timeout',
                 'error' => $e->getMessage(),
             ]);
@@ -78,6 +86,7 @@ final class WordPressTaxonomyCatalogClient
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang !== '' ? $lang : null,
                 'code' => 'error',
                 'error' => $e->getMessage(),
             ]);
@@ -89,6 +98,7 @@ final class WordPressTaxonomyCatalogClient
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang !== '' ? $lang : null,
                 'code' => 'unsupported',
                 'error' => 'taxonomy_catalog_v1 missing',
             ]);
@@ -104,6 +114,7 @@ final class WordPressTaxonomyCatalogClient
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang !== '' ? $lang : null,
                 'code' => 'http',
                 'error' => 'HTTP '.$response->status(),
             ]);
@@ -120,6 +131,7 @@ final class WordPressTaxonomyCatalogClient
             RuntimeLogger::warning('wordpress.taxonomy_catalog_failed', [
                 'site_id' => $site->getKey(),
                 'taxonomy' => $taxonomy,
+                'lang' => $lang !== '' ? $lang : null,
                 'code' => 'invalid_payload',
                 'error' => 'Invalid taxonomy catalog payload.',
             ]);

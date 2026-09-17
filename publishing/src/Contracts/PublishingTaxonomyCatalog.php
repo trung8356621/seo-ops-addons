@@ -26,5 +26,8 @@ interface PublishingTaxonomyCatalog
         self::TAXONOMY_PRODUCT_TAG,
     ];
 
-    public function getTerms(int $siteId, string $taxonomy): PublishingTaxonomyCatalogResult;
+    /**
+     * @param  string|null  $lang  Optional article/Polylang language code. Null/empty = unfiltered (BC).
+     */
+    public function getTerms(int $siteId, string $taxonomy, ?string $lang = null): PublishingTaxonomyCatalogResult;
 }

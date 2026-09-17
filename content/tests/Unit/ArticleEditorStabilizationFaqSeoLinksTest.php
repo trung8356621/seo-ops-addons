@@ -127,6 +127,20 @@ final class ArticleEditorStabilizationFaqSeoLinksTest extends TestCase
         self::assertStringContainsString('seo-assistant-score__issue-action', $source);
     }
 
+    public function test_seo_score_panel_has_opaque_white_background(): void
+    {
+        $css = file_get_contents(dirname(__DIR__, 2).'/resources/css/article-editor.css');
+        self::assertIsString($css);
+        self::assertMatchesRegularExpression(
+            '/\.seo-score-panel\s*\{[^}]*background:\s*#fff/s',
+            $css,
+        );
+        self::assertMatchesRegularExpression(
+            '/\.seo-assistant-score__issue\s*\{[^}]*background:\s*#fff/s',
+            $css,
+        );
+    }
+
     public function test_featured_snippet_prompt_modal_no_auto_insert(): void
     {
         $source = $this->js('components/FeaturedSnippetPromptModal.jsx');

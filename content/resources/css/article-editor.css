@@ -6337,9 +6337,14 @@ p.article-cta a.article-cta__value {
 
 /* SEO score panel */
 .seo-score-panel {
+    background: #fff;
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+}
+
+.dark .seo-score-panel {
+    background: rgb(17 24 39);
 }
 
 .wp-permalink__url {
@@ -10970,11 +10975,13 @@ section[data-seo-section-id].is-outline-jump-highlight {
     font-size: 13px;
     color: #991b1b;
     border-bottom: 1px solid #fee2e2;
+    background: #fff;
 }
 
 .dark .seo-assistant-score__issue {
     color: #fecaca;
     border-bottom-color: rgba(127, 29, 29, 0.45);
+    background: rgb(17 24 39);
 }
 
 .seo-assistant-score__issue:last-child {

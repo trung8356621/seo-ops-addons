@@ -87,6 +87,7 @@ use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\PublishCategoryOptionsAssembler;
 use Omnichannel\Addons\Publishing\Support\PublishingTaxonomySelectionFilter;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
@@ -222,6 +223,8 @@ class EditArticle extends SeoEditRecord
 
     /** @var array<string, mixed>|null */
     private ?array $cachedPublishCategoryOptions = null;
+
+    private ?string $cachedPublishCategoryOptionsLang = null;
 
     protected string $bootstrapEditorHtml = '';
 
@@ -1065,12 +1068,14 @@ class EditArticle extends SeoEditRecord
      */
     public function getPublishCategoryOptions(): array
     {
-        if (is_array($this->cachedPublishCategoryOptions)) {
+        $lang = ArticleLanguageCode::normalizeForStorage((string) ($this->record->language ?? 'vi'));
+        if (is_array($this->cachedPublishCategoryOptions) && $this->cachedPublishCategoryOptionsLang === $lang) {
             return $this->cachedPublishCategoryOptions;
         }
 
         $siteId = (int) ($this->record->site_id ?? 0);
-        $this->cachedPublishCategoryOptions = app(PublishCategoryOptionsAssembler::class)->forSite($siteId);
+        $this->cachedPublishCategoryOptions = app(PublishCategoryOptionsAssembler::class)->forSite($siteId, $lang);
+        $this->cachedPublishCategoryOptionsLang = $lang;
 
         return $this->cachedPublishCategoryOptions;
     }
