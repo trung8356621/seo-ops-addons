@@ -249,9 +249,11 @@
                 <table class="w-full table-auto">
                     <thead>
                         <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="w-10 px-3 py-3" aria-hidden="true"></th>
                             <th class="keyword-item-table-header px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-gray-500">
                                 {{ __('seo-content-ai::filament.keyword.phrase_short') }}
                             </th>
+                            <th class="w-24 px-3 py-3" aria-hidden="true"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -263,25 +265,52 @@
                             @endphp
                             @if ($keyword instanceof Keyword)
                                 <tr
-                                    class="topic-keyword-member-row"
+                                    class="topic-keyword-member-row fi-ta-row"
                                     data-keyword-detail-row
                                     data-keyword-id="{{ (int) $keyword->id }}"
                                 >
+                                    <td class="fi-ta-selection-cell px-3 py-3 align-middle">
+                                        <input
+                                            type="checkbox"
+                                            class="fi-checkbox-input rounded border-none bg-white shadow-sm ring-1 ring-gray-950/10 checked:ring-0 focus:ring-2 focus:ring-primary-600 dark:bg-white/5 dark:ring-white/20"
+                                            disabled
+                                            aria-hidden="true"
+                                            tabindex="-1"
+                                        />
+                                    </td>
                                     <td class="keyword-item-table-cell p-0 align-top">
                                         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [
                                             'keyword' => $keyword,
-                                            'context' => 'cluster',
+                                            'context' => \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter::CONTEXT_DICTIONARY,
                                             'siteId' => $siteId,
                                             'dnaValues' => $dnaMap[(int) $keyword->id] ?? [],
                                             'clusterKey' => '',
                                             'showCheckbox' => false,
+                                            'showActions' => false,
                                         ])
+                                    </td>
+                                    <td class="fi-ta-actions-cell align-middle">
+                                        <div class="keyword-row-actions">
+                                            <button
+                                                type="button"
+                                                class="keyword-row-action keyword-row-action--copy fi-icon-btn"
+                                                data-keyword-copy-phrase="{{ e((string) $keyword->phrase) }}"
+                                                title="{{ __('seo-content-ai::filament.keyword.quick_copy') }}"
+                                                aria-label="{{ __('seo-content-ai::filament.keyword.quick_copy') }}"
+                                            >
+                                                <x-filament::icon icon="heroicon-o-clipboard-document" class="h-5 w-5" />
+                                            </button>
+                                            @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item-actions', [
+                                                'keyword' => $keyword,
+                                                'siteId' => $siteId,
+                                            ])
+                                        </div>
                                     </td>
                                 </tr>
                             @endif
                         @empty
                             <tr>
-                                <td class="px-4 py-8 text-sm text-gray-500">
+                                <td colspan="3" class="px-4 py-8 text-sm text-gray-500">
                                     {{ __('seo-content-ai::filament.keyword.topic_empty_cluster_keywords') }}
                                 </td>
                             </tr>
@@ -303,4 +332,6 @@
             ])
         </div>
     </div>
+
+    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-quick-copy-script')
 </x-filament-panels::page>

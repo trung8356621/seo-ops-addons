@@ -64,10 +64,37 @@ function isQuickViewMode(root) {
     return mode === 'quick';
 }
 
-function handleKeywordRowSelect(root, config, recordKey) {
-    if (isQuickViewMode(root)) {
+/** Opening the shared drawer always forces Detail mode so CSS does not hide the panel. */
+function ensureDetailViewMode(root) {
+    const layout = root?.closest?.('.keyword-detail-layout') ?? document.querySelector('.keyword-detail-layout');
+    if (!(layout instanceof HTMLElement)) {
         return;
     }
+
+    layout.setAttribute('data-keyword-view-mode', 'detail');
+    layout.classList.remove('is-quick-mode');
+    layout.classList.add('is-detail-mode');
+
+    try {
+        localStorage.setItem('seo_ops_keyword_view_mode', 'detail');
+    } catch (_error) {
+        // ignore
+    }
+
+    if (typeof window.Alpine?.$data === 'function') {
+        try {
+            const data = window.Alpine.$data(layout);
+            if (data && typeof data === 'object' && 'mode' in data) {
+                data.mode = 'detail';
+            }
+        } catch (_error) {
+            // ignore Alpine binding gaps
+        }
+    }
+}
+
+function handleKeywordRowSelect(root, config, recordKey) {
+    ensureDetailViewMode(root);
 
     const keywordId = Number(recordKey);
     if (!Number.isFinite(keywordId) || keywordId <= 0) {
@@ -359,6 +386,7 @@ function createKeywordDetailPanel(root, initialConfig) {
             return;
         }
 
+        ensureDetailViewMode(layout);
         refreshConfig();
         const component = resolveLivewireComponent(config);
         if (!component) {

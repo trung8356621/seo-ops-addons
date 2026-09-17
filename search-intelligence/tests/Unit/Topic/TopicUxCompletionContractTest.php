@@ -44,7 +44,9 @@ final class TopicUxCompletionContractTest extends TestCase
         self::assertStringContainsString('TopicTagMetricsResolver', $src);
         self::assertStringContainsString("'intent' => (string)", $src);
         self::assertStringContainsString("'coverage' => (string)", $src);
+        self::assertStringContainsString('KeywordTagResolver::tableEagerLoad', $src);
         self::assertStringContainsString('linked_articles_count', $src);
+        self::assertStringContainsString('site_links_count', $src);
         self::assertStringContainsString("where('site_id', \$siteId)", $src);
     }
 
@@ -124,6 +126,7 @@ final class TopicUxCompletionContractTest extends TestCase
         self::assertStringContainsString("getAttribute('data-keyword-id')", $js);
         self::assertStringContainsString('ROW_INTERACTIVE_SELECTOR', $js);
         self::assertStringContainsString('stampKeywordDetailRows', $js);
+        self::assertStringContainsString('ensureDetailViewMode', $js);
         self::assertStringContainsString('.fi-ta-row, [data-keyword-detail-row]', $js);
     }
 

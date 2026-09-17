@@ -10,6 +10,8 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 
 /**
  * Site-scoped Topic detail read model.
@@ -161,8 +163,12 @@ final class TopicDetailQuery
             ? collect()
             : Keyword::query()
                 ->whereIn('id', $keywordIds)
+                ->with(KeywordTagResolver::tableEagerLoad())
                 ->withCount([
-                    'linkMaps as linked_articles_count' => static function ($query) use ($siteId) {
+                    'mainArticles as main_articles_count' => static function ($query) use ($siteId): void {
+                        $query->where('site_id', $siteId)->whereNull('deleted_at');
+                    },
+                    'linkMaps as linked_articles_count' => static function ($query) use ($siteId): void {
                         $query->whereNotNull('source_article_id')
                             ->whereHas(
                                 'sourceArticle',
@@ -170,6 +176,18 @@ final class TopicDetailQuery
                                     ->where('site_id', $siteId)
                                     ->whereNull('deleted_at'),
                             );
+                    },
+                    'linkMaps as site_links_count' => static function ($query) use ($siteId): void {
+                        $query->where('status', '!=', SeoLinkMapStatus::Ignored->value)
+                            ->where(static function ($scope) use ($siteId): void {
+                                $scope->whereHas(
+                                    'sourceArticle',
+                                    static fn ($articleQuery) => $articleQuery->where('site_id', $siteId),
+                                )->orWhereHas(
+                                    'targetArticle',
+                                    static fn ($articleQuery) => $articleQuery->where('site_id', $siteId),
+                                );
+                            });
                     },
                 ])
                 ->get()

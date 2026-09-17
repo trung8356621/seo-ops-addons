@@ -136,14 +136,6 @@
             :disabled="saving"
         />
 
-        @if (($item['semantic_tags'] ?? []) !== [])
-            <div class="keyword-item__semantic">
-                @foreach ($item['semantic_tags'] as $tag)
-                    <span class="semantic-tag semantic-tag--{{ $tag['tone'] }}">{{ $tag['label'] }}</span>
-                @endforeach
-            </div>
-        @endif
-
         @if ($item['planning_tags'] !== [])
             <div class="keyword-item__planning">
                 @foreach ($item['planning_tags'] as $tag)
@@ -156,6 +148,14 @@
             <div class="keyword-item__operational">
                 @foreach ($item['operational_tags'] as $tag)
                     <span class="{{ $tag['badge_class'] }}">{{ $tag['label'] }}</span>
+                @endforeach
+            </div>
+        @endif
+
+        @if (($item['semantic_tags'] ?? []) !== [])
+            <div class="keyword-item__semantic">
+                @foreach ($item['semantic_tags'] as $tag)
+                    <span class="semantic-tag semantic-tag--{{ $tag['tone'] }}">{{ $tag['label'] }}</span>
                 @endforeach
             </div>
         @endif

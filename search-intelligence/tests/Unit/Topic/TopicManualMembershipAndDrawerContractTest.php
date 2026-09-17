@@ -70,6 +70,7 @@ final class TopicManualMembershipAndDrawerContractTest extends TestCase
         self::assertStringContainsString('data-keyword-id', $detail);
         self::assertStringContainsString("setAttribute('data-keyword-detail-row'", $js);
         self::assertStringContainsString("setAttribute('data-keyword-id'", $js);
+        self::assertStringContainsString('ensureDetailViewMode', $js);
         self::assertStringContainsString('keywordRowDelegationBound', $js);
         self::assertStringContainsString('stampKeywordDetailRows', $js);
         self::assertStringContainsString('getLivewireId', $js);

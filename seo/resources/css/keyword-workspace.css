@@ -3175,6 +3175,28 @@ body.keyword-drawer-open {
     grid-template-columns: minmax(0, 1fr);
 }
 
+.topic-keyword-member-table .fi-ta-actions-cell .keyword-row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.topic-keyword-member-table .fi-ta-actions-cell .keyword-row-action.fi-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.5rem;
+    color: rgb(100 116 139);
+}
+
+.topic-keyword-member-table .fi-ta-actions-cell .keyword-row-action.fi-icon-btn:hover {
+    background: rgb(241 245 249);
+    color: rgb(51 65 85);
+}
+
 .keyword-item__phrase,
 .keyword-row__phrase {
     font-weight: 600;
