@@ -265,4 +265,11 @@ final class KeywordTopicClusterDetail extends Page
             $this->redirect($this->backUrl());
         }
     }
+
+    protected function keywordDetailDrawerSiteScope(): ?int
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+
+        return $siteId !== null && $siteId > 0 ? (int) $siteId : null;
+    }
 }

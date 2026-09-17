@@ -261,7 +261,11 @@
                                     : $keywordModelsById->get((int) (is_array($member) ? ($member['keyword_id'] ?? $member['id'] ?? 0) : 0));
                             @endphp
                             @if ($keyword instanceof Keyword)
-                                <tr class="topic-keyword-member-row border-b border-gray-100 last:border-b-0 dark:border-gray-800">
+                                <tr
+                                    class="topic-keyword-member-row border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+                                    data-keyword-detail-row
+                                    data-keyword-id="{{ (int) $keyword->id }}"
+                                >
                                     <td class="keyword-item-table-cell p-0 align-top">
                                         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [
                                             'keyword' => $keyword,

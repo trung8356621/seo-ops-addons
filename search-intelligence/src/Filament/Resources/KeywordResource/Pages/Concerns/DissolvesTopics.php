@@ -47,10 +47,16 @@ trait DissolvesTopics
             return ['ok' => false, 'error' => (string) ($result['error'] ?? 'failed')];
         }
 
+        $label = trim((string) ($result['topic_name'] ?? ''));
+        if ($label === '') {
+            $label = (string) $topicId;
+        }
+        $affected = (int) ($result['deleted_memberships'] ?? 0);
+
         Notification::make()
-            ->title(__('seo-content-ai::filament.keyword.topic_dissolve_success_title', ['label' => '#'.$topicId]))
-            ->body(__('seo-content-ai::filament.keyword.topic_dissolve_success_body', [
-                'count' => (int) $result['deleted_memberships'],
+            ->title(__('seo-content-ai::filament.keyword.topic_dissolve_success_title', ['label' => $label]))
+            ->body(trans_choice('seo-content-ai::filament.keyword.topic_dissolve_success_body', $affected, [
+                'count' => $affected,
             ]))
             ->success()
             ->send();
@@ -62,7 +68,8 @@ trait DissolvesTopics
         return [
             'ok' => true,
             'topic_id' => $topicId,
-            'affected_count' => (int) $result['deleted_memberships'],
+            'label' => $label,
+            'affected_count' => $affected,
         ];
     }
 

@@ -60,23 +60,65 @@ trait InteractsWithKeywordDetailDrawer
             ];
         }
 
+        $siteScope = $this->keywordDetailDrawerSiteScope();
+
         $keyword = Keyword::query()
             ->withCount([
-                'mainArticles as main_articles_count',
-                ...Keyword::linkMapCountRelations(),
+                'mainArticles as main_articles_count' => static function ($query) use ($siteScope): void {
+                    if ($siteScope !== null && $siteScope > 0) {
+                        $query->where('site_id', $siteScope)->whereNull('deleted_at');
+                    }
+                },
+                'linkMaps as linked_articles_count' => static function ($query) use ($siteScope): void {
+                    $query->whereNotNull('source_article_id')
+                        ->whereHas(
+                            'sourceArticle',
+                            static function ($articleQuery) use ($siteScope): void {
+                                $articleQuery->whereNull('deleted_at');
+                                if ($siteScope !== null && $siteScope > 0) {
+                                    $articleQuery->where('site_id', $siteScope);
+                                }
+                            },
+                        );
+                },
+                'linkMaps as site_links_count' => static function ($query) use ($siteScope): void {
+                    if ($siteScope !== null && $siteScope > 0) {
+                        $query->whereHas(
+                            'sourceArticle',
+                            static fn ($articleQuery) => $articleQuery->where('site_id', $siteScope),
+                        );
+                    }
+                },
             ])
             ->with([
-                'linkMaps' => static fn ($linkQuery): mixed => $linkQuery
-                    ->orderBy('seo_link_maps.id')
-                    ->with([
+                'linkMaps' => static function ($linkQuery) use ($siteScope): void {
+                    $linkQuery->orderBy('seo_link_maps.id');
+                    if ($siteScope !== null && $siteScope > 0) {
+                        $linkQuery->where(static function ($q) use ($siteScope): void {
+                            $q->whereHas(
+                                'sourceArticle',
+                                static fn ($articleQuery) => $articleQuery->where('site_id', $siteScope),
+                            )->orWhereHas(
+                                'targetArticle',
+                                static fn ($articleQuery) => $articleQuery->where('site_id', $siteScope),
+                            );
+                        });
+                    }
+                    $linkQuery->with([
                         'sourceArticle' => static fn ($articleQuery): mixed => $articleQuery
                             ->withTrashed()
                             ->select('id', 'site_id', 'title', 'slug'),
                         'sourceArticle.site:id,domain',
                         'targetArticle:id,site_id,title,slug',
                         'targetArticle.site:id,domain',
-                    ]),
-                'mainArticles.site:id,domain',
+                    ]);
+                },
+                'mainArticles' => static function ($query) use ($siteScope): void {
+                    if ($siteScope !== null && $siteScope > 0) {
+                        $query->where('site_id', $siteScope);
+                    }
+                    $query->with('site:id,domain');
+                },
             ])
             ->find($keywordId);
 
@@ -90,7 +132,9 @@ trait InteractsWithKeywordDetailDrawer
             ];
         }
 
-        $siteId = (int) (KeywordResource::resolveKeywordSiteId($keyword) ?? 0);
+        $siteId = $siteScope !== null && $siteScope > 0
+            ? $siteScope
+            : (int) (KeywordResource::resolveKeywordSiteId($keyword) ?? 0);
         $contentAnalysisUrl = $siteId > 0 && (int) ($keyword->linked_articles_count ?? 0) > 0
             ? app(DomainOverviewService::class)->buildArticlesFilterUrlForInternalAnchorKeyword($siteId, (int) $keyword->id)
             : null;
@@ -104,7 +148,16 @@ trait InteractsWithKeywordDetailDrawer
             'canEdit' => KeywordResource::canEdit($keyword),
             'canDelete' => KeywordResource::canDelete($keyword),
             'error' => null,
+            'site_id' => $siteId > 0 ? $siteId : null,
         ];
+    }
+
+    /**
+     * Optional site scope for Topic detail drawer. Dictionary leaves this null.
+     */
+    protected function keywordDetailDrawerSiteScope(): ?int
+    {
+        return null;
     }
 
     public function editSelectedKeyword(): void

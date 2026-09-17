@@ -14,6 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersSiteTopics;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicManualCreateService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicRenameService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -216,6 +217,52 @@ final class KeywordTopicClusters extends Page
             'topic_id' => $topicId,
             'label' => $label !== '' ? $label : trim($phrase),
         ];
+    }
+
+    public function quickCreateTopic(): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $phrase = trim($this->clusterSearchInput);
+        if ($siteId <= 0 || ! $this->canEditTopicName()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_quick_create_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+        if ($phrase === '') {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_quick_create_empty'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $result = app(TopicManualCreateService::class)->create($siteId, $phrase);
+        if (! ($result['ok'] ?? false)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_quick_create_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $label = (string) ($result['topic_name'] ?? $phrase);
+        $titleKey = ($result['reused'] ?? false)
+            ? 'seo-content-ai::filament.keyword.topic_quick_create_reused'
+            : 'seo-content-ai::filament.keyword.topic_quick_create_success';
+        Notification::make()
+            ->title(__($titleKey, ['label' => $label]))
+            ->success()
+            ->send();
+
+        $this->clusterSearch = '';
+        $this->clusterSearchInput = '';
+        $this->clusterDataEpoch++;
+        $this->resetPage();
     }
 
     public function refreshClusterSummaryCounters(): void

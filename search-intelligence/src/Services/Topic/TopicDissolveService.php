@@ -16,12 +16,26 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 final class TopicDissolveService
 {
     /**
-     * @return array{ok: bool, error: ?string, deleted_memberships: int, deleted_dna: int}
+     * @return array{
+     *     ok: bool,
+     *     error: ?string,
+     *     topic_id: int|null,
+     *     topic_name: string|null,
+     *     deleted_memberships: int,
+     *     deleted_dna: int
+     * }
      */
     public function dissolve(int $siteId, int $topicId): array
     {
         if ($siteId <= 0 || $topicId <= 0) {
-            return ['ok' => false, 'error' => 'site_and_topic_required', 'deleted_memberships' => 0, 'deleted_dna' => 0];
+            return [
+                'ok' => false,
+                'error' => 'site_and_topic_required',
+                'topic_id' => null,
+                'topic_name' => null,
+                'deleted_memberships' => 0,
+                'deleted_dna' => 0,
+            ];
         }
 
         $topic = SeoTopic::query()
@@ -29,13 +43,29 @@ final class TopicDissolveService
             ->where('id', $topicId)
             ->first();
         if (! $topic instanceof SeoTopic) {
-            return ['ok' => false, 'error' => 'topic_not_found', 'deleted_memberships' => 0, 'deleted_dna' => 0];
+            return [
+                'ok' => false,
+                'error' => 'topic_not_found',
+                'topic_id' => null,
+                'topic_name' => null,
+                'deleted_memberships' => 0,
+                'deleted_dna' => 0,
+            ];
         }
         if ($topic->is_locked) {
-            return ['ok' => false, 'error' => 'topic_locked', 'deleted_memberships' => 0, 'deleted_dna' => 0];
+            return [
+                'ok' => false,
+                'error' => 'topic_locked',
+                'topic_id' => $topicId,
+                'topic_name' => (string) $topic->name,
+                'deleted_memberships' => 0,
+                'deleted_dna' => 0,
+            ];
         }
 
-        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $topicId): array {
+        $topicName = (string) $topic->name;
+
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $topicId, $topicName): array {
             $deletedDna = SeoTopicKeywordDna::query()
                 ->where('site_id', $siteId)
                 ->where('topic_id', $topicId)
@@ -52,6 +82,8 @@ final class TopicDissolveService
             return [
                 'ok' => true,
                 'error' => null,
+                'topic_id' => $topicId,
+                'topic_name' => $topicName,
                 'deleted_memberships' => $deletedMemberships,
                 'deleted_dna' => $deletedDna,
             ];

@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
@@ -21,6 +20,7 @@ final class TopicDetailQuery
 {
     public function __construct(
         private readonly TopicLinkedArticleCounter $articleCounter,
+        private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
     ) {}
 
     /**
@@ -48,29 +48,12 @@ final class TopicDetailQuery
         $keywordCount = $memberships->count();
         $lockedMemberCount = $memberships->where('is_locked', true)->count();
         $articleCount = $this->articleCounter->countForTopic($siteId, $topicId);
-
-        $keywordIds = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
-        $intentCounts = [];
-        if ($keywordIds !== []) {
-            $intents = SeoSiteKeyword::query()
-                ->where('site_id', $siteId)
-                ->whereIn('keyword_id', $keywordIds)
-                ->whereNotNull('seo_intent')
-                ->pluck('seo_intent');
-            foreach ($intents as $intent) {
-                $key = strtolower(trim((string) $intent));
-                if ($key === '') {
-                    continue;
-                }
-                $intentCounts[$key] = (int) ($intentCounts[$key] ?? 0) + 1;
-            }
-        }
-
-        $primaryIntent = '';
-        if ($intentCounts !== []) {
-            arsort($intentCounts);
-            $primaryIntent = (string) array_key_first($intentCounts);
-        }
+        $tags = $this->tagMetrics->forTopics($siteId, [$topicId], [$topicId => $articleCount])[$topicId] ?? [
+            'intent' => '',
+            'coverage' => 'unknown',
+            'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+            'intent_counts' => [],
+        ];
 
         return [
             'topic_id' => (int) $topic->id,
@@ -85,10 +68,12 @@ final class TopicDetailQuery
             'article_count' => $articleCount,
             'internal_link_count' => $articleCount,
             'internal_links' => $articleCount,
-            'intent' => $primaryIntent,
-            'coverage' => 'unknown',
-            'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
-            'intent_counts' => $intentCounts,
+            'intent' => (string) ($tags['intent'] ?? ''),
+            'coverage' => (string) ($tags['coverage'] ?? 'unknown'),
+            'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
+            'intent_diversity' => (int) ($tags['intent_diversity'] ?? 0),
+            'dna_branch_count' => (int) ($tags['dna_branch_count'] ?? 0),
+            'intent_counts' => is_array($tags['intent_counts'] ?? null) ? $tags['intent_counts'] : [],
             'last_analyzed' => $topic->updated_at?->toIso8601String(),
             'idea_coverage' => $this->buildIdeaCoverage($siteId, $topicId),
             'state' => $keywordCount === 0 ? 'planned' : 'active',
@@ -174,7 +159,21 @@ final class TopicDetailQuery
 
         $keywords = $keywordIds === []
             ? collect()
-            : Keyword::query()->whereIn('id', $keywordIds)->get()->keyBy('id');
+            : Keyword::query()
+                ->whereIn('id', $keywordIds)
+                ->withCount([
+                    'linkMaps as linked_articles_count' => static function ($query) use ($siteId) {
+                        $query->whereNotNull('source_article_id')
+                            ->whereHas(
+                                'sourceArticle',
+                                static fn ($articleQuery) => $articleQuery
+                                    ->where('site_id', $siteId)
+                                    ->whereNull('deleted_at'),
+                            );
+                    },
+                ])
+                ->get()
+                ->keyBy('id');
 
         $ordered = [];
         foreach ($paginator->items() as $row) {

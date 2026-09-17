@@ -27,6 +27,11 @@ let loadController = null;
 let panelController = null;
 
 function extractRecordKeyFromRow(row) {
+    const explicitId = row.getAttribute('data-keyword-id') || row.dataset?.keywordId;
+    if (explicitId) {
+        return String(explicitId);
+    }
+
     const checkbox = row.querySelector('.fi-ta-record-checkbox[value]');
     if (checkbox?.value) {
         return String(checkbox.value);
@@ -39,7 +44,7 @@ function extractRecordKeyFromRow(row) {
 }
 
 function highlightRow(root, keywordId) {
-    root.querySelectorAll('.fi-ta-row.keyword-row-selected').forEach((row) => {
+    root.querySelectorAll('.fi-ta-row.keyword-row-selected, [data-keyword-detail-row].keyword-row-selected').forEach((row) => {
         row.classList.remove('keyword-row-selected');
     });
 
@@ -47,7 +52,9 @@ function highlightRow(root, keywordId) {
         return;
     }
 
-    const row = root.querySelector(`.fi-ta-row[data-keyword-id="${keywordId}"]`);
+    const row = root.querySelector(
+        `[data-keyword-detail-row][data-keyword-id="${keywordId}"], .fi-ta-row[data-keyword-id="${keywordId}"]`,
+    );
     row?.classList.add('keyword-row-selected');
 }
 
@@ -104,13 +111,14 @@ function installRowClickLayers(root, config) {
         '.fi-ta-actions-cell',
     ].join(',');
 
-    tableShell.querySelectorAll('.fi-ta-row').forEach((row) => {
+    tableShell.querySelectorAll('.fi-ta-row, [data-keyword-detail-row]').forEach((row) => {
         const recordKey = extractRecordKeyFromRow(row);
         if (!recordKey) {
             return;
         }
 
         row.dataset.keywordId = recordKey;
+        row.setAttribute('data-keyword-detail-row', '');
 
         row.querySelectorAll('td').forEach((cell) => {
             if (

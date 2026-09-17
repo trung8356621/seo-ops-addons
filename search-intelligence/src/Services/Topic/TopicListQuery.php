@@ -19,6 +19,7 @@ final class TopicListQuery
 {
     public function __construct(
         private readonly TopicLinkedArticleCounter $articleCounter,
+        private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
     ) {}
 
     /**
@@ -85,6 +86,8 @@ final class TopicListQuery
             ->get()
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
 
+        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $siteArticleCounts);
+
         $rows = [];
         foreach ($topics as $topic) {
             $topicId = (int) $topic->id;
@@ -93,6 +96,11 @@ final class TopicListQuery
             $lockedMemberCount = (int) ($counts->locked_member_count ?? 0);
             $articleCount = (int) ($siteArticleCounts[$topicId] ?? 0);
             $isTopicLocked = (bool) $topic->is_locked;
+            $tags = $tagMetrics[$topicId] ?? [
+                'intent' => '',
+                'coverage' => 'unknown',
+                'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+            ];
 
             if ($hasArticles && $articleCount <= 0) {
                 continue;
@@ -114,9 +122,11 @@ final class TopicListQuery
                 'article_count' => $articleCount,
                 'internal_link_count' => $articleCount,
                 'internal_links' => $articleCount,
-                'intent' => '',
-                'coverage' => 'unknown',
-                'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+                'intent' => (string) ($tags['intent'] ?? ''),
+                'coverage' => (string) ($tags['coverage'] ?? 'unknown'),
+                'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
+                'intent_diversity' => (int) ($tags['intent_diversity'] ?? 0),
+                'dna_branch_count' => (int) ($tags['dna_branch_count'] ?? 0),
                 'topical_share' => (float) ($shares[$topicId] ?? 0.0),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),

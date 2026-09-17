@@ -51,6 +51,7 @@ final class TopicReclusterService
             'seo_keywords' => 0,
             'seeds_link_list' => 0,
             'seeds_product_cat' => 0,
+            'seeds_manual' => 0,
             'topics_before' => 0,
             'topics_after' => 0,
             'topics_locked_preserved' => 0,
@@ -74,6 +75,8 @@ final class TopicReclusterService
                     $metrics['seeds_link_list']++;
                 } elseif ($seed['source'] === 'product_cat') {
                     $metrics['seeds_product_cat']++;
+                } elseif ($seed['source'] === 'manual') {
+                    $metrics['seeds_manual']++;
                 }
             }
 

@@ -84,7 +84,7 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-4"
             preset="livewire-page"
-            targets="clusterSearch,lockFilter,clusterSort,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort"
+            targets="clusterSearch,lockFilter,clusterSort,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort,quickCreateTopic"
         >
         <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-context-card">
@@ -203,6 +203,26 @@
                         autocomplete="off"
                     >
                 </form>
+                @if ($canEditPermission)
+                    <x-filament::button
+                        type="button"
+                        size="sm"
+                        color="primary"
+                        wire:click="quickCreateTopic"
+                        wire:loading.attr="disabled"
+                        wire:target="quickCreateTopic"
+                        :disabled="$topicMutationsLocked"
+                        x-bind:disabled="mutationsLocked || !(phrase || '').trim()"
+                    >
+                        <span wire:loading.remove wire:target="quickCreateTopic">
+                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
+                        </span>
+                        <span wire:loading wire:target="quickCreateTopic" class="inline-flex items-center gap-1.5">
+                            <x-filament::loading-indicator class="h-4 w-4" />
+                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
+                        </span>
+                    </x-filament::button>
+                @endif
             </div>
             <div class="topic-index-filters topic-index-toolbar__filters">
                 <x-select size="sm" wire:model.live="lockFilter">
