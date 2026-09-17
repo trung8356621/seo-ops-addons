@@ -15,7 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
  * Recluster(site_id) — site-isolated Topic rebuild from Link List + product_cat seeds.
  *
  * Does not migrate legacy cluster-key / DNA. Does not force Focus⇒Topic.
- * Respects topic + membership locks.
+ * Preserves topic_id via seed membership identity. Respects topic + membership locks.
  */
 final class TopicReclusterService
 {
@@ -24,6 +24,7 @@ final class TopicReclusterService
         private readonly TopicSeedResolver $seeds,
         private readonly TopicClusterEngine $engine,
         private readonly TopicDnaService $dna,
+        private readonly TopicSeedIdentityResolver $identity = new TopicSeedIdentityResolver,
     ) {}
 
     public static function tablesReady(): bool
@@ -53,10 +54,13 @@ final class TopicReclusterService
             'topics_before' => 0,
             'topics_after' => 0,
             'topics_locked_preserved' => 0,
+            'topics_membership_lock_preserved' => 0,
             'memberships_written' => 0,
             'memberships_locked_preserved' => 0,
             'dna_rows' => 0,
             'topics_dissolved' => 0,
+            'topics_reused' => 0,
+            'topics_created' => 0,
         ];
 
         try {
@@ -75,16 +79,20 @@ final class TopicReclusterService
 
             $eligible = $this->siteKeywords->loadEligibleSeoKeywords($siteId);
             $locked = $this->loadLockedState($siteId);
+            $seedIdentity = $this->loadSeedIdentityMap($siteId);
             $metrics['topics_before'] = SeoTopic::query()->where('site_id', $siteId)->count();
-            $metrics['topics_locked_preserved'] = count($locked['topics']);
-            $metrics['memberships_locked_preserved'] = count($locked['keyword_ids']);
+            $metrics['topics_locked_preserved'] = count($locked['locked_topic_ids']);
+            $metrics['topics_membership_lock_preserved'] = count($locked['preserved_topic_ids'])
+                - count($locked['locked_topic_ids']);
+            $metrics['memberships_locked_preserved'] = count($locked['locked_keyword_ids']);
 
             $clusters = $this->engine->cluster(
                 $seedRows,
                 $eligible,
                 $locked['topics'],
-                $locked['keyword_ids'],
+                $locked['locked_keyword_ids'],
             );
+            $clusters = $this->identity->apply($clusters, $seedIdentity);
 
             $written = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $clusters, $locked, &$metrics): array {
                 return $this->persistClusters($siteId, $clusters, $locked);
@@ -94,6 +102,8 @@ final class TopicReclusterService
             $metrics['memberships_written'] = $written['memberships_written'];
             $metrics['dna_rows'] = $written['dna_rows'];
             $metrics['topics_dissolved'] = $written['topics_dissolved'];
+            $metrics['topics_reused'] = $written['topics_reused'];
+            $metrics['topics_created'] = $written['topics_created'];
 
             return TopicReclusterResult::ok($metrics);
         } catch (\Throwable $e) {
@@ -102,167 +112,407 @@ final class TopicReclusterService
     }
 
     /**
+     * Snapshot seed membership anchors: keyword_id → topic_id (site-scoped).
+     *
+     * @return array<int, int>
+     */
+    private function loadSeedIdentityMap(int $siteId): array
+    {
+        /** @var array<int, int> $map */
+        $map = [];
+        $rows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_seed', true)
+            ->get(['keyword_id', 'topic_id']);
+
+        foreach ($rows as $row) {
+            $keywordId = (int) $row->keyword_id;
+            $topicId = (int) $row->topic_id;
+            if ($keywordId > 0 && $topicId > 0) {
+                $map[$keywordId] = $topicId;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
      * @return array{
-     *     topics: list<array{topic_id: int, name: string, keyword_ids: list<int>, is_locked: bool}>,
-     *     keyword_ids: array<int, true>
+     *     locked_topic_ids: array<int, true>,
+     *     preserved_topic_ids: array<int, true>,
+     *     locked_keyword_ids: array<int, true>,
+     *     locked_memberships_by_topic: array<int, list<array{
+     *         keyword_id: int,
+     *         source: string,
+     *         is_seed: bool,
+     *         confidence: float|null,
+     *         is_locked: bool,
+     *         phrase: string
+     *     }>>,
+     *     topics: list<array{
+     *         topic_id: int,
+     *         name: string,
+     *         is_locked: bool,
+     *         members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
+     *     }>
      * }
      */
     private function loadLockedState(int $siteId): array
     {
+        /** @var array<int, true> $lockedTopicIds */
+        $lockedTopicIds = [];
+        /** @var array<int, true> $preservedTopicIds */
+        $preservedTopicIds = [];
+        /** @var array<int, true> $lockedKeywordIds */
+        $lockedKeywordIds = [];
+        /** @var array<int, list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>> $lockedMembershipsByTopic */
+        $lockedMembershipsByTopic = [];
+        /** @var list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $topicsForEngine */
+        $topicsForEngine = [];
+
         $lockedTopics = SeoTopic::query()
             ->where('site_id', $siteId)
             ->where('is_locked', true)
-            ->get(['id', 'name', 'is_locked']);
-
-        $topics = [];
-        /** @var array<int, true> $lockedKeywordIds */
-        $lockedKeywordIds = [];
+            ->get(['id', 'name']);
 
         foreach ($lockedTopics as $topic) {
-            $memberIds = SeoTopicKeyword::query()
+            $topicId = (int) $topic->id;
+            $lockedTopicIds[$topicId] = true;
+            $preservedTopicIds[$topicId] = true;
+
+            $members = [];
+            $rows = SeoTopicKeyword::query()
                 ->where('site_id', $siteId)
-                ->where('topic_id', (int) $topic->id)
-                ->pluck('keyword_id')
-                ->map(static fn ($id): int => (int) $id)
-                ->all();
-            foreach ($memberIds as $keywordId) {
+                ->where('topic_id', $topicId)
+                ->get(['keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+
+            foreach ($rows as $row) {
+                $keywordId = (int) $row->keyword_id;
                 $lockedKeywordIds[$keywordId] = true;
+                $member = [
+                    'keyword_id' => $keywordId,
+                    'phrase' => '',
+                    'source' => (string) $row->source,
+                    'is_seed' => (bool) $row->is_seed,
+                    'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                    'is_locked' => (bool) $row->is_locked,
+                ];
+                $members[] = $member;
             }
-            $topics[] = [
-                'topic_id' => (int) $topic->id,
+
+            $topicsForEngine[] = [
+                'topic_id' => $topicId,
                 'name' => (string) $topic->name,
-                'keyword_ids' => $memberIds,
+                'is_locked' => true,
+                'members' => $members,
+            ];
+        }
+
+        $membershipLocks = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_locked', true)
+            ->get(['topic_id', 'keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+
+        foreach ($membershipLocks as $row) {
+            $topicId = (int) $row->topic_id;
+            $keywordId = (int) $row->keyword_id;
+            $lockedKeywordIds[$keywordId] = true;
+            $preservedTopicIds[$topicId] = true;
+
+            if (isset($lockedTopicIds[$topicId])) {
+                // Already fully covered by topic lock.
+                continue;
+            }
+
+            $lockedMembershipsByTopic[$topicId][] = [
+                'keyword_id' => $keywordId,
+                'phrase' => '',
+                'source' => (string) $row->source,
+                'is_seed' => (bool) $row->is_seed,
+                'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
                 'is_locked' => true,
             ];
         }
 
-        $manualLocked = SeoTopicKeyword::query()
-            ->where('site_id', $siteId)
-            ->where('is_locked', true)
-            ->pluck('keyword_id');
-        foreach ($manualLocked as $keywordId) {
-            $lockedKeywordIds[(int) $keywordId] = true;
-        }
-
-        return ['topics' => $topics, 'keyword_ids' => $lockedKeywordIds];
+        return [
+            'locked_topic_ids' => $lockedTopicIds,
+            'preserved_topic_ids' => $preservedTopicIds,
+            'locked_keyword_ids' => $lockedKeywordIds,
+            'locked_memberships_by_topic' => $lockedMembershipsByTopic,
+            'topics' => $topicsForEngine,
+        ];
     }
 
     /**
+     * Persist proposals without deleting first. Stale unlocked Topics dissolve last.
+     *
      * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
-     * @param  array{topics: list<array{topic_id: int, name: string, keyword_ids: list<int>, is_locked: bool}>, keyword_ids: array<int, true>}  $locked
-     * @return array{topics_after: int, memberships_written: int, dna_rows: int, topics_dissolved: int}
+     * @param  array{
+     *     locked_topic_ids: array<int, true>,
+     *     preserved_topic_ids: array<int, true>,
+     *     locked_keyword_ids: array<int, true>,
+     *     locked_memberships_by_topic: array<int, list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>>,
+     *     topics: list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>
+     * }  $locked
+     * @return array{
+     *     topics_after: int,
+     *     memberships_written: int,
+     *     dna_rows: int,
+     *     topics_dissolved: int,
+     *     topics_reused: int,
+     *     topics_created: int
+     * }
      */
     private function persistClusters(int $siteId, array $clusters, array $locked): array
     {
-        $preserveTopicIds = [];
-        foreach ($locked['topics'] as $t) {
-            $preserveTopicIds[$t['topic_id']] = true;
-        }
-
-        // Wipe unlocked topic DNA + memberships + topics for this site only.
-        $dissolveIds = SeoTopic::query()
-            ->where('site_id', $siteId)
-            ->where('is_locked', false)
-            ->pluck('id')
-            ->map(static fn ($id): int => (int) $id)
-            ->all();
-
-        if ($dissolveIds !== []) {
-            SeoTopicKeywordDna::query()
-                ->where('site_id', $siteId)
-                ->whereIn('topic_id', $dissolveIds)
-                ->delete();
-            SeoTopicKeyword::query()
-                ->where('site_id', $siteId)
-                ->whereIn('topic_id', $dissolveIds)
-                ->where('is_locked', false)
-                ->delete();
-            // Remove unlocked memberships that pointed at dissolve targets even if somehow locked=false only.
-            SeoTopic::query()
-                ->where('site_id', $siteId)
-                ->whereIn('id', $dissolveIds)
-                ->delete();
-        }
-
-        // Drop unlocked memberships that are not on preserved locked topics (site-scoped).
-        SeoTopicKeyword::query()
-            ->where('site_id', $siteId)
-            ->where('is_locked', false)
-            ->when(
-                $preserveTopicIds !== [],
-                static fn ($q) => $q->whereNotIn('topic_id', array_keys($preserveTopicIds)),
-                static fn ($q) => $q,
-            )
-            ->delete();
+        /** @var array<int, true> $keepTopicIds */
+        $keepTopicIds = $locked['preserved_topic_ids'];
+        /** @var array<int, true> $claimedTopicIds */
+        $claimedTopicIds = [];
+        /** @var array<int, array{topic_id: int, source: string, is_seed: bool, confidence: float|null, is_locked: bool}> $desiredByKeyword */
+        $desiredByKeyword = [];
+        /** @var array<int, true> $dnaTopicIds */
+        $dnaTopicIds = [];
 
         $membershipsWritten = 0;
-        $dnaRows = 0;
-        $topicIdsTouched = [];
+        $topicsReused = 0;
+        $topicsCreated = 0;
+
+        // Membership-lock-only parents: lock rows stay on their topic (not whole-topic lock).
+        foreach ($locked['locked_memberships_by_topic'] as $topicId => $members) {
+            $topicId = (int) $topicId;
+            $keepTopicIds[$topicId] = true;
+            foreach ($members as $member) {
+                $keywordId = (int) $member['keyword_id'];
+                $desiredByKeyword[$keywordId] = [
+                    'topic_id' => $topicId,
+                    'source' => (string) $member['source'],
+                    'is_seed' => (bool) $member['is_seed'],
+                    'confidence' => $member['confidence'],
+                    'is_locked' => true,
+                ];
+            }
+        }
 
         foreach ($clusters as $cluster) {
-            $topic = null;
-            if ($cluster['topic_id'] !== null && isset($preserveTopicIds[$cluster['topic_id']])) {
-                $topic = SeoTopic::query()
-                    ->where('site_id', $siteId)
-                    ->where('id', $cluster['topic_id'])
-                    ->first();
-            }
-
-            if (! $topic instanceof SeoTopic) {
-                $topic = SeoTopic::query()->create([
-                    'site_id' => $siteId,
-                    'name' => $cluster['name'],
-                    'status' => TopicStatus::ACTIVE,
-                    'is_locked' => (bool) $cluster['is_locked'],
-                ]);
-            }
-
+            $resolved = $this->resolveTopicRow($siteId, $cluster, $keepTopicIds, $claimedTopicIds);
+            $topic = $resolved['topic'];
             $topicId = (int) $topic->id;
-            $topicIdsTouched[$topicId] = true;
-            $memberKeywordIds = [];
+            $keepTopicIds[$topicId] = true;
+            $claimedTopicIds[$topicId] = true;
+            $dnaTopicIds[$topicId] = true;
+
+            if ($resolved['created']) {
+                $topicsCreated++;
+            } else {
+                $topicsReused++;
+            }
+
+            $isFullyTopicLocked = isset($locked['locked_topic_ids'][$topicId]);
+
+            if ($isFullyTopicLocked) {
+                // Topic lock: preserve every current membership; allow net-new unlocked matches.
+                $existing = SeoTopicKeyword::query()
+                    ->where('site_id', $siteId)
+                    ->where('topic_id', $topicId)
+                    ->get(['keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+                foreach ($existing as $row) {
+                    $keywordId = (int) $row->keyword_id;
+                    $desiredByKeyword[$keywordId] = [
+                        'topic_id' => $topicId,
+                        'source' => (string) $row->source,
+                        'is_seed' => (bool) $row->is_seed,
+                        'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                        'is_locked' => (bool) $row->is_locked,
+                    ];
+                }
+            }
 
             foreach ($cluster['members'] as $member) {
                 $keywordId = (int) $member['keyword_id'];
                 if ($keywordId <= 0) {
                     continue;
                 }
+
                 // Never steal a locked membership belonging to another topic.
-                if (isset($locked['keyword_ids'][$keywordId]) && $cluster['topic_id'] === null) {
-                    $existing = SeoTopicKeyword::query()
-                        ->where('site_id', $siteId)
-                        ->where('keyword_id', $keywordId)
-                        ->where('is_locked', true)
-                        ->first();
-                    if ($existing instanceof SeoTopicKeyword && (int) $existing->topic_id !== $topicId) {
+                if (isset($locked['locked_keyword_ids'][$keywordId])) {
+                    $ownerTopicId = $desiredByKeyword[$keywordId]['topic_id'] ?? null;
+                    if ($ownerTopicId === null) {
+                        $owner = SeoTopicKeyword::query()
+                            ->where('site_id', $siteId)
+                            ->where('keyword_id', $keywordId)
+                            ->where('is_locked', true)
+                            ->first();
+                        $ownerTopicId = $owner instanceof SeoTopicKeyword ? (int) $owner->topic_id : null;
+                    }
+                    if ($ownerTopicId !== null && $ownerTopicId !== $topicId) {
                         continue;
                     }
                 }
 
-                SeoTopicKeyword::query()->updateOrCreate(
-                    [
-                        'site_id' => $siteId,
-                        'keyword_id' => $keywordId,
-                    ],
-                    [
-                        'topic_id' => $topicId,
-                        'source' => $member['source'],
-                        'is_seed' => (bool) $member['is_seed'],
-                        'is_locked' => (bool) $member['is_locked'],
-                        'confidence' => $member['confidence'],
-                    ],
-                );
-                $membershipsWritten++;
-                $memberKeywordIds[] = $keywordId;
+                if ($isFullyTopicLocked && isset($desiredByKeyword[$keywordId])) {
+                    continue;
+                }
+
+                $desiredByKeyword[$keywordId] = [
+                    'topic_id' => $topicId,
+                    'source' => (string) $member['source'],
+                    'is_seed' => (bool) $member['is_seed'],
+                    'confidence' => $member['confidence'],
+                    'is_locked' => (bool) $member['is_locked'],
+                ];
+            }
+        }
+
+        // Ensure membership-lock parent Topics still exist even if no proposal reused them.
+        foreach (array_keys($locked['locked_memberships_by_topic']) as $topicId) {
+            $topicId = (int) $topicId;
+            $exists = SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->where('id', $topicId)
+                ->exists();
+            if (! $exists) {
+                // Should not happen: we never deleted yet. Defensive no-op.
+                continue;
+            }
+            $keepTopicIds[$topicId] = true;
+            $dnaTopicIds[$topicId] = true;
+        }
+
+        foreach ($desiredByKeyword as $keywordId => $payload) {
+            SeoTopicKeyword::query()->updateOrCreate(
+                [
+                    'site_id' => $siteId,
+                    'keyword_id' => $keywordId,
+                ],
+                [
+                    'topic_id' => $payload['topic_id'],
+                    'source' => $payload['source'],
+                    'is_seed' => $payload['is_seed'],
+                    'is_locked' => $payload['is_locked'],
+                    'confidence' => $payload['confidence'],
+                ],
+            );
+            $membershipsWritten++;
+        }
+
+        // Drop unlocked memberships that are not part of the desired set (unmatched SEO → no row).
+        SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('is_locked', false)
+            ->when(
+                $desiredByKeyword !== [],
+                static fn ($q) => $q->whereNotIn('keyword_id', array_keys($desiredByKeyword)),
+                static fn ($q) => $q,
+            )
+            ->delete();
+
+        // Rebuild DNA for every touched / preserved Topic (site-scoped).
+        $dnaRows = 0;
+        foreach (array_keys($dnaTopicIds) as $topicId) {
+            $topic = SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->where('id', $topicId)
+                ->first();
+            if (! $topic instanceof SeoTopic) {
+                continue;
+            }
+            $memberKeywordIds = SeoTopicKeyword::query()
+                ->where('site_id', $siteId)
+                ->where('topic_id', $topicId)
+                ->pluck('keyword_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            $dnaRows += $this->dna->rebuildForTopic($siteId, $topicId, (string) $topic->name, $memberKeywordIds);
+        }
+
+        // Dissolve stale unlocked Topics last — keepTopicIds already known.
+        $staleIds = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('is_locked', false)
+            ->when(
+                $keepTopicIds !== [],
+                static fn ($q) => $q->whereNotIn('id', array_keys($keepTopicIds)),
+                static fn ($q) => $q,
+            )
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        if ($staleIds !== []) {
+            SeoTopicKeywordDna::query()
+                ->where('site_id', $siteId)
+                ->whereIn('topic_id', $staleIds)
+                ->delete();
+            // Only unlocked memberships should remain; never orphan locked rows.
+            SeoTopicKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('topic_id', $staleIds)
+                ->where('is_locked', false)
+                ->delete();
+
+            $orphanLocked = SeoTopicKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('topic_id', $staleIds)
+                ->where('is_locked', true)
+                ->exists();
+            if ($orphanLocked) {
+                throw new \RuntimeException('recluster_refused_orphan_locked_membership');
             }
 
-            $dnaRows += $this->dna->rebuildForTopic($siteId, $topicId, (string) $topic->name, $memberKeywordIds);
+            SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->whereIn('id', $staleIds)
+                ->delete();
         }
 
         return [
             'topics_after' => SeoTopic::query()->where('site_id', $siteId)->count(),
             'memberships_written' => $membershipsWritten,
             'dna_rows' => $dnaRows,
-            'topics_dissolved' => count($dissolveIds),
+            'topics_dissolved' => count($staleIds),
+            'topics_reused' => $topicsReused,
+            'topics_created' => $topicsCreated,
         ];
+    }
+
+    /**
+     * @param  array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}  $cluster
+     * @param  array<int, true>  $keepTopicIds
+     * @param  array<int, true>  $claimedTopicIds
+     * @return array{topic: SeoTopic, created: bool}
+     */
+    private function resolveTopicRow(
+        int $siteId,
+        array $cluster,
+        array &$keepTopicIds,
+        array $claimedTopicIds,
+    ): array {
+        $topicId = $cluster['topic_id'];
+        $topic = null;
+
+        if ($topicId !== null && ! isset($claimedTopicIds[$topicId])) {
+            $topic = SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->where('id', $topicId)
+                ->first();
+        }
+
+        if ($topic instanceof SeoTopic) {
+            // Reuse identity: keep id + created_at; do NOT overwrite user-facing name.
+            $keepTopicIds[(int) $topic->id] = true;
+
+            return ['topic' => $topic, 'created' => false];
+        }
+
+        $topic = SeoTopic::query()->create([
+            'site_id' => $siteId,
+            'name' => $cluster['name'],
+            'status' => TopicStatus::ACTIVE,
+            'is_locked' => (bool) $cluster['is_locked'],
+        ]);
+        $keepTopicIds[(int) $topic->id] = true;
+
+        return ['topic' => $topic, 'created' => true];
     }
 }

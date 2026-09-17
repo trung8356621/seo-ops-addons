@@ -9,9 +9,10 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseReso
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 
 /**
- * Cluster site keywords around Topic seeds (core containment + self-topic).
+ * Cluster site keywords around Topic seeds (core containment).
  *
- * No Focus⇒Topic rule. No cluster-key identity. No singleton auto-prune from focus.
+ * Unmatched eligible SEO keywords stay site-classified only — no singleton Topic.
+ * No Focus⇒Topic rule. No cluster-key identity.
  */
 final class TopicClusterEngine
 {
@@ -23,7 +24,12 @@ final class TopicClusterEngine
     /**
      * @param  list<array{keyword_id: int, phrase: string, source: string, is_seed: true, confidence: float|null}>  $seeds
      * @param  list<array{keyword_id: int, phrase: string, is_seo_keyword: bool}>  $eligible
-     * @param  list<array{topic_id: int, name: string, keyword_ids: list<int>, is_locked: bool}>  $lockedTopics
+     * @param  list<array{
+     *     topic_id: int,
+     *     name: string,
+     *     is_locked: bool,
+     *     members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
+     * }>  $lockedTopics  fully topic-locked Topics only
      * @param  array<int, true>  $lockedKeywordIds  memberships that must stay put
      * @return list<array{
      *     name: string,
@@ -43,19 +49,22 @@ final class TopicClusterEngine
         /** @var array<int, true> $assigned */
         $assigned = [];
 
-        // Preserve locked topics + their locked memberships.
+        // Preserve fully topic-locked Topics + their memberships.
         foreach ($lockedTopics as $locked) {
             $members = [];
-            foreach ($locked['keyword_ids'] as $keywordId) {
+            foreach ($locked['members'] as $member) {
+                $keywordId = (int) $member['keyword_id'];
                 $assigned[$keywordId] = true;
-                $phrase = $this->phraseFor($keywordId, $eligible, $seeds);
+                $phrase = $member['phrase'] !== ''
+                    ? $member['phrase']
+                    : $this->phraseFor($keywordId, $eligible, $seeds);
                 $members[] = [
                     'keyword_id' => $keywordId,
                     'phrase' => $phrase,
-                    'source' => TopicKeywordSource::MANUAL,
-                    'is_seed' => false,
-                    'confidence' => null,
-                    'is_locked' => isset($lockedKeywordIds[$keywordId]),
+                    'source' => (string) $member['source'],
+                    'is_seed' => (bool) $member['is_seed'],
+                    'confidence' => $member['confidence'],
+                    'is_locked' => (bool) $member['is_locked'],
                 ];
             }
             $topics[] = [
@@ -66,7 +75,12 @@ final class TopicClusterEngine
             ];
         }
 
-        // Seed topics (skip keywords already locked elsewhere).
+        // Locked memberships (membership-lock only) stay put — do not seed a new Topic.
+        foreach ($lockedKeywordIds as $keywordId => $_) {
+            $assigned[(int) $keywordId] = true;
+        }
+
+        // Seed topics (skip keywords already locked / assigned elsewhere).
         foreach ($seeds as $seed) {
             $keywordId = $seed['keyword_id'];
             if (isset($assigned[$keywordId])) {
@@ -108,15 +122,13 @@ final class TopicClusterEngine
             $phrase = $row['phrase'];
             $bestIndex = null;
             foreach ($topics as $index => $topic) {
-                if ($topic['is_locked'] && ! $this->phraseMatchesTopic($phrase, $topic['name'])) {
-                    // Locked topics still accept containment matches for unlocked keywords.
-                }
                 if ($this->phraseMatchesTopic($phrase, $topic['name'])) {
                     $bestIndex = $index;
                     break;
                 }
             }
             if ($bestIndex === null) {
+                // Seed-only Topics: unmatched eligible SEO keywords stay in seo_site_keywords only.
                 continue;
             }
             $topics[$bestIndex]['members'][] = [
@@ -126,31 +138,6 @@ final class TopicClusterEngine
                 'is_seed' => false,
                 'confidence' => 0.8,
                 'is_locked' => false,
-            ];
-            $assigned[$keywordId] = true;
-        }
-
-        // Remaining SEO keywords → self-topic (not forced by Focus).
-        foreach ($eligible as $row) {
-            $keywordId = $row['keyword_id'];
-            if (isset($assigned[$keywordId]) || isset($lockedKeywordIds[$keywordId])) {
-                continue;
-            }
-            $core = $this->phrases->deriveCorePhrase($row['phrase']);
-            $name = TopicNaming::canonicalName($core !== '' ? $core : $row['phrase'])
-                ?: $row['phrase'];
-            $topics[] = [
-                'name' => $name,
-                'topic_id' => null,
-                'is_locked' => false,
-                'members' => [[
-                    'keyword_id' => $keywordId,
-                    'phrase' => $row['phrase'],
-                    'source' => TopicKeywordSource::RECLUSTER,
-                    'is_seed' => false,
-                    'confidence' => 0.5,
-                    'is_locked' => false,
-                ]],
             ];
             $assigned[$keywordId] = true;
         }
