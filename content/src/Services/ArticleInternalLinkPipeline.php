@@ -169,7 +169,7 @@ final class ArticleInternalLinkPipeline
             static fn (array $row): int => (int) $row['keyword']->id,
             $matched,
         );
-        $clusterKeys = $this->topicMembership->clusterKeysByKeywordId($matchedIds);
+        $topicIdsByKeyword = $this->topicMembership->topicIdsByKeywordId($siteId, $matchedIds);
 
         $topicSuggestions = [];
         $keywordNonTopicSuggestions = [];
@@ -180,7 +180,7 @@ final class ArticleInternalLinkPipeline
             $keyword = $row['keyword'];
             $phrase = $row['phrase'];
             $keywordId = (int) $keyword->id;
-            $isTopic = $this->topicMembership->isTopicKeyword($keyword, $clusterKeys);
+            $isTopic = $this->topicMembership->isTopicKeyword($keyword, $topicIdsByKeyword);
 
             $resolvedInternal = $this->linkTargetResolver->resolveForKeyword(
                 $keyword,
@@ -241,12 +241,14 @@ final class ArticleInternalLinkPipeline
                 'match_reason' => $isTopic ? 'topic_focus_destination' : 'keyword_link_map',
                 'source' => $stage,
                 'candidate_source' => $stage,
-                'cluster_key' => $isTopic ? (string) ($clusterKeys[$keywordId] ?? '') : null,
+                'cluster_key' => null,
+                'topic_id' => $isTopic ? (int) ($topicIdsByKeyword[$keywordId] ?? 0) ?: null : null,
                 'bucket' => $bucket,
                 'provenance' => [
                     'candidate_source' => $stage,
                     'keyword_id' => $keywordId,
-                    'cluster_key' => $isTopic ? (string) ($clusterKeys[$keywordId] ?? '') : null,
+                    'cluster_key' => null,
+                    'topic_id' => $isTopic ? (int) ($topicIdsByKeyword[$keywordId] ?? 0) ?: null : null,
                     'matched_phrase' => $phrase,
                     'match_reason' => $isTopic ? 'topic_focus_destination' : 'keyword_link_map',
                     'url' => $href,
@@ -617,8 +619,7 @@ final class ArticleInternalLinkPipeline
      */
     private function topicKeywordIdsForSite(int $siteId): array
     {
-        // Legacy cluster_key topic membership retired.
-        return [];
+        return $this->topicMembership->keywordIdsForSite($siteId);
     }
 
     /**

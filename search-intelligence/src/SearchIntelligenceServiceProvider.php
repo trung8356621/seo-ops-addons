@@ -6,10 +6,12 @@ namespace Omnichannel\Addons\SearchIntelligence;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
+use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 
 /**
- * Peer addon skeleton: registers capabilities into Client Core.
- * Implementation still migrating out of SeoContentAi legacy monolith.
+ * Peer addon: Search Intelligence + site-scoped Topic Core.
  */
 final class SearchIntelligenceServiceProvider extends ServiceProvider
 {
@@ -22,7 +24,11 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Classification / dirty observers removed — no seo_keyword_classifications.
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                ReclusterSiteTopicsCommand::class,
+            ]);
+        }
     }
 
     private function registerCapabilities(): void
@@ -35,6 +41,14 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         $caps = $this->app->make(CapabilityRegistry::class);
         foreach ($this->providedCapabilityIds() as $id) {
             if ($caps->has($id)) {
+                continue;
+            }
+            if ($id === TopicMembershipCapability::ID) {
+                $caps->register(
+                    $id,
+                    $this->app->make(TopicMembershipCapabilityService::class),
+                    self::SLUG,
+                );
                 continue;
             }
             $caps->register($id, new CapabilityMarker($id, self::SLUG), self::SLUG);

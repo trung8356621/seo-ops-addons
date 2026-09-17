@@ -9,13 +9,15 @@
     "provides":  [
                      "search.intelligence",
                      "search.rank",
-                     "search.gsc"
+                     "search.gsc",
+                     "search.topic"
                  ],
     "requires":  [
                      "search.keyword"
                  ],
     "optional":  [
                      "seo.audit",
-                     "content.projects"
+                     "content.projects",
+                     "site-sync.link-catalog"
                  ]
 }

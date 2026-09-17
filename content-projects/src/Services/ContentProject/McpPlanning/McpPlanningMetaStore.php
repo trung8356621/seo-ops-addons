@@ -22,7 +22,8 @@ final class McpPlanningMetaStore
      *     project_item_id: int,
      *     source_planning_item_id: int|null,
      *     site_id: int,
-     *     cluster_key: string|null,
+     *     topic_id: int|null,
+     *     cluster_key: null,
      *     keyword_id: int|null,
      *     approved_at: string|null
      * }>

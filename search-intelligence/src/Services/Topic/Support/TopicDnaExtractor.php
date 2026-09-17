@@ -1,0 +1,508 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Support;
+
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\DnaPlacement;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
+
+/**
+ * Deterministic keyword DNA extraction (residual modifiers after topic core).
+ *
+ * DNA = meaningful semantic modifier — not raw token difference / glue / topic echo.
+ */
+final class TopicDnaExtractor
+{
+    /** @var list<string> */
+    private const GLUE = [
+        'tai', 'o', 'cho', 'la', 'cua', 'va', 'voi', 'den', 'tu', 'trong', 'theo',
+        'mot', 'cac', 'nhung', 've', 'hoac', 'va', 'and', 'or', 'of', 'for', 'at', 'in',
+    ];
+
+    /** Location / discourse wrappers stripped from residual DNA display. */
+    private const LOCATION_WRAPPERS = ['tai', 'o', 'tai thanh pho', 'o thanh pho'];
+
+    /** @var array<string, string> */
+    private const KNOWN_FACETS = [
+        'canvas' => 'material',
+        'vai' => 'material',
+        'da' => 'material',
+        'nhua' => 'material',
+        'hoc sinh' => 'audience',
+        'tre em' => 'audience',
+        'nam' => 'audience',
+        'nu' => 'audience',
+        'the thao' => 'use_case',
+        'thoi trang' => 'style',
+        'gia re' => 'feature',
+        'gia si' => 'feature',
+    ];
+
+    public function __construct(
+        private readonly KeywordNormalizer $normalizer,
+        private readonly TopicPhraseResolver $phraseResolver,
+    ) {}
+
+    /**
+     * @return list<array{value: string, facet_type: ?string, confidence: string, placement: string, source: string}>
+     */
+    public function extract(string $keywordPhrase, string $topicName): array
+    {
+        $keywordPhrase = trim($keywordPhrase);
+        $topicName = trim($topicName);
+        if ($keywordPhrase === '' || $topicName === '') {
+            return [];
+        }
+
+        $kwNorm = $this->normalizer->normalize($keywordPhrase);
+        $topicNorm = $this->normalizer->normalize($topicName);
+
+        if ($kwNorm['folded_text'] === $topicNorm['folded_text']) {
+            return [];
+        }
+
+        $kwTokens = $this->phraseResolver->significantTokens($keywordPhrase);
+        $topicTokens = $this->phraseResolver->significantTokens($topicName);
+
+        if ($kwTokens === [] || $topicTokens === []) {
+            return [];
+        }
+
+        if ($this->containsSubsequence($kwTokens, $topicTokens)) {
+            $residual = $this->residualTokens($kwTokens, $topicTokens);
+        } else {
+            $residual = $this->semanticResidual($keywordPhrase, $topicName, $kwTokens, $topicTokens);
+        }
+
+        $residual = $this->removeTopicSpans($residual, $topicTokens);
+        $residual = array_values(array_filter(
+            $residual,
+            static fn (string $t): bool => ! in_array($t, self::GLUE, true) && mb_strlen($t) >= 2,
+        ));
+
+        return $this->composeDnaValues($keywordPhrase, $residual, $topicNorm['folded_text'], $topicTokens);
+    }
+
+    /**
+     * @param  list<string>  $residual
+     * @param  list<string>  $topicTokens
+     * @return list<array{value: string, facet_type: ?string, confidence: string, placement: string, source: string}>
+     */
+    private function composeDnaValues(
+        string $originalPhrase,
+        array $residual,
+        string $topicFolded,
+        array $topicTokens,
+    ): array {
+        if ($residual === []) {
+            return [];
+        }
+
+        $values = [];
+        $used = [];
+        $joined = implode(' ', $residual);
+
+        foreach (self::KNOWN_FACETS as $pattern => $facet) {
+            if (! str_contains($joined, $pattern) || isset($used[$pattern])) {
+                continue;
+            }
+            $display = $this->displayFragment($originalPhrase, $pattern);
+            $normalized = $this->normalizeDnaValue($pattern);
+            if (! $this->isAcceptableDna($normalized, $display, $topicFolded, $topicTokens)) {
+                $residual = $this->removePatternTokens($residual, $pattern);
+
+                continue;
+            }
+            $values[] = [
+                'value' => $display !== '' ? $display : $pattern,
+                'facet_type' => $facet,
+                'confidence' => 'high',
+                'placement' => $this->detectPlacement($originalPhrase, $topicFolded, $display !== '' ? $display : $pattern),
+                'source' => 'deterministic',
+            ];
+            $used[$normalized] = true;
+            $residual = $this->removePatternTokens($residual, $pattern);
+        }
+
+        $chunks = $this->groupRemainingTokens($originalPhrase, $residual);
+        foreach ($chunks as $chunk) {
+            [$display, $normalized] = $this->canonicalizeDnaChunk($originalPhrase, $chunk);
+            if ($normalized === '' || isset($used[$normalized])) {
+                continue;
+            }
+            if (! $this->isAcceptableDna($normalized, $display, $topicFolded, $topicTokens)) {
+                continue;
+            }
+            $used[$normalized] = true;
+            $values[] = [
+                'value' => $display,
+                'facet_type' => $this->guessFacet($normalized),
+                'confidence' => 'medium',
+                'placement' => $this->detectPlacement($originalPhrase, $topicFolded, $display),
+                'source' => 'deterministic',
+            ];
+        }
+
+        return $values;
+    }
+
+    /**
+     * Infer before|after from DNA fragment position relative to topic core in the keyword.
+     */
+    private function detectPlacement(string $keywordPhrase, string $topicFolded, string $dnaDisplay): string
+    {
+        $kwFolded = $this->normalizer->normalize($keywordPhrase)['folded_text'] ?? '';
+        $dnaFolded = $this->normalizer->normalize($dnaDisplay)['folded_text'] ?? '';
+        if ($kwFolded === '' || $topicFolded === '' || $dnaFolded === '') {
+            return DnaPlacement::DEFAULT;
+        }
+
+        $topicPos = mb_strpos($kwFolded, $topicFolded);
+        $dnaPos = mb_strpos($kwFolded, $dnaFolded);
+        if ($topicPos === false || $dnaPos === false) {
+            return DnaPlacement::DEFAULT;
+        }
+
+        return $dnaPos < $topicPos ? DnaPlacement::BEFORE : DnaPlacement::AFTER;
+    }
+
+    /**
+     * @return array{0: string, 1: string} display, normalized
+     */
+    private function canonicalizeDnaChunk(string $originalPhrase, string $chunk): array
+    {
+        $folded = $this->normalizer->fold(mb_strtolower(trim($chunk), 'UTF-8'));
+        $folded = $this->stripLocationWrapper($folded);
+        if ($folded === '') {
+            return ['', ''];
+        }
+
+        $display = $this->displayFragment($originalPhrase, $folded);
+        if ($display === '') {
+            $display = $folded;
+        }
+
+        return [$display, $this->normalizeDnaValue($folded)];
+    }
+
+    private function stripLocationWrapper(string $folded): string
+    {
+        $working = trim($folded);
+        foreach (self::LOCATION_WRAPPERS as $wrapper) {
+            if ($working === $wrapper) {
+                return '';
+            }
+            if (str_starts_with($working, $wrapper.' ')) {
+                $working = trim(substr($working, strlen($wrapper)));
+            }
+        }
+
+        return $working;
+    }
+
+    private function normalizeDnaValue(string $foldedOrDisplay): string
+    {
+        return trim(preg_replace('/\s+/u', ' ', $this->normalizer->fold($foldedOrDisplay)) ?? '');
+    }
+
+    /**
+     * @param  list<string>  $topicTokens
+     */
+    private function isAcceptableDna(
+        string $normalized,
+        string $display,
+        string $topicFolded,
+        array $topicTokens,
+    ): bool {
+        if ($normalized === '' || mb_strlen($normalized) < 2) {
+            return false;
+        }
+        if (in_array($normalized, self::GLUE, true)) {
+            return false;
+        }
+        if ($normalized === $topicFolded) {
+            return false;
+        }
+        // DNA must not be only a contiguous span of the topic core.
+        $dnaTokens = array_values(array_filter(explode(' ', $normalized)));
+        if ($dnaTokens !== [] && $this->containsSubsequence($topicTokens, $dnaTokens)) {
+            return false;
+        }
+        // Reject pure topic-token bags.
+        $onlyTopic = true;
+        foreach ($dnaTokens as $token) {
+            if (! in_array($token, $topicTokens, true)) {
+                $onlyTopic = false;
+                break;
+            }
+        }
+        if ($onlyTopic) {
+            return false;
+        }
+
+        $displayTrim = trim($display);
+        if ($displayTrim !== '' && mb_strlen($displayTrim) < 2) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Remove contiguous topic n-grams (and individual topic tokens) from residual.
+     *
+     * @param  list<string>  $tokens
+     * @param  list<string>  $topicTokens
+     * @return list<string>
+     */
+    private function removeTopicSpans(array $tokens, array $topicTokens): array
+    {
+        if ($tokens === [] || $topicTokens === []) {
+            return $tokens;
+        }
+
+        $n = count($topicTokens);
+        $out = [];
+        $i = 0;
+        $count = count($tokens);
+
+        while ($i < $count) {
+            $removed = false;
+            for ($len = $n; $len >= 2; $len--) {
+                for ($start = 0; $start <= $n - $len; $start++) {
+                    $span = array_slice($topicTokens, $start, $len);
+                    if (array_slice($tokens, $i, $len) === $span) {
+                        $i += $len;
+                        $removed = true;
+                        break 2;
+                    }
+                }
+            }
+            if ($removed) {
+                continue;
+            }
+            if (in_array($tokens[$i], $topicTokens, true)) {
+                $i++;
+
+                continue;
+            }
+            $out[] = $tokens[$i];
+            $i++;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string>  $kwTokens
+     * @param  list<string>  $topicTokens
+     * @return list<string>
+     */
+    private function semanticResidual(string $keywordPhrase, string $topicName, array $kwTokens, array $topicTokens): array
+    {
+        if ($this->phraseResolver->hasServiceIntent($topicName)) {
+            $topicLead = $this->servicePrefixLength($topicTokens);
+            if ($topicLead > 0 && $this->startsWithTokens($kwTokens, array_slice($topicTokens, 0, $topicLead))) {
+                return array_slice($kwTokens, $topicLead);
+            }
+        }
+
+        $commonPrefix = $this->commonPrefixLength($kwTokens, $topicTokens);
+        if ($commonPrefix >= 2) {
+            return array_slice($kwTokens, $commonPrefix);
+        }
+
+        return array_values(array_diff($kwTokens, $topicTokens));
+    }
+
+    /**
+     * @param  list<string>  $tokens
+     */
+    private function servicePrefixLength(array $tokens): int
+    {
+        if ($tokens === []) {
+            return 0;
+        }
+
+        if ($tokens[0] === 'xuong' && ($tokens[1] ?? '') === 'may') {
+            return min(3, count($tokens));
+        }
+
+        if ($tokens[0] === 'may') {
+            return min(2, count($tokens));
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param  list<string>  $haystack
+     * @param  list<string>  $prefix
+     */
+    private function startsWithTokens(array $haystack, array $prefix): bool
+    {
+        if (count($prefix) > count($haystack)) {
+            return false;
+        }
+
+        for ($i = 0; $i < count($prefix); $i++) {
+            if ($haystack[$i] !== $prefix[$i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  list<string>  $a
+     * @param  list<string>  $b
+     */
+    private function commonPrefixLength(array $a, array $b): int
+    {
+        $len = min(count($a), count($b));
+        $i = 0;
+        while ($i < $len && $a[$i] === $b[$i]) {
+            $i++;
+        }
+
+        return $i;
+    }
+
+    /**
+     * @param  list<string>  $haystack
+     * @param  list<string>  $needle
+     */
+    private function containsSubsequence(array $haystack, array $needle): bool
+    {
+        if ($needle === []) {
+            return true;
+        }
+
+        $ni = 0;
+        foreach ($haystack as $token) {
+            if ($token === $needle[$ni]) {
+                $ni++;
+                if ($ni === count($needle)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<string>  $haystack
+     * @param  list<string>  $needle
+     * @return list<string>
+     */
+    private function residualTokens(array $haystack, array $needle): array
+    {
+        $extra = [];
+        $ni = 0;
+        foreach ($haystack as $token) {
+            if ($ni < count($needle) && $token === $needle[$ni]) {
+                $ni++;
+
+                continue;
+            }
+            $extra[] = $token;
+        }
+
+        return $extra;
+    }
+
+    /**
+     * @param  list<string>  $residual
+     * @return list<string>
+     */
+    private function groupRemainingTokens(string $originalPhrase, array $residual): array
+    {
+        if ($residual === []) {
+            return [];
+        }
+
+        $chunks = [];
+        $buffer = [];
+        foreach ($residual as $token) {
+            if (in_array($token, self::GLUE, true) || mb_strlen($token) < 2) {
+                if ($buffer !== []) {
+                    $chunks[] = implode(' ', $buffer);
+                    $buffer = [];
+                }
+
+                continue;
+            }
+            $buffer[] = $token;
+        }
+        if ($buffer !== []) {
+            $chunks[] = implode(' ', $buffer);
+        }
+
+        return array_values(array_filter(
+            array_map(fn (string $c): string => $this->displayFragment($originalPhrase, $c), $chunks),
+            static fn (string $c): bool => trim($c) !== '',
+        ));
+    }
+
+    /**
+     * @param  list<string>  $residual
+     * @return list<string>
+     */
+    private function removePatternTokens(array $residual, string $pattern): array
+    {
+        $patternTokens = array_values(array_filter(explode(' ', $pattern)));
+        $out = [];
+        $i = 0;
+        while ($i < count($residual)) {
+            $slice = array_slice($residual, $i, count($patternTokens));
+            if ($slice === $patternTokens) {
+                $i += count($patternTokens);
+
+                continue;
+            }
+            $out[] = $residual[$i];
+            $i++;
+        }
+
+        return $out;
+    }
+
+    private function displayFragment(string $originalPhrase, string $foldedFragment): string
+    {
+        $patternParts = array_values(array_filter(
+            preg_split('/\s+/u', trim($foldedFragment)) ?: [],
+            static fn (string $t): bool => $t !== '',
+        ));
+        if ($patternParts === []) {
+            return '';
+        }
+
+        $rawWords = preg_split('/\s+/u', trim($originalPhrase)) ?: [];
+        $displayParts = [];
+        $pi = 0;
+        foreach ($rawWords as $rawWord) {
+            if ($pi >= count($patternParts)) {
+                break;
+            }
+            $folded = $this->normalizer->fold(mb_strtolower($rawWord, 'UTF-8'));
+            if ($folded === $patternParts[$pi]) {
+                $displayParts[] = $rawWord;
+                $pi++;
+            }
+        }
+
+        if ($pi === count($patternParts) && $displayParts !== []) {
+            return implode(' ', $displayParts);
+        }
+
+        return $foldedFragment;
+    }
+
+    private function guessFacet(string $normalized): ?string
+    {
+        return self::KNOWN_FACETS[$normalized] ?? null;
+    }
+}

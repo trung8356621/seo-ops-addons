@@ -18,6 +18,7 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | Featured / gallery | `media/` |
 | SEO score/audit | `seo/` |
 | Performance Hub | `search-intelligence/` |
+| **Topic Core (site-scoped)** | `search-intelligence/` — see `docs/modules/TOPIC_CORE.md` |
 | WP sync | `wordpress/` |
 | Publishing | `publishing/` |
 | Content Project | `content-projects/` |
@@ -26,6 +27,11 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | Agent/MCP | `agent/` |
 | Social Profile / manual share | `social/` |
 | Seeding Topic V2 / Link Intelligence | `seeding/` |
+
+## Website type (Manufacturer ≠ production)
+
+UI label **Manufacturer** persists as internal key **`production`**. Ecommerce persists as **`e-commerce`**.  
+Canonical doc: `docs/modules/WEBSITE_TYPE.md`. Do not rename `production` casually; do not treat `production` as a UI label.
 
 ## Seeding AI vs SEO AI (permanent)
 

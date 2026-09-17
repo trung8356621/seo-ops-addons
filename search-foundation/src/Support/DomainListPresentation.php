@@ -13,6 +13,9 @@ use App\Models\Site;
 
 /**
  * Presentation helpers for Domain list / form labels (UI only — no DB migration).
+ *
+ * Website type mapping SSOT for agents: docs/modules/WEBSITE_TYPE.md
+ * Manufacturer (UI) ↔ production (internal key). Do not rename production casually.
  */
 final class DomainListPresentation
 {

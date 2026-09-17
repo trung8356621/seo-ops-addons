@@ -15,6 +15,7 @@
     "optional":  [
                      "ai.prompt",
                      "publishing.queue",
-                     "seo.audit"
+                     "seo.audit",
+                     "search.topic"
                  ]
 }

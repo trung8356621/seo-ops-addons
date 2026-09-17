@@ -15,6 +15,7 @@
                  ],
     "optional":  [
                      "media.library",
-                     "ai.prompt"
+                     "ai.prompt",
+                     "search.topic"
                  ]
 }

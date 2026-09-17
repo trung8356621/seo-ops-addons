@@ -7,17 +7,24 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
+use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Resolve canonical site / keyword for one planning item (no live cluster_key reads).
+ * Resolve canonical site / keyword / topic for one planning item (site-scoped).
  */
 final class McpPlanningSignalResolver
 {
+    public function __construct(
+        private readonly ?CapabilityRegistry $capabilities = null,
+    ) {}
+
     /**
      * @return array{
      *     site_id: int,
-     *     cluster_key: string|null,
+     *     topic_id: int|null,
+     *     cluster_key: null,
      *     keyword_id: int|null,
      *     approved_at: string|null
      * }
@@ -27,9 +34,11 @@ final class McpPlanningSignalResolver
         $siteId = (int) ($task->site_id ?? 0);
         $keywordId = $this->resolveKeywordId($task, $origin);
         $approvedAt = $task->planning_reviewed_at?->toIso8601String();
+        $topicId = $this->resolveTopicId($siteId, $keywordId);
 
         return [
             'site_id' => $siteId,
+            'topic_id' => $topicId,
             'cluster_key' => null,
             'keyword_id' => $keywordId,
             'approved_at' => $approvedAt,
@@ -37,8 +46,6 @@ final class McpPlanningSignalResolver
     }
 
     /**
-     * Build a meta entry for a task that is (or was) planning-reviewed.
-     *
      * @return array<string, mixed>|null
      */
     public function entryForTask(SeoProjectTask $task, ?SeoContentProjectItemOrigin $origin = null): ?array
@@ -52,10 +59,29 @@ final class McpPlanningSignalResolver
             'project_item_id' => (int) $task->getKey(),
             'source_planning_item_id' => (int) $task->getKey(),
             'site_id' => $resolved['site_id'],
-            'cluster_key' => null,
+            'topic_id' => $resolved['topic_id'],
             'keyword_id' => $resolved['keyword_id'],
             'approved_at' => $resolved['approved_at'],
         ]);
+    }
+
+    private function resolveTopicId(int $siteId, ?int $keywordId): ?int
+    {
+        if ($siteId <= 0 || $keywordId === null || $keywordId <= 0) {
+            return null;
+        }
+
+        $caps = $this->capabilities ?? (app()->bound(CapabilityRegistry::class) ? app(CapabilityRegistry::class) : null);
+        if (! $caps instanceof CapabilityRegistry) {
+            return null;
+        }
+        $cap = $caps->getAs(TopicMembershipCapability::ID, TopicMembershipCapability::class);
+        if (! $cap instanceof TopicMembershipCapability) {
+            return null;
+        }
+        $map = $cap->topicIdsByKeywordId($siteId, [$keywordId]);
+
+        return $map[$keywordId] ?? null;
     }
 
     private function resolveKeywordId(SeoProjectTask $task, ?SeoContentProjectItemOrigin $origin): ?int
@@ -81,30 +107,15 @@ final class McpPlanningSignalResolver
             }
         }
 
-        $siteId = (int) ($task->site_id ?? 0);
-        $phrase = trim((string) ($task->keyword ?? ''));
-        if ($phrase === '') {
-            $phrase = trim((string) ($task->source_content ?? ''));
-        }
-        if ($phrase === '' || $siteId <= 0) {
-            return null;
-        }
-
-        if (! Schema::connection('omi_seo_ai')->hasTable('keywords')) {
-            return null;
-        }
-
-        $prepared = Keyword::preparePhraseForStorage($phrase);
-        if ($prepared === '') {
+        $focus = trim((string) ($task->focus_keyword ?? ''));
+        if ($focus === '' || ! Schema::connection('omi_seo_ai')->hasTable('keywords')) {
             return null;
         }
 
         $keyword = Keyword::query()
-            ->forSite($siteId)
-            ->where('phrase', $prepared)
-            ->orderBy('id')
-            ->first(['id']);
+            ->whereRaw('phrase COLLATE utf8mb4_unicode_ci = ?', [$focus])
+            ->first();
 
-        return $keyword instanceof Keyword ? (int) $keyword->getKey() : null;
+        return $keyword instanceof Keyword ? (int) $keyword->id : null;
     }
 }

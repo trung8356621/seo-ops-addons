@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning
  * Project.meta.mcp_planning — per-item MCP pipeline signal after Draft → Execution.
  *
  * Does not store content/prompt/article body.
+ * Topic attribution is site-scoped topic_id (never cluster_key).
  */
 final class McpPlanningMeta
 {
@@ -20,6 +21,7 @@ final class McpPlanningMeta
      *     project_item_id: int,
      *     source_planning_item_id?: int|null,
      *     site_id: int,
+     *     topic_id?: int|null,
      *     cluster_key?: string|null,
      *     keyword_id?: int|null,
      *     approved_at?: string|null
@@ -28,7 +30,8 @@ final class McpPlanningMeta
      *     project_item_id: int,
      *     source_planning_item_id: int|null,
      *     site_id: int,
-     *     cluster_key: string|null,
+     *     topic_id: int|null,
+     *     cluster_key: null,
      *     keyword_id: int|null,
      *     approved_at: string|null
      * }
@@ -41,7 +44,7 @@ final class McpPlanningMeta
             return null;
         }
 
-        $clusterKey = trim((string) ($entry['cluster_key'] ?? ''));
+        $topicId = (int) ($entry['topic_id'] ?? 0);
         $keywordId = (int) ($entry['keyword_id'] ?? 0);
         $sourceId = (int) ($entry['source_planning_item_id'] ?? $itemId);
         $approvedAt = trim((string) ($entry['approved_at'] ?? ''));
@@ -50,7 +53,8 @@ final class McpPlanningMeta
             'project_item_id' => $itemId,
             'source_planning_item_id' => $sourceId > 0 ? $sourceId : $itemId,
             'site_id' => $siteId,
-            'cluster_key' => $clusterKey !== '' ? $clusterKey : null,
+            'topic_id' => $topicId > 0 ? $topicId : null,
+            'cluster_key' => null,
             'keyword_id' => $keywordId > 0 ? $keywordId : null,
             'approved_at' => $approvedAt !== '' ? $approvedAt : null,
         ];
@@ -62,7 +66,8 @@ final class McpPlanningMeta
      *     project_item_id: int,
      *     source_planning_item_id: int|null,
      *     site_id: int,
-     *     cluster_key: string|null,
+     *     topic_id: int|null,
+     *     cluster_key: null,
      *     keyword_id: int|null,
      *     approved_at: string|null
      * }>

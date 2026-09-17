@@ -23,12 +23,12 @@ final class McpPlanningSignalService
     ) {}
 
     /**
-     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>}
+     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>, by_topic: array<int, int>}
      */
     public function countsForSite(int $siteId): array
     {
         if ($siteId <= 0) {
-            return ['total' => 0, 'by_site' => [], 'by_cluster' => []];
+            return ['total' => 0, 'by_site' => [], 'by_cluster' => [], 'by_topic' => []];
         }
 
         $signals = $this->collectSignals([$siteId]);
@@ -38,7 +38,7 @@ final class McpPlanningSignalService
 
     /**
      * @param  list<int>|null  $siteIds  null = all sites with signals
-     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>}
+     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>, by_topic: array<int, int>}
      */
     public function counts(?array $siteIds = null): array
     {
@@ -48,11 +48,22 @@ final class McpPlanningSignalService
     }
 
     /**
-     * @return array<string, int> cluster_key => count
+     * @return array<string, int>
+     * @deprecated cluster_key retired — always empty
      */
     public function countsByClusterKey(int $siteId): array
     {
-        return $this->countsForSite($siteId)['by_cluster'];
+        unset($siteId);
+
+        return [];
+    }
+
+    /**
+     * @return array<int, int> topic_id => count
+     */
+    public function countsByTopicId(int $siteId): array
+    {
+        return $this->countsForSite($siteId)['by_topic'];
     }
 
     public function countForSite(int $siteId): int
@@ -60,14 +71,23 @@ final class McpPlanningSignalService
         return (int) ($this->countsForSite($siteId)['by_site'][$siteId] ?? 0);
     }
 
+    /**
+     * @deprecated Use countForTopic
+     */
     public function countForCluster(int $siteId, string $clusterKey): int
     {
-        $clusterKey = trim($clusterKey);
-        if ($siteId <= 0 || $clusterKey === '') {
+        unset($siteId, $clusterKey);
+
+        return 0;
+    }
+
+    public function countForTopic(int $siteId, int $topicId): int
+    {
+        if ($siteId <= 0 || $topicId <= 0) {
             return 0;
         }
 
-        return (int) ($this->countsByClusterKey($siteId)[$clusterKey] ?? 0);
+        return (int) ($this->countsByTopicId($siteId)[$topicId] ?? 0);
     }
 
     /**
@@ -116,7 +136,7 @@ final class McpPlanningSignalService
 
     /**
      * @param  list<int>|null  $siteIds
-     * @return list<array{site_id: int, cluster_key: string|null, item_key: string}>
+     * @return list<array{site_id: int, topic_id: int|null, cluster_key: null, item_key: string}>
      */
     private function collectSignals(?array $siteIds): array
     {
@@ -128,7 +148,7 @@ final class McpPlanningSignalService
             }
         }
 
-        /** @var array<string, array{site_id: int, cluster_key: string|null, item_key: string}> $byItem */
+        /** @var array<string, array{site_id: int, topic_id: int|null, cluster_key: null, item_key: string}> $byItem */
         $byItem = [];
 
         foreach ($this->draftReviewedSignals($siteFilter) as $signal) {
@@ -136,7 +156,6 @@ final class McpPlanningSignalService
         }
 
         foreach ($this->projectMetaSignals($siteFilter) as $signal) {
-            // Project meta wins if same item somehow present in both (should not happen).
             $byItem[$signal['item_key']] = $signal;
         }
 
@@ -145,7 +164,7 @@ final class McpPlanningSignalService
 
     /**
      * @param  list<int>|null  $siteFilter
-     * @return list<array{site_id: int, cluster_key: string|null, item_key: string}>
+     * @return list<array{site_id: int, topic_id: int|null, cluster_key: null, item_key: string}>
      */
     private function draftReviewedSignals(?array $siteFilter): array
     {
@@ -153,8 +172,6 @@ final class McpPlanningSignalService
             return [];
         }
 
-        // Query builder (not Eloquent): SoftDeletes would emit seo_project_tasks.deleted_at
-        // while the table is aliased as `t`, which MySQL rejects.
         $query = DB::connection('omi_seo_ai')
             ->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
@@ -205,7 +222,8 @@ final class McpPlanningSignalService
             }
             $out[] = [
                 'site_id' => $siteId,
-                'cluster_key' => $resolved['cluster_key'],
+                'topic_id' => $resolved['topic_id'],
+                'cluster_key' => null,
                 'item_key' => 'draft:'.$taskId,
             ];
         }
@@ -215,7 +233,7 @@ final class McpPlanningSignalService
 
     /**
      * @param  list<int>|null  $siteFilter
-     * @return list<array{site_id: int, cluster_key: string|null, item_key: string}>
+     * @return list<array{site_id: int, topic_id: int|null, cluster_key: null, item_key: string}>
      */
     private function projectMetaSignals(?array $siteFilter): array
     {
@@ -241,7 +259,8 @@ final class McpPlanningSignalService
                 }
                 $out[] = [
                     'site_id' => $siteId,
-                    'cluster_key' => $item['cluster_key'] !== null ? (string) $item['cluster_key'] : null,
+                    'topic_id' => isset($item['topic_id']) ? (int) $item['topic_id'] : null,
+                    'cluster_key' => null,
                     'item_key' => 'exec:'.(int) $item['project_item_id'],
                 ];
             }
@@ -251,26 +270,27 @@ final class McpPlanningSignalService
     }
 
     /**
-     * @param  list<array{site_id: int, cluster_key: string|null, item_key: string}>  $signals
-     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>}
+     * @param  list<array{site_id: int, topic_id: int|null, cluster_key: null, item_key: string}>  $signals
+     * @return array{total: int, by_site: array<int, int>, by_cluster: array<string, int>, by_topic: array<int, int>}
      */
     private function aggregate(array $signals): array
     {
         $bySite = [];
-        $byCluster = [];
+        $byTopic = [];
         foreach ($signals as $signal) {
             $siteId = (int) $signal['site_id'];
             $bySite[$siteId] = ($bySite[$siteId] ?? 0) + 1;
-            $clusterKey = trim((string) ($signal['cluster_key'] ?? ''));
-            if ($clusterKey !== '') {
-                $byCluster[$clusterKey] = ($byCluster[$clusterKey] ?? 0) + 1;
+            $topicId = (int) ($signal['topic_id'] ?? 0);
+            if ($topicId > 0) {
+                $byTopic[$topicId] = ($byTopic[$topicId] ?? 0) + 1;
             }
         }
 
         return [
             'total' => count($signals),
             'by_site' => $bySite,
-            'by_cluster' => $byCluster,
+            'by_cluster' => [],
+            'by_topic' => $byTopic,
         ];
     }
 }

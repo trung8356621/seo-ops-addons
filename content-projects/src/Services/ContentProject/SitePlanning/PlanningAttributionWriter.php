@@ -81,7 +81,7 @@ final class PlanningAttributionWriter
             $dnaPhrases = [];
         }
 
-        // Live cluster_key resolve retired — keep only caller-provided / allow-list snapshots.
+        // Live topic_id resolve preferred via TopicMembershipCapability; cluster_key snapshots retired.
 
         // Single-cluster batch fallback when AI omitted cluster_ref (explicit, tested).
         if ($clusterRef === '' && count($allowed) === 1) {

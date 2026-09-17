@@ -223,10 +223,10 @@ final class SiteMcpGenerator
         }
 
         if ($mainTopics === []) {
-            $warnings[] = 'TOPICAL_PROFILE_EMPTY — no real Keyword Clusters (and no manual/planned clusters) for this site.';
+            $warnings[] = 'TOPICAL_PROFILE_EMPTY — Site MCP no longer embeds Topic Core; Topics are owned by search-intelligence Recluster.';
         }
 
-        $warnings[] = 'Main Topics derived from Keyword Clusters (SSOT); not from product_cat / AI invented topics.';
+        $warnings[] = 'Main Topics are site-scoped Topic Core (search.topic); product_cat roots seed Topics separately, not via this draft profile.';
 
         $draft['content_context'] = [
             'tone' => $tone,
