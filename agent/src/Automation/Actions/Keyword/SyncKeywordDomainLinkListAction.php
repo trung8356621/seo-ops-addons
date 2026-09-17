@@ -93,6 +93,19 @@ final class SyncKeywordDomainLinkListAction implements BusinessAction
             );
         }
 
+        // product_cat policy Keywords must never pollute curated prompt Domain Link List.
+        if ($phrase !== '' && $this->linkList->isProductCatPolicyKeyword($siteId, $phrase)) {
+            return ActionResult::success(
+                output: [
+                    'site_id' => $siteId,
+                    'phrase' => $phrase,
+                    'operation' => 'skipped_product_cat_policy',
+                    'changed' => false,
+                    'keyword_id' => $keywordId > 0 ? $keywordId : null,
+                ],
+            );
+        }
+
         $changed = false;
 
         try {

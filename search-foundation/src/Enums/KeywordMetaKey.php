@@ -43,6 +43,16 @@ enum KeywordMetaKey: string
         return "site.{$siteId}.rescrape_keep";
     }
 
+    /**
+     * Provenance for Domain Link List ↔ Keyword sync.
+     * Values: domain_link_list | product_cat
+     * product_cat must never be written into seo_domain_prompt_context.links.
+     */
+    public static function siteLinkPolicySource(int $siteId): string
+    {
+        return "site.{$siteId}.link_policy_source";
+    }
+
     public static function isSiteScopedKey(string $key): bool
     {
         return str_starts_with($key, 'site.');

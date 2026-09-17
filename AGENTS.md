@@ -27,11 +27,22 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | Agent/MCP | `agent/` |
 | Social Profile / manual share | `social/` |
 | Seeding Topic V2 / Link Intelligence | `seeding/` |
+| **Site Link Policy** (consumer composition) | `search-foundation/` — see `docs/modules/SITE_LINK_POLICY.md` |
 
 ## Website type (Manufacturer ≠ production)
 
 UI label **Manufacturer** persists as internal key **`production`**. Ecommerce persists as **`e-commerce`**.  
 Canonical doc: `docs/modules/WEBSITE_TYPE.md`. Do not rename `production` casually; do not treat `production` as a UI label.
+
+## Site links (do not conflate)
+
+| Concept | Meaning |
+|---------|---------|
+| Domain Link List | Curated `seo_domain_prompt_context.links` |
+| Site Sync Link Catalog | `effectiveLinks()` = WP ∪ Manual − Excluded |
+| Site Link Policy | Read-only composition for Keyword / Editor (`SiteLinkPolicyResolver`) |
+
+Canonical: `docs/modules/SITE_LINK_POLICY.md`. Topic seeds still use catalog + all-depth product_cat (Phase 2).
 
 ## Seeding AI vs SEO AI (permanent)
 

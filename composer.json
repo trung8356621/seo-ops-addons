@@ -30,6 +30,7 @@
             "Omnichannel\\Addons\\Content\\Tests\\": "content/tests/",
             "Omnichannel\\Addons\\Media\\Tests\\": "media/tests/",
             "Omnichannel\\Addons\\Seo\\Tests\\": "seo/tests/",
+            "Omnichannel\\Addons\\SearchFoundation\\Tests\\": "search-foundation/tests/",
             "Omnichannel\\Addons\\WordPress\\Tests\\": "wordpress/tests/",
             "Omnichannel\\Addons\\Publishing\\Tests\\": "publishing/tests/",
             "Omnichannel\\Addons\\ContentProjects\\Tests\\": "content-projects/tests/",

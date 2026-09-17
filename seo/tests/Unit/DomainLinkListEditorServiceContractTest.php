@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
+use Omnichannel\Addons\SearchFoundation\Services\SiteLink\SiteLinkPolicyResolver;
+use Omnichannel\Addons\SearchFoundation\Services\SiteLink\VerifiedProductCatLinkSource;
 use Omnichannel\Addons\Seo\Services\DomainLinkListEditorService;
 use Omnichannel\Addons\Seo\Services\EffectiveDomainLinkResolver;
 use PHPUnit\Framework\TestCase;
@@ -18,21 +20,28 @@ final class DomainLinkListEditorServiceContractTest extends TestCase
 
         self::assertStringContainsString('EffectiveDomainLinkResolver', $source);
         self::assertStringContainsString('$this->effectiveLinks->forSite($site)', $source);
-        self::assertStringNotContainsString("promptContext->getForSite", $source);
+        self::assertStringNotContainsString('promptContext->getForSite', $source);
         self::assertStringContainsString('textContainsPhrase', $source);
         self::assertStringContainsString('KeywordPhraseMatcher', $source);
     }
 
-    public function test_resolver_sources_product_cat_only_from_product_category_articles(): void
+    public function test_effective_resolver_delegates_composition_to_site_link_policy(): void
     {
-        $ref = new ReflectionClass(EffectiveDomainLinkResolver::class);
-        $source = (string) file_get_contents((string) $ref->getFileName());
+        $resolverSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(EffectiveDomainLinkResolver::class))->getFileName(),
+        );
+        $policySrc = (string) file_get_contents(
+            (string) (new ReflectionClass(SiteLinkPolicyResolver::class))->getFileName(),
+        );
+        $loaderSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(VerifiedProductCatLinkSource::class))->getFileName(),
+        );
 
-        self::assertStringContainsString("whereIn('type', ['product_category', 'product_cat'])", $source);
-        self::assertStringNotContainsString("where('type', 'category')", $source);
-        self::assertStringNotContainsString('post_tag', $source);
-        self::assertStringNotContainsString('product_tag', $source);
-        self::assertStringContainsString('company_short_identity', $source);
-        self::assertStringContainsString('looksLikeHostnameOrUrl', $source);
+        self::assertStringContainsString('SiteLinkPolicyResolver', $resolverSrc);
+        self::assertStringContainsString('forArticleEditor', $resolverSrc);
+        self::assertStringContainsString('normalizeVerified', $loaderSrc);
+        self::assertStringContainsString('SiteMcpProductCatIdentity', $loaderSrc);
+        self::assertStringContainsString('company_short_identity', $policySrc);
+        self::assertStringContainsString('looksLikeHostnameOrUrl', $policySrc);
     }
 }

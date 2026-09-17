@@ -1,5 +1,7 @@
 # Topic Core (site-scoped)
 
+> Last verified: 2026-09-18
+
 Owner: `search-intelligence/`  
 Capability: `search.topic`
 
@@ -30,13 +32,16 @@ Explicit only: `php artisan seo:topics-recluster {site_id} [--sync]`
 Flow:
 
 1. Ensure `seo_site_keywords`
-2. Seeds:
-   - **Link List SSOT:** `SiteLinkCatalogCapability::effectiveLinks` = WordPress ∪ Manual − Excluded
-   - **Root product_cat** for Manufacturer (`production`) / Ecommerce (`e-commerce`), via Site MCP discovery + `SiteMcpProductCatIdentity` fail-closed rules
+2. Seeds (`TopicSeedResolver` — **not** `SiteLinkPolicyResolver` yet):
+   - **Site Sync Link Catalog** via `SiteLinkCatalogCapability::effectiveLinks` = WordPress ∪ Manual − Excluded  
+     (broad inventory — **not** curated Domain Link List; title may fallback as phrase)
+   - **All-depth verified product_cat** for Manufacturer (`production`) / Ecommerce (`e-commerce`), via Site MCP discovery + `SiteMcpProductCatIdentity` fail-closed rules (`parent_term_id` present; `0` = root, `>0` = nested)
 3. Cluster + persist Topics / memberships
 4. Rebuild DNA
 
 Does **not** auto-run from migrations. Does **not** mutate other sites.
+
+**Phase 2:** whether Topic should consume `SiteLinkPolicyResolver` (and which sources) is **unresolved**. See [SITE_LINK_POLICY.md](./SITE_LINK_POLICY.md). Do not “fix” Topic seeds under Site Link Policy Phase 1.
 
 ## Dissolve
 
