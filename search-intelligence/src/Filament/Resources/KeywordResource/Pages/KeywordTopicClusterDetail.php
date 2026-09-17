@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Livewire\WithPagination;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
@@ -29,6 +30,7 @@ final class KeywordTopicClusterDetail extends Page
     use InteractsWithKeywordDetailDrawer;
     use InteractsWithKeywordItemActions;
     use ReclustersSiteTopics;
+    use WithPagination;
 
     protected static string $resource = KeywordResource::class;
 
@@ -131,7 +133,16 @@ final class KeywordTopicClusterDetail extends Page
     public function getKeywordDnaMap(): array
     {
         $keywords = $this->getKeywords();
-        $ids = collect($keywords->items())->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
+        $ids = collect($keywords->items())->map(static function (mixed $item): int {
+            if (is_object($item) && isset($item->id)) {
+                return (int) $item->id;
+            }
+            if (is_array($item)) {
+                return (int) ($item['keyword_id'] ?? $item['id'] ?? 0);
+            }
+
+            return 0;
+        })->filter(static fn (int $id): bool => $id > 0)->values()->all();
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
 
         return app(TopicDetailQuery::class)->dnaDisplayByKeyword($siteId, $this->topic, $ids);

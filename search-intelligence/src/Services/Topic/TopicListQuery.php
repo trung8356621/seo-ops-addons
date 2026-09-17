@@ -105,6 +105,11 @@ final class TopicListQuery
                 'keyword_count' => $keywordCount,
                 'article_count' => $articleCount,
                 'internal_link_count' => $articleCount,
+                'internal_links' => $articleCount,
+                'intent' => '',
+                'coverage' => 'unknown',
+                'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+                'topical_share' => null,
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
             ];
@@ -138,6 +143,8 @@ final class TopicListQuery
                 'seo_eligible_keywords' => 0,
                 'assigned' => 0,
                 'unassigned' => 0,
+                'clustered' => 0,
+                'unclustered' => 0,
                 'topic_locked' => 0,
                 'membership_locked' => 0,
             ];
@@ -160,6 +167,8 @@ final class TopicListQuery
             'seo_eligible_keywords' => $seoEligible,
             'assigned' => $assigned,
             'unassigned' => max(0, $seoEligible - $assigned),
+            'clustered' => $assigned,
+            'unclustered' => max(0, $seoEligible - $assigned),
             'topic_locked' => $topicLocked,
             'membership_locked' => $membershipLocked,
         ];

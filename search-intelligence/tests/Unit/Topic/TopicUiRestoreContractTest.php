@@ -186,4 +186,51 @@ final class TopicUiRestoreContractTest extends TestCase
         self::assertStringContainsString("getUrl('clusters')", $resource);
         self::assertStringContainsString('isKeywordsClustersNav', $resource);
     }
+
+    public function test_index_blade_keeps_golden_shell_dom(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php');
+        foreach ([
+            'keyword-workspace-shell',
+            'topic-index-section-heading',
+            'topic-index-compact-stats',
+            'topic-index-context',
+            'topic-index-context-card',
+            'topic-index-toolbar',
+            'topic-index-toolbar__primary',
+            'topic-index-filters',
+            'cluster-index-list',
+            'cluster-index-row',
+            'cluster-index-row__main',
+            'cluster-index-row__title-wrap',
+            'cluster-index-row__meta',
+            'cluster-tag-row',
+            'topic-row-actions-menu',
+            'saveTopicNameFromIndex',
+            '@dblclick',
+        ] as $needle) {
+            self::assertStringContainsString($needle, $blade, $needle);
+        }
+        self::assertStringNotContainsString('Open  Dissolve topic', $blade);
+    }
+
+    public function test_detail_blade_keeps_golden_shell_dom(): void
+    {
+        $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-detail.blade.php');
+        foreach ([
+            'cluster-detail-header',
+            'cluster-detail-header__title',
+            'cluster-detail-header__stats',
+            'cluster-detail-dna-panel',
+            'keyword-item-list',
+            'keyword-detail-drawer',
+            'saveTopicName',
+            '@dblclick',
+            'dissolveCurrentTopic',
+        ] as $needle) {
+            self::assertStringContainsString($needle, $blade, $needle);
+        }
+        self::assertStringNotContainsString('{clusterKey}', $blade);
+        self::assertStringNotContainsString('KeywordClusterDetailBuilder', $blade);
+    }
 }

@@ -49,6 +49,29 @@ final class TopicDetailQuery
         $lockedMemberCount = $memberships->where('is_locked', true)->count();
         $articleCount = $this->articleCounter->countForTopic($siteId, $topicId);
 
+        $keywordIds = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
+        $intentCounts = [];
+        if ($keywordIds !== []) {
+            $intents = SeoSiteKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('keyword_id', $keywordIds)
+                ->whereNotNull('seo_intent')
+                ->pluck('seo_intent');
+            foreach ($intents as $intent) {
+                $key = strtolower(trim((string) $intent));
+                if ($key === '') {
+                    continue;
+                }
+                $intentCounts[$key] = (int) ($intentCounts[$key] ?? 0) + 1;
+            }
+        }
+
+        $primaryIntent = '';
+        if ($intentCounts !== []) {
+            arsort($intentCounts);
+            $primaryIntent = (string) array_key_first($intentCounts);
+        }
+
         return [
             'topic_id' => (int) $topic->id,
             'site_id' => $siteId,
@@ -61,6 +84,13 @@ final class TopicDetailQuery
             'keyword_count' => $keywordCount,
             'article_count' => $articleCount,
             'internal_link_count' => $articleCount,
+            'internal_links' => $articleCount,
+            'intent' => $primaryIntent,
+            'coverage' => 'unknown',
+            'canonical_source' => $keywordCount > 0 ? 'auto' : 'manual',
+            'intent_counts' => $intentCounts,
+            'last_analyzed' => $topic->updated_at?->toIso8601String(),
+            'idea_coverage' => $this->buildIdeaCoverage($siteId, $topicId),
             'state' => $keywordCount === 0 ? 'planned' : 'active',
             'created_at' => $topic->created_at?->toIso8601String(),
             'updated_at' => $topic->updated_at?->toIso8601String(),
@@ -68,7 +98,53 @@ final class TopicDetailQuery
     }
 
     /**
-     * @return LengthAwarePaginator<int, array<string, mixed>>
+     * Aggregate seo_topic_keyword_dna for the golden DNA panel shell.
+     *
+     * @return array{dna_branches: list<array{value: string, keyword_count: int, article_count: int}>}|null
+     */
+    private function buildIdeaCoverage(int $siteId, int $topicId): ?array
+    {
+        $rows = SeoTopicKeywordDna::query()
+            ->where('site_id', $siteId)
+            ->where('topic_id', $topicId)
+            ->get(['keyword_id', 'value']);
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        /** @var array<string, array{value: string, keyword_ids: array<int, true>}> $byValue */
+        $byValue = [];
+        foreach ($rows as $row) {
+            $value = trim((string) $row->value);
+            if ($value === '') {
+                continue;
+            }
+            $key = mb_strtolower($value);
+            if (! isset($byValue[$key])) {
+                $byValue[$key] = ['value' => $value, 'keyword_ids' => []];
+            }
+            $byValue[$key]['keyword_ids'][(int) $row->keyword_id] = true;
+        }
+
+        if ($byValue === []) {
+            return null;
+        }
+
+        $branches = [];
+        foreach ($byValue as $item) {
+            $branches[] = [
+                'value' => $item['value'],
+                'keyword_count' => count($item['keyword_ids']),
+                'article_count' => 0,
+            ];
+        }
+        usort($branches, static fn (array $a, array $b): int => $b['keyword_count'] <=> $a['keyword_count']);
+
+        return ['dna_branches' => array_slice($branches, 0, 40)];
+    }
+
+    /**
+     * @return LengthAwarePaginator<int, Keyword>
      */
     public function paginateMembers(int $siteId, int $topicId, int $perPage = 25): LengthAwarePaginator
     {
@@ -96,37 +172,20 @@ final class TopicDetailQuery
             ->map(static fn (SeoTopicKeyword $row): int => (int) $row->keyword_id)
             ->all();
 
-        $phrases = $keywordIds === []
+        $keywords = $keywordIds === []
             ? collect()
-            : Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id');
+            : Keyword::query()->whereIn('id', $keywordIds)->get()->keyBy('id');
 
-        $siteRows = $keywordIds === []
-            ? collect()
-            : SeoSiteKeyword::query()
-                ->where('site_id', $siteId)
-                ->whereIn('keyword_id', $keywordIds)
-                ->get(['keyword_id', 'is_seo_keyword', 'seo_intent'])
-                ->keyBy(static fn ($row): int => (int) $row->keyword_id);
-
-        $mapped = collect($paginator->items())->map(static function (SeoTopicKeyword $row) use ($phrases, $siteRows): array {
-            $keywordId = (int) $row->keyword_id;
-            $site = $siteRows->get($keywordId);
-
-            return [
-                'id' => $keywordId,
-                'keyword_id' => $keywordId,
-                'phrase' => (string) ($phrases[$keywordId] ?? ''),
-                'source' => (string) $row->source,
-                'is_seed' => (bool) $row->is_seed,
-                'is_locked' => (bool) $row->is_locked,
-                'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
-                'is_seo_keyword' => (bool) ($site?->is_seo_keyword ?? false),
-                'seo_intent' => $site?->seo_intent !== null ? (string) $site->seo_intent : null,
-            ];
-        })->all();
+        $ordered = [];
+        foreach ($paginator->items() as $row) {
+            $keyword = $keywords->get((int) $row->keyword_id);
+            if ($keyword instanceof Keyword) {
+                $ordered[] = $keyword;
+            }
+        }
 
         return new Paginator(
-            $mapped,
+            $ordered,
             $paginator->total(),
             $paginator->perPage(),
             $paginator->currentPage(),

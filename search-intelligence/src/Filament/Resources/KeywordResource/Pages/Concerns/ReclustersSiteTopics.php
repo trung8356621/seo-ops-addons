@@ -89,9 +89,32 @@ trait ReclustersSiteTopics
         $this->confirmRecluster = true;
     }
 
+    /** @deprecated BC alias for golden Blade wire:click */
+    public function openReclusterConfirm(): void
+    {
+        $this->beginConfirmRecluster();
+    }
+
     public function cancelConfirmRecluster(): void
     {
         $this->confirmRecluster = false;
+    }
+
+    /** @deprecated BC alias for golden Blade wire:click */
+    public function cancelReclusterConfirm(): void
+    {
+        $this->cancelConfirmRecluster();
+    }
+
+    /** @deprecated BC alias for golden Blade wire:click */
+    public function confirmDispatchReclusterTopicClusters(): void
+    {
+        $this->runTopicRecluster();
+    }
+
+    public function canReclusterTopicClusters(): bool
+    {
+        return $this->canReclusterTopics();
     }
 
     public function runTopicRecluster(bool $sync = false): void

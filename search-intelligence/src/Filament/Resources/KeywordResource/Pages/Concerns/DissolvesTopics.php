@@ -65,4 +65,12 @@ trait DissolvesTopics
             'affected_count' => (int) $result['deleted_memberships'],
         ];
     }
+
+    /**
+     * @return array{ok: bool, topic_id?: int, label?: string, affected_count?: int, error?: string}
+     */
+    public function dissolveTopicCluster(int|string $topicId): array
+    {
+        return $this->dissolveTopic((int) $topicId);
+    }
 }

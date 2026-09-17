@@ -223,10 +223,10 @@ final class KeywordTopicClusters extends Page
         $this->clusterDataEpoch++;
     }
 
-    /** @deprecated BC alias for older blade copy */
-    public function canReclusterTopicClusters(): bool
+    /** Topic Core has no dirty-cluster signal yet; keep blade hook stable. */
+    public function clusterStateIsDirty(): bool
     {
-        return $this->canReclusterTopics();
+        return false;
     }
 
     /** @deprecated BC alias */
