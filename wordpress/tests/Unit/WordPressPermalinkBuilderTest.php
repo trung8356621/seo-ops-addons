@@ -352,14 +352,183 @@ final class WordPressPermalinkBuilderTest extends TestCase
         );
     }
 
+    public function test_vietnamese_product_does_not_inherit_en_prefix_from_contaminated_template(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/tin-tuc/%postname%.html',
+            'templates_version' => 1,
+            'templates' => [
+                // Contaminated sample from latest English product.
+                'product' => 'https://mayhopphat.com/en/%slug%',
+                'post' => 'https://mayhopphat.com/tin-tuc/%slug%.html',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => true,
+            'default' => 'vi',
+            'languages' => [
+                ['slug' => 'vi', 'name' => 'Tiếng Việt', 'locale' => 'vi', 'url_prefix' => ''],
+                ['slug' => 'en', 'name' => 'English', 'locale' => 'en_US', 'url_prefix' => 'en'],
+            ],
+        ]);
+
+        $article = $this->article('product', 'mayhopphat.com', language: 'vi', extraMeta: [
+            'wp_permalink' => 'https://mayhopphat.com/tui-dung-my-pham-hanayuki',
+        ], wpPostId: 12580);
+
+        $candidate = $builder->candidatePermalink($article, 'tui-dung-my-pham-hanayuki');
+        $this->assertSame('https://mayhopphat.com/tui-dung-my-pham-hanayuki', $candidate);
+        $this->assertStringNotContainsString('/en/', $candidate);
+        $this->assertStringNotContainsString('/tin-tuc/', $candidate);
+
+        // Linked translation must not mutate remote authority.
+        $this->assertSame(
+            'https://mayhopphat.com/tui-dung-my-pham-hanayuki',
+            $builder->resolve($article, 'https://mayhopphat.com/tui-dung-my-pham-hanayuki', 'tui-dung-my-pham-hanayuki'),
+        );
+    }
+
+    public function test_english_article_uses_explicit_en_prefix_from_site_info(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/%postname%/',
+            'templates_version' => 1,
+            'templates' => [
+                'product' => 'https://mayhopphat.com/%slug%',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => true,
+            'default' => 'vi',
+            'languages' => [
+                ['slug' => 'vi', 'name' => 'Tiếng Việt', 'locale' => 'vi', 'url_prefix' => ''],
+                ['slug' => 'en', 'name' => 'English', 'locale' => 'en_US', 'url_prefix' => 'en'],
+            ],
+        ]);
+
+        $article = $this->article('product', 'mayhopphat.com', language: 'en');
+        $this->assertSame(
+            'https://mayhopphat.com/en/cosmetic-bag',
+            $builder->candidatePermalink($article, 'cosmetic-bag'),
+        );
+    }
+
+    public function test_default_language_without_prefix_stays_root(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/%postname%/',
+            'templates_version' => 1,
+            'templates' => [
+                'product' => 'https://mayhopphat.com/%slug%',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => true,
+            'default' => 'vi',
+            'languages' => [
+                ['slug' => 'vi', 'name' => 'Tiếng Việt', 'locale' => 'vi', 'url_prefix' => ''],
+                ['slug' => 'en', 'name' => 'English', 'locale' => 'en_US', 'url_prefix' => 'en'],
+            ],
+        ]);
+
+        $article = $this->article('product', 'mayhopphat.com', language: 'vi');
+        $this->assertSame(
+            'https://mayhopphat.com/tui-dung-my-pham-hanayuki',
+            $builder->candidatePermalink($article, 'tui-dung-my-pham-hanayuki'),
+        );
+    }
+
+    public function test_no_multilingual_routing_never_invents_locale_prefix(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/%postname%/',
+            'templates_version' => 1,
+            'templates' => [
+                'product' => 'https://mayhopphat.com/%slug%',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => false,
+            'default' => 'vi',
+            'languages' => [],
+        ]);
+
+        $article = $this->article('product', 'mayhopphat.com', language: 'en');
+        $this->assertSame(
+            'https://mayhopphat.com/cosmetic-bag',
+            $builder->candidatePermalink($article, 'cosmetic-bag'),
+        );
+        $this->assertStringNotContainsString('/en/', $builder->candidatePermalink($article, 'cosmetic-bag'));
+    }
+
+    public function test_linked_translation_language_does_not_change_current_candidate(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/%postname%/',
+            'templates_version' => 1,
+            'templates' => [
+                'product' => 'https://mayhopphat.com/en/%slug%',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => true,
+            'default' => 'vi',
+            'languages' => [
+                ['slug' => 'vi', 'name' => 'Tiếng Việt', 'locale' => 'vi', 'url_prefix' => ''],
+                ['slug' => 'en', 'name' => 'English', 'locale' => 'en_US', 'url_prefix' => 'en'],
+            ],
+        ]);
+
+        // Current article is Vietnamese; presence of an English translation relation is irrelevant.
+        $vi = $this->article('product', 'mayhopphat.com', language: 'vi');
+        $this->assertSame(
+            'https://mayhopphat.com/tui-dung-my-pham-hanayuki',
+            $builder->candidatePermalink($vi, 'tui-dung-my-pham-hanayuki'),
+        );
+
+        $en = $this->article('product', 'mayhopphat.com', language: 'en');
+        $this->assertSame(
+            'https://mayhopphat.com/en/tui-dung-my-pham-hanayuki',
+            $builder->candidatePermalink($en, 'tui-dung-my-pham-hanayuki'),
+        );
+    }
+
+    public function test_product_plus_language_does_not_leak_post_tin_tuc_template(): void
+    {
+        $builder = $this->builderWithPermalink([
+            'structure' => '/tin-tuc/%postname%.html',
+            'templates_version' => 1,
+            'templates' => [
+                'post' => 'https://mayhopphat.com/tin-tuc/%slug%.html',
+                'product' => 'https://mayhopphat.com/en/%slug%',
+            ],
+            'woocommerce' => ['product_base' => '', 'category_base' => ''],
+        ], [
+            'active' => true,
+            'default' => 'vi',
+            'languages' => [
+                ['slug' => 'vi', 'url_prefix' => ''],
+                ['slug' => 'en', 'url_prefix' => 'en'],
+            ],
+        ]);
+
+        $article = $this->article('product', 'mayhopphat.com', language: 'vi', legacyType: 'article');
+        $url = $builder->candidatePermalink($article, 'tui-dung-my-pham-hanayuki');
+        $this->assertSame('https://mayhopphat.com/tui-dung-my-pham-hanayuki', $url);
+        $this->assertStringNotContainsString('/tin-tuc/', $url);
+        $this->assertStringNotContainsString('/en/', $url);
+    }
+
     /**
      * @param  array<string, mixed>  $permalink
+     * @param  array<string, mixed>  $polylang
      */
-    private function builderWithPermalink(array $permalink): WordPressPermalinkBuilder
+    private function builderWithPermalink(array $permalink, array $polylang = []): WordPressPermalinkBuilder
     {
         $siteInfo = Mockery::mock(WordPressSiteInfoService::class);
         $siteInfo->shouldReceive('getStoredSiteInfo')->andReturn([
             'permalink' => $permalink,
+            'polylang' => $polylang,
         ]);
 
         return new WordPressPermalinkBuilder($siteInfo);
@@ -374,6 +543,7 @@ final class WordPressPermalinkBuilderTest extends TestCase
         string $legacyType = 'article',
         array $extraMeta = [],
         int $wpPostId = 0,
+        string $language = 'vi',
     ): SeoArticle {
         $contentType = match ($wpPostType) {
             'product', 'product_cat' => 'product',
@@ -397,6 +567,7 @@ final class WordPressPermalinkBuilderTest extends TestCase
             'type' => $legacyType,
             'slug' => 'sample',
             'site_id' => 7,
+            'language' => $language,
         ]);
         if ($wpPostId > 0) {
             $article->setAttribute('wp_post_id', $wpPostId);

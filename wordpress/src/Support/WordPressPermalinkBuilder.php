@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\WordPress\Services\WordPressSiteInfoService;
 use App\Models\Site;
@@ -85,7 +86,7 @@ final class WordPressPermalinkBuilder
 
         $wpPostType = ArticleWordPressPostType::resolve($article);
 
-        return $this->buildPrettyPermalinkForType(
+        $url = $this->buildPrettyPermalinkForType(
             $site,
             $slug,
             $wpPostType,
@@ -94,6 +95,8 @@ final class WordPressPermalinkBuilder
             (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0),
             $article,
         );
+
+        return $this->localizeCandidateUrl($url, $article, $site);
     }
 
     /**
@@ -116,20 +119,15 @@ final class WordPressPermalinkBuilder
         $templateKey = $this->templateKeyForWpPostType($wpPostType);
         $template = trim((string) (($settings['templates'] ?? [])[$templateKey] ?? ''));
         if ($template !== '' && str_contains($template, '%slug%')) {
-            return $template;
+            $localized = $this->localizeCandidateUrl($template, $article, $site);
+            if ($localized !== '' && str_contains($localized, '%slug%')) {
+                return $localized;
+            }
         }
 
         // Derive a template from a successful candidate build using a sentinel slug.
         $sentinel = '__omi_slug__';
-        $built = $this->buildPrettyPermalinkForType(
-            $site,
-            $sentinel,
-            $wpPostType,
-            $settings,
-            $article->publishingState?->published_at,
-            0,
-            $article,
-        );
+        $built = $this->candidatePermalink($article, $sentinel);
         if ($built === '' || ! str_contains($built, $sentinel)) {
             return '';
         }
@@ -308,15 +306,122 @@ final class WordPressPermalinkBuilder
             default => $this->buildNativeCptPath($slug, $wpPostType, $settings),
         };
 
-        if ($path === null) {
-            return '';
-        }
-
-        if ($path === '') {
+        if ($path === null || $path === '') {
             return '';
         }
 
         return rtrim($base, '/') . '/' . ltrim($path, '/');
+    }
+
+    /**
+     * Rewrite candidate URL language segment for the CURRENT article only.
+     * Never reads linked-translation language. Never invents locale prefixes.
+     */
+    private function localizeCandidateUrl(string $url, SeoArticle $article, Site $site): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        $routing = $this->languageRoutingFromSiteInfo($site);
+        if (! $routing['active'] || $routing['language_slugs'] === []) {
+            return $url;
+        }
+
+        $articleLang = ArticleLanguageCode::normalize((string) ($article->language ?? ''));
+        if ($articleLang === '') {
+            $articleLang = $routing['default'];
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return $url;
+        }
+
+        $path = (string) ($parts['path'] ?? '/');
+        $segments = array_values(array_filter(explode('/', trim($path, '/')), static fn (string $s): bool => $s !== ''));
+
+        $templateLang = $routing['default'];
+        if ($segments !== [] && in_array($segments[0], $routing['language_slugs'], true)) {
+            $templateLang = ArticleLanguageCode::normalize($segments[0]) ?: $segments[0];
+            array_shift($segments);
+        }
+
+        if ($articleLang === $templateLang) {
+            return $url;
+        }
+
+        $targetPrefix = null;
+        if (array_key_exists($articleLang, $routing['prefixes'])) {
+            $targetPrefix = $routing['prefixes'][$articleLang];
+        } elseif ($articleLang === $routing['default']) {
+            // Default language without explicit prefix → root.
+            $targetPrefix = '';
+        } else {
+            // Non-default language without explicit url_prefix — do not invent /en/.
+            // Keep language-neutral path (safer than wrong foreign prefix from sample).
+            $targetPrefix = '';
+        }
+
+        $neutralPath = implode('/', $segments);
+        $newPath = $targetPrefix !== ''
+            ? '/' . trim($targetPrefix, '/') . ($neutralPath !== '' ? '/' . $neutralPath : '')
+            : ($neutralPath !== '' ? '/' . $neutralPath : '/');
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = $parts['host'];
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+        return $scheme . '://' . $host . $port . $newPath;
+    }
+
+    /**
+     * @return array{
+     *   active: bool,
+     *   default: string,
+     *   language_slugs: list<string>,
+     *   prefixes: array<string, string>
+     * }
+     */
+    private function languageRoutingFromSiteInfo(Site $site): array
+    {
+        $info = $this->siteInfo->getStoredSiteInfo($site) ?? [];
+        $polylang = is_array($info['polylang'] ?? null) ? $info['polylang'] : [];
+        $active = (bool) ($polylang['active'] ?? false);
+        $default = ArticleLanguageCode::normalize((string) ($polylang['default'] ?? 'vi')) ?: 'vi';
+        $languages = is_array($polylang['languages'] ?? null) ? $polylang['languages'] : [];
+
+        $slugs = [];
+        $prefixes = [];
+        foreach ($languages as $language) {
+            if (! is_array($language)) {
+                continue;
+            }
+            $slug = ArticleLanguageCode::normalize((string) ($language['slug'] ?? ''));
+            if ($slug === '') {
+                $slug = ArticleLanguageCode::fromWordpressLocale((string) ($language['locale'] ?? ''));
+            }
+            if ($slug === '') {
+                continue;
+            }
+            $slugs[] = $slug;
+            if (array_key_exists('url_prefix', $language)) {
+                $prefixes[$slug] = trim((string) $language['url_prefix'], '/');
+            }
+        }
+
+        // Default language always has an explicit root prefix when active.
+        if ($active && ! array_key_exists($default, $prefixes)) {
+            $prefixes[$default] = '';
+        }
+
+        return [
+            'active' => $active,
+            'default' => $default,
+            'language_slugs' => array_values(array_unique($slugs)),
+            'prefixes' => $prefixes,
+        ];
     }
 
     /**
