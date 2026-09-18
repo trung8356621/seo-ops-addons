@@ -39,8 +39,10 @@ final class TopicClusterEngine
      *     topic_id: int,
      *     name: string,
      *     is_locked: bool,
+     *     accept_attach?: bool,
      *     members?: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
-     * }>  $inventoryTopics  protected attach targets (manual / membership-lock parents) with known topic_id
+     * }>  $inventoryTopics  protected topics with known topic_id.
+     *     Manual freeze: accept_attach=false + existing members assigned (excluded from free remainder).
      * @param  array<string, int>  $metrics
      * @return list<array{
      *     name: string,
@@ -66,7 +68,7 @@ final class TopicClusterEngine
             'discovered_groups_pruned_below_threshold' => 0,
         ], $metrics);
 
-        /** @var list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $topics */
+        /** @var list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, accept_attach: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $topics */
         $topics = [];
         /** @var array<int, true> $assigned */
         $assigned = [];
@@ -97,6 +99,8 @@ final class TopicClusterEngine
                 'topic_id' => $topicId,
                 'is_locked' => true,
                 'is_protected' => true,
+                // Topic lock still allows net-new unlocked matches (existing product rule).
+                'accept_attach' => true,
                 'members' => $members,
             ];
         }
@@ -132,6 +136,7 @@ final class TopicClusterEngine
                 'topic_id' => $topicId,
                 'is_locked' => (bool) $inventory['is_locked'],
                 'is_protected' => true,
+                'accept_attach' => (bool) ($inventory['accept_attach'] ?? true),
                 'members' => $members,
             ];
         }
@@ -147,6 +152,7 @@ final class TopicClusterEngine
                 'topic_id' => null,
                 'is_locked' => false,
                 'is_protected' => true,
+                'accept_attach' => true,
                 'members' => [[
                     'keyword_id' => $keywordId,
                     'phrase' => $seed['phrase'],
@@ -226,7 +232,7 @@ final class TopicClusterEngine
 
         return array_map(
             static function (array $topic): array {
-                unset($topic['is_protected']);
+                unset($topic['is_protected'], $topic['accept_attach']);
 
                 return $topic;
             },
@@ -235,13 +241,16 @@ final class TopicClusterEngine
     }
 
     /**
-     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $topics
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, accept_attach?: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $topics
      */
     private function pickDirectAttachIndex(string $phrase, array $topics): ?int
     {
         /** @var list<int> $matches */
         $matches = [];
         foreach ($topics as $index => $topic) {
+            if (($topic['accept_attach'] ?? true) === false) {
+                continue;
+            }
             if ($this->matcher->matches($phrase, $topic['name'])) {
                 $matches[] = $index;
             }
@@ -262,13 +271,16 @@ final class TopicClusterEngine
     }
 
     /**
-     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $topics
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, is_protected: bool, accept_attach?: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $topics
      */
     private function pickCoreFallbackIndex(string $phrase, array $topics): ?int
     {
         /** @var list<int> $matches */
         $matches = [];
         foreach ($topics as $index => $topic) {
+            if (($topic['accept_attach'] ?? true) === false) {
+                continue;
+            }
             if ($this->coreFallbackMatches($phrase, $topic['name'])) {
                 $matches[] = $index;
             }

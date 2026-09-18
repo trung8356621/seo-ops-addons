@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Filament\Notifications\Notification;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -65,7 +66,7 @@ trait ReclustersSiteTopics
         }
 
         $status = (string) ($state['status'] ?? '');
-        if ($status === 'queued' || $status === 'running') {
+        if (TopicReclusterUiState::isActiveStatus($status)) {
             $this->reclusterRunning = true;
             $this->reclusterResult = $state;
 
@@ -83,6 +84,15 @@ trait ReclustersSiteTopics
                 ->title(__('seo-content-ai::filament.keyword.topic_recluster_denied'))
                 ->danger()
                 ->send();
+
+            return;
+        }
+        if ($this->isTopicMutationLocked()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_recluster_already_running'))
+                ->warning()
+                ->send();
+            $this->syncReclusterStateFromCache();
 
             return;
         }
@@ -150,12 +160,15 @@ trait ReclustersSiteTopics
             return;
         }
 
+        $version = TopicReclusterAlgorithm::VERSION;
+
         if ($sync) {
-            TopicReclusterUiState::markRunning($siteId);
+            TopicReclusterUiState::markRunning($siteId, $version);
             $this->reclusterRunning = true;
+            $this->reclusterResult = TopicReclusterUiState::get($siteId);
             $result = app(TopicReclusterService::class)->recluster($siteId);
             if ($result->ok) {
-                TopicReclusterUiState::markCompleted($siteId, $result->metrics);
+                TopicReclusterUiState::markSucceeded($siteId, $result->metrics, $version);
                 $this->reclusterResult = TopicReclusterUiState::get($siteId);
                 $this->reclusterRunning = false;
                 Notification::make()
@@ -163,7 +176,13 @@ trait ReclustersSiteTopics
                     ->success()
                     ->send();
             } else {
-                TopicReclusterUiState::markFailed($siteId, $result->error ?? 'failed', $result->metrics);
+                TopicReclusterUiState::markFailed(
+                    $siteId,
+                    $result->error ?? 'failed',
+                    $result->metrics,
+                    'recluster_failed',
+                    $version,
+                );
                 $this->reclusterResult = TopicReclusterUiState::get($siteId);
                 $this->reclusterRunning = false;
                 Notification::make()
@@ -179,12 +198,14 @@ trait ReclustersSiteTopics
             return;
         }
 
-        TopicReclusterUiState::markQueued($siteId);
+        // Persist queued state BEFORE dispatch so F5 immediately shows running UX.
+        TopicReclusterUiState::markQueued($siteId, $version);
         $this->reclusterRunning = true;
         $this->reclusterResult = TopicReclusterUiState::get($siteId);
-        ReclusterSiteTopicsJob::dispatch($siteId);
+        ReclusterSiteTopicsJob::dispatch($siteId, $version);
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.topic_recluster_queued_title'))
+            ->body(__('seo-content-ai::filament.keyword.topic_recluster_running'))
             ->success()
             ->send();
     }
@@ -192,9 +213,38 @@ trait ReclustersSiteTopics
     public function pollReclusterResult(): void
     {
         $wasRunning = $this->reclusterRunning;
+        $previousStatus = is_array($this->reclusterResult)
+            ? (string) ($this->reclusterResult['status'] ?? '')
+            : '';
         $this->syncReclusterStateFromCache();
+        $nowStatus = is_array($this->reclusterResult)
+            ? (string) ($this->reclusterResult['status'] ?? '')
+            : '';
+
         if ($wasRunning && ! $this->reclusterRunning && method_exists($this, 'refreshClusterSummaryCounters')) {
             $this->refreshClusterSummaryCounters();
+        }
+
+        if (
+            TopicReclusterUiState::isActiveStatus($previousStatus)
+            && $nowStatus === TopicReclusterUiState::STATUS_SUCCEEDED
+        ) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_recluster_result_title'))
+                ->success()
+                ->send();
+        }
+
+        if (
+            TopicReclusterUiState::isActiveStatus($previousStatus)
+            && $nowStatus === TopicReclusterUiState::STATUS_FAILED
+        ) {
+            $error = (string) ($this->reclusterResult['error'] ?? '');
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_recluster_failed_title'))
+                ->body($error !== '' ? $error : null)
+                ->danger()
+                ->send();
         }
     }
 }

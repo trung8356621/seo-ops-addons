@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Console;
 
 use Illuminate\Console\Command;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 
 /**
@@ -49,8 +50,9 @@ final class ReclusterSiteTopicsCommand extends Command
             return self::SUCCESS;
         }
 
-        ReclusterSiteTopicsJob::dispatch($siteId);
+        ReclusterSiteTopicsJob::dispatch($siteId, TopicReclusterAlgorithm::VERSION);
         $this->info('Recluster queued for site '.$siteId);
+        $this->line('algorithm_version: '.TopicReclusterAlgorithm::VERSION);
 
         return self::SUCCESS;
     }

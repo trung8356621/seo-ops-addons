@@ -15,10 +15,12 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 /**
  * Recluster(site_id) — site-isolated Topic rebuild from Link List + product_cat seeds.
  *
- * Manual Topics (seo_topics.source=manual) survive by topic_id without keyword seeds.
+ * Manual Topics (seo_topics.source=manual) are frozen inventory: same topic_id, exact
+ * membership set, no rename/dissolve/merge/auto-attach, no automatic reconcile.
+ * Explicit Detail "Rescan keywords" may still call TopicMembershipReconcileService.
  * Discovered Topics (auto + zero seeds) reuse topic_id via membership overlap.
  * Does not migrate legacy cluster-key / DNA. Does not force Focus⇒Topic.
- * Respects topic + membership locks.
+ * Respects topic + membership locks (separate from source=manual).
  */
 final class TopicReclusterService
 {
@@ -27,7 +29,6 @@ final class TopicReclusterService
         private readonly TopicSeedResolver $seeds,
         private readonly TopicClusterEngine $engine,
         private readonly TopicDnaService $dna,
-        private readonly TopicMembershipReconcileService $reconcile,
         private readonly TopicSeedIdentityResolver $identity = new TopicSeedIdentityResolver,
         private readonly TopicDiscoveredIdentityResolver $discoveredIdentity = new TopicDiscoveredIdentityResolver,
     ) {}
@@ -167,9 +168,8 @@ final class TopicReclusterService
                 return $this->persistClusters($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds);
             });
 
-            foreach ($manualTopicIds as $manualTopicId) {
-                $this->reconcile->reconcile($siteId, $manualTopicId);
-            }
+            // Global Recluster must NOT auto-reconcile manual Topics (source=manual = frozen).
+            // Explicit Detail Rescan still calls TopicMembershipReconcileService.
 
             $metrics['topics_after'] = $written['topics_after'];
             $metrics['memberships_written'] = $written['memberships_written'];
@@ -276,13 +276,14 @@ final class TopicReclusterService
     }
 
     /**
-     * Manual Topics as protected attach inventory (known topic_id, no collapse).
+     * Manual Topics as frozen inventory: exact current members, no auto-attach.
      *
      * @param  array<int, true>  $lockedTopicIds
      * @return list<array{
      *     topic_id: int,
      *     name: string,
      *     is_locked: bool,
+     *     accept_attach: bool,
      *     members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
      * }>
      */
@@ -293,18 +294,54 @@ final class TopicReclusterService
             ->where('source', TopicSource::MANUAL)
             ->get(['id', 'name', 'is_locked']);
 
-        /** @var list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $inventory */
+        if ($manuals->isEmpty()) {
+            return [];
+        }
+
+        /** @var array<int, true> $manualIds */
+        $manualIds = [];
+        foreach ($manuals as $topic) {
+            $topicId = (int) $topic->id;
+            if ($topicId > 0 && ! isset($lockedTopicIds[$topicId])) {
+                $manualIds[$topicId] = true;
+            }
+        }
+        if ($manualIds === []) {
+            return [];
+        }
+
+        $memberRows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', array_keys($manualIds))
+            ->get(['topic_id', 'keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+
+        /** @var array<int, list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>> $membersByTopic */
+        $membersByTopic = [];
+        foreach ($memberRows as $row) {
+            $topicId = (int) $row->topic_id;
+            $membersByTopic[$topicId][] = [
+                'keyword_id' => (int) $row->keyword_id,
+                'phrase' => '',
+                'source' => (string) $row->source,
+                'is_seed' => (bool) $row->is_seed,
+                'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                'is_locked' => (bool) $row->is_locked,
+            ];
+        }
+
+        /** @var list<array{topic_id: int, name: string, is_locked: bool, accept_attach: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $inventory */
         $inventory = [];
         foreach ($manuals as $topic) {
             $topicId = (int) $topic->id;
-            if (isset($lockedTopicIds[$topicId])) {
+            if (! isset($manualIds[$topicId])) {
                 continue;
             }
             $inventory[] = [
                 'topic_id' => $topicId,
                 'name' => (string) $topic->name,
                 'is_locked' => (bool) $topic->is_locked,
-                'members' => [],
+                'accept_attach' => false,
+                'members' => $membersByTopic[$topicId] ?? [],
             ];
         }
 
@@ -451,8 +488,12 @@ final class TopicReclusterService
 
         /** @var array<int, true> $keepTopicIds */
         $keepTopicIds = $locked['preserved_topic_ids'];
+        /** @var array<int, true> $manualIdSet */
+        $manualIdSet = [];
         foreach ($manualTopicIds as $manualTopicId) {
-            $keepTopicIds[(int) $manualTopicId] = true;
+            $manualId = (int) $manualTopicId;
+            $keepTopicIds[$manualId] = true;
+            $manualIdSet[$manualId] = true;
         }
         /** @var array<int, true> $claimedTopicIds */
         $claimedTopicIds = [];
@@ -496,6 +537,7 @@ final class TopicReclusterService
             }
 
             $isFullyTopicLocked = isset($locked['locked_topic_ids'][$topicId]);
+            $isManualFrozen = isset($manualIdSet[$topicId]);
 
             if ($isFullyTopicLocked) {
                 // Topic lock: preserve every current membership; allow net-new unlocked matches.
@@ -513,6 +555,25 @@ final class TopicReclusterService
                         'is_locked' => (bool) $row->is_locked,
                     ];
                 }
+            }
+
+            if ($isManualFrozen) {
+                // Manual freeze: exact current membership set only — ignore engine net-new.
+                $existing = SeoTopicKeyword::query()
+                    ->where('site_id', $siteId)
+                    ->where('topic_id', $topicId)
+                    ->get(['keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+                foreach ($existing as $row) {
+                    $keywordId = (int) $row->keyword_id;
+                    $desiredByKeyword[$keywordId] = [
+                        'topic_id' => $topicId,
+                        'source' => (string) $row->source,
+                        'is_seed' => (bool) $row->is_seed,
+                        'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                        'is_locked' => (bool) $row->is_locked,
+                    ];
+                }
+                continue;
             }
 
             foreach ($cluster['members'] as $member) {
@@ -547,6 +608,27 @@ final class TopicReclusterService
                     'is_seed' => (bool) $member['is_seed'],
                     'confidence' => $member['confidence'],
                     'is_locked' => (bool) $member['is_locked'],
+                ];
+            }
+        }
+
+        // Manual Topics with 0 members (or omitted from clusters): still freeze + keep.
+        foreach (array_keys($manualIdSet) as $manualTopicId) {
+            $manualTopicId = (int) $manualTopicId;
+            $keepTopicIds[$manualTopicId] = true;
+            $dnaTopicIds[$manualTopicId] = true;
+            $existing = SeoTopicKeyword::query()
+                ->where('site_id', $siteId)
+                ->where('topic_id', $manualTopicId)
+                ->get(['keyword_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+            foreach ($existing as $row) {
+                $keywordId = (int) $row->keyword_id;
+                $desiredByKeyword[$keywordId] = [
+                    'topic_id' => $manualTopicId,
+                    'source' => (string) $row->source,
+                    'is_seed' => (bool) $row->is_seed,
+                    'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                    'is_locked' => (bool) $row->is_locked,
                 ];
             }
         }

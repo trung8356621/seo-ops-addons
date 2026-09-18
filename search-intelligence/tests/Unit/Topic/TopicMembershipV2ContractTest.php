@@ -61,7 +61,8 @@ final class TopicMembershipV2ContractTest extends TestCase
         self::assertStringContainsString('TopicSource::MANUAL', $src);
         self::assertStringContainsString('loadTopicCandidateKeywords', $src);
         self::assertStringContainsString('manualTopicIds', $src);
-        self::assertStringContainsString('$this->reconcile->reconcile', $src);
+        self::assertStringContainsString("'accept_attach' => false", $src);
+        self::assertStringNotContainsString('$this->reconcile->reconcile', $src);
         self::assertStringContainsString("TopicSource::AUTO", $src);
     }
 

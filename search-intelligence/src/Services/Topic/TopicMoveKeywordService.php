@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 
 /**
  * Move keyword membership between Topics on the same site.
+ * Semantic membership edit promotes auto Topics → manual (source and/or target).
  */
 final class TopicMoveKeywordService
 {
@@ -43,6 +44,7 @@ final class TopicMoveKeywordService
         if ($membership instanceof SeoTopicKeyword && $membership->is_locked) {
             return ['ok' => false, 'error' => 'membership_locked'];
         }
+        $fromTopic = null;
         if ($fromTopicId !== null) {
             $fromTopic = SeoTopic::query()
                 ->where('site_id', $siteId)
@@ -52,6 +54,10 @@ final class TopicMoveKeywordService
                 return ['ok' => false, 'error' => 'source_topic_locked'];
             }
         }
+
+        // Semantic membership mutation → manual ownership (lock flags unchanged).
+        TopicManualOwnership::promoteIfAuto($fromTopic);
+        TopicManualOwnership::promoteIfAuto($toTopic);
 
         SeoTopicKeyword::query()->updateOrCreate(
             ['site_id' => $siteId, 'keyword_id' => $keywordId],

@@ -224,6 +224,8 @@ final class KeywordTopicClusters extends Page
             'ok' => true,
             'topic_id' => $topicId,
             'label' => $label !== '' ? $label : trim($phrase),
+            'source' => (string) ($result['source'] ?? 'manual'),
+            'promoted_to_manual' => (bool) ($result['promoted_to_manual'] ?? false),
         ];
     }
 

@@ -7,14 +7,17 @@
     $reclusterRunning = (bool) ($this->reclusterRunning ?? false);
     $confirmRecluster = (bool) ($this->confirmRecluster ?? false);
     $canRecluster = $this->canReclusterTopics();
-    $topicMutationsLocked = $reclusterRunning || $this->isTopicMutationLocked();
-    $canEditPermission = $this->hasTopicClusterMutationPermission();
-    $canDissolve = $this->canDissolveCluster();
-    $canEditCanonical = $this->canEditClusterCanonical();
     $reclusterStatus = is_array($this->reclusterResult ?? null)
         ? (string) ($this->reclusterResult['status'] ?? '')
         : '';
-    $reclusterPollAttr = $reclusterRunning ? 'wire:poll.5s="pollReclusterResult"' : '';
+    $reclusterActive = $reclusterRunning
+        || $reclusterStatus === 'queued'
+        || $reclusterStatus === 'running';
+    $topicMutationsLocked = $reclusterActive || $this->isTopicMutationLocked();
+    $canEditPermission = $this->hasTopicClusterMutationPermission();
+    $canDissolve = $this->canDissolveCluster();
+    $canEditCanonical = $this->canEditClusterCanonical();
+    $reclusterPollAttr = $reclusterActive ? 'wire:poll.5s="pollReclusterResult"' : '';
 
     $assignedCount = (int) ($summary['assigned'] ?? $summary['clustered'] ?? 0);
     $unassignedCount = (int) ($summary['unassigned'] ?? $summary['unclustered'] ?? 0);
@@ -135,7 +138,7 @@
                                 </div>
                             </div>
                         @else
-                            <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterRunning">
+                            <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                 {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                             </x-filament::button>
                         @endif
@@ -175,7 +178,7 @@
                         </div>
                     @else
                         <div class="topic-index-recluster-idle__row">
-                            <x-filament::button type="button" size="sm" color="gray" wire:click="beginConfirmRecluster" :disabled="$reclusterRunning">
+                            <x-filament::button type="button" size="sm" color="gray" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                 {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                             </x-filament::button>
                             <span
@@ -250,21 +253,27 @@
             </div>
         </div>
 
-        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterRunning || $topicMutationsLocked)
+        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterActive || $topicMutationsLocked)
             <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
                 <div class="font-medium">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_title') }}</div>
                 <p class="mt-1 opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_body') }}</p>
-                @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running')
-                    <p class="mt-1 opacity-75">{{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}</p>
+                @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterActive)
+                    <p class="mt-1 font-medium opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}</p>
                 @endif
             </div>
-        @elseif ($reclusterStatus === 'completed')
+        @elseif ($reclusterStatus === 'succeeded' || $reclusterStatus === 'completed')
             @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
             <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
                 {{ __('seo-content-ai::filament.keyword.topic_recluster_result_title') }}:
                 {{ number_format((int) ($m['topics_before'] ?? 0)) }}→{{ number_format((int) ($m['topics_after'] ?? 0)) }}
                 · {{ number_format((int) ($m['memberships_written'] ?? 0)) }} memberships
                 · {{ number_format((int) ($m['topics_reused'] ?? 0)) }} reused
+                @if (isset($m['topics_created']))
+                    · {{ number_format((int) $m['topics_created']) }} created
+                @endif
+                @if (isset($m['topics_dissolved']))
+                    · {{ number_format((int) $m['topics_dissolved']) }} dissolved
+                @endif
             </p>
         @elseif ($reclusterStatus === 'failed')
             <p class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
@@ -349,6 +358,9 @@
                                         if (result && result.ok) {
                                             this.value = result.label || next;
                                             this.original = this.value;
+                                            if (result.source) {
+                                                this.canonicalSource = result.source;
+                                            }
                                             return;
                                         }
                                         this.value = previousTitle;

@@ -106,6 +106,7 @@ final class TopicUiRestoreContractTest extends TestCase
         self::assertStringNotContainsString('ReclusterTopicClustersJob', $concern);
         self::assertStringNotContainsString('ReclusterTopicClustersService', $concern);
         self::assertStringContainsString('TopicReclusterUiState', $job);
+        self::assertStringContainsString('TopicReclusterAlgorithm', $job);
         self::assertStringNotContainsString('cluster_key', $concern.$job);
     }
 
