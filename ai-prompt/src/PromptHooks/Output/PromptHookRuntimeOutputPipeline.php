@@ -147,7 +147,7 @@ final class PromptHookRuntimeOutputPipeline
         }
 
         if (($validation['reject_provider_preamble'] ?? false) === true && is_string($parsed)) {
-            $this->assertNoProviderPreamble($parsed);
+            $parsed = $this->normalizeProviderPreamble($parsed);
         }
 
         $lengthValidation = null;
@@ -338,15 +338,44 @@ final class PromptHookRuntimeOutputPipeline
         );
     }
 
-    private function assertNoProviderPreamble(string $value): void
+    /**
+     * Strip chatty provider openings ("Sure,", "Here is the article…") when the
+     * remainder is real article content. Hard-reject only when the whole payload
+     * is preamble-like (avoids wasting a paid generation on a false-positive).
+     */
+    private function normalizeProviderPreamble(string $value): string
     {
         $trimmed = ltrim($value);
         if (preg_match(
             '/^(sure[,!]?\s+|here(?:\'s| is)\s+(?:the|an?|your)\s+|certainly[,!]?\s+|of course[,!]?\s+|absolutely[,!]?\s+|i(?:\'ve| have)\s+(?:written|rewritten|created)\b)/iu',
             $trimmed,
-        ) === 1) {
-            throw new InvalidOutput('Output looks like provider preamble.');
+        ) !== 1) {
+            return $value;
         }
+
+        // Prefer dropping a short first paragraph when a substantial body follows.
+        if (preg_match('/\A(.+?)(?:\R\s*\R+)([\s\S]+)\z/u', $trimmed, $parts) === 1) {
+            $first = trim((string) $parts[1]);
+            $rest = ltrim((string) $parts[2]);
+            if (mb_strlen($first) <= 240 && mb_strlen($rest) >= 200) {
+                return $rest;
+            }
+        }
+
+        // Single-line preamble before HTML/markdown body.
+        if (preg_match('/\A[^\n\r]{1,240}\R+([<#*][\s\S]+|\S[\s\S]{199,})\z/u', $trimmed, $parts) === 1) {
+            $rest = ltrim((string) $parts[1]);
+            if (mb_strlen($rest) >= 200) {
+                return $rest;
+            }
+        }
+
+        throw new InvalidOutput('Output looks like provider preamble.');
+    }
+
+    private function assertNoProviderPreamble(string $value): void
+    {
+        $this->normalizeProviderPreamble($value);
     }
 
     private function stripMarkdownFence(string $value): string

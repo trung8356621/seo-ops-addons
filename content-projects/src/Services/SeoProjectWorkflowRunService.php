@@ -349,7 +349,12 @@ final class SeoProjectWorkflowRunService
             return $run;
         }
 
-        $result = app(SeoProjectRunConsolidationService::class)->maybeConsolidate($project) ?? $run;
+        // Do NOT call SeoProjectRunConsolidationService::maybeConsolidate here.
+        // That legacy consolidator relinks historical success rows onto the just-finished
+        // keeper run and can overwrite a fresh failed/pending Writing item with an old
+        // success snapshot (false-success + polluted counters). Consolidation remains
+        // available via explicit repair/CLI paths only.
+        $result = $run;
         app(\Omnichannel\Addons\Agent\Automation\BusinessHook\Support\BusinessHookEmitter::class)
             ->runCompleted($result);
 
@@ -806,7 +811,12 @@ final class SeoProjectWorkflowRunService
             $ranAt = now();
 
             if ($result['success']) {
-                $humanConflict = $this->rewriteHumanEditConflictMessage($run, $task);
+                $persistStatus = strtolower(trim((string) ($result['persist_status'] ?? '')));
+                // AI Writing persist bumps articles.updated_at. Comparing the pre-dispatch
+                // snapshot after a successful applied write is a false "human edit" conflict.
+                $humanConflict = $persistStatus === 'applied'
+                    ? null
+                    : $this->rewriteHumanEditConflictMessage($run, $task);
                 if ($humanConflict !== null) {
                     $this->runItemService->markSkipped(
                         $runItem,
@@ -864,7 +874,6 @@ final class SeoProjectWorkflowRunService
                 }
 
                 $message = $this->formatRunResultMessage((string) $result['message'], $ranAt, $stepStats);
-                $persistStatus = strtolower(trim((string) ($result['persist_status'] ?? '')));
                 $isIgnoredStale = $persistStatus === 'ignored_stale';
 
                 // ignored_stale: terminal, retain history, ZERO ancillary post-run mutations that

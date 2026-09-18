@@ -84,6 +84,25 @@ describe('resolveSuggestionInsertMatch', () => {
         );
         assert.equal(match, null);
     });
+
+    it('excludes already-linked text from actionable indexes', () => {
+        const mixed = [
+            { id: 'b1', content: '<p><a href="/old">túi vải không dệt</a></p>' },
+            { id: 'b2', content: '<p>túi vải không dệt free</p>' },
+        ];
+        const all = findSuggestionPhraseOccurrences(mixed, 'túi vải không dệt');
+        assert.equal(all.length, 1);
+        assert.equal(all[0].blockId, 'b2');
+        assert.equal(all[0].matchIndex, 0);
+
+        const match = resolveSuggestionInsertMatch(
+            { matched_phrase: 'túi vải không dệt' },
+            { blockId: 'b1', matchIndex: 0, phrase: 'túi vải không dệt' },
+            mixed,
+        );
+        assert.ok(match);
+        assert.equal(match.blockId, 'b2');
+    });
 });
 
 describe('hasExplicitEditorTextSelection', () => {

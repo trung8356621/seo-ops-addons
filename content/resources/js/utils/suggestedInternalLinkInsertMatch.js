@@ -1,9 +1,12 @@
 /**
  * Resolve locate phrase + insert match identity for Internal Link suggestions.
  * Pure helpers — no i18n / editor command side effects.
+ *
+ * Occurrence semantics SSOT: editorAnchorOccurrenceMatcher
+ * (exact contiguous tokens, exclude existing <a>, local matchIndex per block).
  */
 
-import { normalizePhraseForMatch } from './articleLinkSuggestionFilter.js';
+import { findExactAnchorOccurrencesInBlocks } from './editorAnchorOccurrenceMatcher.js';
 
 /**
  * Phrase used to locate/wrap inside article body (not necessarily sidebar label).
@@ -33,73 +36,28 @@ export function resolveSuggestionLocatePhrase(item) {
 }
 
 /**
- * @param {string} html
- * @returns {string}
- */
-function plainTextFromHtml(html) {
-    const source = String(html ?? '');
-    if (source.trim() === '') {
-        return '';
-    }
-    try {
-        const doc = new DOMParser().parseFromString(source, 'text/html');
-        return doc.body?.textContent ?? '';
-    } catch {
-        return source.replace(/<[^>]+>/g, ' ');
-    }
-}
-
-/**
+ * Actionable (unlinked) exact occurrences — same semantics as Domain Link suggestions.
+ *
  * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
  * @param {string} phrase
  * @param {number} [maxCount=64]
- * @returns {Array<{ blockId: string, matchIndex: number, phrase: string }>}
+ * @returns {Array<{ blockId: string, blockIndex: number, matchIndex: number, phrase: string, matchedText: string, from: number, to: number }>}
  */
 export function findSuggestionPhraseOccurrences(blocks, phrase, maxCount = 64) {
-    const needle = normalizePhraseForMatch(phrase);
     const phraseText = String(phrase ?? '').trim();
-    if (needle === '' || phraseText === '') {
+    if (phraseText === '') {
         return [];
     }
 
-    const limit = Number.isFinite(maxCount) && maxCount > 0 ? Math.floor(maxCount) : 64;
-    const out = [];
-
-    for (const block of Array.isArray(blocks) ? blocks : []) {
-        if (block?.type === 'image') {
-            continue;
-        }
-        const blockId = String(block?.id ?? '').trim();
-        if (blockId === '') {
-            continue;
-        }
-        const plain = plainTextFromHtml(String(block?.content ?? ''));
-        const haystack = normalizePhraseForMatch(plain);
-        if (haystack === '') {
-            continue;
-        }
-
-        let searchFrom = 0;
-        let matchIndex = 0;
-        while (searchFrom <= haystack.length) {
-            const idx = haystack.indexOf(needle, searchFrom);
-            if (idx === -1) {
-                break;
-            }
-            out.push({
-                blockId,
-                matchIndex,
-                phrase: phraseText,
-            });
-            if (out.length >= limit) {
-                return out;
-            }
-            matchIndex += 1;
-            searchFrom = idx + Math.max(1, needle.length);
-        }
-    }
-
-    return out;
+    return findExactAnchorOccurrencesInBlocks(blocks, phraseText, maxCount).map((row) => ({
+        blockId: row.blockId,
+        blockIndex: row.blockIndex,
+        matchIndex: row.matchIndex,
+        phrase: String(row.matchedText ?? row.phrase ?? phraseText).trim(),
+        matchedText: String(row.matchedText ?? row.phrase ?? phraseText).trim(),
+        from: row.from,
+        to: row.to,
+    }));
 }
 
 /**
@@ -139,42 +97,50 @@ export function resolveSuggestionInsertMatch(item, stored = null, blocksOverride
     }
 
     const blocks = Array.isArray(blocksOverride) ? blocksOverride : collectLiveBlocks();
+    const all = findSuggestionPhraseOccurrences(blocks, locatePhrase, 64);
 
     if (stored) {
         const storedPhrase = String(stored.matchedText ?? stored.phrase ?? locatePhrase).trim();
         const storedBlockId = String(stored.blockId ?? '').trim();
         const storedIndex = Math.max(0, Number(stored.matchIndex) || 0);
+
         if (storedBlockId !== '' && storedPhrase !== '') {
-            const block = blocks.find((row) => String(row?.id ?? '') === storedBlockId);
-            if (block) {
-                const inBlock = findSuggestionPhraseOccurrences([block], storedPhrase, storedIndex + 1);
-                const hit = inBlock.find((row) => row.matchIndex === storedIndex)
-                    ?? (inBlock.length === 1 ? inBlock[0] : null);
-                if (hit) {
-                    return {
-                        blockId: hit.blockId,
-                        matchIndex: hit.matchIndex,
-                        phrase: String(hit.phrase ?? storedPhrase).trim(),
-                    };
-                }
-                const refreshed = findSuggestionPhraseOccurrences([block], storedPhrase, 8);
-                if (refreshed.length === 1) {
-                    return {
-                        blockId: refreshed[0].blockId,
-                        matchIndex: refreshed[0].matchIndex,
-                        phrase: String(refreshed[0].phrase ?? storedPhrase).trim(),
-                    };
-                }
-                if (refreshed.length === 0) {
-                    return null;
-                }
+            const inBlock = storedPhrase === locatePhrase
+                ? all.filter((row) => row.blockId === storedBlockId)
+                : findSuggestionPhraseOccurrences(
+                    blocks.filter((row) => String(row?.id ?? '') === storedBlockId),
+                    storedPhrase,
+                    storedIndex + 8,
+                );
+
+            const hit = inBlock.find((row) => row.matchIndex === storedIndex);
+            if (hit) {
+                return {
+                    blockId: hit.blockId,
+                    matchIndex: hit.matchIndex,
+                    phrase: String(hit.phrase ?? storedPhrase).trim(),
+                };
+            }
+
+            // Stored index stale but exactly one actionable left in that block → use it.
+            if (inBlock.length === 1) {
+                return {
+                    blockId: inBlock[0].blockId,
+                    matchIndex: inBlock[0].matchIndex,
+                    phrase: String(inBlock[0].phrase ?? storedPhrase).trim(),
+                };
+            }
+
+            // Ambiguous stale index inside a block that still has multiple hits → do not guess.
+            if (inBlock.length > 1) {
                 return null;
             }
+
+            // Block has zero actionable hits (e.g. stored became linked) → relocate document-wide.
         }
     }
 
-    const occurrences = findSuggestionPhraseOccurrences(blocks, locatePhrase, 64);
-    if (occurrences.length === 0) {
+    if (all.length === 0) {
         const label = String(item?.text ?? '').trim();
         if (label !== '' && label !== locatePhrase) {
             const byLabel = findSuggestionPhraseOccurrences(blocks, label, 64);
@@ -190,8 +156,8 @@ export function resolveSuggestionInsertMatch(item, stored = null, blocksOverride
     }
 
     return {
-        blockId: occurrences[0].blockId,
-        matchIndex: occurrences[0].matchIndex,
-        phrase: String(occurrences[0].phrase ?? locatePhrase).trim(),
+        blockId: all[0].blockId,
+        matchIndex: all[0].matchIndex,
+        phrase: String(all[0].phrase ?? locatePhrase).trim(),
     };
 }

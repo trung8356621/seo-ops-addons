@@ -7,10 +7,15 @@ import { buildDomainLinkListForEditor } from '../utils/domainLinkOccurrenceIndex
 import {
     buildActionableDomainLinkSuggestions,
     findExactAnchorOccurrences,
+    findExactAnchorOccurrencesInBlocks,
     plainTextExcludingAnchors,
     selectLongestNonOverlappingMatches,
     tokenizeExactAnchorPlain,
 } from '../utils/editorAnchorOccurrenceMatcher.js';
+import {
+    findSuggestionPhraseOccurrences,
+    resolveSuggestionInsertMatch,
+} from '../utils/suggestedInternalLinkInsertMatch.js';
 
 describe('EditorAnchorOccurrenceMatcher', () => {
     it('CASE A — no body occurrence => empty', () => {
@@ -37,7 +42,7 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         assert.equal(rows[0].href, '/may-balo-laptop');
     });
 
-    it('CASE C — longest match wins for overlapping range', () => {
+    it('CASE C / CASE 8 — longest match wins for overlapping range', () => {
         const rows = buildDomainLinkListForEditor(
             [
                 { text: 'May Balo Laptop', href: '/may-balo-laptop' },
@@ -50,7 +55,7 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         assert.equal(rows[0].text, 'May Balo Laptop');
     });
 
-    it('CASE D — shorter phrase survives separate occurrence', () => {
+    it('CASE D / CASE 9 — shorter phrase survives separate occurrence', () => {
         const rows = buildDomainLinkListForEditor(
             [
                 { text: 'may balo laptop', href: '/may-balo-laptop' },
@@ -66,13 +71,16 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         assert.ok(rows.every((row) => row.href === '/may-balo-laptop'));
     });
 
-    it('CASE E — already-linked anchor excluded', () => {
+    it('CASE E / CASE 1 — already-linked anchor excluded', () => {
+        const blocks = [{ id: 'b1', content: '<p>Xem <a href="/old">balo laptop</a> tại đây.</p>' }];
         const rows = buildDomainLinkListForEditor(
             [{ text: 'balo laptop', href: '/may-balo-laptop' }],
-            [{ id: 'b1', content: '<p>Xem <a href="/old">balo laptop</a> tại đây.</p>' }],
+            blocks,
         );
         assert.equal(rows.length, 0);
-        assert.equal(plainTextExcludingAnchors('<p>Xem <a href="/old">balo laptop</a> tại đây.</p>').includes('balo'), false);
+        assert.equal(findSuggestionPhraseOccurrences(blocks, 'balo laptop').length, 0);
+        assert.equal(resolveSuggestionInsertMatch({ text: 'balo laptop' }, null, blocks), null);
+        assert.equal(plainTextExcludingAnchors(blocks[0].content).includes('balo'), false);
     });
 
     it('CASE F — case-insensitive match preserves article casing', () => {
@@ -83,6 +91,138 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         assert.equal(rows.length, 1);
         assert.equal(rows[0].text, 'MAY BALO LAPTOP');
         assert.equal(rows[0].href, '/may-balo-laptop');
+    });
+
+    it('CASE 2 — linked first, unlinked second: actionable index 0 is second block', () => {
+        const blocks = [
+            { id: 'b1', content: '<p><a href="/old">balo laptop</a></p>' },
+            { id: 'b2', content: '<p>balo laptop mới</p>' },
+        ];
+        const rows = buildDomainLinkListForEditor(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]._domain_occurrences[0].blockId, 'b2');
+        assert.equal(rows[0]._domain_occurrences[0].matchIndex, 0);
+        assert.equal(blocks[0].content.includes('href="/old"'), true);
+
+        const match = resolveSuggestionInsertMatch(
+            { text: 'balo laptop', matched_phrase: 'balo laptop' },
+            rows[0]._domain_occurrences[0],
+            blocks,
+        );
+        assert.ok(match);
+        assert.equal(match.blockId, 'b2');
+        assert.equal(match.matchIndex, 0);
+    });
+
+    it('CASE 3 — unlinked first, linked second: first gets destination', () => {
+        const blocks = [
+            { id: 'b1', content: '<p>balo laptop mới</p>' },
+            { id: 'b2', content: '<p><a href="/old">balo laptop</a></p>' },
+        ];
+        const match = resolveSuggestionInsertMatch({ text: 'balo laptop' }, null, blocks);
+        assert.ok(match);
+        assert.equal(match.blockId, 'b1');
+        assert.equal(match.matchIndex, 0);
+        assert.equal(blocks[1].content.includes('href="/old"'), true);
+    });
+
+    it('CASE 4 — actionable indexes skip linked occurrence', () => {
+        const blocks = [
+            { id: 'b1', content: '<p><a href="/old">balo laptop</a></p>' },
+            { id: 'b2', content: '<p>balo laptop A</p>' },
+            { id: 'b3', content: '<p>balo laptop B</p>' },
+        ];
+        const hits = findSuggestionPhraseOccurrences(blocks, 'balo laptop');
+        assert.equal(hits.length, 2);
+        assert.equal(hits[0].blockId, 'b2');
+        assert.equal(hits[0].matchIndex, 0);
+        assert.equal(hits[1].blockId, 'b3');
+        assert.equal(hits[1].matchIndex, 0);
+
+        const rows = buildActionableDomainLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows[0]._domain_occurrences.length, 2);
+        assert.equal(rows[0]._domain_occurrences[0].blockId, 'b2');
+        assert.equal(rows[0]._domain_occurrences[1].blockId, 'b3');
+    });
+
+    it('CASE 5 — stored occurrence became linked → relocate other actionable', () => {
+        const before = [
+            { id: 'b1', content: '<p>balo laptop A</p>' },
+            { id: 'b2', content: '<p>balo laptop B</p>' },
+        ];
+        const stored = resolveSuggestionInsertMatch({ text: 'balo laptop' }, null, before);
+        assert.ok(stored);
+        assert.equal(stored.blockId, 'b1');
+
+        const after = [
+            { id: 'b1', content: '<p><a href="/old">balo laptop A</a></p>' },
+            { id: 'b2', content: '<p>balo laptop B</p>' },
+        ];
+        const relocated = resolveSuggestionInsertMatch(
+            { text: 'balo laptop' },
+            { blockId: 'b1', matchIndex: 0, phrase: 'balo laptop' },
+            after,
+        );
+        assert.ok(relocated);
+        assert.equal(relocated.blockId, 'b2');
+    });
+
+    it('CASE 6 — stored occurrence removed → relocate or null', () => {
+        const afterGone = [
+            { id: 'b1', content: '<p>không còn cụm nữa</p>' },
+            { id: 'b2', content: '<p>balo laptop còn lại</p>' },
+        ];
+        const relocated = resolveSuggestionInsertMatch(
+            { text: 'balo laptop' },
+            { blockId: 'b1', matchIndex: 0, phrase: 'balo laptop' },
+            afterGone,
+        );
+        assert.ok(relocated);
+        assert.equal(relocated.blockId, 'b2');
+
+        const none = resolveSuggestionInsertMatch(
+            { text: 'balo laptop' },
+            { blockId: 'b1', matchIndex: 0, phrase: 'balo laptop' },
+            [{ id: 'b1', content: '<p>trống</p>' }],
+        );
+        assert.equal(none, null);
+    });
+
+    it('CASE 7 — document order follows blocks[] not blockId lexical order', () => {
+        const blocks = [
+            { id: 'z-block', content: '<p>balo laptop first</p>' },
+            { id: 'a-block', content: '<p>balo laptop second</p>' },
+        ];
+        const hits = findExactAnchorOccurrencesInBlocks(blocks, 'balo laptop');
+        assert.equal(hits[0].blockId, 'z-block');
+        assert.equal(hits[0].blockIndex, 0);
+        assert.equal(hits[1].blockId, 'a-block');
+        assert.equal(hits[1].blockIndex, 1);
+
+        const rows = buildActionableDomainLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows[0]._domain_occurrences[0].blockId, 'z-block');
+    });
+
+    it('CASE 10 — destination preserved when matched phrase differs', () => {
+        const rows = buildDomainLinkListForEditor(
+            [
+                { text: 'May Balo Laptop', href: '/may-balo-laptop' },
+                { text: 'balo laptop', href: '/may-balo-laptop' },
+            ],
+            [{ id: 'b1', content: '<p>Các mẫu balo laptop cho nhân viên.</p>' }],
+        );
+        assert.equal(rows[0].text, 'balo laptop');
+        assert.equal(rows[0].href, '/may-balo-laptop');
+        assert.equal(rows[0].target_url, '/may-balo-laptop');
     });
 
     it('soft proximity alone does not create a suggestion', () => {
@@ -107,19 +247,21 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         const longHits = findExactAnchorOccurrences(tokens, 'may balo laptop').map((row) => ({
             ...row,
             blockId: 'b1',
+            blockIndex: 0,
             hrefKey: '/x',
             href: '/x',
             item: {},
             matchIndex: 0,
             phrase: row.matchedText,
         }));
-        const shortHits = findExactAnchorOccurrences(tokens, 'balo laptop').map((row) => ({
+        const shortHits = findExactAnchorOccurrences(tokens, 'balo laptop').map((row, idx) => ({
             ...row,
             blockId: 'b1',
+            blockIndex: 0,
             hrefKey: '/x',
             href: '/x',
             item: {},
-            matchIndex: 0,
+            matchIndex: idx,
             phrase: row.matchedText,
         }));
         const selected = selectLongestNonOverlappingMatches([...longHits, ...shortHits]);

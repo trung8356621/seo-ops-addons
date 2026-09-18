@@ -43,8 +43,10 @@ use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Omnichannel\Addons\Content\Services\GeneratedContentQualityValidator;
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
 use App\Models\ApiConnection;
 use RuntimeException;
 
@@ -2017,8 +2019,12 @@ class PromptRunnerService
                 $toolType,
                 $callOptions,
             );
-            $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
             $usage = is_array($usage) ? $usage : [];
+            // Length / terminal truncation MUST throw inside the router attempt so
+            // AiModelRouter can failover (PromptHookRuntimeEngine validates after
+            // generate() returns — too late for multi-candidate retry).
+            $this->assertArticleRouteOutputEligibleForFailover($output, $usage, $routeVariables);
+            $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
             $usage['compiled_chars'] = mb_strlen($compiled);
             $usage['article_budget_quarantined'] = true;
 
@@ -2400,6 +2406,71 @@ class PromptRunnerService
         }
 
         return $firstLine;
+    }
+
+    /**
+     * Article writing length / provider-length-stop gates that must participate in
+     * AiModelRouter failover. Throws OutputTruncated (recoverable) — not OutputQuality.
+     *
+     * @param  array<string, mixed>  $usage
+     * @param  array<string, mixed>  $variables
+     */
+    private function assertArticleRouteOutputEligibleForFailover(
+        string $output,
+        array $usage,
+        array $variables,
+    ): void {
+        $finishReason = isset($usage['finish_reason']) ? (string) $usage['finish_reason'] : null;
+        $truncatedFlag = (bool) ($usage['truncated'] ?? false);
+        if (ArticleGenerationLengthValidator::isProviderLengthTruncation($finishReason, $truncatedFlag)) {
+            $finishLabel = $finishReason !== null && $finishReason !== ''
+                ? $finishReason
+                : 'provider_truncated_flag';
+            throw new OutputTruncated(
+                'OUTPUT_TRUNCATED: provider terminal reason=output_truncated (finish_reason='.$finishLabel.').',
+                \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated,
+                $finishReason,
+            );
+        }
+
+        $target = $this->resolveArticleLengthTargetWords($variables);
+        if ($target <= 0) {
+            return;
+        }
+
+        (new ArticleGenerationLengthValidator)->assertAcceptable($output, $target);
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function resolveArticleLengthTargetWords(array $variables): int
+    {
+        foreach ([
+            'article_length',
+            'target_article_length',
+            'resolved_article_length',
+            'target_words',
+        ] as $key) {
+            if (! array_key_exists($key, $variables) || $variables[$key] === null || $variables[$key] === '') {
+                continue;
+            }
+            $raw = $variables[$key];
+            if (is_numeric($raw)) {
+                $target = (int) $raw;
+                if ($target > 0) {
+                    return $target;
+                }
+            }
+            if (is_string($raw) && preg_match('/(\d+)/', $raw, $matches) === 1) {
+                $target = (int) $matches[1];
+                if ($target > 0) {
+                    return $target;
+                }
+            }
+        }
+
+        return 0;
     }
 
     /**

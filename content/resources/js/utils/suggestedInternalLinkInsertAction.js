@@ -111,6 +111,7 @@ export function insertSuggestedInternalLinkAction({ item, occurrence = null }) {
         block_id: match.blockId,
         insert_mode: 'wrap',
         matched_phrase: match.phrase,
+        link_occurrence_mode: 'unlinked',
     });
 
     return 'match';

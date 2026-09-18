@@ -122,14 +122,16 @@ export function findExactAnchorOccurrences(tokens, phrase) {
  * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
  * @param {string} phrase
  * @param {number} [maxCount=50]
- * @returns {Array<{ blockId: string, from: number, to: number, matchedText: string, score: number, level: 'exact', matchIndex: number, phrase: string }>}
+ * @returns {Array<{ blockId: string, blockIndex: number, from: number, to: number, matchedText: string, score: number, level: 'exact', matchIndex: number, phrase: string }>}
  */
 export function findExactAnchorOccurrencesInBlocks(blocks, phrase, maxCount = 50) {
     const limit = Number.isFinite(maxCount) && maxCount > 0 ? Math.floor(maxCount) : 50;
-    /** @type {Array<{ blockId: string, from: number, to: number, matchedText: string, score: number, level: 'exact', matchIndex: number, phrase: string }>} */
+    const list = Array.isArray(blocks) ? blocks : [];
+    /** @type {Array<{ blockId: string, blockIndex: number, from: number, to: number, matchedText: string, score: number, level: 'exact', matchIndex: number, phrase: string }>} */
     const out = [];
 
-    for (const block of Array.isArray(blocks) ? blocks : []) {
+    for (let blockIndex = 0; blockIndex < list.length; blockIndex += 1) {
+        const block = list[blockIndex];
         if (block?.type === 'image') {
             continue;
         }
@@ -148,6 +150,7 @@ export function findExactAnchorOccurrencesInBlocks(blocks, phrase, maxCount = 50
             out.push({
                 ...row,
                 blockId,
+                blockIndex,
                 matchIndex,
                 phrase: row.matchedText,
             });
@@ -194,10 +197,21 @@ export function groupCatalogAnchorsByDestination(links) {
 }
 
 /**
+ * @param {{ blockIndex?: number }} row
+ * @returns {number}
+ */
+function documentBlockIndex(row) {
+    const value = Number(row?.blockIndex);
+    return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+/**
  * Occurrence-based longest-match-wins across all destination anchors in one block stream.
+ * Document order uses blocks[] index — never blockId lexical order.
  *
  * @param {Array<{
  *   blockId: string,
+ *   blockIndex?: number,
  *   from: number,
  *   to: number,
  *   matchedText: string,
@@ -213,8 +227,9 @@ export function groupCatalogAnchorsByDestination(links) {
  */
 export function selectLongestNonOverlappingMatches(matches) {
     const rows = Array.isArray(matches) ? [...matches] : [];
+    // Prefer longer phrases first within the same start, then keep document order after.
     rows.sort((a, b) => {
-        const blockDelta = String(a.blockId).localeCompare(String(b.blockId));
+        const blockDelta = documentBlockIndex(a) - documentBlockIndex(b);
         if (blockDelta !== 0) {
             return blockDelta;
         }
@@ -237,7 +252,13 @@ export function selectLongestNonOverlappingMatches(matches) {
         selected.push(row);
     }
 
-    return selected;
+    return selected.sort((a, b) => {
+        const blockDelta = documentBlockIndex(a) - documentBlockIndex(b);
+        if (blockDelta !== 0) {
+            return blockDelta;
+        }
+        return a.from - b.from;
+    });
 }
 
 /**
@@ -251,6 +272,7 @@ export function buildActionableDomainLinkSuggestions(catalogLinks, blocks) {
     const groups = groupCatalogAnchorsByDestination(catalogLinks);
     /** @type {Array<{
      *   blockId: string,
+     *   blockIndex: number,
      *   from: number,
      *   to: number,
      *   matchedText: string,
@@ -297,6 +319,7 @@ export function buildActionableDomainLinkSuggestions(catalogLinks, blocks) {
         const dedupeKey = `${match.hrefKey}|${matchedKey}`;
         const occurrence = {
             blockId: match.blockId,
+            blockIndex: documentBlockIndex(match),
             from: match.from,
             to: match.to,
             matchedText,
@@ -323,10 +346,16 @@ export function buildActionableDomainLinkSuggestions(catalogLinks, blocks) {
     let index = 0;
     for (const row of byDedupe.values()) {
         const href = String(row.href ?? row.item?.href ?? row.item?.target_url ?? '').trim();
-        const occurrences = row.occurrences.map((occ, matchIndex) => ({
-            ...occ,
-            matchIndex,
-        }));
+        const occurrences = [...row.occurrences]
+            .sort((a, b) => {
+                const blockDelta = documentBlockIndex(a) - documentBlockIndex(b);
+                if (blockDelta !== 0) {
+                    return blockDelta;
+                }
+                return (Number(a.from) || 0) - (Number(b.from) || 0);
+            });
+        // Keep each occurrence.matchIndex as the local unlinked index inside its block
+        // (required by wrapPlainTextWithLink). Array order = document order for UI cycling.
         out.push({
             ...row.item,
             text: row.matchedText,

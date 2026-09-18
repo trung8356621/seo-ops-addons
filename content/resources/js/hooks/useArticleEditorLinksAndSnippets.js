@@ -29,7 +29,8 @@ import {
     normalizeLinkLabel,
 } from '../utils/articleLinkSuggestionFilter';
 import { isCtaPlainTextType } from '../utils/ctaLinkFormat';
-import { applyLinkToPhraseOccurrence, replaceFirstPlainTextWithLink, replaceFirstPlainTextWithText, wrapPlainTextWithLinkInBlocks } from '../utils/articleLinkInsert';
+import { applyLinkToPhraseOccurrence, replaceFirstPlainTextWithLink, replaceFirstPlainTextWithText, wrapPlainTextWithLink, wrapPlainTextWithLinkInBlocks } from '../utils/articleLinkInsert';
+import { resolveSuggestionInsertMatch } from '../utils/suggestedInternalLinkInsertMatch';
 import { saveDraft } from '../utils/articleEditorStorage';
 import { SEO_LINK_DEFAULT_ATTRS } from '../utils/inlineLinkNormalizer';
 import { t } from '../utils/i18n';
@@ -613,7 +614,89 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
 
             commitActiveBlock();
 
+            const unlinkedOnly = String(detail?.link_occurrence_mode ?? '').toLowerCase() === 'unlinked';
             const preferredBlockId = String(detail?.blockId ?? detail?.block_id ?? '').trim();
+
+            // Internal / Domain Link suggestions: revalidate against CURRENT blocks with
+            // actionable (unlinked-only) semantics, then wrap — never mutate an existing <a>.
+            if (unlinkedOnly) {
+                const match = resolveSuggestionInsertMatch(
+                    {
+                        text,
+                        matched_phrase: String(detail?.matched_phrase ?? text).trim() || text,
+                    },
+                    preferredBlockId
+                        ? {
+                            blockId: preferredBlockId,
+                            matchIndex: occurrenceIndex,
+                            phrase: text,
+                            matchedText: text,
+                        }
+                        : null,
+                    blocksRef.current,
+                );
+                if (!match) {
+                    window.dispatchEvent(
+                        new CustomEvent('seo-article-editor-notify', {
+                            detail: {
+                                title: t('editor_keyword_not_found'),
+                                body: t('editor_keyword_not_found_body', { text }),
+                                status: 'warning',
+                            },
+                        }),
+                    );
+                    window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                        detail: { text, href, refresh: true },
+                    }));
+                    return;
+                }
+
+                const targetBlock = blocksRef.current.find((item) => item.id === match.blockId);
+                if (targetBlock?.content) {
+                    const { html, replaced } = wrapPlainTextWithLink(
+                        targetBlock.content,
+                        match.phrase,
+                        href,
+                        match.matchIndex,
+                    );
+                    if (replaced) {
+                        notifyInserted(match.blockId, html);
+                        window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                            detail: { text: match.phrase, href, blockId: match.blockId },
+                        }));
+                        return;
+                    }
+                }
+
+                const relocated = wrapPlainTextWithLinkInBlocks(
+                    blocksRef.current,
+                    match.phrase,
+                    href,
+                    0,
+                );
+                if (relocated) {
+                    notifyInserted(relocated.blockId, relocated.html);
+                    window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                        detail: { text: match.phrase, href, blockId: relocated.blockId },
+                    }));
+                    return;
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent('seo-article-editor-notify', {
+                        detail: {
+                            title: t('editor_keyword_not_found'),
+                            body: t('editor_keyword_not_found_body', { text: match.phrase }),
+                            status: 'warning',
+                        },
+                    }),
+                );
+                window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                    detail: { text: match.phrase, href, refresh: true },
+                }));
+                return;
+            }
+
             if (preferredBlockId) {
                 const targetBlock = blocksRef.current.find((item) => item.id === preferredBlockId);
                 if (targetBlock?.content) {

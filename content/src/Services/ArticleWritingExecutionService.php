@@ -567,7 +567,16 @@ class ArticleWritingExecutionService
             );
         }
 
-        if ($articleId !== null
+        // ContentNode / PublishGraph: workflow Save may already have written body before
+        // finalize. An early ignored_stale here skips ensureGeneratedContentPersisted and
+        // falsely reports human-edit conflict upstream (persist_status never becomes applied).
+        $deferStaleToPersistGate = in_array($context->mode, [
+            ArticleWritingExecutionMode::PublishGraph,
+            ArticleWritingExecutionMode::ContentNode,
+        ], true);
+
+        if (! $deferStaleToPersistGate
+            && $articleId !== null
             && $context->expectedUpdatedAt !== null
             && $taskContext->article instanceof SeoArticle
             && ! $this->passesStaleGuard($taskContext->article, $context)
@@ -589,10 +598,7 @@ class ArticleWritingExecutionService
         }
 
         // PublishGraph / ContentNode: Outline-only is not success — need Content evidence.
-        if (in_array($context->mode, [
-            ArticleWritingExecutionMode::PublishGraph,
-            ArticleWritingExecutionMode::ContentNode,
-        ], true)) {
+        if ($deferStaleToPersistGate) {
             $article = $taskContext->article;
             if ($articleId !== null && $articleId > 0) {
                 $fresh = SeoArticle::query()->find($articleId);
