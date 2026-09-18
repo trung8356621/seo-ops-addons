@@ -16,8 +16,9 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
  * Recluster(site_id) — site-isolated Topic rebuild from Link List + product_cat seeds.
  *
  * Manual Topics (seo_topics.source=manual) survive by topic_id without keyword seeds.
+ * Discovered Topics (auto + zero seeds) reuse topic_id via membership overlap.
  * Does not migrate legacy cluster-key / DNA. Does not force Focus⇒Topic.
- * Preserves topic_id via seed membership identity. Respects topic + membership locks.
+ * Respects topic + membership locks.
  */
 final class TopicReclusterService
 {
@@ -28,6 +29,7 @@ final class TopicReclusterService
         private readonly TopicDnaService $dna,
         private readonly TopicMembershipReconcileService $reconcile,
         private readonly TopicSeedIdentityResolver $identity = new TopicSeedIdentityResolver,
+        private readonly TopicDiscoveredIdentityResolver $discoveredIdentity = new TopicDiscoveredIdentityResolver,
     ) {}
 
     public static function tablesReady(): bool
@@ -65,6 +67,16 @@ final class TopicReclusterService
             'topics_dissolved' => 0,
             'topics_reused' => 0,
             'topics_created' => 0,
+            'members_attached_direct' => 0,
+            'members_attached_core_fallback' => 0,
+            'discovered_candidates' => 0,
+            'discovered_proposals_before_collapse' => 0,
+            'discovered_proposals_after_collapse' => 0,
+            'discovered_topics_reused' => 0,
+            'discovered_topics_created' => 0,
+            'discovered_topics_dissolved' => 0,
+            'discovered_memberships' => 0,
+            'discovered_groups_pruned_below_threshold' => 0,
         ];
 
         try {
@@ -94,22 +106,65 @@ final class TopicReclusterService
             $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
             $locked = $this->loadLockedState($siteId);
             $seedIdentity = $this->loadSeedIdentityMap($siteId);
+            $discoveredInventory = $this->loadDiscoveredIdentitySnapshot($siteId);
+            $manualInventory = $this->loadManualInventoryTopics($siteId, $locked['locked_topic_ids']);
             $metrics['topics_before'] = SeoTopic::query()->where('site_id', $siteId)->count();
             $metrics['topics_locked_preserved'] = count($locked['locked_topic_ids']);
             $metrics['topics_membership_lock_preserved'] = count($locked['preserved_topic_ids'])
                 - count($locked['locked_topic_ids']);
             $metrics['memberships_locked_preserved'] = count($locked['locked_keyword_ids']);
 
+            $engineMetrics = [];
             $clusters = $this->engine->cluster(
                 $seedRows,
                 $eligible,
                 $locked['topics'],
                 $locked['locked_keyword_ids'],
+                $manualInventory,
+                $engineMetrics,
             );
-            $clusters = $this->identity->apply($clusters, $seedIdentity);
+            foreach (
+                [
+                    'members_attached_direct',
+                    'members_attached_core_fallback',
+                    'discovered_candidates',
+                    'discovered_proposals_before_collapse',
+                    'discovered_proposals_after_collapse',
+                    'discovered_groups_pruned_below_threshold',
+                ] as $key
+            ) {
+                $metrics[$key] = (int) ($engineMetrics[$key] ?? 0);
+            }
 
-            $written = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $clusters, $locked, $manualTopicIds, &$metrics): array {
-                return $this->persistClusters($siteId, $clusters, $locked, $manualTopicIds);
+            $clusters = $this->identity->apply($clusters, $seedIdentity);
+            $discoveredApplied = $this->discoveredIdentity->apply($clusters, $discoveredInventory);
+            $clusters = $discoveredApplied['clusters'];
+            $metrics['discovered_topics_reused'] = $discoveredApplied['metrics']['discovered_topics_reused'];
+            $metrics['discovered_topics_created'] = $discoveredApplied['metrics']['discovered_topics_created'];
+
+            $discoveredMemberships = 0;
+            foreach ($clusters as $cluster) {
+                $hasSeed = false;
+                foreach ($cluster['members'] as $member) {
+                    if ($member['is_seed'] ?? false) {
+                        $hasSeed = true;
+                        break;
+                    }
+                }
+                if ($hasSeed || ($cluster['is_locked'] ?? false)) {
+                    continue;
+                }
+                $discoveredMemberships += count($cluster['members']);
+            }
+            $metrics['discovered_memberships'] = $discoveredMemberships;
+
+            $priorDiscoveredIds = [];
+            foreach ($discoveredInventory as $row) {
+                $priorDiscoveredIds[(int) $row['topic_id']] = true;
+            }
+
+            $written = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds): array {
+                return $this->persistClusters($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds);
             });
 
             foreach ($manualTopicIds as $manualTopicId) {
@@ -122,6 +177,7 @@ final class TopicReclusterService
             $metrics['topics_dissolved'] = $written['topics_dissolved'];
             $metrics['topics_reused'] = $written['topics_reused'];
             $metrics['topics_created'] = $written['topics_created'];
+            $metrics['discovered_topics_dissolved'] = $written['discovered_topics_dissolved'];
 
             return TopicReclusterResult::ok($metrics);
         } catch (\Throwable $e) {
@@ -152,6 +208,107 @@ final class TopicReclusterService
         }
 
         return $map;
+    }
+
+    /**
+     * Snapshot prior discovered Topics (auto + zero is_seed) before persist deletes memberships.
+     *
+     * Locked discovered Topics are excluded — they behave as protected inventory.
+     *
+     * @return list<array{
+     *     topic_id: int,
+     *     name: string,
+     *     member_keyword_ids: list<int>,
+     *     member_count: int,
+     *     is_locked: bool
+     * }>
+     */
+    private function loadDiscoveredIdentitySnapshot(int $siteId): array
+    {
+        $autoTopics = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('source', TopicSource::AUTO)
+            ->where('is_locked', false)
+            ->get(['id', 'name', 'is_locked']);
+
+        if ($autoTopics->isEmpty()) {
+            return [];
+        }
+
+        $topicIds = $autoTopics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+        $seedCounts = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->where('is_seed', true)
+            ->selectRaw('topic_id, COUNT(*) as seed_cnt')
+            ->groupBy('topic_id')
+            ->pluck('seed_cnt', 'topic_id');
+
+        $memberRows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->get(['topic_id', 'keyword_id']);
+
+        /** @var array<int, list<int>> $membersByTopic */
+        $membersByTopic = [];
+        foreach ($memberRows as $row) {
+            $membersByTopic[(int) $row->topic_id][] = (int) $row->keyword_id;
+        }
+
+        /** @var list<array{topic_id: int, name: string, member_keyword_ids: list<int>, member_count: int, is_locked: bool}> $snapshot */
+        $snapshot = [];
+        foreach ($autoTopics as $topic) {
+            $topicId = (int) $topic->id;
+            if ((int) ($seedCounts[$topicId] ?? 0) > 0) {
+                continue;
+            }
+            $memberIds = array_values(array_unique($membersByTopic[$topicId] ?? []));
+            $snapshot[] = [
+                'topic_id' => $topicId,
+                'name' => (string) $topic->name,
+                'member_keyword_ids' => $memberIds,
+                'member_count' => count($memberIds),
+                'is_locked' => false,
+            ];
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * Manual Topics as protected attach inventory (known topic_id, no collapse).
+     *
+     * @param  array<int, true>  $lockedTopicIds
+     * @return list<array{
+     *     topic_id: int,
+     *     name: string,
+     *     is_locked: bool,
+     *     members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
+     * }>
+     */
+    private function loadManualInventoryTopics(int $siteId, array $lockedTopicIds): array
+    {
+        $manuals = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('source', TopicSource::MANUAL)
+            ->get(['id', 'name', 'is_locked']);
+
+        /** @var list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}> $inventory */
+        $inventory = [];
+        foreach ($manuals as $topic) {
+            $topicId = (int) $topic->id;
+            if (isset($lockedTopicIds[$topicId])) {
+                continue;
+            }
+            $inventory[] = [
+                'topic_id' => $topicId,
+                'name' => (string) $topic->name,
+                'is_locked' => (bool) $topic->is_locked,
+                'members' => [],
+            ];
+        }
+
+        return $inventory;
     }
 
     /**
@@ -273,17 +430,25 @@ final class TopicReclusterService
      *     topics: list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>
      * }  $locked
      * @param  list<int>  $manualTopicIds
+     * @param  array<int, true>  $priorDiscoveredIds
      * @return array{
      *     topics_after: int,
      *     memberships_written: int,
      *     dna_rows: int,
      *     topics_dissolved: int,
      *     topics_reused: int,
-     *     topics_created: int
+     *     topics_created: int,
+     *     discovered_topics_dissolved: int
      * }
      */
-    private function persistClusters(int $siteId, array $clusters, array $locked, array $manualTopicIds = []): array
-    {
+    private function persistClusters(
+        int $siteId,
+        array $clusters,
+        array $locked,
+        array $manualTopicIds = [],
+        array $priorDiscoveredIds = [],
+    ): array {
+
         /** @var array<int, true> $keepTopicIds */
         $keepTopicIds = $locked['preserved_topic_ids'];
         foreach ($manualTopicIds as $manualTopicId) {
@@ -488,6 +653,13 @@ final class TopicReclusterService
                 ->delete();
         }
 
+        $discoveredDissolved = 0;
+        foreach ($staleIds as $staleId) {
+            if (isset($priorDiscoveredIds[(int) $staleId])) {
+                $discoveredDissolved++;
+            }
+        }
+
         return [
             'topics_after' => SeoTopic::query()->where('site_id', $siteId)->count(),
             'memberships_written' => $membershipsWritten,
@@ -495,6 +667,7 @@ final class TopicReclusterService
             'topics_dissolved' => count($staleIds),
             'topics_reused' => $topicsReused,
             'topics_created' => $topicsCreated,
+            'discovered_topics_dissolved' => $discoveredDissolved,
         ];
     }
 

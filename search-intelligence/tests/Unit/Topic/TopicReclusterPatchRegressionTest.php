@@ -25,6 +25,7 @@ final class TopicReclusterPatchRegressionTest extends TestCase
         return new TopicClusterEngine(
             new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
+            $phrases,
         );
     }
 
@@ -270,6 +271,7 @@ final class TopicReclusterPatchRegressionTest extends TestCase
         $src = (string) file_get_contents($path);
         self::assertStringNotContainsString('Remaining SEO keywords', $src);
         self::assertStringNotContainsString('→ self-topic', $src);
-        self::assertStringContainsString('Unmatched eligible SEO keywords stay site-classified only', $src);
+        self::assertStringContainsString('Unmatched eligible SEO keywords stay', $src);
+        self::assertStringContainsString('site-classified only', $src);
     }
 }

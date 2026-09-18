@@ -115,6 +115,7 @@ final class TopicUiRestoreContractTest extends TestCase
         $engine = new TopicClusterEngine(
             new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
+            $phrases,
         );
         $topics = $engine->cluster(
             [[

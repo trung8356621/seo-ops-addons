@@ -20,6 +20,7 @@ final class TopicClusterEngineIsolationTest extends TestCase
         $engine = new TopicClusterEngine(
             new TopicMembershipMatcher($phrases),
             new KeywordNormalizer,
+            $phrases,
         );
 
         $seedsA = [[
