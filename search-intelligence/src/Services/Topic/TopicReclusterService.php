@@ -729,6 +729,8 @@ final class TopicReclusterService
                 throw new \RuntimeException('recluster_refused_orphan_locked_membership');
             }
 
+            app(TopicUserTagService::class)->deleteForTopics($staleIds);
+
             SeoTopic::query()
                 ->where('site_id', $siteId)
                 ->whereIn('id', $staleIds)

@@ -74,6 +74,7 @@ final class TopicDissolveService
                 ->where('site_id', $siteId)
                 ->where('topic_id', $topicId)
                 ->delete();
+            app(TopicUserTagService::class)->deleteForTopics([$topicId]);
             SeoTopic::query()
                 ->where('site_id', $siteId)
                 ->where('id', $topicId)

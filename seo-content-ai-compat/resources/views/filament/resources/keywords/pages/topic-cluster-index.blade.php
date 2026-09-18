@@ -89,7 +89,7 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-4"
             preset="livewire-page"
-            targets="clusterSearch,lockFilter,clusterSort,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort,quickCreateTopic"
+            targets="clusterSearch,lockFilter,clusterSort,hasArticles,topicTagFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort,updatedTopicTagFilter,quickCreateTopic"
         >
         <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-context-card">
@@ -236,6 +236,12 @@
                     <option value="membership_locked">{{ __('seo-content-ai::filament.keyword.topic_lock_filter_membership') }}</option>
                     <option value="unlocked">{{ __('seo-content-ai::filament.keyword.topic_lock_filter_unlocked') }}</option>
                 </x-select>
+                <x-select size="sm" wire:model.live="topicTagFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_tag_filter_all') }}</option>
+                    @foreach ($this->getTopicTagFilterOptions() as $tagId => $tagName)
+                        <option value="{{ $tagId }}">{{ $tagName }}</option>
+                    @endforeach
+                </x-select>
                 <x-select size="sm" wire:model.live="clusterSort">
                     <option value="topical_share_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_desc') }}</option>
                     <option value="topical_share_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_asc') }}</option>
@@ -315,6 +321,10 @@
                                 coverage: @js((string) ($row['coverage'] ?? 'unknown')),
                                 canonicalSource: @js((string) ($row['canonical_source'] ?? 'auto')),
                                 state: @js((string) ($row['state'] ?? 'active')),
+                                userTags: @js($row['user_tags'] ?? []),
+                                tagPickerOpen: false,
+                                tagDraft: '',
+                                tagOptions: @js($this->getTopicTagFilterOptions()),
                                 renameSeq: 0,
                                 coverageTagTemplate: @js(__('seo-content-ai::filament.keyword.topic_tag_coverage', ['level' => '__LEVEL__'])),
                                 plannedLabel: @js(__('seo-content-ai::filament.keyword.topic_tag_planned')),
@@ -376,7 +386,56 @@
                                             this.recalculating = false;
                                         }
                                     }
-                                }
+                                },
+                                async attachTagById(tagId) {
+                                    const id = Number(tagId || 0);
+                                    if (!id || this.recalculating) return;
+                                    this.recalculating = true;
+                                    try {
+                                        const result = await $wire.attachTopicTag(@js($topicId), id);
+                                        if (result && result.ok && Array.isArray(result.tags)) {
+                                            this.userTags = result.tags;
+                                        }
+                                    } finally {
+                                        this.recalculating = false;
+                                        this.tagPickerOpen = false;
+                                        this.tagDraft = '';
+                                    }
+                                },
+                                async attachTagByName() {
+                                    const name = (this.tagDraft || '').trim();
+                                    if (name === '' || this.recalculating) return;
+                                    this.recalculating = true;
+                                    try {
+                                        const result = await $wire.attachTopicTagByName(@js($topicId), name);
+                                        if (result && result.ok && Array.isArray(result.tags)) {
+                                            this.userTags = result.tags;
+                                        }
+                                    } finally {
+                                        this.recalculating = false;
+                                        this.tagPickerOpen = false;
+                                        this.tagDraft = '';
+                                    }
+                                },
+                                async removeTag(tagId) {
+                                    const id = Number(tagId || 0);
+                                    if (!id || this.recalculating) return;
+                                    this.recalculating = true;
+                                    try {
+                                        const result = await $wire.detachTopicTag(@js($topicId), id);
+                                        if (result && result.ok && Array.isArray(result.tags)) {
+                                            this.userTags = result.tags;
+                                        }
+                                    } finally {
+                                        this.recalculating = false;
+                                    }
+                                },
+                                availableTagEntries() {
+                                    const used = new Set((this.userTags || []).map((t) => Number(t.id)));
+                                    return Object.entries(this.tagOptions || {})
+                                        .filter(([id]) => !used.has(Number(id)))
+                                        .map(([id, name]) => ({ id: Number(id), name }));
+                                },
                             }"
                             :class="{ 'is-recalculating': recalculating }"
                         @endif
@@ -439,6 +498,41 @@
                                             x-cloak
                                             x-text="autoLabel"
                                         ></span>
+                                        <template x-for="tag in userTags" :key="'ut-' + tag.id">
+                                            <span class="cluster-tag cluster-tag--manual">
+                                                <span x-text="tag.name"></span>
+                                                <button
+                                                    type="button"
+                                                    class="ml-1 opacity-70 hover:opacity-100"
+                                                    @click.stop="removeTag(tag.id)"
+                                                    :disabled="recalculating"
+                                                    title="{{ __('seo-content-ai::filament.keyword.topic_tag_remove') }}"
+                                                >×</button>
+                                            </span>
+                                        </template>
+                                        <button
+                                            type="button"
+                                            class="cluster-tag cluster-tag--planned"
+                                            @click.stop="tagPickerOpen = !tagPickerOpen"
+                                            :disabled="recalculating"
+                                        >+ {{ __('seo-content-ai::filament.keyword.topic_tag_add') }}</button>
+                                    </div>
+                                    <div x-show="tagPickerOpen" x-cloak class="mt-2 flex flex-wrap items-center gap-2" @click.stop>
+                                        <input
+                                            type="text"
+                                            class="topic-index-cluster-edit"
+                                            x-model="tagDraft"
+                                            placeholder="{{ __('seo-content-ai::filament.keyword.tag_name') }}"
+                                            @keydown.enter.prevent.stop="attachTagByName()"
+                                        />
+                                        <template x-for="opt in availableTagEntries().slice(0, 8)" :key="'opt-' + opt.id">
+                                            <button
+                                                type="button"
+                                                class="cluster-tag"
+                                                @click.stop="attachTagById(opt.id)"
+                                                x-text="opt.name"
+                                            ></button>
+                                        </template>
                                     </div>
                                 @else
                                     @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-intent-coverage-tags', [
@@ -448,6 +542,13 @@
                                         'state' => $row['state'] ?? 'active',
                                         'keywordCount' => $row['keyword_count'] ?? 0,
                                     ])
+                                    @if (! empty($row['user_tags']))
+                                        <div class="cluster-tag-row">
+                                            @foreach ($row['user_tags'] as $userTag)
+                                                <span class="cluster-tag cluster-tag--manual">{{ $userTag['name'] ?? '' }}</span>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 @endif
 
                                 @if ($isTopicLocked)

@@ -19,7 +19,7 @@ trait HasKeywordWorkspaceNavigation
     /**
      * Request-scoped inventory tab counts (not table search/filter counts).
      *
-     * @var array{total: int, dictionary: int, focus: int}|null
+     * @var array{total: int, dictionary: int, focus: int, topics: int}|null
      */
     private ?array $keywordWorkspaceTabCountsCache = null;
 
@@ -31,12 +31,17 @@ trait HasKeywordWorkspaceNavigation
         $this->initializeKeywordWorkspaceLanguageFilter();
     }
 
+    protected function clearKeywordWorkspaceTabCountsCache(): void
+    {
+        $this->keywordWorkspaceTabCountsCache = null;
+        $this->keywordWorkspaceTabCountsCacheKey = null;
+    }
+
     #[On('domain-context-changed')]
     #[On('seoGlobalSiteChanged')]
     public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
     {
-        $this->keywordWorkspaceTabCountsCache = null;
-        $this->keywordWorkspaceTabCountsCacheKey = null;
+        $this->clearKeywordWorkspaceTabCountsCache();
         $this->syncKeywordWorkspaceSiteFromGlobal(is_numeric($siteId) ? (int) $siteId : null);
         $this->initializeKeywordWorkspaceLanguageFilter();
 
@@ -105,10 +110,11 @@ trait HasKeywordWorkspaceNavigation
     }
 
     /**
-     * Inventory counts for Dictionary / Focus tabs + header Total badge.
+     * Inventory counts for Dictionary / Focus / Topics tabs + header Total badge.
      * Scoped by site + language filter only — ignores table search/filters.
+     * Topics tab count = site Topic total (Topics have no language column).
      *
-     * @return array{total: int, dictionary: int, focus: int}
+     * @return array{total: int, dictionary: int, focus: int, topics: int}
      */
     public function getKeywordWorkspaceTabCounts(): array
     {
@@ -128,6 +134,11 @@ trait HasKeywordWorkspaceNavigation
         $focus = (int) app(KeywordDictionaryQuery::class)
             ->filtered($siteId, $languageVariants, ['focus' => true])
             ->count();
+        $topics = 0;
+        if ($siteId !== null && $siteId > 0) {
+            $topics = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
+                ->summary($siteId, $languageVariants)['topic_count'];
+        }
 
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;
 
@@ -135,6 +146,7 @@ trait HasKeywordWorkspaceNavigation
             'total' => $total,
             'dictionary' => $dictionary,
             'focus' => $focus,
+            'topics' => $topics,
         ];
     }
 
@@ -162,6 +174,7 @@ trait HasKeywordWorkspaceNavigation
                 'key' => 'clusters',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
                 'url' => KeywordResource::getUrl('clusters'),
+                'count' => $counts['topics'],
             ],
             [
                 'key' => 'anchor-audit',

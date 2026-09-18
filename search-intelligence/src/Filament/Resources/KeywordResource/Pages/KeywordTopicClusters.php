@@ -8,7 +8,9 @@ use App\Models\Site;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Livewire\Attributes\Url;
 use Livewire\WithPagination;
+use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
@@ -16,6 +18,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicManualCreateService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicRenameService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -45,6 +48,10 @@ final class KeywordTopicClusters extends Page
     public bool $hasArticles = false;
 
     public string $clusterSort = 'topical_share_desc';
+
+    /** @var string URL-backed Topic tag filter (single tag id or empty = all). */
+    #[Url(as: 'topic_tag')]
+    public string $topicTagFilter = '';
 
     public int $clusterDataEpoch = 0;
 
@@ -88,9 +95,38 @@ final class KeywordTopicClusters extends Page
         $this->resetPage();
     }
 
+    public function updatedTopicTagFilter(): void
+    {
+        $this->topicTagFilter = trim((string) $this->topicTagFilter);
+        $this->resetPage();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function getTopicTagFilterOptions(): array
+    {
+        return Tag::query()
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->mapWithKeys(static fn ($name, $id): array => [(string) (int) $id => (string) $name])
+            ->all();
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function resolvedTopicTagFilterIds(): array
+    {
+        $id = (int) $this->topicTagFilter;
+
+        return $id > 0 ? [$id] : [];
+    }
+
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->clusterDataEpoch++;
+        $this->clearKeywordWorkspaceTabCountsCache();
         $this->resetPage();
         $this->syncReclusterStateFromCache();
     }
@@ -139,7 +175,10 @@ final class KeywordTopicClusters extends Page
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
 
-        return app(TopicListQuery::class)->summary($siteId);
+        return app(TopicListQuery::class)->summary(
+            $siteId,
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
     }
 
     public function getClusters()
@@ -152,11 +191,13 @@ final class KeywordTopicClusters extends Page
                 'sort' => $this->clusterSort,
                 'has_articles' => $this->hasArticles,
                 'lock_filter' => $this->lockFilter,
+                'tag_ids' => $this->resolvedTopicTagFilterIds(),
                 'per_page' => 25,
             ])
             ->withPath(KeywordResource::getUrl('clusters'))
             ->appends(array_filter([
                 'site_id' => $siteId > 0 ? $siteId : null,
+                'topic_tag' => $this->topicTagFilter !== '' ? $this->topicTagFilter : null,
             ], static fn (mixed $v): bool => $v !== null));
     }
 
@@ -229,6 +270,66 @@ final class KeywordTopicClusters extends Page
         ];
     }
 
+    /**
+     * @return array{ok: bool, tags?: list<array{id: int, name: string}>, error?: string}
+     */
+    public function attachTopicTag(int $topicId, int $tagId): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || $topicId <= 0 || ! $this->canEditTopicName()) {
+            return ['ok' => false, 'error' => 'denied'];
+        }
+
+        $result = app(TopicUserTagService::class)->attach($siteId, $topicId, $tagId);
+        if (! ($result['ok'] ?? false)) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'failed')];
+        }
+
+        $this->clusterDataEpoch++;
+
+        return ['ok' => true, 'tags' => $result['tags']];
+    }
+
+    /**
+     * @return array{ok: bool, tags?: list<array{id: int, name: string}>, error?: string}
+     */
+    public function attachTopicTagByName(int $topicId, string $name): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || $topicId <= 0 || ! $this->canEditTopicName()) {
+            return ['ok' => false, 'error' => 'denied'];
+        }
+
+        $result = app(TopicUserTagService::class)->attachByName($siteId, $topicId, $name);
+        if (! ($result['ok'] ?? false)) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'failed')];
+        }
+
+        $this->clusterDataEpoch++;
+
+        return ['ok' => true, 'tags' => $result['tags']];
+    }
+
+    /**
+     * @return array{ok: bool, tags?: list<array{id: int, name: string}>, error?: string}
+     */
+    public function detachTopicTag(int $topicId, int $tagId): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || $topicId <= 0 || ! $this->canEditTopicName()) {
+            return ['ok' => false, 'error' => 'denied'];
+        }
+
+        $result = app(TopicUserTagService::class)->detach($siteId, $topicId, $tagId);
+        if (! ($result['ok'] ?? false)) {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'failed')];
+        }
+
+        $this->clusterDataEpoch++;
+
+        return ['ok' => true, 'tags' => $result['tags']];
+    }
+
     public function quickCreateTopic(): void
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
@@ -280,12 +381,14 @@ final class KeywordTopicClusters extends Page
         $this->clusterSearch = '';
         $this->clusterSearchInput = '';
         $this->clusterDataEpoch++;
+        $this->clearKeywordWorkspaceTabCountsCache();
         $this->resetPage();
     }
 
     public function refreshClusterSummaryCounters(): void
     {
         $this->clusterDataEpoch++;
+        $this->clearKeywordWorkspaceTabCountsCache();
     }
 
     /** Topic Core has no dirty-cluster signal yet; keep blade hook stable. */

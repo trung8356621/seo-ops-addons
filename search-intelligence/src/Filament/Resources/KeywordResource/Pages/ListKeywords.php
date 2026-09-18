@@ -181,7 +181,7 @@ class ListKeywords extends ListRecords
     }
 
     /**
-     * @return array{total: int, active: int, errors: int}
+     * @return array{total: int, active: int, errors: int, no_topic?: int, mode?: string}
      */
     public function getDictionaryStats(): array
     {
@@ -192,15 +192,54 @@ class ListKeywords extends ListRecords
                 'total' => 0,
                 'active' => 0,
                 'errors' => 0,
+                'no_topic' => 0,
+                'mode' => 'default',
             ];
         }
 
         $dictionaryQuery = app(KeywordDictionaryQuery::class);
+        $assignment = $this->resolveTopicAssignmentFilterValue();
+        $total = (clone $query)->count();
+
+        if ($assignment === 'unassigned') {
+            // Filtered population IS No Topic — primary card must match Topics unassigned SSOT.
+            return [
+                'total' => $total,
+                'active' => $dictionaryQuery->applyActiveSeoKeywords(clone $query)->count(),
+                'errors' => $dictionaryQuery->applyUnderperformingReview(clone $query)->count(),
+                'no_topic' => $total,
+                'mode' => 'no_topic',
+            ];
+        }
+
+        if ($assignment === 'assigned') {
+            return [
+                'total' => $total,
+                'active' => $dictionaryQuery->applyActiveSeoKeywords(clone $query)->count(),
+                'errors' => $dictionaryQuery->applyUnderperformingReview(clone $query)->count(),
+                'no_topic' => 0,
+                'mode' => 'assigned',
+            ];
+        }
+
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        $noTopic = 0;
+        if ($siteId !== null && $siteId > 0) {
+            $noTopic = (int) $dictionaryQuery
+                ->filtered(
+                    $siteId,
+                    $this->resolveKeywordLanguageFilterVariants(),
+                    ['topic_assignment' => 'unassigned'],
+                )
+                ->count();
+        }
 
         return [
-            'total' => (clone $query)->count(),
+            'total' => $total,
             'active' => $dictionaryQuery->applyActiveSeoKeywords(clone $query)->count(),
             'errors' => $dictionaryQuery->applyUnderperformingReview(clone $query)->count(),
+            'no_topic' => $noTopic,
+            'mode' => 'default',
         ];
     }
 

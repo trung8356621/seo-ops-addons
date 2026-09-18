@@ -6,9 +6,10 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 
 /**
  * Site-scoped Topic list read model for Filament Topic index.
@@ -20,7 +21,13 @@ final class TopicListQuery
     public function __construct(
         private readonly TopicLinkedArticleCounter $articleCounter,
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
+        private readonly ?TopicUserTagService $userTags = null,
     ) {}
+
+    private function userTags(): TopicUserTagService
+    {
+        return $this->userTags ?? app(TopicUserTagService::class);
+    }
 
     /**
      * @param  array{
@@ -28,6 +35,7 @@ final class TopicListQuery
      *     sort?: string,
      *     has_articles?: bool,
      *     lock_filter?: string,
+     *     tag_ids?: list<int|string>,
      *     per_page?: int,
      *     page?: int
      * }  $filters
@@ -43,11 +51,12 @@ final class TopicListQuery
         $sort = (string) ($filters['sort'] ?? 'name_asc');
         $hasArticles = (bool) ($filters['has_articles'] ?? false);
         $lockFilter = (string) ($filters['lock_filter'] ?? '');
+        $tagIds = $this->normalizeTagIds($filters['tag_ids'] ?? []);
         $perPage = max(1, min(100, (int) ($filters['per_page'] ?? 25)));
 
         $query = SeoTopic::query()
             ->where('site_id', $siteId)
-            ->select(['id', 'site_id', 'name', 'status', 'is_locked', 'created_at', 'updated_at']);
+            ->select(['id', 'site_id', 'name', 'source', 'status', 'is_locked', 'created_at', 'updated_at']);
 
         if ($search !== '') {
             $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], mb_strtolower($search)).'%';
@@ -58,6 +67,15 @@ final class TopicListQuery
             $query->where('is_locked', true);
         } elseif ($lockFilter === 'unlocked') {
             $query->where('is_locked', false);
+        }
+
+        if ($tagIds !== [] && Schema::connection('omi_seo_ai')->hasTable('seo_topic_tags')) {
+            $query->whereExists(function ($sub) use ($tagIds): void {
+                $sub->selectRaw('1')
+                    ->from('seo_topic_tags')
+                    ->whereColumn('seo_topic_tags.topic_id', 'seo_topics.id')
+                    ->whereIn('seo_topic_tags.tag_id', $tagIds);
+            });
         }
 
         $topics = $query->orderBy('id')->get();
@@ -87,6 +105,7 @@ final class TopicListQuery
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
 
         $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $siteArticleCounts);
+        $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
 
         $rows = [];
         foreach ($topics as $topic) {
@@ -127,6 +146,7 @@ final class TopicListQuery
                 'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
                 'intent_diversity' => (int) ($tags['intent_diversity'] ?? 0),
                 'dna_branch_count' => (int) ($tags['dna_branch_count'] ?? 0),
+                'user_tags' => $userTagsByTopic[$topicId] ?? [],
                 'topical_share' => (float) ($shares[$topicId] ?? 0.0),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
@@ -144,52 +164,67 @@ final class TopicListQuery
     }
 
     /**
+     * @param  list<string>|null  $languageVariants
      * @return array{
      *     topic_count: int,
      *     seo_eligible_keywords: int,
+     *     inventory_total: int,
      *     assigned: int,
      *     unassigned: int,
      *     topic_locked: int,
-     *     membership_locked: int
+     *     membership_locked: int,
+     *     seo_eligible_clustering: int
      * }
      */
-    public function summary(int $siteId): array
+    public function summary(int $siteId, ?array $languageVariants = null): array
     {
         if ($siteId <= 0 || ! TopicReclusterService::tablesReady()) {
             return [
                 'topic_count' => 0,
                 'seo_eligible_keywords' => 0,
+                'inventory_total' => 0,
                 'assigned' => 0,
                 'unassigned' => 0,
                 'clustered' => 0,
                 'unclustered' => 0,
                 'topic_locked' => 0,
                 'membership_locked' => 0,
+                'seo_eligible_clustering' => 0,
             ];
         }
 
-        $topicCount = (int) SeoTopic::query()->where('site_id', $siteId)->count();
+        $stats = app(KeywordTopicAssignmentStats::class)->forSite($siteId, $languageVariants);
         $topicLocked = (int) SeoTopic::query()->where('site_id', $siteId)->where('is_locked', true)->count();
-        $seoEligible = (int) SeoSiteKeyword::query()
-            ->where('site_id', $siteId)
-            ->where('is_seo_keyword', true)
-            ->count();
-        $assigned = (int) SeoTopicKeyword::query()->where('site_id', $siteId)->count();
         $membershipLocked = (int) SeoTopicKeyword::query()
             ->where('site_id', $siteId)
             ->where('is_locked', true)
             ->count();
 
         return [
-            'topic_count' => $topicCount,
-            'seo_eligible_keywords' => $seoEligible,
-            'assigned' => $assigned,
-            'unassigned' => max(0, $seoEligible - $assigned),
-            'clustered' => $assigned,
-            'unclustered' => max(0, $seoEligible - $assigned),
+            // Primary UX denominator = Dictionary/UI inventory (language-aware when provided).
+            'topic_count' => $stats['topic_count'],
+            'seo_eligible_keywords' => $stats['inventory_total'],
+            'inventory_total' => $stats['inventory_total'],
+            'assigned' => $stats['assigned'],
+            'unassigned' => $stats['unassigned'],
+            'clustered' => $stats['assigned'],
+            'unclustered' => $stats['unassigned'],
             'topic_locked' => $topicLocked,
             'membership_locked' => $membershipLocked,
+            'seo_eligible_clustering' => $stats['seo_eligible_clustering'],
         ];
+    }
+
+    /**
+     * @param  list<mixed>  $raw
+     * @return list<int>
+     */
+    private function normalizeTagIds(array $raw): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $raw),
+            static fn (int $id): bool => $id > 0,
+        )));
     }
 
     /**
