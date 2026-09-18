@@ -1125,8 +1125,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 'keyword_review_histories',
                 'keyword_review_reasons',
                 'keyword_site_meta',
-                'keyword_tag',
-                'keyword_tags',
                 'keywords',
                 'prompt_parts',
                 'prompt_results',

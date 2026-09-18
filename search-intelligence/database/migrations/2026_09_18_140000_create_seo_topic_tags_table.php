@@ -7,10 +7,11 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Topic user-tag attachments.
+ * Historical: first Topic tag shape was a pivot (topic_id, tag_id).
  *
- * Reuses global keyword_tags vocabulary (Tag model / TagPersistenceService).
- * Metadata only — Recluster must not rewrite these rows.
+ * Superseded by 2026_09_18_160000_rebuild_seo_topic_tags_vocabulary
+ * (site-scoped seo_topic_tags vocabulary + seo_topic_tag_assignments).
+ * Kept for migrate:fresh history only — do not treat as current SSOT.
  */
 return new class extends Migration
 {

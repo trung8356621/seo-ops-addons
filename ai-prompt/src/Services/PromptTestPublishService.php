@@ -28,8 +28,9 @@ use Omnichannel\Addons\SearchFoundation\Support\MarkdownSemanticKeywordsParser;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
+use Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort;
 
-final class PromptTestPublishService
+final class PromptTestPublishService implements ArticleBodyPublishPort
 {
     public function __construct(
         private readonly MarkdownOutlineParser $outlineParser,
@@ -63,8 +64,59 @@ final class PromptTestPublishService
     }
 
     /**
+     * Canonical markdown → HTML pipeline shared by publish + persist verification.
+     *
+     * @return array{
+     *     markdown: string,
+     *     html: string,
+     *     content_hash: string,
+     *     faqs: list<array<string, mixed>>,
+     *     meta_description: ?string,
+     *     h1_title: string
+     * }
+     */
+    public function prepareArticleContent(SeoArticle $article, string $aiOutput): array
+    {
+        $markdown = trim($aiOutput);
+        if ($markdown === '') {
+            throw new \InvalidArgumentException('Kết quả AI trống.');
+        }
+
+        $import = app(ArticleContentFaqService::class)->convertMarkdownImport($markdown);
+        $cta = app(ArticleCtaPlaceholderService::class)->applyForPublish(
+            (int) $article->site_id > 0 ? (int) $article->site_id : null,
+            $import['html'],
+            $import['faqs'],
+        );
+        $html = app(AiGeneratedContentNormalizer::class)->normalizeHtml($cta['html']);
+
+        return [
+            'markdown' => $markdown,
+            'html' => $html,
+            'content_hash' => $this->contentConflictGuard->contentHash($html),
+            'faqs' => is_array($cta['faqs'] ?? null) ? $cta['faqs'] : [],
+            'meta_description' => isset($import['meta_description'])
+                ? (trim((string) $import['meta_description']) !== '' ? trim((string) $import['meta_description']) : null)
+                : null,
+            'h1_title' => trim((string) ($import['h1_title'] ?? '')),
+        ];
+    }
+
+    public function contentHash(string $body): string
+    {
+        return $this->contentConflictGuard->contentHash($body);
+    }
+
+    /**
      * @param  array<string, string>  $variables
-     * @return array{success: bool, message: string}
+     * @return array{
+     *     success: bool,
+     *     message: string,
+     *     expected_content_hash?: string,
+     *     persisted_content_hash?: string,
+     *     body_length?: int,
+     *     conflict?: bool
+     * }
      */
     public function publishArticle(SeoArticle $article, string $aiOutput, array $variables = []): array
     {
@@ -73,27 +125,26 @@ final class PromptTestPublishService
             return ['success' => false, 'message' => 'Kết quả AI trống.'];
         }
 
-        $this->syncFocusKeyword($article, $variables, $markdown);
+        try {
+            $prepared = $this->prepareArticleContent($article, $markdown);
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
 
-        $import = app(ArticleContentFaqService::class)->convertMarkdownImport($markdown);
+        $this->syncFocusKeyword($article, $variables, $prepared['markdown']);
 
-        $cta = app(ArticleCtaPlaceholderService::class)->applyForPublish(
-            (int) $article->site_id > 0 ? (int) $article->site_id : null,
-            $import['html'],
-            $import['faqs'],
-        );
-        // Shared safety net for Generate / Rewrite / Improve / Rerun (all use publishArticle).
-        $html = app(AiGeneratedContentNormalizer::class)->normalizeHtml($cta['html']);
-        $faqs = $cta['faqs'];
+        $html = $prepared['html'];
+        $faqs = $prepared['faqs'];
+        $intendedHash = $prepared['content_hash'];
 
         if ($faqs !== []) {
             app(SeoFaqPersistenceService::class)->persistForArticle($article, $faqs);
         }
 
-        $h1Title = trim((string) ($import['h1_title'] ?? ''));
-        $title = $this->resolvePublishTitle($article, $variables, $markdown, $h1Title);
+        $h1Title = $prepared['h1_title'];
+        $title = $this->resolvePublishTitle($article, $variables, $prepared['markdown'], $h1Title);
 
-        $this->persistMetaDescription($article, $import['meta_description']);
+        $this->persistMetaDescription($article, $prepared['meta_description']);
 
         $update = [
             'title' => $title,
@@ -108,7 +159,7 @@ final class PromptTestPublishService
 
         $articleId = (int) $article->id;
         $siteId = (int) ($article->site_id ?? 0);
-        $expectedHash = $this->contentConflictGuard->contentHash((string) ($article->body ?? ''));
+        $baselineHash = $this->contentConflictGuard->contentHash((string) ($article->body ?? ''));
         $expectedUpdatedAt = $article->updated_at?->toIso8601String();
         $correlationId = Str::uuid()->toString();
 
@@ -116,7 +167,7 @@ final class PromptTestPublishService
             'article_id' => $articleId,
             'content' => $html,
             'title' => $title,
-            'expected_content_hash' => $expectedHash,
+            'expected_content_hash' => $baselineHash,
             'expected_updated_at' => $expectedUpdatedAt,
         ];
         if ($slug !== null) {
@@ -135,7 +186,7 @@ final class PromptTestPublishService
             $this->contentBridge->run(
                 input: $contentInput,
                 articleState: $articleState,
-                legacyWrite: function () use ($article, $update, $html, $title, $expectedHash): array {
+                legacyWrite: function () use ($article, $update, $html, $title, $baselineHash): array {
                     $currentHash = $this->contentConflictGuard->contentHash((string) ($article->body ?? ''));
                     $currentTitle = trim((string) ($article->title ?? ''));
                     $noop = $currentHash === $this->contentConflictGuard->contentHash($html)
@@ -159,7 +210,7 @@ final class PromptTestPublishService
                         ])),
                         'content_hash' => $this->contentConflictGuard->contentHash((string) ($fresh->body ?? $html)),
                         'updated_at' => $fresh->updated_at?->toIso8601String(),
-                        'expected_content_hash' => $expectedHash,
+                        'expected_content_hash' => $baselineHash,
                     ];
                 },
                 actionWrite: fn (): ActionResult => $this->actionRunner->run(
@@ -175,9 +226,20 @@ final class PromptTestPublishService
                 correlationId: $correlationId,
             );
         } catch (AutomationMigrationWriteException $exception) {
+            $message = $exception->getMessage();
+            $isConflict = str_contains(strtolower($message), 'conflict')
+                || str_contains($message, 'conflict_content_hash')
+                || str_contains($message, 'conflict_updated_at')
+                || str_contains(strtolower($message), 'hash mismatch')
+                || str_contains(strtolower($message), 'refusing silent overwrite');
+
             return [
                 'success' => false,
-                'message' => $exception->getMessage(),
+                'message' => $message,
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $this->contentConflictGuard->contentHash((string) ($article->fresh()?->body ?? $article->body ?? '')),
+                'body_length' => strlen((string) ($article->fresh()?->body ?? $article->body ?? '')),
+                'conflict' => $isConflict,
             ];
         }
 
@@ -194,17 +256,25 @@ final class PromptTestPublishService
         app(ArticleEditorReadinessService::class)->syncWpPostContentFromBody($article->fresh());
 
         $fresh = $article->fresh() ?? $article;
-        $newHash = $this->contentConflictGuard->contentHash((string) ($fresh->body ?? ''));
-        if ($newHash !== $expectedHash) {
+        $persistedBody = (string) ($fresh->body ?? '');
+        $persistedHash = $this->contentConflictGuard->contentHash($persistedBody);
+        if ($persistedHash !== $baselineHash) {
             app(ArticleLastSavedTimestampService::class)->touchAiContent($fresh);
         }
 
+        $ok = $persistedHash === $intendedHash;
+
         return [
-            'success' => true,
-            'message' => sprintf(
-                'Đã lưu nội dung bài «%s» vào editor (chỉ Laravel, không đồng bộ WordPress).',
-                $title,
-            ),
+            'success' => $ok,
+            'message' => $ok
+                ? sprintf(
+                    'Đã lưu nội dung bài «%s» vào editor (chỉ Laravel, không đồng bộ WordPress).',
+                    $title,
+                )
+                : 'Article body hash mismatch after publish.',
+            'expected_content_hash' => $intendedHash,
+            'persisted_content_hash' => $persistedHash,
+            'body_length' => strlen($persistedBody),
         ];
     }
 

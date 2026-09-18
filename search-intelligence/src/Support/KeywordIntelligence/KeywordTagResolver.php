@@ -8,14 +8,10 @@ use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 
 final class KeywordTagResolver
 {
-    /** @var array<int, string>|null */
-    private static ?array $groupNameById = null;
-
     /**
      * @param  array{
      *     classified?: bool,
@@ -99,19 +95,10 @@ final class KeywordTagResolver
                 continue;
             }
 
-            $groupId = KeywordTag::parseGroupId($code);
-            if ($groupId === null) {
+            // Retired keyword_tags vocabulary (group:<id>) — no label resolution.
+            if (KeywordTag::parseGroupId($code) !== null) {
                 continue;
             }
-            $label = $this->groupName($groupId);
-            if ($label === '') {
-                continue;
-            }
-            $items[] = [
-                'code' => $code,
-                'label' => $label,
-                'badge_class' => KeywordTag::badgeClass($code),
-            ];
         }
 
         return $items;
@@ -263,22 +250,6 @@ final class KeywordTagResolver
         unset($keyword);
 
         return [];
-    }
-
-    private function groupName(int $tagId): string
-    {
-        if (self::$groupNameById === null) {
-            try {
-                self::$groupNameById = Tag::query()
-                    ->get(['id', 'name'])
-                    ->mapWithKeys(static fn (Tag $tag): array => [(int) $tag->id => trim((string) $tag->name)])
-                    ->all();
-            } catch (\Throwable) {
-                self::$groupNameById = [];
-            }
-        }
-
-        return trim((string) (self::$groupNameById[$tagId] ?? ''));
     }
 
     /**

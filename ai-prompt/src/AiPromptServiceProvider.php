@@ -36,6 +36,10 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->app->bind(DomainPromptContextFieldPatcher::class, SiteDomainPromptContextService::class);
         $this->app->bind(WordPressFieldSyncAccessChecker::class, WordPressFieldSyncAccessGate::class);
         $this->app->bind(PromptHookBindingRunner::class, PromptHookExplicitBindingExecutor::class);
+        $this->app->bind(
+            \Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort::class,
+            \Omnichannel\Addons\AiPrompt\Services\PromptTestPublishService::class,
+        );
         $this->app->scoped(AiModelPriorityService::class);
         $this->app->scoped(AiRoutingTargetService::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiProviderBalanceSnapshotCache::class);

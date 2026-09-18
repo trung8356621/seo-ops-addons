@@ -22,14 +22,12 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\Seo\Services\DomainOverviewService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordDebugRescrapeService;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\Seo\Services\SeoNotificationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
-use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
@@ -749,24 +747,6 @@ class KeywordResource extends SeoPanelResource
         return $base.(str_contains($base, '?') ? '&' : '?').$query;
     }
 
-    public static function buildIncludeTagFilterUrl(int $tagId): string
-    {
-        if ($tagId <= 0) {
-            return static::getUrl('index');
-        }
-
-        $base = static::getUrl('index');
-        $query = http_build_query([
-            'tableFilters' => [
-                'include_tags' => [
-                    'tag_ids' => [(string) $tagId],
-                ],
-            ],
-        ]);
-
-        return $base.(str_contains($base, '?') ? '&' : '?').$query;
-    }
-
     /**
      * Deep-link Dictionary with Topic membership filter (assigned|unassigned).
      */
@@ -787,17 +767,6 @@ class KeywordResource extends SeoPanelResource
         ]);
 
         return $base.(str_contains($base, '?') ? '&' : '?').$query;
-    }
-
-    /**
-     * @return array<int|string, string>
-     */
-    public static function tagFilterOptions(): array
-    {
-        return Tag::query()
-            ->orderBy('name')
-            ->pluck('name', 'id')
-            ->all();
     }
 
     /**
@@ -1278,30 +1247,6 @@ class KeywordResource extends SeoPanelResource
             ->all();
     }
 
-    /**
-     * @param  array<int, mixed>|list<mixed>  $tagIds
-     * @return list<string>
-     */
-    public static function resolveTagFilterLabels(array $tagIds): array
-    {
-        $ids = collect($tagIds)
-            ->filter(static fn (mixed $id): bool => is_numeric($id))
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->values()
-            ->all();
-
-        if ($ids === []) {
-            return [];
-        }
-
-        return Tag::query()
-            ->whereIn('id', $ids)
-            ->orderBy('name')
-            ->pluck('name')
-            ->all();
-    }
-
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
@@ -1644,66 +1589,6 @@ class KeywordResource extends SeoPanelResource
     }
 
     /**
-     * @param  callable(Get, ?Keyword): int  $resolveSiteId
-     */
-    public static function tagsSelectField(
-        callable $resolveSiteId,
-        bool $multiple = true,
-        string $fieldName = 'tags',
-        bool $required = false,
-        ?callable $helperTextResolver = null,
-        bool $useRelationship = false,
-    ): Forms\Components\Select {
-        $select = Forms\Components\Select::make($fieldName)
-            ->label(__('seo-content-ai::filament.keyword.tags'))
-            ->multiple($multiple)
-            ->searchable()
-            ->preload()
-            ->native(false)
-            ->required($required)
-            ->options(static fn (): array => Tag::query()
-                ->orderBy('name')
-                ->pluck('name', 'id')
-                ->all())
-            ->createOptionForm([
-                Forms\Components\TextInput::make('name')
-                    ->label(__('seo-content-ai::filament.keyword.tag_name'))
-                    ->required()
-                    ->maxLength(255),
-            ])
-            ->createOptionUsing(function (array $data): int {
-                $name = trim((string) ($data['name'] ?? ''));
-
-                return (int) app(TagPersistenceService::class)
-                    ->findOrCreate($name)
-                    ->getKey();
-            });
-
-        if ($helperTextResolver !== null) {
-            $select->helperText(fn (): ?string => $helperTextResolver());
-        }
-
-        return $select;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public static function resolveTagLabelsForKeyword(Keyword $keyword): array
-    {
-        $tagIds = $keyword->getTagIdsList();
-        if ($tagIds === []) {
-            return [];
-        }
-
-        return Tag::query()
-            ->whereIn('id', $tagIds)
-            ->orderBy('name')
-            ->pluck('name')
-            ->all();
-    }
-
-    /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
@@ -1722,11 +1607,6 @@ class KeywordResource extends SeoPanelResource
         $record->update($data);
 
         return $record->fresh();
-    }
-
-    public static function resolveUniqueTagSlug(string $name): string
-    {
-        return app(TagPersistenceService::class)->resolveUniqueSlug($name);
     }
 
     public static function applyInsensitivePhraseSearch(Builder $query, string $search): Builder
@@ -1755,8 +1635,6 @@ class KeywordResource extends SeoPanelResource
             'focus' => Pages\ListFocusKeywords::route('/focus'),
             'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
             'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{topic}'),
-            // Path/key must not collide with content TagResource slug `keywords/tags`
-            // (registers filament.*.resources.keywords.tags.index|create).
             'topic-tags' => Pages\KeywordTopicTags::route('/topic-tags'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),
         ];

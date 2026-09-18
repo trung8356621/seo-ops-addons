@@ -28,15 +28,20 @@ final class ArticleWritingPersistHistoryTraceTest extends TestCase
         self::assertStringContainsString('writing.trace.persist', $src);
         self::assertStringContainsString('content_body_not_applied', $src);
         self::assertStringContainsString('PERSIST_FAILED', $src);
+        self::assertStringContainsString('resolveContentPersistExpectation', $src);
+        self::assertStringContainsString('content_step_missing_output', $src);
+        self::assertStringContainsString('no_content_step', $src);
+        self::assertStringNotContainsString('bodyReflectsGeneratedMarkdown', $src);
+        self::assertStringNotContainsString('mid-body fingerprint', $src);
     }
 
-    public function test_ai_success_detects_body_mismatch_and_extracts_content_output(): void
+    public function test_ai_success_extracts_content_output_and_fail_closed_missing(): void
     {
         $service = $this->serviceWithoutConstructor();
         $latest = new ReflectionMethod(ArticleWritingExecutionService::class, 'latestCompletedContentOutput');
         $latest->setAccessible(true);
-        $reflects = new ReflectionMethod(ArticleWritingExecutionService::class, 'bodyReflectsGeneratedMarkdown');
-        $reflects->setAccessible(true);
+        $expect = new ReflectionMethod(ArticleWritingExecutionService::class, 'resolveContentPersistExpectation');
+        $expect->setAccessible(true);
 
         $generated = "## Generated writing content\n\nThis is distinctive AI body text for persist gate.";
         $output = $latest->invoke($service, [
@@ -48,23 +53,39 @@ final class ArticleWritingPersistHistoryTraceTest extends TestCase
         ]);
         self::assertSame($generated, $output);
 
-        $oldBody = '<p>Old WordPress-like body that must be replaced.</p>';
-        self::assertFalse($reflects->invoke($service, $oldBody, $generated));
+        $missing = $expect->invoke($service, [
+            [
+                'status' => 'completed',
+                'hook_key' => 'article.content.generate',
+                'output' => '',
+            ],
+        ]);
+        self::assertSame('content_step_missing_output', $missing['kind']);
 
-        $appliedBody = '<p>Generated writing content</p><p>This is distinctive AI body text for persist gate.</p>';
-        self::assertTrue($reflects->invoke($service, $appliedBody, $generated));
+        $none = $expect->invoke($service, [
+            ['status' => 'completed', 'hook_key' => 'article.outline.structure.generate', 'output' => 'x'],
+        ]);
+        self::assertSame('no_content_step', $none['kind']);
     }
 
-    public function test_persist_gate_calls_publish_article_on_mismatch(): void
+    public function test_persist_gate_uses_prepare_article_content_hash(): void
     {
         $src = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php',
         );
-        self::assertMatchesRegularExpression(
-            '/bodyReflectsGeneratedMarkdown\(\$body, \$generated\).*publishArticle\(\$article, \$generated/s',
-            $src,
-        );
+        self::assertStringContainsString('prepareArticleContent', $src);
+        self::assertStringContainsString('expected_content_hash', $src);
+        self::assertStringContainsString('persisted_content_hash', $src);
+        self::assertStringContainsString('publishArticle($article, $generated', $src);
         self::assertStringContainsString('Writing generation succeeded but body was not applied', $src);
+
+        $publishSrc = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/Services/PromptTestPublishService.php',
+        );
+        self::assertStringContainsString('function prepareArticleContent', $publishSrc);
+        self::assertStringContainsString('contentConflictGuard->contentHash', $publishSrc);
+        self::assertStringContainsString("'expected_content_hash'", $publishSrc);
+        self::assertStringContainsString("'persisted_content_hash'", $publishSrc);
     }
 
     public function test_stale_guard_constants_and_passes_stale_guard_exist(): void
@@ -75,6 +96,7 @@ final class ArticleWritingPersistHistoryTraceTest extends TestCase
         );
         self::assertStringContainsString('passesStaleGuard', $src);
         self::assertStringContainsString('PERSIST_IGNORED_STALE', $src);
+        self::assertStringContainsString('late_publish_conflict', $src);
     }
 
     public function test_wp_hydrate_skips_when_body_non_empty(): void
@@ -122,6 +144,15 @@ final class ArticleWritingPersistHistoryTraceTest extends TestCase
         self::assertStringContainsString('correlation', $src);
     }
 
+    public function test_sectioned_free_parent_links_immediately_for_split_history(): void
+    {
+        $src = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/SectionedFree/SectionedFreeHookOrchestrator.php',
+        );
+        self::assertStringContainsString('linkPromptResultImmediately', $src);
+        self::assertStringContainsString('PromptResultLinkService', $src);
+    }
+
     public function test_mark_success_clears_stale_error_fields(): void
     {
         $src = (string) file_get_contents(
@@ -148,6 +179,20 @@ final class ArticleWritingPersistHistoryTraceTest extends TestCase
         );
         self::assertStringContainsString('workflow.flush_pending_article_content_failed', $src);
         self::assertStringContainsString('workflow.flush_pending_article_content_rejected', $src);
+    }
+
+    public function test_ai_history_reset_is_manual_destructive_not_scheduled(): void
+    {
+        $reset = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/Services/AiHistoryResetService.php',
+        );
+        $cmd = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/Console/ResetAiHistoryCommand.php',
+        );
+        self::assertStringContainsString('Destructive dev/test reset', $reset);
+        self::assertStringContainsString('PromptResult::query()->delete()', $reset);
+        self::assertStringContainsString('ResetAiHistoryCommand', $cmd);
+        self::assertStringNotContainsString('Schedule::', $cmd);
     }
 
     private function serviceWithoutConstructor(): ArticleWritingExecutionService

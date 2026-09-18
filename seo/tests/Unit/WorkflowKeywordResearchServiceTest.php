@@ -8,7 +8,6 @@ use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\AiPrompt\Services\OutlineSkipListMatcher;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
-use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\Seo\Services\WorkflowKeywordResearchService;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +22,6 @@ final class WorkflowKeywordResearchServiceTest extends TestCase
                 new OutlineSkipListMatcher,
             ),
             new KeywordPersistenceService(new KeywordMetaRepository),
-            new TagPersistenceService,
             null,
         );
     }

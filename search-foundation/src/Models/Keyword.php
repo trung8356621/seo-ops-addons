@@ -473,14 +473,6 @@ class Keyword extends Model
         return $query->where('review_status', KeywordReviewStatus::Active->value);
     }
 
-    /**
-     * @deprecated Pivot keyword_tag removed; use getTagIdsList().
-     */
-    public function tags(): BelongsToMany
-    {
-        return $this->belongsToMany(Tag::class, 'keyword_tag', 'keyword_id', 'tag_id');
-    }
-
     public function resolveSiteId(?int $preferredSiteId = null): ?int
     {
         if ($preferredSiteId !== null && $preferredSiteId > 0) {

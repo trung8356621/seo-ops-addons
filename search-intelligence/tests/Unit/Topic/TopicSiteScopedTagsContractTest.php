@@ -143,20 +143,25 @@ final class TopicSiteScopedTagsContractTest extends TestCase
         self::assertStringNotContainsString('wire:model.live="topicTagFilter"', $blade);
     }
 
-    public function test_legacy_keyword_tags_not_retired_while_consumers_exist(): void
+    public function test_legacy_keyword_tags_vocabulary_is_retired(): void
     {
-        $tagModel = (string) file_get_contents(
+        self::assertFileDoesNotExist(
             dirname(__DIR__, 4).'/search-foundation/src/Models/Tag.php'
         );
-        $tagResource = (string) file_get_contents(
+        self::assertFileDoesNotExist(
+            dirname(__DIR__, 4).'/search-foundation/src/Services/TagPersistenceService.php'
+        );
+        self::assertFileDoesNotExist(
             dirname(__DIR__, 4).'/content/src/Filament/Resources/TagResource.php'
         );
-
-        self::assertStringContainsString("keyword_tags", $tagModel);
-        self::assertStringContainsString('TagPersistenceService', $tagResource);
-        // Explicit product STOP: do not drop keyword_tags while these remain.
-        self::assertFileDoesNotExist(
-            dirname(__DIR__, 3).'/database/migrations/2026_09_18_170000_drop_keyword_tags.php'
+        self::assertFileExists(
+            dirname(__DIR__, 3).'/database/migrations/2026_09_18_170000_drop_legacy_keyword_tags_table.php'
         );
+
+        $drop = (string) file_get_contents(
+            dirname(__DIR__, 3).'/database/migrations/2026_09_18_170000_drop_legacy_keyword_tags_table.php'
+        );
+        self::assertStringContainsString("drop('keyword_tags')", $drop);
+        self::assertStringContainsString('omi_seo_ai', $drop);
     }
 }

@@ -46,7 +46,8 @@ final class KeywordTagQuery
 
         $groupId = KeywordTag::parseGroupId($tag);
         if ($groupId !== null) {
-            return $query->whereHasAnyTagId([$groupId]);
+            // Retired keyword_tags vocabulary — group:<id> filters match nothing.
+            return $query->whereRaw('0 = 1');
         }
 
         $hiddenMeta = static function (Builder $meta): Builder {

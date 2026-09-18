@@ -6,11 +6,8 @@ namespace Omnichannel\Addons\Seo\Services;
 
 
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
-use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
-use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\VocabularyKeywordIntelligenceIngestionService;
@@ -22,7 +19,6 @@ final class WorkflowKeywordResearchService
     public function __construct(
         private readonly CtaKeywordBlacklistFilter $ctaKeywordBlacklistFilter,
         private readonly KeywordPersistenceService $keywordPersistence,
-        private readonly TagPersistenceService $tagPersistence,
         private readonly ?VocabularyKeywordIntelligenceIngestionService $vocabularyKiIngestion = null,
     ) {}
 
@@ -99,7 +95,7 @@ final class WorkflowKeywordResearchService
             throw new \InvalidArgumentException('Không lưu được từ khóa chính cho vocabulary.');
         }
 
-        $tagsCount = $this->syncHolonymyTags($focusKeyword, $holonymyPhrases, $siteId);
+        $tagsCount = $this->countHolonymyPhrases($holonymyPhrases);
 
         $vocabularyCount = 0;
 
@@ -246,44 +242,24 @@ final class WorkflowKeywordResearchService
     }
 
     /**
+     * Holonymy used to materialize rows into retired keyword_tags + keyword_meta.tags.
+     * Vocabulary SSOT for Topic tags is seo_topic_tags; keyword_tags is gone.
+     * Partition still extracts Holonymy groups for callers; persistence is intentionally a no-op.
+     *
      * @param  list<string>  $phrases
      */
-    private function syncHolonymyTags(Keyword $focusKeyword, array $phrases, int $siteId): int
+    private function countHolonymyPhrases(array $phrases): int
     {
-        $tagIds = [];
-
+        $count = 0;
         foreach ($phrases as $keywordPhrase) {
             $name = trim((string) $keywordPhrase);
             if ($name === '' || $this->ctaKeywordBlacklistFilter->isBlocked($name)) {
                 continue;
             }
-
-            $tag = $this->findOrCreateTag($name);
-            if ($tag === null) {
-                continue;
-            }
-
-            $tagIds[] = (int) $tag->id;
+            $count++;
         }
 
-        $tagIds = array_values(array_unique($tagIds));
-        if ($tagIds === []) {
-            return 0;
-        }
-
-        app(KeywordMetaRepository::class)->mergeTagIds((int) $focusKeyword->id, $tagIds);
-
-        return count($tagIds);
-    }
-
-    private function findOrCreateTag(string $name): ?Tag
-    {
-        $normalized = $this->tagPersistence->normalizeName($name);
-        if ($normalized === '') {
-            return null;
-        }
-
-        return $this->tagPersistence->findOrCreate($normalized);
+        return $count;
     }
 
     private function isRelatedTopicsGroup(string $groupName): bool

@@ -15,8 +15,8 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookExecutionService;
 use Omnichannel\Addons\Content\Services\ArticleWriting\BriefArticleWritingSourceProvider;
 use Omnichannel\Addons\Content\Services\ArticleWriting\ExistingArticleWritingSourceProvider;
 use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSourceProvider;
+use Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
-use Omnichannel\Addons\AiPrompt\Services\PromptTestPublishService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
@@ -42,7 +42,7 @@ class ArticleWritingExecutionService
         private readonly ArticleWritingInputFormatter $formatter,
         private readonly PromptBindingResolver $promptBindingResolver,
         private readonly PromptHookExecutionService $hookExecution,
-        private readonly PromptTestPublishService $publisher,
+        private readonly ArticleBodyPublishPort $publisher,
         private readonly TaskWorkflowTestRunner $workflowRunner,
         private readonly SeoCreateArticleSettingsService $settings,
         private readonly SeoPromptSettingsService $promptSettings,
@@ -608,12 +608,34 @@ class ArticleWritingExecutionService
             }
 
             // AI content step completed ≠ body written. Old semantic body must not
-            // count as persist success when step output differs from articles.body.
+            // count as persist success when canonical hash differs from articles.body.
             $persistGate = $this->ensureGeneratedContentPersisted(
                 $steps,
                 $article instanceof SeoArticle ? $article : null,
                 is_array($taskContext->variables) ? $taskContext->variables : [],
             );
+            if ($persistGate['status'] === ArticleWritingExecutionResult::PERSIST_IGNORED_STALE) {
+                return new ArticleWritingExecutionResult(
+                    success: true,
+                    message: (string) ($persistGate['message'] !== ''
+                        ? $persistGate['message']
+                        : 'Kết quả bị bỏ qua vì bài đã được sửa (ignored_stale).'),
+                    sourceType: $writing->sourceType,
+                    promptOwnerType: $owner['type'],
+                    hookKey: self::HOOK_KEY,
+                    articleId: $articleId,
+                    promptId: $owner['prompt_id'],
+                    promptOwnerId: $owner['owner_id'],
+                    persistStatus: ArticleWritingExecutionResult::PERSIST_IGNORED_STALE,
+                    steps: $steps,
+                    historyMetadata: array_merge($history, [
+                        'persist_status' => 'ignored_stale',
+                        'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
+                        'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
+                    ]),
+                    writing: $writing,
+                );
+            }
             if ($persistGate['status'] === ArticleWritingExecutionResult::PERSIST_FAILED) {
                 $steps[] = [
                     'node_id' => 'content-persist-guard',
@@ -637,8 +659,8 @@ class ArticleWritingExecutionService
                     steps: $steps,
                     historyMetadata: array_merge($history, [
                         'persist_status' => 'failed',
-                        'output_hash' => $persistGate['output_hash'] ?? null,
-                        'body_hash' => $persistGate['body_hash'] ?? null,
+                        'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
+                        'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
                     ]),
                     writing: $writing,
                 );
@@ -652,6 +674,11 @@ class ArticleWritingExecutionService
                     $taskContext = $taskContext->withArticle($fresh);
                     $articleId = (int) $fresh->getKey();
                 }
+                $history = array_merge($history, [
+                    'persist_status' => 'applied',
+                    'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
+                    'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
+                ]);
             }
         }
 
@@ -677,30 +704,58 @@ class ArticleWritingExecutionService
      *
      * @param  list<array<string, mixed>>  $steps
      * @param  array<string, mixed>  $variables
-     * @return array{status: string, message: string, output_hash?: string, body_hash?: string}
+     * @return array{
+     *     status: string,
+     *     message: string,
+     *     expected_content_hash?: string,
+     *     persisted_content_hash?: string
+     * }
      */
     private function ensureGeneratedContentPersisted(
         array $steps,
         ?SeoArticle $article,
         array $variables,
     ): array {
-        $generated = $this->latestCompletedContentOutput($steps);
-        if ($generated === null || $article === null) {
+        $expectation = $this->resolveContentPersistExpectation($steps);
+        if ($expectation['kind'] === 'no_content_step') {
             return ['status' => ArticleWritingExecutionResult::PERSIST_APPLIED, 'message' => ''];
         }
 
-        $outputHash = hash('sha256', $generated);
-        $body = trim((string) ($article->body ?? ''));
-        $bodyHash = hash('sha256', $body);
+        if ($expectation['kind'] === 'content_step_missing_output') {
+            return [
+                'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
+                'message' => 'Content writing step expected but generated output could not be resolved.',
+            ];
+        }
+
+        $generated = (string) ($expectation['output'] ?? '');
+        if ($article === null) {
+            return [
+                'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
+                'message' => 'Content writing step completed but article could not be resolved for persist.',
+            ];
+        }
+
+        try {
+            $prepared = $this->publisher->prepareArticleContent($article, $generated);
+        } catch (\Throwable $e) {
+            return [
+                'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
+                'message' => 'Unable to prepare canonical writing HTML: '.$e->getMessage(),
+            ];
+        }
+
+        $intendedHash = (string) $prepared['content_hash'];
+        $body = (string) ($article->body ?? '');
+        $persistedHash = $this->publisher->contentHash($body);
         $articleId = (int) $article->getKey();
 
-        if ($this->bodyReflectsGeneratedMarkdown($body, $generated)) {
+        if ($intendedHash === $persistedHash) {
             \Illuminate\Support\Facades\Log::info('writing.trace.persist', [
                 'article_id' => $articleId,
                 'persist_status' => ArticleWritingExecutionResult::PERSIST_APPLIED,
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
-                'output_length' => strlen($generated),
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $persistedHash,
                 'body_length' => strlen($body),
                 'mode' => 'already_applied',
             ]);
@@ -708,8 +763,8 @@ class ArticleWritingExecutionService
             return [
                 'status' => ArticleWritingExecutionResult::PERSIST_APPLIED,
                 'message' => '',
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $persistedHash,
             ];
         }
 
@@ -719,9 +774,7 @@ class ArticleWritingExecutionService
             \Illuminate\Support\Facades\Log::warning('writing.trace.persist', [
                 'article_id' => $articleId,
                 'persist_status' => ArticleWritingExecutionResult::PERSIST_FAILED,
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
-                'output_length' => strlen($generated),
+                'expected_content_hash' => $intendedHash,
                 'mode' => 'late_publish_exception',
                 'message' => $e->getMessage(),
             ]);
@@ -729,18 +782,38 @@ class ArticleWritingExecutionService
             return [
                 'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
                 'message' => 'Writing generation succeeded but body persist failed: '.$e->getMessage(),
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $persistedHash,
             ];
         }
 
-        if (! ($publish['success'] ?? false)) {
+        if ((bool) ($publish['conflict'] ?? false)) {
+            \Illuminate\Support\Facades\Log::warning('writing.trace.persist', [
+                'article_id' => $articleId,
+                'persist_status' => ArticleWritingExecutionResult::PERSIST_IGNORED_STALE,
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $publish['persisted_content_hash'] ?? $persistedHash,
+                'mode' => 'late_publish_conflict',
+                'message' => (string) ($publish['message'] ?? ''),
+            ]);
+
+            return [
+                'status' => ArticleWritingExecutionResult::PERSIST_IGNORED_STALE,
+                'message' => 'Kết quả bị bỏ qua vì bài đã được sửa (ignored_stale).',
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => (string) ($publish['persisted_content_hash'] ?? $persistedHash),
+            ];
+        }
+
+        $expectedAfter = (string) ($publish['expected_content_hash'] ?? $intendedHash);
+        $persistedAfter = (string) ($publish['persisted_content_hash'] ?? '');
+
+        if (! ($publish['success'] ?? false) || $expectedAfter === '' || $expectedAfter !== $persistedAfter) {
             \Illuminate\Support\Facades\Log::warning('writing.trace.persist', [
                 'article_id' => $articleId,
                 'persist_status' => ArticleWritingExecutionResult::PERSIST_FAILED,
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
-                'output_length' => strlen($generated),
+                'expected_content_hash' => $expectedAfter !== '' ? $expectedAfter : $intendedHash,
+                'persisted_content_hash' => $persistedAfter !== '' ? $persistedAfter : $persistedHash,
                 'mode' => 'late_publish_rejected',
                 'message' => (string) ($publish['message'] ?? ''),
             ]);
@@ -749,48 +822,77 @@ class ArticleWritingExecutionService
                 'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
                 'message' => 'Writing generation succeeded but body was not applied: '
                     .trim((string) ($publish['message'] ?? 'publishArticle failed')),
-                'output_hash' => $outputHash,
-                'body_hash' => $bodyHash,
-            ];
-        }
-
-        $fresh = $article->fresh() ?? $article;
-        $newBody = trim((string) ($fresh->body ?? ''));
-        if (! $this->bodyReflectsGeneratedMarkdown($newBody, $generated)) {
-            \Illuminate\Support\Facades\Log::warning('writing.trace.persist', [
-                'article_id' => $articleId,
-                'persist_status' => ArticleWritingExecutionResult::PERSIST_FAILED,
-                'output_hash' => $outputHash,
-                'body_hash' => hash('sha256', $newBody),
-                'output_length' => strlen($generated),
-                'body_length' => strlen($newBody),
-                'mode' => 'mismatch_after_publish',
-            ]);
-
-            return [
-                'status' => ArticleWritingExecutionResult::PERSIST_FAILED,
-                'message' => 'Writing generation succeeded but articles.body still does not match AI output after publish.',
-                'output_hash' => $outputHash,
-                'body_hash' => hash('sha256', $newBody),
+                'expected_content_hash' => $expectedAfter !== '' ? $expectedAfter : $intendedHash,
+                'persisted_content_hash' => $persistedAfter !== '' ? $persistedAfter : $persistedHash,
             ];
         }
 
         \Illuminate\Support\Facades\Log::info('writing.trace.persist', [
             'article_id' => $articleId,
             'persist_status' => ArticleWritingExecutionResult::PERSIST_APPLIED,
-            'output_hash' => $outputHash,
-            'body_hash' => hash('sha256', $newBody),
-            'output_length' => strlen($generated),
-            'body_length' => strlen($newBody),
+            'expected_content_hash' => $expectedAfter,
+            'persisted_content_hash' => $persistedAfter,
+            'body_length' => (int) ($publish['body_length'] ?? 0),
             'mode' => 'late_persisted',
         ]);
 
         return [
             'status' => ArticleWritingExecutionResult::PERSIST_APPLIED,
             'message' => 'Late-persisted AI writing output to articles.body.',
-            'output_hash' => $outputHash,
-            'body_hash' => hash('sha256', $newBody),
+            'expected_content_hash' => $expectedAfter,
+            'persisted_content_hash' => $persistedAfter,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @return array{kind: 'no_content_step'|'content_step_missing_output'|'has_output', output?: string}
+     */
+    private function resolveContentPersistExpectation(array $steps): array
+    {
+        if (! $this->hasContentWritingStep($steps)) {
+            return ['kind' => 'no_content_step'];
+        }
+
+        $output = $this->latestCompletedContentOutput($steps);
+        if ($output === null) {
+            return ['kind' => 'content_step_missing_output'];
+        }
+
+        return ['kind' => 'has_output', 'output' => $output];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     */
+    private function hasContentWritingStep(array $steps): bool
+    {
+        foreach ($steps as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            if ($this->isContentWritingStep($step)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $step
+     */
+    private function isContentWritingStep(array $step): bool
+    {
+        $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
+        if (str_contains($hook, 'content.generate')
+            || str_contains($hook, 'content.rewrite')
+            || str_contains($hook, 'content.improve')
+        ) {
+            return true;
+        }
+
+        return ($step['artifact_type'] ?? '') === 'article_content';
     }
 
     /**
@@ -806,12 +908,7 @@ class ArticleWritingExecutionService
             if (! in_array($status, ['completed', 'success', 'succeeded'], true)) {
                 continue;
             }
-            $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
-            $isContent = str_contains($hook, 'content.generate')
-                || str_contains($hook, 'content.rewrite')
-                || str_contains($hook, 'content.improve')
-                || (($step['artifact_type'] ?? '') === 'article_content');
-            if (! $isContent) {
+            if (! $this->isContentWritingStep($step)) {
                 continue;
             }
             $output = trim((string) ($step['output'] ?? ''));
@@ -824,42 +921,6 @@ class ArticleWritingExecutionService
         }
 
         return null;
-    }
-
-    private function bodyReflectsGeneratedMarkdown(string $bodyHtmlOrText, string $markdown): bool
-    {
-        $normalize = static function (string $value): string {
-            $plain = preg_replace('/<\s*br\s*\/?\s*>/iu', ' ', $value) ?? $value;
-            $plain = preg_replace('/<\/p>/iu', ' </p>', $plain) ?? $plain;
-            $plain = strip_tags($plain);
-            $plain = preg_replace('/[#*_`]+/u', ' ', $plain) ?? $plain;
-            $plain = preg_replace('/\s+/u', ' ', $plain) ?? $plain;
-
-            return mb_strtolower(trim($plain));
-        };
-
-        $bodyPlain = $normalize($bodyHtmlOrText);
-        $mdPlain = $normalize($markdown);
-        if ($bodyPlain === '' || $mdPlain === '') {
-            return false;
-        }
-        if ($bodyPlain === $mdPlain || hash('sha256', $bodyHtmlOrText) === hash('sha256', $markdown)) {
-            return true;
-        }
-        // Distinctive phrase from AI markdown (skip short headings).
-        $needle = mb_substr($mdPlain, 0, 80);
-        if (mb_strlen($needle) >= 24 && str_contains($bodyPlain, $needle)) {
-            return true;
-        }
-        // Alternate: mid-body fingerprint from AI output.
-        if (mb_strlen($mdPlain) > 120) {
-            $mid = mb_substr($mdPlain, 40, 60);
-            if (mb_strlen($mid) >= 24 && str_contains($bodyPlain, $mid)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function resolveSource(

@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Rebuild Topic tags as site-scoped immutable vocabulary + assignment pivot.
  *
- * Replaces the short-lived seo_topic_tags(topic_id, tag_id) pivot that pointed at
- * global keyword_tags. No data migration (table was empty / not product SoT).
+ * Replaces the short-lived seo_topic_tags(topic_id, tag_id) pivot shape.
+ * Current SSOT: seo_topic_tags (+ seo_topic_tag_assignments). No data migration
+ * from the pivot (empty / not product SoT).
  */
 return new class extends Migration
 {
