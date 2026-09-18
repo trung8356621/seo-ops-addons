@@ -582,6 +582,9 @@ final class ContentProjectItemOperationsReadModel
 
         $execStatusRaw = strtolower(trim((string) ($exec['status'] ?? '')));
         $runError = trim((string) ($exec['error_message'] ?? ''));
+        if (in_array($execStatusRaw, ['success', 'completed', 'skipped', 'manual'], true)) {
+            $runError = '';
+        }
         if ($runError === '' && in_array($execStatusRaw, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
             // `message` also carries non-error runtime notes (deferred AI retry) — only
             // promote it to an error on a terminal failure.
@@ -1223,14 +1226,20 @@ final class ContentProjectItemOperationsReadModel
                 continue;
             }
             $runId = (int) $item->run_id;
+            $status = (string) ($item->status ?? '');
+            $errorMessage = $item->error_message !== null ? (string) $item->error_message : null;
+            // Success rows must not surface stale failure text in Ops UI.
+            if (in_array(strtolower($status), ['success', 'completed', 'skipped', 'manual'], true)) {
+                $errorMessage = null;
+            }
             $rows[] = [
                 'id' => (int) $item->id,
                 'task_id' => $tid,
                 'run_id' => $runId,
-                'status' => (string) ($item->status ?? ''),
+                'status' => $status,
                 'action' => $item->action !== null ? (string) $item->action : null,
                 'attempt' => (int) ($item->attempt ?? 0),
-                'error_message' => $item->error_message !== null ? (string) $item->error_message : null,
+                'error_message' => $errorMessage,
                 'message' => $item->message !== null ? (string) $item->message : null,
                 'started_at' => $item->started_at?->format('d/m/Y H:i'),
                 'started_at_iso' => $item->started_at?->toIso8601String(),

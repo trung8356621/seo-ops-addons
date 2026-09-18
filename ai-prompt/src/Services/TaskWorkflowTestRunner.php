@@ -2258,11 +2258,25 @@ final class TaskWorkflowTestRunner
                 $markdown,
                 $context->variables,
             );
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('workflow.flush_pending_article_content_failed', [
+                'article_id' => (int) $article->id,
+                'message' => $e->getMessage(),
+                'output_hash' => hash('sha256', $markdown),
+                'output_length' => strlen($markdown),
+            ]);
+
             return;
         }
 
         if (! ($publish['success'] ?? false)) {
+            \Illuminate\Support\Facades\Log::warning('workflow.flush_pending_article_content_rejected', [
+                'article_id' => (int) $article->id,
+                'message' => (string) ($publish['message'] ?? ''),
+                'output_hash' => hash('sha256', $markdown),
+                'output_length' => strlen($markdown),
+            ]);
+
             return;
         }
 

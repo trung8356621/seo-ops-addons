@@ -124,7 +124,14 @@ final class PromptExecutionPersistence
             $result->content_project_id = $projectId;
         }
 
-        $itemId = (int) ($snapshot['project_item_id'] ?? $variables['project_item_id'] ?? 0);
+        $itemId = (int) (
+            $snapshot['project_item_id']
+            ?? $snapshot['project_task_id']
+            ?? $variables['project_item_id']
+            ?? $variables['project_task_id']
+            ?? $variables['task_id']
+            ?? 0
+        );
         if ($itemId > 0) {
             $result->project_item_id = $itemId;
         }

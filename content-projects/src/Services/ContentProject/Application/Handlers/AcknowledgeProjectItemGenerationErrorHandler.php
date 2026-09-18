@@ -103,6 +103,7 @@ final class AcknowledgeProjectItemGenerationErrorHandler extends AbstractPublish
 
                         $latest->status = SeoProjectRunItemStatus::Success->value;
                         $latest->error_message = null;
+                        $latest->error_code = null;
                         $latest->output_snapshot = $snapshot;
                         if ($latest->finished_at === null) {
                             $latest->finished_at = now();

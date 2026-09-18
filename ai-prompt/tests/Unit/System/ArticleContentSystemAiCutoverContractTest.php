@@ -159,4 +159,18 @@ final class ArticleContentSystemAiCutoverContractTest extends TestCase
         self::assertStringContainsString('ArticleContentGenerateCapabilityHandler', $src);
         self::assertStringContainsString('SystemCapabilityRegistry', $src);
     }
+
+    public function test_remote_correlation_fields_are_merged_not_overwritten(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(ArticleContentGenerateCapabilityHandler::class))->getFileName()
+        );
+        self::assertStringContainsString(
+            "if (! array_key_exists(\$key, \$contextExtras) || \$contextExtras[\$key] === null || \$contextExtras[\$key] === '')",
+            $src,
+        );
+        foreach (['article_id', 'project_item_id', 'content_project_id', 'run_id', 'node_id', 'canonical_prompt_key', 'retry_attempt', 'correlation_id', 'stage'] as $field) {
+            self::assertStringContainsString("'".$field."'", $src);
+        }
+    }
 }

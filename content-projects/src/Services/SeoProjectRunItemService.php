@@ -543,6 +543,9 @@ final class SeoProjectRunItemService
                 'output_snapshot' => $outputSnapshot ?? $item->output_snapshot,
                 'finished_at' => now(),
             ]);
+            // Defensive: never leave stale failure fields on a success row.
+            $item->error_code = null;
+            $item->error_message = null;
             $item->save();
 
             return $item->fresh() ?? $item;

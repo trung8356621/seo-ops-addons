@@ -47,9 +47,44 @@ final class ArticleContentGenerateCapabilityHandler implements SystemCapabilityH
         $contextExtras = is_array($input['context_extras'] ?? null) ? $input['context_extras'] : [];
         $previousOutputs = is_array($input['previous_outputs'] ?? null) ? $input['previous_outputs'] : [];
 
+        // Propagate System AI correlation into hook context_extras (domain adapter mapping).
+        $correlation = is_array($context['correlation'] ?? null) ? $context['correlation'] : [];
+        foreach ([
+            'article_id',
+            'project_item_id',
+            'content_project_id',
+            'run_id',
+            'node_id',
+            'canonical_prompt_key',
+            'retry_attempt',
+            'correlation_id',
+            'stage',
+        ] as $key) {
+            if (! array_key_exists($key, $correlation) || $correlation[$key] === null || $correlation[$key] === '') {
+                continue;
+            }
+            if (! array_key_exists($key, $contextExtras) || $contextExtras[$key] === null || $contextExtras[$key] === '') {
+                $contextExtras[$key] = $correlation[$key];
+            }
+        }
+
+        // PromptExecutionPersistence reads project_item_id; CP runtime uses project_task_id.
+        if (! isset($contextExtras['project_item_id']) && isset($contextExtras['project_task_id'])) {
+            $contextExtras['project_item_id'] = (int) $contextExtras['project_task_id'];
+        }
+        if (! isset($variables['project_item_id']) && isset($contextExtras['project_item_id'])) {
+            $variables['project_item_id'] = (int) $contextExtras['project_item_id'];
+        }
+        if (! isset($variables['project_id']) && isset($contextExtras['content_project_id'])) {
+            $variables['project_id'] = (int) $contextExtras['content_project_id'];
+        }
+        if (! isset($contextExtras['project_id']) && isset($contextExtras['content_project_id'])) {
+            $contextExtras['project_id'] = (int) $contextExtras['content_project_id'];
+        }
+
         $contextExtras['via_system_ai'] = true;
         $contextExtras['system_ai_capability'] = self::KEY;
-        $contextExtras['stage'] = 'writing';
+        $contextExtras['stage'] = (string) ($contextExtras['stage'] ?? 'writing');
 
         try {
             $result = $this->hookExecutor->execute(

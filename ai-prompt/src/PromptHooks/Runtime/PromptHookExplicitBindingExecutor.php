@@ -272,10 +272,20 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $context['generation_strategy'] = $strategy->value;
             $context['resolved_generation_strategy'] = $strategy->value;
         }
-        foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'task_id', 'project_id', 'outline_subtask'] as $key) {
+        foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'project_item_id', 'task_id', 'project_id', 'content_project_id', 'outline_subtask', 'node_id', 'stage'] as $key) {
             if (array_key_exists($key, $contextExtras) && $contextExtras[$key] !== null) {
                 $context[$key] = $contextExtras[$key];
             }
+        }
+        // Persistence SSOT uses project_item_id; CP runtime often only has project_task_id.
+        if (! isset($context['project_item_id']) && isset($context['project_task_id'])) {
+            $context['project_item_id'] = (int) $context['project_task_id'];
+        }
+        if (! isset($context['content_project_id']) && isset($context['project_id'])) {
+            $context['content_project_id'] = (int) $context['project_id'];
+        }
+        if (! isset($variables['project_item_id']) && isset($context['project_item_id'])) {
+            $variables['project_item_id'] = (int) $context['project_item_id'];
         }
 
         if (($definition->template['source'] ?? '') === 'legacy_prompt_content') {
@@ -397,7 +407,55 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             );
         }
 
+        $this->linkPromptResultToArticleIfPossible(
+            promptResultId: isset($payload['prompt_result_id']) ? (int) $payload['prompt_result_id'] : 0,
+            contextExtras: $contextExtras,
+            hookKey: $effectiveHookKey,
+            nodeTitle: (string) ($contextExtras['node_title'] ?? ''),
+        );
+
         return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $contextExtras
+     */
+    private function linkPromptResultToArticleIfPossible(
+        int $promptResultId,
+        array $contextExtras,
+        string $hookKey,
+        string $nodeTitle = '',
+    ): void {
+        $articleId = (int) ($contextExtras['article_id'] ?? 0);
+        if ($promptResultId <= 0 || $articleId <= 0) {
+            return;
+        }
+
+        try {
+            app(\Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService::class)->linkPromptResult(
+                promptResultId: $promptResultId,
+                articleId: $articleId,
+                source: 'prompt_hook_explicit_binding',
+                runId: isset($contextExtras['project_run_id'])
+                    ? (int) $contextExtras['project_run_id']
+                    : (isset($contextExtras['run_id']) ? (int) $contextExtras['run_id'] : null),
+                taskId: isset($contextExtras['project_task_id'])
+                    ? (int) $contextExtras['project_task_id']
+                    : (isset($contextExtras['project_item_id']) ? (int) $contextExtras['project_item_id'] : null),
+                workflowNodeId: isset($contextExtras['node_id']) ? (string) $contextExtras['node_id'] : null,
+                workflowStepTitle: $nodeTitle !== '' ? $nodeTitle : null,
+                meta: [
+                    'hook_key' => $hookKey,
+                    'stage' => (string) ($contextExtras['stage'] ?? 'writing'),
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('prompt_hook.explicit_binding_link_failed', [
+                'prompt_result_id' => $promptResultId,
+                'article_id' => $articleId,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -880,6 +938,21 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             context: [
                 'allow_domain_side_effects' => true,
                 'stage' => 'writing',
+                'correlation' => [
+                    'content_project_id' => isset($contextExtras['project_id']) ? (int) $contextExtras['project_id'] : null,
+                    'project_item_id' => isset($contextExtras['project_task_id'])
+                        ? (int) $contextExtras['project_task_id']
+                        : (isset($contextExtras['task_id']) ? (int) $contextExtras['task_id'] : null),
+                    'article_id' => isset($contextExtras['article_id']) ? (int) $contextExtras['article_id'] : null,
+                    'run_id' => isset($contextExtras['project_run_id'])
+                        ? (int) $contextExtras['project_run_id']
+                        : (isset($contextExtras['run_id']) ? (int) $contextExtras['run_id'] : null),
+                    'stage' => 'writing',
+                    'node_id' => $contextExtras['node_id'] ?? null,
+                    'canonical_prompt_key' => $effectiveHookKey,
+                    'retry_attempt' => isset($contextExtras['attempt']) ? (int) $contextExtras['attempt'] : null,
+                    'correlation_id' => $contextExtras['correlation_id'] ?? null,
+                ],
             ],
             requirements: [
                 'structured_output' => false,
