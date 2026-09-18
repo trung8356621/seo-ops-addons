@@ -4,31 +4,103 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Schema;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
-use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
+use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTag;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTagAssignment;
 
 /**
- * Attach/detach user Tags on Topics.
+ * Site-scoped Topic custom tags.
  *
- * Reuses keyword_tags vocabulary. Tag-only edits do NOT convert auto→manual.
- * Recluster must not call this service.
+ * Allowed: create, attach, detach, delete.
+ * Forbidden: rename/update tag metadata.
+ * Tag-only mutations do NOT promote Topic auto→manual.
+ * Recluster must not rewrite vocabulary; only dissolve may drop assignments.
  */
 final class TopicUserTagService
 {
-    public function __construct(
-        private readonly TagPersistenceService $tags,
-    ) {}
-
     public static function tablesReady(): bool
     {
         $schema = Schema::connection('omi_seo_ai');
 
         return $schema->hasTable('seo_topics')
             && $schema->hasTable('seo_topic_tags')
-            && $schema->hasTable('keyword_tags');
+            && $schema->hasTable('seo_topic_tag_assignments')
+            && $schema->hasColumn('seo_topic_tags', 'site_id')
+            && $schema->hasColumn('seo_topic_tags', 'name');
+    }
+
+    /**
+     * @return list<array{id: int, name: string, slug: string, topic_count: int}>
+     */
+    public function listForSite(int $siteId, ?string $search = null, int $limit = 200): array
+    {
+        if ($siteId <= 0 || ! self::tablesReady()) {
+            return [];
+        }
+
+        $query = SeoTopicTag::query()
+            ->where('site_id', $siteId)
+            ->orderBy('name');
+
+        $needle = trim((string) $search);
+        if ($needle !== '') {
+            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], mb_strtolower($needle)).'%';
+            $query->whereRaw('LOWER(name) LIKE ?', [$like]);
+        }
+
+        if ($limit > 0) {
+            $query->limit($limit);
+        }
+
+        $tags = $query->get(['id', 'name', 'slug']);
+        if ($tags->isEmpty()) {
+            return [];
+        }
+
+        $counts = SeoTopicTagAssignment::query()
+            ->whereIn('tag_id', $tags->pluck('id')->all())
+            ->selectRaw('tag_id, COUNT(*) as topic_count')
+            ->groupBy('tag_id')
+            ->pluck('topic_count', 'tag_id');
+
+        return $tags->map(static function (SeoTopicTag $tag) use ($counts): array {
+            return [
+                'id' => (int) $tag->id,
+                'name' => (string) $tag->name,
+                'slug' => (string) $tag->slug,
+                'topic_count' => (int) ($counts[(int) $tag->id] ?? 0),
+            ];
+        })->values()->all();
+    }
+
+    public function countForSite(int $siteId): int
+    {
+        if ($siteId <= 0 || ! self::tablesReady()) {
+            return 0;
+        }
+
+        return (int) SeoTopicTag::query()->where('site_id', $siteId)->count();
+    }
+
+    /**
+     * Autocomplete for current site only.
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function search(int $siteId, string $query, int $limit = 20): array
+    {
+        $rows = $this->listForSite($siteId, $query, max(1, $limit));
+
+        return array_map(
+            static fn (array $row): array => [
+                'id' => $row['id'],
+                'name' => $row['name'],
+            ],
+            $rows,
+        );
     }
 
     /**
@@ -43,22 +115,21 @@ final class TopicUserTagService
             return [];
         }
 
-        $tagIds = SeoTopicTag::query()
+        $tagIds = SeoTopicTagAssignment::query()
             ->where('topic_id', $topicId)
             ->pluck('tag_id')
             ->map(static fn ($id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->values()
             ->all();
         if ($tagIds === []) {
             return [];
         }
 
-        return Tag::query()
+        return SeoTopicTag::query()
+            ->where('site_id', $siteId)
             ->whereIn('id', $tagIds)
             ->orderBy('name')
             ->get(['id', 'name'])
-            ->map(static fn (Tag $tag): array => [
+            ->map(static fn (SeoTopicTag $tag): array => [
                 'id' => (int) $tag->id,
                 'name' => (string) $tag->name,
             ])
@@ -95,7 +166,7 @@ final class TopicUserTagService
             return $out;
         }
 
-        $rows = SeoTopicTag::query()
+        $rows = SeoTopicTagAssignment::query()
             ->whereIn('topic_id', $allowed)
             ->get(['topic_id', 'tag_id']);
         $tagIds = $rows->pluck('tag_id')->map(static fn ($id): int => (int) $id)->unique()->values()->all();
@@ -104,7 +175,8 @@ final class TopicUserTagService
         }
 
         /** @var array<int, string> $names */
-        $names = Tag::query()
+        $names = SeoTopicTag::query()
+            ->where('site_id', $siteId)
             ->whereIn('id', $tagIds)
             ->pluck('name', 'id')
             ->mapWithKeys(static fn ($name, $id): array => [(int) $id => (string) $name])
@@ -129,6 +201,77 @@ final class TopicUserTagService
     }
 
     /**
+     * Create-or-reuse by (site_id, slug). Never renames existing rows.
+     *
+     * @return array{ok: bool, error: ?string, tag: ?array{id: int, name: string, slug: string}}
+     */
+    public function findOrCreate(int $siteId, string $name): array
+    {
+        if ($siteId <= 0 || ! self::tablesReady()) {
+            return ['ok' => false, 'error' => 'invalid_args', 'tag' => null];
+        }
+
+        $normalized = $this->normalizeName($name);
+        if ($normalized === '') {
+            return ['ok' => false, 'error' => 'invalid_args', 'tag' => null];
+        }
+
+        $slug = $this->slugFor($normalized);
+        $existing = SeoTopicTag::query()
+            ->where('site_id', $siteId)
+            ->where('slug', $slug)
+            ->first();
+        if ($existing instanceof SeoTopicTag) {
+            return [
+                'ok' => true,
+                'error' => null,
+                'tag' => [
+                    'id' => (int) $existing->id,
+                    'name' => (string) $existing->name,
+                    'slug' => (string) $existing->slug,
+                ],
+            ];
+        }
+
+        try {
+            $created = SeoTopicTag::query()->create([
+                'site_id' => $siteId,
+                'name' => $normalized,
+                'slug' => $slug,
+            ]);
+        } catch (QueryException $e) {
+            // Race on UNIQUE(site_id, slug) — reuse winner.
+            $existing = SeoTopicTag::query()
+                ->where('site_id', $siteId)
+                ->where('slug', $slug)
+                ->first();
+            if (! $existing instanceof SeoTopicTag) {
+                return ['ok' => false, 'error' => 'create_failed', 'tag' => null];
+            }
+
+            return [
+                'ok' => true,
+                'error' => null,
+                'tag' => [
+                    'id' => (int) $existing->id,
+                    'name' => (string) $existing->name,
+                    'slug' => (string) $existing->slug,
+                ],
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'error' => null,
+            'tag' => [
+                'id' => (int) $created->id,
+                'name' => (string) $created->name,
+                'slug' => (string) $created->slug,
+            ],
+        ];
+    }
+
+    /**
      * @return array{ok: bool, error: ?string, tags: list<array{id: int, name: string}>}
      */
     public function attach(int $siteId, int $topicId, int $tagId): array
@@ -142,11 +285,16 @@ final class TopicUserTagService
         if (! $this->topicBelongsToSite($siteId, $topicId)) {
             return ['ok' => false, 'error' => 'topic_not_found', 'tags' => []];
         }
-        if (! Tag::query()->where('id', $tagId)->exists()) {
+
+        $tag = SeoTopicTag::query()->where('id', $tagId)->first();
+        if (! $tag instanceof SeoTopicTag) {
             return ['ok' => false, 'error' => 'tag_not_found', 'tags' => []];
         }
+        if ((int) $tag->site_id !== $siteId) {
+            return ['ok' => false, 'error' => 'site_mismatch', 'tags' => []];
+        }
 
-        SeoTopicTag::query()->firstOrCreate([
+        SeoTopicTagAssignment::query()->firstOrCreate([
             'topic_id' => $topicId,
             'tag_id' => $tagId,
         ]);
@@ -161,13 +309,12 @@ final class TopicUserTagService
      */
     public function attachByName(int $siteId, int $topicId, string $name): array
     {
-        $name = trim($name);
-        if ($name === '') {
-            return ['ok' => false, 'error' => 'invalid_args', 'tags' => []];
+        $created = $this->findOrCreate($siteId, $name);
+        if (! ($created['ok'] ?? false) || $created['tag'] === null) {
+            return ['ok' => false, 'error' => (string) ($created['error'] ?? 'create_failed'), 'tags' => []];
         }
-        $tag = $this->tags->findOrCreate($name);
 
-        return $this->attach($siteId, $topicId, (int) $tag->getKey());
+        return $this->attach($siteId, $topicId, (int) $created['tag']['id']);
     }
 
     /**
@@ -185,7 +332,12 @@ final class TopicUserTagService
             return ['ok' => false, 'error' => 'topic_not_found', 'tags' => []];
         }
 
-        SeoTopicTag::query()
+        $tag = SeoTopicTag::query()->where('id', $tagId)->first();
+        if ($tag instanceof SeoTopicTag && (int) $tag->site_id !== $siteId) {
+            return ['ok' => false, 'error' => 'site_mismatch', 'tags' => []];
+        }
+
+        SeoTopicTagAssignment::query()
             ->where('topic_id', $topicId)
             ->where('tag_id', $tagId)
             ->delete();
@@ -194,11 +346,35 @@ final class TopicUserTagService
     }
 
     /**
-     * Drop attachments when Topics are dissolved (Recluster dissolve path).
+     * Delete custom tag: detach all assignments, then delete vocabulary row.
+     * Does not delete Topics / change source / recluster.
      *
+     * @return array{ok: bool, error: ?string, detached: int}
+     */
+    public function deleteTag(int $siteId, int $tagId): array
+    {
+        if ($siteId <= 0 || $tagId <= 0 || ! self::tablesReady()) {
+            return ['ok' => false, 'error' => 'invalid_args', 'detached' => 0];
+        }
+
+        $tag = SeoTopicTag::query()
+            ->where('site_id', $siteId)
+            ->where('id', $tagId)
+            ->first();
+        if (! $tag instanceof SeoTopicTag) {
+            return ['ok' => false, 'error' => 'tag_not_found', 'detached' => 0];
+        }
+
+        $detached = SeoTopicTagAssignment::query()->where('tag_id', $tagId)->delete();
+        SeoTopicTag::query()->where('site_id', $siteId)->where('id', $tagId)->delete();
+
+        return ['ok' => true, 'error' => null, 'detached' => (int) $detached];
+    }
+
+    /**
      * @param  list<int>  $topicIds
      */
-    public function deleteForTopics(array $topicIds): void
+    public function deleteAssignmentsForTopics(array $topicIds): void
     {
         if (! self::tablesReady()) {
             return;
@@ -211,7 +387,28 @@ final class TopicUserTagService
             return;
         }
 
-        SeoTopicTag::query()->whereIn('topic_id', $topicIds)->delete();
+        SeoTopicTagAssignment::query()->whereIn('topic_id', $topicIds)->delete();
+    }
+
+    /** @deprecated BC alias used by dissolve/recluster callers */
+    public function deleteForTopics(array $topicIds): void
+    {
+        $this->deleteAssignmentsForTopics($topicIds);
+    }
+
+    public function normalizeName(string $name): string
+    {
+        return trim(preg_replace('/\s+/u', ' ', $name) ?? $name);
+    }
+
+    public function slugFor(string $normalizedName): string
+    {
+        $slug = Str::slug(mb_strtolower($normalizedName), '-');
+        if ($slug === '') {
+            $slug = 'tag-'.substr(sha1($normalizedName), 0, 8);
+        }
+
+        return $slug;
     }
 
     private function topicBelongsToSite(int $siteId, int $topicId): bool

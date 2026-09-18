@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
-use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
@@ -36,6 +35,9 @@ final class TopicListQuery
      *     has_articles?: bool,
      *     lock_filter?: string,
      *     tag_ids?: list<int|string>,
+     *     intent?: string,
+     *     coverage?: string,
+     *     source?: string,
      *     per_page?: int,
      *     page?: int
      * }  $filters
@@ -52,6 +54,9 @@ final class TopicListQuery
         $hasArticles = (bool) ($filters['has_articles'] ?? false);
         $lockFilter = (string) ($filters['lock_filter'] ?? '');
         $tagIds = $this->normalizeTagIds($filters['tag_ids'] ?? []);
+        $intentFilter = strtolower(trim((string) ($filters['intent'] ?? '')));
+        $coverageFilter = strtolower(trim((string) ($filters['coverage'] ?? '')));
+        $sourceFilter = strtolower(trim((string) ($filters['source'] ?? '')));
         $perPage = max(1, min(100, (int) ($filters['per_page'] ?? 25)));
 
         $query = SeoTopic::query()
@@ -69,13 +74,31 @@ final class TopicListQuery
             $query->where('is_locked', false);
         }
 
-        if ($tagIds !== [] && Schema::connection('omi_seo_ai')->hasTable('seo_topic_tags')) {
-            $query->whereExists(function ($sub) use ($tagIds): void {
-                $sub->selectRaw('1')
-                    ->from('seo_topic_tags')
-                    ->whereColumn('seo_topic_tags.topic_id', 'seo_topics.id')
-                    ->whereIn('seo_topic_tags.tag_id', $tagIds);
-            });
+        if ($sourceFilter === 'auto' || $sourceFilter === 'manual') {
+            $query->where('source', $sourceFilter);
+        }
+
+        // Custom tags: AND semantics — Topic must contain every selected tag_id.
+        // Only site-owned tags are accepted (validated via seo_topic_tags.site_id).
+        if ($tagIds !== [] && TopicUserTagService::tablesReady()) {
+            $siteTagIds = \Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTag::query()
+                ->where('site_id', $siteId)
+                ->whereIn('id', $tagIds)
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            if (count($siteTagIds) !== count($tagIds)) {
+                // Forged/cross-site tag id → empty result (hard site isolation).
+                return new Paginator([], 0, $perPage);
+            }
+            foreach ($siteTagIds as $tagId) {
+                $query->whereExists(function ($sub) use ($tagId): void {
+                    $sub->selectRaw('1')
+                        ->from('seo_topic_tag_assignments')
+                        ->whereColumn('seo_topic_tag_assignments.topic_id', 'seo_topics.id')
+                        ->where('seo_topic_tag_assignments.tag_id', $tagId);
+                });
+            }
         }
 
         $topics = $query->orderBy('id')->get();
@@ -125,6 +148,12 @@ final class TopicListQuery
                 continue;
             }
             if ($lockFilter === 'membership_locked' && ($isTopicLocked || $lockedMemberCount <= 0)) {
+                continue;
+            }
+            if ($intentFilter !== '' && strtolower((string) ($tags['intent'] ?? '')) !== $intentFilter) {
+                continue;
+            }
+            if ($coverageFilter !== '' && strtolower((string) ($tags['coverage'] ?? '')) !== $coverageFilter) {
                 continue;
             }
 

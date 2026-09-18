@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
- * Pivot: Topic ↔ user Tag (keyword_tags vocabulary).
+ * Site-scoped Topic custom tag vocabulary (immutable: create/delete only).
  */
 final class SeoTopicTag extends Model
 {
@@ -17,25 +16,25 @@ final class SeoTopicTag extends Model
 
     protected $table = 'seo_topic_tags';
 
-    public $incrementing = false;
+    public const UPDATED_AT = null;
 
     protected $fillable = [
-        'topic_id',
-        'tag_id',
+        'site_id',
+        'name',
+        'slug',
     ];
 
     protected $casts = [
-        'topic_id' => 'integer',
-        'tag_id' => 'integer',
+        'site_id' => 'integer',
     ];
 
-    public function topic(): BelongsTo
+    public function topics(): BelongsToMany
     {
-        return $this->belongsTo(SeoTopic::class, 'topic_id');
-    }
-
-    public function tag(): BelongsTo
-    {
-        return $this->belongsTo(Tag::class, 'tag_id');
+        return $this->belongsToMany(
+            SeoTopic::class,
+            'seo_topic_tag_assignments',
+            'tag_id',
+            'topic_id',
+        );
     }
 }

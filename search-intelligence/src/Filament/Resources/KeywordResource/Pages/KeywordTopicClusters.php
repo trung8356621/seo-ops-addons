@@ -10,7 +10,6 @@ use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
-use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
@@ -49,9 +48,22 @@ final class KeywordTopicClusters extends Page
 
     public string $clusterSort = 'topical_share_desc';
 
-    /** @var string URL-backed Topic tag filter (single tag id or empty = all). */
-    #[Url(as: 'topic_tag')]
-    public string $topicTagFilter = '';
+    /**
+     * URL-backed custom Topic tag filter (comma-separated ids). Multi-select AND semantics.
+     * Survives F5 / back-forward via Livewire Url attribute.
+     */
+    #[Url(as: 'topic_tags')]
+    public string $topicTags = '';
+
+    /** Built-in Topic filters (code-derived; not DB tags). */
+    #[Url(as: 'intent')]
+    public string $intentFilter = '';
+
+    #[Url(as: 'coverage')]
+    public string $coverageFilter = '';
+
+    #[Url(as: 'source')]
+    public string $sourceFilter = '';
 
     public int $clusterDataEpoch = 0;
 
@@ -63,6 +75,8 @@ final class KeywordTopicClusters extends Page
         }
         $this->dispatchKeywordWorkspaceLanguageContext();
         $this->clusterSearchInput = $this->clusterSearch;
+        $this->normalizeBuiltinFilters();
+        $this->pruneInvalidTopicTagFilter();
         $this->syncReclusterStateFromCache();
     }
 
@@ -95,22 +109,107 @@ final class KeywordTopicClusters extends Page
         $this->resetPage();
     }
 
-    public function updatedTopicTagFilter(): void
+    public function updatedTopicTags(): void
     {
-        $this->topicTagFilter = trim((string) $this->topicTagFilter);
+        $this->topicTags = $this->serializeTopicTagIds($this->resolvedTopicTagFilterIds());
+        $this->pruneInvalidTopicTagFilter();
+        $this->resetPage();
+    }
+
+    public function updatedIntentFilter(): void
+    {
+        $this->normalizeBuiltinFilters();
+        $this->resetPage();
+    }
+
+    public function updatedCoverageFilter(): void
+    {
+        $this->normalizeBuiltinFilters();
+        $this->resetPage();
+    }
+
+    public function updatedSourceFilter(): void
+    {
+        $this->normalizeBuiltinFilters();
+        $this->resetPage();
+    }
+
+    public function setTopicTagFilterIds(array $tagIds): void
+    {
+        $this->topicTags = $this->serializeTopicTagIds($tagIds);
+        $this->pruneInvalidTopicTagFilter();
+        $this->resetPage();
+    }
+
+    public function toggleTopicTagFilter(int $tagId): void
+    {
+        if ($tagId <= 0) {
+            return;
+        }
+        $ids = $this->resolvedTopicTagFilterIds();
+        if (in_array($tagId, $ids, true)) {
+            $ids = array_values(array_filter($ids, static fn (int $id): bool => $id !== $tagId));
+        } else {
+            $ids[] = $tagId;
+        }
+        $this->setTopicTagFilterIds($ids);
+    }
+
+    public function clearTopicTagFilters(): void
+    {
+        $this->topicTags = '';
         $this->resetPage();
     }
 
     /**
-     * @return array<string, string>
+     * Site-scoped custom tags for filter/add-tag comboboxes.
+     *
+     * @return list<array{id: int, name: string}>
      */
     public function getTopicTagFilterOptions(): array
     {
-        return Tag::query()
-            ->orderBy('name')
-            ->pluck('name', 'id')
-            ->mapWithKeys(static fn ($name, $id): array => [(string) (int) $id => (string) $name])
-            ->all();
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return app(TopicUserTagService::class)->search($siteId, '', 200);
+    }
+
+    /**
+     * Autocomplete for Add Tag / Tags filter (current site only).
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function searchTopicTags(string $query = ''): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return app(TopicUserTagService::class)->search($siteId, $query, 20);
+    }
+
+    /**
+     * Labels for currently selected custom tag chips (site-scoped; orphans dropped).
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function getSelectedTopicTagChips(): array
+    {
+        $ids = $this->resolvedTopicTagFilterIds();
+        if ($ids === []) {
+            return [];
+        }
+        $byId = [];
+        foreach ($this->getTopicTagFilterOptions() as $row) {
+            $byId[(int) $row['id']] = (string) $row['name'];
+        }
+        $chips = [];
+        foreach ($ids as $id) {
+            $name = $byId[$id] ?? '';
+            if ($name === '') {
+                continue;
+            }
+            $chips[] = ['id' => $id, 'name' => $name];
+        }
+
+        return $chips;
     }
 
     /**
@@ -118,14 +217,74 @@ final class KeywordTopicClusters extends Page
      */
     private function resolvedTopicTagFilterIds(): array
     {
-        $id = (int) $this->topicTagFilter;
+        $raw = trim($this->topicTags);
+        if ($raw === '') {
+            return [];
+        }
+        $parts = preg_split('/[,\s]+/', $raw) ?: [];
 
-        return $id > 0 ? [$id] : [];
+        return array_values(array_unique(array_filter(
+            array_map(static fn (string $part): int => (int) $part, $parts),
+            static fn (int $id): bool => $id > 0,
+        )));
+    }
+
+    /**
+     * @param  list<int|string>  $tagIds
+     */
+    private function serializeTopicTagIds(array $tagIds): string
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $tagIds),
+            static fn (int $id): bool => $id > 0,
+        )));
+        sort($ids);
+
+        return implode(',', $ids);
+    }
+
+    private function pruneInvalidTopicTagFilter(): void
+    {
+        $ids = $this->resolvedTopicTagFilterIds();
+        if ($ids === []) {
+            $this->topicTags = '';
+
+            return;
+        }
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || ! TopicUserTagService::tablesReady()) {
+            $this->topicTags = '';
+
+            return;
+        }
+        $valid = \Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTag::query()
+            ->where('site_id', $siteId)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+        $this->topicTags = $this->serializeTopicTagIds($valid);
+    }
+
+    private function normalizeBuiltinFilters(): void
+    {
+        $intent = strtolower(trim($this->intentFilter));
+        $this->intentFilter = in_array($intent, ['commercial', 'informational'], true) ? $intent : '';
+
+        $coverage = strtolower(trim($this->coverageFilter));
+        $this->coverageFilter = in_array($coverage, ['strong', 'medium', 'weak'], true) ? $coverage : '';
+
+        $source = strtolower(trim($this->sourceFilter));
+        $this->sourceFilter = in_array($source, ['auto', 'manual'], true) ? $source : '';
     }
 
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->clusterDataEpoch++;
+        $this->topicTags = '';
+        $this->intentFilter = '';
+        $this->coverageFilter = '';
+        $this->sourceFilter = '';
         $this->clearKeywordWorkspaceTabCountsCache();
         $this->resetPage();
         $this->syncReclusterStateFromCache();
@@ -192,12 +351,18 @@ final class KeywordTopicClusters extends Page
                 'has_articles' => $this->hasArticles,
                 'lock_filter' => $this->lockFilter,
                 'tag_ids' => $this->resolvedTopicTagFilterIds(),
+                'intent' => $this->intentFilter,
+                'coverage' => $this->coverageFilter,
+                'source' => $this->sourceFilter,
                 'per_page' => 25,
             ])
             ->withPath(KeywordResource::getUrl('clusters'))
             ->appends(array_filter([
                 'site_id' => $siteId > 0 ? $siteId : null,
-                'topic_tag' => $this->topicTagFilter !== '' ? $this->topicTagFilter : null,
+                'topic_tags' => $this->topicTags !== '' ? $this->topicTags : null,
+                'intent' => $this->intentFilter !== '' ? $this->intentFilter : null,
+                'coverage' => $this->coverageFilter !== '' ? $this->coverageFilter : null,
+                'source' => $this->sourceFilter !== '' ? $this->sourceFilter : null,
             ], static fn (mixed $v): bool => $v !== null));
     }
 

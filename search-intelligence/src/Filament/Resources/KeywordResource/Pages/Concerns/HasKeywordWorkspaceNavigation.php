@@ -19,7 +19,7 @@ trait HasKeywordWorkspaceNavigation
     /**
      * Request-scoped inventory tab counts (not table search/filter counts).
      *
-     * @var array{total: int, dictionary: int, focus: int, topics: int}|null
+     * @var array{total: int, dictionary: int, focus: int, topics: int, tags: int}|null
      */
     private ?array $keywordWorkspaceTabCountsCache = null;
 
@@ -110,11 +110,12 @@ trait HasKeywordWorkspaceNavigation
     }
 
     /**
-     * Inventory counts for Dictionary / Focus / Topics tabs + header Total badge.
+     * Inventory counts for Dictionary / Focus / Topics / Tags tabs + header Total badge.
      * Scoped by site + language filter only — ignores table search/filters.
      * Topics tab count = site Topic total (Topics have no language column).
+     * Tags tab count = custom Topic tags for current site only (not built-in badges).
      *
-     * @return array{total: int, dictionary: int, focus: int, topics: int}
+     * @return array{total: int, dictionary: int, focus: int, topics: int, tags: int}
      */
     public function getKeywordWorkspaceTabCounts(): array
     {
@@ -135,9 +136,12 @@ trait HasKeywordWorkspaceNavigation
             ->filtered($siteId, $languageVariants, ['focus' => true])
             ->count();
         $topics = 0;
+        $tags = 0;
         if ($siteId !== null && $siteId > 0) {
             $topics = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
                 ->summary($siteId, $languageVariants)['topic_count'];
+            $tags = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService::class)
+                ->countForSite($siteId);
         }
 
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;
@@ -147,6 +151,7 @@ trait HasKeywordWorkspaceNavigation
             'dictionary' => $dictionary,
             'focus' => $focus,
             'topics' => $topics,
+            'tags' => $tags,
         ];
     }
 
@@ -175,6 +180,12 @@ trait HasKeywordWorkspaceNavigation
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
                 'url' => KeywordResource::getUrl('clusters'),
                 'count' => $counts['topics'],
+            ],
+            [
+                'key' => 'tags',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_tags'),
+                'url' => KeywordResource::getUrl('topic-tags'),
+                'count' => $counts['tags'],
             ],
             [
                 'key' => 'anchor-audit',

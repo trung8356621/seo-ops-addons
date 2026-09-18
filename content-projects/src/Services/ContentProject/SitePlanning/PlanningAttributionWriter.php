@@ -12,6 +12,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditN
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicPlanningRef;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 
 /**
  * Persist immutable planning attribution for a task at create time.
@@ -81,7 +84,7 @@ final class PlanningAttributionWriter
             $dnaPhrases = [];
         }
 
-        // Live topic_id resolve preferred via TopicMembershipCapability; cluster_key snapshots retired.
+        // Live Topic Core resolve preferred; legacy cluster snapshots are retired.
 
         // Single-cluster batch fallback when AI omitted cluster_ref (explicit, tested).
         if ($clusterRef === '' && count($allowed) === 1) {
@@ -149,7 +152,17 @@ final class PlanningAttributionWriter
 
     private function resolveClusterNameSnapshot(int $siteId, string $clusterRef): string
     {
-        unset($siteId);
+        $topicId = TopicPlanningRef::decode($clusterRef);
+        if ($topicId !== null && $siteId > 0 && TopicReclusterService::tablesReady()) {
+            $name = SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->where('id', $topicId)
+                ->value('name');
+            $name = trim((string) ($name ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
 
         // Prefer human label from keyword phrase when cluster_ref equals a keyword-backed key.
         if (Schema::connection('omi_seo_ai')->hasTable('keywords')) {

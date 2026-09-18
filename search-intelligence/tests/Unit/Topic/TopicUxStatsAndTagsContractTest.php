@@ -76,13 +76,13 @@ final class TopicUxStatsAndTagsContractTest extends TestCase
         self::assertStringContainsString('whereNotExists', $dict);
     }
 
-    public function test_topic_user_tags_reuse_keyword_tags_vocabulary(): void
+    public function test_topic_user_tags_are_site_scoped_vocabulary_not_keyword_tags(): void
     {
         $service = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Services/Topic/TopicUserTagService.php'
         );
         $migration = (string) file_get_contents(
-            dirname(__DIR__, 3).'/database/migrations/2026_09_18_140000_create_seo_topic_tags_table.php'
+            dirname(__DIR__, 3).'/database/migrations/2026_09_18_160000_rebuild_seo_topic_tags_vocabulary.php'
         );
         $clusters = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusters.php'
@@ -95,12 +95,14 @@ final class TopicUxStatsAndTagsContractTest extends TestCase
         );
 
         self::assertStringContainsString('seo_topic_tags', $migration);
-        self::assertStringContainsString('keyword_tags', $service);
-        self::assertStringContainsString('TagPersistenceService', $service);
+        self::assertStringContainsString('seo_topic_tag_assignments', $migration);
+        self::assertStringContainsString('site_id', $service);
+        self::assertStringNotContainsString('keyword_tags', $service);
+        self::assertStringNotContainsString('TagPersistenceService', $service);
         self::assertStringContainsString('do NOT promote auto→manual', $service);
         self::assertStringContainsString('attachTopicTag', $clusters);
         self::assertStringContainsString('detachTopicTag', $clusters);
-        self::assertStringContainsString('topicTagFilter', $clusters);
+        self::assertStringContainsString('topicTags', $clusters);
         self::assertStringContainsString('deleteForTopics', $recluster);
         self::assertStringNotContainsString('TopicManualOwnership', $service);
         self::assertStringNotContainsString('promoteIfAuto', $service);

@@ -1755,6 +1755,9 @@ class KeywordResource extends SeoPanelResource
             'focus' => Pages\ListFocusKeywords::route('/focus'),
             'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
             'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{topic}'),
+            // Path/key must not collide with content TagResource slug `keywords/tags`
+            // (registers filament.*.resources.keywords.tags.index|create).
+            'topic-tags' => Pages\KeywordTopicTags::route('/topic-tags'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),
         ];
     }

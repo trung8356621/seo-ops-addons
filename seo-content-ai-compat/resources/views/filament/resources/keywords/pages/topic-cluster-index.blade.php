@@ -89,7 +89,7 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-4"
             preset="livewire-page"
-            targets="clusterSearch,lockFilter,clusterSort,hasArticles,topicTagFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort,updatedTopicTagFilter,quickCreateTopic"
+            targets="clusterSearch,lockFilter,clusterSort,hasArticles,topicTags,intentFilter,coverageFilter,sourceFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedLockFilter,updatedHasArticles,updatedClusterSort,updatedTopicTags,updatedIntentFilter,updatedCoverageFilter,updatedSourceFilter,setTopicTagFilterIds,toggleTopicTagFilter,clearTopicTagFilters,quickCreateTopic"
         >
         <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-context-card">
@@ -236,12 +236,112 @@
                     <option value="membership_locked">{{ __('seo-content-ai::filament.keyword.topic_lock_filter_membership') }}</option>
                     <option value="unlocked">{{ __('seo-content-ai::filament.keyword.topic_lock_filter_unlocked') }}</option>
                 </x-select>
-                <x-select size="sm" wire:model.live="topicTagFilter">
-                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_tag_filter_all') }}</option>
-                    @foreach ($this->getTopicTagFilterOptions() as $tagId => $tagName)
-                        <option value="{{ $tagId }}">{{ $tagName }}</option>
-                    @endforeach
+                <x-select size="sm" wire:model.live="intentFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_filter_intent_all') }}</option>
+                    <option value="commercial">{{ __('seo-content-ai::filament.keyword.intent_commercial') }}</option>
+                    <option value="informational">{{ __('seo-content-ai::filament.keyword.intent_informational') }}</option>
                 </x-select>
+                <x-select size="sm" wire:model.live="coverageFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_filter_coverage_all') }}</option>
+                    <option value="strong">{{ __('seo-content-ai::filament.keyword.topic_shortcut_coverage_strong') }}</option>
+                    <option value="medium">{{ __('seo-content-ai::filament.keyword.topic_shortcut_coverage_medium') }}</option>
+                    <option value="weak">{{ __('seo-content-ai::filament.keyword.topic_shortcut_coverage_weak') }}</option>
+                </x-select>
+                <x-select size="sm" wire:model.live="sourceFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_filter_source_all') }}</option>
+                    <option value="auto">{{ __('seo-content-ai::filament.keyword.topic_tag_auto') }}</option>
+                    <option value="manual">{{ __('seo-content-ai::filament.keyword.topic_tag_manual') }}</option>
+                </x-select>
+                <div
+                    class="relative min-w-[14rem]"
+                    x-data="{
+                        open: false,
+                        q: '',
+                        selected: @js($this->getSelectedTopicTagChips()),
+                        results: [],
+                        async refresh() {
+                            try {
+                                this.results = await $wire.searchTopicTags(this.q || '');
+                            } catch (e) {
+                                this.results = [];
+                            }
+                        },
+                        isSelected(id) {
+                            return (this.selected || []).some((t) => Number(t.id) === Number(id));
+                        },
+                        async toggle(tag) {
+                            await $wire.toggleTopicTagFilter(Number(tag.id));
+                            const id = Number(tag.id);
+                            if (this.isSelected(id)) {
+                                this.selected = (this.selected || []).filter((t) => Number(t.id) !== id);
+                            } else {
+                                this.selected = [...(this.selected || []), { id, name: tag.name }];
+                            }
+                        },
+                        async clearAll() {
+                            await $wire.clearTopicTagFilters();
+                            this.selected = [];
+                            this.q = '';
+                            this.open = false;
+                        },
+                    }"
+                    @click.outside="open = false"
+                >
+                    <button
+                        type="button"
+                        class="topic-index-cluster-edit flex w-full items-center justify-between gap-2 text-left"
+                        @click="open = !open; if (open) refresh()"
+                    >
+                        <span class="truncate text-xs" x-text="(selected || []).length ? selected.map(t => t.name).join(', ') : @js(__('seo-content-ai::filament.keyword.topic_tag_filter_all'))"></span>
+                        <span class="opacity-60">▾</span>
+                    </button>
+                    <div
+                        x-show="open"
+                        x-cloak
+                        class="absolute z-30 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-white/10 dark:bg-gray-900"
+                    >
+                        <input
+                            type="search"
+                            class="topic-index-cluster-edit mb-2 w-full"
+                            x-model="q"
+                            @input.debounce.200ms="refresh()"
+                            placeholder="{{ __('seo-content-ai::filament.keyword.topic_tags_search_placeholder') }}"
+                        />
+                        <div class="mb-2 flex flex-wrap gap-1" x-show="(selected || []).length">
+                            <template x-for="chip in selected" :key="'sel-' + chip.id">
+                                <button
+                                    type="button"
+                                    class="cluster-tag cluster-tag--manual"
+                                    @click.stop="toggle(chip)"
+                                >
+                                    <span x-text="chip.name"></span>
+                                    <span class="ml-1">×</span>
+                                </button>
+                            </template>
+                            <button type="button" class="text-xs text-gray-500 hover:underline" @click.stop="clearAll()">
+                                {{ __('seo-content-ai::filament.keyword.topic_tag_filter_clear') }}
+                            </button>
+                        </div>
+                        <div class="max-h-48 space-y-1 overflow-y-auto">
+                            <template x-for="opt in results" :key="'opt-' + opt.id">
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs hover:bg-gray-50 dark:hover:bg-white/5"
+                                    @click.stop="toggle(opt)"
+                                >
+                                    <span x-text="opt.name"></span>
+                                    <span x-show="isSelected(opt.id)">✓</span>
+                                </button>
+                            </template>
+                            <div class="px-2 py-2 text-xs text-gray-400" x-show="!(results || []).length">
+                                {{ __('seo-content-ai::filament.keyword.topic_tags_empty') }}
+                            </div>
+                        </div>
+                        <p class="mt-2 px-1 text-[10px] text-gray-400">
+                            {{ __('seo-content-ai::filament.keyword.topic_tag_filter_and_hint') }}
+                        </p>
+                    </div>
+                </div>
                 <x-select size="sm" wire:model.live="clusterSort">
                     <option value="topical_share_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_desc') }}</option>
                     <option value="topical_share_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_topical_share_asc') }}</option>
@@ -324,7 +424,7 @@
                                 userTags: @js($row['user_tags'] ?? []),
                                 tagPickerOpen: false,
                                 tagDraft: '',
-                                tagOptions: @js($this->getTopicTagFilterOptions()),
+                                tagResults: [],
                                 renameSeq: 0,
                                 coverageTagTemplate: @js(__('seo-content-ai::filament.keyword.topic_tag_coverage', ['level' => '__LEVEL__'])),
                                 plannedLabel: @js(__('seo-content-ai::filament.keyword.topic_tag_planned')),
@@ -387,6 +487,27 @@
                                         }
                                     }
                                 },
+                                async openTagPicker() {
+                                    this.tagPickerOpen = !this.tagPickerOpen;
+                                    if (this.tagPickerOpen) {
+                                        await this.refreshTagResults();
+                                    }
+                                },
+                                async refreshTagResults() {
+                                    try {
+                                        const rows = await $wire.searchTopicTags(this.tagDraft || '');
+                                        const used = new Set((this.userTags || []).map((t) => Number(t.id)));
+                                        this.tagResults = (rows || []).filter((t) => !used.has(Number(t.id)));
+                                    } catch (e) {
+                                        this.tagResults = [];
+                                    }
+                                },
+                                exactMatchExists() {
+                                    const needle = (this.tagDraft || '').trim().toLowerCase();
+                                    if (needle === '') return true;
+                                    return (this.tagResults || []).some((t) => String(t.name || '').toLowerCase() === needle)
+                                        || (this.userTags || []).some((t) => String(t.name || '').toLowerCase() === needle);
+                                },
                                 async attachTagById(tagId) {
                                     const id = Number(tagId || 0);
                                     if (!id || this.recalculating) return;
@@ -400,6 +521,7 @@
                                         this.recalculating = false;
                                         this.tagPickerOpen = false;
                                         this.tagDraft = '';
+                                        this.tagResults = [];
                                     }
                                 },
                                 async attachTagByName() {
@@ -415,6 +537,7 @@
                                         this.recalculating = false;
                                         this.tagPickerOpen = false;
                                         this.tagDraft = '';
+                                        this.tagResults = [];
                                     }
                                 },
                                 async removeTag(tagId) {
@@ -429,12 +552,6 @@
                                     } finally {
                                         this.recalculating = false;
                                     }
-                                },
-                                availableTagEntries() {
-                                    const used = new Set((this.userTags || []).map((t) => Number(t.id)));
-                                    return Object.entries(this.tagOptions || {})
-                                        .filter(([id]) => !used.has(Number(id)))
-                                        .map(([id, name]) => ({ id: Number(id), name }));
                                 },
                             }"
                             :class="{ 'is-recalculating': recalculating }"
@@ -513,26 +630,50 @@
                                         <button
                                             type="button"
                                             class="cluster-tag cluster-tag--planned"
-                                            @click.stop="tagPickerOpen = !tagPickerOpen"
+                                            @click.stop="openTagPicker()"
                                             :disabled="recalculating"
                                         >+ {{ __('seo-content-ai::filament.keyword.topic_tag_add') }}</button>
                                     </div>
-                                    <div x-show="tagPickerOpen" x-cloak class="mt-2 flex flex-wrap items-center gap-2" @click.stop>
+                                    <div
+                                        x-show="tagPickerOpen"
+                                        x-cloak
+                                        class="relative mt-2 w-72 rounded-lg border border-gray-200 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-gray-900"
+                                        @click.stop
+                                        @click.outside="tagPickerOpen = false"
+                                    >
                                         <input
-                                            type="text"
-                                            class="topic-index-cluster-edit"
+                                            type="search"
+                                            class="topic-index-cluster-edit w-full"
                                             x-model="tagDraft"
-                                            placeholder="{{ __('seo-content-ai::filament.keyword.tag_name') }}"
+                                            placeholder="{{ __('seo-content-ai::filament.keyword.topic_tags_search_placeholder') }}"
+                                            @input.debounce.200ms="refreshTagResults()"
                                             @keydown.enter.prevent.stop="attachTagByName()"
                                         />
-                                        <template x-for="opt in availableTagEntries().slice(0, 8)" :key="'opt-' + opt.id">
+                                        <div class="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                                            <template x-for="opt in tagResults" :key="'opt-' + opt.id">
+                                                <button
+                                                    type="button"
+                                                    class="flex w-full rounded px-2 py-1 text-left text-xs hover:bg-gray-50 dark:hover:bg-white/5"
+                                                    @click.stop="attachTagById(opt.id)"
+                                                    x-text="opt.name"
+                                                ></button>
+                                            </template>
                                             <button
                                                 type="button"
-                                                class="cluster-tag"
-                                                @click.stop="attachTagById(opt.id)"
-                                                x-text="opt.name"
-                                            ></button>
-                                        </template>
+                                                class="flex w-full rounded px-2 py-1 text-left text-xs font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950"
+                                                x-show="(tagDraft || '').trim() !== '' && !exactMatchExists()"
+                                                @click.stop="attachTagByName()"
+                                            >
+                                                <span>+ {{ __('seo-content-ai::filament.keyword.topic_tag_create_prefix') }}</span>
+                                                <span class="ml-1" x-text="'&quot;' + (tagDraft || '').trim() + '&quot;'"></span>
+                                            </button>
+                                            <div
+                                                class="px-2 py-1 text-xs text-gray-400"
+                                                x-show="(tagDraft || '').trim() === '' && !(tagResults || []).length"
+                                            >
+                                                {{ __('seo-content-ai::filament.keyword.topic_tags_empty') }}
+                                            </div>
+                                        </div>
                                     </div>
                                 @else
                                     @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-intent-coverage-tags', [
