@@ -102,7 +102,7 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
         self::assertNotFalse($outlineOnlyPos);
         $chunk = substr($src, $outlineOnlyPos, 1800);
         self::assertStringContainsString('runFromNodeId', $chunk);
-        self::assertStringContainsString('skipContentWriting: true', $chunk);
+        self::assertStringContainsString('WorkflowExecutionScope::OutlineVocabulary', $chunk);
         self::assertStringNotContainsString('runSingleStep', $chunk);
     }
 
@@ -112,8 +112,10 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
             (string) (new ReflectionClass(TaskWorkflowTestRunner::class))->getFileName(),
         );
         self::assertStringContainsString('skipContentWriting', $src);
+        self::assertStringContainsString('isAllowedInOutlineVocabularyScope', $src);
         self::assertStringContainsString('shouldSkipForOutlineVocabularyScope', $src);
-        self::assertStringContainsString('outline_vocabulary_scope', $src);
+        self::assertStringContainsString('WorkflowExecutionScope', $src);
+        self::assertStringContainsString('SKIP_REASON_OUTLINE_ONLY_SCOPE', $src);
         self::assertStringContainsString("actionType === 'save_vocabulary_research'", $src);
         self::assertStringContainsString('không có dữ liệu từ khóa', $src);
     }

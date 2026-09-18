@@ -2,12 +2,12 @@
  * Domain Link occurrence index builders (no DOM scroll imports).
  */
 
-import { findDomainLinkOccurrencesInBlocks } from './domainLinkMatcher.js';
-import { resolveDomainLinkInventory } from './domainLinkSourceResolver.js';
 import {
-    filterSuggestedInternalLinks,
     isSpecialOrContactHref,
+    normalizeHrefForCompare,
+    normalizeLinkLabel,
 } from './articleLinkSuggestionFilter.js';
+import { buildActionableDomainLinkSuggestions } from './editorAnchorOccurrenceMatcher.js';
 
 /**
  * @typedef {{ blockId: string, from?: number, to?: number, matchedText: string, score: number, matchIndex?: number, phrase?: string }} DomainLinkOccurrence
@@ -26,29 +26,48 @@ export function domainLinkCandidateId(item, index = 0) {
 }
 
 /**
- * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
- * @param {Array<Record<string, unknown>>} inventory
- * @returns {DomainLinkCandidate[]}
+ * Exclude suggestions whose label/destination already exists in the article.
+ * Does NOT collapse same-destination rows with different actionable phrases.
+ *
+ * @param {Array<Record<string, unknown>>} suggestions
+ * @param {Array<{ text?: string, href?: string }>} internalLinks
+ * @param {Array<{ text?: string, href?: string }>} externalLinks
+ * @returns {Array<Record<string, unknown>>}
  */
-export function buildDomainLinkOccurrenceIndex(blocks, inventory) {
-    const resolved = resolveDomainLinkInventory(inventory);
-    return resolved.map((item, index) => {
-        const anchor = String(item.text ?? '').trim();
-        const url = String(item.href ?? item.target_url ?? '').trim();
-        const occurrences = findDomainLinkOccurrencesInBlocks(blocks, anchor);
-        return {
-            id: domainLinkCandidateId(item, index),
-            anchor,
-            url,
-            source: String(item.source ?? 'custom'),
-            occurrences,
-            item,
-        };
+function filterAgainstExistingArticleLinks(suggestions, internalLinks, externalLinks) {
+    const existing = [
+        ...(Array.isArray(internalLinks) ? internalLinks : []),
+        ...(Array.isArray(externalLinks) ? externalLinks : []),
+    ];
+    const linkedLabels = new Set();
+    const linkedHrefs = new Set();
+    for (const item of existing) {
+        const label = normalizeLinkLabel(item?.text);
+        if (label) {
+            linkedLabels.add(label);
+        }
+        const href = normalizeHrefForCompare(item?.href ?? item?.target_url);
+        if (href) {
+            linkedHrefs.add(href);
+        }
+    }
+
+    return (Array.isArray(suggestions) ? suggestions : []).filter((item) => {
+        const phrase = normalizeLinkLabel(item?.text);
+        if (phrase && linkedLabels.has(phrase)) {
+            return false;
+        }
+        const href = normalizeHrefForCompare(item?.href ?? item?.target_url);
+        if (href && linkedHrefs.has(href)) {
+            return false;
+        }
+        return true;
     });
 }
 
 /**
- * Inventory for UI: only rows with ≥1 soft/exact occurrence in the article.
+ * Inventory for UI: only exact/normalized actionable occurrences in current blocks.
+ * Soft/proximity matching is intentionally not used here.
  *
  * @param {Array<Record<string, unknown>>} allLinks
  * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
@@ -57,25 +76,19 @@ export function buildDomainLinkOccurrenceIndex(blocks, inventory) {
  * @returns {Array<Record<string, unknown> & { occurrence_count: number, can_insert: boolean }>}
  */
 export function buildDomainLinkListForEditor(allLinks, blocks, internalLinks = [], externalLinks = []) {
-    const inventory = resolveDomainLinkInventory(allLinks).filter(
+    const catalog = (Array.isArray(allLinks) ? allLinks : []).filter(
         (item) => !isSpecialOrContactHref(item?.href ?? item?.target_url),
     );
-    const unlinked = filterSuggestedInternalLinks(inventory, internalLinks, externalLinks);
-    const indexed = buildDomainLinkOccurrenceIndex(blocks, unlinked);
 
-    return indexed
-        .filter((candidate) => candidate.occurrences.length > 0)
-        .map((candidate) => ({
-            ...candidate.item,
-            text: candidate.anchor,
-            href: candidate.url,
-            target_url: candidate.url,
-            source: candidate.source,
-            occurrence_count: candidate.occurrences.length,
-            can_insert: candidate.item.can_insert !== false && candidate.url !== '',
-            _domain_occurrences: candidate.occurrences,
-            _domain_candidate_id: candidate.id,
-        }));
+    const actionable = buildActionableDomainLinkSuggestions(catalog, blocks);
+
+    return filterAgainstExistingArticleLinks(actionable, internalLinks, externalLinks).map((item) => ({
+        ...item,
+        occurrence_count: Number(item.occurrence_count) || (
+            Array.isArray(item._domain_occurrences) ? item._domain_occurrences.length : 0
+        ),
+        can_insert: item.can_insert !== false && String(item.href ?? item.target_url ?? '').trim() !== '',
+    }));
 }
 
 /**

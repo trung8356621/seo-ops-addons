@@ -202,7 +202,7 @@ final class WorkflowPublishContentEvidenceTest extends TestCase
             $createSrc,
         );
         // Default FULL path is two-phase: outline checkpoint then explicit writing (not single finalize).
-        $this->assertStringContainsString('skipContentWriting: true', $createSrc);
+        $this->assertStringContainsString('WorkflowExecutionScope::OutlineVocabulary', $createSrc);
         $this->assertStringContainsString('runArticleWritingForContext', $createSrc);
         $this->assertStringContainsString('full_rerun_writing_not_executed', $createSrc);
         $this->assertStringContainsString('articleOutlinePersist->persist', $createSrc);

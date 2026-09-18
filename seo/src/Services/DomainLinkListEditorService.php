@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
+use Omnichannel\Addons\Seo\Support\EditorAnchorOccurrenceMatcher;
 use App\Models\Site;
 
 final class DomainLinkListEditorService
@@ -116,31 +116,8 @@ final class DomainLinkListEditorService
             return [];
         }
 
-        $plainText = $this->plainTextFromHtml($contentHtml ?? (string) ($article->body ?? ''));
-        if ($plainText === '') {
-            return [];
-        }
+        $html = $contentHtml ?? (string) ($article->body ?? '');
 
-        $filtered = [];
-        foreach ($items as $item) {
-            if ($this->textContainsPhrase($plainText, (string) $item['text'])) {
-                $filtered[] = $item;
-            }
-        }
-
-        return $filtered;
-    }
-
-    private function plainTextFromHtml(string $html): string
-    {
-        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = preg_replace('/\s+/u', ' ', $text) ?? '';
-
-        return trim($text);
-    }
-
-    private function textContainsPhrase(string $text, string $phrase): bool
-    {
-        return KeywordPhraseMatcher::contains($text, $phrase);
+        return EditorAnchorOccurrenceMatcher::filterActionable($items, $html);
     }
 }

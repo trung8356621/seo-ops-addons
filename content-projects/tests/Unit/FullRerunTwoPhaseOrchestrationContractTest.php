@@ -27,7 +27,8 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         self::assertNotFalse($end);
         $chunk = substr($src, $methodPos, $end - $methodPos);
 
-        self::assertStringContainsString('skipContentWriting: true', $chunk);
+        self::assertStringContainsString('WorkflowExecutionScope::OutlineVocabulary', $chunk);
+        self::assertStringContainsString('runPhase1OutlineVocabularySteps', $chunk);
         self::assertStringContainsString('articleOutlinePersist->persist', $chunk);
         self::assertStringContainsString('resolveMarkdown', $chunk);
         self::assertStringContainsString('runArticleWritingForContext', $chunk);
@@ -36,7 +37,7 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         self::assertStringContainsString('full_rerun_writing_not_executed', $chunk);
         self::assertStringContainsString('direct_publish_outline_markdown', $chunk);
         self::assertStringContainsString('article_writing_raw_input', $chunk);
-        self::assertStringContainsString('outline_checkpoint_hash', $chunk);
+        self::assertStringContainsString('outline_artifact_hash', $chunk);
 
         // Must not rely on a single graph run that assumes Content is downstream.
         self::assertStringNotContainsString(
@@ -93,12 +94,20 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         self::assertFalse($method->invoke($service, ['success' => true, 'persist_status' => ''], [
             ['status' => 'skipped', 'skip_reason' => 'outline_vocabulary_scope', 'hook_key' => ArticleWritingExecutionService::HOOK_KEY],
         ]));
+        self::assertFalse($method->invoke($service, ['persist_status' => 'failed'], []));
+        self::assertFalse($method->invoke($service, ['persist_status' => 'ignored_stale'], []));
+        self::assertFalse($method->invoke($service, ['persist_status' => 'applied'], []));
         self::assertTrue($method->invoke($service, ['success' => false], [
             ['status' => 'failed', 'hook_key' => ArticleWritingExecutionService::HOOK_KEY],
         ]));
-        self::assertTrue($method->invoke($service, ['persist_status' => 'ignored_stale'], []));
+        self::assertTrue($method->invoke($service, ['persist_status' => 'ignored_stale'], [
+            ['status' => 'completed', 'hook_key' => ArticleWritingExecutionService::HOOK_KEY, 'result_id' => 99],
+        ]));
         self::assertTrue($method->invoke($service, ['persist_status' => 'applied'], [
             ['status' => 'completed', 'artifact_type' => 'article_content'],
+        ]));
+        self::assertTrue($method->invoke($service, [], [
+            ['status' => 'completed', 'execution_role' => 'article.content.generate'],
         ]));
     }
 

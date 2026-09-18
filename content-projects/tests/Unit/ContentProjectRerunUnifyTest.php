@@ -151,8 +151,8 @@ final class ContentProjectRerunUnifyTest extends TestCase
         $methodEnd = strpos($create, 'private function finalizeWorkflowGraphRun', $outlineMethodPos);
         self::assertNotFalse($methodEnd);
         $outlineChunk = substr($create, $outlineMethodPos, $methodEnd - $outlineMethodPos);
-        self::assertStringContainsString('runFromNodeId', $outlineChunk);
-        self::assertStringContainsString('skipContentWriting: true', $outlineChunk);
+        self::assertStringContainsString('runPhase1OutlineVocabularySteps', $outlineChunk);
+        self::assertStringContainsString('WorkflowExecutionScope::OutlineVocabulary', $outlineChunk);
         self::assertStringContainsString('runArticleWritingForContext', $outlineChunk);
         self::assertStringContainsString('articleOutlinePersist->persist', $outlineChunk);
         self::assertStringContainsString('full_rerun_writing_not_executed', $outlineChunk);

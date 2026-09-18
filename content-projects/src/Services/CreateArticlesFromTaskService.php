@@ -22,6 +22,7 @@ use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
+use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -42,7 +43,7 @@ use App\Models\Site;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
-final class CreateArticlesFromTaskService
+class CreateArticlesFromTaskService
 {
     public function __construct(
         private readonly SeoCreateArticleSettingsService $settings,
@@ -266,7 +267,7 @@ final class CreateArticlesFromTaskService
             $context,
             $outlineNodeId,
             seedOutlineFromArticle: false,
-            skipContentWriting: true,
+            executionScope: WorkflowExecutionScope::OutlineVocabulary,
         );
 
         return $this->finalizeWorkflowGraphRun(
@@ -427,16 +428,7 @@ final class CreateArticlesFromTaskService
      */
     public function runOutlineThenArticleForContext(TaskTestContext $context, int $siteId): array
     {
-        $taskId = $this->settings->getPublishArticleTaskId();
-        if ($taskId === null) {
-            throw new \InvalidArgumentException(
-                'Chưa cấu hình quy trình Đăng bài viết. Vào SEO → Cài đặt → Quy trình để chọn task.',
-            );
-        }
-        $task = SeoTask::query()->find($taskId);
-        if (! $task instanceof SeoTask || ! $task->is_active) {
-            throw new \InvalidArgumentException('Quy trình Đăng bài viết không khả dụng.');
-        }
+        $task = $this->resolvePublishWorkflowTask();
 
         $resolvedSiteId = (int) ($context->siteId ?? $siteId);
         $this->assertSiteAccessible($resolvedSiteId);
@@ -471,15 +463,9 @@ final class CreateArticlesFromTaskService
             WorkflowExecutionRole::ArticleOutlineGenerate,
         );
 
-        // ── PHASE 1: Outline + Vocabulary only (content/save_article skipped by scope) ──
+        // ── PHASE 1: Outline + Vocabulary ONLY (WorkflowExecutionScope::OutlineVocabulary) ──
         $context = $this->withForcedAiRegenerate($context, 'outline');
-        $phase1Steps = $this->workflowRunner->runFromNodeId(
-            $task,
-            $context,
-            $outlineNodeId,
-            seedOutlineFromArticle: false,
-            skipContentWriting: true,
-        );
+        $phase1Steps = $this->runPhase1OutlineVocabularySteps($task, $context, $outlineNodeId);
         $phase1Steps = $this->stampPhaseOnSteps($phase1Steps, 'outline');
 
         $phase1Block = $this->summarizeBlockingPhase1Failure($phase1Steps);
@@ -700,30 +686,63 @@ final class CreateArticlesFromTaskService
      */
     private function writingPhaseExecuted(array $writingResult, array $writingSteps): bool
     {
+        return $this->hasWritingInvocationEvidence($writingResult, $writingSteps);
+    }
+
+    /**
+     * Writing counts as executed only with invocation evidence — not persist_status alone.
+     *
+     * @param  array<string, mixed>  $writingResult
+     * @param  list<array<string, mixed>>  $writingSteps
+     */
+    private function hasWritingInvocationEvidence(array $writingResult, array $writingSteps): bool
+    {
         foreach ($writingSteps as $step) {
             if (! is_array($step)) {
                 continue;
             }
-            $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
             $status = strtolower(trim((string) ($step['status'] ?? '')));
-            if ($hook === ArticleWritingExecutionService::HOOK_KEY
-                && in_array($status, ['completed', 'success', 'failed', 'blocked'], true)
-            ) {
+            if (! in_array($status, ['completed', 'success', 'failed', 'blocked'], true)) {
+                continue;
+            }
+
+            $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
+            if ($hook === ArticleWritingExecutionService::HOOK_KEY) {
                 return true;
             }
-            if (($step['artifact_type'] ?? '') === 'article_content'
-                && in_array($status, ['completed', 'success', 'failed'], true)
-            ) {
+
+            $role = WorkflowExecutionRole::tryFromMixed($step['execution_role'] ?? null);
+            if ($role === WorkflowExecutionRole::ArticleContentGenerate) {
                 return true;
+            }
+
+            if (($step['artifact_type'] ?? '') === 'article_content') {
+                return true;
+            }
+
+            $resultId = (int) ($step['result_id'] ?? 0);
+            $promptResultIds = is_array($step['prompt_result_ids'] ?? null)
+                ? $step['prompt_result_ids']
+                : [];
+            if ($resultId > 0 || $promptResultIds !== []) {
+                // History/result evidence only counts when this step looks like Writing.
+                if ($hook === ArticleWritingExecutionService::HOOK_KEY
+                    || $role === WorkflowExecutionRole::ArticleContentGenerate
+                    || ($step['artifact_type'] ?? '') === 'article_content'
+                ) {
+                    return true;
+                }
             }
         }
 
-        $persist = strtolower(trim((string) ($writingResult['persist_status'] ?? '')));
-        if (in_array($persist, ['applied', 'ignored_stale', 'failed'], true)) {
+        if ((int) ($writingResult['result_id'] ?? 0) > 0) {
+            return true;
+        }
+        if ((int) ($writingResult['prompt_result_id'] ?? 0) > 0) {
             return true;
         }
 
-        // Empty steps + soft success without persist → Writing never ran.
+        // persist_status alone (including failed / ignored_stale) is insufficient.
         return false;
     }
 
@@ -1374,6 +1393,44 @@ final class CreateArticlesFromTaskService
     /**
      * Explicit step rerun must never short-circuit on existing body/outline.
      */
+    /**
+     * Phase-1 graph run — OutlineVocabulary scope only. Hook for behavioral tests.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function runPhase1OutlineVocabularySteps(
+        SeoTask $task,
+        TaskTestContext $context,
+        string $outlineNodeId,
+    ): array {
+        return $this->workflowRunner->runFromNodeId(
+            $task,
+            $context,
+            $outlineNodeId,
+            seedOutlineFromArticle: false,
+            executionScope: WorkflowExecutionScope::OutlineVocabulary,
+        );
+    }
+
+    /**
+     * Active publish workflow SeoTask (hook for tests).
+     */
+    protected function resolvePublishWorkflowTask(): SeoTask
+    {
+        $taskId = $this->settings->getPublishArticleTaskId();
+        if ($taskId === null) {
+            throw new \InvalidArgumentException(
+                'Chưa cấu hình quy trình Đăng bài viết. Vào SEO → Cài đặt → Quy trình để chọn task.',
+            );
+        }
+        $task = SeoTask::query()->find($taskId);
+        if (! $task instanceof SeoTask || ! $task->is_active) {
+            throw new \InvalidArgumentException('Quy trình Đăng bài viết không khả dụng.');
+        }
+
+        return $task;
+    }
+
     private function withForcedAiRegenerate(TaskTestContext $context, string $fromStep): TaskTestContext
     {
         return $context->withVariables(array_merge($context->variables, [
@@ -1382,7 +1439,7 @@ final class CreateArticlesFromTaskService
         ]));
     }
 
-    private function assertSiteAccessible(int $siteId): void
+    protected function assertSiteAccessible(int $siteId): void
     {
         if (! SeoAccessControl::canAccessSite($siteId)) {
             throw new \InvalidArgumentException('Website không hợp lệ hoặc bạn không có quyền.');

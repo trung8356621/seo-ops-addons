@@ -227,7 +227,7 @@ final class TaskWorkflowGraphRerunTest extends TestCase
             $this->makeContext('outline vocab scope', ['input' => 'topic'], siteId: 1),
             'outline',
             seedOutlineFromArticle: false,
-            skipContentWriting: true,
+            executionScope: \Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope::OutlineVocabulary,
         );
 
         $byId = [];
@@ -246,6 +246,156 @@ final class TaskWorkflowGraphRerunTest extends TestCase
             'Bỏ qua — phạm vi outline/vocabulary (không viết bài).',
             $byId['save_vocab']['message'] ?? null,
         );
+    }
+
+    public function test_outline_vocabulary_scope_skips_content_image_and_save_body(): void
+    {
+        $runner = $this->runnerWithMinimalDeps();
+        $flow = [
+            'nodes' => [
+                [
+                    'id' => 'outline',
+                    'type' => 'end',
+                    'title' => 'Outline',
+                    'data' => ['execution_role' => 'article.outline.generate'],
+                ],
+                [
+                    'id' => 'vocab',
+                    'type' => 'end',
+                    'title' => 'Vocabulary transport',
+                    'data' => [],
+                ],
+                [
+                    'id' => 'content',
+                    'type' => 'prompt',
+                    'title' => 'Content',
+                    'data' => [
+                        'execution_role' => 'article.content.generate',
+                        'hook_key' => 'article.content.generate',
+                    ],
+                ],
+                [
+                    'id' => 'image',
+                    'type' => 'prompt',
+                    'title' => 'Image',
+                    'data' => [
+                        'execution_role' => 'article.image.generate',
+                        'hook_key' => 'article.image.generate',
+                    ],
+                ],
+                [
+                    'id' => 'save',
+                    'type' => 'action',
+                    'title' => 'Save article',
+                    'data' => ['actionType' => 'save_article'],
+                ],
+                [
+                    'id' => 'seo',
+                    'type' => 'filter',
+                    'title' => 'SEO score',
+                    'data' => ['filterType' => 'score_seo'],
+                ],
+            ],
+            'edges' => [
+                ['sourceNode' => 'outline', 'targetNode' => 'vocab'],
+                ['sourceNode' => 'vocab', 'targetNode' => 'content'],
+                ['sourceNode' => 'content', 'targetNode' => 'image'],
+                ['sourceNode' => 'image', 'targetNode' => 'save'],
+                ['sourceNode' => 'vocab', 'targetNode' => 'seo'],
+            ],
+        ];
+
+        $steps = $runner->runFromNodeId(
+            $this->makeTask($flow),
+            $this->makeContext('phase1 strict scope', ['input' => 'topic'], siteId: 1),
+            'outline',
+            seedOutlineFromArticle: false,
+            executionScope: \Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope::OutlineVocabulary,
+        );
+
+        $byId = [];
+        foreach ($steps as $step) {
+            $byId[(string) ($step['node_id'] ?? '')] = $step;
+        }
+
+        self::assertSame('ok', $byId['outline']['status'] ?? null);
+        self::assertSame('ok', $byId['vocab']['status'] ?? null);
+
+        foreach (['content', 'image', 'save', 'seo'] as $blockedId) {
+            self::assertSame('skipped', $byId[$blockedId]['status'] ?? null, $blockedId);
+            self::assertSame(
+                'outline_vocabulary_scope',
+                $byId[$blockedId]['skip_reason'] ?? null,
+                $blockedId,
+            );
+        }
+
+        $executed = $this->executedNodeIds($steps);
+        self::assertSame(1, count(array_filter($executed, static fn (string $id): bool => $id === 'outline')));
+        self::assertSame(1, count(array_filter($executed, static fn (string $id): bool => $id === 'vocab')));
+        self::assertNotContains('content', $executed);
+        self::assertNotContains('image', $executed);
+        self::assertNotContains('save', $executed);
+        self::assertNotContains('seo', $executed);
+    }
+
+    public function test_is_allowed_outline_vocabulary_scope_matrix(): void
+    {
+        $runner = $this->runnerWithMinimalDeps();
+        $method = new \ReflectionMethod(TaskWorkflowTestRunner::class, 'isAllowedInOutlineVocabularyScope');
+        $method->setAccessible(true);
+
+        self::assertTrue($method->invoke($runner, [
+            'type' => 'prompt',
+            'data' => ['execution_role' => 'article.outline.generate'],
+        ]));
+        self::assertTrue($method->invoke($runner, [
+            'type' => 'prompt',
+            'data' => ['hook_key' => 'article.vocabulary.generate'],
+        ]));
+        self::assertTrue($method->invoke($runner, [
+            'type' => 'filter',
+            'data' => ['filterType' => 'parse_keywords'],
+        ]));
+        self::assertTrue($method->invoke($runner, [
+            'type' => 'action',
+            'data' => ['actionType' => 'save_vocabulary_research'],
+        ]));
+
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'prompt',
+            'data' => ['execution_role' => 'article.content.generate'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'prompt',
+            'data' => ['execution_role' => 'article.image.generate'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'prompt',
+            'data' => ['hook_key' => 'article.content.generate'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'action',
+            'data' => ['actionType' => 'save_article'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'filter',
+            'data' => ['filterType' => 'score_seo'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'filter',
+            'data' => ['filterType' => 'parse_faq'],
+        ]));
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'action',
+            'data' => ['actionType' => 'post_comment_review'],
+        ]));
+        // Title alone must not admit a random prompt into Phase-1.
+        self::assertFalse($method->invoke($runner, [
+            'type' => 'prompt',
+            'title' => 'Dàn ý bài viết',
+            'data' => [],
+        ]));
     }
 
     public function test_disconnected_branch_not_executed_when_topo_places_it_after_outline(): void

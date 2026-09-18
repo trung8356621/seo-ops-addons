@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchFoundation\Services\SiteLink\SiteLinkPolicyResolver
 use Omnichannel\Addons\SearchFoundation\Services\SiteLink\VerifiedProductCatLinkSource;
 use Omnichannel\Addons\Seo\Services\DomainLinkListEditorService;
 use Omnichannel\Addons\Seo\Services\EffectiveDomainLinkResolver;
+use Omnichannel\Addons\Seo\Support\EditorAnchorOccurrenceMatcher;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -21,8 +22,8 @@ final class DomainLinkListEditorServiceContractTest extends TestCase
         self::assertStringContainsString('EffectiveDomainLinkResolver', $source);
         self::assertStringContainsString('$this->effectiveLinks->forSite($site)', $source);
         self::assertStringNotContainsString('promptContext->getForSite', $source);
-        self::assertStringContainsString('textContainsPhrase', $source);
-        self::assertStringContainsString('KeywordPhraseMatcher', $source);
+        self::assertStringContainsString('EditorAnchorOccurrenceMatcher', $source);
+        self::assertStringContainsString('filterActionable', $source);
     }
 
     public function test_effective_resolver_delegates_composition_to_site_link_policy(): void
@@ -43,5 +44,15 @@ final class DomainLinkListEditorServiceContractTest extends TestCase
         self::assertStringContainsString('SiteMcpProductCatIdentity', $loaderSrc);
         self::assertStringContainsString('company_short_identity', $policySrc);
         self::assertStringContainsString('looksLikeHostnameOrUrl', $policySrc);
+    }
+
+    public function test_editor_anchor_matcher_uses_keyword_phrase_normalization(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(EditorAnchorOccurrenceMatcher::class))->getFileName(),
+        );
+        self::assertStringContainsString('KeywordPhraseMatcher', $src);
+        self::assertStringContainsString('plainTextExcludingAnchors', $src);
+        self::assertStringContainsString('longest', strtolower($src));
     }
 }

@@ -214,8 +214,9 @@ final class TaskWorkflowTestRunner
     /**
      * Chạy từ node này và mọi downstream nodes theo directed graph (không phải topo index slice).
      * Node trước start được skip; khi $seedOutlineFromArticle=true, hydrate outline từ article hiện có.
-     * Khi $skipContentWriting=true (outline-only / vocabulary persistence): bỏ qua content generate
-     * và article-body persist, nhưng vẫn chạy parse_keywords + save_vocabulary_research.
+     *
+     * Scope {@see WorkflowExecutionScope::OutlineVocabulary} (hoặc BC $skipContentWriting=true):
+     * chỉ Outline + Vocabulary (+ parse/save vocabulary transport). Content/Image/SEO/body bị skip.
      *
      * @return list<array<string, mixed>>
      */
@@ -225,11 +226,17 @@ final class TaskWorkflowTestRunner
         string $startNodeId,
         bool $seedOutlineFromArticle = false,
         bool $skipContentWriting = false,
+        ?\Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope $executionScope = null,
     ): array {
         $startNodeId = trim($startNodeId);
         if ($startNodeId === '') {
             throw new \InvalidArgumentException('Thiếu start node id.');
         }
+
+        $scope = $executionScope
+            ?? ($skipContentWriting
+                ? \Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope::OutlineVocabulary
+                : \Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope::Full);
 
         $flow = is_array($task->flow_data) ? $task->flow_data : [];
         $nodes = is_array($flow['nodes'] ?? null) ? $flow['nodes'] : [];
@@ -284,7 +291,7 @@ final class TaskWorkflowTestRunner
                 continue;
             }
 
-            if ($skipContentWriting && $this->shouldSkipForOutlineVocabularyScope($node)) {
+            if ($scope->isOutlineVocabularyOnly() && ! $this->isAllowedInOutlineVocabularyScope($node)) {
                 $steps[] = [
                     'node_id' => $nodeId,
                     'type' => (string) ($node['type'] ?? ''),
@@ -292,6 +299,8 @@ final class TaskWorkflowTestRunner
                     'status' => 'skipped',
                     'message' => 'Bỏ qua — phạm vi outline/vocabulary (không viết bài).',
                     'skip_reason' => \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::SKIP_REASON_OUTLINE_ONLY_SCOPE,
+                    'execution_role' => $node['data']['execution_role'] ?? null,
+                    'hook_key' => $node['data']['hook_key'] ?? null,
                 ];
                 // Non-blocking: save_vocabulary may sit after content in some graphs.
                 $statusByNodeId[$nodeId] = 'skipped_scope';
@@ -2865,27 +2874,73 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * Outline-only / vocabulary persistence scope: keep extract+save, skip writing body.
+     * Strict allowlist for {@see WorkflowExecutionScope::OutlineVocabulary}.
+     * Prefer execution_role / hook_key / actionType / filterType — no title heuristics.
+     *
+     * @param  array<string, mixed>  $node
+     */
+    private function isAllowedInOutlineVocabularyScope(array $node): bool
+    {
+        $type = strtolower(trim((string) ($node['type'] ?? '')));
+
+        // Structural non-mutating transport required to carry outline/vocab artifacts.
+        if (in_array($type, ['article', 'user_input', 'article_filter', 'end'], true)) {
+            return true;
+        }
+
+        if ($type === 'filter') {
+            $filterType = strtolower(trim((string) (
+                $node['data']['filterType']
+                ?? $node['data']['filter_type']
+                ?? $node['data']['type']
+                ?? ''
+            )));
+
+            return in_array($filterType, ['parse_outline', 'parse_keywords'], true);
+        }
+
+        if ($type === 'action') {
+            $actionType = (string) ($node['data']['actionType'] ?? '');
+
+            return $actionType === 'save_vocabulary_research';
+        }
+
+        if ($type === 'prompt') {
+            $role = WorkflowExecutionRole::tryFromMixed($node['data']['execution_role'] ?? null);
+            if ($role === WorkflowExecutionRole::ArticleOutlineGenerate) {
+                return true;
+            }
+            if (
+                $role === WorkflowExecutionRole::ArticleContentGenerate
+                || $role === WorkflowExecutionRole::ArticleContentImprove
+                || $role === WorkflowExecutionRole::ArticleImageGenerate
+            ) {
+                return false;
+            }
+
+            $hookKey = trim((string) ($node['data']['hook_key'] ?? ''));
+            if (str_contains($hookKey, '@')) {
+                $hookKey = trim(explode('@', $hookKey, 2)[0]);
+            }
+
+            return in_array($hookKey, [
+                ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK,
+                ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK,
+                ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
+            ], true);
+        }
+
+        return false;
+    }
+
+    /**
+     * @deprecated Use {@see isAllowedInOutlineVocabularyScope}; kept for source-scan contracts.
      *
      * @param  array<string, mixed>  $node
      */
     private function shouldSkipForOutlineVocabularyScope(array $node): bool
     {
-        if ($this->isContentRoleNode($node)) {
-            return true;
-        }
-
-        $type = (string) ($node['type'] ?? '');
-        if ($type !== 'action') {
-            return false;
-        }
-
-        $actionType = (string) ($node['data']['actionType'] ?? 'save_article');
-        if ($actionType === 'save_vocabulary_research') {
-            return false;
-        }
-
-        return $this->isArticlePersistAction($actionType);
+        return ! $this->isAllowedInOutlineVocabularyScope($node);
     }
 
     /**
