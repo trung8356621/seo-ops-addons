@@ -80,6 +80,21 @@ final class AiPromptServiceProvider extends ServiceProvider
             \App\System\Workflow\Contracts\WorkflowRuntimePort::class,
             \Omnichannel\Addons\AiPrompt\System\LegacySeoTaskWorkflowRuntimePort::class,
         );
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::class);
+
+        if (class_exists(\App\System\Capability\SystemCapabilityRegistry::class)) {
+            /** @var \App\System\Capability\SystemCapabilityRegistry $registry */
+            $registry = $this->app->make(\App\System\Capability\SystemCapabilityRegistry::class);
+            $key = \Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::KEY;
+            if (! $registry->has($key)) {
+                $registry->register(new \App\System\Capability\SystemCapabilityDefinition(
+                    key: $key,
+                    owner: self::SLUG,
+                    handler: \Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::class,
+                    sideEffectFree: false,
+                ));
+            }
+        }
     }
 
     public function boot(): void

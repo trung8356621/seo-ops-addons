@@ -37,6 +37,8 @@ final class PlanningDraftIntakeResult
         public readonly array $articleIds = [],
         public readonly array $keywordIds = [],
         public readonly array $taskIds = [],
+        /** Pending-link editor placeholder (#hash) or resolved target URL. */
+        public readonly string $placeholderHref = '',
     ) {}
 
     public function isSuccess(): bool

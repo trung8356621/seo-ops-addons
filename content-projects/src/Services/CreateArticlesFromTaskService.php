@@ -1157,8 +1157,20 @@ final class CreateArticlesFromTaskService
         $stepMessage = trim((string) ($failed['message'] ?? ''));
         $stepTitle = trim((string) ($failed['title'] ?? ''));
         $promptName = trim((string) ($failed['prompt_name'] ?? ''));
+        $hookKey = trim((string) ($failed['hook_key'] ?? ''));
+
+        // Stage label must follow execution hook metadata — never leave a writing
+        // failure prefixed as Outline when hook is article.content.*.
+        if ($hookKey !== '' && str_contains($hookKey, 'content.')
+            && str_starts_with(mb_strtolower($stepMessage), 'outline generation failed')
+        ) {
+            $stepMessage = 'Writing generation failed: '.trim(substr($stepMessage, strlen('Outline generation failed:')));
+        }
 
         $labelParts = array_values(array_filter([$stepTitle, $promptName]));
+        if ($hookKey !== '') {
+            $labelParts[] = $hookKey;
+        }
         $prefix = $labelParts !== [] ? implode(' — ', $labelParts).': ' : '';
 
         return [
@@ -1167,6 +1179,7 @@ final class CreateArticlesFromTaskService
                 'title' => $stepTitle,
                 'prompt_name' => $promptName,
                 'message' => $stepMessage,
+                'hook_key' => $hookKey,
             ],
         ];
     }

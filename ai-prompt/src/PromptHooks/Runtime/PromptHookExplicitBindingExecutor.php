@@ -94,6 +94,19 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             );
         }
 
+        // Strangler: writing hooks may enter System AI API when capability mode is remote|shadow.
+        // via_system_ai prevents recursion when the capability handler re-enters this executor.
+        if ($this->shouldExecuteViaSystemAi($effectiveHookKey, $contextExtras)) {
+            return $this->executeWritingViaSystemAi(
+                $prompt,
+                $variables,
+                $contextExtras,
+                $previousOutputs,
+                $effectiveHookKey,
+                $effectiveVersion,
+            );
+        }
+
         $definition = $this->registry->get($effectiveHookKey, $effectiveVersion);
         $this->registry->assertExecutable(
             $definition,
@@ -798,5 +811,115 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         $text = (string) preg_replace('/\s*\[END[^\]]*\]\s*$/imu', '', $text);
 
         return trim($text);
+    }
+
+    /**
+     * @param  array<string, mixed>  $contextExtras
+     */
+    private function shouldExecuteViaSystemAi(string $hookKey, array $contextExtras): bool
+    {
+        if (! empty($contextExtras['via_system_ai'])) {
+            return false;
+        }
+
+        if (! in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+            return false;
+        }
+
+        if (! interface_exists(\App\System\Ai\Contracts\SystemAiClient::class)) {
+            return false;
+        }
+
+        if (! function_exists('app') || ! app()->bound(\App\System\Ai\Contracts\SystemAiClient::class)) {
+            return false;
+        }
+
+        try {
+            $mode = app(\App\System\Support\CapabilityModeResolver::class)
+                ->resolve(\Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::KEY, 'ai');
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $mode === \App\System\Support\SystemExecutionMode::Remote
+            || $mode === \App\System\Support\SystemExecutionMode::Shadow;
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     * @param  array<string, mixed>  $contextExtras
+     * @param  array<string, mixed>  $previousOutputs
+     * @return array<string, mixed>
+     */
+    private function executeWritingViaSystemAi(
+        SeoPrompt $prompt,
+        array $variables,
+        array $contextExtras,
+        array $previousOutputs,
+        string $effectiveHookKey,
+        string $effectiveVersion,
+    ): array {
+        $capability = \Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::KEY;
+        $idempotency = isset($contextExtras['idempotency_key'])
+            ? trim((string) $contextExtras['idempotency_key'])
+            : null;
+        if ($idempotency === '') {
+            $idempotency = null;
+        }
+
+        $request = new \App\System\Ai\Dto\AiExecutionRequest(
+            capability: $capability,
+            input: [
+                'prompt_id' => (int) $prompt->id,
+                'variables' => $variables,
+                'context_extras' => $contextExtras,
+                'previous_outputs' => $previousOutputs,
+                'hook_key' => $effectiveHookKey,
+                'hook_version' => $effectiveVersion,
+            ],
+            context: [
+                'allow_domain_side_effects' => true,
+                'stage' => 'writing',
+            ],
+            requirements: [
+                'structured_output' => false,
+            ],
+            correlation: [
+                'content_project_id' => isset($contextExtras['project_id']) ? (int) $contextExtras['project_id'] : null,
+                'project_item_id' => isset($contextExtras['project_task_id'])
+                    ? (int) $contextExtras['project_task_id']
+                    : (isset($contextExtras['task_id']) ? (int) $contextExtras['task_id'] : null),
+                'article_id' => isset($contextExtras['article_id']) ? (int) $contextExtras['article_id'] : null,
+                'run_id' => isset($contextExtras['project_run_id'])
+                    ? (int) $contextExtras['project_run_id']
+                    : (isset($contextExtras['run_id']) ? (int) $contextExtras['run_id'] : null),
+                'stage' => 'writing',
+                'node_id' => $contextExtras['node_id'] ?? null,
+                'canonical_prompt_key' => $effectiveHookKey,
+                'retry_attempt' => isset($contextExtras['attempt']) ? (int) $contextExtras['attempt'] : null,
+                'correlation_id' => $contextExtras['correlation_id'] ?? null,
+            ],
+            idempotencyKey: $idempotency,
+        );
+
+        $result = app(\App\System\Ai\Contracts\SystemAiClient::class)->execute($request);
+        if ($result->status === 'failed') {
+            throw new \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException(
+                'Writing generation failed: '.trim((string) ($result->errorMessage ?? 'System AI execution failed')),
+            );
+        }
+
+        $output = $result->output;
+        if (! is_array($output) || $output === []) {
+            throw new \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException(
+                'Writing generation failed: empty System AI output.',
+            );
+        }
+
+        $output['execution_source'] = (string) ($output['execution_source'] ?? 'system_ai');
+        $output['system_ai_execution_id'] = $result->id;
+        $output['system_ai_capability'] = $capability;
+
+        return $output;
     }
 }

@@ -58,6 +58,11 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
 
         $pendingMethod = $this->methodSource('submitPendingLink');
         self::assertStringContainsString('addPendingLink', $pendingMethod);
+        self::assertStringContainsString('$result->placeholderHref', $pendingMethod);
+        self::assertStringContainsString("'placeholderHref' => \$placeholderHref", $pendingMethod);
+        self::assertStringContainsString("'placeholder_href' => \$placeholderHref", $pendingMethod);
+        self::assertStringContainsString('$this->errorMessage = $result->message', $pendingMethod);
+        self::assertStringNotContainsString("placeholderHref: ''", $pendingMethod);
         self::assertStringNotContainsString('assignArticlesFromFormData', $pendingMethod);
         self::assertStringNotContainsString('executeAssignKeywordsToContentProjects', $pendingMethod);
     }

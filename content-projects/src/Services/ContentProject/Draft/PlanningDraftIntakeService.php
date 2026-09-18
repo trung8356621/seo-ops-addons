@@ -499,6 +499,7 @@ final class PlanningDraftIntakeService
 
         $assigned = (bool) ($result['assigned_to_project'] ?? false);
         $alreadyTarget = (bool) ($result['already_has_target'] ?? false);
+        $placeholderHref = trim((string) ($result['placeholder_href'] ?? ''));
 
         if ($alreadyTarget) {
             return new PlanningDraftIntakeResult(
@@ -506,6 +507,8 @@ final class PlanningDraftIntakeService
                 $draftId,
                 message: (string) ($result['message'] ?? ''),
                 articleIds: [$articleId],
+                keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
+                placeholderHref: $placeholderHref,
             );
         }
 
@@ -516,6 +519,7 @@ final class PlanningDraftIntakeService
             message: (string) ($result['message'] ?? __('seo-content-ai::filament.article_list.add_to_draft_completed')),
             articleIds: [$articleId],
             keywordIds: isset($result['keyword_id']) ? [(int) $result['keyword_id']] : [],
+            placeholderHref: $placeholderHref,
         );
     }
 

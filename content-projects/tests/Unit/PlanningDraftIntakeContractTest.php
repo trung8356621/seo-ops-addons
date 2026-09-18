@@ -32,6 +32,25 @@ final class PlanningDraftIntakeContractTest extends TestCase
         self::assertSame('draft_not_resolved', PlanningDraftIntakeResult::STATUS_DRAFT_NOT_RESOLVED);
     }
 
+    public function test_pending_link_intake_forwards_placeholder_href(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(PlanningDraftIntakeService::class))->getFileName(),
+        );
+        self::assertStringContainsString("(\$result['placeholder_href']", $src);
+        self::assertStringContainsString('placeholderHref:', $src);
+
+        $result = new PlanningDraftIntakeResult(
+            PlanningDraftIntakeResult::STATUS_ADDED,
+            12,
+            message: 'ok',
+            articleIds: [1],
+            placeholderHref: '#abcd1234',
+        );
+        self::assertSame('#abcd1234', $result->placeholderHref);
+        self::assertTrue($result->isSuccess());
+    }
+
     public function test_intake_service_api_surface(): void
     {
         $src = (string) file_get_contents(

@@ -2774,6 +2774,20 @@ final class TaskWorkflowTestRunner
      */
     private function isOutlineRoleNode(array $node, ?string $promptHookKey = null): bool
     {
+        // Writing hooks/roles must never enter OutlineSplitExecutor — titles like
+        // «Viết bài theo dàn ý» contain «dàn ý» but are content nodes.
+        if (in_array((string) $promptHookKey, [
+            'article.content.generate',
+            'article.content.rewrite',
+            'article.content.improve',
+        ], true)) {
+            return false;
+        }
+
+        if ($this->isContentRoleNode($node)) {
+            return false;
+        }
+
         if ($promptHookKey === ArticleGenerationInputResolver::OUTLINE_HOOK_KEY) {
             return true;
         }
@@ -2789,6 +2803,7 @@ final class TaskWorkflowTestRunner
 
         $title = mb_strtolower(trim((string) ($node['title'] ?? $node['data']['label'] ?? '')));
         if ($title !== '' && (str_contains($title, 'dàn ý') || str_contains($title, 'outline'))) {
+            // Bare outline titles only — writing phrases already excluded via isContentRoleNode.
             return true;
         }
 

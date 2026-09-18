@@ -261,9 +261,22 @@ final class ContentProjectFailedStepResumeResolver
             return null;
         }
 
+        // Content / write failures first — «Viết bài theo dàn ý» must not map to outline.
+        if (str_contains($error, 'content.generate')
+            || str_contains($error, 'content.rewrite')
+            || str_contains($error, 'article.content')
+            || str_contains($error, 'writing generation failed')
+            || str_contains($error, 'unknown input key')
+            || str_contains($error, 'viết bài')
+            || str_contains($error, 'theo dàn ý')
+        ) {
+            return ContentProjectRerunFromStep::Article->value;
+        }
+
         // Outline failures (TEXT_OUTSIDE_DECLARED_SECTIONS, missing markers, …).
         if (str_contains($error, 'outline.generate')
             || str_contains($error, 'article.outline')
+            || str_contains($error, 'outline generation failed')
             || str_contains($error, 'text_outside_declared_sections')
             || str_contains($error, 'không tìm thấy outline')
             || str_contains($error, 'outline để tạo lại')
@@ -271,17 +284,6 @@ final class ContentProjectFailedStepResumeResolver
             || str_contains($error, 'khối prompt — dàn ý')
         ) {
             return ContentProjectRerunFromStep::Outline->value;
-        }
-
-        // Content / write failures.
-        if (str_contains($error, 'content.generate')
-            || str_contains($error, 'content.rewrite')
-            || str_contains($error, 'article.content')
-            || str_contains($error, 'unknown input key')
-            || str_contains($error, 'viết bài')
-            || str_contains($error, 'theo dàn ý')
-        ) {
-            return ContentProjectRerunFromStep::Article->value;
         }
 
         // Bare «topic» alone is ambiguous — only with content-ish context.

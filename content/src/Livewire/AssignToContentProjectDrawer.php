@@ -594,6 +594,10 @@ class AssignToContentProjectDrawer extends Component
         $result = app(PlanningDraftIntakeService::class)->addKeywords($keywords, $this->siteIds);
         $this->notifyIntakeResult($result);
         if (! $result->isSuccess()) {
+            $this->errorMessage = $result->message !== ''
+                ? $result->message
+                : __('seo-content-ai::filament.articles_optimal.assign_failed');
+
             return;
         }
 
@@ -626,18 +630,26 @@ class AssignToContentProjectDrawer extends Component
         $result = app(PlanningDraftIntakeService::class)->addPendingLink($articleId, $phrase);
         $this->notifyIntakeResult($result);
         if (! $result->isSuccess()) {
+            $this->errorMessage = $result->message !== ''
+                ? $result->message
+                : __('seo-content-ai::filament.articles_optimal.assign_failed');
+
             return;
         }
 
+        $placeholderHref = trim($result->placeholderHref);
+
         $this->dispatch(
             'pending-internal-link-ready',
-            placeholderHref: '',
+            placeholderHref: $placeholderHref,
             message: $result->message,
         );
 
         $this->js(
             'window.dispatchEvent(new CustomEvent("pending-internal-link-ready",{detail:'
             .json_encode([
+                'placeholderHref' => $placeholderHref,
+                'placeholder_href' => $placeholderHref,
                 'message' => $result->message,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             .'}));'
@@ -675,6 +687,10 @@ class AssignToContentProjectDrawer extends Component
 
         $this->notifyIntakeResult($result);
         if (! $result->isSuccess()) {
+            $this->errorMessage = $result->message !== ''
+                ? $result->message
+                : __('seo-content-ai::filament.articles_optimal.assign_failed');
+
             return;
         }
 

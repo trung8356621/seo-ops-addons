@@ -156,13 +156,13 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         const onPendingLinkReady = (event) => {
             const detail = event?.detail ?? {};
             const href = String(detail.placeholderHref ?? detail.placeholder_href ?? '').trim();
-            if (href === '') {
-                return;
-            }
-
             const message = String(detail.message ?? '').trim();
             if (message !== '') {
                 setAssignNotice(message);
+            }
+
+            if (href === '') {
+                return;
             }
 
             applyPlaceholderLink(href);
