@@ -30,6 +30,7 @@ final class KeywordDictionaryQuery
      *     seo_hidden?: bool|null,
      *     tags?: list<mixed>,
      *     types?: list<mixed>,
+     *     topic_assignment?: string|null,
      * }  $filters
      * @return Builder<Keyword>
      */
@@ -58,6 +59,43 @@ final class KeywordDictionaryQuery
         $query = $this->applySeoHidden($query, array_key_exists('seo_hidden', $filters) ? $filters['seo_hidden'] : null);
         $query = app(KeywordTagQuery::class)->apply($query, is_array($filters['tags'] ?? null) ? $filters['tags'] : []);
         $query = $this->applyTypes($query, is_array($filters['types'] ?? null) ? $filters['types'] : []);
+        $query = $this->applyTopicAssignment(
+            $query,
+            $siteId,
+            isset($filters['topic_assignment']) ? (string) $filters['topic_assignment'] : null,
+        );
+
+        return $query;
+    }
+
+    /**
+     * Filter by current-site Topic membership ({@see seo_topic_keywords}).
+     *
+     * @param  Builder<Keyword>  $query
+     * @param  'assigned'|'unassigned'|string|null  $assignment
+     * @return Builder<Keyword>
+     */
+    public function applyTopicAssignment(Builder $query, ?int $siteId, ?string $assignment): Builder
+    {
+        $assignment = is_string($assignment) ? trim($assignment) : '';
+        if ($assignment === '' || $siteId === null || $siteId <= 0) {
+            return $query;
+        }
+
+        $membership = static function ($sub) use ($siteId): void {
+            $sub->selectRaw('1')
+                ->from('seo_topic_keywords')
+                ->whereColumn('seo_topic_keywords.keyword_id', 'keywords.id')
+                ->where('seo_topic_keywords.site_id', $siteId);
+        };
+
+        if ($assignment === 'unassigned' || $assignment === 'none' || $assignment === '0') {
+            return $query->whereNotExists($membership);
+        }
+
+        if ($assignment === 'assigned' || $assignment === 'has' || $assignment === '1') {
+            return $query->whereExists($membership);
+        }
 
         return $query;
     }

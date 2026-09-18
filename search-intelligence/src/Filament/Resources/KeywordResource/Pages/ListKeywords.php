@@ -165,7 +165,11 @@ class ListKeywords extends ListRecords
 
         $table
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
-            ->modifyQueryUsing(fn (Builder $query): Builder => $this->applyDictionaryCardFilter($query));
+            ->modifyQueryUsing(function (Builder $query): Builder {
+                $query = $this->applyDictionaryCardFilter($query);
+
+                return $this->applyTopicAssignmentTableFilter($query);
+            });
 
         return $table
             ->actions($this->listPageTableActions());
@@ -398,7 +402,33 @@ class ListKeywords extends ListRecords
             'seo_hidden' => $seoHidden,
             'tags' => (array) (($this->getTableFilterState('operational_tags') ?? [])['tags'] ?? []),
             'types' => (array) (($this->getTableFilterState('keyword_type') ?? [])['types'] ?? []),
+            'topic_assignment' => $this->resolveTopicAssignmentFilterValue(),
         ];
+    }
+
+    protected function applyTopicAssignmentTableFilter(Builder $query): Builder
+    {
+        $assignment = $this->resolveTopicAssignmentFilterValue();
+        if ($assignment === null) {
+            return $query;
+        }
+
+        return app(KeywordDictionaryQuery::class)->applyTopicAssignment(
+            $query,
+            $this->resolveKeywordWorkspaceSiteId(),
+            $assignment,
+        );
+    }
+
+    protected function resolveTopicAssignmentFilterValue(): ?string
+    {
+        $state = $this->getTableFilterState('topic_assignment') ?? [];
+        $value = $state['value'] ?? null;
+        if ($value === 'assigned' || $value === 'unassigned') {
+            return $value;
+        }
+
+        return null;
     }
 
     protected function applyDictionaryCardFilter(Builder $query): Builder

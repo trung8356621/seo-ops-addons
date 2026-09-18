@@ -65,9 +65,11 @@
                     'count' => number_format($seoEligibleCount),
                 ]) }}</span>
                 <span aria-hidden="true">·</span>
-                <span>{{ __('seo-content-ai::filament.keyword.topic_compact_stats_assigned', [
-                    'count' => number_format($assignedCount),
-                ]) }}</span>
+                <a href="{{ $this->assignedUrl() }}" class="topic-index-compact-stats__link">
+                    {{ __('seo-content-ai::filament.keyword.topic_compact_stats_assigned', [
+                        'count' => number_format($assignedCount),
+                    ]) }}
+                </a>
                 <span aria-hidden="true">·</span>
                 <a href="{{ $this->unassignedUrl() }}" class="topic-index-compact-stats__link">
                     {{ __('seo-content-ai::filament.keyword.topic_compact_stats_unassigned', [

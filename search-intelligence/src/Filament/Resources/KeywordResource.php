@@ -339,6 +339,27 @@ class KeywordResource extends SeoPanelResource
                             ? null
                             : __('seo-content-ai::filament.keyword.legacy_type').': '.implode(', ', $labels);
                     }),
+                Tables\Filters\SelectFilter::make('topic_assignment')
+                    ->label(__('seo-content-ai::filament.keyword.topic_assignment_filter_label'))
+                    ->placeholder(__('seo-content-ai::filament.keyword.topic_assignment_filter_all'))
+                    ->options([
+                        'assigned' => __('seo-content-ai::filament.keyword.topic_assignment_filter_assigned'),
+                        'unassigned' => __('seo-content-ai::filament.keyword.topic_assignment_filter_unassigned'),
+                    ])
+                    ->native(false)
+                    // Query applied in ListKeywords with workspace site_id (membership SSOT).
+                    ->query(static fn (Builder $query): Builder => $query)
+                    ->indicateUsing(function (array $data): ?string {
+                        $value = (string) ($data['value'] ?? '');
+                        if ($value === 'assigned') {
+                            return __('seo-content-ai::filament.keyword.topic_assignment_filter_assigned');
+                        }
+                        if ($value === 'unassigned') {
+                            return __('seo-content-ai::filament.keyword.topic_assignment_filter_unassigned');
+                        }
+
+                        return null;
+                    }),
             ], layout: FiltersLayout::AboveContent)
             ->filtersFormColumns([
                 'default' => 1,
@@ -739,6 +760,28 @@ class KeywordResource extends SeoPanelResource
             'tableFilters' => [
                 'include_tags' => [
                     'tag_ids' => [(string) $tagId],
+                ],
+            ],
+        ]);
+
+        return $base.(str_contains($base, '?') ? '&' : '?').$query;
+    }
+
+    /**
+     * Deep-link Dictionary with Topic membership filter (assigned|unassigned).
+     */
+    public static function buildTopicAssignmentFilterUrl(string $assignment): string
+    {
+        $assignment = trim($assignment);
+        if (! in_array($assignment, ['assigned', 'unassigned'], true)) {
+            return static::getUrl('index');
+        }
+
+        $base = static::getUrl('index');
+        $query = http_build_query([
+            'tableFilters' => [
+                'topic_assignment' => [
+                    'value' => $assignment,
                 ],
             ],
         ]);

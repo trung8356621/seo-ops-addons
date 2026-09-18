@@ -171,7 +171,15 @@ final class KeywordTopicClusters extends Page
     public function unassignedUrl(): string
     {
         return app(DomainContextResolver::class)->appendSiteToUrl(
-            KeywordResource::getUrl('index'),
+            KeywordResource::buildTopicAssignmentFilterUrl('unassigned'),
+            $this->resolveKeywordWorkspaceSiteId(),
+        );
+    }
+
+    public function assignedUrl(): string
+    {
+        return app(DomainContextResolver::class)->appendSiteToUrl(
+            KeywordResource::buildTopicAssignmentFilterUrl('assigned'),
             $this->resolveKeywordWorkspaceSiteId(),
         );
     }
