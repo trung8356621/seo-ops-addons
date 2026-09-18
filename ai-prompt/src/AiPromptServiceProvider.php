@@ -63,6 +63,23 @@ final class AiPromptServiceProvider extends ServiceProvider
                 $app->make(\Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver::class),
             ),
         );
+        $this->registerSystemPorts();
+    }
+
+    private function registerSystemPorts(): void
+    {
+        if (! interface_exists(\App\System\Ai\Contracts\AiTextExecutionPort::class)) {
+            return;
+        }
+
+        $this->app->bind(
+            \App\System\Ai\Contracts\AiTextExecutionPort::class,
+            \Omnichannel\Addons\AiPrompt\System\LegacyCanonicalAiTextExecutionPort::class,
+        );
+        $this->app->bind(
+            \App\System\Workflow\Contracts\WorkflowRuntimePort::class,
+            \Omnichannel\Addons\AiPrompt\System\LegacySeoTaskWorkflowRuntimePort::class,
+        );
     }
 
     public function boot(): void

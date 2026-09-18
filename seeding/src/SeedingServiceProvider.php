@@ -86,8 +86,36 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingVite::class);
         $this->app->singleton(\Omnichannel\Addons\Seeding\Support\SeedingRoleAssignment::class);
         $this->app->singleton(\Omnichannel\Addons\Seeding\Members\SeedingMembersSectionContributor::class);
+        $this->app->singleton(\Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::class);
+        $this->app->singleton(\Omnichannel\Addons\Seeding\System\SeedingAgentSkillContributor::class);
 
         $this->registerCapabilities();
+        $this->registerSystemCapability();
+    }
+
+    private function registerSystemCapability(): void
+    {
+        if (! class_exists(\App\System\Capability\SystemCapabilityRegistry::class)) {
+            return;
+        }
+
+        /** @var \App\System\Capability\SystemCapabilityRegistry $registry */
+        $registry = $this->app->make(\App\System\Capability\SystemCapabilityRegistry::class);
+        if ($registry->has(\Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::KEY)) {
+            return;
+        }
+
+        $registry->register(new \App\System\Capability\SystemCapabilityDefinition(
+            key: \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::KEY,
+            owner: self::SLUG,
+            handler: \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::class,
+            sideEffectFree: false,
+        ));
+
+        if ($this->app->bound(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)) {
+            $this->app->make(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)
+                ->registerContributor($this->app->make(\Omnichannel\Addons\Seeding\System\SeedingAgentSkillContributor::class));
+        }
     }
 
     public function boot(): void

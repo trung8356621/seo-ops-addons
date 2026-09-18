@@ -2241,6 +2241,20 @@
             gap: 0.5rem;
             scrollbar-width: thin;
         }
+        /* Available Topic picker: rows scroll; pager stays visible below the list. */
+        .cp-ai-topic-column--available .cp-ai-topic-column__body {
+            overflow: hidden;
+        }
+        .cp-ai-topic-column--available .cp-audit-notes__list-wrap {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+        .cp-ai-topic-column--available .cp-audit-notes__pager {
+            flex: 0 0 auto;
+        }
         .cp-ai-topic-column--available .cp-audit-notes__help {
             margin-bottom: 0.4rem;
         }

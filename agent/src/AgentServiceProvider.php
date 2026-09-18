@@ -19,6 +19,33 @@ final class AgentServiceProvider extends ServiceProvider
     {
         $this->registerCapabilities();
         $this->registerAutomationRuntime();
+        $this->registerSystemAgentSurface();
+    }
+
+    private function registerSystemAgentSurface(): void
+    {
+        if (! class_exists(\App\System\Capability\SystemCapabilityRegistry::class)) {
+            return;
+        }
+
+        $this->app->singleton(System\AgentEchoCapabilityHandler::class);
+        $this->app->singleton(System\AgentKernelSkillContributor::class);
+
+        /** @var \App\System\Capability\SystemCapabilityRegistry $caps */
+        $caps = $this->app->make(\App\System\Capability\SystemCapabilityRegistry::class);
+        if (! $caps->has(System\AgentEchoCapabilityHandler::KEY)) {
+            $caps->register(new \App\System\Capability\SystemCapabilityDefinition(
+                key: System\AgentEchoCapabilityHandler::KEY,
+                owner: self::SLUG,
+                handler: System\AgentEchoCapabilityHandler::class,
+                sideEffectFree: true,
+            ));
+        }
+
+        if ($this->app->bound(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)) {
+            $this->app->make(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)
+                ->registerContributor($this->app->make(System\AgentKernelSkillContributor::class));
+        }
     }
 
     public function boot(): void

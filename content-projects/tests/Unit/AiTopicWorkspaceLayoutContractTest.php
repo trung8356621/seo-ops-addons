@@ -49,6 +49,43 @@ final class AiTopicWorkspaceLayoutContractTest extends TestCase
         );
     }
 
+    public function test_available_topic_pager_stays_outside_scrollable_list(): void
+    {
+        $notes = LegacyAddonPath::read('resources/views/components/content-project-audit-notes.blade.php');
+        $styles = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
+
+        $availableStart = strpos($notes, 'data-ai-topic-column="available"');
+        self::assertNotFalse($availableStart);
+        $selectedStart = strpos($notes, 'data-ai-topic-column="selected"');
+        self::assertNotFalse($selectedStart);
+        $availableBlock = substr($notes, $availableStart, $selectedStart - $availableStart);
+
+        self::assertStringContainsString('cp-audit-notes__list-wrap', $availableBlock);
+        self::assertStringContainsString('@if ($hasPages)', $availableBlock);
+        self::assertStringContainsString('cp-audit-notes__pager', $availableBlock);
+
+        $listWrapPos = strpos($availableBlock, 'cp-audit-notes__list-wrap');
+        $listClosePos = strpos($availableBlock, '</ul>', $listWrapPos ?: 0);
+        $pagerPos = strpos($availableBlock, 'cp-audit-notes__pager');
+        self::assertNotFalse($listWrapPos);
+        self::assertNotFalse($listClosePos);
+        self::assertNotFalse($pagerPos);
+        self::assertGreaterThan($listClosePos, $pagerPos, 'Pager must remain outside the scrolling UL/list-wrap');
+
+        self::assertMatchesRegularExpression(
+            '/\.cp-ai-topic-column--available\s+\.cp-ai-topic-column__body\s*\{[^}]*overflow:\s*hidden/s',
+            $styles,
+        );
+        self::assertMatchesRegularExpression(
+            '/\.cp-ai-topic-column--available\s+\.cp-audit-notes__list-wrap\s*\{[^}]*flex:\s*1\s+1\s+auto[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/s',
+            $styles,
+        );
+        self::assertMatchesRegularExpression(
+            '/\.cp-ai-topic-column--available\s+\.cp-audit-notes__pager\s*\{[^}]*flex:\s*0\s+0\s+auto/s',
+            $styles,
+        );
+    }
+
     public function test_selected_topics_excluded_from_available_list(): void
     {
         $notes = LegacyAddonPath::read('resources/views/components/content-project-audit-notes.blade.php');
