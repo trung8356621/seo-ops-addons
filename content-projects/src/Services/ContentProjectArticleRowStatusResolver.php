@@ -60,8 +60,8 @@ final class ContentProjectArticleRowStatusResolver
         if ($persistStatus === 'ignored_stale' || $rawStatus === 'ignored_stale') {
             return new ContentProjectArticleRowStatus(
                 code: ContentProjectArticleRowStatus::CODE_IGNORED_STALE,
-                label: 'Bỏ qua kết quả AI cũ',
-                tooltip: 'Kết quả AI không được ghi đè vì bài viết đã thay đổi trong lúc xử lý.',
+                label: 'Bỏ qua — bài đã thay đổi sau khi AI sinh',
+                tooltip: 'Kết quả AI không được áp dụng vì bài viết đã thay đổi sau khi sinh. Không ghi đè nội dung mới hơn; history vẫn giữ.',
             );
         }
 

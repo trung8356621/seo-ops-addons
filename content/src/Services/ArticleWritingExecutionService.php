@@ -465,6 +465,31 @@ class ArticleWritingExecutionService
 
         $article->refresh();
         $publish = $this->publisher->publishArticle($article, $markdown, $variables);
+        $ancillaryMeta = array_filter([
+            'ancillary_status' => $publish['ancillary_status'] ?? null,
+            'ancillary_failures' => $publish['ancillary_failures'] ?? null,
+            'expected_content_hash' => $publish['expected_content_hash'] ?? null,
+            'persisted_content_hash' => $publish['persisted_content_hash'] ?? null,
+        ], static fn (mixed $v): bool => $v !== null && $v !== []);
+
+        if ((bool) ($publish['conflict'] ?? false)) {
+            return new ArticleWritingExecutionResult(
+                success: true,
+                message: 'Kết quả bị bỏ qua vì bài đã được sửa (ignored_stale).',
+                sourceType: $writing->sourceType,
+                promptOwnerType: $owner['type'],
+                hookKey: self::HOOK_KEY,
+                articleId: (int) $article->getKey(),
+                promptId: $owner['prompt_id'] ?? (int) $prompt->getKey(),
+                promptOwnerId: $owner['owner_id'],
+                persistStatus: ArticleWritingExecutionResult::PERSIST_IGNORED_STALE,
+                historyMetadata: array_merge($history, $ancillaryMeta, [
+                    'persist_status' => 'ignored_stale',
+                ]),
+                writing: $writing,
+            );
+        }
+
         $ok = (bool) ($publish['success'] ?? false);
 
         return new ArticleWritingExecutionResult(
@@ -479,7 +504,9 @@ class ArticleWritingExecutionService
             persistStatus: $ok
                 ? ArticleWritingExecutionResult::PERSIST_APPLIED
                 : ArticleWritingExecutionResult::PERSIST_FAILED,
-            historyMetadata: $history,
+            historyMetadata: array_merge($history, $ancillaryMeta, [
+                'persist_status' => $ok ? 'applied' : 'failed',
+            ]),
             writing: $writing,
         );
     }
@@ -632,6 +659,7 @@ class ArticleWritingExecutionService
                         'persist_status' => 'ignored_stale',
                         'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
                         'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
+                        'ancillary_status' => $persistGate['ancillary_status'] ?? 'skipped',
                     ]),
                     writing: $writing,
                 );
@@ -661,6 +689,7 @@ class ArticleWritingExecutionService
                         'persist_status' => 'failed',
                         'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
                         'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
+                        'ancillary_status' => $persistGate['ancillary_status'] ?? 'skipped',
                     ]),
                     writing: $writing,
                 );
@@ -678,6 +707,8 @@ class ArticleWritingExecutionService
                     'persist_status' => 'applied',
                     'expected_content_hash' => $persistGate['expected_content_hash'] ?? null,
                     'persisted_content_hash' => $persistGate['persisted_content_hash'] ?? null,
+                    'ancillary_status' => $persistGate['ancillary_status'] ?? 'applied',
+                    'ancillary_failures' => $persistGate['ancillary_failures'] ?? [],
                 ]);
             }
         }
@@ -802,6 +833,7 @@ class ArticleWritingExecutionService
                 'message' => 'Kết quả bị bỏ qua vì bài đã được sửa (ignored_stale).',
                 'expected_content_hash' => $intendedHash,
                 'persisted_content_hash' => (string) ($publish['persisted_content_hash'] ?? $persistedHash),
+                'ancillary_status' => (string) ($publish['ancillary_status'] ?? 'skipped'),
             ];
         }
 
@@ -824,6 +856,7 @@ class ArticleWritingExecutionService
                     .trim((string) ($publish['message'] ?? 'publishArticle failed')),
                 'expected_content_hash' => $expectedAfter !== '' ? $expectedAfter : $intendedHash,
                 'persisted_content_hash' => $persistedAfter !== '' ? $persistedAfter : $persistedHash,
+                'ancillary_status' => (string) ($publish['ancillary_status'] ?? 'skipped'),
             ];
         }
 
@@ -834,6 +867,7 @@ class ArticleWritingExecutionService
             'persisted_content_hash' => $persistedAfter,
             'body_length' => (int) ($publish['body_length'] ?? 0),
             'mode' => 'late_persisted',
+            'ancillary_status' => $publish['ancillary_status'] ?? null,
         ]);
 
         return [
@@ -841,6 +875,10 @@ class ArticleWritingExecutionService
             'message' => 'Late-persisted AI writing output to articles.body.',
             'expected_content_hash' => $expectedAfter,
             'persisted_content_hash' => $persistedAfter,
+            'ancillary_status' => (string) ($publish['ancillary_status'] ?? 'applied'),
+            'ancillary_failures' => is_array($publish['ancillary_failures'] ?? null)
+                ? $publish['ancillary_failures']
+                : [],
         ];
     }
 

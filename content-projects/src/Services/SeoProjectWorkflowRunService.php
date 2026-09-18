@@ -864,8 +864,16 @@ final class SeoProjectWorkflowRunService
                 }
 
                 $message = $this->formatRunResultMessage((string) $result['message'], $ranAt, $stepStats);
+                $persistStatus = strtolower(trim((string) ($result['persist_status'] ?? '')));
+                $isIgnoredStale = $persistStatus === 'ignored_stale';
 
-                if ($articleId > 0 && SeoProjectTask::normalizeType($task->type) !== SeoProjectTask::TYPE_IMPROVE) {
+                // ignored_stale: terminal, retain history, ZERO ancillary post-run mutations that
+                // could overwrite newer manual content (focus/FAQ/meta via postRunPipeline).
+                if (
+                    ! $isIgnoredStale
+                    && $articleId > 0
+                    && SeoProjectTask::normalizeType($task->type) !== SeoProjectTask::TYPE_IMPROVE
+                ) {
                     $article = SeoArticle::query()->find($articleId);
                     if ($article instanceof SeoArticle) {
                         $pipelineResult = $this->postRunPipeline->apply($task, $run, $article, $runItem);
@@ -873,12 +881,20 @@ final class SeoProjectWorkflowRunService
                     }
                 }
 
-                if ($preservePublished) {
-                    $this->restorePublishedLifecycle($task, $publishedSnapshot, null);
-                    $this->markPublishedRerunDirty($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
+                if ($isIgnoredStale) {
+                    $message = trim((string) ($result['message'] ?? '')) !== ''
+                        ? (string) $result['message']
+                        : 'Bỏ qua kết quả AI cũ — bài đã thay đổi sau khi sinh.';
                 }
 
-                if ($isFreshKeywordRestart) {
+                if ($preservePublished) {
+                    $this->restorePublishedLifecycle($task, $publishedSnapshot, null);
+                    if (! $isIgnoredStale) {
+                        $this->markPublishedRerunDirty($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
+                    }
+                }
+
+                if ($isFreshKeywordRestart && ! $isIgnoredStale) {
                     \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::commitCanonicalKeyword(
                         $task,
                         $freshKeywordOverride,
@@ -895,6 +911,7 @@ final class SeoProjectWorkflowRunService
                     $message,
                     [
                         ...$this->buildWorkflowOutputSnapshot($steps),
+                        'persist_status' => $persistStatus !== '' ? $persistStatus : 'applied',
                     ],
                 );
 

@@ -32,6 +32,13 @@ use Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort;
 
 final class PromptTestPublishService implements ArticleBodyPublishPort
 {
+    /**
+     * @internal Testing only — intercept guarded body write (final bridges cannot be mocked).
+     *
+     * @var null|callable(array<string, mixed>, array<string, mixed>, callable(): array<string, mixed>, callable(): ActionResult, ?string): mixed
+     */
+    private $bodyWriteInterceptor = null;
+
     public function __construct(
         private readonly MarkdownOutlineParser $outlineParser,
         private readonly MarkdownSemanticKeywordsParser $keywordsParser,
@@ -42,6 +49,16 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
         private readonly AutomationMigrationFlags $migrationFlags,
         private readonly ArticleContentConflictGuard $contentConflictGuard,
     ) {}
+
+    /**
+     * @internal Testing only.
+     *
+     * @param  null|callable(array<string, mixed>, array<string, mixed>, callable(): array<string, mixed>, callable(): ActionResult, ?string): mixed  $interceptor
+     */
+    public function interceptBodyWriteForTests(?callable $interceptor): void
+    {
+        $this->bodyWriteInterceptor = $interceptor;
+    }
 
     /**
      * @param  array<string, string>  $variables
@@ -108,14 +125,16 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
     }
 
     /**
-     * @param  array<string, string>  $variables
+     * @param  array<string, mixed>  $variables
      * @return array{
      *     success: bool,
      *     message: string,
      *     expected_content_hash?: string,
      *     persisted_content_hash?: string,
      *     body_length?: int,
-     *     conflict?: bool
+     *     conflict?: bool,
+     *     ancillary_status?: string,
+     *     ancillary_failures?: list<string>
      * }
      */
     public function publishArticle(SeoArticle $article, string $aiOutput, array $variables = []): array
@@ -131,28 +150,19 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
             return ['success' => false, 'message' => $e->getMessage()];
         }
 
-        $this->syncFocusKeyword($article, $variables, $prepared['markdown']);
-
+        // PURE resolution only — no FAQ/keyword/meta/title-protection mutations before body commit.
         $html = $prepared['html'];
         $faqs = $prepared['faqs'];
         $intendedHash = $prepared['content_hash'];
-
-        if ($faqs !== []) {
-            app(SeoFaqPersistenceService::class)->persistForArticle($article, $faqs);
-        }
-
         $h1Title = $prepared['h1_title'];
         $title = $this->resolvePublishTitle($article, $variables, $prepared['markdown'], $h1Title);
-
-        $this->persistMetaDescription($article, $prepared['meta_description']);
+        $slug = $this->resolveSlugForPublish($article, $variables, $title);
 
         $update = [
             'title' => $title,
             'body' => $html,
             'user_id' => auth()->id(),
         ];
-
-        $slug = $this->resolveSlugForPublish($article, $variables, $title);
         if ($slug !== null) {
             $update['slug'] = $slug;
         }
@@ -183,10 +193,25 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
         ];
 
         try {
-            $this->contentBridge->run(
-                input: $contentInput,
-                articleState: $articleState,
-                legacyWrite: function () use ($article, $update, $html, $title, $baselineHash): array {
+            $runBodyWrite = $this->bodyWriteInterceptor
+                ?? fn (
+                    array $input,
+                    array $state,
+                    callable $legacyWrite,
+                    callable $actionWrite,
+                    ?string $correlationId = null,
+                ): mixed => $this->contentBridge->run(
+                    input: $input,
+                    articleState: $state,
+                    legacyWrite: $legacyWrite,
+                    actionWrite: $actionWrite,
+                    correlationId: $correlationId,
+                );
+
+            $runBodyWrite(
+                $contentInput,
+                $articleState,
+                function () use ($article, $update, $html, $title, $baselineHash): array {
                     $currentHash = $this->contentConflictGuard->contentHash((string) ($article->body ?? ''));
                     $currentTitle = trim((string) ($article->title ?? ''));
                     $noop = $currentHash === $this->contentConflictGuard->contentHash($html)
@@ -213,7 +238,7 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
                         'expected_content_hash' => $baselineHash,
                     ];
                 },
-                actionWrite: fn (): ActionResult => $this->actionRunner->run(
+                fn (): ActionResult => $this->actionRunner->run(
                     'article.content.update',
                     ActionContext::fromArray([
                         'origin' => 'migration.project_article_content_update',
@@ -223,7 +248,7 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
                     ]),
                     $contentInput,
                 ),
-                correlationId: $correlationId,
+                $correlationId,
             );
         } catch (AutomationMigrationWriteException $exception) {
             $message = $exception->getMessage();
@@ -233,6 +258,7 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
                 || str_contains(strtolower($message), 'hash mismatch')
                 || str_contains(strtolower($message), 'refusing silent overwrite');
 
+            // Guaranteed: ZERO ancillary AI mutations when guarded body write fails/stales.
             return [
                 'success' => false,
                 'message' => $message,
@@ -240,42 +266,158 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
                 'persisted_content_hash' => $this->contentConflictGuard->contentHash((string) ($article->fresh()?->body ?? $article->body ?? '')),
                 'body_length' => strlen((string) ($article->fresh()?->body ?? $article->body ?? '')),
                 'conflict' => $isConflict,
+                'ancillary_status' => 'skipped',
             ];
         }
+
+        $fresh = $article->fresh() ?? $article;
+        $persistedBody = (string) ($fresh->body ?? '');
+        $persistedHash = $this->contentConflictGuard->contentHash($persistedBody);
+        if ($persistedHash !== $intendedHash) {
+            return [
+                'success' => false,
+                'message' => 'Article body hash mismatch after publish.',
+                'expected_content_hash' => $intendedHash,
+                'persisted_content_hash' => $persistedHash,
+                'body_length' => strlen($persistedBody),
+                'ancillary_status' => 'skipped',
+            ];
+        }
+
+        // Body commit verified — only now commit ancillary AI state.
+        $ancillary = $this->commitAncillaryAfterBodyVerified(
+            $fresh,
+            $prepared['markdown'],
+            $faqs,
+            $prepared['meta_description'],
+            $variables,
+            $title,
+            $html,
+            $baselineHash,
+            $persistedHash,
+        );
+
+        return [
+            'success' => true,
+            'message' => sprintf(
+                'Đã lưu nội dung bài «%s» vào editor (chỉ Laravel, không đồng bộ WordPress).',
+                $title,
+            ),
+            'expected_content_hash' => $intendedHash,
+            'persisted_content_hash' => $persistedHash,
+            'body_length' => strlen($persistedBody),
+            'ancillary_status' => $ancillary['status'],
+            'ancillary_failures' => $ancillary['failures'],
+        ];
+    }
+
+    /**
+     * Post-body ancillary order (explicit):
+     * 1 focus keyword
+     * 2 FAQ
+     * 3 meta description
+     * 4 generated title protection
+     * 5 media sync from HTML
+     * 6 SEO analysis
+     * 7 local-edit-pending marker
+     * 8 editor readiness (local only — no WP HTTP)
+     * 9 AI saved timestamp
+     *
+     * @param  list<array<string, mixed>>  $faqs
+     * @param  array<string, mixed>  $variables
+     * @return array{status: string, failures: list<string>}
+     */
+    private function commitAncillaryAfterBodyVerified(
+        SeoArticle $article,
+        string $markdown,
+        array $faqs,
+        ?string $metaDescription,
+        array $variables,
+        string $title,
+        string $html,
+        string $baselineHash,
+        string $persistedHash,
+    ): array {
+        $failures = [];
+
+        $failures = array_merge($failures, $this->safeAncillary('focus_keyword', function () use ($article, $variables, $markdown): void {
+            $this->syncFocusKeyword($article, $variables, $markdown);
+        }));
+
+        if ($faqs !== []) {
+            $failures = array_merge($failures, $this->safeAncillary('faq', function () use ($article, $faqs): void {
+                app(SeoFaqPersistenceService::class)->persistForArticle($article, $faqs);
+            }));
+        }
+
+        $failures = array_merge($failures, $this->safeAncillary('meta_description', function () use ($article, $metaDescription): void {
+            $this->persistMetaDescription($article, $metaDescription);
+        }));
+
+        $failures = array_merge($failures, $this->safeAncillary('title_protection', function () use ($variables, $title): void {
+            $this->persistGeneratedTitleProtection($variables, $title);
+        }));
 
         $wroteViaAction = $this->migrationFlags
             ->mode(AutomationMigrationFlags::PROJECT_ARTICLE_CONTENT_UPDATE)
             ->writesViaAction();
 
         if (! $wroteViaAction) {
-            app(ArticlePostImagesService::class)->syncFromHtml($article->fresh(), $html);
-            app(SeoAnalyzerService::class)->analyze($article->fresh());
-            app(ArticleWordPressSyncFlagService::class)->markLocalEditPending($article->fresh());
+            $failures = array_merge($failures, $this->safeAncillary('media_images', function () use ($article, $html): void {
+                app(ArticlePostImagesService::class)->syncFromHtml($article->fresh() ?? $article, $html);
+            }));
+            $failures = array_merge($failures, $this->safeAncillary('seo_analysis', function () use ($article): void {
+                app(SeoAnalyzerService::class)->analyze($article->fresh() ?? $article);
+            }));
+            $failures = array_merge($failures, $this->safeAncillary('local_edit_pending', function () use ($article): void {
+                app(ArticleWordPressSyncFlagService::class)->markLocalEditPending($article->fresh() ?? $article);
+            }));
         }
 
-        app(ArticleEditorReadinessService::class)->syncWpPostContentFromBody($article->fresh());
+        $failures = array_merge($failures, $this->safeAncillary('editor_readiness', function () use ($article): void {
+            app(ArticleEditorReadinessService::class)->syncWpPostContentFromBody($article->fresh() ?? $article);
+        }));
 
-        $fresh = $article->fresh() ?? $article;
-        $persistedBody = (string) ($fresh->body ?? '');
-        $persistedHash = $this->contentConflictGuard->contentHash($persistedBody);
         if ($persistedHash !== $baselineHash) {
-            app(ArticleLastSavedTimestampService::class)->touchAiContent($fresh);
+            $failures = array_merge($failures, $this->safeAncillary('ai_saved_timestamp', function () use ($article): void {
+                app(ArticleLastSavedTimestampService::class)->touchAiContent($article->fresh() ?? $article);
+            }));
         }
 
-        $ok = $persistedHash === $intendedHash;
+        if ($failures !== []) {
+            \Illuminate\Support\Facades\Log::warning('writing.trace.ancillary_partial', [
+                'article_id' => (int) $article->getKey(),
+                'ancillary_status' => 'partial',
+                'ancillary_failures' => $failures,
+                'expected_content_hash' => $persistedHash,
+                'persisted_content_hash' => $persistedHash,
+            ]);
+        }
 
         return [
-            'success' => $ok,
-            'message' => $ok
-                ? sprintf(
-                    'Đã lưu nội dung bài «%s» vào editor (chỉ Laravel, không đồng bộ WordPress).',
-                    $title,
-                )
-                : 'Article body hash mismatch after publish.',
-            'expected_content_hash' => $intendedHash,
-            'persisted_content_hash' => $persistedHash,
-            'body_length' => strlen($persistedBody),
+            'status' => $failures === [] ? 'applied' : 'partial',
+            'failures' => $failures,
         ];
+    }
+
+    /**
+     * @param  callable(): void  $callback
+     * @return list<string>
+     */
+    private function safeAncillary(string $name, callable $callback): array
+    {
+        try {
+            $callback();
+
+            return [];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('writing.trace.ancillary_failure', [
+                'operation' => $name,
+                'message' => $e->getMessage(),
+            ]);
+
+            return [$name.': '.$e->getMessage()];
+        }
     }
 
     private function persistMetaDescription(SeoArticle $article, ?string $metaDescription): void
@@ -461,13 +603,10 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
             }
         }
 
-        $title = $h1Title !== ''
+        // Pure resolution only — title_protection sticky is persisted after verified body commit.
+        return $h1Title !== ''
             ? $h1Title
             : $this->resolveTitle($variables, $markdown, $article);
-
-        $this->persistGeneratedTitleProtection($variables, $title);
-
-        return $title;
     }
 
     /**

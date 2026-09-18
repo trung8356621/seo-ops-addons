@@ -45,7 +45,9 @@ final class ContentProjectArticleRowStatusPhase21Test extends TestCase
             'workflow_steps' => [],
         ]);
         self::assertSame(ContentProjectArticleRowStatus::CODE_IGNORED_STALE, $status->code);
-        self::assertSame('Bỏ qua kết quả AI cũ', $status->label);
+        self::assertSame('Bỏ qua — bài đã thay đổi sau khi AI sinh', $status->label);
+        self::assertStringNotContainsString('Hoàn tất', $status->label);
+        self::assertStringNotContainsString('áp dụng', mb_strtolower($status->label));
     }
 
     public function test_manual_edit_after_ai(): void

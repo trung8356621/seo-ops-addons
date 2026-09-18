@@ -18,6 +18,9 @@ final class PromptHookEnvelopeValidator
         // Content Project run association — needed so PromptResults link into the active run.
         'run_id', 'project_run_id', 'run_item_id', 'attempt',
         'project_task_id', 'task_id', 'project_id',
+        // Aliases stamped by ExplicitBindingExecutor from project_task_id / project_id.
+        'project_item_id', 'content_project_id',
+        'node_id', 'stage',
         'outline_subtask',
         'generation_strategy',
         'resolved_generation_strategy',
