@@ -118,6 +118,82 @@ final class TopicPhase2BAttachDiscoverIdentityTest extends TestCase
         self::assertGreaterThanOrEqual(1, $metrics['members_attached_core_fallback']);
     }
 
+    public function test_two_token_product_core_does_not_core_fallback_tui_xach(): void
+    {
+        $seeds = [$this->seed(1, 'xưởng may túi xách')];
+        $eligible = [
+            ['keyword_id' => 1, 'phrase' => 'xưởng may túi xách', 'is_seo_keyword' => true],
+            ['keyword_id' => 40, 'phrase' => 'kích thước túi xách', 'is_seo_keyword' => true],
+        ];
+
+        $metrics = [];
+        $topics = $this->engine->cluster($seeds, $eligible, metrics: $metrics);
+        $allMemberIds = [];
+        foreach ($topics as $topic) {
+            foreach ($topic['members'] as $member) {
+                $allMemberIds[] = $member['keyword_id'];
+            }
+        }
+        self::assertNotContains(40, $allMemberIds);
+        self::assertSame(0, $metrics['members_attached_core_fallback']);
+    }
+
+    public function test_two_token_product_core_does_not_core_fallback_balo_laptop(): void
+    {
+        $seeds = [$this->seed(1, 'Xưởng May Balo Laptop')];
+        $eligible = [
+            ['keyword_id' => 1, 'phrase' => 'Xưởng May Balo Laptop', 'is_seo_keyword' => true],
+            // Contains balo+laptop but not the full Topic phrase → no direct; 2-token core → no fallback.
+            ['keyword_id' => 41, 'phrase' => 'balo laptop chống sốc 15 inch', 'is_seo_keyword' => true],
+        ];
+
+        $metrics = [];
+        $topics = $this->engine->cluster($seeds, $eligible, metrics: $metrics);
+        $allMemberIds = [];
+        foreach ($topics as $topic) {
+            foreach ($topic['members'] as $member) {
+                $allMemberIds[] = $member['keyword_id'];
+            }
+        }
+        self::assertNotContains(41, $allMemberIds);
+        self::assertSame(0, $metrics['members_attached_core_fallback']);
+    }
+
+    public function test_raw_may_machine_word_rejects_core_fallback(): void
+    {
+        $seeds = [$this->seed(1, 'Xưởng May Balo Du Lịch')];
+        $eligible = [
+            ['keyword_id' => 1, 'phrase' => 'Xưởng May Balo Du Lịch', 'is_seo_keyword' => true],
+            ['keyword_id' => 50, 'phrase' => 'Máy cắt vải balo du lịch', 'is_seo_keyword' => true],
+        ];
+
+        $metrics = [];
+        $topics = $this->engine->cluster($seeds, $eligible, metrics: $metrics);
+        $allMemberIds = [];
+        foreach ($topics as $topic) {
+            foreach ($topic['members'] as $member) {
+                $allMemberIds[] = $member['keyword_id'];
+            }
+        }
+        self::assertNotContains(50, $allMemberIds);
+        self::assertSame(0, $metrics['members_attached_core_fallback']);
+    }
+
+    public function test_ascii_may_sewing_phrase_still_allows_three_token_fallback(): void
+    {
+        $seeds = [$this->seed(1, 'Xưởng may balo quà tặng')];
+        $eligible = [
+            ['keyword_id' => 1, 'phrase' => 'Xưởng may balo quà tặng', 'is_seo_keyword' => true],
+            ['keyword_id' => 51, 'phrase' => 'may balo quà tặng vải canvas', 'is_seo_keyword' => true],
+        ];
+
+        $metrics = [];
+        $topics = $this->engine->cluster($seeds, $eligible, metrics: $metrics);
+        $quaTang = $this->topicByNameContains($topics, 'quà tặng');
+        self::assertContains(51, array_column($quaTang['members'], 'keyword_id'));
+        self::assertSame(1, $metrics['members_attached_core_fallback']);
+    }
+
     public function test_three_related_remainder_creates_one_discovered_topic(): void
     {
         $seeds = [$this->seed(1, 'Túi đựng mỹ phẩm')];

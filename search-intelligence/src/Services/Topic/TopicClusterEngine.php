@@ -336,17 +336,32 @@ final class TopicClusterEngine
     {
         // Intent is not a hard gate here: product/service umbrella Topics may absorb
         // product-only keywords when the topic product core is contiguous in the keyword.
+        // Two-token product cores (e.g. túi xách / balo laptop) are too broad for fallback.
         $productTokens = $this->topicProductTokens($topicName);
-        if (count($productTokens) < 2) {
+        if (count($productTokens) < 3) {
             return false;
         }
         if ($this->phrases->isGenericSingletonCore($productTokens)) {
+            return false;
+        }
+        // Raw Vietnamese "máy" (machine) must not match sewing "may" Topics via fold.
+        // Do NOT treat ASCII "may" as máy — check the original candidate phrase only.
+        if ($this->containsRawMayMachineWord($keywordPhrase)) {
             return false;
         }
 
         $keywordTokens = $this->phrases->significantTokens($keywordPhrase);
 
         return $this->phrases->containsContiguousTokenPhrase($keywordTokens, $productTokens);
+    }
+
+    /**
+     * True when the original phrase contains the accented word "máy" (machine),
+     * as a Unicode word token — not folded "may" (sewing).
+     */
+    private function containsRawMayMachineWord(string $phrase): bool
+    {
+        return preg_match('/(?<![\p{L}\p{N}_])máy(?![\p{L}\p{N}_])/ui', $phrase) === 1;
     }
 
     /**

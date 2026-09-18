@@ -607,6 +607,7 @@ body:has(.keyword-workspace-page) .fi-page-content {
     width: 100% !important;
     max-width: 100% !important;
     flex: none !important;
+    padding-right: 0 !important;
 }
 
 .keyword-detail-layout.is-quick-mode .keyword-detail-drawer-slot,
@@ -879,31 +880,24 @@ body:has(.keyword-workspace-page) .fi-page-content {
 }
 
 @media (min-width: 1280px) {
-    .keyword-detail-layout:not(.is-panel-open) {
+    .keyword-detail-layout {
         display: block;
+        width: 100%;
     }
 
-    .keyword-detail-layout:not(.is-panel-open) .keyword-table-shell {
+    .keyword-detail-layout .keyword-table-shell {
         width: 100%;
         max-width: 100%;
-    }
-
-    .keyword-detail-layout.is-panel-open {
-        display: flex;
-        align-items: stretch;
-        gap: 0.75rem;
-        width: 100%;
-    }
-
-    .keyword-detail-layout.is-panel-open .keyword-table-shell {
-        flex: 1 1 0%;
         min-width: 0;
-        width: auto;
-        max-width: none;
+        transition: padding-right 0.28s ease;
+    }
+
+    /* Reserve space so the fixed right panel does not cover the table. */
+    .keyword-detail-layout.is-panel-open:not(.is-overlay-mode) .keyword-table-shell {
+        padding-right: calc(22rem + 0.75rem);
     }
 
     .keyword-detail-layout.is-panel-open .keyword-detail-drawer.is-visible {
-        flex: 0 0 22rem;
         width: 22rem;
         max-width: 22rem;
     }
@@ -913,19 +907,22 @@ body:has(.keyword-workspace-page) .fi-page-content {
     }
 
     .keyword-detail-layout:not(.is-overlay-mode) .keyword-detail-drawer.is-visible {
-        position: relative;
-        top: auto;
-        right: auto;
-        height: auto;
-        min-height: 28rem;
-        transform: none;
-        box-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
-        border: 1px solid rgb(229 231 235);
-        border-radius: 0.875rem;
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 40;
+        display: flex;
+        height: 100dvh;
+        min-height: 0;
+        transform: translateX(0);
+        box-shadow: -8px 0 24px rgb(15 23 42 / 0.12);
+        border: none;
+        border-left: 1px solid rgb(229 231 235);
+        border-radius: 0;
     }
 
-    .keyword-detail-layout:not(.is-overlay-mode).is-panel-open .keyword-detail-drawer.is-visible {
-        display: flex;
+    .dark .keyword-detail-layout:not(.is-overlay-mode) .keyword-detail-drawer.is-visible {
+        border-left-color: rgb(255 255 255 / 0.1);
     }
 }
 
