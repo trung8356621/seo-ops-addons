@@ -409,9 +409,21 @@ final class CreateArticlesFromTaskService
     }
 
     /**
-     * Rerun từ Outline + downstream: graph runner từ Outline node (không shortcut Outline→Content).
+     * FULL RERUN: explicit two-phase orchestration.
      *
-     * @return array{success: bool, article_id: ?int, message: string, steps: list<array<string, mixed>>}
+     * Phase 1 — Outline/Vocabulary (skip content body writes)
+     *         → durable Outline checkpoint on the article
+     * Phase 2 — Explicit Writing via ArticleWritingExecutionService (not graph-downstream hope)
+     *
+     * @return array{
+     *   success: bool,
+     *   article_id: ?int,
+     *   message: string,
+     *   steps: list<array<string, mixed>>,
+     *   persist_status?: string,
+     *   error_code?: string,
+     *   failed_step?: ?array{title: string, prompt_name: string, message: string, hook_key?: string}
+     * }
      */
     public function runOutlineThenArticleForContext(TaskTestContext $context, int $siteId): array
     {
@@ -459,14 +471,260 @@ final class CreateArticlesFromTaskService
             WorkflowExecutionRole::ArticleOutlineGenerate,
         );
 
-        $steps = $this->workflowRunner->runFromNodeId(
+        // ── PHASE 1: Outline + Vocabulary only (content/save_article skipped by scope) ──
+        $context = $this->withForcedAiRegenerate($context, 'outline');
+        $phase1Steps = $this->workflowRunner->runFromNodeId(
             $task,
             $context,
             $outlineNodeId,
             seedOutlineFromArticle: false,
+            skipContentWriting: true,
         );
+        $phase1Steps = $this->stampPhaseOnSteps($phase1Steps, 'outline');
 
-        return $this->finalizeWorkflowGraphRun($context, $task, $resolvedSiteId, $keyword, $steps);
+        $phase1Block = $this->summarizeBlockingPhase1Failure($phase1Steps);
+        if ($phase1Block !== null) {
+            return [
+                'success' => false,
+                'article_id' => $this->resolveArticleIdFromSteps($context, $phase1Steps),
+                'steps' => $phase1Steps,
+                'message' => $phase1Block['message'],
+                'failed_step' => $phase1Block['failed_step'],
+                'error_code' => 'full_rerun_outline_phase_failed',
+            ];
+        }
+
+        $canonicalArtifact = $this->extractCanonicalOutlineFromSteps($phase1Steps);
+        if ($canonicalArtifact === null || trim($canonicalArtifact) === '') {
+            return [
+                'success' => false,
+                'article_id' => $this->resolveArticleIdFromSteps($context, $phase1Steps),
+                'steps' => $phase1Steps,
+                'message' => 'FULL RERUN: Outline phase did not produce a durable outline artifact.',
+                'error_code' => 'full_rerun_outline_artifact_missing',
+                'failed_step' => [
+                    'title' => 'Outline checkpoint',
+                    'prompt_name' => '',
+                    'message' => 'Missing canonical outline artifact after Phase 1.',
+                ],
+            ];
+        }
+
+        $article = $this->resolveArticleFromWorkflow(
+            $context,
+            $phase1Steps,
+            $resolvedSiteId,
+            $keyword,
+            $context->variables,
+        );
+        $persist = $this->articleOutlinePersist->persist($article, $canonicalArtifact);
+        if (! ($persist['ok'] ?? false)) {
+            return [
+                'success' => false,
+                'article_id' => (int) $article->id,
+                'steps' => $phase1Steps,
+                'message' => (string) ($persist['message'] ?? 'Không lưu được outline checkpoint.'),
+                'error_code' => 'full_rerun_outline_checkpoint_failed',
+                'failed_step' => [
+                    'title' => 'Outline checkpoint',
+                    'prompt_name' => '',
+                    'message' => (string) ($persist['message'] ?? 'persist failed'),
+                ],
+            ];
+        }
+
+        $fresh = $article->fresh() ?? $article;
+        $resolvedMarkdown = $this->articleOutlinePersist->resolveMarkdown($fresh);
+        $artifactHash = hash('sha256', trim($canonicalArtifact));
+        $resolvedHash = hash('sha256', trim($resolvedMarkdown));
+        if ($resolvedMarkdown === '' || $resolvedHash !== $artifactHash) {
+            return [
+                'success' => false,
+                'article_id' => (int) $fresh->id,
+                'steps' => $phase1Steps,
+                'message' => 'FULL RERUN: Outline checkpoint verification failed after persist.',
+                'error_code' => 'full_rerun_outline_checkpoint_mismatch',
+                'failed_step' => [
+                    'title' => 'Outline checkpoint verify',
+                    'prompt_name' => '',
+                    'message' => 'resolveMarkdown hash !== Phase-1 artifact hash',
+                ],
+            ];
+        }
+
+        // Seed Writing exclusively from the new checkpoint (never stale article PromptResult).
+        $context = $context->withArticle($fresh)->withVariables(array_merge($context->variables, [
+            'article_writing_raw_input' => $canonicalArtifact,
+            'direct_publish_outline_markdown' => $canonicalArtifact,
+            'outline_artifact_hash' => $artifactHash,
+            'force_ai_regenerate' => '1',
+        ]));
+
+        // ── PHASE 2: Explicit Writing (graph-independent) ──
+        $writing = $this->runArticleWritingForContext(
+            $context,
+            $task,
+            $resolvedSiteId,
+            $keyword,
+            ArticleWritingExecutionMode::ContentNode,
+            ArticleWritingSourceType::Outline,
+        );
+        $writingSteps = $this->stampPhaseOnSteps(
+            is_array($writing['steps'] ?? null) ? $writing['steps'] : [],
+            'writing',
+        );
+        $mergedSteps = array_merge($phase1Steps, $writingSteps);
+
+        if (! $this->writingPhaseExecuted($writing, $writingSteps)) {
+            return [
+                'success' => false,
+                'article_id' => (int) ($writing['article_id'] ?? $fresh->id),
+                'steps' => $mergedSteps,
+                'message' => 'FULL RERUN: Outline checkpoint saved but Writing was not executed.',
+                'error_code' => 'full_rerun_writing_not_executed',
+                'persist_status' => $writing['persist_status'] ?? null,
+                'failed_step' => [
+                    'title' => 'Writing',
+                    'prompt_name' => '',
+                    'message' => 'article.content.generate was not executed after Outline checkpoint.',
+                    'hook_key' => ArticleWritingExecutionService::HOOK_KEY,
+                ],
+            ];
+        }
+
+        return [
+            'success' => (bool) ($writing['success'] ?? false),
+            'article_id' => isset($writing['article_id']) ? (int) $writing['article_id'] : (int) $fresh->id,
+            'steps' => $mergedSteps,
+            'message' => (string) ($writing['message'] ?? 'Đã chạy FULL RERUN (Outline checkpoint + Writing).'),
+            'persist_status' => $writing['persist_status'] ?? null,
+            'error_code' => $writing['error_code'] ?? null,
+            'failed_step' => $writing['failed_step'] ?? null,
+            'source_type' => $writing['source_type'] ?? null,
+            'prompt_owner_type' => $writing['prompt_owner_type'] ?? null,
+            'outline_checkpoint_hash' => $artifactHash,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @return list<array<string, mixed>>
+     */
+    private function stampPhaseOnSteps(array $steps, string $phase): array
+    {
+        $out = [];
+        foreach ($steps as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $step['full_rerun_phase'] = $phase;
+            $out[] = $step;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Phase-1 expected skips (content/save_article/not_reachable outside outline branch) are not failures.
+     *
+     * @param  list<array<string, mixed>>  $steps
+     * @return null|array{message: string, failed_step: ?array{title: string, prompt_name: string, message: string, hook_key?: string}}
+     */
+    private function summarizeBlockingPhase1Failure(array $steps): ?array
+    {
+        $nonBlocking = [
+            'not_reachable',
+            'skipped_scope',
+            \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::SKIP_REASON_OUTLINE_ONLY_SCOPE,
+            'outline_vocabulary_scope',
+        ];
+
+        foreach ($steps as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $status = strtolower(trim((string) ($step['status'] ?? '')));
+            $skip = strtolower(trim((string) ($step['skip_reason'] ?? '')));
+            if (in_array($status, ['skipped', 'not_reachable'], true) && in_array($skip, $nonBlocking, true)) {
+                continue;
+            }
+            if (! in_array($status, ['failed', 'blocked', 'error'], true)) {
+                continue;
+            }
+
+            $failure = $this->summarizeWorkflowFailure([$step]);
+
+            return [
+                'message' => $failure['message'],
+                'failed_step' => $failure['failed_step'],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     */
+    private function extractCanonicalOutlineFromSteps(array $steps): ?string
+    {
+        foreach (array_reverse($steps) as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $fromField = trim((string) ($step['outline_markdown'] ?? ''));
+            if ($fromField !== '' && $this->outlineResolver->isValidArtifact($fromField)) {
+                $vocab = trim((string) ($step['vocabulary_markdown'] ?? ''));
+                if ($vocab !== '') {
+                    $merged = $fromField."\n".$vocab;
+                    if ($this->outlineResolver->isValidArtifact($merged)) {
+                        return $merged;
+                    }
+                }
+
+                return $fromField;
+            }
+
+            $extracted = $this->extractOutlineArtifactFromStep($step);
+            if ($extracted !== null && trim($extracted) !== '') {
+                return $extracted;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $writingResult
+     * @param  list<array<string, mixed>>  $writingSteps
+     */
+    private function writingPhaseExecuted(array $writingResult, array $writingSteps): bool
+    {
+        foreach ($writingSteps as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
+            $status = strtolower(trim((string) ($step['status'] ?? '')));
+            if ($hook === ArticleWritingExecutionService::HOOK_KEY
+                && in_array($status, ['completed', 'success', 'failed', 'blocked'], true)
+            ) {
+                return true;
+            }
+            if (($step['artifact_type'] ?? '') === 'article_content'
+                && in_array($status, ['completed', 'success', 'failed'], true)
+            ) {
+                return true;
+            }
+        }
+
+        $persist = strtolower(trim((string) ($writingResult['persist_status'] ?? '')));
+        if (in_array($persist, ['applied', 'ignored_stale', 'failed'], true)) {
+            return true;
+        }
+
+        // Empty steps + soft success without persist → Writing never ran.
+        return false;
     }
 
     /**
@@ -553,6 +811,7 @@ final class CreateArticlesFromTaskService
         $outputs = is_array($step['outputs'] ?? null) ? $step['outputs'] : [];
         // Prefer marked total / out_main — section ports may be marker-stripped.
         $candidates = [
+            $step['outline_markdown'] ?? null,
             $outputs['total'] ?? null,
             $outputs['out_main'] ?? null,
             $step['output'] ?? null,

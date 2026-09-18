@@ -201,10 +201,10 @@ final class WorkflowPublishContentEvidenceTest extends TestCase
             '/if\s*\(\s*\$includeDownstream\s*\)\s*\{[\s\S]*?runOutlineThenArticleForContext/u',
             $createSrc,
         );
-        // Default finalize for outline+downstream requires content (no requireContent: false on that path).
-        $this->assertStringContainsString(
-            'return $this->finalizeWorkflowGraphRun($context, $task, $resolvedSiteId, $keyword, $steps);',
-            $createSrc,
-        );
+        // Default FULL path is two-phase: outline checkpoint then explicit writing (not single finalize).
+        $this->assertStringContainsString('skipContentWriting: true', $createSrc);
+        $this->assertStringContainsString('runArticleWritingForContext', $createSrc);
+        $this->assertStringContainsString('full_rerun_writing_not_executed', $createSrc);
+        $this->assertStringContainsString('articleOutlinePersist->persist', $createSrc);
     }
 }

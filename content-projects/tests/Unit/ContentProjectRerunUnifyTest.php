@@ -152,7 +152,10 @@ final class ContentProjectRerunUnifyTest extends TestCase
         self::assertNotFalse($methodEnd);
         $outlineChunk = substr($create, $outlineMethodPos, $methodEnd - $outlineMethodPos);
         self::assertStringContainsString('runFromNodeId', $outlineChunk);
-        self::assertStringNotContainsString('runArticleWritingForContext', $outlineChunk);
+        self::assertStringContainsString('skipContentWriting: true', $outlineChunk);
+        self::assertStringContainsString('runArticleWritingForContext', $outlineChunk);
+        self::assertStringContainsString('articleOutlinePersist->persist', $outlineChunk);
+        self::assertStringContainsString('full_rerun_writing_not_executed', $outlineChunk);
         self::assertStringContainsString('withForcedAiRegenerate', $create);
     }
 
