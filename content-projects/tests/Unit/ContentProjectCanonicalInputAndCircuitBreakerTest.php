@@ -130,8 +130,11 @@ final class ContentProjectCanonicalInputAndCircuitBreakerTest extends TestCase
             dirname(__DIR__, 2).'/src/Services/ContentProject/ContentProjectRewriteKeywordCanonicalizer.php',
         );
         self::assertStringContainsString('syncSeoMetaForArticle', $src);
-        self::assertStringContainsString('syncSingleArticleFromWordPress', $src);
+        // Run #309/#8553: inbound full WP pull force-overwrote articles.body before writing.
+        // Canonicalize must push SEO meta only — never syncSingleArticleFromWordPress.
+        self::assertStringNotContainsString('syncSingleArticleFromWordPress', $src);
         self::assertStringContainsString('Không thể đồng bộ từ khóa SEO sang WordPress', $src);
+        self::assertStringContainsString('articles.body', $src);
 
         $workflow = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/SeoProjectWorkflowRunService.php',

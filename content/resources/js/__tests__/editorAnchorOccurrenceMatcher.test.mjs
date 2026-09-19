@@ -454,6 +454,128 @@ function asMainDomainInternalCandidate(item) {
     };
 }
 
+describe('Internal Link suggestion eligibility — heading / cross-node excluded', () => {
+    it('phrase in normal paragraph → eligible', () => {
+        const blocks = [{ id: 'b1', content: '<p>Các mẫu balo laptop cho nhân viên.</p>' }];
+        const hits = findSuggestionPhraseOccurrences(blocks, 'balo laptop');
+        assert.equal(hits.length, 1);
+        assert.equal(hits[0].blockId, 'b1');
+        assert.equal(hits[0].matchIndex, 0);
+
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'balo laptop');
+        assert.equal(rows[0]._domain_occurrences[0].matchIndex, 0);
+    });
+
+    it('phrase entirely in heading h1–h6 → excluded', () => {
+        const blocks = [{ id: 'b1', content: '<h2>balo laptop cho doanh nghiệp</h2>' }];
+        assert.equal(findSuggestionPhraseOccurrences(blocks, 'balo laptop').length, 0);
+        assert.equal(
+            buildActionableInternalLinkSuggestions(
+                [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+                blocks,
+            ).length,
+            0,
+        );
+
+        for (const tag of ['h1', 'h3', 'h4', 'h5', 'h6']) {
+            const headed = [{ id: 'b1', content: `<${tag}>balo laptop</${tag}>` }];
+            assert.equal(findSuggestionPhraseOccurrences(headed, 'balo laptop').length, 0, tag);
+        }
+    });
+
+    it('heading hit skipped; paragraph hit kept with original matchIndex', () => {
+        const blocks = [{
+            id: 'b1',
+            content: '<h2>balo laptop</h2><p>Giới thiệu balo laptop mới.</p>',
+        }];
+        const hits = findSuggestionPhraseOccurrences(blocks, 'balo laptop');
+        assert.equal(hits.length, 1);
+        // Heading is unlinked occurrence 0; paragraph is 1 — keep insert/highlight identity.
+        assert.equal(hits[0].matchIndex, 1);
+
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]._domain_occurrences[0].matchIndex, 1);
+    });
+
+    it('phrase split by <strong> / <em> → excluded', () => {
+        const strongSplit = [{
+            id: 'b1',
+            content: '<p>chất liệu <strong>vải dù</strong> cao cấp</p>',
+        }];
+        assert.equal(findSuggestionPhraseOccurrences(strongSplit, 'chất liệu vải dù').length, 0);
+        assert.equal(
+            buildActionableInternalLinkSuggestions(
+                [{ text: 'chất liệu vải dù', href: '/vai-du' }],
+                strongSplit,
+            ).length,
+            0,
+        );
+
+        const emSplit = [{
+            id: 'b1',
+            content: '<p>may <em>balo</em> laptop theo yêu cầu</p>',
+        }];
+        assert.equal(findSuggestionPhraseOccurrences(emSplit, 'may balo laptop').length, 0);
+    });
+
+    it('phrase entirely inside one formatting node remains eligible', () => {
+        const blocks = [{
+            id: 'b1',
+            content: '<p>Các mẫu <strong>balo laptop</strong> cho nhân viên.</p>',
+        }];
+        const hits = findSuggestionPhraseOccurrences(blocks, 'balo laptop');
+        assert.equal(hits.length, 1);
+        assert.equal(hits[0].matchIndex, 0);
+
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            blocks,
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'balo laptop');
+    });
+
+    it('cross-node hit skipped; contiguous hit kept with original matchIndex', () => {
+        const blocks = [{
+            id: 'b1',
+            content: '<p>chất liệu <strong>vải dù</strong> và chất liệu vải dù thường</p>',
+        }];
+        const hits = findSuggestionPhraseOccurrences(blocks, 'chất liệu vải dù');
+        assert.equal(hits.length, 1);
+        assert.equal(hits[0].matchIndex, 1);
+
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'chất liệu vải dù', href: '/vai-du' }],
+            blocks,
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]._domain_occurrences[0].matchIndex, 1);
+    });
+
+    it('existing valid suggestions remain unchanged', () => {
+        const catalog = [
+            { text: 'May Balo Laptop', href: '/may-balo-laptop' },
+            { text: 'balo laptop', href: '/may-balo-laptop' },
+        ];
+        const blocks = [{ id: 'b1', content: '<p>Các mẫu balo laptop cho nhân viên.</p>' }];
+        const rows = buildActionableInternalLinkSuggestions(catalog, blocks);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'balo laptop');
+        assert.equal(rows[0].href, '/may-balo-laptop');
+        assert.equal(rows[0].occurrence_count, 1);
+        assert.equal(rows[0]._domain_occurrences[0].matchIndex, 0);
+    });
+});
+
 describe('Main-domain internal candidates go through the same actionable occurrence SSOT', () => {
     const mainDomainItem = {
         text: 'túi vải bố',

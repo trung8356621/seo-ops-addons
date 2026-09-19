@@ -14,14 +14,13 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\WordPress\Services\SideEffect\ManualWordPressContext;
-use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
 use Illuminate\Support\Str;
 
 /**
  * For rewrite items: Content Project keyword is authority.
- * Push CP keyword → WordPress SEO meta → sync Article back → stamp prompt variables.
- * Never overwrite planning keyword from WP/Article after generate.
+ * Push CP keyword → WordPress SEO meta (outbound only) → stamp prompt variables from local metas.
+ * Never full-pull WP body (editor SSOT = articles.body). Never overwrite planning keyword from WP after generate.
  */
 final class ContentProjectRewriteKeywordCanonicalizer
 {
@@ -29,7 +28,6 @@ final class ContentProjectRewriteKeywordCanonicalizer
 
     public function __construct(
         private readonly WordPressArticleSyncService $wpSync,
-        private readonly SyncDomainContentService $inboundSync,
         private readonly SeoAnalyzerService $seoAnalyzer,
     ) {}
 
@@ -135,11 +133,11 @@ final class ContentProjectRewriteKeywordCanonicalizer
             throw new \RuntimeException(self::ERROR_MESSAGE);
         }
 
-        $pull = SeoQueueContext::runWpSyncFromQueue(
-            fn (): array => $this->inboundSync->syncSingleArticleFromWordPress($article->fresh() ?? $article),
-        );
-        if (! ($pull['success'] ?? false)) {
-            throw new \RuntimeException(self::ERROR_MESSAGE);
-        }
+        // Editor SSOT is articles.body. Do NOT full-pull the WP post here:
+        // inbound single-article WP sync force-overwrites body (wp_force_overwrite_pull)
+        // and destroyed local writing output before Content node could run (run #309 / #8553).
+        // Local keyword was already written by KeywordFocusAttach above; refresh metas only.
+        $article->unsetRelation('articleMetas');
+        $article->load('articleMetas');
     }
 }

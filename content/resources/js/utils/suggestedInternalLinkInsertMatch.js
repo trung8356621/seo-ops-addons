@@ -3,7 +3,8 @@
  * Pure helpers — no i18n / editor command side effects.
  *
  * Occurrence semantics SSOT: editorAnchorOccurrenceMatcher
- * (exact contiguous tokens, exclude existing <a>, local matchIndex per block).
+ * (exact contiguous tokens, exclude existing <a>, skip heading / cross-node,
+ *  local matchIndex per block preserved for insert/highlight).
  */
 
 import { findExactAnchorOccurrencesInBlocks } from './editorAnchorOccurrenceMatcher.js';

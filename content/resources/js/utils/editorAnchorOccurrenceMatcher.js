@@ -1,9 +1,285 @@
 /**
  * Exact/normalized anchor occurrence matcher for Editor Domain Link suggestions.
  * No soft/proximity/semantic matching — phrase must appear as contiguous tokens.
+ *
+ * Suggestion eligibility (before Link Assistant display):
+ * - skip occurrences inside h1–h6
+ * - skip occurrences that span multiple text/formatting nodes
+ * Only single-segment, non-heading hits remain — same constraint as reliable
+ * highlight (surroundContents) / wrap. Does not broaden the highlighter.
  */
 
 import { normalizePhraseForMatch, normalizeHrefForCompare } from './articleLinkSuggestionFilter.js';
+
+const HEADING_CLOSE_RE = /^\/h[1-6]$/i;
+const HEADING_OPEN_RE = /^h[1-6]\b/i;
+const ANCHOR_CLOSE_RE = /^\/a$/i;
+const ANCHOR_OPEN_RE = /^a\b/i;
+
+/**
+ * @param {Node|null|undefined} node
+ * @returns {boolean}
+ */
+function isInsideHeadingNode(node) {
+    const el = node?.nodeType === 3 ? node.parentElement : /** @type {Element|null} */ (node);
+    return Boolean(el?.closest?.('h1,h2,h3,h4,h5,h6'));
+}
+
+/**
+ * @param {Node|null|undefined} node
+ * @returns {boolean}
+ */
+function isInsideAnchorNode(node) {
+    const el = node?.nodeType === 3 ? node.parentElement : /** @type {Element|null} */ (node);
+    return Boolean(el?.closest?.('a[href]'));
+}
+
+/**
+ * DOM path — unlinked text-join indexing (same as insert/highlight) plus
+ * single-text-node + non-heading eligibility. Self-contained to keep node --test
+ * free of extensionless articlePlainTextRange imports.
+ *
+ * @param {string} html
+ * @param {string} phrase
+ * @param {number} matchIndex
+ * @returns {boolean|null} null when DOM path unavailable
+ */
+function isEligibleSuggestionOccurrenceDom(html, phrase, matchIndex) {
+    if (typeof DOMParser === 'undefined') {
+        return null;
+    }
+
+    try {
+        const doc = new DOMParser().parseFromString(String(html), 'text/html');
+        const root = doc.body;
+        if (!root) {
+            return false;
+        }
+
+        const target = String(phrase ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (target === '') {
+            return false;
+        }
+
+        /** @type {Text[]} */
+        const textNodes = [];
+        const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(textNode) {
+                if (!textNode.textContent?.length) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (isInsideAnchorNode(textNode)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        });
+
+        let current = walker.nextNode();
+        while (current) {
+            textNodes.push(/** @type {Text} */ (current));
+            current = walker.nextNode();
+        }
+
+        if (textNodes.length === 0) {
+            return false;
+        }
+
+        const parts = textNodes.map((node) => node.textContent ?? '');
+        const lowerFull = parts.join('').toLowerCase();
+
+        let searchFrom = 0;
+        let found = 0;
+        let startIdx = -1;
+
+        while (searchFrom <= lowerFull.length) {
+            const idx = lowerFull.indexOf(target, searchFrom);
+            if (idx === -1) {
+                break;
+            }
+            if (found === matchIndex) {
+                startIdx = idx;
+                break;
+            }
+            found += 1;
+            searchFrom = idx + Math.max(1, target.length);
+        }
+
+        if (startIdx < 0) {
+            return false;
+        }
+
+        const endIdx = startIdx + target.length;
+        let pos = 0;
+        /** @type {Text|null} */
+        let startNode = null;
+        /** @type {Text|null} */
+        let endNode = null;
+
+        for (let i = 0; i < textNodes.length; i += 1) {
+            const partStart = pos;
+            const partEnd = pos + parts[i].length;
+            if (startNode === null && startIdx >= partStart && startIdx < partEnd) {
+                startNode = textNodes[i];
+            }
+            if (endIdx > partStart && endIdx <= partEnd) {
+                endNode = textNodes[i];
+                break;
+            }
+            pos = partEnd;
+        }
+
+        if (!startNode || !endNode || startNode !== endNode) {
+            return false;
+        }
+        if (isInsideHeadingNode(startNode)) {
+            return false;
+        }
+        return true;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * No-DOM mirror of unlinked text-join indexing + single-segment / non-heading checks.
+ *
+ * @param {string} html
+ * @param {string} phrase
+ * @param {number} matchIndex
+ * @returns {boolean}
+ */
+function isEligibleSuggestionOccurrenceNoDom(html, phrase, matchIndex) {
+    const target = String(phrase ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (target === '') {
+        return false;
+    }
+
+    const source = String(html ?? '');
+    /** @type {Array<{ text: string, inHeading: boolean }>} */
+    const segments = [];
+    let inAnchor = 0;
+    let headingDepth = 0;
+    let i = 0;
+
+    const pushText = (raw) => {
+        if (inAnchor > 0 || raw === '') {
+            return;
+        }
+        segments.push({
+            text: raw,
+            inHeading: headingDepth > 0,
+        });
+    };
+
+    while (i < source.length) {
+        if (source[i] === '<') {
+            const close = source.indexOf('>', i + 1);
+            if (close === -1) {
+                break;
+            }
+            const inner = source.slice(i + 1, close).trim();
+            if (inner.startsWith('!--')) {
+                const endComment = source.indexOf('-->', i + 4);
+                i = endComment === -1 ? source.length : endComment + 3;
+                continue;
+            }
+            if (ANCHOR_OPEN_RE.test(inner) && !inner.endsWith('/')) {
+                inAnchor += 1;
+            } else if (ANCHOR_CLOSE_RE.test(inner)) {
+                inAnchor = Math.max(0, inAnchor - 1);
+            } else if (HEADING_OPEN_RE.test(inner) && !inner.endsWith('/')) {
+                headingDepth += 1;
+            } else if (HEADING_CLOSE_RE.test(inner)) {
+                headingDepth = Math.max(0, headingDepth - 1);
+            }
+            i = close + 1;
+            continue;
+        }
+
+        const nextTag = source.indexOf('<', i);
+        const end = nextTag === -1 ? source.length : nextTag;
+        pushText(source.slice(i, end));
+        i = end;
+    }
+
+    if (segments.length === 0) {
+        return false;
+    }
+
+    const parts = segments.map((row) => row.text);
+    const lowerFull = parts.join('').toLowerCase();
+
+    let searchFrom = 0;
+    let found = 0;
+    let startIdx = -1;
+
+    while (searchFrom <= lowerFull.length) {
+        const idx = lowerFull.indexOf(target, searchFrom);
+        if (idx === -1) {
+            break;
+        }
+        if (found === matchIndex) {
+            startIdx = idx;
+            break;
+        }
+        found += 1;
+        searchFrom = idx + Math.max(1, target.length);
+    }
+
+    if (startIdx < 0) {
+        return false;
+    }
+
+    const endIdx = startIdx + target.length;
+    let pos = 0;
+    let startSeg = -1;
+    let endSeg = -1;
+
+    for (let s = 0; s < parts.length; s += 1) {
+        const partStart = pos;
+        const partEnd = pos + parts[s].length;
+        if (startSeg < 0 && startIdx >= partStart && startIdx < partEnd) {
+            startSeg = s;
+        }
+        if (endIdx > partStart && endIdx <= partEnd) {
+            endSeg = s;
+            break;
+        }
+        pos = partEnd;
+    }
+
+    if (startSeg < 0 || endSeg < 0 || startSeg !== endSeg) {
+        return false;
+    }
+
+    return !segments[startSeg].inHeading;
+}
+
+/**
+ * True when the Nth unlinked plain-text occurrence can be highlighted/inserted
+ * reliably: complete phrase in one text node, not inside h1–h6.
+ * Preserves matchIndex identity used by wrapPlainTextWithLink / scroll highlight.
+ *
+ * @param {string} html
+ * @param {string} phrase
+ * @param {number} matchIndex
+ * @returns {boolean}
+ */
+export function isEligibleSuggestionOccurrence(html, phrase, matchIndex) {
+    const target = String(phrase ?? '').replace(/\s+/g, ' ').trim();
+    const index = Math.max(0, Number(matchIndex) || 0);
+    if (target === '' || String(html ?? '').trim() === '') {
+        return false;
+    }
+
+    const domResult = isEligibleSuggestionOccurrenceDom(html, target, index);
+    if (domResult !== null) {
+        return domResult;
+    }
+
+    return isEligibleSuggestionOccurrenceNoDom(html, target, index);
+}
 
 /**
  * @param {string} text
@@ -143,10 +419,16 @@ export function findExactAnchorOccurrencesInBlocks(blocks, phrase, maxCount = 50
         if (plain === '') {
             continue;
         }
+        const html = String(block?.content ?? '');
         const tokens = tokenizeExactAnchorPlain(plain);
         const local = findExactAnchorOccurrences(tokens, phrase);
         for (let matchIndex = 0; matchIndex < local.length; matchIndex += 1) {
             const row = local[matchIndex];
+            // Keep original unlinked matchIndex (insert/highlight SSOT). Drop only
+            // ineligible hits (heading / cross-formatting-node) before suggestions.
+            if (!isEligibleSuggestionOccurrence(html, row.matchedText, matchIndex)) {
+                continue;
+            }
             out.push({
                 ...row,
                 blockId,
