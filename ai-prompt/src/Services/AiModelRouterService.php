@@ -1508,9 +1508,14 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             return [];
         }
 
-        // SECONDARY_PAID always reads the paid text area for this profile — never Free Models.
+        $secondaryProfile = $this->fallbackAreaResolver()->profileForArea($secondaryArea);
+        if ($secondaryProfile === null) {
+            return [];
+        }
+
+        // SECONDARY_PAID reads the paid area selected by the fallback lane, never Free Models.
         $targets = app(AiRoutingTargetService::class);
-        $paid = $targets->paidAreaCandidates($userId, $parsed, $context);
+        $paid = $targets->paidAreaCandidates($userId, $secondaryProfile, $context);
         $paid = array_values(array_filter(
             $paid,
             static fn (RoutedAiCandidate $c): bool => ! $c->isFree

@@ -276,7 +276,6 @@ final class AiCandidatePlanner
             if ($healthSkipReason($candidate) !== null) {
                 continue;
             }
-
             return $candidate;
         }
 
