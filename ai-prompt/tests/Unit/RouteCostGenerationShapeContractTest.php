@@ -206,7 +206,7 @@ final class RouteCostGenerationShapeContractTest extends TestCase
         self::assertStringContainsString('skipReason', $slice);
         self::assertStringContainsString('routeCapacityPolicy()', $slice);
         self::assertStringContainsString('->evaluate(', $slice);
-        self::assertStringContainsString('firstHealthUsable', $slice);
+        self::assertStringNotContainsString('firstHealthUsable', $slice);
         self::assertStringContainsString('noCandidate', $slice);
         self::assertStringNotContainsString('still return AI Center #1', $slice);
     }
@@ -229,7 +229,7 @@ final class RouteCostGenerationShapeContractTest extends TestCase
         $slice = substr($routerSrc, $sliceStart, 2800);
         self::assertStringContainsString('routeCapacityPolicy()', $slice);
         self::assertStringContainsString('! $capacity->eligible', $slice);
-        self::assertStringContainsString('return $firstHealthUsable', $slice);
+        self::assertStringNotContainsString('return $firstHealthUsable', $slice);
 
         // Behavioral: when first attemptable is already the capacity-surviving free route,
         // Content shape must be SPLIT — not PAID from a rejected higher-priority candidate.
@@ -238,6 +238,58 @@ final class RouteCostGenerationShapeContractTest extends TestCase
         self::assertSame(ArticleGenerationShape::Sectioned, $snap->generationShape);
         self::assertSame('free', $vars['shape_decision_cost_class']);
         self::assertSame('nemotron-free', $vars['primary_model']);
+    }
+
+    public function test_all_capacity_rejected_does_not_create_shape_snapshot(): void
+    {
+        $router = $this->createMock(FirstAttemptableAiRouteResolver::class);
+        $router->method('resolveFirstAttemptable')
+            ->willThrowException(AiRoutingException::noCandidate('text.longform', 'text.generate'));
+        $planner = new ArticleGenerationExecutionPlanner($router, new GenerationShapeResolver($router));
+        $variables = ['article_id' => 8553];
+
+        try {
+            $planner->plan('text.longform', new AiRoutingContext(userId: 1), $variables);
+            self::fail('Expected routing failure when every candidate is capacity-rejected.');
+        } catch (AiRoutingException) {
+            self::assertArrayNotHasKey('generation_shape', $variables);
+            self::assertArrayNotHasKey('shape_decision_cost_class', $variables);
+            self::assertArrayNotHasKey('primary_model', $variables);
+        }
+    }
+
+    public function test_retry_after_no_usable_route_can_choose_free_without_stale_single_shape(): void
+    {
+        $free = $this->candidate('nemotron-free', true, 2);
+        $router = $this->createMock(FirstAttemptableAiRouteResolver::class);
+        $attempt = 0;
+        $router->expects(self::exactly(2))
+            ->method('resolveFirstAttemptable')
+            ->willReturnCallback(static function () use (&$attempt, $free): RoutedAiCandidate {
+                $attempt++;
+                if ($attempt === 1) {
+                    throw AiRoutingException::noCandidate('text.longform', 'text.generate');
+                }
+
+                return $free;
+            });
+        $planner = new ArticleGenerationExecutionPlanner($router, new GenerationShapeResolver($router));
+
+        try {
+            $planner->plan('text.longform', new AiRoutingContext(userId: 1), []);
+            self::fail('Expected the first attempt to have no usable route.');
+        } catch (AiRoutingException) {
+        }
+
+        [, $snapshot, $variables] = $planner->plan(
+            'text.longform',
+            new AiRoutingContext(userId: 1),
+            [],
+        );
+
+        self::assertSame(ArticleGenerationShape::Sectioned, $snapshot->generationShape);
+        self::assertSame('free', $variables['shape_decision_cost_class']);
+        self::assertSame('nemotron-free', $variables['primary_model']);
     }
 
     public function test_planner_source_is_route_cost_not_writing_split(): void

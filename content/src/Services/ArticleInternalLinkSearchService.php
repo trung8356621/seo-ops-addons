@@ -38,7 +38,7 @@ final class ArticleInternalLinkSearchService
         $current = SeoArticle::query()
             ->where('site_id', $siteId)
             ->whereKey($excludeArticleId)
-            ->first(['id', 'site_id', 'title', 'slug']);
+            ->first(['id', 'site_id', 'title', 'slug', 'language']);
 
         if ($current instanceof SeoArticle) {
             $ranked = $this->candidateRetriever->searchRanked($current, $query, $limit);
@@ -58,11 +58,14 @@ final class ArticleInternalLinkSearchService
 
         // Fallback hẹp: title LIKE + exclude current (khi index rank không có kết quả).
         // Same eligibility as ranked index: must be synced to WordPress with a real permalink.
-        $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $query);
+        // Hard gate: fallback candidates must match the current article's language.
+        $currentLanguage = $current instanceof SeoArticle ? ((string) ($current->language ?? '') ?: 'vi') : 'vi';
+        $escaped = str_replace(['%', '_'], ['\%', '\_'], $query);
         $builder = ArticleResource::getEloquentQuery()
             ->with(['site', 'articleMetas', 'wordpressLink'])
             ->where('site_id', $siteId)
             ->where('id', '!=', $excludeArticleId)
+            ->where('language', $currentLanguage)
             ->notContentArchived()
             ->hasWpPostId()
             ->where(function (Builder $inner) use ($query, $escaped): void {

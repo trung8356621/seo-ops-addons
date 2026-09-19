@@ -8,11 +8,12 @@ const sessionCache = new Map();
 
 /**
  * @param {number} siteId
+ * @param {number} articleId
  * @param {string} phrase
  */
-export function internalLinkArticleSearchCacheKey(siteId, phrase) {
+export function internalLinkArticleSearchCacheKey(siteId, articleId, phrase) {
     const normalized = normalizePhraseForMatch(phrase);
-    return `${Number(siteId) || 0}\u0000${normalized}`;
+    return `${Number(siteId) || 0}\u0000${Number(articleId) || 0}\u0000${normalized}`;
 }
 
 /**
@@ -33,7 +34,7 @@ export async function searchInternalLinkArticlesCached(phrase, options = {}) {
         return [];
     }
 
-    const cacheKey = internalLinkArticleSearchCacheKey(siteId, trimmed);
+    const cacheKey = internalLinkArticleSearchCacheKey(siteId, articleId, trimmed);
     let pending = sessionCache.get(cacheKey);
     if (!pending) {
         pending = (async () => {

@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildDomainLinkListForEditor } from '../utils/domainLinkOccurrenceIndex.js';
+import { buildDomainLinkListForEditor, buildActionableInternalLinkSuggestions } from '../utils/domainLinkOccurrenceIndex.js';
 import {
     buildActionableDomainLinkSuggestions,
     findExactAnchorOccurrences,
@@ -269,3 +269,116 @@ describe('EditorAnchorOccurrenceMatcher', () => {
         assert.deepEqual(texts, ['balo laptop', 'may balo laptop']);
     });
 });
+
+describe('Internal Link suggestions — same actionable occurrence semantics as Domain Link List', () => {
+    it('1 — phrase absent from article => hidden', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [
+                { text: 'May Balo Laptop', href: '/may-balo-laptop' },
+                { text: 'balo laptop', href: '/may-balo-laptop' },
+            ],
+            [{ id: 'b1', content: '<p>Chúng tôi nhận may balo quà tặng cho doanh nghiệp.</p>' }],
+        );
+        assert.equal(rows.length, 0);
+    });
+
+    it('2 — alias present => alias/article phrase shown, not the catalog label', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [
+                { text: 'May Balo Laptop', href: '/may-balo-laptop' },
+                { text: 'balo laptop', href: '/may-balo-laptop' },
+            ],
+            [{ id: 'b1', content: '<p>Các mẫu balo laptop cho nhân viên.</p>' }],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'balo laptop');
+        assert.equal(rows[0].href, '/may-balo-laptop');
+    });
+
+    it('3 — phrase only inside existing <a> => hidden', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'balo laptop', href: '/may-balo-laptop' }],
+            [{ id: 'b1', content: '<p>Xem <a href="/old">balo laptop</a> tại đây.</p>' }],
+        );
+        assert.equal(rows.length, 0);
+    });
+
+    it('4 — linked occurrence first, unlinked occurrence later => visible', () => {
+        const blocks = [
+            { id: 'b1', content: '<p><a href="/old">balo laptop</a></p>' },
+            { id: 'b2', content: '<p>balo laptop mới</p>' },
+        ];
+        const rows = buildActionableInternalLinkSuggestions([{ text: 'balo laptop', href: '/may-balo-laptop' }], blocks);
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]._domain_occurrences[0].blockId, 'b2');
+    });
+
+    it('5 — longest overlap wins', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [
+                { text: 'May Balo Laptop', href: '/may-balo-laptop' },
+                { text: 'Balo Laptop', href: '/may-balo-laptop' },
+                { text: 'Laptop', href: '/may-balo-laptop' },
+            ],
+            [{ id: 'b1', content: '<p>Dịch vụ May Balo Laptop được thực hiện theo yêu cầu.</p>' }],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'May Balo Laptop');
+    });
+
+    it('6 — shorter phrase survives at a separate occurrence', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [
+                { text: 'may balo laptop', href: '/may-balo-laptop' },
+                { text: 'balo laptop', href: '/may-balo-laptop' },
+            ],
+            [{
+                id: 'b1',
+                content: '<p>Dịch vụ may balo laptop dành cho doanh nghiệp. Các mẫu balo laptop có nhiều kích thước.</p>',
+            }],
+        );
+        const texts = rows.map((row) => row.text).sort();
+        assert.deepEqual(texts, ['balo laptop', 'may balo laptop']);
+    });
+
+    it('7 — actual article casing retained', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [{ text: 'May Balo Laptop', href: '/may-balo-laptop' }],
+            [{ id: 'b1', content: '<p>Dịch vụ MAY BALO LAPTOP theo yêu cầu.</p>' }],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'MAY BALO LAPTOP');
+    });
+
+    it('8 — current editor blocks are SSOT; edit rebuilds visible suggestions', () => {
+        const catalog = [{ text: 'balo laptop', href: '/may-balo-laptop' }];
+        const before = buildActionableInternalLinkSuggestions(
+            catalog,
+            [{ id: 'b1', content: '<p>Chưa nhắc tới cụm này.</p>' }],
+        );
+        assert.equal(before.length, 0);
+
+        const afterEdit = buildActionableInternalLinkSuggestions(
+            catalog,
+            [{ id: 'b1', content: '<p>Bài viết vừa được chỉnh sửa nhắc tới balo laptop.</p>' }],
+        );
+        assert.equal(afterEdit.length, 1);
+        assert.equal(afterEdit[0].text, 'balo laptop');
+    });
+
+    it('9 — excludedLabels and MAX_INTERNAL_LINK_SLOTS gate still apply', () => {
+        const catalog = [{ text: 'balo laptop', href: '/may-balo-laptop' }];
+        const blocks = [{ id: 'b1', content: '<p>Các mẫu balo laptop cho nhân viên.</p>' }];
+
+        const excluded = buildActionableInternalLinkSuggestions(catalog, blocks, [], [], ['balo laptop']);
+        assert.equal(excluded.length, 0);
+
+        const tenExistingInternalLinks = Array.from({ length: 10 }, (_, i) => ({
+            text: `existing ${i}`,
+            href: `/existing-${i}`,
+        }));
+        const slotsFull = buildActionableInternalLinkSuggestions(catalog, blocks, tenExistingInternalLinks, []);
+        assert.equal(slotsFull.length, 0);
+    });
+});
+

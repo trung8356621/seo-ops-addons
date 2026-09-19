@@ -45,7 +45,7 @@ import {
 import { hasExplicitEditorTextSelection } from '../utils/editorExplicitSelection';
 import { findSuggestionPhraseOccurrences } from '../utils/suggestedInternalLinkInsertMatch';
 import { collectEditorBlocksFromDom, scrollToPhraseOccurrence } from '../utils/articlePhraseOccurrences';
-import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
+import { buildDomainLinkListForEditor, buildActionableInternalLinkSuggestions, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
 import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
 import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
 
@@ -1120,13 +1120,12 @@ export default function ArticleLinksSidebar({
     }, []);
     const countUsableSuggestions = (catalog = keywordCatalogRef.current) => {
         const partitioned = partitionSuggestionCatalogBySite(catalog, siteDomainRef.current);
-        const visible = buildVisibleInternalSuggestions({
-            catalog: partitioned.internal,
-            internal: linksRef.current.internal ?? [],
-            external: linksRef.current.external ?? [],
-            excludedLabels: [],
-            skipContentFilter: true,
-        });
+        const visible = buildActionableInternalLinkSuggestions(
+            partitioned.internal,
+            editorBlocksRef.current,
+            linksRef.current.internal ?? [],
+            linksRef.current.external ?? [],
+        );
 
         return visible.filter((item) => !isSuggestionExcluded(String(item?.text ?? ''), excludedPersistRef.current)).length;
     };
@@ -1808,13 +1807,12 @@ export default function ArticleLinksSidebar({
 
         if (stableSuggestionsKeyRef.current !== poolKey) {
             stableSuggestionsKeyRef.current = poolKey;
-            stableSuggestionsRef.current = buildVisibleInternalSuggestions({
-                catalog: pool,
+            stableSuggestionsRef.current = buildActionableInternalLinkSuggestions(
+                pool,
+                editorBlocksRef.current,
                 internal,
                 external,
-                excludedLabels: [],
-                skipContentFilter: true,
-            });
+            );
         }
 
         const filtered = stableSuggestionsRef.current.filter((item) => {

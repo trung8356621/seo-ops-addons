@@ -4,6 +4,9 @@
 
 import {
     isSpecialOrContactHref,
+    isSuggestionExcluded,
+    MAX_INTERNAL_LINK_SLOTS,
+    MAX_VISIBLE_INTERNAL_SUGGESTIONS,
     normalizeHrefForCompare,
     normalizeLinkLabel,
 } from './articleLinkSuggestionFilter.js';
@@ -89,6 +92,38 @@ export function buildDomainLinkListForEditor(allLinks, blocks, internalLinks = [
         ),
         can_insert: item.can_insert !== false && String(item.href ?? item.target_url ?? '').trim() !== '',
     }));
+}
+
+/**
+ * Internal Link suggestions — same actionable occurrence semantics as Domain Link List
+ * (SSOT: current editor blocks), plus the internal-suggestion slot/exclusion rules.
+ *
+ * @param {Array<Record<string, unknown>>} catalog
+ * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
+ * @param {Array<{ text?: string, href?: string }>} internalLinks
+ * @param {Array<{ text?: string, href?: string }>} externalLinks
+ * @param {string[]} excludedLabels
+ * @returns {Array<Record<string, unknown>>}
+ */
+export function buildActionableInternalLinkSuggestions(
+    catalog,
+    blocks,
+    internalLinks = [],
+    externalLinks = [],
+    excludedLabels = [],
+) {
+    if ((Array.isArray(internalLinks) ? internalLinks.length : 0) >= MAX_INTERNAL_LINK_SLOTS) {
+        return [];
+    }
+
+    const rows = buildDomainLinkListForEditor(catalog, blocks, internalLinks, externalLinks);
+    const visible = rows.filter((item) => {
+        const phrase = String(item?.text ?? '').trim();
+
+        return phrase !== '' && !isSuggestionExcluded(phrase, excludedLabels);
+    });
+
+    return visible.slice(0, MAX_VISIBLE_INTERNAL_SUGGESTIONS);
 }
 
 /**

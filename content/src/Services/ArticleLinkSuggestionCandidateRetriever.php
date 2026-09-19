@@ -84,7 +84,8 @@ final class ArticleLinkSuggestionCandidateRetriever
 
         $maxCandidates = (int) config('seo-content-ai.link_suggestions.max_candidates', 50);
         $minScore = LinkSuggestionScoreScale::primaryMinAccept();
-        $index = $this->siteArticleIndex($siteId, (int) $currentArticle->id);
+        $language = (string) ($currentArticle->language ?? '') ?: 'vi';
+        $index = $this->siteArticleIndex($siteId, (int) $currentArticle->id, $language);
 
         $currentUrls = $this->currentArticleUrls($currentArticle);
         $validationContext = [
@@ -187,7 +188,8 @@ final class ArticleLinkSuggestionCandidateRetriever
             'focus_keyword' => '',
             'paragraph_context' => $query,
         ]);
-        $index = $this->siteArticleIndex($siteId, (int) $currentArticle->id);
+        $language = (string) ($currentArticle->language ?? '') ?: 'vi';
+        $index = $this->siteArticleIndex($siteId, (int) $currentArticle->id, $language);
         $minScore = LinkSuggestionScoreScale::primaryMinAccept();
         $limit = max(1, min(30, $limit));
 
@@ -243,9 +245,9 @@ final class ArticleLinkSuggestionCandidateRetriever
      *     destination_resolved: bool
      * }>
      */
-    private function siteArticleIndex(int $siteId, int $excludeArticleId): array
+    private function siteArticleIndex(int $siteId, int $excludeArticleId, string $language): array
     {
-        $cacheKey = $siteId.':'.$excludeArticleId;
+        $cacheKey = $siteId.':'.$excludeArticleId.':'.$language;
         if (isset($this->siteIndexCache[$cacheKey])) {
             return $this->siteIndexCache[$cacheKey];
         }
@@ -348,15 +350,18 @@ final class ArticleLinkSuggestionCandidateRetriever
                     'tag_norms' => [],
                     'url' => $canonicalUrl,
                     'destination_resolved' => $destinationResolved,
+                    'language' => (string) ($article->language ?? ''),
                 ];
             }
 
             return $index;
         });
 
+        // Hard gate: candidate pool is site + language scoped, never cross-language.
         $index = array_values(array_filter(
             $fullIndex,
-            static fn (array $row): bool => (int) ($row['id'] ?? 0) !== $excludeArticleId,
+            static fn (array $row): bool => (int) ($row['id'] ?? 0) !== $excludeArticleId
+                && (string) ($row['language'] ?? '') === $language,
         ));
 
         $this->siteIndexCache[$cacheKey] = $index;
