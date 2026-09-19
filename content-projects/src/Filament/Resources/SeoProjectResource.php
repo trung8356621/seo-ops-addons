@@ -123,6 +123,28 @@ class SeoProjectResource extends SeoPanelResource
         return SeoAccessControl::canAccessSite($siteId);
     }
 
+    /**
+     * Publishing Queue hub / legacy redirect access — reuses canView, then domain-neutral
+     * item ownership fail-closed (ContentProjectTenantGuard / archive multi-domain family).
+     * Must not call canAccessSite(0) for null project.site_id.
+     */
+    public static function canAccessPublishingQueueProject(SeoProject $project): bool
+    {
+        if (! static::canView($project)) {
+            return false;
+        }
+
+        if ((int) ($project->site_id ?? 0) > 0) {
+            return true;
+        }
+
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard::class)
+            ->domainNeutralProjectHasAccessibleItemOwnership(
+                $project,
+                SeoAccessControl::accessibleSiteIds(),
+            );
+    }
+
     public static function projectRecordUrl(SeoProject $record): string
     {
         if ($record->isProjectArchived()) {

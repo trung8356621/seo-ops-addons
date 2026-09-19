@@ -94,21 +94,25 @@ class EditAiConnection extends SeoEditRecord
                     );
                     $ok = (bool) ($result['ok'] ?? false)
                         || (($result['reason'] ?? '') === 'already_fresh');
-                    $coverageAdded = 0;
+                    $autoMapped = 0;
                     if ($ok) {
                         try {
                             app(\Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier::class)
                                 ->classifyForUser((int) auth()->id());
                         } catch (\Throwable) {
                         }
-                        $coverageAdded = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-                            ->reconcileRoutingCoverage((int) auth()->id());
+                        try {
+                            $mapResult = app(\Omnichannel\Addons\AiPrompt\Services\AiRecommendedModelMapper::class)
+                                ->mapForUser((int) auth()->id());
+                            $autoMapped = $mapResult->enabled;
+                        } catch (\Throwable) {
+                        }
                     }
 
                     if ($ok) {
                         Notification::make()
                             ->title('Models synced')
-                            ->body('API model list updated. Routing coverage +'.$coverageAdded.'.')
+                            ->body('API model list updated. Recommended auto-map +'.$autoMapped.'.')
                             ->success()
                             ->send();
 
@@ -203,7 +207,15 @@ class EditAiConnection extends SeoEditRecord
             respectForcedDebounce: false,
         );
         app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
-        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-            ->reconcileAllAreas((int) auth()->id());
+        try {
+            app(\Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier::class)
+                ->classifyForUser((int) auth()->id());
+        } catch (\Throwable) {
+        }
+        try {
+            app(\Omnichannel\Addons\AiPrompt\Services\AiRecommendedModelMapper::class)
+                ->mapForUser((int) auth()->id());
+        } catch (\Throwable) {
+        }
     }
 }

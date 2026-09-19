@@ -30,8 +30,9 @@ final class ContentProjectPublishingQueue extends Page
         $this->record = $record;
         $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()->find($record);
         abort_unless($project instanceof SeoProject, 404);
-        abort_unless(SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0)), 403);
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        // Same ownership as Publishing Queue hub — do not canAccessSite(0) on domain-neutral projects.
+        abort_unless(SeoProjectResource::canAccessPublishingQueueProject($project), 403);
 
         $this->redirect(SeoProjectResource::getPublishingQueueUrl($project), navigate: false);
     }

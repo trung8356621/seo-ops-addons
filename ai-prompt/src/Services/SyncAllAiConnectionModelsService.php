@@ -9,8 +9,9 @@ use Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 /**
- * Sync all configured AI connections' provider catalogs, then reconcile routing coverage.
+ * Sync all configured AI connections' provider catalogs, then auto-map known recommended models.
  * One provider failure does not abort others. Never invokes paid language-curation LLM.
+ * Does not auto-seed arbitrary area membership via connection coverage reconcile.
  *
  * @phpstan-type SyncRow array{
  *   connection_id: int,
@@ -29,6 +30,7 @@ final class SyncAllAiConnectionModelsService
      *   failed: int,
      *   skipped: int,
      *   coverage_added: int,
+     *   auto_mapped: int,
      *   rows: list<SyncRow>,
      *   summary_lines: list<string>
      * }
@@ -36,7 +38,6 @@ final class SyncAllAiConnectionModelsService
     public function run(int $userId): array
     {
         $inventory = app(AiConnectionInventoryService::class);
-        $coverage = app(AiConnectionCoverageService::class);
 
         $rows = [];
         $ok = 0;
@@ -102,9 +103,11 @@ final class SyncAllAiConnectionModelsService
         } catch (\Throwable) {
         }
 
+        $autoMapped = 0;
         if ($ok > 0) {
             try {
-                app(AiRecommendedModelMapper::class)->mapForUser($userId);
+                $mapResult = app(AiRecommendedModelMapper::class)->mapForUser($userId);
+                $autoMapped = $mapResult->enabled;
             } catch (\Throwable $e) {
                 logger()->warning('AI Sync All recommended auto-map failed', [
                     'user_id' => $userId,
@@ -129,16 +132,6 @@ final class SyncAllAiConnectionModelsService
             ]);
         }
 
-        $coverageAdded = 0;
-        try {
-            $coverageAdded = $coverage->reconcileAllAreas($userId);
-        } catch (\Throwable $e) {
-            logger()->warning('AI Sync All coverage reconcile failed', [
-                'user_id' => $userId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
         $inventory->forgetCache();
         try {
             app(AiModelPriorityService::class)->forgetMemo();
@@ -150,13 +143,15 @@ final class SyncAllAiConnectionModelsService
             $mark = $row['ok'] ? '✓' : ($row['skipped'] ? '·' : '⚠');
             $summary[] = trim($row['name'].' '.$mark.' '.$row['message']);
         }
-        $summary[] = 'Routing ✓ coverage updated (+'.$coverageAdded.')';
+        $summary[] = 'Models ✓ recommended auto-map (+'.$autoMapped.')';
 
         return [
             'ok' => $ok,
             'failed' => $failed,
             'skipped' => $skipped,
-            'coverage_added' => $coverageAdded,
+            // Retained for callers; coverage auto-seed no longer runs on sync.
+            'coverage_added' => 0,
+            'auto_mapped' => $autoMapped,
             'rows' => $rows,
             'summary_lines' => $summary,
         ];

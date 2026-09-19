@@ -114,7 +114,7 @@ final class PublishingConnectionIsolationContractTest extends TestCase
             $health,
         );
         self::assertStringContainsString('SeoConnectionContext::current()', $hub);
-        self::assertStringContainsString('snapshot($siteIds, $connectionId)', $hub);
+        self::assertStringContainsString('snapshot($siteIds, $connectionId, $projectId)', $hub);
         self::assertStringContainsString('rememberBootstrapFailure(', $queueRunner);
         self::assertStringContainsString('rememberWorkerRun($scopedConnectionId)', $queueRunner);
         self::assertStringContainsString('publishing.due_item_dispatch', $queueRunner);

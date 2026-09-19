@@ -169,13 +169,18 @@ final class PublishingQueueHub extends SeoPanelPage
             return;
         }
 
-        $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()->find($this->projectId);
-        if (! $project instanceof SeoProject || ! SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0))) {
+        $requestedProjectId = $this->projectId;
+        $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()->find($requestedProjectId);
+        // Reuse Content Project workspace access (canView + domain-neutral item ownership).
+        // Never canAccessSite(0) — that clears projectId for execution projects with null site_id.
+        if (! $project instanceof SeoProject || ! SeoProjectResource::canAccessPublishingQueueProject($project)) {
             $this->projectId = null;
 
             return;
         }
 
+        // Keep URL projectId stable after successful resolve (Livewire #[Url]).
+        $this->projectId = $requestedProjectId;
         $this->project = $project;
     }
 
@@ -199,8 +204,13 @@ final class PublishingQueueHub extends SeoPanelPage
     public function getQueueHealthProperty(): array
     {
         $siteIds = null;
+        $projectId = null;
         if ($this->project instanceof SeoProject) {
-            $siteIds = [(int) ($this->project->site_id ?? 0)];
+            $projectId = (int) $this->project->getKey();
+            $resolved = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard::class)
+                ->resolveProjectQueueHealthSiteIds($this->project);
+            // Never pass [0] — empty means "no site filter beyond projectId".
+            $siteIds = $resolved !== [] ? $resolved : null;
         }
 
         $connectionId = null;
@@ -209,7 +219,7 @@ final class PublishingQueueHub extends SeoPanelPage
             $connectionId = (int) $current->getKey();
         }
 
-        return app(ContentProjectQueueHealthService::class)->snapshot($siteIds, $connectionId);
+        return app(ContentProjectQueueHealthService::class)->snapshot($siteIds, $connectionId, $projectId);
     }
 
     public function getTimezoneLabelProperty(): string
@@ -830,7 +840,7 @@ final class PublishingQueueHub extends SeoPanelPage
         }
 
         $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()->find((int) $projectIds->first());
-        if (! $project instanceof SeoProject || ! SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0))) {
+        if (! $project instanceof SeoProject || ! SeoProjectResource::canAccessPublishingQueueProject($project)) {
             Notification::make()
                 ->danger()
                 ->title('Project not found')

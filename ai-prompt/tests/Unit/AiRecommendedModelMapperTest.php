@@ -160,6 +160,61 @@ final class AiRecommendedModelMapperTest extends TestCase
         $this->assertArrayHasKey((int) $miniB->id, $membership);
     }
 
+    public function test_e2_cross_provider_each_gets_explicit_membership(): void
+    {
+        $orA = $this->connection(115, ApiConnectionProviders::OPENROUTER, 'OR-A');
+        $orB = $this->connection(115, ApiConnectionProviders::OPENROUTER, 'OR-B');
+        $oa = $this->connection(115, 'openai', 'OpenAI Direct');
+        $miniOrA = $this->model($orA, 'openai/gpt-5.4-mini', 'GPT-5.4 Mini');
+        $miniOrB = $this->model($orB, 'openai/gpt-5.4-mini', 'GPT-5.4 Mini');
+        $miniOa = $this->model($oa, 'gpt-5.4-mini', 'GPT-5.4 Mini');
+        $this->grantText($orA, $miniOrA);
+        $this->grantText($orB, $miniOrB);
+        $this->grantText($oa, $miniOa);
+
+        $result = $this->mapper->mapForUser(115);
+
+        $this->assertSame(2, $result->enabled);
+        $orExplicit = 0;
+        foreach ([$miniOrA->fresh(), $miniOrB->fresh()] as $row) {
+            if ($this->priorities->isExplicitlyAreaEnabled($row, AiModelArea::TextFast)) {
+                $orExplicit++;
+            }
+        }
+        $this->assertSame(1, $orExplicit);
+        $this->assertTrue($this->priorities->isExplicitlyAreaEnabled($miniOa->fresh(), AiModelArea::TextFast));
+
+        $membership = $this->priorities->effectiveAreaMembership(115, AiModelArea::TextFast);
+        $this->assertArrayHasKey((int) $miniOrA->id, $membership);
+        $this->assertArrayHasKey((int) $miniOrB->id, $membership);
+        $this->assertArrayHasKey((int) $miniOa->id, $membership);
+
+        $presenter = new \Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter(
+            priorities: $this->priorities,
+        );
+        $rows = $presenter->areaRows(115, AiModelArea::TextFast);
+        $logical = null;
+        foreach ($rows as $row) {
+            $ids = array_map('intval', $row['ids'] ?? []);
+            if (in_array((int) $miniOrA->id, $ids, true) || in_array((int) $miniOa->id, $ids, true)) {
+                $logical = $row;
+                break;
+            }
+        }
+        $this->assertNotNull($logical);
+        $this->assertSame(3, (int) ($logical['connection_count'] ?? 0));
+        $routes = is_array($logical['routes'] ?? null) ? $logical['routes'] : [];
+        $providerKeys = [];
+        foreach ($routes as $route) {
+            $key = (string) ($route['provider_key'] ?? '');
+            if ($key !== '') {
+                $providerKeys[$key] = true;
+            }
+        }
+        $this->assertArrayHasKey(ApiConnectionProviders::OPENROUTER, $providerKeys);
+        $this->assertArrayHasKey('openai', $providerKeys);
+    }
+
     public function test_f_unsupported_incompatible_lane_skipped(): void
     {
         $connection = $this->connection(106, ApiConnectionProviders::OPENROUTER, 'or');
@@ -194,6 +249,122 @@ final class AiRecommendedModelMapperTest extends TestCase
         foreach (AiModelArea::paidTextCases() as $area) {
             $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($foo, $area));
         }
+    }
+
+    public function test_2_unknown_only_inventory_stays_available_after_bootstrap_map(): void
+    {
+        $connection = $this->connection(120, ApiConnectionProviders::OPENROUTER, 'or-unknowns');
+        $a = $this->model($connection, 'unknown/model-a', 'Unknown A');
+        $b = $this->model($connection, 'unknown/model-b', 'Unknown B');
+        $this->grantText($connection, $a);
+        $this->grantText($connection, $b);
+
+        // Post-sync bootstrap = classifier metadata (skipped here) + recommended mapper only.
+        $result = $this->mapper->mapForUser(120);
+        $this->assertSame(0, $result->enabled);
+        $this->assertSame(0, $result->recognized);
+        $this->assertSame(2, $result->unknown);
+
+        foreach (AiModelArea::paidTextCases() as $area) {
+            $this->assertCount(0, $this->priorities->areaEnabledModels(120, $area), $area->value);
+            $this->assertSame([], $this->priorities->effectiveAreaMembership(120, $area), $area->value);
+        }
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($a->fresh(), AiModelArea::TextFast));
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($b->fresh(), AiModelArea::TextFast));
+    }
+
+    public function test_3_known_recommended_plus_unknown_foo_post_sync_map(): void
+    {
+        $connection = $this->connection(121, ApiConnectionProviders::OPENROUTER, 'or');
+        $mini = $this->model($connection, 'openai/gpt-5.4-mini', 'GPT-5.4 Mini');
+        $foo = $this->model($connection, 'vendor/foo-bar', 'Foo');
+        $this->grantText($connection, $mini);
+        $this->grantText($connection, $foo);
+
+        $result = $this->mapper->mapForUser(121);
+        $this->assertSame(1, $result->enabled);
+        $this->assertTrue($this->priorities->isExplicitlyAreaEnabled($mini->fresh(), AiModelArea::TextFast));
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($foo->fresh(), AiModelArea::TextFast));
+        foreach (AiModelArea::paidTextCases() as $area) {
+            if ($area === AiModelArea::TextFast) {
+                continue;
+            }
+            $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($foo->fresh(), $area));
+        }
+    }
+
+    public function test_4_same_provider_second_key_projects_without_duplicate_or_fallback(): void
+    {
+        $orA = $this->connection(122, ApiConnectionProviders::OPENROUTER, 'OR-A');
+        $miniA = $this->model($orA, 'openai/gpt-5.4-mini', 'GPT-5.4 Mini');
+        $this->grantText($orA, $miniA);
+        $this->priorities->writeAreaMembership(
+            $miniA,
+            AiModelArea::TextFast,
+            true,
+            5,
+            AiModelArea::SOURCE_MANUAL,
+        );
+
+        $orB = $this->connection(122, ApiConnectionProviders::OPENROUTER, 'OR-B');
+        $miniB = $this->model($orB, 'openai/gpt-5.4-mini', 'GPT-5.4 Mini');
+        $fallback = $this->model($orB, 'acme/random-fallback', 'Random Fallback');
+        $this->grantText($orB, $miniB);
+        $this->grantText($orB, $fallback);
+
+        $result = $this->mapper->mapForUser(122);
+        $this->assertSame(0, $result->enabled);
+        $this->assertGreaterThanOrEqual(1, $result->alreadyEnabled + $result->manualPreserved);
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($miniB->fresh(), AiModelArea::TextFast));
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($fallback->fresh(), AiModelArea::TextFast));
+        $this->assertTrue($this->priorities->isExplicitlyAreaEnabled($miniA->fresh(), AiModelArea::TextFast));
+
+        $membership = $this->priorities->effectiveAreaMembership(122, AiModelArea::TextFast);
+        $this->assertArrayHasKey((int) $miniA->id, $membership);
+        $this->assertArrayHasKey((int) $miniB->id, $membership);
+        $this->assertArrayNotHasKey((int) $fallback->id, $membership);
+
+        $explicitIds = [];
+        foreach ([$miniA->fresh(), $miniB->fresh(), $fallback->fresh()] as $row) {
+            if ($this->priorities->isExplicitlyAreaEnabled($row, AiModelArea::TextFast)) {
+                $explicitIds[] = (int) $row->id;
+            }
+        }
+        $this->assertSame([(int) $miniA->id], $explicitIds);
+        $miniA->refresh();
+        $this->assertSame(5, (int) ($miniA->capabilities['omi_areas']['fast_text']['priority'] ?? 0));
+        $this->assertSame(AiModelArea::SOURCE_MANUAL, $this->priorities->areaSource($miniA, AiModelArea::TextFast));
+    }
+
+    public function test_sync_paths_do_not_auto_seed_coverage(): void
+    {
+        $syncAll = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\SyncAllAiConnectionModelsService::class))->getFileName(),
+        );
+        $this->assertDoesNotMatchRegularExpression('/app\(\s*AiConnectionCoverageService::class/', $syncAll);
+        $this->assertStringNotContainsString('reconcileAllAreas', $syncAll);
+        $this->assertStringNotContainsString('reconcileRoutingCoverage', $syncAll);
+        $this->assertStringContainsString('AiRecommendedModelMapper', $syncAll);
+
+        $aiCenter = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::class))->getFileName(),
+        );
+        $syncConnection = $this->extractMethodBody($aiCenter, 'syncConnection');
+        $this->assertStringNotContainsString('reconcileRoutingCoverage', $syncConnection);
+        $this->assertStringNotContainsString('reconcileAllAreas', $syncConnection);
+        $this->assertStringContainsString('AiRecommendedModelMapper', $syncConnection);
+
+        $create = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource\Pages\CreateAiConnection::class))->getFileName(),
+        );
+        $this->assertStringNotContainsString('AiConnectionCoverageService', $create);
+        $this->assertStringContainsString('AiRecommendedModelMapper', $create);
+
+        $edit = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource\Pages\EditAiConnection::class))->getFileName(),
+        );
+        $this->assertStringNotContainsString('AiConnectionCoverageService', $edit);
+        $this->assertStringContainsString('AiRecommendedModelMapper', $edit);
     }
 
     public function test_h_idempotent_second_run(): void

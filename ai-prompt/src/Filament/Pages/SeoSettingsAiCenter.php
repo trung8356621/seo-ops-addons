@@ -575,18 +575,17 @@ class SeoSettingsAiCenter extends Page
         );
         $ok = (bool) ($result['ok'] ?? false)
             || (($result['reason'] ?? '') === 'already_fresh');
-        $coverageAdded = 0;
+        $autoMapped = 0;
         if ($ok) {
             try {
                 app(AiModelPrimaryTypeClassifier::class)->classifyForUser((int) auth()->id());
             } catch (\Throwable) {
             }
             try {
-                app(AiRecommendedModelMapper::class)->mapForUser((int) auth()->id());
+                $mapResult = app(AiRecommendedModelMapper::class)->mapForUser((int) auth()->id());
+                $autoMapped = $mapResult->enabled;
             } catch (\Throwable) {
             }
-            $coverageAdded = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-                ->reconcileRoutingCoverage((int) auth()->id());
         }
         $notification = Notification::make()
             ->title($ok
@@ -594,7 +593,7 @@ class SeoSettingsAiCenter extends Page
                 : __('seo-content-ai::filament.ai_center.sync_failed'));
         if ($ok) {
             $notification
-                ->body(__('seo-content-ai::filament.ai_center.sync_coverage_body', ['count' => $coverageAdded]))
+                ->body(__('seo-content-ai::filament.ai_center.sync_auto_map_body', ['count' => $autoMapped]))
                 ->success()
                 ->send();
         } else {

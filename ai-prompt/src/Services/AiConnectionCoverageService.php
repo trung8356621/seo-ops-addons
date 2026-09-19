@@ -12,8 +12,12 @@ use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 /**
- * Ensures each active, capable API connection has ≥1 eligible route in an area profile.
- * Appends auto-coverage at the end — does not reorder manual priorities.
+ * Diagnostic / explicit repair: report or force ≥1 eligible route per connection/area.
+ *
+ * NOT part of normal provider sync bootstrap. Recommended membership is owned by
+ * {@see AiRecommendedModelCatalog} + {@see AiRecommendedModelMapper}. Unknown /
+ * non-recommended models must remain Available unless the user (or an explicit
+ * manager repair action) opts them in.
  */
 final class AiConnectionCoverageService
 {

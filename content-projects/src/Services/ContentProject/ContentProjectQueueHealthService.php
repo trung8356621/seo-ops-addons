@@ -39,6 +39,7 @@ final class ContentProjectQueueHealthService
 
     /**
      * @param  list<int>|null  $siteIds
+     * @param  int|null  $projectId  When set, scope health to that project (domain-neutral safe).
      * @return array{
      *     waiting: int,
      *     processing: int,
@@ -58,7 +59,7 @@ final class ContentProjectQueueHealthService
      *     health_hash_id: string|null,
      * }
      */
-    public function snapshot(?array $siteIds = null, ?int $connectionId = null): array
+    public function snapshot(?array $siteIds = null, ?int $connectionId = null, ?int $projectId = null): array
     {
         $waiting = 0;
         $processing = 0;
@@ -68,14 +69,37 @@ final class ContentProjectQueueHealthService
 
         try {
             if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'publish_queue_status')) {
+                $normalizedSiteIds = [];
+                if (is_array($siteIds)) {
+                    foreach ($siteIds as $id) {
+                        $intId = (int) $id;
+                        if ($intId > 0) {
+                            $normalizedSiteIds[$intId] = $intId;
+                        }
+                    }
+                    $normalizedSiteIds = array_values($normalizedSiteIds);
+                }
+
+                $scopedProjectId = $projectId !== null && $projectId > 0 ? $projectId : null;
+
                 $base = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()
                     ->active()
-                    ->whereHas('project', static function ($q) use ($siteIds): void {
+                    ->whereHas('project', static function ($q) use ($normalizedSiteIds, $scopedProjectId): void {
                         $q->whereNull('archived_at');
-                        if (is_array($siteIds) && $siteIds !== []) {
-                            $q->whereIn('site_id', $siteIds);
+                        if ($scopedProjectId !== null) {
+                            $q->whereKey($scopedProjectId);
+
+                            return;
+                        }
+                        if ($normalizedSiteIds !== []) {
+                            $q->whereIn('site_id', $normalizedSiteIds);
                         }
                     });
+
+                // Domain-neutral project health: optionally narrow to item site_ids (never 0).
+                if ($scopedProjectId !== null && $normalizedSiteIds !== []) {
+                    $base->whereIn('site_id', $normalizedSiteIds);
+                }
 
                 $waiting = (int) (clone $base)->where('publish_queue_status', \Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus::Waiting->value)->count();
                 $processing = (int) (clone $base)->where('publish_queue_status', \Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus::Processing->value)->count();

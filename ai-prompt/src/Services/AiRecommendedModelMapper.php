@@ -65,8 +65,8 @@ final class AiRecommendedModelMapper
             }
         }
 
-        /** @var array<string, true> $seenLogical logicalKey|area */
-        $seenLogical = [];
+        /** @var array<string, true> $seenProviderLogical provider|canonical|area */
+        $seenProviderLogical = [];
         foreach ($groups as $groupKey => $siblings) {
             $canonical = (string) substr($groupKey, (int) strpos($groupKey, '|') + 1);
             $entry = $this->catalog->recommendedFor($canonical);
@@ -82,11 +82,13 @@ final class AiRecommendedModelMapper
                 continue;
             }
 
-            $logicalKey = $canonical.'|'.$targetArea->value;
-            if (isset($seenLogical[$logicalKey])) {
+            // One explicit representative per provider|canonical|area.
+            // Same-provider siblings share $groupKey; different providers must each map.
+            $providerLogicalKey = $groupKey.'|'.$targetArea->value;
+            if (isset($seenProviderLogical[$providerLogicalKey])) {
                 continue;
             }
-            $seenLogical[$logicalKey] = true;
+            $seenProviderLogical[$providerLogicalKey] = true;
             $result = $result->withIncrement('recognized');
 
             $decision = $this->decideGroup($siblings, $targetArea, $priorities);

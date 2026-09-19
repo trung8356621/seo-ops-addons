@@ -1959,6 +1959,7 @@ return [
         'sync_ok' => 'Đã sync mô hình',
         'sync_failed' => 'Sync mô hình thất bại',
         'sync_coverage_body' => 'Đã cập nhật coverage routing (+:count).',
+        'sync_auto_map_body' => 'Đã auto-map model đề xuất (+:count).',
         'sync_all_done_title' => 'Đồng bộ model hoàn tất',
         'view_recommended' => 'Đề xuất',
         'view_custom' => 'Tùy chỉnh',

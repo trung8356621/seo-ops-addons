@@ -27,7 +27,7 @@ final class ContentProjectPublishingQueueReadModel
      */
     public function forProject(SeoProject $project, array $filters = []): array
     {
-        $tasks = SeoProjectTask::query()
+        $query = SeoProjectTask::query()
             ->where('project_id', (int) $project->getKey())
             ->inPublishingQueue()
             ->with([
@@ -36,8 +36,24 @@ final class ContentProjectPublishingQueueReadModel
                     'wp_permalink',
                 ]),
             ])
-            ->orderBy('id')
-            ->get();
+            ->orderBy('id');
+
+        // Domain-neutral: never leak rows on sites outside accessible ownership.
+        if ((int) ($project->site_id ?? 0) <= 0) {
+            $accessibleSiteIds = SeoAccessControl::accessibleSiteIds();
+            if ($accessibleSiteIds !== []) {
+                $query->where(static function ($builder) use ($accessibleSiteIds): void {
+                    $builder
+                        ->whereIn('site_id', $accessibleSiteIds)
+                        ->orWhereNull('site_id')
+                        ->orWhere('site_id', 0);
+                });
+            } elseif (SeoAccessControl::shouldScopeToAccountOwner()) {
+                return ['stats' => PublishingQueueStateClassifier::countSummary([]), 'rows' => []];
+            }
+        }
+
+        $tasks = $query->get();
 
         return $this->buildPayload($tasks, $filters, includeProjectMeta: false);
     }
@@ -52,7 +68,7 @@ final class ContentProjectPublishingQueueReadModel
     {
         if ($projectId !== null && $projectId > 0) {
             $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()->find($projectId);
-            if ($project instanceof SeoProject) {
+            if ($project instanceof SeoProject && SeoProjectResource::canAccessPublishingQueueProject($project)) {
                 return $this->forProject($project, $filters);
             }
 

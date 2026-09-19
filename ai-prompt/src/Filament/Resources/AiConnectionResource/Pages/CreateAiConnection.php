@@ -149,8 +149,16 @@ class CreateAiConnection extends SeoCreateRecord
             app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)
                 ->assignBottomProviderPriority((int) auth()->id(), $this->record);
             app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
-            app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-                ->reconcileAllAreas((int) auth()->id());
+            try {
+                app(\Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier::class)
+                    ->classifyForUser((int) auth()->id());
+            } catch (\Throwable) {
+            }
+            try {
+                app(\Omnichannel\Addons\AiPrompt\Services\AiRecommendedModelMapper::class)
+                    ->mapForUser((int) auth()->id());
+            } catch (\Throwable) {
+            }
         }
     }
 

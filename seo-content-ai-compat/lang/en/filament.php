@@ -1969,6 +1969,7 @@ return [
         'all_connections_link' => 'Manage all API connections →',
         'sync_ok' => 'Models synced',
         'sync_failed' => 'Model sync failed',
+        'sync_auto_map_body' => 'Recommended models auto-mapped (+:count).',
         'view_recommended' => 'Recommended',
         'view_custom' => 'Custom',
         'view_technical' => 'Technical',
