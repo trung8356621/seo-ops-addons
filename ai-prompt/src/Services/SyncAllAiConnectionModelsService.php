@@ -102,6 +102,17 @@ final class SyncAllAiConnectionModelsService
         } catch (\Throwable) {
         }
 
+        if ($ok > 0) {
+            try {
+                app(AiRecommendedModelMapper::class)->mapForUser($userId);
+            } catch (\Throwable $e) {
+                logger()->warning('AI Sync All recommended auto-map failed', [
+                    'user_id' => $userId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         try {
             $freePool = app(OpenRouterFreePoolService::class);
             $freePool->ensureRouterAnchors($userId);

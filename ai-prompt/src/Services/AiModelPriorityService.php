@@ -351,6 +351,59 @@ final class AiModelPriorityService
     }
 
     /**
+     * True when omi_areas.{area}.enabled is explicitly false (manual remove / disable).
+     */
+    public function isExplicitlyAreaDisabled(SeoAiModel $model, AiModelArea $area): bool
+    {
+        $stored = $this->areaBag($model)[$area->value] ?? null;
+
+        return is_array($stored) && array_key_exists('enabled', $stored) && ! (bool) $stored['enabled'];
+    }
+
+    public function areaSource(SeoAiModel $model, AiModelArea $area): ?string
+    {
+        $stored = $this->areaBag($model)[$area->value] ?? null;
+        if (! is_array($stored) || ! isset($stored['source'])) {
+            return null;
+        }
+        $source = trim((string) $stored['source']);
+
+        return $source !== '' ? $source : null;
+    }
+
+    /**
+     * Direct omi_areas write used by auto-map (SOURCE_AUTO) and manual UI (SOURCE_MANUAL).
+     */
+    public function writeAreaMembership(
+        SeoAiModel $model,
+        AiModelArea $area,
+        bool $enabled,
+        int $priority,
+        string $source = AiModelArea::SOURCE_MANUAL,
+    ): void {
+        $this->writeAreaState($model, $area, $enabled, $priority, $source);
+        $this->forgetMemo();
+    }
+
+    /**
+     * Capability/modality gate used by auto-map before enabling a physical row.
+     */
+    public function physicalSupportsArea(SeoAiModel $model, AiModelArea $area, ?ApiConnection $connection = null): bool
+    {
+        $connection ??= $model->relationLoaded('apiConnection')
+            ? $model->apiConnection
+            : $model->apiConnection()->first();
+        if (! $connection instanceof ApiConnection) {
+            return false;
+        }
+        if (! $this->modelAllowedInArea($model, $area)) {
+            return false;
+        }
+
+        return $this->supportsArea($connection, (string) $model->raw_model_name, $area);
+    }
+
+    /**
      * @param  list<int>  $orderedModelIds
      */
     public function reorderCapabilityModels(int $userId, AiModelArea $area, array $orderedModelIds): void

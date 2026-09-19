@@ -1974,6 +1974,8 @@ return [
         'open_advanced' => 'Mở cài đặt AI nâng cao',
         'sync_all' => 'Đồng bộ tất cả model',
         'free_pool_evaluate' => 'Đánh giá & cập nhật Free Pool',
+        'auto_map_models' => 'Auto-map models',
+        'auto_map_models_done_title' => 'Auto-map hoàn tất',
         'free_pool_language_disable' => 'Tắt kiểm tra ngôn ngữ',
         'free_pool_language_english_skip' => 'Ngôn ngữ chính là English — Free Pool không gọi AI đánh giá ngôn ngữ',
         'free_pool_language_none_pending' => 'Không có model Free Pool nào đang chờ đánh giá ngôn ngữ',

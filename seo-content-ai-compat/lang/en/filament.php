@@ -1983,6 +1983,8 @@ return [
         'open_advanced' => 'Open advanced AI settings',
         'sync_all' => 'Sync all',
         'free_pool_evaluate' => 'Evaluate & update Free Pool',
+        'auto_map_models' => 'Auto-map models',
+        'auto_map_models_done_title' => 'Auto-map complete',
         'free_pool_language_disable' => 'Turn off language check',
         'free_pool_language_english_skip' => 'English primary language — Free Pool skips language LLM checks',
         'free_pool_language_none_pending' => 'No Free Pool models pending language review',

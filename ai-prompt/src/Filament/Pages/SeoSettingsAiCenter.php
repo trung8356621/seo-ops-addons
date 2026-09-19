@@ -26,6 +26,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
+use Omnichannel\Addons\AiPrompt\Services\AiRecommendedModelMapper;
 use Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
@@ -580,7 +581,11 @@ class SeoSettingsAiCenter extends Page
                 app(AiModelPrimaryTypeClassifier::class)->classifyForUser((int) auth()->id());
             } catch (\Throwable) {
             }
-            $coverageAdded = app(AiConnectionCoverageService::class)
+            try {
+                app(AiRecommendedModelMapper::class)->mapForUser((int) auth()->id());
+            } catch (\Throwable) {
+            }
+            $coverageAdded = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
                 ->reconcileRoutingCoverage((int) auth()->id());
         }
         $notification = Notification::make()
@@ -724,6 +729,22 @@ class SeoSettingsAiCenter extends Page
                 'supported' => $supported,
                 'rejected' => $rejected,
             ]))
+            ->success()
+            ->send();
+    }
+
+    /**
+     * Repair tool: map known recommended models from stored inventory into AI Center areas.
+     * No provider sync, no HTTP, no AI spend.
+     */
+    public function autoMapModels(): void
+    {
+        $this->assertManager();
+        $result = app(AiRecommendedModelMapper::class)->mapForUser((int) auth()->id());
+        $this->bustInventoryCache();
+        Notification::make()
+            ->title(__('seo-content-ai::filament.ai_center.auto_map_models_done_title'))
+            ->body($result->notificationBody())
             ->success()
             ->send();
     }

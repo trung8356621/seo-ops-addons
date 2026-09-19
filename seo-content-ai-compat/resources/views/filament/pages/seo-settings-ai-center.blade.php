@@ -129,6 +129,17 @@
                                 type="button"
                                 size="sm"
                                 color="gray"
+                                wire:click="autoMapModels"
+                                wire:loading.attr="disabled"
+                                wire:target="autoMapModels"
+                            >
+                                <span wire:loading.remove wire:target="autoMapModels">{{ __('seo-content-ai::filament.ai_center.auto_map_models') }}</span>
+                                <span wire:loading wire:target="autoMapModels">…</span>
+                            </x-filament::button>
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="gray"
                                 wire:click="evaluateFreePoolLanguage"
                                 wire:loading.attr="disabled"
                                 wire:target="evaluateFreePoolLanguage"
