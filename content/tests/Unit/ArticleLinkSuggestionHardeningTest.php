@@ -10,6 +10,7 @@ use Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline;
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionCandidateRetriever;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionSearchTermsBuilder;
+use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Tests\TestCase;
@@ -286,6 +287,79 @@ final class ArticleLinkSuggestionHardeningTest extends TestCase
             ['paragraph_context' => 'chúng tôi in logo bằng in chuyển nhiệt'],
         );
         self::assertGreaterThanOrEqual(40, $context['score']);
+    }
+
+    /**
+     * Diagnosis for "túi vải bố" ranking above unrelated content — a candidate that only
+     * shares a short generic single word ("vải") with the anchor must not score as a strong
+     * (slug/keyword) match; that previously happened via bidirectional str_contains() checks.
+     */
+    public function test_weak_generic_single_word_field_does_not_score_as_strong_match(): void
+    {
+        $retriever = (new ReflectionClass(ArticleLinkSuggestionCandidateRetriever::class))
+            ->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(ArticleLinkSuggestionCandidateRetriever::class, 'scoreCandidate');
+        $method->setAccessible(true);
+
+        $weakBySlug = $method->invoke($retriever, [
+            'title_norm' => 'bài viết không liên quan',
+            'title_ascii' => 'bai viet khong lien quan',
+            'focus_norm' => '',
+            'slug_norm' => 'vai',
+            'secondary_norms' => [],
+            'heading_norms' => [],
+            'meta_title_norm' => '',
+            'meta_desc_norm' => '',
+            'tag_norms' => [],
+        ], 'túi vải bố', ['túi vải bố'], []);
+        self::assertLessThan(LinkSuggestionScoreScale::primaryMinAccept(), $weakBySlug['score']);
+        self::assertNotSame(ArticleLinkSuggestionCandidateRetriever::REASON_SLUG_MATCH, $weakBySlug['reason']);
+
+        $weakBySecondary = $method->invoke($retriever, [
+            'title_norm' => 'bài viết không liên quan',
+            'title_ascii' => 'bai viet khong lien quan',
+            'focus_norm' => '',
+            'slug_norm' => 'bai-viet-khong-lien-quan',
+            'secondary_norms' => ['vải'],
+            'heading_norms' => [],
+            'meta_title_norm' => '',
+            'meta_desc_norm' => '',
+            'tag_norms' => [],
+        ], 'túi vải bố', ['túi vải bố'], []);
+        self::assertLessThan(LinkSuggestionScoreScale::primaryMinAccept(), $weakBySecondary['score']);
+        self::assertNotSame(ArticleLinkSuggestionCandidateRetriever::REASON_KEYWORD_MATCH, $weakBySecondary['reason']);
+
+        // A real multi-word slug/keyword phrase still legitimately matches (not a regression).
+        $strongBySlug = $method->invoke($retriever, [
+            'title_norm' => 'bài viết khác',
+            'title_ascii' => 'bai viet khac',
+            'focus_norm' => '',
+            'slug_norm' => 'may túi vải bố cao cấp',
+            'secondary_norms' => [],
+            'heading_norms' => [],
+            'meta_title_norm' => '',
+            'meta_desc_norm' => '',
+            'tag_norms' => [],
+        ], 'túi vải bố', ['túi vải bố'], []);
+        self::assertGreaterThanOrEqual(LinkSuggestionScoreScale::primaryMinAccept(), $strongBySlug['score']);
+        self::assertSame(ArticleLinkSuggestionCandidateRetriever::REASON_SLUG_MATCH, $strongBySlug['reason']);
+
+        $strongByTitle = $method->invoke($retriever, [
+            'title_norm' => 'túi vải bố',
+            'title_ascii' => 'tui vai bo',
+            'focus_norm' => 'túi vải bố',
+            'slug_norm' => 'tui-vai-bo',
+            'secondary_norms' => ['túi vải bố'],
+            'heading_norms' => [],
+            'meta_title_norm' => '',
+            'meta_desc_norm' => '',
+            'tag_norms' => [],
+        ], 'túi vải bố', ['túi vải bố'], []);
+        self::assertSame(100, $strongByTitle['score']);
+
+        // Weak generic-word candidate must never outrank a genuinely related candidate.
+        self::assertLessThan($strongBySlug['score'], $weakBySlug['score']);
+        self::assertLessThan($strongByTitle['score'], $weakBySecondary['score']);
     }
 
     public function test_keywords_for_site_eager_loads_link_maps(): void

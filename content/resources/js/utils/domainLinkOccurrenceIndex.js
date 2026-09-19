@@ -3,6 +3,7 @@
  */
 
 import {
+    compareSuggestionCandidateRank,
     isSpecialOrContactHref,
     isSuggestionExcluded,
     MAX_INTERNAL_LINK_SLOTS,
@@ -95,8 +96,59 @@ export function buildDomainLinkListForEditor(allLinks, blocks, internalLinks = [
 }
 
 /**
+ * First actionable document occurrence of a row — used only as a suggestion-row ranking
+ * tie-break. Document order inside `_domain_occurrences` itself is never touched here.
+ *
+ * @param {Record<string, unknown>} row
+ * @returns {{ blockIndex: number, from: number }}
+ */
+function firstOccurrenceRank(row) {
+    const occurrences = Array.isArray(row?._domain_occurrences) ? row._domain_occurrences : [];
+    const first = occurrences[0];
+    const blockIndex = Number(first?.blockIndex);
+    const from = Number(first?.from);
+
+    return {
+        blockIndex: Number.isFinite(blockIndex) ? blockIndex : Number.MAX_SAFE_INTEGER,
+        from: Number.isFinite(from) ? from : Number.MAX_SAFE_INTEGER,
+    };
+}
+
+/**
+ * Suggestion ROW relevance ranking — separate from occurrence identity/document order.
+ * destination_resolved, then source_priority, then score; document position and original
+ * array order are tie-breaks only, never the primary driver.
+ *
+ * @param {Array<Record<string, unknown>>} rows
+ * @returns {Array<Record<string, unknown>>}
+ */
+function rankInternalSuggestionRows(rows) {
+    return rows
+        .map((row, index) => ({ row, index }))
+        .sort((a, b) => {
+            const byRelevance = compareSuggestionCandidateRank(a.row, b.row);
+            if (byRelevance !== 0) {
+                return byRelevance;
+            }
+
+            const occA = firstOccurrenceRank(a.row);
+            const occB = firstOccurrenceRank(b.row);
+            if (occA.blockIndex !== occB.blockIndex) {
+                return occA.blockIndex - occB.blockIndex;
+            }
+            if (occA.from !== occB.from) {
+                return occA.from - occB.from;
+            }
+
+            return a.index - b.index;
+        })
+        .map((entry) => entry.row);
+}
+
+/**
  * Internal Link suggestions — same actionable occurrence semantics as Domain Link List
- * (SSOT: current editor blocks), plus the internal-suggestion slot/exclusion rules.
+ * (SSOT: current editor blocks), plus the internal-suggestion slot/exclusion rules and
+ * relevance-ranked ROW order (occurrence identity/document order stays untouched).
  *
  * @param {Array<Record<string, unknown>>} catalog
  * @param {Array<{ id?: string, content?: string, type?: string }>} blocks
@@ -117,11 +169,11 @@ export function buildActionableInternalLinkSuggestions(
     }
 
     const rows = buildDomainLinkListForEditor(catalog, blocks, internalLinks, externalLinks);
-    const visible = rows.filter((item) => {
+    const visible = rankInternalSuggestionRows(rows.filter((item) => {
         const phrase = String(item?.text ?? '').trim();
 
         return phrase !== '' && !isSuggestionExcluded(phrase, excludedLabels);
-    });
+    }));
 
     return visible.slice(0, MAX_VISIBLE_INTERNAL_SUGGESTIONS);
 }

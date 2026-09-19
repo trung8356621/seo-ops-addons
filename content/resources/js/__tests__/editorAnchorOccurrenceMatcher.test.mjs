@@ -382,3 +382,62 @@ describe('Internal Link suggestions — same actionable occurrence semantics as 
     });
 });
 
+describe('Internal Link suggestion ROW ranking — relevance, not document position', () => {
+    it('D — later-in-article higher score outranks earlier-in-article lower score', () => {
+        const catalog = [
+            { text: 'phrase one', href: '/a', destination_resolved: true, score: 55, source_priority: 4 },
+            { text: 'phrase two', href: '/b', destination_resolved: true, score: 95, source_priority: 1 },
+        ];
+        const blocks = [
+            { id: 'b1', content: '<p>Đoạn đầu nhắc tới phrase one trước.</p>' },
+            { id: 'b2', content: '<p>Đoạn sau nhắc tới phrase two sau đó.</p>' },
+        ];
+
+        const rows = buildActionableInternalLinkSuggestions(catalog, blocks);
+        assert.deepEqual(rows.map((row) => row.text), ['phrase two', 'phrase one']);
+    });
+
+    it('E — _domain_occurrences stays document ordered regardless of row ranking', () => {
+        const catalog = [{ text: 'balo laptop', href: '/a', destination_resolved: true, score: 10 }];
+        const blocks = [
+            { id: 'b1', content: '<p>balo laptop A</p>' },
+            { id: 'b2', content: '<p>balo laptop B</p>' },
+            { id: 'b3', content: '<p>balo laptop C</p>' },
+        ];
+
+        const rows = buildActionableInternalLinkSuggestions(catalog, blocks);
+        assert.equal(rows.length, 1);
+        const occurrences = rows[0]._domain_occurrences;
+        assert.equal(occurrences.length, 3);
+        for (let i = 1; i < occurrences.length; i += 1) {
+            assert.ok(occurrences[i].blockIndex >= occurrences[i - 1].blockIndex);
+        }
+    });
+
+    it('H — MAX_VISIBLE_INTERNAL_SUGGESTIONS applies after ranking, not before', () => {
+        // 12 distinct phrases in document order; score INCREASES with document position,
+        // so a naive "first 10 in document order" slice would keep the 10 LOWEST scores.
+        const total = 12;
+        const catalog = Array.from({ length: total }, (_, i) => ({
+            text: `phrase ${i}`,
+            href: `/p${i}`,
+            destination_resolved: true,
+            score: i + 1,
+        }));
+        const blocks = Array.from({ length: total }, (_, i) => ({
+            id: `b${i}`,
+            content: `<p>Đoạn nhắc tới phrase ${i} tại vị trí ${i}.</p>`,
+        }));
+
+        const rows = buildActionableInternalLinkSuggestions(catalog, blocks);
+        assert.equal(rows.length, 10);
+        // The 2 lowest-scored, document-earliest phrases must be dropped by ranking-then-slice.
+        const texts = rows.map((row) => row.text);
+        assert.ok(!texts.includes('phrase 0'));
+        assert.ok(!texts.includes('phrase 1'));
+        assert.equal(rows[0].text, 'phrase 11');
+        assert.equal(rows[0].score, 12);
+        assert.equal(rows[rows.length - 1].score, 3);
+    });
+});
+

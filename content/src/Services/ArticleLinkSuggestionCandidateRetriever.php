@@ -438,16 +438,32 @@ final class ArticleLinkSuggestionCandidateRetriever
             $this->bump($best, 80, self::REASON_TITLE_MATCH);
         }
 
-        if ($phraseNorm !== '' && $slugNorm !== '' && (str_contains($slugNorm, $phraseNorm) || str_contains($phraseNorm, $slugNorm))) {
-            $this->bump($best, 75, self::REASON_SLUG_MATCH);
+        if ($phraseNorm !== '' && $slugNorm !== '') {
+            if (str_contains($slugNorm, $phraseNorm)) {
+                $this->bump($best, 75, self::REASON_SLUG_MATCH);
+            } elseif (str_contains($phraseNorm, $slugNorm) && $this->isMeaningfulSubphrase($slugNorm)) {
+                // Anchor-contains-slug direction only counts when the slug itself is a real
+                // phrase — a short generic slug segment must not "match" any longer anchor.
+                $this->bump($best, 75, self::REASON_SLUG_MATCH);
+            }
         }
 
         foreach (($candidate['secondary_norms'] ?? []) as $secondary) {
-            if ($secondary !== '' && ($secondary === $phraseNorm || str_contains($secondary, $phraseNorm) || str_contains($phraseNorm, $secondary))) {
+            if ($secondary === '') {
+                continue;
+            }
+            if ($secondary === $phraseNorm || str_contains($secondary, $phraseNorm)) {
+                $this->bump($best, 70, self::REASON_KEYWORD_MATCH);
+                break;
+            }
+            // Anchor-contains-keyword direction only counts when the keyword itself is a real
+            // phrase — a short generic single word must not "match" any longer anchor.
+            if (str_contains($phraseNorm, $secondary) && $this->isMeaningfulSubphrase($secondary)) {
                 $this->bump($best, 70, self::REASON_KEYWORD_MATCH);
                 break;
             }
         }
+
 
         foreach (($candidate['heading_norms'] ?? []) as $heading) {
             if ($phraseNorm !== '' && $heading !== '' && str_contains($heading, $phraseNorm)) {
@@ -513,6 +529,20 @@ final class ArticleLinkSuggestionCandidateRetriever
         if ($score > $best['score']) {
             $best = ['score' => $score, 'reason' => $reason];
         }
+    }
+
+    /**
+     * A short generic single word (e.g. "vải") must not qualify as a strong match just
+     * because it happens to be a substring of a longer anchor phrase. Require the field
+     * to be a real multi-word phrase, or long enough to not be a common bare noun.
+     */
+    private function isMeaningfulSubphrase(string $normalized): bool
+    {
+        if (str_contains($normalized, ' ')) {
+            return true;
+        }
+
+        return mb_strlen($normalized) >= 6;
     }
 
     /**

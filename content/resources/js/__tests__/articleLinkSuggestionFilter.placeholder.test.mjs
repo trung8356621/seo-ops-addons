@@ -10,6 +10,7 @@ const {
     isUnresolvedSuggestionHref,
     isInternalHrefForSite,
     mergeSuggestionCatalog,
+    compareSuggestionCandidateRank,
     partitionSuggestionCatalogBySite,
     filterSuggestedInternalLinks,
     buildVisibleInternalSuggestions,
@@ -205,3 +206,124 @@ describe('critical ArticleLinksSidebar chain', () => {
         assert.ok(visible.every((row) => row.href === '#' && row.destination_resolved === false));
     });
 });
+
+describe('mergeSuggestionCatalog — relevance metadata + deterministic duplicate resolution', () => {
+    it('A — preserves backend relevance metadata untouched', () => {
+        const merged = mergeSuggestionCatalog([
+            {
+                text: 'túi vải bố',
+                href: '/tui-vai-bo',
+                target_url: '/tui-vai-bo',
+                destination_resolved: true,
+                score: 95,
+                match_reason: 'title_exact',
+                source_priority: 1,
+                source: 'product_cat',
+                candidate_source: 'product_cat',
+                provenance: { source_stage: 'product_cat', source_priority: 1 },
+                target_article_id: 42,
+            },
+        ]);
+
+        assert.equal(merged.length, 1);
+        const [row] = merged;
+        assert.equal(row.score, 95);
+        assert.equal(row.match_reason, 'title_exact');
+        assert.equal(row.source_priority, 1);
+        assert.equal(row.candidate_source, 'product_cat');
+        assert.deepEqual(row.provenance, { source_stage: 'product_cat', source_priority: 1 });
+        assert.equal(row.target_article_id, 42);
+    });
+
+    it('B — same label duplicate: stronger candidate survives regardless of input order', () => {
+        const weakFirst = mergeSuggestionCatalog([
+            {
+                text: 'túi vải bố',
+                href: '/generic',
+                destination_resolved: true,
+                score: 38,
+                source_priority: 4,
+                candidate_source: 'generic',
+            },
+            {
+                text: 'túi vải bố',
+                href: '/product-cat',
+                destination_resolved: true,
+                score: 60,
+                source_priority: 1,
+                candidate_source: 'product_cat',
+            },
+        ]);
+        assert.equal(weakFirst.length, 1);
+        assert.equal(weakFirst[0].href, '/product-cat');
+
+        const strongFirst = mergeSuggestionCatalog([
+            {
+                text: 'túi vải bố',
+                href: '/product-cat',
+                destination_resolved: true,
+                score: 60,
+                source_priority: 1,
+                candidate_source: 'product_cat',
+            },
+            {
+                text: 'túi vải bố',
+                href: '/generic',
+                destination_resolved: true,
+                score: 38,
+                source_priority: 4,
+                candidate_source: 'generic',
+            },
+        ]);
+        assert.equal(strongFirst.length, 1);
+        assert.equal(strongFirst[0].href, '/product-cat');
+    });
+
+    it('C — unresolved candidate cannot beat resolved candidate for same phrase', () => {
+        const merged = mergeSuggestionCatalog([
+            {
+                text: 'túi vải bố',
+                href: '#',
+                destination_resolved: false,
+                score: 90,
+                source_priority: 1,
+            },
+            {
+                text: 'túi vải bố',
+                href: '/tui-vai-bo',
+                destination_resolved: true,
+                score: 40,
+                source_priority: 4,
+            },
+        ]);
+        assert.equal(merged.length, 1);
+        assert.equal(merged[0].destination_resolved, true);
+        assert.equal(merged[0].href, '/tui-vai-bo');
+    });
+
+    it('F — source_priority breaks score ties/order correctly', () => {
+        const merged = mergeSuggestionCatalog([
+            { text: 'balo laptop', href: '/a', destination_resolved: true, score: 80, source_priority: 3 },
+            { text: 'balo laptop', href: '/b', destination_resolved: true, score: 80, source_priority: 1 },
+        ]);
+        assert.equal(merged.length, 1);
+        assert.equal(merged[0].href, '/b');
+    });
+
+    it('G — score breaks ties within same source priority', () => {
+        const merged = mergeSuggestionCatalog([
+            { text: 'balo laptop', href: '/a', destination_resolved: true, score: 55, source_priority: 2 },
+            { text: 'balo laptop', href: '/b', destination_resolved: true, score: 90, source_priority: 2 },
+        ]);
+        assert.equal(merged.length, 1);
+        assert.equal(merged[0].href, '/b');
+    });
+
+    it('compareSuggestionCandidateRank places rows without source_priority/score after ranked rows', () => {
+        const ranked = { destination_resolved: true, source_priority: 2, score: 10 };
+        const unranked = { destination_resolved: true };
+        assert.ok(compareSuggestionCandidateRank(ranked, unranked) < 0);
+        assert.ok(compareSuggestionCandidateRank(unranked, ranked) > 0);
+    });
+});
+

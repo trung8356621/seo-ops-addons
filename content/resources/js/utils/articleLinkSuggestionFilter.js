@@ -326,20 +326,50 @@ export function isSuggestionExcluded(phrase, excludedLabels) {
 }
 
 /**
+ * Deterministic relevance ranking shared by catalog dedupe and suggestion-row ordering.
+ * Resolved destinations first, then lower numeric source_priority, then higher score.
+ * Missing source_priority/score rank after explicitly ranked/scored rows — never invented.
+ *
+ * @param {{ destination_resolved?: boolean, source_priority?: number, score?: number }} a
+ * @param {{ destination_resolved?: boolean, source_priority?: number, score?: number }} b
+ * @returns {number} negative when `a` should rank before `b`
+ */
+export function compareSuggestionCandidateRank(a, b) {
+    const resolvedA = a?.destination_resolved === true ? 0 : 1;
+    const resolvedB = b?.destination_resolved === true ? 0 : 1;
+    if (resolvedA !== resolvedB) {
+        return resolvedA - resolvedB;
+    }
+
+    const priorityA = Number.isFinite(Number(a?.source_priority)) ? Number(a.source_priority) : Number.POSITIVE_INFINITY;
+    const priorityB = Number.isFinite(Number(b?.source_priority)) ? Number(b.source_priority) : Number.POSITIVE_INFINITY;
+    if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+    }
+
+    const scoreA = Number.isFinite(Number(a?.score)) ? Number(a.score) : Number.NEGATIVE_INFINITY;
+    const scoreB = Number.isFinite(Number(b?.score)) ? Number(b.score) : Number.NEGATIVE_INFINITY;
+    if (scoreA !== scoreB) {
+        return scoreB - scoreA;
+    }
+
+    return 0;
+}
+
+/**
  * @param {Array<{ text?: string, href?: string, target_url?: string|null, keyword_id?: number, can_insert?: boolean, destination_resolved?: boolean }>} sources
  */
 export function mergeSuggestionCatalog(...sources) {
-    const seen = new Set();
-    const merged = [];
+    const byLabel = new Map();
+    let insertionIndex = 0;
 
     sources.flat().forEach((item) => {
         const text = String(item?.text ?? '').trim();
         const label = normalizeLinkLabel(text);
-        if (!label || seen.has(label)) {
+        if (!label) {
             return;
         }
 
-        seen.add(label);
         const unresolved = isUnresolvedSuggestionItem(item);
         const href = unresolved
             ? (String(item?.href ?? '').trim() || '#')
@@ -361,7 +391,10 @@ export function mergeSuggestionCatalog(...sources) {
                 ? true
                 : (href !== '' && !isUnresolvedSuggestionHref(href)));
 
-        merged.push({
+        // Spread the original item first so backend relevance metadata (score, match_reason,
+        // source_priority, candidate_source, provenance, target_article_id, …) survives merge.
+        const candidate = {
+            ...(item && typeof item === 'object' ? item : {}),
             text,
             href: href || null,
             target_url: targetUrl,
@@ -371,11 +404,27 @@ export function mergeSuggestionCatalog(...sources) {
             destination_resolved: destinationResolved,
             source: item?.source ?? item?.suggestion_source ?? null,
             suggestion_source: item?.suggestion_source ?? item?.source ?? null,
-        });
+        };
+
+        const existing = byLabel.get(label);
+        if (!existing) {
+            byLabel.set(label, { candidate, insertionIndex: insertionIndex++ });
+            return;
+        }
+
+        insertionIndex += 1;
+        // Same anchor label from multiple stages/sources — keep the more relevant candidate,
+        // not whichever happened to arrive first.
+        if (compareSuggestionCandidateRank(candidate, existing.candidate) < 0) {
+            byLabel.set(label, { candidate, insertionIndex: existing.insertionIndex });
+        }
     });
 
-    return merged.sort((left, right) => String(right.text).length - String(left.text).length);
+    return [...byLabel.values()]
+        .sort((left, right) => left.insertionIndex - right.insertionIndex)
+        .map((entry) => entry.candidate);
 }
+
 
 /**
  * @param {{
