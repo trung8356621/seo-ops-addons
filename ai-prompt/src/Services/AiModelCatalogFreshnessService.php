@@ -356,7 +356,7 @@ final class AiModelCatalogFreshnessService
         $ok = false;
         $error = null;
         try {
-            $ok = $this->gateway->sync($fresh);
+            $ok = $this->gateway->sync($fresh, $forced);
         } catch (\Throwable $e) {
             $ok = false;
             $error = $e->getMessage();

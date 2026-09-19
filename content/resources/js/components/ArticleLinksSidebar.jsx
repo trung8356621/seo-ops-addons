@@ -1787,6 +1787,18 @@ export default function ArticleLinksSidebar({
             siteDomainRef.current,
         );
         const pool = partitioned.internal;
+        // Main-domain candidates must go through the same actionable occurrence SSOT and
+        // ranking as every other Internal Link candidate — never blindly appended.
+        const mainDomainInternalCatalog = mainDomainSuggestions.relationship === 'internal'
+            ? visibleMainDomainSuggestions.map((item) => ({
+                ...item,
+                destination_resolved: item?.destination_resolved ?? true,
+                score: item?.score ?? item?.importance_score ?? null,
+            }))
+            : [];
+        const combinedPool = mainDomainInternalCatalog.length > 0
+            ? [...pool, ...mainDomainInternalCatalog]
+            : pool;
         const internalSignature = (internal ?? [])
             .map((item) => {
                 const label = normalizeLinkLabel(item?.text);
@@ -1803,40 +1815,26 @@ export default function ArticleLinksSidebar({
                 return `${label}|${href}`;
             })
             .join(';');
-        const poolKey = `${catalogVersion}:${internalSignature}:${externalSignature}:${plain}:internal`;
+        const mainDomainSignature = mainDomainInternalCatalog
+            .map((item) => `${normalizeLinkLabel(item?.text)}|${normalizeHrefForCompare(item?.href ?? item?.target_url)}`)
+            .join(';');
+        const poolKey = `${catalogVersion}:${internalSignature}:${externalSignature}:${plain}:internal:${mainDomainSignature}`;
 
         if (stableSuggestionsKeyRef.current !== poolKey) {
             stableSuggestionsKeyRef.current = poolKey;
             stableSuggestionsRef.current = buildActionableInternalLinkSuggestions(
-                pool,
+                combinedPool,
                 editorBlocksRef.current,
                 internal,
                 external,
             );
         }
 
-        const filtered = stableSuggestionsRef.current.filter((item) => {
+        return stableSuggestionsRef.current.filter((item) => {
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
-        if (mainDomainSuggestions.relationship !== 'internal') {
-            return filtered;
-        }
-
-        const existingHrefs = new Set(
-            filtered
-                .map((item) => normalizeHrefForCompare(item?.href ?? item?.target_url))
-                .filter(Boolean),
-        );
-
-        return [
-            ...filtered,
-            ...visibleMainDomainSuggestions.filter((item) => {
-                const href = normalizeHrefForCompare(item?.href ?? item?.target_url);
-
-                return href !== '' && !existingHrefs.has(href);
-            }),
-        ];
     }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
+
 
     suggestedInternalRef.current = suggestedInternal;
 

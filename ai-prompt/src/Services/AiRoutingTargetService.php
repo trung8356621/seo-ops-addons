@@ -298,7 +298,7 @@ final class AiRoutingTargetService
         }
         $out = [];
         $rejected = [];
-        foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
+        foreach ($this->priorities->effectiveAreaModels($userId, $area) as $model) {
             $connection = $model->apiConnection;
             $modelKey = (string) $model->raw_model_name;
             if (! $connection instanceof ApiConnection || (string) $connection->status !== 'active') {
@@ -481,6 +481,19 @@ final class AiRoutingTargetService
             return $candidates;
         }
 
+        $providerAllowed = [];
+        foreach ($execAllowed as $key) {
+            if (preg_match('/^(\d+)\|(.+)$/', $key, $matches) !== 1) {
+                continue;
+            }
+            foreach ($this->priorities->aiConnections($userId) as $connection) {
+                if ((int) $connection->id === (int) $matches[1]) {
+                    $providerAllowed[(string) $connection->provider.'|'.$matches[2]] = true;
+                    break;
+                }
+            }
+        }
+
         $out = [];
         foreach ($candidates as $candidate) {
             $family = $this->families->familyForModelId($candidate->model)
@@ -490,7 +503,8 @@ final class AiRoutingTargetService
             }
             if ($execAllowed !== []
                 && ! in_array(((int) $candidate->connection->id).'|'.$family->familyKey, $execAllowed, true)
-                && ! in_array($family->familyKey, $execAllowed, true)) {
+                && ! in_array($family->familyKey, $execAllowed, true)
+                && ! isset($providerAllowed[$candidate->provider.'|'.$family->familyKey])) {
                 continue;
             }
             if ($execAllowed === [] && $allowed !== [] && ! in_array($family->familyKey, $allowed, true)) {
@@ -514,7 +528,7 @@ final class AiRoutingTargetService
         $area = \Omnichannel\Addons\AiPrompt\Support\AiModelArea::fromProfile($profile);
         $out = [];
         $rejected = [];
-        foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
+        foreach ($this->priorities->effectiveAreaModels($userId, $area) as $model) {
             $connection = $model->apiConnection;
             $modelKey = (string) $model->raw_model_name;
             if (! $connection instanceof ApiConnection || (string) $connection->status !== 'active') {

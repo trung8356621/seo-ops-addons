@@ -39,3 +39,19 @@ test('featured snippet missing vs below_good stay distinct', () => {
         'featured_snippet_below_good',
     );
 });
+
+// 6 — external main-domain suggestions still only dedupe by href; no content-matching
+// is applied here (that stays scoped to the internal-relationship merge path).
+test('external main-domain items are unaffected by content presence — dedupe-only behavior unchanged', () => {
+    const suggestions = filterMainDomainSuggestionItems(
+        [
+            { href: 'https://main.example/absent-from-article', page_title: 'Not in article body at all' },
+        ],
+        [],
+        [],
+    );
+
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0].page_title, 'Not in article body at all');
+});
+

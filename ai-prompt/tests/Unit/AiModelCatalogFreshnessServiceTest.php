@@ -123,6 +123,26 @@ final class AiModelCatalogFreshnessServiceTest extends TestCase
         );
     }
 
+    public function test_gateway_autowires_router_without_explicit_concrete_binding(): void
+    {
+        $conn = $this->deepseek(80);
+        Http::fake([
+            'api.deepseek.com/*' => Http::response([
+                'object' => 'list',
+                'data' => [['id' => 'deepseek-chat', 'object' => 'model']],
+            ], 200),
+        ]);
+        $this->app->forgetInstance(AiModelRouterService::class);
+        $this->app->offsetUnset(AiModelRouterService::class);
+
+        $this->assertTrue((new AiProviderModelCatalogGateway())->sync($conn, true));
+        $this->assertDatabaseHas('seo_ai_models', [
+            'api_connection_id' => $conn->id,
+            'raw_model_name' => 'deepseek-chat',
+            'status' => SeoAiModel::STATUS_ACTIVE,
+        ]);
+    }
+
     public function test_sync_failure_preserves_last_known_good(): void
     {
         $conn = $this->deepseek(71);

@@ -362,6 +362,127 @@ final class LogicalModelFallbackArchitectureTest extends TestCase
         $this->assertSame((int) $orModel->id, (int) $enabled[0]->id);
     }
 
+    public function test_same_provider_membership_expands_without_changing_logical_order(): void
+    {
+        $a = $this->connection(77, ApiConnectionProviders::OPENROUTER, 'OpenRouter A');
+        $deepseekA = $this->model($a, 'deepseek/deepseek-v3.2', false);
+        $gptA = $this->model($a, 'openai/gpt-5.4-mini', false);
+        $claudeA = $this->model($a, 'anthropic/claude-sonnet-4.6', false);
+        foreach ([$deepseekA, $gptA, $claudeA] as $model) {
+            $this->grant($a, $model);
+        }
+        $this->priorities->appendToArea(77, AiModelArea::TextLongform, [
+            (int) $deepseekA->id,
+            (int) $gptA->id,
+            (int) $claudeA->id,
+        ]);
+
+        $b = $this->connection(77, ApiConnectionProviders::OPENROUTER, 'OpenRouter B');
+        $deepseekB = $this->model($b, 'deepseek/deepseek-v3.2', false);
+        $gptB = $this->model($b, 'openai/gpt-5.4-mini', false);
+        $claudeB = $this->model($b, 'anthropic/claude-sonnet-4.6', false);
+        $newModel = $this->model($b, 'vendor/new-model', false);
+        foreach ([$deepseekB, $gptB, $claudeB, $newModel] as $model) {
+            $this->grant($b, $model);
+        }
+
+        $anthropic = $this->connection(77, ApiConnectionProviders::CLAUDE, 'Anthropic Direct');
+        $directClaude = $this->model($anthropic, 'claude-sonnet-4.6', false);
+        $this->grant($anthropic, $directClaude);
+        $this->priorities->removeFromArea(77, AiModelArea::TextLongform, [(int) $directClaude->id]);
+
+        $models = $this->priorities->effectiveAreaModels(77, AiModelArea::TextLongform);
+        $byCanonical = [];
+        foreach ($models as $model) {
+            $canonical = AiCanonicalModelKey::fromProviderModelId(
+                (string) $model->raw_model_name,
+                (string) $model->apiConnection->provider,
+            );
+            $byCanonical[$canonical][] = (int) $model->api_connection_id;
+        }
+
+        $this->assertSame([(int) $a->id, (int) $b->id], $byCanonical['deepseek.v32']);
+        $this->assertSame([(int) $a->id, (int) $b->id], $byCanonical['openai.gpt54_mini']);
+        $this->assertSame([(int) $a->id, (int) $b->id], $byCanonical['claude.sonnet']);
+        $this->assertNotContains((int) $newModel->id, array_map(
+            static fn (SeoAiModel $model): int => (int) $model->id,
+            $models,
+        ));
+        $this->assertNotContains((int) $anthropic->id, $byCanonical['claude.sonnet']);
+
+        $logicalOrder = [];
+        foreach ($models as $model) {
+            $canonical = AiCanonicalModelKey::fromProviderModelId((string) $model->raw_model_name);
+            if (! in_array($canonical, $logicalOrder, true)) {
+                $logicalOrder[] = $canonical;
+            }
+        }
+        $this->assertSame(['deepseek.v32', 'openai.gpt54_mini', 'claude.sonnet'], $logicalOrder);
+
+        $rows = (new AiCenterModelPresenter(priorities: $this->priorities))
+            ->areaRows(77, AiModelArea::TextLongform);
+        $gptRow = collect($rows)->firstWhere('canonical_model_key', 'openai.gpt54_mini');
+        $this->assertNotNull($gptRow);
+        $this->assertSame(2, (int) ($gptRow['connection_count'] ?? 0));
+        $this->assertSame(2, (int) ($gptRow['route_count'] ?? 0));
+        $this->assertCount(1, $gptRow['routes'] ?? []);
+        $this->assertSame('OR', (string) ($gptRow['routes'][0]['short_code'] ?? ''));
+        $this->assertSame([(int) $a->id, (int) $b->id], $gptRow['routes'][0]['connection_ids'] ?? []);
+    }
+
+    public function test_same_provider_stack_excludes_connection_without_matching_model(): void
+    {
+        $a = $this->connection(78, ApiConnectionProviders::OPENROUTER, 'OpenRouter A');
+        $gpt = $this->model($a, 'openai/gpt-5.4-mini', false);
+        $this->grant($a, $gpt);
+        $this->priorities->appendToArea(78, AiModelArea::TextLongform, [(int) $gpt->id]);
+
+        $b = $this->connection(78, ApiConnectionProviders::OPENROUTER, 'OpenRouter B');
+        $other = $this->model($b, 'anthropic/claude-haiku-4.5', false);
+        $this->grant($b, $other);
+
+        $models = $this->priorities->effectiveAreaModels(78, AiModelArea::TextLongform);
+        $this->assertSame([(int) $a->id], array_values(array_map(
+            static fn (SeoAiModel $model): int => (int) $model->api_connection_id,
+            $models,
+        )));
+
+        $coverage = new AiConnectionCoverageService($this->priorities, new ModelCapabilityRegistry());
+        $this->assertSame(0, $coverage->reconcileArea(78, AiModelArea::TextLongform));
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled(
+            $other->fresh(),
+            AiModelArea::TextLongform,
+        ));
+    }
+
+    public function test_same_provider_runtime_falls_back_to_second_physical_connection(): void
+    {
+        $a = $this->connection(79, ApiConnectionProviders::OPENROUTER, 'OpenRouter A');
+        $b = $this->connection(79, ApiConnectionProviders::OPENROUTER, 'OpenRouter B');
+        $gptA = $this->model($a, 'openai/gpt-5.4-mini', false);
+        $gptB = $this->model($b, 'openai/gpt-5.4-mini', false);
+        $this->grant($a, $gptA);
+        $this->grant($b, $gptB);
+        $this->priorities->appendToArea(79, AiModelArea::TextLongform, [(int) $gptA->id]);
+
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 79, itemGenerationMode: 'best_quality'),
+            function (RoutedAiCandidate $candidate) use (&$calls, $a): array {
+                $calls[] = (int) $candidate->connection->id;
+                if ((int) $candidate->connection->id === (int) $a->id) {
+                    throw new PromptRunException('capacity rate limit', 429);
+                }
+
+                return ['ok', null];
+            },
+        );
+
+        $this->assertSame('ok', $output);
+        $this->assertSame([(int) $a->id, (int) $b->id], $calls);
+    }
+
     public function test_area_rows_snap_same_family_across_connections(): void
     {
         $or = $this->connection(76, ApiConnectionProviders::OPENROUTER, 'OR');

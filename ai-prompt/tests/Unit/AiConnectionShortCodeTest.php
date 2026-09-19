@@ -91,7 +91,7 @@ final class AiConnectionShortCodeTest extends TestCase
         $this->assertSame('EA', $doc['provider']['short_code']);
     }
 
-    public function test_collision_assigns_distinct_codes(): void
+    public function test_same_builtin_provider_connections_share_canonical_code(): void
     {
         $a = ApiConnection::query()->create([
             'user_id' => 1,
@@ -109,9 +109,9 @@ final class AiConnectionShortCodeTest extends TestCase
         ]);
         $presenter = new AiConnectionPresenter();
         $codes = $presenter->codesForUser(1);
-        $this->assertNotSame($codes[(int) $a->id], $codes[(int) $b->id]);
-        $this->assertContains('OR', $codes);
-        $this->assertTrue(str_starts_with($codes[(int) $a->id], 'OR') || str_starts_with($codes[(int) $b->id], 'OR'));
+        $this->assertSame('OR', $codes[(int) $a->id]);
+        $this->assertSame('OR', $codes[(int) $b->id]);
+        $this->assertNotContains('OR2', $codes);
     }
 
     public function test_badge_variant_stable_per_connection_and_label_shared(): void
@@ -147,7 +147,7 @@ final class AiConnectionShortCodeTest extends TestCase
         ));
     }
 
-    public function test_display_code_override_does_not_change_identity_keys(): void
+    public function test_builtin_display_code_override_is_ignored_without_changing_identity(): void
     {
         $connection = ApiConnection::query()->create([
             'user_id' => 3,
@@ -159,8 +159,8 @@ final class AiConnectionShortCodeTest extends TestCase
         ]);
         $beforeId = (int) $connection->id;
         $label = (new AiExecutionTargetPresenter())->presentNamed($connection, 'Gemini Pro', 3);
-        $this->assertSame('ORA', $label['short_code']);
-        $this->assertSame('[ORA] Gemini Pro', $label['full_label']);
+        $this->assertSame('OR', $label['short_code']);
+        $this->assertSame('[OR] Gemini Pro', $label['full_label']);
         $this->assertSame($beforeId, (int) $connection->id);
         $this->assertSame(ApiConnectionProviders::OPENROUTER, (string) $connection->provider);
     }

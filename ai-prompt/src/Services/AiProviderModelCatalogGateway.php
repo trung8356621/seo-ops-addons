@@ -45,11 +45,16 @@ final class AiProviderModelCatalogGateway
         };
     }
 
-    public function sync(ApiConnection $connection): bool
+    public function sync(ApiConnection $connection, bool $resolveFromContainer = false): bool
     {
         $router = $this->router;
-        if ($router === null && function_exists('app') && app()->bound(AiModelRouterService::class)) {
-            $router = app(AiModelRouterService::class);
+        if ($router === null && function_exists('app')
+            && ($resolveFromContainer || app()->bound(AiModelRouterService::class))) {
+            try {
+                $router = app(AiModelRouterService::class);
+            } catch (\Throwable) {
+                $router = null;
+            }
         }
         if (! is_object($router) || ! method_exists($router, 'syncModelsForConnection')) {
             return false;

@@ -28,9 +28,7 @@ final class AiConnectionPresenter
         $this->workspaceCodes = [];
     }
 
-    /**
-     * Effective short code for a connection (collision-safe within workspace).
-     */
+    /** Effective system-owned provider code for a connection. */
     public function shortCode(ApiConnection $connection, ?int $userId = null): string
     {
         $uid = $userId ?? (int) ($connection->user_id ?? 0);
@@ -58,41 +56,29 @@ final class AiConnectionPresenter
             $baseById[(int) $connection->id] = $this->baseCode($connection);
         }
         ksort($baseById);
-        $used = [];
         $out = [];
         foreach ($baseById as $id => $base) {
-            $candidate = $base;
-            $n = 2;
-            while (isset($used[$candidate])) {
-                $candidate = $this->withNumericSuffix($base, $n);
-                $n++;
-            }
-            $used[$candidate] = true;
-            $out[$id] = $candidate;
+            $out[$id] = $base;
         }
 
         return $this->workspaceCodes[$userId] = $out;
     }
 
-    /**
-     * Badge palette index identity is the connection id (stable across label text changes).
-     */
+    /** Badge palette identity is the provider, shared by sibling credential lanes. */
     public function badgeVariant(ApiConnection $connection): string
     {
-        $id = max(1, (int) $connection->id);
-        $index = (int) (($id * 2654435761) % self::BADGE_VARIANT_COUNT);
+        $provider = strtolower(trim((string) $connection->provider));
+        $index = (int) (sprintf('%u', crc32($provider !== '' ? $provider : 'ai')) % self::BADGE_VARIANT_COUNT);
 
         return 'badge-'.($index + 1);
     }
 
     public function baseCode(ApiConnection $connection): string
     {
-        $meta = is_array($connection->metadata) ? $connection->metadata : [];
-        $override = AiConnectionShortCode::normalize(
-            isset($meta['display_code']) ? (string) $meta['display_code'] : null,
-        );
-        if ($override !== null) {
-            return $override;
+        $provider = (string) $connection->provider;
+        $builtin = AiConnectionShortCode::builtin($provider);
+        if ($builtin !== null) {
+            return $builtin;
         }
 
         $fromTemplate = $this->templateShortCode($connection);
@@ -100,17 +86,7 @@ final class AiConnectionPresenter
             return $fromTemplate;
         }
 
-        $builtin = AiConnectionShortCode::builtin((string) $connection->provider);
-        if ($builtin !== null) {
-            return $builtin;
-        }
-
-        $name = trim((string) $connection->name);
-        if ($name === '') {
-            $name = (string) $connection->provider;
-        }
-
-        return AiConnectionShortCode::generate($name !== '' ? $name : 'AI');
+        return AiConnectionShortCode::generate($provider !== '' ? $provider : 'AI');
     }
 
     private function templateShortCode(ApiConnection $connection): ?string
@@ -125,15 +101,4 @@ final class AiConnectionPresenter
         }
     }
 
-    private function withNumericSuffix(string $base, int $n): string
-    {
-        $suffix = (string) $n;
-        $maxBase = AiConnectionShortCode::MAX_LENGTH - strlen($suffix);
-        if ($maxBase < AiConnectionShortCode::MIN_LENGTH) {
-            $maxBase = AiConnectionShortCode::MIN_LENGTH;
-        }
-        $trimmed = substr($base, 0, $maxBase);
-
-        return AiConnectionShortCode::normalize($trimmed.$suffix) ?? ($trimmed.$suffix);
-    }
 }

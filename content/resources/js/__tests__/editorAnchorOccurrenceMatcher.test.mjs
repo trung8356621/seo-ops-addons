@@ -441,3 +441,90 @@ describe('Internal Link suggestion ROW ranking — relevance, not document posit
     });
 });
 
+/**
+ * Reproduces ArticleLinksSidebar.jsx's suggestedInternal normalization of a
+ * mainDomainSuggestions.relationship === 'internal' item before it is merged into the
+ * shared catalog pool and passed through buildActionableInternalLinkSuggestions.
+ */
+function asMainDomainInternalCandidate(item) {
+    return {
+        ...item,
+        destination_resolved: item?.destination_resolved ?? true,
+        score: item?.score ?? item?.importance_score ?? null,
+    };
+}
+
+describe('Main-domain internal candidates go through the same actionable occurrence SSOT', () => {
+    const mainDomainItem = {
+        text: 'túi vải bố',
+        page_title: 'túi vải bố',
+        href: 'https://main.example/tui-vai-bo',
+        target_url: 'https://main.example/tui-vai-bo',
+        relationship: 'internal',
+        main_domain: 'main.example',
+        source: 'main_domain_site_sync_catalog',
+        catalog_source: 'product_cat',
+        importance_score: 62,
+        can_insert: true,
+    };
+
+    it('1 — phrase absent from editor content => hidden', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [asMainDomainInternalCandidate(mainDomainItem)],
+            [{ id: 'b1', content: '<p>Bài viết này không nhắc tới sản phẩm đó.</p>' }],
+        );
+        assert.equal(rows.length, 0);
+    });
+
+    it('2 — phrase present in editor content => visible with correct href/casing', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [asMainDomainInternalCandidate(mainDomainItem)],
+            [{ id: 'b1', content: '<p>Các mẫu Túi Vải Bố cho nhân viên.</p>' }],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].text, 'Túi Vải Bố');
+        assert.equal(rows[0].href, 'https://main.example/tui-vai-bo');
+    });
+
+    it('3 — phrase only inside existing <a> => hidden', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [asMainDomainInternalCandidate(mainDomainItem)],
+            [{ id: 'b1', content: '<p>Xem <a href="/old">túi vải bố</a> tại đây.</p>' }],
+        );
+        assert.equal(rows.length, 0);
+    });
+
+    it('4 — linked occurrence first, unlinked occurrence later => visible', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [asMainDomainInternalCandidate(mainDomainItem)],
+            [
+                { id: 'b1', content: '<p><a href="/old">túi vải bố</a></p>' },
+                { id: 'b2', content: '<p>túi vải bố mới về</p>' },
+            ],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]._domain_occurrences[0].blockId, 'b2');
+    });
+
+    it('5 — href/destination stays the main-domain URL, not invented', () => {
+        const rows = buildActionableInternalLinkSuggestions(
+            [asMainDomainInternalCandidate(mainDomainItem)],
+            [{ id: 'b1', content: '<p>túi vải bố</p>' }],
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].href, 'https://main.example/tui-vai-bo');
+        assert.equal(rows[0].target_url, 'https://main.example/tui-vai-bo');
+    });
+
+    it('7 — regression: normal internal catalog candidates still match alongside main-domain ones', () => {
+        const normalCandidate = { text: 'balo laptop', href: '/may-balo-laptop', destination_resolved: true, score: 80 };
+        const rows = buildActionableInternalLinkSuggestions(
+            [normalCandidate, asMainDomainInternalCandidate(mainDomainItem)],
+            [{ id: 'b1', content: '<p>Các mẫu balo laptop và túi vải bố cho nhân viên.</p>' }],
+        );
+        const texts = rows.map((row) => row.text).sort();
+        assert.deepEqual(texts, ['balo laptop', 'túi vải bố']);
+    });
+});
+
+

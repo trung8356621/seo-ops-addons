@@ -38,16 +38,6 @@ final class ApiConnectionFormSchema
                     if ($name === '' || $name === $oldLabel) {
                         $set('name', $newLabel);
                     }
-                    $currentCode = trim((string) $get('metadata.display_code'));
-                    $oldBuiltin = is_string($old) ? (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin($old) ?? '') : '';
-                    if ($currentCode === '' || $currentCode === $oldBuiltin) {
-                        $set(
-                            'metadata.display_code',
-                            is_string($state)
-                                ? (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin($state) ?? '')
-                                : '',
-                        );
-                    }
                 })
                 ->helperText(fn (Get $get): ?HtmlString => self::providerHelper($get('provider'))),
             Forms\Components\TextInput::make('name')
@@ -55,17 +45,6 @@ final class ApiConnectionFormSchema
                 ->required()
                 ->default(fn (): string => ApiConnectionProviders::label(ApiConnectionProviders::GEMINI))
                 ->maxLength(255),
-            Forms\Components\TextInput::make('metadata.display_code')
-                ->label(__('seo-content-ai::filament.ai_connection.display_code'))
-                ->helperText(__('seo-content-ai::filament.ai_connection.display_code_help'))
-                ->maxLength(8)
-                ->default(fn (): string => (string) (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin(ApiConnectionProviders::GEMINI) ?? ''))
-                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
-                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
-                ->extraInputAttributes([
-                    'style' => 'text-transform: uppercase',
-                    'autocomplete' => 'off',
-                ]),
             Forms\Components\TextInput::make('api_key')
                 ->label(__('seo-content-ai::filament.ai_connection.api_key'))
                 ->password()

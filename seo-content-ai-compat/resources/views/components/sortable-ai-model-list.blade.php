@@ -58,8 +58,9 @@
                             <span class="seo-ai-muted" style="display:block;font-size:0.75rem;margin-top:0.15rem;">
                                 {{ $row['subtitle'] ?? ('Auto managed · '.((int) ($row['free_pool_count'] ?? $row['member_count'] ?? 0)).' models') }}
                             </span>
-                        @elseif (count($routeBadges) >= 2)
-                            <span class="seo-ai-muted" style="margin-left:0.35rem;font-size:0.75rem;">{{ count($routeBadges) }} routes</span>
+                        @elseif (($row['route_count'] ?? 0) >= 2)
+                            @php($sameProvider = count($routeBadges) === 1)
+                            <span class="seo-ai-muted" style="margin-left:0.35rem;font-size:0.75rem;">{{ $row['route_count'] }} {{ $sameProvider ? 'connections' : 'routes' }}</span>
                         @endif
                     </div>
                 </div>

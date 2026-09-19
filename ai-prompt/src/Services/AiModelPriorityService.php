@@ -8,6 +8,8 @@ use App\Models\ApiConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
+use Omnichannel\Addons\AiPrompt\Support\AiCanonicalModelKey;
+use Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
@@ -23,6 +25,9 @@ final class AiModelPriorityService
 
     /** @var array<string, list<SeoAiModel>> */
     private array $areaEnabledMemo = [];
+
+    /** @var array<string, array<int, int>> */
+    private array $effectiveAreaMembershipMemo = [];
 
     /** @var array<int, list<ApiConnection>> */
     private array $connectionsMemo = [];
@@ -281,6 +286,9 @@ final class AiModelPriorityService
 
     public function areaPriority(SeoAiModel $model, AiModelArea $area, ?ApiConnection $connection = null): int
     {
+        if ($model->getAttribute('effective_area_priority') !== null) {
+            return (int) $model->getAttribute('effective_area_priority');
+        }
         $explicit = $this->explicitAreaPriority($model, $area);
         if ($explicit !== null) {
             return $explicit;
@@ -511,9 +519,119 @@ final class AiModelPriorityService
         return $this->areaEnabledMemo[$memoKey] = array_values($out);
     }
 
+    /**
+     * Provider-level logical membership projected onto physical model rows.
+     *
+     * @return array<int, int> model id => inherited logical priority
+     */
+    public function effectiveAreaMembership(int $userId, AiModelArea $area): array
+    {
+        $memoKey = $userId.'|'.$area->value;
+        if (isset($this->effectiveAreaMembershipMemo[$memoKey])) {
+            return $this->effectiveAreaMembershipMemo[$memoKey];
+        }
+
+        $connections = $this->aiConnections($userId);
+        $modelsByConnection = [];
+        $providerHasExplicitState = [];
+        foreach ($connections as $connection) {
+            $models = SeoAiModel::query()
+                ->where('api_connection_id', $connection->id)
+                ->where('status', SeoAiModel::STATUS_ACTIVE)
+                ->orderBy('priority')
+                ->orderBy('id')
+                ->get()
+                ->all();
+            $modelsByConnection[(int) $connection->id] = $models;
+            foreach ($models as $model) {
+                if ($this->hasExplicitAreaState($model, $area)) {
+                    $providerHasExplicitState[(string) $connection->provider] = true;
+                }
+            }
+        }
+
+        $policy = [];
+        foreach ($this->areaEnabledModels($userId, $area) as $model) {
+            $connection = $model->apiConnection;
+            if (! $connection instanceof ApiConnection) {
+                continue;
+            }
+            $provider = (string) $connection->provider;
+            if (($providerHasExplicitState[$provider] ?? false)
+                && ! $this->isExplicitlyAreaEnabled($model, $area)) {
+                continue;
+            }
+            $key = $provider.'|'.AiCanonicalModelKey::fromProviderModelId(
+                (string) $model->raw_model_name,
+                $provider,
+            );
+            $priority = $this->areaPriority($model, $area, $connection);
+            $policy[$key] = isset($policy[$key]) ? min($policy[$key], $priority) : $priority;
+        }
+
+        $membership = [];
+        foreach ($connections as $connection) {
+            if ((string) $connection->status !== 'active'
+                || ! AiConnectionCredential::isUsable($connection->api_key)) {
+                continue;
+            }
+            $provider = (string) $connection->provider;
+            foreach ($modelsByConnection[(int) $connection->id] ?? [] as $model) {
+                $key = $provider.'|'.AiCanonicalModelKey::fromProviderModelId(
+                    (string) $model->raw_model_name,
+                    $provider,
+                );
+                if (! isset($policy[$key])
+                    || ! $this->modelAllowedInArea($model, $area)) {
+                    continue;
+                }
+                $membership[(int) $model->id] = (int) $policy[$key];
+            }
+        }
+
+        return $this->effectiveAreaMembershipMemo[$memoKey] = $membership;
+    }
+
+    /** @return list<SeoAiModel> */
+    public function effectiveAreaModels(int $userId, AiModelArea $area): array
+    {
+        $membership = $this->effectiveAreaMembership($userId, $area);
+        if ($membership === []) {
+            return [];
+        }
+        $connections = collect($this->aiConnections($userId))
+            ->keyBy(static fn (ApiConnection $connection): int => (int) $connection->id);
+        $models = SeoAiModel::query()->whereIn('id', array_keys($membership))->get()->all();
+        foreach ($models as $model) {
+            $connection = $connections->get((int) $model->api_connection_id);
+            if ($connection instanceof ApiConnection) {
+                $model->setRelation('apiConnection', $connection);
+            }
+            $model->setAttribute('effective_area_priority', $membership[(int) $model->id]);
+        }
+        usort($models, function (SeoAiModel $a, SeoAiModel $b) use ($membership): int {
+            $cmp = $membership[(int) $a->id] <=> $membership[(int) $b->id];
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            $aConnection = $a->apiConnection;
+            $bConnection = $b->apiConnection;
+            $cmp = $this->connectionPriority($aConnection) <=> $this->connectionPriority($bConnection);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            $cmp = (int) $aConnection->id <=> (int) $bConnection->id;
+
+            return $cmp !== 0 ? $cmp : ((int) $a->id <=> (int) $b->id);
+        });
+
+        return array_values($models);
+    }
+
     public function forgetMemo(): void
     {
         $this->areaEnabledMemo = [];
+        $this->effectiveAreaMembershipMemo = [];
         $this->connectionsMemo = [];
     }
 
@@ -617,6 +735,13 @@ final class AiModelPriorityService
         $caps = is_array($model->capabilities) ? $model->capabilities : [];
 
         return is_array($caps[self::AREAS_KEY] ?? null) ? $caps[self::AREAS_KEY] : [];
+    }
+
+    private function hasExplicitAreaState(SeoAiModel $model, AiModelArea $area): bool
+    {
+        $stored = $this->areaBag($model)[$area->value] ?? null;
+
+        return is_array($stored) && array_key_exists('enabled', $stored);
     }
 
     private function explicitAreaPriority(SeoAiModel $model, AiModelArea $area): ?int

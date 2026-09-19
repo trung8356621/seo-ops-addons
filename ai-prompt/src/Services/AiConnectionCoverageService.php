@@ -53,8 +53,19 @@ final class AiConnectionCoverageService
     {
         $profile = $this->profileForArea($area);
         $enabledIds = [];
+        $configuredProviders = [];
         foreach ($this->priorities()->areaEnabledModels($userId, $area) as $model) {
             $cid = (int) ($model->api_connection_id ?? 0);
+            if ($cid > 0) {
+                $enabledIds[$cid] = true;
+            }
+            $connection = $model->apiConnection;
+            if ($connection instanceof ApiConnection) {
+                $configuredProviders[(string) $connection->provider] = true;
+            }
+        }
+        foreach (array_keys($this->priorities()->effectiveAreaMembership($userId, $area)) as $modelId) {
+            $cid = (int) SeoAiModel::query()->whereKey($modelId)->value('api_connection_id');
             if ($cid > 0) {
                 $enabledIds[$cid] = true;
             }
@@ -65,7 +76,8 @@ final class AiConnectionCoverageService
             $cid = (int) $connection->id;
             $best = $this->bestEligibleModel($connection, $area, $profile);
             $supported = $best !== null;
-            $covered = isset($enabledIds[$cid]);
+            $covered = isset($enabledIds[$cid])
+                || isset($configuredProviders[(string) $connection->provider]);
             $out[] = [
                 'connection_id' => $cid,
                 'provider' => (string) $connection->provider,

@@ -97,6 +97,7 @@ final class AiCenterModelPresenter
         $status = trim((string) ($filters['status'] ?? ''));
         $technical = (bool) ($filters['technical'] ?? false);
         $cost = trim((string) ($filters['cost'] ?? 'all'));
+        $effectiveMembership = $this->priorities->effectiveAreaMembership($userId, $area);
         $rows = [];
         foreach ($this->familyInventory($userId, enabledOnly: false) as $row) {
             $connection = $this->connectionById($userId, (int) ($row['connection_id'] ?? 0));
@@ -105,12 +106,13 @@ final class AiCenterModelPresenter
                 continue;
             }
             $unknown = (bool) ($row['unknown'] ?? false);
-            $enabled = $this->priorities->isAreaEnabled($model, $area, $connection);
-            // Unknown inventory is opt-in: only show after an explicit Add (omi_areas flag),
-            // unless Technical models is on.
-            if ($unknown && ! $technical && ! $this->priorities->isExplicitlyAreaEnabled($model, $area)) {
-                continue;
+            $memberPriorities = [];
+            foreach (array_values(array_map('intval', $row['ids'] ?? [])) as $modelId) {
+                if (isset($effectiveMembership[$modelId])) {
+                    $memberPriorities[] = $effectiveMembership[$modelId];
+                }
             }
+            $enabled = $memberPriorities !== [];
             if (! $enabled) {
                 continue;
             }
@@ -142,7 +144,7 @@ final class AiCenterModelPresenter
             $row['badge_variant'] = $presented['badge_variant'];
             $row['model_name'] = $presented['model_name'];
             $row['full_label'] = $presented['full_label'];
-            $row['area_priority'] = $this->priorities->areaPriority($model, $area, $connection);
+            $row['area_priority'] = min($memberPriorities);
             $row['is_free'] = OpenRouterModelEconomics::modelIsFree($model)
                 || OpenRouterModelEconomics::isFree([], (string) $model->raw_model_name);
             if ($cost === 'free' && ! $row['is_free']) {
@@ -163,6 +165,8 @@ final class AiCenterModelPresenter
                 'provider_key' => (string) ($row['provider_key'] ?? ''),
                 'provider' => (string) ($row['provider'] ?? ''),
                 'is_aggregator' => ApiConnectionProviders::isAggregator((string) ($row['provider_key'] ?? '')),
+                'connection_ids' => [(int) ($row['connection_id'] ?? 0)],
+                'connection_count' => 1,
                 'ids' => array_values(array_map('intval', $row['ids'] ?? [])),
                 'short_code' => (string) ($presented['short_code'] ?? ''),
                 'badge_variant' => (string) ($presented['badge_variant'] ?? 'badge-1'),
@@ -288,7 +292,7 @@ final class AiCenterModelPresenter
 
                 return $ra <=> $rb;
             });
-            $existing['routes'] = array_values($routes);
+            $existing['routes'] = $this->collapseProviderRoutes($routes);
             $existingIds = array_values(array_map('intval', $existing['ids'] ?? []));
             $rowIds = array_values(array_map('intval', $row['ids'] ?? []));
             $existing['ids'] = array_values(array_unique(array_merge($existingIds, $rowIds)));
@@ -313,15 +317,67 @@ final class AiCenterModelPresenter
                 $existing['badge_variant'] = (string) ($primary['badge_variant'] ?? $existing['badge_variant'] ?? 'badge-1');
             }
             $existing['identity'] = 'logical|'.$key;
+            $existing['connection_count'] = array_sum(array_map(
+                static fn (array $route): int => (int) ($route['connection_count'] ?? 1),
+                $existing['routes'],
+            ));
+            $existing['route_count'] = $existing['connection_count'];
             $byKey[$key] = $existing;
         }
 
         $out = [];
         foreach ($order as $key) {
             if (isset($byKey[$key])) {
-                $out[] = $byKey[$key];
+                $row = $byKey[$key];
+                $row['routes'] = $this->collapseProviderRoutes(is_array($row['routes'] ?? null) ? $row['routes'] : []);
+                $row['connection_count'] = array_sum(array_map(
+                    static fn (array $route): int => (int) ($route['connection_count'] ?? 1),
+                    $row['routes'],
+                ));
+                $row['route_count'] = $row['connection_count'];
+                $out[] = $row;
             }
         }
+
+        return $out;
+    }
+
+    /**
+     * One UI badge per provider while retaining every physical connection id.
+     *
+     * @param  list<array<string, mixed>>  $routes
+     * @return list<array<string, mixed>>
+     */
+    private function collapseProviderRoutes(array $routes): array
+    {
+        $grouped = [];
+        foreach ($routes as $route) {
+            $provider = (string) ($route['provider_key'] ?? '');
+            if (! isset($grouped[$provider])) {
+                $grouped[$provider] = $route;
+                $grouped[$provider]['connection_ids'] = [];
+                $grouped[$provider]['ids'] = [];
+            }
+            $connectionIds = is_array($route['connection_ids'] ?? null)
+                ? $route['connection_ids']
+                : [(int) ($route['connection_id'] ?? 0)];
+            $grouped[$provider]['connection_ids'] = array_values(array_unique(array_merge(
+                array_map('intval', $grouped[$provider]['connection_ids']),
+                array_filter(array_map('intval', $connectionIds)),
+            )));
+            $grouped[$provider]['ids'] = array_values(array_unique(array_merge(
+                array_map('intval', $grouped[$provider]['ids']),
+                array_map('intval', is_array($route['ids'] ?? null) ? $route['ids'] : []),
+            )));
+            $grouped[$provider]['connection_count'] = count($grouped[$provider]['connection_ids']);
+            $grouped[$provider]['connection_id'] = (int) ($grouped[$provider]['connection_ids'][0] ?? 0);
+        }
+        $out = array_values($grouped);
+        usort($out, static function (array $a, array $b): int {
+            $cmp = ((int) ! empty($a['is_aggregator'])) <=> ((int) ! empty($b['is_aggregator']));
+
+            return $cmp !== 0 ? $cmp : ((int) ($a['connection_id'] ?? 0) <=> (int) ($b['connection_id'] ?? 0));
+        });
 
         return $out;
     }
