@@ -202,10 +202,11 @@ final class RouteCostGenerationShapeContractTest extends TestCase
             (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class))->getFileName(),
         );
         $sliceStart = (int) strpos($src, 'function resolveFirstAttemptable');
-        $slice = substr($src, $sliceStart, 2200);
+        $slice = substr($src, $sliceStart, 2800);
         self::assertStringContainsString('skipReason', $slice);
         self::assertStringContainsString('routeCapacityPolicy()', $slice);
         self::assertStringContainsString('->evaluate(', $slice);
+        self::assertStringContainsString('firstHealthUsable', $slice);
         self::assertStringContainsString('noCandidate', $slice);
         self::assertStringNotContainsString('still return AI Center #1', $slice);
     }
@@ -225,9 +226,10 @@ final class RouteCostGenerationShapeContractTest extends TestCase
             (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class))->getFileName(),
         );
         $sliceStart = (int) strpos($routerSrc, 'function resolveFirstAttemptable');
-        $slice = substr($routerSrc, $sliceStart, 2200);
+        $slice = substr($routerSrc, $sliceStart, 2800);
         self::assertStringContainsString('routeCapacityPolicy()', $slice);
         self::assertStringContainsString('! $capacity->eligible', $slice);
+        self::assertStringContainsString('return $firstHealthUsable', $slice);
 
         // Behavioral: when first attemptable is already the capacity-surviving free route,
         // Content shape must be SPLIT — not PAID from a rejected higher-priority candidate.

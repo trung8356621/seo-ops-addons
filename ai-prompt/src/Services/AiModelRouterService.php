@@ -99,11 +99,14 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
 
         $health = $this->runtimeHealth();
         $parsed = AiExecutionProfile::tryFrom($profile);
+        $firstHealthUsable = null;
         foreach ($candidates as $candidate) {
             $skipReason = $health->skipReason($userId, $candidate);
             if ($skipReason !== null) {
                 continue;
             }
+
+            $firstHealthUsable ??= $candidate;
 
             // Share the same pre-execution capacity authority as the attempt loop so
             // generation shape follows the first ACTUALLY usable physical route.
@@ -115,6 +118,12 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             }
 
             return $candidate;
+        }
+
+        // Let the execution loop own capacity exhaustion and its route diagnostics.
+        // Shape planning must not turn an available model into a misleading no-candidate error.
+        if ($firstHealthUsable instanceof RoutedAiCandidate) {
+            return $firstHealthUsable;
         }
 
         // No usable route after health + capacity skips — normal routing failure (no fake shape authority).
