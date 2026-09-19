@@ -182,13 +182,21 @@ final class BusinessHookEmitter
 
     public function taskFailed(SeoProjectTask $task, array $context = []): void
     {
-        $this->emit(BusinessEventName::ContentProjectTaskFailed, $task, [
+        $payload = [
             'task_id' => (int) $task->id,
             'project_id' => (int) ($task->project_id ?? 0) ?: null,
             'site_id' => (int) ($task->site_id ?? 0) ?: null,
             'article_id' => (int) ($task->article_id ?? 0) ?: null,
             'status' => 'failed',
-        ], $context);
+        ];
+        foreach (['run_id', 'run_item_id', 'error_code'] as $key) {
+            if (! array_key_exists($key, $context) || $context[$key] === null || $context[$key] === '') {
+                continue;
+            }
+            $payload[$key] = $key === 'error_code' ? (string) $context[$key] : (int) $context[$key];
+        }
+
+        $this->emit(BusinessEventName::ContentProjectTaskFailed, $task, $payload, $context);
     }
 
     public function taskArchived(SeoProjectTask $task, array $context = []): void

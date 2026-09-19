@@ -28,15 +28,17 @@ final class ArticleLengthWordsValidationTest extends TestCase
     {
         $validator = new ArticleGenerationLengthValidator;
         self::assertSame(0.5, $validator->configuredRatio());
-        // target 2000 × 0.5 ⇒ soft floor 1000 ⇒ first accepted = 1001 (>1000)
-        self::assertSame(1001, $validator->minimumForTarget(2000));
-        self::assertSame(1001, $validator->configuredMinimum());
-        self::assertSame(1501, $validator->minimumForTarget(3000));
-        self::assertSame(501, $validator->minimumForTarget(1000));
-        self::assertSame(151, $validator->minimumForTarget(300));
+        // hard_floor = max(absolute 300, target × 0.5)
+        self::assertSame(1000, $validator->minimumForTarget(2000));
+        self::assertSame(1000, $validator->hardFloorForTarget(2000));
+        self::assertSame(1000, $validator->configuredMinimum());
+        self::assertSame(1500, $validator->minimumForTarget(3000));
+        self::assertSame(500, $validator->minimumForTarget(1000));
+        self::assertSame(300, $validator->minimumForTarget(300));
+        self::assertSame(300, $validator->minimumForTarget(501));
         self::assertSame(300, $validator->minimumForTarget(0));
-        self::assertSame(1001, PromptTextMetrics::minWordsFromArticleLength(2000));
-        self::assertSame(501, PromptTextMetrics::minWordsFromArticleLength(1000));
+        self::assertSame(1000, PromptTextMetrics::minWordsFromArticleLength(2000));
+        self::assertSame(500, PromptTextMetrics::minWordsFromArticleLength(1000));
         self::assertSame(300, PromptTextMetrics::minWordsFromArticleLength(0));
     }
 
@@ -84,25 +86,38 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        // target 1000 ⇒ minimum 501
+        // target 1000 ⇒ hard floor 500; 501 is below target → warning
         $text = trim(str_repeat('word ', 501));
         self::assertSame(501, PromptTextMetrics::wordCount($text));
 
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
         self::assertSame($text, $out['value']);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result'] ?? null);
-        self::assertSame(501, $out['length_validation']['minimum_acceptable_words'] ?? null);
-        self::assertSame(1000, $out['length_validation']['target_article_length'] ?? null);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result'] ?? null);
+        self::assertSame('success_with_warning', $out['length_validation']['outcome'] ?? null);
+        self::assertSame(500, $out['length_validation']['hard_floor_words'] ?? null);
+        self::assertSame(1000, $out['length_validation']['target_words'] ?? null);
+        self::assertContains(ArticleGenerationLengthValidator::UI_WARNING, $out['warnings'] ?? []);
     }
 
-    public function test_output_pipeline_words_fails_at_exact_ratio_floor_for_target_1000(): void
+    public function test_output_pipeline_words_warns_at_hard_floor_for_target_1000(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
         $text = trim(str_repeat('word ', 500));
+        $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result'] ?? null);
+        self::assertSame(ArticleGenerationLengthValidator::WARNING_BELOW_TARGET, $out['length_validation']['warning_code'] ?? null);
+    }
+
+    public function test_output_pipeline_words_fails_below_hard_floor_for_target_1000(): void
+    {
+        $pipeline = new PromptHookRuntimeOutputPipeline;
+        $def = $this->markdownWordsDefinition(300);
+
+        $text = trim(str_repeat('word ', 499));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('actual: 500 words, minimum: 501 words, target: 1000 words');
+        $this->expectExceptionMessage('actual: 499 words, hard_floor: 500 words, target: 1000 words');
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
     }
 
@@ -113,9 +128,9 @@ final class ArticleLengthWordsValidationTest extends TestCase
 
         $text = trim(str_repeat('word ', 1375));
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result']);
         self::assertSame(1375, $out['length_validation']['actual_word_count']);
-        self::assertSame(1001, $out['length_validation']['minimum_acceptable_words']);
+        self::assertSame(1000, $out['length_validation']['hard_floor_words']);
         self::assertSame(2000, $out['length_validation']['target_article_length']);
     }
 
@@ -126,9 +141,9 @@ final class ArticleLengthWordsValidationTest extends TestCase
 
         $text = trim(str_repeat('word ', 1534));
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result']);
         self::assertSame(1534, $out['length_validation']['actual_word_count']);
-        self::assertSame(1001, $out['length_validation']['minimum_acceptable_words']);
+        self::assertSame(1000, $out['length_validation']['hard_floor_words']);
         self::assertSame(2000, $out['length_validation']['target_article_length']);
     }
 
@@ -139,7 +154,7 @@ final class ArticleLengthWordsValidationTest extends TestCase
 
         $text = trim(str_repeat('word ', 1001));
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result']);
     }
 
     public function test_output_pipeline_words_fails_at_1000_for_target_2000(): void
@@ -147,9 +162,9 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 1000));
+        $text = trim(str_repeat('word ', 999));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('actual: 1000 words, minimum: 1001 words, target: 2000 words');
+        $this->expectExceptionMessage('actual: 999 words, hard_floor: 1000 words, target: 2000 words');
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
     }
 
@@ -160,8 +175,8 @@ final class ArticleLengthWordsValidationTest extends TestCase
 
         $text = trim(str_repeat('word ', 1501));
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 3000]);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
-        self::assertSame(1501, $out['length_validation']['minimum_acceptable_words']);
+        self::assertSame('accepted_with_warning', $out['length_validation']['length_validation_result']);
+        self::assertSame(1500, $out['length_validation']['hard_floor_words']);
     }
 
     public function test_output_pipeline_words_target_3000_actual_1500_fails_at_ratio_floor(): void
@@ -169,9 +184,9 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 1500));
+        $text = trim(str_repeat('word ', 1499));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('actual: 1500 words, minimum: 1501 words, target: 3000 words');
+        $this->expectExceptionMessage('actual: 1499 words, hard_floor: 1500 words, target: 3000 words');
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 3000]);
     }
 
@@ -238,7 +253,7 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 500));
+        $text = trim(str_repeat('word ', 499));
         $this->expectException(OutputTruncated::class);
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
     }

@@ -65,6 +65,10 @@ final class ProjectRunItemLegacyJsonPresenter
             'article_id' => $articleId > 0 ? $articleId : null,
             'article_edit_url' => null,
             'message' => (string) ($runItem->message ?? ''),
+            'warning_code' => is_array($runItem->output_snapshot) ? ($runItem->output_snapshot['warning_code'] ?? null) : null,
+            'warning_message' => is_array($runItem->output_snapshot) ? ($runItem->output_snapshot['warning_message'] ?? null) : null,
+            'actual_words' => is_array($runItem->output_snapshot) ? ($runItem->output_snapshot['actual_words'] ?? null) : null,
+            'target_words' => is_array($runItem->output_snapshot) ? ($runItem->output_snapshot['target_words'] ?? null) : null,
             'steps' => is_array($runItem->output_snapshot['steps'] ?? null)
                 ? $runItem->output_snapshot['steps']
                 : [],

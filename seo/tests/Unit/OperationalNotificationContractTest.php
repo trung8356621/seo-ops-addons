@@ -66,7 +66,7 @@ final class OperationalNotificationContractTest extends TestCase
             'site_sync.partial_failed',
             'site_sync.stuck',
             'site_sync.failed',
-            'site_sync.recovered',
+            'content_project.task_failed',
         ] as $code) {
             self::assertContains($code, $codes);
         }

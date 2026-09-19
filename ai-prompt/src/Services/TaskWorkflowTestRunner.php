@@ -30,6 +30,7 @@ use Omnichannel\Addons\Content\Services\ArticleProductGalleryDistributeService;
 use Omnichannel\Addons\Content\Services\SeoFaqPersistenceService;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
@@ -1350,10 +1351,25 @@ final class TaskWorkflowTestRunner
                         'strategy_source' => $variables['strategy_source'] ?? null,
                         'duration_ms' => $hookResult['duration_ms'],
                         'actual_word_count' => $hookResult['actual_word_count'] ?? null,
+                        'actual_words' => $hookResult['actual_words'] ?? $hookResult['actual_word_count'] ?? null,
                         'minimum_acceptable_words' => $hookResult['minimum_acceptable_words'] ?? null,
+                        'hard_floor_words' => $hookResult['hard_floor_words'] ?? $hookResult['minimum_acceptable_words'] ?? null,
                         'target_article_length' => $hookResult['target_article_length'] ?? null,
+                        'target_words' => $hookResult['target_words'] ?? $hookResult['target_article_length'] ?? null,
                         'length_validation_result' => $hookResult['length_validation_result'] ?? null,
-                        'message' => 'Prompt Hook completed ('.$hookResult['hook_key'].'@'.$hookResult['hook_version'].').',
+                        'outcome' => $hookResult['outcome'] ?? null,
+                        'warning_code' => $hookResult['warning_code'] ?? null,
+                        'warning_message' => $hookResult['warning_message'] ?? null,
+                        'length_validation' => is_array($hookResult['length_validation'] ?? null)
+                            ? $hookResult['length_validation']
+                            : null,
+                        'message' => ArticleGenerationLengthValidator::isWarningResult(
+                            is_array($hookResult['length_validation'] ?? null)
+                                ? $hookResult['length_validation']
+                                : $hookResult,
+                        )
+                            ? (string) ($hookResult['warning_message'] ?? ArticleGenerationLengthValidator::UI_WARNING)
+                            : 'Prompt Hook completed ('.$hookResult['hook_key'].'@'.$hookResult['hook_version'].').',
                     ];
                 }
 

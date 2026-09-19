@@ -2023,10 +2023,18 @@ class PromptRunnerService
             // Length / terminal truncation MUST throw inside the router attempt so
             // AiModelRouter can failover (PromptHookRuntimeEngine validates after
             // generate() returns — too late for multi-candidate retry).
-            $this->assertArticleRouteOutputEligibleForFailover($output, $usage, $routeVariables);
+            $lengthValidation = $this->assertArticleRouteOutputEligibleForFailover($output, $usage, $routeVariables);
             $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
             $usage['compiled_chars'] = mb_strlen($compiled);
             $usage['article_budget_quarantined'] = true;
+            if ($lengthValidation !== null) {
+                $usage['length_validation'] = $lengthValidation;
+                if (ArticleGenerationLengthValidator::isWarningResult($lengthValidation)) {
+                    $usage['warning_code'] = $lengthValidation['warning_code'] ?? ArticleGenerationLengthValidator::WARNING_BELOW_TARGET;
+                    $usage['warning_message'] = $lengthValidation['warning_message']
+                        ?? ArticleGenerationLengthValidator::UI_WARNING;
+                }
+            }
 
             return [$output, $usage];
         }
@@ -2410,16 +2418,18 @@ class PromptRunnerService
 
     /**
      * Article writing length / provider-length-stop gates that must participate in
-     * AiModelRouter failover. Throws OutputTruncated (recoverable) — not OutputQuality.
+     * AiModelRouter failover. Throws OutputTruncated (recoverable) only for true
+     * truncation / below-hard-floor. Below-target usable articles return warning meta.
      *
      * @param  array<string, mixed>  $usage
      * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>|null
      */
     private function assertArticleRouteOutputEligibleForFailover(
         string $output,
         array $usage,
         array $variables,
-    ): void {
+    ): ?array {
         $finishReason = isset($usage['finish_reason']) ? (string) $usage['finish_reason'] : null;
         $truncatedFlag = (bool) ($usage['truncated'] ?? false);
         if (ArticleGenerationLengthValidator::isProviderLengthTruncation($finishReason, $truncatedFlag)) {
@@ -2435,10 +2445,10 @@ class PromptRunnerService
 
         $target = $this->resolveArticleLengthTargetWords($variables);
         if ($target <= 0) {
-            return;
+            return null;
         }
 
-        (new ArticleGenerationLengthValidator)->assertAcceptable($output, $target);
+        return (new ArticleGenerationLengthValidator)->assertAcceptable($output, $target);
     }
 
     /**

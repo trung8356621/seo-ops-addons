@@ -85,9 +85,22 @@ final class ContentProjectArticleRowStatusResolver
         }
 
         if (in_array($rawStatus, ['success', 'completed', 'done'], true)) {
+            $warningCode = trim((string) ($item['warning_code'] ?? ''));
+            $warningMessage = trim((string) ($item['warning_message'] ?? ''));
+            $actual = (int) ($item['actual_words'] ?? $item['actual_word_count'] ?? 0);
+            $target = (int) ($item['target_words'] ?? $item['target_article_length'] ?? 0);
+            $isLengthWarning = $warningCode === \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::WARNING_BELOW_TARGET
+                || $warningMessage !== '';
+            $tooltip = $warningMessage !== ''
+                ? $warningMessage
+                : ($actual > 0 && $target > 0
+                    ? \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::warningMessage($actual, $target)
+                    : \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::UI_WARNING);
+
             return new ContentProjectArticleRowStatus(
                 code: ContentProjectArticleRowStatus::CODE_COMPLETED,
-                label: 'Hoàn tất',
+                label: $isLengthWarning ? 'Hoàn tất ⚠' : 'Hoàn tất',
+                tooltip: $isLengthWarning ? $tooltip : null,
             );
         }
 

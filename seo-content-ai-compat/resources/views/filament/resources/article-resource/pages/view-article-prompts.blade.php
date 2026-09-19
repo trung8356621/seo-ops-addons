@@ -504,6 +504,14 @@
                                             @if (! $isFailed && $wordCountLabel !== null)
                                                 <p class="seo-run-history-item__meta">{{ $wordCountLabel }}</p>
                                             @endif
+                                            @if (! $isFailed && in_array($lengthValidation, ['accepted_with_warning', 'success_with_warning'], true))
+                                                <p class="seo-run-history-item__meta text-amber-700">
+                                                    {{ \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::UI_WARNING }}
+                                                    @if (is_numeric($actualWords) && is_numeric($promptItem['target_words'] ?? $promptItem['target_article_length'] ?? null))
+                                                        ({{ (int) $actualWords }}/{{ (int) ($promptItem['target_words'] ?? $promptItem['target_article_length']) }} words)
+                                                    @endif
+                                                </p>
+                                            @endif
 
                                             @if ($applyCount > 0)
                                                 <p class="seo-run-history-item__meta">APPLIED · {{ $appliedLabel !== '' ? $appliedLabel : $applyCount }}</p>

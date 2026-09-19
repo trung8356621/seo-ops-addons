@@ -41,8 +41,8 @@ final class PromptTextMetrics
     }
 
     /**
-     * Soft acceptance floor cho full article generation (ratio of target).
-     * Target Prompt vẫn là $articleLength; $hardFloor chỉ khi article_length ≤ 0.
+     * Usability floor for full article generation.
+     * hard_floor = max(absolute minimum, target × ratio). Target itself is not a hard fail.
      */
     public static function minWordsFromArticleLength(int $articleLength, int $hardFloor = 300): int
     {

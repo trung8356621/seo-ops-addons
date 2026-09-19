@@ -32,9 +32,15 @@ final class PromptHookRuntimeOutputPipeline
      *     ports?: array<string, string>,
      *     length_validation?: array{
      *         actual_word_count: int,
+     *         actual_words: int,
      *         minimum_acceptable_words: int,
+     *         hard_floor_words: int,
      *         target_article_length: int,
-     *         length_validation_result: string
+     *         target_words: int,
+     *         length_validation_result: string,
+     *         outcome: string,
+     *         warning_code: ?string,
+     *         warning_message: ?string
      *     },
      *     validation_contract?: string,
      *     validators_applied?: list<string>
@@ -190,9 +196,15 @@ final class PromptHookRuntimeOutputPipeline
      * @param  list<string>  $validatorsApplied
      * @return array{
      *     actual_word_count: int,
+     *     actual_words: int,
      *     minimum_acceptable_words: int,
+     *     hard_floor_words: int,
      *     target_article_length: int,
-     *     length_validation_result: string
+     *     target_words: int,
+     *     length_validation_result: string,
+     *     outcome: string,
+     *     warning_code: ?string,
+     *     warning_message: ?string
      * }|null
      */
     private function assertLengthConstraints(
@@ -222,9 +234,13 @@ final class PromptHookRuntimeOutputPipeline
             if ($articleLength !== null && $articleLength > 0) {
                 $this->assertSectionedFreeDidNotReachLegacyValidator($input, $articleLength);
                 $lengthMeta = $this->articleLengthValidator->assertAcceptable($parsed, $articleLength);
-                $min = $lengthMeta['minimum_acceptable_words'];
+                $min = $lengthMeta['hard_floor_words'];
                 $validatorsApplied[] = 'min_words:'.$min;
                 $validatorsApplied[] = 'target_words:'.$articleLength;
+                if (ArticleGenerationLengthValidator::isWarningResult($lengthMeta)) {
+                    $warnings[] = ArticleGenerationLengthValidator::UI_WARNING;
+                    $validatorsApplied[] = 'warning:'.ArticleGenerationLengthValidator::WARNING_BELOW_TARGET;
+                }
             }
         } elseif ($unit === 'words' && $blockArticleMinWords) {
             // Explicitly block article_length inheritance for Outline/Vocab/Meta/FAQ.

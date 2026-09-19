@@ -23,6 +23,7 @@ use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionR
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -491,10 +492,15 @@ class ArticleWritingExecutionService
         }
 
         $ok = (bool) ($publish['success'] ?? false);
+        $persistHistory = array_merge($history, $ancillaryMeta, [
+            'persist_status' => $ok ? 'applied' : 'failed',
+        ]);
 
         return new ArticleWritingExecutionResult(
             success: $ok,
-            message: (string) ($publish['message'] ?? ($ok ? 'Đã cập nhật bài.' : 'Persist thất bại.')),
+            message: $ok
+                ? $this->successMessage($persistHistory, (string) ($publish['message'] ?? 'Đã cập nhật bài.'))
+                : (string) ($publish['message'] ?? 'Persist thất bại.'),
             sourceType: $writing->sourceType,
             promptOwnerType: $owner['type'],
             hookKey: self::HOOK_KEY,
@@ -504,9 +510,7 @@ class ArticleWritingExecutionService
             persistStatus: $ok
                 ? ArticleWritingExecutionResult::PERSIST_APPLIED
                 : ArticleWritingExecutionResult::PERSIST_FAILED,
-            historyMetadata: array_merge($history, $ancillaryMeta, [
-                'persist_status' => $ok ? 'applied' : 'failed',
-            ]),
+            historyMetadata: $persistHistory,
             writing: $writing,
         );
     }
@@ -541,6 +545,7 @@ class ArticleWritingExecutionService
             $owner,
             is_array($taskContext->variables) ? $taskContext->variables : [],
         );
+        $history = array_merge($history, $this->lengthValidationFromSteps($steps));
 
         if ($failed) {
             $message = 'Quy trình có bước lỗi.';
@@ -721,7 +726,7 @@ class ArticleWritingExecutionService
 
         return new ArticleWritingExecutionResult(
             success: true,
-            message: 'Đã chạy article writing.',
+            message: $this->successMessage($history, 'Đã chạy article writing.'),
             sourceType: $writing->sourceType,
             promptOwnerType: $owner['type'],
             hookKey: self::HOOK_KEY,
@@ -1159,6 +1164,53 @@ class ArticleWritingExecutionService
      * @param  array<string, mixed>  $variables
      * @return array<string, mixed>
      */
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @return array<string, mixed>
+     */
+    private function lengthValidationFromSteps(array $steps): array
+    {
+        foreach (array_reverse($steps) as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $fromStep = is_array($step['length_validation'] ?? null) ? $step['length_validation'] : $step;
+            if (ArticleGenerationLengthValidator::isWarningResult($fromStep)
+                || isset($fromStep['length_validation_result'])
+            ) {
+                return array_filter([
+                    'length_validation' => is_array($step['length_validation'] ?? null) ? $step['length_validation'] : null,
+                    'actual_word_count' => $fromStep['actual_word_count'] ?? null,
+                    'actual_words' => $fromStep['actual_words'] ?? $fromStep['actual_word_count'] ?? null,
+                    'minimum_acceptable_words' => $fromStep['minimum_acceptable_words'] ?? null,
+                    'hard_floor_words' => $fromStep['hard_floor_words'] ?? $fromStep['minimum_acceptable_words'] ?? null,
+                    'target_article_length' => $fromStep['target_article_length'] ?? null,
+                    'target_words' => $fromStep['target_words'] ?? $fromStep['target_article_length'] ?? null,
+                    'length_validation_result' => $fromStep['length_validation_result'] ?? null,
+                    'outcome' => $fromStep['outcome'] ?? null,
+                    'warning_code' => $fromStep['warning_code'] ?? null,
+                    'warning_message' => $fromStep['warning_message'] ?? null,
+                ], static fn (mixed $v): bool => $v !== null && $v !== '');
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $history
+     */
+    private function successMessage(array $history, string $fallback): string
+    {
+        if (ArticleGenerationLengthValidator::isWarningResult($history)) {
+            $warning = trim((string) ($history['warning_message'] ?? ''));
+
+            return $warning !== '' ? $warning : ArticleGenerationLengthValidator::UI_WARNING;
+        }
+
+        return $fallback;
+    }
+
     private function historyMetadata(ArticleWritingInput $writing, array $owner, array $variables): array
     {
         $wfSnap = WorkflowExecutionSnapshot::tryFromArray(

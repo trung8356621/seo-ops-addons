@@ -51,6 +51,19 @@ final class ArticleWritingExecutionResult
             'prompt_id' => $this->promptId,
             'hook_key' => $this->hookKey,
             'source_type' => $this->sourceType->value,
+            'warning_code' => $this->historyMetadata['warning_code'] ?? null,
+            'warning_message' => $this->historyMetadata['warning_message'] ?? null,
+            'length_validation' => is_array($this->historyMetadata['length_validation'] ?? null)
+                ? $this->historyMetadata['length_validation']
+                : array_filter([
+                    'actual_words' => $this->historyMetadata['actual_words'] ?? $this->historyMetadata['actual_word_count'] ?? null,
+                    'target_words' => $this->historyMetadata['target_words'] ?? $this->historyMetadata['target_article_length'] ?? null,
+                    'hard_floor_words' => $this->historyMetadata['hard_floor_words'] ?? $this->historyMetadata['minimum_acceptable_words'] ?? null,
+                    'length_validation_result' => $this->historyMetadata['length_validation_result'] ?? null,
+                    'outcome' => $this->historyMetadata['outcome'] ?? null,
+                    'warning_code' => $this->historyMetadata['warning_code'] ?? null,
+                    'warning_message' => $this->historyMetadata['warning_message'] ?? null,
+                ], static fn (mixed $v): bool => $v !== null && $v !== ''),
         ];
     }
 }

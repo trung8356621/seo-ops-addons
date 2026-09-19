@@ -23,9 +23,15 @@ final class PromptHookOutputNormalizer
      *     value: string,
      *     length_validation?: array{
      *         actual_word_count: int,
+     *         actual_words: int,
      *         minimum_acceptable_words: int,
+     *         hard_floor_words: int,
      *         target_article_length: int,
-     *         length_validation_result: string
+     *         target_words: int,
+     *         length_validation_result: string,
+     *         outcome: string,
+     *         warning_code: ?string,
+     *         warning_message: ?string
      *     }
      * }
      */
@@ -71,9 +77,15 @@ final class PromptHookOutputNormalizer
      * @param  array<string, mixed>  $input
      * @return array{
      *     actual_word_count: int,
+     *     actual_words: int,
      *     minimum_acceptable_words: int,
+     *     hard_floor_words: int,
      *     target_article_length: int,
-     *     length_validation_result: string
+     *     target_words: int,
+     *     length_validation_result: string,
+     *     outcome: string,
+     *     warning_code: ?string,
+     *     warning_message: ?string
      * }|null
      */
     private function assertArticleLengthIfNeeded(

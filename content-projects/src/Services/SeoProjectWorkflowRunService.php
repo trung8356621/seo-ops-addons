@@ -639,7 +639,11 @@ final class SeoProjectWorkflowRunService
                 && SeoProjectTask::normalizeType((string) $task->type) === SeoProjectTask::TYPE_CREATE
                 && ! $this->articleHasGeneratedBody($claimArticleId)
             ) {
-                $this->markTaskFailed($task, $claimArticleId);
+                $this->markTaskFailed($task, $claimArticleId, [
+                    'run_id' => (int) $run->id,
+                    'run_item_id' => (int) $runItem->id,
+                    'error_code' => ContentProjectErrorCode::ExternalWorkflowFailed->value,
+                ]);
                 if ($runItem instanceof SeoProjectRunItem) {
                     $this->runItemService->markFailed(
                         $runItem,
@@ -695,7 +699,11 @@ final class SeoProjectWorkflowRunService
 
         $taskSiteId = (int) ($task->site_id ?? $projectSiteId);
         if ($taskSiteId <= 0) {
-            $this->markTaskFailed($task);
+            $this->markTaskFailed($task, null, [
+                'run_id' => (int) $run->id,
+                'run_item_id' => (int) $runItem->id,
+                'error_code' => ContentProjectErrorCode::ExternalWorkflowFailed->value,
+            ]);
             $this->runItemService->markFailed(
                 $runItem,
                 ContentProjectErrorCode::ExternalWorkflowFailed,
@@ -755,7 +763,11 @@ final class SeoProjectWorkflowRunService
                 );
             } catch (\RuntimeException $exception) {
                 if ($exception->getMessage() === \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectRewriteKeywordCanonicalizer::ERROR_MESSAGE) {
-                    $this->markTaskFailed($task);
+                    $this->markTaskFailed($task, null, [
+                        'run_id' => (int) $run->id,
+                        'run_item_id' => (int) $runItem->id,
+                        'error_code' => ContentProjectErrorCode::ExternalWorkflowFailed->value,
+                    ]);
                     $this->runItemService->markFailed(
                         $runItem,
                         ContentProjectErrorCode::ExternalWorkflowFailed,
@@ -854,7 +866,11 @@ final class SeoProjectWorkflowRunService
                         if ($preservePublished) {
                             $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
                         }
-                        $this->markTaskFailed($task, (int) ($task->article_id ?? 0) ?: null);
+                        $this->markTaskFailed($task, (int) ($task->article_id ?? 0) ?: null, [
+                            'run_id' => (int) $run->id,
+                            'run_item_id' => (int) $runItem->id,
+                            'error_code' => $errorCode->value,
+                        ]);
                         $this->runItemService->markFailed(
                             $runItem,
                             $errorCode,
@@ -875,6 +891,10 @@ final class SeoProjectWorkflowRunService
 
                 $message = $this->formatRunResultMessage((string) $result['message'], $ranAt, $stepStats);
                 $isIgnoredStale = $persistStatus === 'ignored_stale';
+                $lengthWarning = $this->lengthWarningFromWorkflowResult($result);
+                if ($lengthWarning !== null && ! $isIgnoredStale) {
+                    $message = $lengthWarning['warning_message'];
+                }
 
                 // ignored_stale: terminal, retain history, ZERO ancillary post-run mutations that
                 // could overwrite newer manual content (focus/FAQ/meta via postRunPipeline).
@@ -921,6 +941,7 @@ final class SeoProjectWorkflowRunService
                     [
                         ...$this->buildWorkflowOutputSnapshot($steps),
                         'persist_status' => $persistStatus !== '' ? $persistStatus : 'applied',
+                        ...($lengthWarning ?? []),
                     ],
                 );
 
@@ -983,7 +1004,11 @@ final class SeoProjectWorkflowRunService
             if ($preservePublished) {
                 $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
             }
-            $this->markTaskFailed($task, $failedArticleId > 0 ? $failedArticleId : null);
+            $this->markTaskFailed($task, $failedArticleId > 0 ? $failedArticleId : null, [
+                'run_id' => (int) $run->id,
+                'run_item_id' => (int) $runItem->id,
+                'error_code' => ContentProjectErrorCode::ExternalWorkflowFailed->value,
+            ]);
             $failedStep = is_array($result['failed_step'] ?? null) ? $result['failed_step'] : null;
             $error = $this->errorFormatter->fromWorkflowFailure((string) $result['message'], $failedStep);
 
@@ -1051,7 +1076,11 @@ final class SeoProjectWorkflowRunService
             if ($preservePublished) {
                 $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
             }
-            $this->markTaskFailed($task, $keptArticleId > 0 ? $keptArticleId : null);
+            $this->markTaskFailed($task, $keptArticleId > 0 ? $keptArticleId : null, [
+                'run_id' => (int) $run->id,
+                'run_item_id' => (int) $runItem->id,
+                'error_code' => ContentProjectErrorCode::ExternalWorkflowFailed->value,
+            ]);
             $error = $this->errorFormatter->fromThrowable($exception);
             $this->runItemService->markFailed(
                 $runItem,
@@ -1489,6 +1518,44 @@ final class SeoProjectWorkflowRunService
     }
 
     /**
+     * @param  array<string, mixed>  $result
+     * @return array{
+     *     warning_code: string,
+     *     warning_message: string,
+     *     actual_words: int,
+     *     target_words: int,
+     *     hard_floor_words: int,
+     *     length_validation_result: string,
+     *     outcome: string
+     * }|null
+     */
+    private function lengthWarningFromWorkflowResult(array $result): ?array
+    {
+        $length = is_array($result['length_validation'] ?? null) ? $result['length_validation'] : $result;
+        if (! \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::isWarningResult($length)) {
+            return null;
+        }
+
+        $actual = (int) ($length['actual_words'] ?? $length['actual_word_count'] ?? 0);
+        $target = (int) ($length['target_words'] ?? $length['target_article_length'] ?? 0);
+        $floor = (int) ($length['hard_floor_words'] ?? $length['minimum_acceptable_words'] ?? 0);
+        $message = trim((string) ($length['warning_message'] ?? $result['warning_message'] ?? ''));
+        if ($message === '') {
+            $message = \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::warningMessage($actual, $target);
+        }
+
+        return [
+            'warning_code' => (string) ($length['warning_code'] ?? \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::WARNING_BELOW_TARGET),
+            'warning_message' => $message,
+            'actual_words' => $actual,
+            'target_words' => $target,
+            'hard_floor_words' => $floor,
+            'length_validation_result' => (string) ($length['length_validation_result'] ?? \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::RESULT_ACCEPTED_WITH_WARNING),
+            'outcome' => (string) ($length['outcome'] ?? \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::OUTCOME_SUCCESS_WITH_WARNING),
+        ];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function promptSteps(mixed $steps): array
@@ -1577,15 +1644,29 @@ final class SeoProjectWorkflowRunService
             ->markLocalEditPending($article);
     }
 
-    private function markTaskFailed(SeoProjectTask $task, ?int $articleId = null): void
+    private function markTaskFailed(SeoProjectTask $task, ?int $articleId = null, array $failureContext = []): void
     {
+        $wasAlreadyFailed = (string) ($task->status ?? '') === SeoProjectTask::STATUS_FAILED;
         $resolvedArticleId = $articleId !== null && $articleId > 0
             ? $articleId
             : (((int) ($task->article_id ?? 0) > 0) ? (int) $task->article_id : null);
 
         $this->persistTaskState($task, SeoProjectTask::STATUS_FAILED, $resolvedArticleId);
+
+        if ($wasAlreadyFailed) {
+            return;
+        }
+
+        $payloadContext = array_filter([
+            'run_id' => (int) ($failureContext['run_id'] ?? 0) ?: null,
+            'run_item_id' => (int) ($failureContext['run_item_id'] ?? 0) ?: null,
+            'error_code' => trim((string) ($failureContext['error_code'] ?? '')) !== ''
+                ? (string) $failureContext['error_code']
+                : null,
+        ], static fn (mixed $v): bool => $v !== null && $v !== '' && $v !== 0);
+
         app(\Omnichannel\Addons\Agent\Automation\BusinessHook\Support\BusinessHookEmitter::class)
-            ->taskFailed($task->fresh() ?? $task);
+            ->taskFailed($task->fresh() ?? $task, $payloadContext);
     }
 
     private function markTaskCompleted(SeoProjectTask $task, int $articleId): void

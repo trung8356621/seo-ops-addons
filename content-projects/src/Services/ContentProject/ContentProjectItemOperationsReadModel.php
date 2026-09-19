@@ -1197,7 +1197,7 @@ final class ContentProjectItemOperationsReadModel
             ->orderByDesc('id')
             ->get([
                 'id', 'task_id', 'run_id', 'status', 'action', 'attempt', 'message',
-                'error_message', 'started_at', 'finished_at',
+                'error_message', 'started_at', 'finished_at', 'output_snapshot',
             ]);
 
         $runIds = [];
@@ -1232,6 +1232,8 @@ final class ContentProjectItemOperationsReadModel
             if (in_array(strtolower($status), ['success', 'completed', 'skipped', 'manual'], true)) {
                 $errorMessage = null;
             }
+            $snapshot = is_array($item->output_snapshot) ? $item->output_snapshot : [];
+            $warningCode = trim((string) ($snapshot['warning_code'] ?? ''));
             $rows[] = [
                 'id' => (int) $item->id,
                 'task_id' => $tid,
@@ -1246,6 +1248,10 @@ final class ContentProjectItemOperationsReadModel
                 'finished_at' => $item->finished_at?->format('d/m/Y H:i'),
                 'finished_at_iso' => $item->finished_at?->toIso8601String(),
                 'lazy_bulk' => (bool) ($lazyBulkByRunId[$runId] ?? false),
+                'warning_code' => $warningCode !== '' ? $warningCode : null,
+                'warning_message' => isset($snapshot['warning_message']) ? (string) $snapshot['warning_message'] : null,
+                'actual_words' => isset($snapshot['actual_words']) ? (int) $snapshot['actual_words'] : null,
+                'target_words' => isset($snapshot['target_words']) ? (int) $snapshot['target_words'] : null,
             ];
         }
 

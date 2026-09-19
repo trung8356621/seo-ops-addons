@@ -398,9 +398,15 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         if ($lengthValidation !== null) {
             $payload['length_validation'] = $lengthValidation;
             $payload['actual_word_count'] = $lengthValidation['actual_word_count'] ?? null;
+            $payload['actual_words'] = $lengthValidation['actual_words'] ?? $lengthValidation['actual_word_count'] ?? null;
             $payload['minimum_acceptable_words'] = $lengthValidation['minimum_acceptable_words'] ?? null;
+            $payload['hard_floor_words'] = $lengthValidation['hard_floor_words'] ?? $lengthValidation['minimum_acceptable_words'] ?? null;
             $payload['target_article_length'] = $lengthValidation['target_article_length'] ?? null;
+            $payload['target_words'] = $lengthValidation['target_words'] ?? $lengthValidation['target_article_length'] ?? null;
             $payload['length_validation_result'] = $lengthValidation['length_validation_result'] ?? null;
+            $payload['outcome'] = $lengthValidation['outcome'] ?? null;
+            $payload['warning_code'] = $lengthValidation['warning_code'] ?? null;
+            $payload['warning_message'] = $lengthValidation['warning_message'] ?? null;
             $this->persistLengthValidationToPromptResult(
                 isset($payload['prompt_result_id']) ? (int) $payload['prompt_result_id'] : 0,
                 $lengthValidation,

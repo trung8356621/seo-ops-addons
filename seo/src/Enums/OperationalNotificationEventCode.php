@@ -54,8 +54,8 @@ enum OperationalNotificationEventCode: string
     case SiteSyncFailed = 'site_sync.failed';
     case SiteSyncRecovered = 'site_sync.recovered';
 
-    // Article Index Health
-    case ArticleIndexDropped = 'article.index_dropped';
+    // Content Project
+    case ContentProjectTaskFailed = 'content_project.task_failed';
 
     public function module(): string
     {

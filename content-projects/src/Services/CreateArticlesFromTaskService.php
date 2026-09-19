@@ -987,10 +987,13 @@ class CreateArticlesFromTaskService
             'success' => true,
             'article_id' => (int) $article->id,
             'steps' => $steps,
-            'message' => 'Đã chạy quy trình và tạo/cập nhật bài.',
+            'message' => $result->message !== '' ? $result->message : 'Đã chạy quy trình và tạo/cập nhật bài.',
             'persist_status' => $result->persistStatus,
             'source_type' => $result->sourceType->value,
             'prompt_owner_type' => $result->promptOwnerType->value,
+            'warning_code' => $payload['warning_code'] ?? $result->historyMetadata['warning_code'] ?? null,
+            'warning_message' => $payload['warning_message'] ?? $result->historyMetadata['warning_message'] ?? null,
+            'length_validation' => $payload['length_validation'] ?? null,
         ];
     }
 

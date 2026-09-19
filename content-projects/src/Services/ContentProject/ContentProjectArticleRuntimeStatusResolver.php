@@ -76,12 +76,15 @@ final class ContentProjectArticleRuntimeStatusResolver
         }
 
         if (in_array($execStatus, self::SUCCESS_EXEC_STATUSES, true)) {
+            $lengthWarning = $this->lengthWarningFromItem($item);
+
             return $this->terminal(
                 ContentProjectArticleRuntimeStatus::STATE_COMPLETED,
-                'Đã tạo xong',
-                'success',
+                $lengthWarning !== null ? 'Hoàn tất ⚠' : 'Đã tạo xong',
+                $lengthWarning !== null ? 'warning' : 'success',
                 $attempt,
                 $maxAttempts,
+                $lengthWarning,
             );
         }
         if (in_array($execStatus, self::TERMINAL_EXEC_STATUSES, true)) {
@@ -359,12 +362,15 @@ final class ContentProjectArticleRuntimeStatusResolver
         $taskStatus = strtolower(trim((string) ($context['task_status'] ?? '')));
 
         if (in_array($taskStatus, ['completed', 'reviewing'], true)) {
+            $lengthWarning = $this->lengthWarningFromItem(is_array($context['run_item'] ?? null) ? $context['run_item'] : null);
+
             return $this->terminal(
                 ContentProjectArticleRuntimeStatus::STATE_COMPLETED,
-                'Đã tạo xong',
-                'success',
+                $lengthWarning !== null ? 'Hoàn tất ⚠' : 'Đã tạo xong',
+                $lengthWarning !== null ? 'warning' : 'success',
                 $attempt,
                 $maxAttempts,
+                $lengthWarning,
             );
         }
         if ($taskStatus === 'failed') {
@@ -461,10 +467,40 @@ final class ContentProjectArticleRuntimeStatusResolver
             tone: $tone,
             isActive: false,
             showSpinner: false,
+            detail: $warning,
             attempt: $attempt,
             maxAttempts: $maxAttempts,
             warning: $warning,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $item
+     */
+    private function lengthWarningFromItem(?array $item): ?string
+    {
+        if ($item === null) {
+            return null;
+        }
+
+        $code = trim((string) ($item['warning_code'] ?? ''));
+        $message = trim((string) ($item['warning_message'] ?? ''));
+        $actual = (int) ($item['actual_words'] ?? 0);
+        $target = (int) ($item['target_words'] ?? 0);
+
+        if ($code !== \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::WARNING_BELOW_TARGET) {
+            return null;
+        }
+
+        if ($message !== '') {
+            return $message;
+        }
+
+        if ($actual > 0 && $target > 0) {
+            return \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::warningMessage($actual, $target);
+        }
+
+        return \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::UI_WARNING;
     }
 
     /**
