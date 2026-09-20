@@ -319,7 +319,7 @@ final class SectionedFreeArticleGenerator
             'state' => $state,
             'metrics' => $metrics,
             'usage' => [
-                'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
                 'isolation_mode' => 'free_test',
                 'model_tier' => 'free',
                 'sectioned_free' => $metrics,
@@ -495,7 +495,7 @@ final class SectionedFreeArticleGenerator
         }
 
         return [
-            'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+            'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
             'article_target_words' => $plan->articleTargetWords(),
             'minimum_units_by_budget' => $plan->minimumUnitsByBudget(),
             'outline_section_count' => $outlineNodeCount,

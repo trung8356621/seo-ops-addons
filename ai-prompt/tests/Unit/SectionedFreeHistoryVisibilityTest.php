@@ -16,11 +16,21 @@ use ReflectionClass;
 use ReflectionMethod;
 
 /**
- * History visibility contracts for sectioned_free — no generation algorithm changes.
+ * History visibility contracts for sectioned / legacy sectioned_free — no generation algorithm changes.
  */
 final class SectionedFreeHistoryVisibilityTest extends TestCase
 {
-    public function test_expand_sectioned_free_emits_parent_and_each_section_row(): void
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function nestedChildren(array $parent): array
+    {
+        $children = $parent['child_steps'] ?? [];
+
+        return is_array($children) ? array_values($children) : [];
+    }
+
+    public function test_expand_legacy_sectioned_free_nests_parent_sections_and_assemble(): void
     {
         $service = new ArticlePromptRunHistoryService;
         $method = new ReflectionMethod($service, 'expandSplitChildSteps');
@@ -40,17 +50,24 @@ final class SectionedFreeHistoryVisibilityTest extends TestCase
             'child_prompt_result_ids' => [201, 202, 203, 204],
         ]);
 
-        self::assertCount(5, $rows);
-        self::assertSame(100, (int) $rows[0]['result_id']);
-        self::assertStringContainsString('Sectioned free', (string) $rows[0]['prompt_name']);
-        self::assertSame('article.content.section.generate', (string) $rows[1]['hook_key']);
-        self::assertSame(201, (int) $rows[1]['result_id']);
-        self::assertSame(204, (int) $rows[4]['result_id']);
-        self::assertFalse((bool) ($rows[1]['persists_as_outline'] ?? false));
-        self::assertNull($rows[1]['outline_markdown'] ?? null);
+        self::assertCount(1, $rows);
+        $parent = $rows[0];
+        self::assertSame(100, (int) $parent['result_id']);
+        self::assertSame('sectioned_free_parent', (string) ($parent['outline_subtask'] ?? ''));
+        self::assertSame('sectioned_free', (string) ($parent['generation_strategy'] ?? ''));
+        self::assertStringContainsString('MULTIPLE_PASS', (string) ($parent['prompt_name'] ?? ''));
+
+        $children = $this->nestedChildren($parent);
+        self::assertCount(5, $children); // 4 sections + assemble
+        self::assertSame('article.content.section.generate', (string) $children[0]['hook_key']);
+        self::assertSame(201, (int) $children[0]['result_id']);
+        self::assertSame(204, (int) $children[3]['result_id']);
+        self::assertSame('assemble', (string) ($children[4]['outline_subtask'] ?? ''));
+        self::assertFalse((bool) ($children[0]['persists_as_outline'] ?? false));
+        self::assertNull($children[0]['outline_markdown'] ?? null);
     }
 
-    public function test_multi_prompt_result_ids_do_not_become_outline_vocabulary(): void
+    public function test_expand_canonical_sectioned_preserves_sectioned_label(): void
     {
         $service = new ArticlePromptRunHistoryService;
         $method = new ReflectionMethod($service, 'expandSplitChildSteps');
@@ -59,21 +76,27 @@ final class SectionedFreeHistoryVisibilityTest extends TestCase
         /** @var list<array<string, mixed>> $rows */
         $rows = $method->invoke($service, [
             'type' => 'prompt',
-            'title' => 'Viết bài theo dàn ý',
-            'status' => 'failed',
+            'title' => 'Viết bài',
+            'status' => 'completed',
             'result_id' => 50,
             'hook_key' => 'article.content.generate',
-            'generation_strategy' => 'sectioned_free',
+            'generation_strategy' => 'sectioned',
+            'generation_shape' => 'sectioned',
             'prompt_result_ids' => [50, 61, 62],
             'child_prompt_result_ids' => [61, 62],
         ]);
 
-        $names = array_map(static fn (array $row): string => (string) ($row['prompt_name'] ?? ''), $rows);
+        self::assertCount(1, $rows);
+        self::assertSame('sectioned', (string) ($rows[0]['generation_strategy'] ?? ''));
+        $names = array_map(
+            static fn (array $row): string => (string) ($row['prompt_name'] ?? ''),
+            array_merge([$rows[0]], $this->nestedChildren($rows[0])),
+        );
         foreach ($names as $name) {
             self::assertStringNotContainsString('Outline', $name);
             self::assertStringNotContainsString('Vocabulary', $name);
         }
-        self::assertCount(3, $rows);
+        self::assertCount(3, $this->nestedChildren($rows[0])); // 2 sections + assemble
     }
 
     public function test_workflow_trace_preserves_child_prompt_result_ids(): void
@@ -174,6 +197,7 @@ MD;
         self::assertSame($planned, $calls);
         self::assertCount($calls, $childIds);
         self::assertSame($calls, (int) ($result['usage']['provider_calls'] ?? 0));
+        self::assertSame('sectioned', (string) ($result['generation_strategy'] ?? $result['metrics']['generation_strategy'] ?? ''));
     }
 
     public function test_parent_fail_history_step_still_expands_successful_children(): void
@@ -196,11 +220,12 @@ MD;
             'child_prompt_result_ids' => [901, 902, 903, 904],
         ]);
 
+        self::assertCount(1, $rows);
+        self::assertSame('failed', (string) $rows[0]['status']);
         $sectionRows = array_values(array_filter(
-            $rows,
+            $this->nestedChildren($rows[0]),
             static fn (array $row): bool => (string) ($row['hook_key'] ?? '') === 'article.content.section.generate',
         ));
         self::assertCount(4, $sectionRows);
-        self::assertSame('failed', (string) $rows[0]['status']);
     }
 }

@@ -173,13 +173,13 @@ final class PromptBudgetBoundedExecutionTest extends TestCase
     {
         $registry = new PromptSplitStrategyRegistry();
         $gen = $registry->forHook('article.content.generate');
-        $rewrite = $registry->forHook('article.content.rewrite');
+        $improve = $registry->forHook('article.content.improve');
         $title = $registry->forHook('article.title_suggestion');
 
         $this->assertInstanceOf(DirectFitStrategy::class, $gen);
         $this->assertFalse($gen->supportsSplit());
-        $this->assertInstanceOf(HtmlSafeRewriteSplitStrategy::class, $rewrite);
-        $this->assertTrue($rewrite->supportsSplit());
+        $this->assertInstanceOf(HtmlSafeRewriteSplitStrategy::class, $improve);
+        $this->assertTrue($improve->supportsSplit());
         $this->assertFalse($title->supportsSplit());
         $this->assertSame(PromptSplitClass::SemanticSplit->value, $registry->classificationMap()['article.content.translate']);
     }

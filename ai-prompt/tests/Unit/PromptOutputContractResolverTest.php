@@ -101,7 +101,7 @@ final class PromptOutputContractResolverTest extends TestCase
         $this->assertCount(2, $resolved['contracts']);
     }
 
-    public function test_generate_and_rewrite_hooks_declare_same_contract(): void
+    public function test_generate_hook_declares_markdown_article_contract(): void
     {
         $loader = new PromptHookDefinitionLoader(
             PromptHookDefinitionLoader::defaultV01Directory(),
@@ -111,12 +111,10 @@ final class PromptOutputContractResolverTest extends TestCase
         $indexed = $loader->indexed();
 
         $generate = $indexed['article.content.generate@0.1.0'] ?? null;
-        $rewrite = $indexed['article.content.rewrite@0.1.0'] ?? null;
 
         $this->assertNotNull($generate);
-        $this->assertNotNull($rewrite);
+        $this->assertNull($indexed['article.content.rewrite@0.1.0'] ?? null);
         $this->assertSame('markdown.article', $generate->outputContractKey());
-        $this->assertSame('markdown.article', $rewrite->outputContractKey());
     }
 
     public function test_json_title_hook_has_no_markdown_contract(): void

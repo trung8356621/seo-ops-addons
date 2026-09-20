@@ -12,7 +12,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemCon
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemModelOverrideMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Validation\ValidationException;
 
@@ -176,7 +175,8 @@ class SeoProjectTaskSyncDataNormalizer
                 contentLengthOverride: $contentLengthOverride,
                 contentLengthTargetWords: $contentLengthTargetWords,
                 generationModeOverride: ItemGenerationMode::tryFromMixed($row['generation_mode_override'] ?? null),
-                generationStrategyOverride: ArticleGenerationStrategy::tryFromMixed($row['generation_strategy_override'] ?? null),
+                // Column may exist on old rows; never authoritative for new sync/execution.
+                generationStrategyOverride: null,
                 modelOverrideId: $modelOverrideId,
                 modelOverrideMode: self::modelOverrideMode($row, $modelOverrideId),
                 titleProtection: ItemTitleProtection::tryFromMixed($row['title_protection'] ?? null),

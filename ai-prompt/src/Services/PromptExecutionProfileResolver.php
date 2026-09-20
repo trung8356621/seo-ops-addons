@@ -30,7 +30,6 @@ final class PromptExecutionProfileResolver
         'article.vocabulary.generate' => AiExecutionProfile::TextReasoning,
         'keyword.discovery.structured' => AiExecutionProfile::TextLongform,
         'article.content.generate' => AiExecutionProfile::TextLongform,
-        'article.content.rewrite' => AiExecutionProfile::TextLongform,
         'article.content.translate' => AiExecutionProfile::TextLongform,
         'article.content.improve' => AiExecutionProfile::TextLongform,
         'product.gallery.generate' => AiExecutionProfile::ImageProduct,

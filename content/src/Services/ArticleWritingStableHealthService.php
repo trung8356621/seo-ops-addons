@@ -175,7 +175,7 @@ final class ArticleWritingStableHealthService
         try {
             if (SeoPrompt::getConnectionResolver() !== null) {
                 $promptCount = (int) SeoPrompt::query()
-                    ->where('hook_key', ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK)
+                    ->where('hook_key', 'article.content.rewrite')
                     ->count();
                 foreach (SeoTask::query()->orderBy('id')->get(['id', 'flow_data']) as $task) {
                     $flow = is_array($task->flow_data) ? $task->flow_data : [];
@@ -190,7 +190,7 @@ final class ArticleWritingStableHealthService
                         $prompt = SeoPrompt::query()->find($promptId);
                         if (
                             $prompt instanceof SeoPrompt
-                            && trim((string) ($prompt->hook_key ?? '')) === ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK
+                            && trim((string) ($prompt->hook_key ?? '')) === 'article.content.rewrite'
                         ) {
                             $nodeCount++;
                         }
@@ -215,7 +215,6 @@ final class ArticleWritingStableHealthService
         $files = [
             dirname(__DIR__).'/Services/CreateArticlesFromTaskService.php',
             dirname(__DIR__).'/Services/ArticleWritingExecutionService.php',
-            dirname(__DIR__).'/Services/ArticleWritingLegacyRewriteAdapter.php',
             dirname(__DIR__).'/Services/SeoProjectWorkflowStepCatalogService.php',
             dirname(__DIR__).'/Services/TaskWorkflowTestRunner.php',
         ];
@@ -268,9 +267,6 @@ final class ArticleWritingStableHealthService
 
     public function hookCatalogAllowsNewRewrite(): bool
     {
-        return array_key_exists(
-            ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK,
-            $this->hookCatalog->selectOptions(),
-        );
+        return false;
     }
 }

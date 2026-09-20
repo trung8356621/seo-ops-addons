@@ -52,7 +52,8 @@ final class SectionedFreeRunState
     ) {
         $this->state['sections'] = is_array($this->state['sections'] ?? null) ? $this->state['sections'] : [];
         $this->state['metrics'] = is_array($this->state['metrics'] ?? null) ? $this->state['metrics'] : [];
-        $this->state['generation_strategy'] = (string) ($this->state['generation_strategy'] ?? 'sectioned_free');
+        $this->state['generation_strategy'] = (string) ($this->state['generation_strategy'] ?? 'sectioned');
+        // History may still deserialize generation_strategy=sectioned_free; canonicalize display via ArticleGenerationStrategy.
         $this->state['isolation_mode'] = (string) ($this->state['isolation_mode'] ?? 'free_test');
         $this->state['model_tier'] = (string) ($this->state['model_tier'] ?? 'free');
     }

@@ -12,8 +12,6 @@ final class OutputValidationContractRegistry
 {
     public const CONTRACT_ARTICLE_CONTENT = 'article.content.generate';
 
-    public const CONTRACT_ARTICLE_REWRITE = 'article.content.rewrite';
-
     public const CONTRACT_ARTICLE_OUTLINE = 'article.outline.generate';
 
     public const CONTRACT_ARTICLE_OUTLINE_STRUCTURE = 'article.outline.structure.generate';
@@ -39,12 +37,6 @@ final class OutputValidationContractRegistry
         return match (true) {
             $this->isArticleContent($key) => [
                 'contract' => self::CONTRACT_ARTICLE_CONTENT,
-                'validators' => ['non_empty', 'article_min_words', 'article_target_words'],
-                'allows_article_min_words' => true,
-                'length_unit' => 'words',
-            ],
-            $this->isArticleRewrite($key) => [
-                'contract' => self::CONTRACT_ARTICLE_REWRITE,
                 'validators' => ['non_empty', 'article_min_words', 'article_target_words'],
                 'allows_article_min_words' => true,
                 'length_unit' => 'words',
@@ -100,12 +92,6 @@ final class OutputValidationContractRegistry
             || $key === 'article_content'
             || str_ends_with($key, '.content.generate')
             || $key === 'article.content';
-    }
-
-    private function isArticleRewrite(string $key): bool
-    {
-        return $key === self::CONTRACT_ARTICLE_REWRITE
-            || str_contains($key, 'content.rewrite');
     }
 
     private function isOutline(string $key): bool

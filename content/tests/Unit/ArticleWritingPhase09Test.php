@@ -11,7 +11,6 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Content\Services\ArticleOutlineResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowExistingAiOutputService;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowRoleMigrationSuggester;
 use PHPUnit\Framework\TestCase;
@@ -81,7 +80,6 @@ final class ArticleWritingPhase09Test extends TestCase
         $roots = [
             ProjectRoot::addonsPath().'/content-projects/src/Services/CreateArticlesFromTaskService.php',
             ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php',
-            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingLegacyRewriteAdapter.php',
             ProjectRoot::addonsPath().'/content-projects/src/Services/SeoProjectWorkflowStepCatalogService.php',
             ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskWorkflowTestRunner.php',
         ];
@@ -91,40 +89,13 @@ final class ArticleWritingPhase09Test extends TestCase
         }
     }
 
-    public function test_legacy_adapter_only_delegates(): void
-    {
-        $src = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingLegacyRewriteAdapter.php',
-        );
-        self::assertStringNotContainsString('getPublishArticleTaskId', $src);
-        self::assertStringNotContainsString('getRewriteArticleTaskId', $src);
-        self::assertStringNotContainsString('SeoTask::', $src);
-        self::assertStringContainsString('ArticleWritingExecutionService', $src);
-        self::assertLessThan(160, substr_count($src, "\n"));
-    }
-
-    public function test_rewrite_hook_remaps_to_generate(): void
-    {
-        $adapter = new ArticleWritingLegacyRewriteAdapter(
-            new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-        );
-        self::assertSame(
-            ArticleWritingLegacyRewriteAdapter::GENERATE_HOOK,
-            $adapter->canonicalizeHookKey(ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK),
-        );
-        self::assertSame(
-            'existing_article',
-            $adapter->defaultSourceTypeForLegacyRewrite()->value,
-        );
-    }
-
     public function test_retry_missing_snapshot_requires_rerun_message(): void
     {
         $src = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php',
         );
         self::assertStringContainsString(
-            'KhÃ´ng thá»ƒ thá»­ láº¡i láº§n cháº¡y cÅ©. HÃ£y chá»n Â«Cháº¡y láº¡i báº±ng cáº¥u hÃ¬nh hiá»‡n táº¡iÂ».',
+            'Không thể thử lại lần chạy cũ. Hãy chọn «Chạy lại bằng cấu hình hiện tại».',
             $src,
         );
         self::assertStringContainsString('retrySnapshotIsComplete', $src);

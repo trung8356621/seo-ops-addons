@@ -64,11 +64,6 @@ final class ContentProjectItemAdvancedForm
                             ->native(false)
                             ->live(),
 
-                        // Hidden: shape is derived from AI Center primary candidate (free→sectioned, paid→single_pass).
-                        Forms\Components\Hidden::make('generation_strategy_override')
-                            ->dehydrated(false)
-                            ->default(null),
-
                         Forms\Components\Select::make('model_override_id')
                             ->label(__('seo-content-ai::filament.projects.item_model_override'))
                             ->placeholder(__('seo-content-ai::filament.projects.item_model_routing_default'))

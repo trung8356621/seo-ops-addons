@@ -48,8 +48,6 @@ use App\Models\ApiConnection;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
-use Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
 use Omnichannel\Addons\Content\Support\MarkdownOutlineParser;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
@@ -87,7 +85,6 @@ final class ArticleWritingFullPathPersistIntegrationTest extends TestCase
         Log::shouldReceive('warning')->zeroOrMoreTimes();
         Config::set('seo-content-ai.prompt_hooks.experimental_allowlist', [
             'article.content.generate',
-            'article.content.rewrite',
         ]);
         $this->stubPaidRoutePlanner();
     }
@@ -169,6 +166,7 @@ final class ArticleWritingFullPathPersistIntegrationTest extends TestCase
                 'site_id' => 1,
                 'article_id' => 8553,
                 'locale' => 'vi',
+                'via_system_ai' => true,
             ],
         );
 
@@ -283,6 +281,7 @@ final class ArticleWritingFullPathPersistIntegrationTest extends TestCase
                 'site_id' => 1,
                 'article_id' => 8553,
                 'locale' => 'vi',
+                'via_system_ai' => true,
             ],
         );
 
@@ -368,7 +367,6 @@ final class ArticleWritingFullPathPersistIntegrationTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new ArticleWritingLegacyRewriteAdapter(new ArticleWritingInputFormatter),
         );
     }
 

@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use PHPUnit\Framework\TestCase;
 
@@ -62,21 +61,6 @@ final class ArticleWritingInputFormatterTest extends TestCase
         self::assertStringContainsString('Loại đầu vào: Bài viết hiện có', $formatted);
         self::assertStringContainsString('không paraphrase từng câu', $formatted);
         self::assertStringContainsString("Nội dung đầu vào:\n# Old\n\nBody text", $formatted);
-    }
-
-    public function test_legacy_adapter_maps_rewrite_hook_to_generate(): void
-    {
-        $adapter = new ArticleWritingLegacyRewriteAdapter(new ArticleWritingInputFormatter);
-
-        self::assertSame(
-            ArticleWritingLegacyRewriteAdapter::GENERATE_HOOK,
-            $adapter->canonicalizeHookKey(ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK),
-        );
-        self::assertSame(
-            'article.title.generate',
-            $adapter->canonicalizeHookKey('article.title.generate'),
-        );
-        self::assertSame(ArticleWritingSourceType::ExistingArticle, $adapter->defaultSourceTypeForLegacyRewrite());
     }
 
     public function test_apply_to_variables_stamps_source_metadata(): void

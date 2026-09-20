@@ -79,7 +79,7 @@ final class PromptHookRuntimePhase5BTest extends TestCase
         self::assertTrue($registry->has('article.meta_description_suggestion', '0.1.0'));
         self::assertTrue($registry->has('article.outline.generate', '0.1.0'));
         self::assertTrue($registry->has('article.content.generate', '0.1.0'));
-        self::assertTrue($registry->has('article.content.rewrite', '0.1.0'));
+        self::assertFalse($registry->has('article.content.rewrite', '0.1.0'));
         self::assertTrue($registry->has('article.faq.generate', '0.1.0'));
         self::assertTrue($registry->has('keyword.discovery.structured', '0.1.0'));
 
@@ -386,8 +386,10 @@ final class PromptHookRuntimePhase5BTest extends TestCase
         ];
         foreach ($dirs as $dir) {
             foreach (glob($dir.'/*.php') ?: [] as $file) {
-                // ExecutionInput intentionally mentions Model for rejection.
-                if (str_ends_with($file, 'PromptHookExecutionInput.php')) {
+                // ExecutionInput / ExplicitBinding intentionally mention Model for rejection.
+                if (str_ends_with($file, 'PromptHookExecutionInput.php')
+                    || str_ends_with($file, 'PromptHookExplicitBindingExecutor.php')
+                ) {
                     continue;
                 }
                 $contents = (string) file_get_contents($file);

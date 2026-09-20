@@ -50,7 +50,7 @@ final class SeoProjectTaskSyncService
         'content_length_override',
         'content_length_target_words',
         'generation_mode_override',
-        'generation_strategy_override',
+        // generation_strategy_override: column may exist; never write for new sync.
         'model_override_id',
         'model_override_mode',
         'title_protection',
@@ -67,7 +67,7 @@ final class SeoProjectTaskSyncService
         'content_length_override',
         'content_length_target_words',
         'generation_mode_override',
-        'generation_strategy_override',
+        // Do not sync-write generation_strategy_override (retired new-run authority).
         'model_override_id',
         'model_override_mode',
         'title_protection',
@@ -933,7 +933,6 @@ final class SeoProjectTaskSyncService
             'content_length_override' => $raw('content_length_override'),
             'content_length_target_words' => $raw('content_length_target_words'),
             'generation_mode_override' => $raw('generation_mode_override'),
-            'generation_strategy_override' => $raw('generation_strategy_override'),
             'model_override_id' => $modelOverrideId > 0 ? $modelOverrideId : null,
             'model_fallback_enabled' => $modelOverrideMode !== ItemModelOverrideMode::Required,
             'title_protection' => $raw('title_protection'),

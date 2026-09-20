@@ -24,7 +24,6 @@ use Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
 use Omnichannel\Addons\Content\Services\ArticleProductGalleryDistributeService;
 use Omnichannel\Addons\Content\Services\SeoFaqPersistenceService;
@@ -75,7 +74,6 @@ final class TaskWorkflowTestRunner
         private readonly PromptHookExplicitBindingExecutor $hookBindingExecutor,
         private readonly ArticleGenerationInputResolver $articleGenerationInput,
         private readonly ArticleWritingAssembler $articleWritingAssembler,
-        private readonly ArticleWritingLegacyRewriteAdapter $legacyRewriteAdapter,
         private readonly ArtifactReusePolicy $artifactReusePolicy = new ArtifactReusePolicy,
         private readonly PromptHookUiFailureMapper $hookFailureMapper = new PromptHookUiFailureMapper,
         private readonly ArticleOutlineVocabularySplitExecutor $outlineSplitExecutor,
@@ -848,32 +846,6 @@ final class TaskWorkflowTestRunner
                         $variables,
                     );
 
-                    // DEPRECATED COMPATIBILITY ONLY — chỉ khi Hook thật sự là rewrite.
-                    try {
-                        $binding = PromptHookBinding::tryFromPrompt($prompt);
-                        $hookKey = trim((string) ($binding?->hookKey ?? ''));
-                        if (! $this->shouldBlockInheritedGenerationArtifacts($context, $variables)
-                            && $this->legacyRewriteAdapter->isLegacyRewriteHook($hookKey)
-                            && ArticleWritingSourceType::tryFromMixed(
-                                $variables['article_writing_source_type'] ?? $variables['source_type'] ?? null,
-                            ) === null
-                        ) {
-                            $this->legacyRewriteAdapter->logLegacyAdapterUsed(
-                                caller: self::class.'::runPromptNode',
-                                articleId: ($state->article ?? $context->article) !== null
-                                    ? (int) ($state->article ?? $context->article)->getKey()
-                                    : null,
-                                mappedSourceType: ArticleWritingSourceType::ExistingArticle->value,
-                            );
-                            $variables['legacy_rewrite_adapter'] = true;
-                            $variables['legacy_caller'] = self::class;
-                            $variables['article_writing_source_type'] = ArticleWritingSourceType::ExistingArticle->value;
-                            $variables['source_type'] = ArticleWritingSourceType::ExistingArticle->value;
-                        }
-                    } catch (\InvalidArgumentException) {
-                        // ignore
-                    }
-
                     $assembled = $this->articleWritingAssembler->assembleForPrompt(
                         $variables,
                         $context,
@@ -1238,7 +1210,8 @@ final class TaskWorkflowTestRunner
                         }
                         $isSectionedFree = $childPromptResultIds !== []
                             || str_contains((string) ($exception->context['failure_code'] ?? ''), 'SECTIONED_FREE')
-                            || strtolower((string) ($exception->context['generation_strategy'] ?? '')) === 'sectioned_free';
+                            || in_array(strtolower((string) ($exception->context['generation_strategy'] ?? '')), ['sectioned_free', 'sectioned'], true)
+                            || strtolower((string) ($exception->context['generation_shape'] ?? '')) === 'sectioned';
 
                         return [
                             'node_id' => $nodeId,
@@ -1260,8 +1233,11 @@ final class TaskWorkflowTestRunner
                                 : ($parentId > 0 ? [$parentId] : []),
                             'child_prompt_result_ids' => $childPromptResultIds,
                             'generation_strategy' => $isSectionedFree
-                                ? 'sectioned_free'
+                                ? 'sectioned'
                                 : (string) ($exception->context['generation_strategy'] ?? ''),
+                            'generation_shape' => $isSectionedFree
+                                ? 'sectioned'
+                                : (string) ($exception->context['generation_shape'] ?? ''),
                         ];
                     }
 
@@ -2320,7 +2296,6 @@ final class TaskWorkflowTestRunner
         $hookKey = trim($hookKey);
         if ($hookKey !== '' && in_array($hookKey, [
             ArticleWritingExecutionService::HOOK_KEY,
-            'article.content.rewrite',
             'article.content.improve',
         ], true)) {
             return true;
@@ -2690,36 +2665,24 @@ final class TaskWorkflowTestRunner
             ?? $context->variables['task_id']
             ?? 0);
 
-        // History / debug only. Shape authority is GenerationShapeResolver (route_cost_auto)
-        // inside PromptHookExplicitBindingExecutor / PromptRunnerService — never stamp
-        // generation_strategy* from task override into the live execution bag.
-        $taskOverrideRaw = null;
+        // History / debug only. Shape authority is GenerationShapeResolver (route_cost_auto).
+        // Never read seo_project_tasks.generation_strategy_override for NEW execution.
         if ($taskId > 0) {
             $task = SeoProjectTask::query()->find($taskId);
             if ($task instanceof SeoProjectTask) {
-                $raw = $task->getAttribute('generation_strategy_override');
-                $taskOverrideRaw = (is_string($raw) || is_int($raw)) && trim((string) $raw) !== ''
-                    ? trim((string) $raw)
-                    : null;
-
                 $policy = app(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyResolver::class)
                     ->resolve($task);
-                // Applier already maps strategy → legacy_generation_strategy_override only.
                 $variables = app(ContentProjectItemGenerationPolicyApplier::class)
                     ->stampVariables($variables, $policy);
             }
         }
 
-        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables, $taskOverrideRaw);
-        if ($snapshot->strategyOverride !== null && $snapshot->strategyOverride !== '') {
-            $variables['legacy_generation_strategy_override'] = $snapshot->strategyOverride;
-            $variables['strategy_override'] = $snapshot->strategyOverride;
-            $variables['strategy_source'] = $snapshot->strategySource;
-        } else {
-            $variables['strategy_override'] = null;
-            $variables['generation_strategy_override'] = null;
-            $variables['strategy_source'] = $variables['strategy_source']
-                ?? ArticleGenerationStrategySnapshot::SOURCE_DEFAULT;
+        // Clear any leftover override stamps — route_cost_auto owns shape.
+        unset($variables['legacy_generation_strategy_override']);
+        $variables['strategy_override'] = null;
+        $variables['generation_strategy_override'] = null;
+        if (! isset($variables['strategy_source']) || trim((string) $variables['strategy_source']) === '') {
+            $variables['strategy_source'] = ArticleGenerationStrategySnapshot::SOURCE_DEFAULT;
         }
         if ($taskId > 0) {
             $variables['task_id'] = $taskId;
@@ -2743,7 +2706,7 @@ final class TaskWorkflowTestRunner
         WorkflowExecutionState $state,
         string $hookKey,
     ): array {
-        if (! in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+        if ($hookKey !== ArticleWritingExecutionService::HOOK_KEY) {
             return $variables;
         }
 
@@ -3275,9 +3238,7 @@ final class TaskWorkflowTestRunner
             $binding = PromptHookBinding::tryFromPrompt($prompt);
             $hook = trim((string) ($binding?->hookKey ?? ''));
 
-            return $hook === ArticleWritingExecutionService::HOOK_KEY
-                || $hook === ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK
-                || $hook === 'article.content.generate';
+            return $hook === ArticleWritingExecutionService::HOOK_KEY;
         } catch (\InvalidArgumentException) {
             return false;
         }

@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pag
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBinding;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowAssignmentValidator;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowTagExtractorService;
@@ -138,8 +137,7 @@ trait InteractsWithTaskWorkflow
             $binding = PromptHookBinding::tryFromPrompt($prompt);
             $hook = trim((string) ($binding?->hookKey ?? ''));
 
-            return $hook === ArticleWritingExecutionService::HOOK_KEY
-                || $hook === ArticleWritingLegacyRewriteAdapter::LEGACY_REWRITE_HOOK;
+            return $hook === ArticleWritingExecutionService::HOOK_KEY;
         } catch (\InvalidArgumentException) {
             return false;
         }

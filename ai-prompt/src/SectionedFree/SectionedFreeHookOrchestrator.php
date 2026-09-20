@@ -492,7 +492,7 @@ final class SectionedFreeHookOrchestrator
                 'prompt_result_id' => $parentId,
                 'prompt_result_ids' => array_values(array_unique(array_merge([$parentId], $childPromptResultIds))),
                 'child_prompt_result_ids' => $childPromptResultIds,
-                'provider' => 'sectioned_free',
+                'provider' => 'sectioned',
                 'model' => $result['last_model'],
                 'usage' => $result['usage'],
                 'duration_ms' => $durationMs,

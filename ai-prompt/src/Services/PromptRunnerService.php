@@ -1199,8 +1199,8 @@ class PromptRunnerService
         $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables);
 
         $fields = array_merge([
-            'strategy_override' => $snapshot->strategyOverride,
-            'generation_strategy_override' => $snapshot->strategyOverride,
+            'strategy_override' => null,
+            'generation_strategy_override' => null,
             'strategy_resolved' => $snapshot->strategyResolved,
             'strategy_source' => $snapshot->strategySource,
             'generation_strategy' => $snapshot->strategyResolved,
@@ -1273,7 +1273,7 @@ class PromptRunnerService
 
         $hook = strtolower(trim((string) ($variables['hook_key'] ?? '')));
 
-        return in_array($hook, ['article.content.generate', 'article.content.rewrite'], true);
+        return $hook === 'article.content.generate';
     }
 
     /**
@@ -2514,7 +2514,6 @@ class PromptRunnerService
         $hookKey = trim((string) ($prompt->hook_key ?? ''));
         if (! in_array($hookKey, [
             'article.content.generate',
-            'article.content.rewrite',
             'article.content.improve',
         ], true)) {
             return;

@@ -13,7 +13,6 @@ use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\Content\Services\ArticleImproveExecutionService;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowAssignmentValidator;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowDoctorService;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleRegistry;
@@ -130,7 +129,7 @@ final class WorkflowConfigurationPhase08Test extends TestCase
         ]);
 
         self::assertNotEmpty($errors);
-        self::assertStringContainsString('trÃ¹ng', implode(' ', $errors));
+        self::assertStringContainsString('trùng', implode(' ', $errors));
     }
 
     public function test_builder_save_blocks_broken_edge(): void
@@ -289,8 +288,8 @@ final class WorkflowConfigurationPhase08Test extends TestCase
         );
 
         self::assertStringContainsString('workflow_execution_snapshot', $source);
-        self::assertStringContainsString('KhÃ´ng thá»ƒ thá»­ láº¡i láº§n cháº¡y cÅ©', $source);
-        self::assertStringContainsString('Cháº¡y láº¡i báº±ng cáº¥u hÃ¬nh hiá»‡n táº¡i', $source);
+        self::assertStringContainsString('Không thể thử lại lần chạy cũ', $source);
+        self::assertStringContainsString('Chạy lại bằng cấu hình hiện tại', $source);
     }
 
     public function test_doctor_command_and_service_exist(): void
@@ -326,7 +325,7 @@ final class WorkflowConfigurationPhase08Test extends TestCase
             ],
             'edges' => [],
         ]);
-        self::assertStringContainsString('trÃ¹ng', implode(' ', $dup));
+        self::assertStringContainsString('trùng', implode(' ', $dup));
 
         $task = new SeoTask;
         $task->id = 3;
@@ -356,14 +355,6 @@ final class WorkflowConfigurationPhase08Test extends TestCase
             ProjectRoot::addonsPath().'/content/src/Services/ArticleImproveExecutionService.php',
         );
         self::assertDoesNotMatchRegularExpression('/\bArticleWritingExecutionService\b/', $improve);
-    }
-
-    public function test_legacy_adapter_exposes_observability_log(): void
-    {
-        $ref = new \ReflectionClass(ArticleWritingLegacyRewriteAdapter::class);
-        self::assertTrue($ref->hasMethod('logLegacyAdapterUsed'));
-        $src = (string) file_get_contents((string) $ref->getFileName());
-        self::assertStringContainsString('article_writing.legacy_adapter_used', $src);
     }
 
     public function test_runtime_has_no_title_heuristic_in_catalog(): void

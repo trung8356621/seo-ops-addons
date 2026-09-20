@@ -40,11 +40,15 @@ final class ArticleContentSystemAiCutoverContractTest extends TestCase
         self::assertStringContainsString('executeWritingViaSystemAi', $src);
         self::assertStringContainsString('via_system_ai', $src);
         self::assertStringContainsString('Writing generation failed:', $src);
-        self::assertStringContainsString(ArticleContentGenerateCapabilityHandler::KEY, $src);
+        self::assertStringContainsString('ArticleContentGenerateCapabilityHandler::KEY', $src);
+        self::assertStringContainsString('ArticleContentGenerationHooks::matches', $src);
         // Mode selection belongs to DefaultSystemAiClient — not remote|shadow gate here.
         self::assertStringNotContainsString('SystemExecutionMode::Remote', $src);
         self::assertStringNotContainsString('SystemExecutionMode::Shadow', $src);
         self::assertStringContainsString('Writing hooks always enter SystemAiClient when bound', $src);
+        // Runtime rewrite hook remapping removed.
+        self::assertStringNotContainsString('ArticleWritingLegacyRewriteAdapter', $src);
+        self::assertStringNotContainsString('article.content.rewrite', $src);
     }
 
     public function test_legacy_mode_is_default_when_capability_unset(): void

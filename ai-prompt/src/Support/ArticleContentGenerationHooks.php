@@ -6,19 +6,21 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 
 /**
  * Hooks whose model authority + prompt shape rules apply (no application output ceiling).
+ *
+ * Runtime writing is article.content.generate only.
+ * Historical article.content.rewrite snapshots remain readable via history classifiers —
+ * not via this allowlist.
  */
 final class ArticleContentGenerationHooks
 {
     public const GENERATE = 'article.content.generate';
-
-    public const REWRITE = 'article.content.rewrite';
 
     /**
      * @return list<string>
      */
     public static function keys(): array
     {
-        return [self::GENERATE, self::REWRITE];
+        return [self::GENERATE];
     }
 
     public static function matches(?string $hookKey): bool

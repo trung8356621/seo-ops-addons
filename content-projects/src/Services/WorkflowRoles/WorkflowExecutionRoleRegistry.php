@@ -70,8 +70,6 @@ final class WorkflowExecutionRoleRegistry
             ],
             WorkflowExecutionRole::ArticleContentGenerate => [
                 'article.content.generate',
-                // Legacy rewrite remapped at runtime — cho phép gán role generate.
-                'article.content.rewrite',
             ],
             WorkflowExecutionRole::ArticleContentImprove => ['article.content.improve'],
             WorkflowExecutionRole::ArticleImageGenerate => [
@@ -112,6 +110,7 @@ final class WorkflowExecutionRoleRegistry
         return match ($hookKey) {
             'article.outline.generate',
             'article.outline.structure.generate' => WorkflowExecutionRole::ArticleOutlineGenerate,
+            // Old graphs may still store rewrite; remap to generate for display/role suggest only.
             'article.content.generate',
             'article.content.rewrite' => WorkflowExecutionRole::ArticleContentGenerate,
             'article.content.improve' => WorkflowExecutionRole::ArticleContentImprove,

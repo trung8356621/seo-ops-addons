@@ -55,7 +55,7 @@ final class SeoProjectTaskSyncData
             'content_length_override' => $this->contentLengthOverride?->value,
             'content_length_target_words' => $this->contentLengthTargetWords,
             'generation_mode_override' => $this->generationModeOverride?->value,
-            'generation_strategy_override' => $this->generationStrategyOverride?->value,
+            // Retired: never write generation_strategy_override for new sync.
             'model_override_id' => $this->modelOverrideId,
             'model_override_mode' => $this->modelOverrideMode?->value,
             'title_protection' => $this->titleProtection?->value,

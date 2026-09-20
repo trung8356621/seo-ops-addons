@@ -36,6 +36,7 @@ final class SemanticSplitExecutor
         callable $providerCall,
         string $mergeMode = 'longform',
         int $routeAttempt = 0,
+        string $htmlSafeHookKey = 'article.content.improve',
     ): array {
         if ($chunks === []) {
             throw PromptBudgetException::unsplittable('Semantic split produced zero chunks.');
@@ -81,7 +82,7 @@ final class SemanticSplitExecutor
         }
 
         $merged = match ($mergeMode) {
-            'html_safe' => $this->mergeHtmlSafe($parts),
+            'html_safe' => $this->mergeHtmlSafe($parts, $htmlSafeHookKey),
             default => $this->mergeLongForm($parts),
         };
 
@@ -147,6 +148,7 @@ final class SemanticSplitExecutor
             $providerCall,
             'html_safe',
             $routeAttempt,
+            $strategy->hookKey(),
         );
     }
 
@@ -235,9 +237,9 @@ final class SemanticSplitExecutor
     /**
      * @param  list<array<string, mixed>>  $parts
      */
-    private function mergeHtmlSafe(array $parts): string
+    private function mergeHtmlSafe(array $parts, string $hookKey): string
     {
-        $strategy = new HtmlSafeRewriteSplitStrategy('article.content.rewrite');
+        $strategy = new HtmlSafeRewriteSplitStrategy($hookKey);
         if ($parts !== [] && isset($parts[0]['chunk']) && $parts[0]['chunk'] instanceof SemanticContentChunk) {
             /** @var list<array{chunk: SemanticContentChunk, output: string}> $typed */
             $typed = $parts;

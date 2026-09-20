@@ -27,16 +27,11 @@ final class KeywordDensityHookInputLimitTest extends TestCase
     public function test_content_hooks_allow_keyword_density_up_to_settings_limit(): void
     {
         $dir = ProjectRoot::addonsPath().'/ai-prompt'.'/resources/prompt-hooks/v01';
-        foreach ([
-            'article.content.generate@0.1.0.json',
-            'article.content.rewrite@0.1.0.json',
-        ] as $file) {
-            $path = $dir.'/'.$file;
-            self::assertFileExists($path);
-            $json = json_decode((string) file_get_contents($path), true);
-            self::assertIsArray($json);
-            $max = (int) ($json['input_schema']['keyword_density']['max_length'] ?? 0);
-            self::assertSame(2000, $max, $file.' keyword_density.max_length');
-        }
+        $path = $dir.'/article.content.generate@0.1.0.json';
+        self::assertFileExists($path);
+        $json = json_decode((string) file_get_contents($path), true);
+        self::assertIsArray($json);
+        $max = (int) ($json['input_schema']['keyword_density']['max_length'] ?? 0);
+        self::assertSame(2000, $max, 'article.content.generate keyword_density.max_length');
     }
 }

@@ -7,9 +7,12 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\DefinitionNotFound;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\ProviderRefused;
+use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryLegacyClassifier;
+use Illuminate\Validation\ValidationException;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Output\PromptHookRuntimeOutputPipeline;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Provider\FakePromptProviderAdapter;
@@ -126,9 +129,6 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
     }
 
@@ -166,15 +166,6 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         self::assertSame('article.content.generate', $generate['hook_key']);
         self::assertSame('0.1.0', $generate['hook_version']);
 
-        $rewrite = PromptHookFormSchema::normalizeForSave([
-            'hook_key' => 'article.content.rewrite',
-            'hook_version' => '0.1.0',
-            'hook_settings' => [],
-            'tools' => 'default',
-        ]);
-        self::assertSame('article.content.rewrite', $rewrite['hook_key']);
-        self::assertSame('0.1.0', $rewrite['hook_version']);
-
         $cleared = PromptHookFormSchema::normalizeForSave([
             'hook_key' => '',
             'hook_version' => '0.1.0',
@@ -185,19 +176,64 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         self::assertNull($cleared['hook_version']);
     }
 
-    public function test_definitions_use_legacy_prompt_template_and_markdown(): void
+    public function test_generate_definition_uses_legacy_prompt_template_and_markdown(): void
     {
         $generate = $this->catalog()->find('article.content.generate', '0.1.0');
-        $rewrite = $this->catalog()->find('article.content.rewrite', '0.1.0');
 
         self::assertSame('legacy_prompt_content', $generate->template['source'] ?? null);
-        self::assertSame('legacy_prompt_content', $rewrite->template['source'] ?? null);
         self::assertSame('markdown', $generate->outputSchema->type);
-        self::assertSame('markdown', $rewrite->outputSchema->type);
         self::assertTrue(PromptHookFormSchema::usesLegacyPromptTemplate('article.content.generate', '0.1.0'));
-        self::assertTrue(PromptHookFormSchema::usesLegacyPromptTemplate('article.content.rewrite', '0.1.0'));
         self::assertNull($generate->template['system'] ?? null);
-        self::assertNull($rewrite->template['user'] ?? null);
+    }
+
+    public function test_registry_and_catalog_exclude_purged_rewrite_hook(): void
+    {
+        $loader = new PromptHookDefinitionLoader(
+            PromptHookDefinitionLoader::defaultV01Directory(),
+            PromptHookDefinitionLoader::defaultPhase1Directory(),
+        );
+        $loader->clearCache();
+        $registry = new PromptHookRuntimeRegistry($loader);
+
+        self::assertFalse($registry->has('article.content.rewrite', '0.1.0'));
+
+        $this->expectException(DefinitionNotFound::class);
+        $registry->get('article.content.rewrite', '0.1.0');
+    }
+
+    public function test_normalize_rejects_purged_rewrite_hook(): void
+    {
+        app()->instance(PromptHookEditorCatalog::class, $this->catalog());
+
+        $this->expectException(ValidationException::class);
+        PromptHookFormSchema::normalizeForSave([
+            'hook_key' => 'article.content.rewrite',
+            'hook_version' => '0.1.0',
+            'hook_settings' => [],
+            'tools' => 'default',
+        ]);
+    }
+
+    public function test_history_classifier_still_recognizes_legacy_rewrite_role(): void
+    {
+        $output = '# Rewritten Article'."\n\n".'Body paragraph rewritten with enough real text.';
+
+        $result = (new ArticleAiHistoryLegacyClassifier(
+            new \Omnichannel\Addons\Content\Services\ArticleOutlineResolver(
+                new \Omnichannel\Addons\AiPrompt\Services\WorkflowParserService(
+                    new \Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService,
+                    new \Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService,
+                ),
+            ),
+            new \Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy,
+        ))->classify([
+            'execution_role' => 'article.content.rewrite',
+            'status' => 'success',
+            'output' => $output,
+        ], $output);
+
+        self::assertSame('legacy', $result['classification']);
+        self::assertTrue($result['can_apply']);
     }
 
     public function test_generate_binding_calls_provider_once_with_mapped_input(): void
@@ -206,7 +242,6 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         Log::shouldReceive('warning')->zeroOrMoreTimes();
         Config::set('seo-content-ai.prompt_hooks.experimental_allowlist', [
             'article.content.generate',
-            'article.content.rewrite',
         ]);
 
         $markdown = $this->longMarkdown('# Generated');
@@ -241,45 +276,6 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         self::assertStringNotContainsString('```', $result['output']);
         self::assertSame('article.content.generate', $result['hook_key']);
         self::assertSame('0.1.0', $result['hook_version']);
-    }
-
-    public function test_rewrite_maps_article_and_instruction_separately(): void
-    {
-        Log::shouldReceive('info')->zeroOrMoreTimes();
-        Log::shouldReceive('warning')->zeroOrMoreTimes();
-        Config::set('seo-content-ai.prompt_hooks.experimental_allowlist', [
-            'article.content.generate',
-            'article.content.rewrite',
-        ]);
-
-        $markdown = $this->longMarkdown('# Rewritten');
-        $provider = new FakePromptProviderAdapter(['text' => $markdown]);
-        $executor = $this->executor($provider);
-
-        $prompt = new SeoPrompt;
-        $prompt->forceFill([
-            'id' => 12,
-            'hook_key' => 'article.content.rewrite',
-            'hook_version' => '0.1.0',
-            'markdown_content' => 'Rewrite {{input}} with {{rewrite_instruction}}',
-        ]);
-
-        $result = $executor->execute($prompt, [
-            'post_content' => $this->longMarkdown('# Original article body'),
-            'rewrite_notes' => 'viết chi tiết hơn, giữ heading',
-            'preserve_headings' => true,
-            'language' => 'vi',
-            'article_length' => 300,
-            'keyword' => 'balo',
-            'title' => 'Balo',
-            'input' => $this->longMarkdown('# Original article body'),
-        ], ['site_id' => 2, 'via_system_ai' => true]);
-
-        self::assertCount(1, $provider->calls);
-        self::assertStringContainsString('Rewritten', $result['output']);
-        // Phase 0.3: runtime remaps rewrite → generate.
-        self::assertSame('article.content.generate', $result['hook_key']);
-        self::assertSame('article.content.rewrite', $result['legacy_hook_key'] ?? null);
     }
 
     public function test_generate_missing_required_input_fails_before_provider(): void
@@ -345,13 +341,11 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         self::assertStringNotContainsString('WordPressArticleSync', $executorFile);
     }
 
-    public function test_global_migration_defaults_legacy(): void
+    public function test_global_migration_defaults_legacy_for_generate(): void
     {
         Config::set('seo-content-ai.prompt_hooks.migration.article.content.generate', 'legacy');
-        Config::set('seo-content-ai.prompt_hooks.migration.article.content.rewrite', 'legacy');
         $flags = new PromptHookMigrationFlags;
         self::assertSame('legacy', $flags->mode('article.content.generate')->value);
-        self::assertSame('legacy', $flags->mode('article.content.rewrite')->value);
     }
 
     public function test_workflow_port_shape_total_ai(): void

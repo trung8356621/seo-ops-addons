@@ -164,7 +164,7 @@ final class PromptHookEditorCatalog
      */
     public function isLegacyCompatibilityHook(string $hookKey): bool
     {
-        return trim($hookKey) === 'article.content.rewrite';
+        return false;
     }
 
     public function find(string $hookKey, string $version): PromptHookDefinition

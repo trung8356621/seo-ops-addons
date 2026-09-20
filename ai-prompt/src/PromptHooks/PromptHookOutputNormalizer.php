@@ -100,10 +100,7 @@ final class PromptHookOutputNormalizer
         }
 
         $unit = strtolower(trim((string) ($validation['length_unit'] ?? '')));
-        $isArticleBodyHook = in_array($definition->key, [
-            'article.content.generate',
-            'article.content.rewrite',
-        ], true);
+        $isArticleBodyHook = $definition->key === 'article.content.generate';
         if ($unit !== 'words' && ! $isArticleBodyHook) {
             return null;
         }

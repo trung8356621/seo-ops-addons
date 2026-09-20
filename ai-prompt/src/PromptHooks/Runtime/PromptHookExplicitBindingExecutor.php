@@ -15,9 +15,9 @@ use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
+use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver;
-use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\Media\Support\ImageToolType;
@@ -36,7 +36,6 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         private readonly PromptHookRuntimeRegistry $registry,
         private readonly PromptHookMigrationFlags $flags,
         private readonly PromptRunnerService $promptRunner,
-        private readonly ArticleWritingLegacyRewriteAdapter $legacyRewriteAdapter,
         private readonly ?SectionedFreeHookOrchestrator $sectionedFreeOrchestrator = null,
         private readonly ArticleGenerationStrategyResolver $strategyResolver = new ArticleGenerationStrategyResolver(),
     ) {}
@@ -75,24 +74,8 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             throw new InvalidArgumentException('Prompt has no explicit hook binding.');
         }
 
-        // DEPRECATED COMPATIBILITY ONLY: article.content.rewrite → generate.
-        // Binding generate mới không đi qua adapter / không log legacy.
         $effectiveHookKey = $binding->hookKey;
         $effectiveVersion = $binding->hookVersion;
-        if ($this->legacyRewriteAdapter->isLegacyRewriteHook($binding->hookKey)) {
-            $effectiveHookKey = $this->legacyRewriteAdapter->canonicalizeHookKey($binding->hookKey);
-            $effectiveVersion = '0.1.0';
-            $this->legacyRewriteAdapter->logLegacyAdapterUsed(
-                caller: self::class.'::execute',
-                articleId: isset($contextExtras['article_id']) ? (int) $contextExtras['article_id'] : null,
-                runId: isset($contextExtras['run_id']) ? (int) $contextExtras['run_id'] : null,
-                oldHook: $binding->hookKey,
-                mappedSourceType: (string) ($variables['article_writing_source_type']
-                    ?? $variables['source_type']
-                    ?? 'existing_article'),
-                destinationCapability: $effectiveHookKey,
-            );
-        }
 
         // Writing hooks always enter System AI boundary when SystemAiClient is bound.
         // Mode (legacy|shadow|remote) is selected inside DefaultSystemAiClient.
@@ -137,7 +120,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             ], static fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
-        if (in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+        if (ArticleContentGenerationHooks::matches($effectiveHookKey)) {
             $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
             $profile = app(PromptExecutionProfileResolver::class)->resolve($prompt, $effectiveHookKey, $toolType);
             $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
@@ -216,7 +199,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         }
 
         // Writing pass-mode only. Outline / Vocabulary are normal single prompt executions.
-        $isWritingHook = in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true);
+        $isWritingHook = ArticleContentGenerationHooks::matches($effectiveHookKey);
         if (! $isWritingHook) {
             foreach ([
                 'generation_shape',
@@ -890,7 +873,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             return false;
         }
 
-        if (! in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+        if (! ArticleContentGenerationHooks::matches($hookKey)) {
             return false;
         }
 

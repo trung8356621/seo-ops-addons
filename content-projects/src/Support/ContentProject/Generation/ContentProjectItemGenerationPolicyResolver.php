@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation;
 
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 
@@ -80,7 +79,7 @@ final class ContentProjectItemGenerationPolicyResolver
                 $customWords,
             ),
             generationMode: ItemGenerationMode::tryFromMixed(self::rawString($task, 'generation_mode_override')),
-            generationStrategy: ArticleGenerationStrategy::tryFromMixed(self::rawString($task, 'generation_strategy_override')),
+            generationStrategy: null,
             modelOverrideId: $modelOverrideId,
             modelOverrideMode: $modelOverrideMode,
             titleProtection: $titleProtection,

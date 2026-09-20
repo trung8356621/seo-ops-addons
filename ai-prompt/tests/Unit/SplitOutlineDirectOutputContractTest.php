@@ -373,9 +373,6 @@ final class SplitOutlineDirectOutputContractTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
 
         return [$executor, $provider];

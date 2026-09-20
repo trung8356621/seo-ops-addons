@@ -75,9 +75,8 @@ final class PromptSplitStrategyRegistry
         // Do not register generic LongFormArticleSplitStrategy as a competing article architecture.
         $this->register(new DirectFitStrategy('article.content.generate', PromptSplitClass::DirectFit, 4096));
 
-        // Rewrite / improve / translate — HTML-safe blocks + merger.
+        // Improve / translate — HTML-safe blocks + merger.
         foreach ([
-            'article.content.rewrite',
             'article.content.translate',
             'article.content.improve',
         ] as $hook) {

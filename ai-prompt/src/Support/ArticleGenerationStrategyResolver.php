@@ -18,7 +18,35 @@ final class ArticleGenerationStrategyResolver
      */
     public function resolve(array $variables): ArticleGenerationStrategy
     {
-        // Prefer runtime-derived generation_shape when present.
+        // NEW runtime authority: generation_shape only (from route_cost_auto planner).
+        $fromShape = ArticleGenerationShape::tryFromMixed($variables['generation_shape'] ?? null);
+        if ($fromShape !== null) {
+            return $fromShape->toLegacyStrategy();
+        }
+
+        // Already-stamped canonical strategy from planner (never override fields).
+        foreach ([
+            'generation_strategy',
+            '_item_generation_strategy',
+            'resolved_generation_strategy',
+        ] as $key) {
+            $strategy = ArticleGenerationStrategy::tryFromMixed($variables[$key] ?? null);
+            if ($strategy !== null) {
+                return $strategy->canonical();
+            }
+        }
+
+        // generation_strategy_override / writing_split_enabled are NOT new-run authority.
+        return ArticleGenerationStrategy::SinglePass;
+    }
+
+    /**
+     * History / old snapshots only — may read deprecated override keys.
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    public function resolveFromHistory(array $variables): ArticleGenerationStrategy
+    {
         $fromShape = ArticleGenerationShape::tryFromMixed($variables['generation_shape'] ?? null);
         if ($fromShape !== null) {
             return $fromShape->toLegacyStrategy();
@@ -29,6 +57,7 @@ final class ArticleGenerationStrategyResolver
             '_item_generation_strategy',
             'resolved_generation_strategy',
             'generation_strategy_override',
+            'legacy_generation_strategy_override',
         ] as $key) {
             $strategy = ArticleGenerationStrategy::tryFromMixed($variables[$key] ?? null);
             if ($strategy !== null) {

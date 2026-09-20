@@ -29,7 +29,7 @@ final class ArticleModelOrderAuthorityTest extends TestCase
             ArticleContentGenerationHooks::GENERATE,
         ));
         self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder(
-            ArticleContentGenerationHooks::REWRITE,
+            'article.content.rewrite',
         ));
         self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder('keyword.discovery'));
         self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder(null));

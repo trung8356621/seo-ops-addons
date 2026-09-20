@@ -1451,6 +1451,12 @@ final class ArticlePromptRunHistoryService
         $baseTitle = trim((string) ($step['title'] ?? $step['prompt_name'] ?? 'Viết bài'));
         $baseTitle = preg_replace('/\s*[—-]\s*(Outline|Vocabulary|Sectioned free.*|MULTIPLE_PASS.*)\s*$/iu', '', $baseTitle) ?? $baseTitle;
 
+        // History display only: preserve old sectioned_free labels; new parents use sectioned.
+        $parentStrategy = strtolower(trim((string) ($step['generation_strategy'] ?? $step['generation_shape'] ?? '')));
+        $displayStrategy = in_array($parentStrategy, ['sectioned_free', 'sectioned'], true)
+            ? $parentStrategy
+            : 'sectioned';
+
         $sectionChildren = [];
         $seq = 10;
         foreach ($childIds as $resultId) {
@@ -1469,7 +1475,7 @@ final class ArticlePromptRunHistoryService
                 'outline_subtask' => 'section',
                 'execution_sequence' => $seq++,
                 'execution_source' => 'sectioned_free_section',
-                'generation_strategy' => 'sectioned_free',
+                'generation_strategy' => $displayStrategy,
                 'artifact_type' => null,
                 'outline_markdown' => null,
                 'persists_as_outline' => false,
@@ -1504,7 +1510,7 @@ final class ArticlePromptRunHistoryService
             'outline_subtask' => 'assemble',
             'execution_sequence' => $assembleSeq,
             'execution_source' => 'sectioned_free_assemble',
-            'generation_strategy' => 'sectioned_free',
+            'generation_strategy' => $displayStrategy,
             'artifact_type' => null,
             'outline_markdown' => null,
             'persists_as_outline' => false,
@@ -1543,7 +1549,7 @@ final class ArticlePromptRunHistoryService
             'artifact_type' => null,
             'outline_markdown' => null,
             'persists_as_outline' => false,
-            'generation_strategy' => 'sectioned_free',
+            'generation_strategy' => $displayStrategy,
             'prompt_result_ids' => $parentId > 0 ? [$parentId] : [],
             'child_prompt_result_ids' => $childIds,
             'child_steps' => $sectionChildren,

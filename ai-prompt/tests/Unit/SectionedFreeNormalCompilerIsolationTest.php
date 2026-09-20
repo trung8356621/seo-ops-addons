@@ -69,8 +69,9 @@ final class SectionedFreeNormalCompilerIsolationTest extends TestCase
 
         $vars = $applier->stampVariables(['article_length' => '2000'], $policy);
         $this->assertArrayNotHasKey('generation_strategy', $vars);
-        $this->assertSame('sectioned_free', $vars['legacy_generation_strategy_override'] ?? null);
+        $this->assertArrayNotHasKey('legacy_generation_strategy_override', $vars);
         $this->assertArrayNotHasKey('generation_strategy_override', $vars);
+        $this->assertSame('2000', $vars['article_length'] ?? null);
     }
 
     public function test_unique_vocabulary_marker_never_reaches_section_prompts(): void
@@ -155,7 +156,10 @@ MD;
         $resolver = new ArticleGenerationStrategyResolver();
         $this->assertFalse($resolver->resolve([])->isSectionedFree());
         $this->assertFalse($resolver->resolve(['generation_strategy' => 'single_pass'])->isSectionedFree());
+        // Stamped strategy / shape still resolve; override is history-only.
         $this->assertTrue($resolver->resolve(['generation_strategy' => 'sectioned_free'])->isSectionedFree());
-        $this->assertTrue($resolver->resolve(['generation_strategy_override' => 'sectioned_free'])->isSectionedFree());
+        $this->assertTrue($resolver->resolve(['generation_shape' => 'sectioned'])->isSectionedFree());
+        $this->assertFalse($resolver->resolve(['generation_strategy_override' => 'sectioned_free'])->isSectionedFree());
+        $this->assertTrue($resolver->resolveFromHistory(['generation_strategy_override' => 'sectioned_free'])->isSectionedFree());
     }
 }

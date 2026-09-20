@@ -88,30 +88,6 @@ final class ArticleWritingStablePhase10Test extends TestCase
         self::assertStringContainsString('ArticleWritingExecutionService::HOOK_KEY', $src);
     }
 
-    public function test_explicit_generate_does_not_log_legacy_adapter(): void
-    {
-        $src = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php',
-        );
-        self::assertStringContainsString('isLegacyRewriteHook($binding->hookKey)', $src);
-        self::assertStringContainsString('DEPRECATED COMPATIBILITY ONLY', $src);
-        // Log chá»‰ trong nhÃ¡nh isLegacyRewriteHook.
-        self::assertMatchesRegularExpression(
-            '/if \(\$this->legacyRewriteAdapter->isLegacyRewriteHook\(\$binding->hookKey\)\) \{[^}]*logLegacyAdapterUsed/s',
-            $src,
-        );
-    }
-
-    public function test_task_runner_adapter_only_for_rewrite_hook(): void
-    {
-        $src = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskWorkflowTestRunner.php',
-        );
-        self::assertStringContainsString('DEPRECATED COMPATIBILITY ONLY', $src);
-        self::assertStringContainsString('isLegacyRewriteHook($hookKey)', $src);
-        self::assertStringContainsString("caller: self::class.'::runPromptNode'", $src);
-    }
-
     public function test_editor_action_uses_generate_existing_article(): void
     {
         $src = (string) file_get_contents(
@@ -133,7 +109,6 @@ final class ArticleWritingStablePhase10Test extends TestCase
         foreach ([
             'CreateArticlesFromTaskService.php' => 'content-projects/src/Services/CreateArticlesFromTaskService.php',
             'ArticleWritingExecutionService.php' => 'content/src/Services/ArticleWritingExecutionService.php',
-            'ArticleWritingLegacyRewriteAdapter.php' => 'content/src/Services/ArticleWritingLegacyRewriteAdapter.php',
             'SeoProjectWorkflowStepCatalogService.php' => 'content-projects/src/Services/SeoProjectWorkflowStepCatalogService.php',
             'TaskWorkflowTestRunner.php' => 'ai-prompt/src/Services/TaskWorkflowTestRunner.php',
         ] as $name => $relative) {
@@ -193,13 +168,17 @@ final class ArticleWritingStablePhase10Test extends TestCase
         self::assertStringContainsString('ArticleWritingStableHealthService', $src);
     }
 
-    public function test_builder_does_not_treat_rewrite_as_write_from_outline(): void
+    public function test_builder_maps_legacy_rewrite_hook_to_generate_role(): void
     {
         $jsx = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/resources/js/components/ArticleFlowBuilder.jsx',
         );
         self::assertStringContainsString("hook === 'article.content.generate'", $jsx);
-        self::assertStringNotContainsString("hook === 'article.content.rewrite'", $jsx);
+        self::assertStringContainsString("hook === 'article.content.rewrite'", $jsx);
+        self::assertStringContainsString(
+            "allowed.has('article.content.generate') ? 'article.content.generate'",
+            $jsx,
+        );
     }
 
     public function test_content_project_labels_final(): void

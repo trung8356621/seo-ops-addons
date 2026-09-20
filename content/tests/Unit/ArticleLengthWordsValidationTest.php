@@ -56,12 +56,10 @@ final class ArticleLengthWordsValidationTest extends TestCase
     public function test_content_hooks_declare_length_unit_words(): void
     {
         $dir = ProjectRoot::addonsPath().'/ai-prompt'.'/resources/prompt-hooks/v01';
-        foreach (['article.content.generate@0.1.0.json', 'article.content.rewrite@0.1.0.json'] as $file) {
-            $json = json_decode((string) file_get_contents($dir.'/'.$file), true);
-            self::assertIsArray($json);
-            self::assertSame('words', $json['output_schema']['validation']['length_unit'] ?? null, $file);
-            self::assertSame('words', $json['metadata']['article_length_unit'] ?? null, $file);
-        }
+        $json = json_decode((string) file_get_contents($dir.'/article.content.generate@0.1.0.json'), true);
+        self::assertIsArray($json);
+        self::assertSame('words', $json['output_schema']['validation']['length_unit'] ?? null);
+        self::assertSame('words', $json['metadata']['article_length_unit'] ?? null);
     }
 
     public function test_output_pipeline_words_rejects_short_even_if_many_chars(): void
@@ -302,7 +300,6 @@ final class ArticleLengthWordsValidationTest extends TestCase
             ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php' => 'length_validation',
             ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php' => 'length_validation',
             ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskWorkflowTestRunner.php' => 'minimum_acceptable_words',
-            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingLegacyRewriteAdapter.php' => 'article.content.generate',
             ProjectRoot::addonsPath().'/content/src/Services/ArticleImproveExecutionService.php' => false,
         ];
 

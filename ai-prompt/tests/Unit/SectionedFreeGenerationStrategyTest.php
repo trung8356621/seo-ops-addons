@@ -258,11 +258,11 @@ MD;
         $ctx = new AiRoutingContext(
             freeOnly: true,
             isolationMode: 'free_test',
-            generationStrategy: ArticleGenerationStrategy::SectionedFree->value,
+            generationStrategy: ArticleGenerationStrategy::Sectioned->value,
         );
         $this->assertTrue($ctx->freeOnly);
         $this->assertSame('free_test', $ctx->isolationMode);
-        $this->assertSame('sectioned_free', $ctx->generationStrategy);
+        $this->assertSame('sectioned', $ctx->generationStrategy);
 
         // freeOnly filter semantics (mirrors AiModelRouterService branch).
         $candidates = [
@@ -356,7 +356,7 @@ MD;
         );
         $this->assertGreaterThan(1000, $result['metrics']['final_assembled_word_count']);
         $this->assertTrue($result['metrics']['exceeds_1000_words']);
-        $this->assertSame('sectioned_free', $result['metrics']['generation_strategy']);
+        $this->assertSame('sectioned', $result['metrics']['generation_strategy']);
         $this->assertNotEmpty($result['usage']['sectioned_free_trace']);
     }
 }

@@ -23,7 +23,7 @@ final class SectionedFreeExecutionGuard
             'parent_prompt_result_id' => isset($context['parent_prompt_result_id'])
                 ? (int) $context['parent_prompt_result_id']
                 : null,
-            'strategy' => 'sectioned_free',
+            'strategy' => 'sectioned',
             'entered_at' => gmdate('c'),
         ];
     }
@@ -68,7 +68,7 @@ final class SectionedFreeExecutionGuard
                 'failure_code' => 'SECTIONED_FREE_LEGACY_VALIDATOR_REACHED',
                 'run_id' => $ctx['run_id'] ?? null,
                 'parent_prompt_result_id' => $ctx['parent_prompt_result_id'] ?? null,
-                'strategy' => 'sectioned_free',
+                'strategy' => 'sectioned',
                 'class_method' => $classMethod,
                 'target' => $target,
                 'minimum' => $minimum,

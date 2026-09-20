@@ -8,7 +8,6 @@ use Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor;
 use Omnichannel\Addons\AiPrompt\Services\SplitOutlineContentSemanticBinder;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
-use Omnichannel\Addons\Content\Support\WritingSplitPreference;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use PHPUnit\Framework\TestCase;
@@ -54,9 +53,7 @@ final class OutlineSplitRuntimeSwitchTest extends TestCase
 
     public function test_m_settings_outline_split_is_legacy_not_runtime_authority(): void
     {
-        $this->assertSame('writing_split_enabled', WritingSplitPreference::META_KEY);
         $this->assertSame('outline_split_enabled', SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED);
-        $this->assertNotSame(WritingSplitPreference::META_KEY, SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED);
 
         $runnerSrc = (string) file_get_contents(
             (string) (new ReflectionClass(TaskWorkflowTestRunner::class))->getFileName(),

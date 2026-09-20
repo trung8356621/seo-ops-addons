@@ -175,9 +175,6 @@ final class OutlineHookVerticalSliceTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
 
         $prompt = new SeoPrompt;
@@ -248,9 +245,6 @@ final class OutlineHookVerticalSliceTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
 
         $prompt = new SeoPrompt;
@@ -312,9 +306,6 @@ final class OutlineHookVerticalSliceTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
 
         $prompt = new SeoPrompt;
@@ -371,9 +362,6 @@ final class OutlineHookVerticalSliceTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $this->createMock(PromptRunnerService::class),
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
         $prompt = new SeoPrompt;
         $prompt->forceFill([
@@ -426,9 +414,6 @@ final class OutlineHookVerticalSliceTest extends TestCase
             $registry,
             new PromptHookMigrationFlags,
             $runner,
-            new \Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter(
-                new \Omnichannel\Addons\Content\Services\ArticleWritingInputFormatter,
-            ),
         );
         $prompt = new SeoPrompt;
         $prompt->forceFill(['id' => 1, 'hook_key' => 'article.outline.generate', 'hook_version' => '0.1.0']);
