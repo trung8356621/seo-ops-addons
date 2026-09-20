@@ -11,7 +11,9 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 use Throwable;
 
 /**
- * Single editable Gen Comment Manager prompt (no versions, no per-platform prompts).
+ * Legacy local prompt table reader — NOT execution authority.
+ * Runtime SSOT is shared Prompt via SeedingSharedCommentPromptResolver.
+ * Kept for historical/migration helpers only.
  */
 class SeedingCommentPromptService
 {

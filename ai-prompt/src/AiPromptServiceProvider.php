@@ -119,6 +119,7 @@ final class AiPromptServiceProvider extends ServiceProvider
                 \Omnichannel\Addons\AiPrompt\Console\DebugArticleGenerationCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\RepairMultiplePassArticleCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\ResetAiHistoryCommand::class,
+                \Omnichannel\Addons\AiPrompt\Console\InstallDefaultSeedingCommentPromptCommand::class,
             ]);
         }
 

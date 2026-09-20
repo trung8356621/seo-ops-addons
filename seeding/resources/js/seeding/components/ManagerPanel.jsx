@@ -6,7 +6,6 @@ import {
     resumeManagerTopic,
     cancelManagerTopic,
     fetchCommentPrompt,
-    saveCommentPrompt,
     fetchCommentPromptHistoryDetail,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
@@ -46,8 +45,9 @@ export default function ManagerPanel({ websiteStats = null }) {
 
     const [promptBody, setPromptBody] = useState('');
     const [promptLoading, setPromptLoading] = useState(false);
-    const [promptSaving, setPromptSaving] = useState(false);
     const [promptError, setPromptError] = useState('');
+    const [promptEditUrl, setPromptEditUrl] = useState('');
+    const [promptHookKey, setPromptHookKey] = useState('seeding.comment.generate');
     const [history, setHistory] = useState([]);
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -72,6 +72,8 @@ export default function ManagerPanel({ websiteStats = null }) {
         try {
             const data = await fetchCommentPrompt();
             setPromptBody(String(data?.prompt_body ?? ''));
+            setPromptEditUrl(String(data?.edit_url ?? ''));
+            setPromptHookKey(String(data?.hook_key ?? 'seeding.comment.generate'));
             setHistory(Array.isArray(data?.history) ? data.history : []);
         } catch (e) {
             const message = e?.message || 'Không tải được Prompt Gen Comment';
@@ -109,16 +111,7 @@ export default function ManagerPanel({ websiteStats = null }) {
     };
 
     const onSavePrompt = async () => {
-        setPromptSaving(true);
-        try {
-            const data = await saveCommentPrompt(promptBody);
-            setPromptBody(String(data?.prompt_body ?? promptBody));
-            notifySuccess(data?.message || 'Đã lưu Prompt Gen Comment');
-        } catch (e) {
-            notifyError(e?.message || 'Lưu prompt thất bại');
-        } finally {
-            setPromptSaving(false);
-        }
+        notifyError('Prompt Gen Comment được chỉnh trong Prompt Management — không lưu tại đây.');
     };
 
     const onViewHistory = async (row) => {
@@ -170,30 +163,40 @@ export default function ManagerPanel({ websiteStats = null }) {
                         {promptError ? (
                             <p className="seeding-ws__prompt-error" role="alert">{promptError}</p>
                         ) : null}
+                        <p className="seeding-ws__prompt-help" data-authority="shared_prompt">
+                            Nguồn SSOT: Prompt Management (<code>{promptHookKey}</code>). Seeding chỉ xem — không sửa tại đây.
+                        </p>
                         <textarea
                             className="seeding-ws__textarea seeding-ws__textarea--prompt"
                             value={promptBody}
-                            onChange={(e) => setPromptBody(e.target.value)}
+                            readOnly
                             rows={12}
                             spellCheck={false}
-                            disabled={promptLoading || promptSaving}
+                            disabled={promptLoading}
                             aria-busy={promptLoading}
+                            aria-readonly="true"
                         />
                         <p className="seeding-ws__prompt-help">
                             Biến hỗ trợ duy nhất: <code>{'{{mcp_context}}'}</code>
                         </p>
-                        <button
-                            type="button"
-                            className="seeding-ws__btn seeding-ws__btn--primary"
-                            onClick={onSavePrompt}
-                            disabled={promptSaving || promptLoading}
-                        >
-                            {promptSaving ? (
-                                <>
-                                    <Loader2 size={14} className="seeding-ws__spin" /> Đang lưu…
-                                </>
-                            ) : 'Lưu'}
-                        </button>
+                        {promptEditUrl ? (
+                            <a
+                                className="seeding-ws__btn seeding-ws__btn--primary"
+                                href={promptEditUrl}
+                                data-link="shared-prompt-editor"
+                            >
+                                Mở Prompt Management
+                            </a>
+                        ) : (
+                            <button
+                                type="button"
+                                className="seeding-ws__btn seeding-ws__btn--ghost"
+                                onClick={onSavePrompt}
+                                disabled
+                            >
+                                Chỉnh sửa tại Prompt Management
+                            </button>
+                        )}
                     </section>
 
                     <section className="seeding-ws__prompt-section" data-section="gen-comment-history">

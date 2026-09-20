@@ -25,6 +25,7 @@ final class PromptExecutionProfileResolver
         'article.faq.generate' => AiExecutionProfile::TextFast,
         'article.featured_snippet.generate' => AiExecutionProfile::TextFast,
         'article.comment.generate' => AiExecutionProfile::TextFast,
+        'seeding.comment.generate' => AiExecutionProfile::TextFast,
         'article.outline.generate' => AiExecutionProfile::TextReasoning,
         'article.outline.structure.generate' => AiExecutionProfile::TextReasoning,
         'article.vocabulary.generate' => AiExecutionProfile::TextReasoning,

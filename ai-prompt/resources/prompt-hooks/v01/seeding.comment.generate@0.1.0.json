@@ -1,0 +1,79 @@
+{
+  "spec_version": "0.1",
+  "key": "seeding.comment.generate",
+  "version": "0.1.0",
+  "name": "Generate seeding social comments",
+  "description": "Generate natural Vietnamese social comments for the Seeding workspace from MCP context.",
+  "enabled": true,
+  "status": "stable",
+  "settings_visible": true,
+  "category": "seeding",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "vi" },
+  "input_schema": {
+    "mcp_context": {
+      "type": "string",
+      "required": true,
+      "max_length": 20000,
+      "label": "MCP / domain context"
+    },
+    "social": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "default": "threads",
+      "max_length": 64,
+      "label": "Social platform id"
+    },
+    "quantity": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "default": "3",
+      "max_length": 8,
+      "label": "Number of comments"
+    }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Seeding Gen Comment — Manager writing style lives in the Prompt body; MCP context is injected via {{mcp_context}}.",
+    "default_instructions": [
+      "Write short natural Vietnamese social comments.",
+      "Use only facts present in the injected MCP context.",
+      "Do not invent unsupported claims."
+    ],
+    "output_format": [
+      "Runtime wraps this Prompt with a JSON comments[] contract via SocialCommentGenerateTask."
+    ],
+    "notes": [
+      "Biến bắt buộc: {{mcp_context}}.",
+      "Quota / Link Pool / Share / Report remain Seeding domain — not this Prompt."
+    ],
+    "variables": [
+      { "key": "mcp_context", "required": true },
+      { "key": "social", "required": false, "default": "threads" },
+      { "key": "quantity", "required": false, "default": "3" }
+    ]
+  },
+  "retry": { "max": 1, "on": ["output_invalid"] },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false,
+  "metadata": {
+    "ownership": "settings_binding",
+    "system_capability": "seeding.comment.generate"
+  }
+}

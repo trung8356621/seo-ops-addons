@@ -10,9 +10,12 @@ use App\System\Ai\Transport\LegacyLocalAiTransport;
 use App\System\Capability\SystemCapabilityDefinition;
 use App\System\Capability\SystemCapabilityRegistry;
 use App\System\Support\CapabilityModeResolver;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultSeedingCommentPromptInstaller;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
+use Omnichannel\Addons\Seeding\Services\SeedingSharedCommentPromptResolver;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingAiArchitecture;
 use Omnichannel\Addons\Seeding\Support\SeedingCommentPromptDefaults;
@@ -22,7 +25,7 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 /**
- * Focused Gen Comment Manager prompt + debug history contracts (no SEO prompt system).
+ * Focused Gen Comment shared Prompt + debug history contracts.
  */
 final class SeedingCommentPromptAndHistoryTest extends TestCase
 {
@@ -78,15 +81,10 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         );
     }
 
-    public function test_generation_uses_saved_prompt_and_snapshots_chain(): void
+    public function test_generation_uses_shared_prompt_and_snapshots_chain(): void
     {
         $captured = [];
-        $prompt = new class extends SeedingCommentPromptService {
-            public function getPromptBody(): string
-            {
-                return "Manager style GenZ-ish\n{{mcp_context}}\nEnd.";
-            }
-        };
+        $shared = $this->fakeShared("Manager style GenZ-ish\n{{mcp_context}}\nEnd.");
 
         $sink = new \stdClass();
         $sink->items = [];
@@ -118,7 +116,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             }
         };
 
-        $service = $this->makeService($prompt, $history, $textPort);
+        $service = $this->makeService($shared, $history, $textPort);
 
         $comments = $service->generateFromPayload([
             'content' => 'Balo laptop chống sốc',
@@ -160,12 +158,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             }
         };
 
-        $prompt = new class extends SeedingCommentPromptService {
-            public function getPromptBody(): string
-            {
-                return 'FAIL CASE {{mcp_context}}';
-            }
-        };
+        $shared = $this->fakeShared('FAIL CASE {{mcp_context}}');
 
         $textPort = new class implements AiTextExecutionPort {
             public function generate(string $compiledPrompt, string $hookKey, array $options = []): array
@@ -175,7 +168,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             }
         };
 
-        $service = $this->makeService($prompt, $history, $textPort);
+        $service = $this->makeService($shared, $history, $textPort);
 
         try {
             $service->generateFromPayload([
@@ -196,7 +189,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         self::assertNotNull($snap['error_message']);
     }
 
-    public function test_manager_panel_exposes_prompt_and_history_ui(): void
+    public function test_manager_panel_exposes_prompt_mirror_and_history_ui(): void
     {
         $panel = (string) file_get_contents(
             dirname(__DIR__, 2).'/resources/js/seeding/components/ManagerPanel.jsx'
@@ -212,59 +205,28 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         self::assertStringContainsString('Chưa có lần Gen nào.', $panel);
         self::assertStringContainsString('promptError', $panel);
         self::assertStringContainsString('fetchCommentPrompt', $panel);
-        self::assertStringContainsString('saveCommentPrompt', $panel);
-        self::assertStringContainsString('MCP Context', $panel);
-        self::assertStringContainsString('Final AI Request / Final Prompt', $panel);
-        self::assertStringContainsString('AI Output', $panel);
+        self::assertStringContainsString('data-authority="shared_prompt"', $panel);
+        self::assertStringContainsString('readOnly', $panel);
+        self::assertStringNotContainsString('saveCommentPrompt', $panel);
         self::assertStringNotContainsString('prompt version', strtolower($panel));
         self::assertStringNotContainsString('temperature', strtolower($panel));
     }
 
-    public function test_provider_registers_prompt_routes_without_seo_prompt_system(): void
+    public function test_provider_registers_prompt_routes_pointing_to_shared_authority(): void
     {
         $provider = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/SeedingServiceProvider.php'
         );
         self::assertStringContainsString('SeedingCommentPromptController', $provider);
         self::assertStringContainsString('/manager/comment-prompt', $provider);
-        self::assertStringNotContainsString('SeoPrompt', $provider);
-        self::assertStringNotContainsString('prompt_versions', $provider);
-        self::assertStringNotContainsString('seo_prompts', $provider);
         self::assertStringNotContainsString('SeoTask', $provider);
         self::assertStringNotContainsString('SeoAiHistory', $provider);
     }
 
-    public function test_seeding_gen_comment_does_not_import_seo_prompt_pipeline(): void
-    {
-        $files = [
-            dirname(__DIR__, 2).'/src/Services/SeedingCommentGenerateService.php',
-            dirname(__DIR__, 2).'/src/Services/SeedingCommentPromptService.php',
-            dirname(__DIR__, 2).'/src/Services/SeedingCommentGenerateHistoryService.php',
-            dirname(__DIR__, 2).'/src/Http/Controllers/SeedingCommentPromptController.php',
-            dirname(__DIR__, 2).'/src/Http/Controllers/SeedingCommentGenerateController.php',
-            dirname(__DIR__, 2).'/src/Support/SeedingCommentPromptRenderer.php',
-            dirname(__DIR__, 2).'/src/Support/SeedingCommentPromptDefaults.php',
-            dirname(__DIR__, 2).'/src/Support/SeedingAiArchitecture.php',
-            dirname(__DIR__, 2).'/src/Models/SeedingCommentPromptSetting.php',
-            dirname(__DIR__, 2).'/src/Models/SeedingCommentGenerateLog.php',
-            dirname(__DIR__, 2).'/src/System/SeedingCommentGenerateCapabilityHandler.php',
-        ];
-
-        foreach ($files as $path) {
-            $src = (string) file_get_contents($path);
-            self::assertStringNotContainsString('SeoPrompt', $src, $path);
-            self::assertStringNotContainsString('SeoTask', $src, $path);
-            self::assertStringNotContainsString('seo_prompts', $src, $path);
-            self::assertStringNotContainsString('prompt_versions', $src, $path);
-            self::assertStringNotContainsString('SeoAiHistory', $src, $path);
-            self::assertStringNotContainsString('omi_seo_ai', $src, $path);
-        }
-    }
-
-    public function test_architecture_marker_documents_permanent_boundary(): void
+    public function test_architecture_marker_documents_shared_prompt_boundary(): void
     {
         self::assertSame(
-            'seeding_ai_independent_from_seo_prompt_task_history',
+            'seeding_ai_uses_shared_prompt_system_ai',
             SeedingAiArchitecture::BOUNDARY,
         );
         self::assertSame(20, SeedingAiArchitecture::RETENTION_MAX_LOGS);
@@ -279,8 +241,35 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         );
     }
 
+    private function fakeShared(string $body): SeedingSharedCommentPromptResolver
+    {
+        return new class($body) extends SeedingSharedCommentPromptResolver {
+            public function __construct(private string $body) {}
+
+            public function resolveActive(): array
+            {
+                $prompt = new SeoPrompt();
+                $prompt->forceFill([
+                    'id' => 11,
+                    'markdown_content' => $this->body,
+                    'hook_key' => DefaultSeedingCommentPromptInstaller::HOOK_KEY,
+                    'hook_version' => '0.1.0',
+                ]);
+
+                return [
+                    'prompt' => $prompt,
+                    'prompt_id' => 11,
+                    'prompt_version_id' => 3,
+                    'hook_key' => DefaultSeedingCommentPromptInstaller::HOOK_KEY,
+                    'hook_version' => '0.1.0',
+                    'body' => $this->body,
+                ];
+            }
+        };
+    }
+
     private function makeService(
-        SeedingCommentPromptService $prompt,
+        SeedingSharedCommentPromptResolver $shared,
         SeedingCommentGenerateHistoryService $history,
         AiTextExecutionPort $textPort,
     ): SeedingCommentGenerateService {
@@ -290,7 +279,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             owner: 'seeding',
             handler: new SeedingCommentGenerateCapabilityHandler(
                 contextResolver: new SeedingSocialContextResolver(),
-                promptService: $prompt,
+                sharedPrompt: $shared,
             ),
             sideEffectFree: false,
         ));
@@ -304,7 +293,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         return new SeedingCommentGenerateService(
             systemAi: $client,
             contextResolver: new SeedingSocialContextResolver(),
-            promptService: $prompt,
+            sharedPrompt: $shared,
             history: $history,
         );
     }

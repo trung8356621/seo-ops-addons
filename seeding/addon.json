@@ -1,7 +1,7 @@
 {
     "name": "Seeding",
     "slug": "seeding",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Independent Seeding service — local-first workspace, dedicated omi_seeding DB plane.",
     "provider": "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider",
     "panel_provider": "Omnichannel\\Addons\\Seeding\\Providers\\SeedingPanelProvider",

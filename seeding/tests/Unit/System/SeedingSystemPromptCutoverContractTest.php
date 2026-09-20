@@ -13,12 +13,12 @@ use App\System\Ai\Transport\LegacyLocalAiTransport;
 use App\System\Capability\SystemCapabilityDefinition;
 use App\System\Capability\SystemCapabilityRegistry;
 use App\System\Support\CapabilityModeResolver;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
-use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
+use Omnichannel\Addons\Seeding\Services\SeedingSharedCommentPromptResolver;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler;
-use Omnichannel\Addons\Social\Ai\Tasks\SocialCommentGenerateTask;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use RuntimeException;
@@ -62,6 +62,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
         self::assertStringContainsString('AiTextExecutionPort', $src);
         self::assertStringContainsString('fail closed', $src);
         self::assertStringContainsString('SocialCommentGenerateTask', $src);
+        self::assertStringContainsString('SeedingSharedCommentPromptResolver', $src);
         self::assertStringNotContainsString('SocialAiExecutionService', $src);
         self::assertStringNotContainsString('social_ai_fallback', $src);
         self::assertStringNotContainsString('RemoteHttpAiTransport', $src);
@@ -71,12 +72,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
     public function test_generation_via_system_ai_passes_capability_prompt_and_shape(): void
     {
         $captured = [];
-        $prompt = new class extends SeedingCommentPromptService {
-            public function getPromptBody(): string
-            {
-                return "Manager style GenZ-ish\n{{mcp_context}}\nEnd.";
-            }
-        };
+        $shared = $this->fakeShared("Manager style GenZ-ish\n{{mcp_context}}\nEnd.");
 
         $sink = new \stdClass();
         $sink->items = [];
@@ -113,7 +109,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
         $client = $this->buildClient(
             handler: new SeedingCommentGenerateCapabilityHandler(
                 contextResolver: new SeedingSocialContextResolver(),
-                promptService: $prompt,
+                sharedPrompt: $shared,
             ),
             textPort: $textPort,
         );
@@ -121,7 +117,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
         $service = new SeedingCommentGenerateService(
             systemAi: $client,
             contextResolver: new SeedingSocialContextResolver(),
-            promptService: $prompt,
+            sharedPrompt: $shared,
             history: $history,
         );
         $comments = $service->generateFromPayload([
@@ -132,7 +128,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
         ]);
 
         self::assertSame(['c1', 'c2', 'c3'], $comments);
-        self::assertSame(SocialCommentGenerateTask::TASK_KEY, $captured['hook_key'] ?? null);
+        self::assertSame(SeedingCommentGenerateCapabilityHandler::KEY, $captured['hook_key'] ?? null);
         self::assertStringContainsString("Manager style GenZ-ish\nBalo laptop chống sốc\nEnd.", (string) ($captured['compiled'] ?? ''));
         self::assertStringNotContainsString('Adapt naturally to the supplied social platform', (string) ($captured['compiled'] ?? ''));
 
@@ -148,6 +144,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
 
     public function test_system_execution_id_is_captured_on_completed_result(): void
     {
+        $shared = $this->fakeShared('{{mcp_context}}');
         $textPort = new class implements AiTextExecutionPort {
             public function generate(string $compiledPrompt, string $hookKey, array $options = []): array
             {
@@ -163,12 +160,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
 
         $client = $this->buildClient(
             handler: new SeedingCommentGenerateCapabilityHandler(
-                promptService: new class extends SeedingCommentPromptService {
-                    public function getPromptBody(): string
-                    {
-                        return '{{mcp_context}}';
-                    }
-                },
+                sharedPrompt: $shared,
             ),
             textPort: $textPort,
         );
@@ -183,6 +175,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
         self::assertStringStartsWith('ai_', $raw->id);
         self::assertSame(['only'], $raw->output['comments'] ?? null);
         self::assertSame('system_ai_text_port', $raw->output['path'] ?? null);
+        self::assertSame(SeedingCommentGenerateCapabilityHandler::KEY, $raw->output['hook_key'] ?? null);
 
         $fetched = $client->getExecution($raw->id);
         self::assertNotNull($fetched);
@@ -213,8 +206,6 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
             }
         };
 
-        // Guard: if anyone reintroduces SocialAi fallback, this flag would flip in a real dual path.
-        // Here we only prove the service surfaces System failure and never invents comments.
         $sink = new \stdClass();
         $sink->items = [];
         $history = new class($sink) extends SeedingCommentGenerateHistoryService {
@@ -228,7 +219,11 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
             }
         };
 
-        $service = new SeedingCommentGenerateService(systemAi: $failingClient, history: $history);
+        $service = new SeedingCommentGenerateService(
+            systemAi: $failingClient,
+            sharedPrompt: $this->fakeShared('{{mcp_context}}'),
+            history: $history,
+        );
 
         try {
             $service->generateFromPayload([
@@ -250,12 +245,7 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
     public function test_handler_without_text_port_fails_closed(): void
     {
         $handler = new SeedingCommentGenerateCapabilityHandler(
-            promptService: new class extends SeedingCommentPromptService {
-                public function getPromptBody(): string
-                {
-                    return '{{mcp_context}}';
-                }
-            },
+            sharedPrompt: $this->fakeShared('{{mcp_context}}'),
         );
 
         $this->expectException(RuntimeException::class);
@@ -279,6 +269,33 @@ final class SeedingSystemPromptCutoverContractTest extends TestCase
             self::assertStringNotContainsString('SeedingReport', $src);
             self::assertStringNotContainsString('localStorage', $src);
         }
+    }
+
+    private function fakeShared(string $body): SeedingSharedCommentPromptResolver
+    {
+        return new class($body) extends SeedingSharedCommentPromptResolver {
+            public function __construct(private string $body) {}
+
+            public function resolveActive(): array
+            {
+                $prompt = new SeoPrompt();
+                $prompt->forceFill([
+                    'id' => 1,
+                    'markdown_content' => $this->body,
+                    'hook_key' => SeedingCommentGenerateCapabilityHandler::KEY,
+                    'hook_version' => '0.1.0',
+                ]);
+
+                return [
+                    'prompt' => $prompt,
+                    'prompt_id' => 1,
+                    'prompt_version_id' => 1,
+                    'hook_key' => SeedingCommentGenerateCapabilityHandler::KEY,
+                    'hook_version' => '0.1.0',
+                    'body' => $this->body,
+                ];
+            }
+        };
     }
 
     private function buildClient(

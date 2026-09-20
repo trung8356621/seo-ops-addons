@@ -14,8 +14,10 @@ use App\System\Capability\SystemCapabilityRegistry;
 use App\System\Support\CapabilityModeResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
+use Omnichannel\Addons\Seeding\Services\SeedingSharedCommentPromptResolver;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
@@ -66,12 +68,35 @@ final class SeedingCommentGenerateHttpContractTest extends TestCase
             }
         };
 
+        $shared = new class extends SeedingSharedCommentPromptResolver {
+            public function resolveActive(): array
+            {
+                $prompt = new SeoPrompt();
+                $prompt->forceFill([
+                    'id' => 99,
+                    'markdown_content' => "HTTP contract prompt\n{{mcp_context}}",
+                    'hook_key' => SeedingCommentGenerateCapabilityHandler::KEY,
+                    'hook_version' => '0.1.0',
+                ]);
+
+                return [
+                    'prompt' => $prompt,
+                    'prompt_id' => 99,
+                    'prompt_version_id' => 1,
+                    'hook_key' => SeedingCommentGenerateCapabilityHandler::KEY,
+                    'hook_version' => '0.1.0',
+                    'body' => (string) $prompt->markdown_content,
+                ];
+            }
+        };
+
         $registry = new SystemCapabilityRegistry();
         $registry->register(new SystemCapabilityDefinition(
             key: SeedingCommentGenerateCapabilityHandler::KEY,
             owner: 'seeding',
             handler: new SeedingCommentGenerateCapabilityHandler(
                 contextResolver: new SeedingSocialContextResolver(),
+                sharedPrompt: $shared,
             ),
             sideEffectFree: false,
         ));
@@ -86,6 +111,7 @@ final class SeedingCommentGenerateHttpContractTest extends TestCase
         $generator = new SeedingCommentGenerateService(
             systemAi: $client,
             contextResolver: $resolver,
+            sharedPrompt: $shared,
         );
         $access = new SeedingAccess(app(SiteAccess::class), new SeedingServiceResolver());
 

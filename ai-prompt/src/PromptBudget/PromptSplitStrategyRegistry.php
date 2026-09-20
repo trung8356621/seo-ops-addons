@@ -57,6 +57,7 @@ final class PromptSplitStrategyRegistry
             'article.comment.generate' => 400,
             // Atomic seeding utility — unsplittable short JSON text batch.
             'seeding.comment_generate' => 1024,
+            'seeding.comment.generate' => 1024,
         ] as $hook => $reserve) {
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::DirectFit, $reserve));
         }

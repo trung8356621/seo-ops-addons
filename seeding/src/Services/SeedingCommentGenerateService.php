@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seeding\Services;
 
 use App\System\Ai\Contracts\SystemAiClient;
 use App\System\Ai\Dto\AiExecutionRequest;
+use Omnichannel\Addons\Seeding\Support\SeedingCommentPromptRenderer;
 use Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler;
 use RuntimeException;
 use Throwable;
@@ -16,7 +17,7 @@ use Throwable;
  * Flexible Seeding JS adapter maps that to seed_outputs.
  *
  * Flow: payload → SystemAiClient → seeding.comment.generate → history snapshot (max 20).
- * Business writing style lives only in the Manager prompt (handler-owned assembly for AI).
+ * Prompt body SSOT = shared Prompt system (Settings binding).
  * Service pre-resolves MCP/final prompt solely for Seeding debug history snapshots.
  */
 final class SeedingCommentGenerateService
@@ -29,7 +30,7 @@ final class SeedingCommentGenerateService
     public function __construct(
         private readonly ?SystemAiClient $systemAi = null,
         private readonly ?SeedingSocialContextResolver $contextResolver = null,
-        private readonly ?SeedingCommentPromptService $promptService = null,
+        private readonly ?SeedingSharedCommentPromptResolver $sharedPrompt = null,
         private readonly ?SeedingCommentGenerateHistoryService $history = null,
     ) {}
 
@@ -38,9 +39,9 @@ final class SeedingCommentGenerateService
         return $this->contextResolver ?? new SeedingSocialContextResolver();
     }
 
-    private function prompts(): SeedingCommentPromptService
+    private function sharedPrompt(): SeedingSharedCommentPromptResolver
     {
-        return $this->promptService ?? new SeedingCommentPromptService();
+        return $this->sharedPrompt ?? new SeedingSharedCommentPromptResolver();
     }
 
     private function historyStore(): SeedingCommentGenerateHistoryService
@@ -90,10 +91,8 @@ final class SeedingCommentGenerateService
 
         // History snapshot fields — assembled before System call so failures still retain them.
         $mcpContext = $this->resolver()->resolve($payload);
-        $finalPrompt = $this->prompts()->renderFinalPrompt(
-            $this->prompts()->getPromptBody(),
-            $mcpContext,
-        );
+        $active = $this->sharedPrompt()->resolveActive();
+        $finalPrompt = (new SeedingCommentPromptRenderer())->render($active['body'], $mcpContext);
 
         $aiOutput = null;
         $provider = null;
