@@ -21,6 +21,7 @@ import {
     resolveArticleImageRemoveTarget,
 } from '../utils/articleImagesUtils';
 import { isLaravelManagedMedia, isWordPressProtectedMedia } from '../utils/mediaSourceClassification';
+import { isWordPressManagedAltUi } from '../utils/mediaAltOwnership';
 import { t } from '@content-addon/utils/i18n.js';
 import {
     AI_PLACEHOLDER_LOADING_URL,
@@ -270,6 +271,7 @@ function ImageRow({
     const [thumbBroken, setThumbBroken] = useState(false);
     const moreMenuRef = useRef(null);
     const canPatchInEditor = Boolean(row.blockId);
+    const wpManagedAlt = isWordPressManagedAltUi(row);
     const removeTarget = useMemo(
         () => resolveArticleImageRemoveTarget(row, blocks, supplementalImages),
         [row, blocks, supplementalImages],
@@ -513,6 +515,7 @@ function ImageRow({
                         {row.role_flags.content ? <span className="seo-article-images-role-badge">Content</span> : null}
                         {row.role_flags.featured ? <span className="seo-article-images-role-badge">Featured</span> : null}
                         {row.role_flags.gallery ? <span className="seo-article-images-role-badge">Gallery</span> : null}
+                        {wpManagedAlt ? <span className="seo-article-images-role-badge seo-article-images-role-badge--wp">WP Media</span> : null}
                     </div>
                 ) : (row?.originLabel ? (
                     <p className="seo-article-images-origin">{row.originLabel}</p>
@@ -522,31 +525,40 @@ function ImageRow({
             <div className="seo-article-images-fields">
                 <div className="seo-article-images-field-row">
                     <label className="seo-image-meta-label">{t('image_alt_label')}</label>
-                    <input
-                        type="text"
-                        className="seo-image-meta-input"
-                        value={alt}
-                        onChange={(e) => setAlt(e.target.value)}
-                        onBlur={() => {
-                            const trimmed = alt.trim();
-                            if (trimmed === (row.alt || '').trim()) {
-                                return;
-                            }
+                    {wpManagedAlt ? (
+                        <div className="seo-image-meta-wp-owned">
+                            <p className={`seo-image-meta-wp-owned__value${!(alt || '').trim() ? ' is-missing' : ''}`}>
+                                {(alt || '').trim() || t('image_alt_wp_missing')}
+                            </p>
+                            <p className="seo-image-meta-wp-owned__hint">{t('image_alt_managed_by_wordpress')}</p>
+                        </div>
+                    ) : (
+                        <input
+                            type="text"
+                            className="seo-image-meta-input"
+                            value={alt}
+                            onChange={(e) => setAlt(e.target.value)}
+                            onBlur={() => {
+                                const trimmed = alt.trim();
+                                if (trimmed === (row.alt || '').trim()) {
+                                    return;
+                                }
 
-                            if (onAltTitleChange) {
-                                onAltTitleChange(row, trimmed);
-                                return;
-                            }
+                                if (onAltTitleChange) {
+                                    onAltTitleChange(row, trimmed);
+                                    return;
+                                }
 
-                            if (!canPatchInEditor) {
-                                return;
-                            }
+                                if (!canPatchInEditor) {
+                                    return;
+                                }
 
-                            onPatch?.(row.blockId, { alt: trimmed, title: trimmed });
-                        }}
-                        placeholder={t('image_alt_placeholder')}
-                        disabled={!canPatchInEditor && !onAltTitleChange}
-                    />
+                                onPatch?.(row.blockId, { alt: trimmed, title: trimmed });
+                            }}
+                            placeholder={t('image_alt_placeholder')}
+                            disabled={!canPatchInEditor && !onAltTitleChange}
+                        />
+                    )}
                     {row.wpAttachmentId && trustedWpUrl ? (
                         <a
                             href={trustedWpUrl}
@@ -708,6 +720,11 @@ function ImageRow({
                                         className="seo-article-images-more-item"
                                         role="menuitem"
                                         disabled={busy || !canQuickFix}
+                                        title={
+                                            wpManagedAlt
+                                                ? t('image_alt_wp_fix_stages_hint')
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             setMoreOpen(false);
                                             onQuickFixAltTitle?.(row);

@@ -196,7 +196,11 @@ final class FreePaidRoutingAndFreePoolHealthTest extends TestCase
             );
         }
         $snap = $this->poolHealth->snapshot($conn->fresh());
+        // Storage name HardLocked = TEMPORARY_LOCKED with future lock_until (never permanent).
         $this->assertSame(FreePoolHealthState::HardLocked->value, $snap['free_pool_state']);
+        $this->assertTrue(FreePoolHealthState::HardLocked->isTemporaryLock());
+        $this->assertNotNull($snap['free_pool_lock_until']);
+        $this->assertTrue(Carbon::parse((string) $snap['free_pool_lock_until'])->isFuture());
         $this->assertSame(7, (int) $snap['failed_distinct_models']);
         $this->assertSame(OpenRouterFreePoolHealthService::SKIP_HARD_LOCKED, $this->poolHealth->skipReasonForCandidate(
             $this->freeCandidate($conn->fresh(), 'model-8:free', 8),

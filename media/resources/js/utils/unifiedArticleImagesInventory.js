@@ -10,6 +10,7 @@ import {
     isBulkSlugRenameSafeMedia,
     isWordPressProtectedMedia,
 } from './mediaSourceClassification';
+import { attachAltOwnershipProvenance } from './mediaAltOwnership';
 
 /**
  * @param {string} value
@@ -332,7 +333,7 @@ function finalizeInventoryItem(item) {
         roleLabels.push('Gallery');
     }
 
-    return {
+    return attachAltOwnershipProvenance({
         ...item,
         requires_slug_fix: requiresSlugFix,
         slug_fix_eligible: slugFixEligible,
@@ -340,7 +341,7 @@ function finalizeInventoryItem(item) {
         health,
         originLabel: roleLabels.join(' · ') || String(item.originLabel ?? '').trim(),
         origin_label: roleLabels.join(' · ') || String(item.origin_label ?? '').trim(),
-    };
+    });
 }
 
 /**
@@ -437,6 +438,14 @@ export function unifiedInventoryToImageRows(inventory) {
         originLabel: item.originLabel || '',
         origin_label: item.origin_label || '',
         role_flags: item.role_flags || { content: false, featured: false, gallery: false },
+        media_role: item.media_role || item.mediaRole || '',
+        mediaRole: item.mediaRole || item.media_role || '',
+        alt_owner: item.alt_owner || item.altOwner || '',
+        altOwner: item.altOwner || item.alt_owner || '',
+        wp_alt_sync: item.wp_alt_sync || item.wpAltSync || '',
+        wpAltSync: item.wpAltSync || item.wp_alt_sync || '',
+        missing_alt_kind: item.missing_alt_kind || item.missingAltKind || null,
+        missingAltKind: item.missingAltKind || item.missing_alt_kind || null,
         source: item.source || 'unknown',
         occurrences: item.occurrences || 1,
         requires_slug_fix: Boolean(item.requires_slug_fix),

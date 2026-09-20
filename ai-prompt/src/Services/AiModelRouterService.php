@@ -21,6 +21,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\FreePoolHealthState;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
@@ -1313,6 +1314,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'connection_id' => (int) $candidate->connection->id,
             'connection_name' => (string) $candidate->connection->name,
             'provider' => $candidate->provider,
+            'provider_code' => $candidate->provider === ApiConnectionProviders::OPENROUTER
+                ? 'OR'
+                : $candidate->provider,
             'model' => $candidate->model,
             'candidate_model' => $candidate->model,
             'logical_model' => $candidate->logicalModelKey(),
@@ -1321,6 +1325,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'seo_ai_model_id' => $candidate->seoAiModelId,
             'is_free' => $candidate->isFree,
             'is_free_candidate' => $candidate->isFree,
+            'lane' => $candidate->isFree ? 'free' : 'paid',
             'result' => $result,
             'status' => $status,
             'failure_class' => $result === 'failed' ? $detail : null,
@@ -1329,7 +1334,35 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'eligible' => $result !== 'skipped',
             'skipped' => $result === 'skipped',
             'attempted' => $result === 'failed' || $result === 'success',
-        ], $extra), static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+        ], $this->freePoolAttemptObservability($candidate), $extra), static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+    }
+
+    /**
+     * Physical free-pool identity for AI History / routing diagnostics.
+     *
+     * @return array<string, mixed>
+     */
+    private function freePoolAttemptObservability(RoutedAiCandidate $candidate): array
+    {
+        if (! $candidate->isFree) {
+            return [];
+        }
+        if ((string) $candidate->connection->provider !== ApiConnectionProviders::OPENROUTER) {
+            return [];
+        }
+        try {
+            $health = new OpenRouterFreePoolHealthService();
+            $snap = $health->snapshot($candidate->connection);
+            $state = (string) ($snap['free_pool_state'] ?? FreePoolHealthState::Healthy->value);
+
+            return [
+                'free_pool_state' => $state,
+                'lock_reason' => $snap['free_pool_lock_reason'] ?? null,
+                'lock_until' => $snap['free_pool_lock_until'] ?? null,
+            ];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**

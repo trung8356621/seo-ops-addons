@@ -5937,13 +5937,48 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
+     * Stage featured/gallery WordPress attachment ALT — applied only after successful WP sync.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     */
+    public function stageWordPressAttachmentAltPending(array $items, bool $silent = false): void
+    {
+        $result = app(\Omnichannel\Addons\WordPress\Services\WordPressAttachmentAltPendingService::class)
+            ->stage($this->record, $items);
+
+        if ($silent) {
+            return;
+        }
+
+        if (($result['staged_count'] ?? 0) > 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.article_edit.image_alt_title_updated_wp'))
+                ->body($result['message'])
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.article_edit.image_alt_title_update_wp_failed'))
+            ->body($result['message'])
+            ->warning()
+            ->send();
+    }
+
+    /**
      * Cập nhật alt/title attachment trên WordPress (Media Library).
+     * Requires explicit allowed media_role (featured_image / product_gallery).
+     * Prefer {@see stageWordPressAttachmentAltPending()} from Image Assistant.
      *
      * @param  array<int, array<string, mixed>>  $items
      */
     public function updateAttachmentMetaOnWordPress(array $items, bool $silent = false): void
     {
-        $result = app(WordPressAttachmentMetaUpdateService::class)->updateBatch($this->record, $items);
+        $result = app(WordPressAttachmentMetaUpdateService::class)->updateBatch($this->record, $items, [
+            'require_media_role' => true,
+        ]);
 
         if ($silent) {
             return;

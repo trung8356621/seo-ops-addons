@@ -204,11 +204,14 @@ class SeoMediaController extends Controller
             'items.*.id' => ['required', 'integer', 'min:1'],
             'items.*.alt_text' => ['nullable', 'string', 'max:255'],
             'items.*.title' => ['nullable', 'string', 'max:255'],
+            'items.*.sync_wordpress' => ['sometimes', 'boolean'],
+            'sync_wordpress' => ['sometimes', 'boolean'],
         ]);
 
         $updated = [];
         /** @var array<int, list<array{attachment_id: int, alt_text: string, title: string}>> $wpItemsBySite */
         $wpItemsBySite = [];
+        $defaultSyncWordpress = (bool) ($validated['sync_wordpress'] ?? true);
 
         foreach ($validated['items'] as $item) {
             $media = SeoMedia::query()->find((int) $item['id']);
@@ -227,12 +230,20 @@ class SeoMediaController extends Controller
                 'title' => $title !== '' ? $title : $altText,
             ];
 
+            $syncWordpress = array_key_exists('sync_wordpress', $item)
+                ? (bool) $item['sync_wordpress']
+                : $defaultSyncWordpress;
+            if (! $syncWordpress) {
+                continue;
+            }
+
             $wpAttachmentId = (int) ($media->wp_attachment_id ?? 0);
             $siteId = (int) ($media->site_id ?? 0);
             if ($wpAttachmentId <= 0 || $siteId <= 0 || ($altText === '' && $title === '')) {
                 continue;
             }
 
+            // Media Library intentional edit — not Image Assistant article_content.
             $wpItemsBySite[$siteId] ??= [];
             $wpItemsBySite[$siteId][] = [
                 'attachment_id' => $wpAttachmentId,
@@ -253,7 +264,10 @@ class SeoMediaController extends Controller
                     continue;
                 }
 
-                $result = $wpService->updateForSite($site, $wpItems);
+                // Media Library path: explicit operator edit (not article Fix All).
+                $result = $wpService->updateForSite($site, $wpItems, [
+                    'require_media_role' => false,
+                ]);
                 if ($result['success'] ?? false) {
                     $wpUpdatedCount += (int) ($result['updated_count'] ?? 0);
 

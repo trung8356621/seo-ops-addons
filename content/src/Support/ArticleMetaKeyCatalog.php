@@ -113,6 +113,14 @@ final class ArticleMetaKeyCatalog
                 'writers' => ['ArticleMediaLocalService'],
                 'readers' => ['ArticleMediaLocalService'],
             ],
+            'wp_attachment_alt_pending' => [
+                'purpose' => 'Staged featured/gallery WP attachment ALT until article sync succeeds',
+                'class' => self::CLASS_RUNTIME,
+                'cleanup' => false,
+                'canonical_replacement' => null,
+                'writers' => ['WordPressAttachmentAltPendingService', 'EditArticle'],
+                'readers' => ['WordPressAttachmentAltPendingService', 'WordPressArticleSyncService'],
+            ],
 
             // SEO score / audit
             'seo_rule_violations' => [

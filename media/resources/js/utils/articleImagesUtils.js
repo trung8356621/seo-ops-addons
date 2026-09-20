@@ -14,6 +14,7 @@ import {
 import { loadProductAlbum, saveProductAlbum } from './articleProductAlbumStorage';
 import { featuredFromSnapshot, setFeaturedViaApi } from '@content-addon/utils/articleEditorMediaSnapshot.js';
 import { isWordPressProtectedMedia, isBulkSlugRenameSafeMedia } from './mediaSourceClassification';
+import { buildStagedWpAltItem, resolveWpAltMutationRole } from './mediaAltOwnership';
 
 export function slugFromUrl(src) {
     if (!src) return '';
@@ -863,19 +864,19 @@ export function computeQuickFixSlugSupplementalOutcome(row, keyword, { wpOnly = 
  */
 export function computeQuickFixAltTitleSupplementalOutcome(row, keyword) {
     const phrase = String(keyword ?? '').trim();
-    const { patch, wpAttachmentId } = buildAltTitleMetaUpdatePayload(row, phrase);
+    const { patch } = buildAltTitleMetaUpdatePayload(row, phrase);
 
-    if (!phrase || wpAttachmentId <= 0) {
-        return { patch, wpMeta: null };
+    // Featured / product gallery only — never article_content (even with attachment_id).
+    const wpMeta = phrase ? buildStagedWpAltItem(row, phrase) : null;
+
+    // Preserve existing non-empty WP ALT in UI + staging (default Fix All).
+    if (!wpMeta && resolveWpAltMutationRole(row)) {
+        return { patch: {}, wpMeta: null };
     }
 
     return {
         patch,
-        wpMeta: {
-            attachment_id: wpAttachmentId,
-            alt_text: phrase,
-            title: phrase,
-        },
+        wpMeta,
     };
 }
 
@@ -1196,7 +1197,8 @@ export function applyQuickFixSlugToBlocks(
 }
 
 /**
- * Alt/title ngay; đẩy meta lên WordPress attachment nếu có wpAttachmentId.
+ * Alt/title on article HTML only. Never queues WordPress attachment ALT updates
+ * for body images (media_role=article_content), even when attachment_id is present.
  *
  * @returns {{ blocks: Array, applied: number, wpMetaQueue: Array }}
  */
@@ -1213,24 +1215,14 @@ export function applyQuickFixAltTitleToBlocks(blocks, keyword) {
     }
 
     let result = blocks;
-    const wpMetaQueue = [];
-    const wpMetaSeen = new Set();
     const patch = { alt: phrase, title: phrase };
 
     eligible.forEach((row) => {
         result = applyImagePatchToBlocks(result, row.blockId, patch);
-        const wpAttachmentId = resolveWpAttachmentIdForMetaUpdate(row);
-        if (wpAttachmentId > 0 && !wpMetaSeen.has(wpAttachmentId)) {
-            wpMetaSeen.add(wpAttachmentId);
-            wpMetaQueue.push({
-                attachment_id: wpAttachmentId,
-                alt_text: phrase,
-                title: phrase,
-            });
-        }
     });
 
-    return { blocks: result, applied: eligible.length, wpMetaQueue };
+    // Article body images: local HTML only — WP attachment ALT mutation forbidden.
+    return { blocks: result, applied: eligible.length, wpMetaQueue: [] };
 }
 
 /**
@@ -1312,7 +1304,7 @@ export function applyQuickFixSlugToBlock(
 }
 
 /**
- * Fix alt/title một ảnh theo blockId.
+ * Fix alt/title một ảnh theo blockId (article HTML only — no WP attachment ALT).
  *
  * @returns {{ blocks: Array, applied: number, wpMetaQueue: Array }}
  */
@@ -1332,16 +1324,11 @@ export function applyQuickFixAltTitleToBlock(blocks, keyword, blockId) {
 
     const patch = { alt: phrase, title: phrase };
     const nextBlocks = applyImagePatchToBlocks(blocks, row.blockId, patch);
-    const wpAttachmentId = resolveWpAttachmentIdForMetaUpdate(row);
-    const wpMetaQueue =
-        wpAttachmentId > 0
-            ? [{ attachment_id: wpAttachmentId, alt_text: phrase, title: phrase }]
-            : [];
 
     return {
         blocks: nextBlocks,
         applied: 1,
-        wpMetaQueue,
+        wpMetaQueue: [],
     };
 }
 

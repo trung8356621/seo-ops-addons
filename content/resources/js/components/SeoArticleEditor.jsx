@@ -183,7 +183,6 @@ import {
 import {
     confirmSlugRename,
 } from '@media-addon/utils/imageSlugRenameConfirm.js';
-import { dispatchWordPressAttachmentMetaUpdate } from '@media-addon/utils/imageAttachmentMetaUpdate.js';
 import {
     AI_PLACEHOLDER_LOADING_URL,
     createClipboardPasteHandler,

@@ -724,6 +724,12 @@ final class OpenRouterFreePoolService
             return true;
         }
 
+        // Free Models tab / FreeOnly expansion is cost-class scoped, not primary-type scoped.
+        // A :free member classified as fast_text must still expand under FreeModels.
+        if ($area === AiModelArea::FreeModels) {
+            return true;
+        }
+
         // Cross-list carefully so Fast-only models don't flood Reasoning.
         return match ($area) {
             AiModelArea::TextFast => $primary === AiModelArea::TextFast->value,

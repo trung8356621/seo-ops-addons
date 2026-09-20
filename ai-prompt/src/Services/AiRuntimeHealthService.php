@@ -976,12 +976,27 @@ final class AiRuntimeHealthService
         $resetAt = null;
         if ($decision->freeDailyResetAt !== null && $decision->freeDailyResetAt !== '') {
             try {
-                $resetAt = \Illuminate\Support\Carbon::parse($decision->freeDailyResetAt);
+                $parsed = \Illuminate\Support\Carbon::parse($decision->freeDailyResetAt);
+                if ($parsed->isFuture()) {
+                    $resetAt = $parsed;
+                }
+            } catch (\Throwable) {
+            }
+        }
+        if ($resetAt === null && is_string($decision->rateLimitReset) && $decision->rateLimitReset !== '') {
+            try {
+                $parsed = \Illuminate\Support\Carbon::parse($decision->rateLimitReset);
+                if ($parsed->isFuture()) {
+                    $resetAt = $parsed;
+                }
             } catch (\Throwable) {
             }
         }
         if ($resetAt === null) {
-            $resetAt = now()->addDay()->startOfDay();
+            // Prefer provider evidence; otherwise configurable temporary cooldown — never hard-code marketing day resets.
+            $cfg = app(FreePoolResilienceSettingsService::class)->get((int) ($connection->user_id ?? 0));
+            $minutes = max(1, (int) $cfg[FreePoolResilienceSettingsService::KEY_FIRST_PROBE_MINUTES]);
+            $resetAt = now()->addMinutes($minutes);
         }
 
         self::$runtimeSuppressedFreeLanes[$connectionId] = $resetAt;

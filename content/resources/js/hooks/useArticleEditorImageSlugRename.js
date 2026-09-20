@@ -45,7 +45,8 @@ import {
 } from '../utils/articleEditorStorage';
 import { clearFeaturedImageStorage, loadFeaturedImage, saveFeaturedImage } from '@media-addon/utils/articleFeaturedImageStorage.js';
 import { confirmSlugRename } from '@media-addon/utils/imageSlugRenameConfirm.js';
-import { dispatchWordPressAttachmentMetaUpdate } from '@media-addon/utils/imageAttachmentMetaUpdate.js';
+import { dispatchWordPressAttachmentAltStage } from '@media-addon/utils/imageAttachmentMetaUpdate.js';
+import { buildStagedWpAltItem } from '@media-addon/utils/mediaAltOwnership.js';
 import { findPlainTextRangeInRoot } from '../utils/articlePlainTextRange';
 import {
     fixArticleMediaSlugs,
@@ -247,8 +248,8 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
         [siteId, articleId],
     );
 
-    const requestWordPressAttachmentMetaUpdate = useCallback((items, options = {}) => {
-        dispatchWordPressAttachmentMetaUpdate(items, { silent: options.silent === true });
+    const stageWordPressAttachmentAlt = useCallback((items, options = {}) => {
+        dispatchWordPressAttachmentAltStage(items, { silent: options.silent === true });
     }, []);
 
     const notifyEditor = useCallback((title, body, status = 'success') => {
@@ -276,14 +277,16 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                 return;
             }
 
-            const { seoMediaId, wpAttachmentId } = buildAltTitleMetaUpdatePayload(row, trimmed);
+            const { seoMediaId } = buildAltTitleMetaUpdatePayload(row, trimmed);
 
+            // Local seo_media only — never auto-sync WP ALT from Image Assistant.
             if (seoMediaId > 0) {
                 updateSeoMediaMeta([
                     {
                         id: seoMediaId,
                         alt_text: trimmed,
                         title: trimmed,
+                        sync_wordpress: false,
                     },
                 ]).catch((error) => {
                     window.dispatchEvent(
@@ -298,17 +301,14 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                 });
             }
 
-            if (wpAttachmentId > 0) {
-                requestWordPressAttachmentMetaUpdate([
-                    {
-                        attachment_id: wpAttachmentId,
-                        alt_text: trimmed,
-                        title: trimmed,
-                    },
-                ]);
+            // Featured / gallery: stage desired WP ALT (apply after successful sync).
+            // Article content: never mutate WordPress attachment ALT.
+            const staged = buildStagedWpAltItem(row, trimmed);
+            if (staged) {
+                stageWordPressAttachmentAlt([staged]);
             }
         },
-        [requestWordPressAttachmentMetaUpdate],
+        [stageWordPressAttachmentAlt],
     );
 
     const handleImageSlugChange = useCallback(
@@ -1325,10 +1325,9 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                 });
 
             const seoMetaItems = [];
-            const wpMetaItems = [];
+            const wpStageItems = [];
             const pushedSeo = new Set();
             const pushedWp = new Set();
-            const wpIdsSyncedViaSeo = new Set();
 
             const enqueueRowMeta = (row, phrase) => {
                 const trimmed = String(phrase ?? '').trim();
@@ -1336,7 +1335,7 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                     return;
                 }
 
-                const { seoMediaId, wpAttachmentId } = buildAltTitleMetaUpdatePayload(row, trimmed);
+                const { seoMediaId } = buildAltTitleMetaUpdatePayload(row, trimmed);
 
                 if (seoMediaId > 0 && !pushedSeo.has(seoMediaId)) {
                     pushedSeo.add(seoMediaId);
@@ -1344,19 +1343,16 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                         id: seoMediaId,
                         alt_text: trimmed,
                         title: trimmed,
+                        sync_wordpress: false,
                     });
-                    if (wpAttachmentId > 0) {
-                        wpIdsSyncedViaSeo.add(wpAttachmentId);
-                    }
                 }
 
-                if (wpAttachmentId > 0 && !pushedWp.has(wpAttachmentId)) {
-                    pushedWp.add(wpAttachmentId);
-                    wpMetaItems.push({
-                        attachment_id: wpAttachmentId,
-                        alt_text: trimmed,
-                        title: trimmed,
-                    });
+                // Featured/gallery only; preserve non-empty WP ALT by default.
+                const staged = buildStagedWpAltItem(row, trimmed);
+                const attachmentId = Number(staged?.attachment_id ?? 0);
+                if (staged && attachmentId > 0 && !pushedWp.has(attachmentId)) {
+                    pushedWp.add(attachmentId);
+                    wpStageItems.push(staged);
                 }
             };
 
@@ -1369,22 +1365,18 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                 .forEach(({ row, outcome }) => {
                     const phrase = String(outcome?.patch?.alt ?? keyword).trim() || keyword;
                     enqueueRowMeta(row, phrase);
+                    const staged = outcome?.wpMeta;
+                    const attachmentId = Number(staged?.attachment_id ?? 0);
+                    if (staged && attachmentId > 0 && !pushedWp.has(attachmentId)) {
+                        pushedWp.add(attachmentId);
+                        wpStageItems.push(staged);
+                    }
                 });
 
-            (preview.wpMetaQueue ?? []).forEach((item) => {
-                const attachmentId = Number(item?.attachment_id ?? 0);
-                if (attachmentId <= 0 || pushedWp.has(attachmentId)) {
-                    return;
-                }
-                pushedWp.add(attachmentId);
-                wpMetaItems.push(item);
-            });
+            // Body Fix All must never contribute WP attachment ALT mutations.
+            // preview.wpMetaQueue is intentionally empty for article_content.
 
-            const wpOnlyItems = wpMetaItems.filter(
-                (item) => !wpIdsSyncedViaSeo.has(Number(item.attachment_id ?? 0)),
-            );
-
-            const finishNotify = (wpCount, localCount, errorMessage = null) => {
+            const finishNotify = (stagedCount, localCount, errorMessage = null) => {
                 if (errorMessage) {
                     notifyEditor(
                         t('editor_cannot_update_image_meta'),
@@ -1394,13 +1386,13 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                     return;
                 }
 
-                const total = Math.max(localCount, wpCount, preview.applied);
+                const total = Math.max(localCount, stagedCount, preview.applied);
                 notifyEditor(
                     t('editor_quick_fix_alt_title_all_done_title'),
-                    wpCount > 0
-                        ? t('editor_quick_fix_alt_title_all_done_body_wp', {
+                    stagedCount > 0
+                        ? t('editor_quick_fix_alt_title_all_done_body_wp_staged', {
                               count: total,
-                              wp: wpCount,
+                              wp: stagedCount,
                           })
                         : t('editor_quick_fix_alt_title_all_done_body', { count: total }),
                     'success',
@@ -1415,26 +1407,21 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
             seoPromise
                 .then((data) => {
                     const localCount = Number(data?.updated_count ?? seoMetaItems.length);
-                    const wpFromSeo = Number(data?.wp_updated_count ?? 0);
 
-                    if (wpOnlyItems.length > 0) {
-                        // Một lần Livewire → một toast Filament (không spam từng ảnh).
-                        requestWordPressAttachmentMetaUpdate(wpOnlyItems);
-                        return;
+                    if (wpStageItems.length > 0) {
+                        stageWordPressAttachmentAlt(wpStageItems);
                     }
 
-                    finishNotify(wpFromSeo, localCount || preview.applied);
+                    finishNotify(wpStageItems.length, localCount || preview.applied);
                 })
                 .catch((error) => {
-                    if (wpOnlyItems.length > 0) {
-                        // Vẫn đẩy WP batch; toast Filament báo kết quả WP.
-                        requestWordPressAttachmentMetaUpdate(wpOnlyItems);
-                        return;
+                    if (wpStageItems.length > 0) {
+                        stageWordPressAttachmentAlt(wpStageItems);
                     }
                     finishNotify(0, 0, error?.message ?? t('editor_try_again_later'));
                 });
 
-            if (seoMetaItems.length === 0 && wpOnlyItems.length === 0 && preview.applied > 0) {
+            if (seoMetaItems.length === 0 && wpStageItems.length === 0 && preview.applied > 0) {
                 finishNotify(0, preview.applied);
             }
 
@@ -1444,7 +1431,7 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
             buildQuickFixContext,
             notifyEditor,
             patchSupplementalImageRow,
-            requestWordPressAttachmentMetaUpdate,
+            stageWordPressAttachmentAlt,
         ],
     );
 

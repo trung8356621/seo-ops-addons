@@ -1143,6 +1143,16 @@ final class WordPressArticleSyncService
             ];
         }
 
+        // Featured/gallery ALT: mutate WP attachment meta only after article sync succeeded.
+        $altPendingApply = app(WordPressAttachmentAltPendingService::class)
+            ->applyAfterSuccessfulSync($article->fresh() ?? $article);
+        if ($altPendingApply['attempted'] && ($altPendingApply['updated_count'] ?? 0) > 0) {
+            $message .= ' '.$altPendingApply['message'];
+            $stepDetails[] = 'wp_alt='.(int) $altPendingApply['updated_count'];
+        } elseif ($altPendingApply['attempted'] && ! ($altPendingApply['success'] ?? false)) {
+            $message .= ' ALT WordPress chưa áp dụng được: '.mb_substr((string) ($altPendingApply['message'] ?? ''), 0, 200);
+        }
+
         if ($syncedLocalMediaIds !== []) {
             $updatedPromptMediaLinks = $this->syncPromptMediaLinksToWordPressUrls($article, $syncedLocalMediaIds);
             if ($updatedPromptMediaLinks > 0) {

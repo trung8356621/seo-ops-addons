@@ -612,6 +612,7 @@
         "
         x-on:seo-rename-attachment-slugs.window="$wire.renameAttachmentSlugsOnWordPress($event.detail.items ?? [], !!($event.detail.silent ?? false))"
         x-on:seo-update-attachment-meta.window="$wire.updateAttachmentMetaOnWordPress($event.detail.items ?? [], !!($event.detail.silent ?? false))"
+        x-on:seo-stage-attachment-alt.window="$wire.stageWordPressAttachmentAltPending($event.detail.items ?? [], !!($event.detail.silent ?? false))"
         x-on:save-article-faqs.window="$wire.saveArticleFaqs($event.detail.faqs ?? [])"
         x-on:dismiss-faq-extract-debug.window="$wire.clearFaqExtractDebug()"
         x-on:extract-article-faqs-with-context.window="$wire.extractFaqsFromSelection($event.detail.html ?? '', $event.detail.articleHtml ?? '')"

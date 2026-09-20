@@ -106,6 +106,9 @@ final class ArticleEditorUnifiedImagesInventoryHealthTest extends TestCase
         self::assertStringContainsString('role_flags', $src);
         self::assertStringContainsString('requires_slug_fix', $src);
         self::assertStringContainsString('missing_alt', $src);
+        self::assertStringContainsString('attachAltOwnershipProvenance', $src);
+        self::assertStringContainsString('media_role', $src);
+        self::assertStringContainsString('alt_owner', $src);
         self::assertStringContainsString('Never dedupe by basename alone', $src);
         self::assertStringContainsString('Drop cache-busting', $src);
     }
@@ -169,6 +172,8 @@ final class ArticleEditorUnifiedImagesInventoryHealthTest extends TestCase
 
         self::assertStringContainsString('useUnifiedInventory', $tab);
         self::assertStringContainsString('role_flags', $tab);
+        self::assertStringContainsString('isWordPressManagedAltUi', $tab);
+        self::assertStringContainsString('image_alt_managed_by_wordpress', $tab);
         self::assertStringContainsString('seo-article-images-role-badge', $tab);
         self::assertStringContainsString('useUnifiedInventory', $panel);
         self::assertStringContainsString('featuredImage={images.featuredImage}', $panel);

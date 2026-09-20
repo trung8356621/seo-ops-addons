@@ -647,6 +647,7 @@ export async function updateSeoMediaMeta(items) {
             id: Number(item?.id ?? item?.seoMediaId ?? item?.seo_media_id ?? 0),
             alt_text: String(item?.alt_text ?? item?.alt ?? '').trim(),
             title: String(item?.title ?? '').trim(),
+            sync_wordpress: item?.sync_wordpress !== false && item?.syncWordpress !== false,
         }))
         .filter((item) => item.id > 0);
 

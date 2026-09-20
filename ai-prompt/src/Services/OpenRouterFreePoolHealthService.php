@@ -72,16 +72,8 @@ final class OpenRouterFreePoolHealthService
         $state = FreePoolHealthState::tryFrom((string) ($snap['free_pool_state'] ?? ''))
             ?? FreePoolHealthState::Healthy;
 
-        if ($state === FreePoolHealthState::DailyQuotaLocked && $this->lockUntilPassed($snap)) {
-            $snap['free_pool_state'] = FreePoolHealthState::Healthy->value;
-            $snap['free_pool_lock_reason'] = null;
-            $snap['free_pool_lock_until'] = null;
-            $this->persist($fresh, $snap);
-
-            return FreePoolHealthState::Healthy;
-        }
-
-        if ($state === FreePoolHealthState::HardLocked && $this->lockUntilPassed($snap)) {
+        // TEMPORARY_LOCKED (HardLocked / DailyQuotaLocked) → PROBE_READY when lock_until passes.
+        if ($state->isTemporaryLock() && $this->lockUntilPassed($snap)) {
             $this->tryClaimProbe($fresh);
 
             return $this->stateAfterRefresh($fresh);
@@ -394,33 +386,31 @@ final class OpenRouterFreePoolHealthService
     public function lockDailyQuota(ApiConnection $connection, AiFailureDecision $decision): void
     {
         $snap = $this->snapshot($this->freshConnection($connection) ?? $connection);
-        $until = null;
-        if (is_string($decision->freeDailyResetAt) && $decision->freeDailyResetAt !== '') {
-            try {
-                $until = Carbon::parse($decision->freeDailyResetAt);
-            } catch (\Throwable) {
-                $until = null;
-            }
+        $userId = (int) ($connection->user_id ?? 0);
+        $cfg = $this->settings->get($userId);
+        $until = $this->resolveProviderLockUntil($decision);
+        if ($until === null) {
+            // No provider reset evidence → configurable temporary cooldown (never invent marketing day boundaries).
+            $failures = (int) ($snap['consecutive_probe_failures'] ?? 0) + 1;
+            $snap['consecutive_probe_failures'] = $failures;
+            $until = $this->backoffUntil($cfg, $failures);
         }
-        if ($until === null && is_string($decision->rateLimitReset) && $decision->rateLimitReset !== '') {
-            try {
-                $until = Carbon::parse($decision->rateLimitReset);
-            } catch (\Throwable) {
-                $until = null;
-            }
-        }
-        $until ??= Carbon::now()->addDay()->startOfDay();
         $snap['free_pool_state'] = FreePoolHealthState::DailyQuotaLocked->value;
         $snap['free_pool_locked_at'] = Carbon::now()->toIso8601String();
         $snap['free_pool_lock_until'] = $until->toIso8601String();
         $snap['free_pool_lock_reason'] = 'daily_free_quota_exhausted';
         $snap['next_probe_at'] = $until->toIso8601String();
         $this->clearProbeClaim($snap);
+        unset(self::$probeOwners[(int) $connection->id]);
         $this->persist($connection, $snap);
 
-        RuntimeLogger::info('ai.free_pool.daily_quota_locked', [
+        RuntimeLogger::info('ai.free_pool.temporary_locked', [
             'connection_id' => (int) $connection->id,
+            'connection_name' => (string) $connection->name,
+            'lane' => 'free',
+            'lock_reason' => $snap['free_pool_lock_reason'],
             'lock_until' => $snap['free_pool_lock_until'],
+            'state' => FreePoolHealthState::DailyQuotaLocked->value,
         ]);
     }
 
@@ -484,18 +474,24 @@ final class OpenRouterFreePoolHealthService
         $snap['consecutive_probe_successes'] = 0;
         $snap['last_probe_at'] = Carbon::now()->toIso8601String();
 
-        $first = (int) $cfg[FreePoolResilienceSettingsService::KEY_FIRST_PROBE_MINUTES];
-        $mult = (float) $cfg[FreePoolResilienceSettingsService::KEY_PROBE_BACKOFF_MULTIPLIER];
-        $maxHours = (int) $cfg[FreePoolResilienceSettingsService::KEY_MAX_PROBE_HOURS];
-        $delayMin = (int) min($first * ($mult ** max(0, $failures - 1)), $maxHours * 60);
-        $until = Carbon::now()->addMinutes(max(1, $delayMin));
+        $until = $this->backoffUntil($cfg, $failures);
+        // Storage name HardLocked = TEMPORARY_LOCKED with future lock_until (never permanent).
         $snap['free_pool_state'] = FreePoolHealthState::HardLocked->value;
         $snap['free_pool_lock_until'] = $until->toIso8601String();
         $snap['next_probe_at'] = $until->toIso8601String();
-        $snap['free_pool_lock_reason'] = 'probe_failed';
+        $snap['free_pool_lock_reason'] = 'probe_failed_temporary';
         $this->clearProbeClaim($snap);
         unset(self::$probeOwners[(int) $connection->id]);
         $this->persist($connection, $snap);
+
+        RuntimeLogger::info('ai.free_pool.temporary_locked', [
+            'connection_id' => (int) $connection->id,
+            'connection_name' => (string) $connection->name,
+            'lane' => 'free',
+            'lock_reason' => $snap['free_pool_lock_reason'],
+            'lock_until' => $snap['free_pool_lock_until'],
+            'consecutive_probe_failures' => $failures,
+        ]);
     }
 
     public function ownsProbeClaim(ApiConnection $connection): bool
@@ -556,9 +552,13 @@ final class OpenRouterFreePoolHealthService
             if ($state === FreePoolHealthState::HardLocked && ! $this->lockUntilPassed($snap)) {
                 return false;
             }
+            if ($state === FreePoolHealthState::DailyQuotaLocked && ! $this->lockUntilPassed($snap)) {
+                return false;
+            }
 
             if (! in_array($state, [
                 FreePoolHealthState::HardLocked,
+                FreePoolHealthState::DailyQuotaLocked,
                 FreePoolHealthState::WaitingProbe,
             ], true)) {
                 return false;
@@ -585,6 +585,9 @@ final class OpenRouterFreePoolHealthService
     }
 
     /**
+     * Enter TEMPORARY_LOCKED (stored as HardLocked for compatibility).
+     * Always sets a future lock_until — never permanent / never manual_unlock_required.
+     *
      * @param  array<string, mixed>  $snap
      * @param  array<string, int|float|bool>  $cfg
      */
@@ -602,26 +605,61 @@ final class OpenRouterFreePoolHealthService
         }
 
         $now = Carbon::now();
-        $probeMin = (int) $cfg[FreePoolResilienceSettingsService::KEY_FIRST_PROBE_MINUTES];
+        $failures = max(1, (int) ($snap['consecutive_probe_failures'] ?? 0) + 1);
+        $snap['consecutive_probe_failures'] = $failures;
+        $until = $this->backoffUntil($cfg, $failures);
         $snap['free_pool_state'] = FreePoolHealthState::HardLocked->value;
         $snap['free_pool_locked_at'] = $now->toIso8601String();
-        $snap['free_pool_lock_until'] = $now->copy()->addMinutes($probeMin)->toIso8601String();
+        $snap['free_pool_lock_until'] = $until->toIso8601String();
         $snap['free_pool_lock_reason'] = $reason;
         $snap['next_probe_at'] = $snap['free_pool_lock_until'];
-        $snap['consecutive_probe_failures'] = (int) ($snap['consecutive_probe_failures'] ?? 0);
         $snap['consecutive_probe_successes'] = 0;
         $this->clearProbeClaim($snap);
 
         $this->persist($connection, $snap);
         $this->maybeEnqueueCatalogResync($connection, $snap, $cfg, $userId, forced: false);
 
-        RuntimeLogger::warning('ai.free_pool.hard_locked', [
+        RuntimeLogger::info('ai.free_pool.temporary_locked', [
             'connection_id' => (int) $connection->id,
+            'connection_name' => (string) $connection->name,
+            'lane' => 'free',
             'reason' => $reason,
+            'lock_until' => $snap['free_pool_lock_until'],
             'failure_ratio' => $snap['failure_ratio'] ?? null,
             'failed_distinct' => $snap['failed_distinct_models'] ?? null,
             'eligible' => $snap['eligible_model_count'] ?? null,
         ]);
+    }
+
+    /**
+     * @param  array<string, int|float|bool>  $cfg
+     */
+    private function backoffUntil(array $cfg, int $failureOrdinal): Carbon
+    {
+        $first = (int) $cfg[FreePoolResilienceSettingsService::KEY_FIRST_PROBE_MINUTES];
+        $mult = (float) $cfg[FreePoolResilienceSettingsService::KEY_PROBE_BACKOFF_MULTIPLIER];
+        $maxHours = (int) $cfg[FreePoolResilienceSettingsService::KEY_MAX_PROBE_HOURS];
+        $delayMin = (int) min($first * ($mult ** max(0, $failureOrdinal - 1)), $maxHours * 60);
+
+        return Carbon::now()->addMinutes(max(1, $delayMin));
+    }
+
+    private function resolveProviderLockUntil(AiFailureDecision $decision): ?Carbon
+    {
+        foreach ([$decision->freeDailyResetAt, $decision->rateLimitReset] as $raw) {
+            if (! is_string($raw) || $raw === '') {
+                continue;
+            }
+            try {
+                $parsed = Carbon::parse($raw);
+                if ($parsed->isFuture()) {
+                    return $parsed;
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -966,24 +1004,22 @@ final class OpenRouterFreePoolHealthService
     private function userMessage(ApiConnection $connection, array $snap, FreePoolHealthState $state): string
     {
         $name = trim((string) $connection->name) !== '' ? (string) $connection->name : 'OpenRouter';
-        $failed = (int) ($snap['failed_distinct_models'] ?? 0);
-        $eligible = (int) ($snap['eligible_model_count'] ?? 0);
         $reason = (string) ($snap['free_pool_lock_reason'] ?? '');
 
         return match ($state) {
             FreePoolHealthState::HardLocked => sprintf(
-                '%s Free đang tạm khóa — %d/%d model miễn phí gặp lỗi trong thời gian ngắn%s. Hệ thống đã dừng thử Free để tránh retry lặp lại.',
+                '%s Free tạm khóa (temporary) — retry sau %s%s.',
                 $name,
-                $failed,
-                max($eligible, $failed),
-                $reason !== '' ? ' ('.$reason.')' : '',
+                (string) ($snap['free_pool_lock_until'] ?? 'cooldown'),
+                $reason !== '' ? ' · '.$reason : '',
             ),
             FreePoolHealthState::DailyQuotaLocked => sprintf(
-                '%s Free đã hết hạn mức ngày — tạm khóa Free lane đến khi reset.',
+                '%s Free tạm khóa do tín hiệu quota/rate-limit provider — retry sau %s.',
                 $name,
+                (string) ($snap['free_pool_lock_until'] ?? 'cooldown'),
             ),
             FreePoolHealthState::WaitingProbe => sprintf(
-                '%s Free đang chờ probe trước khi mở lại%s.',
+                '%s Free sẵn sàng probe lại%s.',
                 $name,
                 $reason !== '' ? ' ('.$reason.')' : '',
             ),
