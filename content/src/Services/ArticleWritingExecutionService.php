@@ -406,18 +406,46 @@ class ArticleWritingExecutionService
             : $this->promptBindingResolver->resolveSettingsHook(self::HOOK_KEY);
 
         try {
+            // Core DirectGenerate fields + pass-through for routing/site context assembled upstream.
+            // Without this, levers like _item_generation_mode / ai_cost_policy are dropped and
+            // System boundary always sees default Free-first routing.
+            $hookVariables = [
+                'input' => (string) ($variables['input'] ?? ''),
+                'post_title' => $writing->title,
+                'title' => $writing->title,
+                'focus_keyword' => $writing->keyword,
+                'keyword' => $writing->keyword,
+                'article_length' => $variables['article_length'] ?? null,
+                'source_type' => $writing->sourceType->value,
+                'article_writing_source_type' => $writing->sourceType->value,
+            ];
+            foreach ([
+                '_item_generation_mode',
+                'ai_cost_policy',
+                'ai_generation_mode',
+                'language',
+                'locale',
+                'tone',
+                'post_type',
+                'site_short_description',
+                'site_cta',
+                'keyword_density',
+                'rewrite_instruction',
+                'rewrite_notes',
+            ] as $passKey) {
+                if (! array_key_exists($passKey, $variables)) {
+                    continue;
+                }
+                $passVal = $variables[$passKey];
+                if ($passVal === null || $passVal === '') {
+                    continue;
+                }
+                $hookVariables[$passKey] = $passVal;
+            }
+
             $payload = $this->hookBinding->execute(
                 $prompt,
-                [
-                    'input' => (string) ($variables['input'] ?? ''),
-                    'post_title' => $writing->title,
-                    'title' => $writing->title,
-                    'focus_keyword' => $writing->keyword,
-                    'keyword' => $writing->keyword,
-                    'article_length' => $variables['article_length'] ?? null,
-                    'source_type' => $writing->sourceType->value,
-                    'article_writing_source_type' => $writing->sourceType->value,
-                ],
+                $hookVariables,
                 [
                     'article_id' => (int) $article->getKey(),
                     'site_id' => (int) ($article->site_id ?? $context->siteId ?? 0) ?: null,
