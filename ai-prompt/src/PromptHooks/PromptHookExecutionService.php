@@ -11,9 +11,12 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Data\PromptHookDefinition;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Data\PromptHookExecutionResult;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Entities\ArticlePromptHookEntityResolver;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookException;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookErrorCode;
 use Omnichannel\Addons\AiPrompt\Services\PromptResultAttachService;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 
 final class PromptHookExecutionService
@@ -27,6 +30,7 @@ final class PromptHookExecutionService
         private readonly PromptHookOutputNormalizer $outputNormalizer,
         private readonly PromptRunnerService $promptRunner,
         private readonly PromptResultAttachService $promptResultAttach,
+        private readonly PromptHookBindingRunner $hookBinding,
     ) {}
 
     /**
@@ -45,6 +49,15 @@ final class PromptHookExecutionService
         $prompt ??= $this->resolveConfiguredPrompt($definition);
         $this->assertPromptMatchesHook($prompt, $definition);
         $this->assertPromptModelSupported($prompt, $definition);
+
+        if (ArticleContentGenerationHooks::matches($definition->key)) {
+            return $this->executeWritingViaSystemBoundary(
+                $definition,
+                $article,
+                $prompt,
+                $runtimeInput,
+            );
+        }
 
         $resolvedInput = $this->inputResolver->resolve($definition, $runtimeInput, $entityContext);
         $exposedInput = $this->inputResolver->exposeToPrompt($definition, $resolvedInput);
@@ -106,6 +119,78 @@ final class PromptHookExecutionService
             hook: $definition->key,
             output: $output,
             promptResultId: $result->id !== null ? (int) $result->id : null,
+        );
+    }
+
+    /**
+     * article.content.generate / rewrite — SystemAiClient boundary via PromptHookBindingRunner.
+     * Linking is owned by ExplicitBinding (article_id in contextExtras); do not double-attach.
+     *
+     * @param  array<string, mixed>  $runtimeInput
+     */
+    private function executeWritingViaSystemBoundary(
+        PromptHookDefinition $definition,
+        SeoArticle $article,
+        SeoPrompt $prompt,
+        array $runtimeInput,
+    ): PromptHookExecutionResult {
+        $variables = $runtimeInput;
+        if (! isset($variables['keyword']) && isset($variables['focus_keyword'])) {
+            $variables['keyword'] = $variables['focus_keyword'];
+        }
+        if (! isset($variables['title']) && isset($variables['post_title'])) {
+            $variables['title'] = $variables['post_title'];
+        }
+
+        try {
+            $payload = $this->hookBinding->execute(
+                $prompt,
+                $variables,
+                [
+                    'article_id' => (int) $article->getKey(),
+                    'site_id' => (int) ($article->site_id ?? 0) ?: null,
+                    'stage' => 'writing',
+                    'source' => 'prompt_hook_execution_service',
+                    'locale' => $runtimeInput['language'] ?? $runtimeInput['locale'] ?? null,
+                ],
+                [],
+            );
+        } catch (PromptRunException $exception) {
+            throw new PromptHookException(
+                PromptHookErrorCode::HookExecutionFailed,
+                $exception->getMessage(),
+                $exception,
+            );
+        } catch (\Throwable $exception) {
+            throw new PromptHookException(
+                PromptHookErrorCode::HookExecutionFailed,
+                'Prompt hook execution failed.',
+                $exception,
+            );
+        }
+
+        $raw = trim((string) ($payload['raw'] ?? $payload['output'] ?? $payload['value'] ?? ''));
+        $value = trim((string) ($payload['value'] ?? $payload['output'] ?? $raw));
+        $output = [
+            'format' => 'markdown',
+            'raw' => $raw,
+            'value' => $value,
+        ];
+        if (is_array($payload['length_validation'] ?? null)) {
+            $output['length_validation'] = $payload['length_validation'];
+        }
+
+        $promptResultId = isset($payload['prompt_result_id']) ? (int) $payload['prompt_result_id'] : null;
+
+        return new PromptHookExecutionResult(
+            hook: $definition->key,
+            output: $output,
+            promptResultId: $promptResultId !== null && $promptResultId > 0 ? $promptResultId : null,
+            meta: array_filter([
+                'execution_source' => $payload['execution_source'] ?? null,
+                'system_ai_execution_id' => $payload['system_ai_execution_id'] ?? null,
+                'system_ai_capability' => $payload['system_ai_capability'] ?? null,
+            ], static fn (mixed $v): bool => $v !== null && $v !== ''),
         );
     }
 

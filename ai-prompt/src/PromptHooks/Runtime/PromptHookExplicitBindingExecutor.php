@@ -94,7 +94,8 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             );
         }
 
-        // Strangler: writing hooks may enter System AI API when capability mode is remote|shadow.
+        // Writing hooks always enter System AI boundary when SystemAiClient is bound.
+        // Mode (legacy|shadow|remote) is selected inside DefaultSystemAiClient.
         // via_system_ai prevents recursion when the capability handler re-enters this executor.
         if ($this->shouldExecuteViaSystemAi($effectiveHookKey, $contextExtras)) {
             return $this->executeWritingViaSystemAi(
@@ -877,6 +878,10 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
     }
 
     /**
+     * Writing hooks always enter SystemAiClient when bound.
+     * Mode (legacy|shadow|remote) is owned by DefaultSystemAiClient — not here.
+     * via_system_ai short-circuits re-entry from ArticleContentGenerateCapabilityHandler.
+     *
      * @param  array<string, mixed>  $contextExtras
      */
     private function shouldExecuteViaSystemAi(string $hookKey, array $contextExtras): bool
@@ -894,18 +899,11 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         }
 
         if (! function_exists('app') || ! app()->bound(\App\System\Ai\Contracts\SystemAiClient::class)) {
+            // Boot / isolated unit fixtures without System package — stay local.
             return false;
         }
 
-        try {
-            $mode = app(\App\System\Support\CapabilityModeResolver::class)
-                ->resolve(\Omnichannel\Addons\AiPrompt\System\ArticleContentGenerateCapabilityHandler::KEY, 'ai');
-        } catch (\Throwable) {
-            return false;
-        }
-
-        return $mode === \App\System\Support\SystemExecutionMode::Remote
-            || $mode === \App\System\Support\SystemExecutionMode::Shadow;
+        return true;
     }
 
     /**

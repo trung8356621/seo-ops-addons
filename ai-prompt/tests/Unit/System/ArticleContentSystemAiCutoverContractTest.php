@@ -31,7 +31,7 @@ final class ArticleContentSystemAiCutoverContractTest extends TestCase
         );
     }
 
-    public function test_executor_delegates_to_system_ai_only_when_mode_remote_or_shadow(): void
+    public function test_executor_always_enters_system_ai_boundary_for_writing_hooks(): void
     {
         $src = (string) file_get_contents(
             (new ReflectionClass(PromptHookExplicitBindingExecutor::class))->getFileName()
@@ -41,6 +41,10 @@ final class ArticleContentSystemAiCutoverContractTest extends TestCase
         self::assertStringContainsString('via_system_ai', $src);
         self::assertStringContainsString('Writing generation failed:', $src);
         self::assertStringContainsString(ArticleContentGenerateCapabilityHandler::KEY, $src);
+        // Mode selection belongs to DefaultSystemAiClient — not remote|shadow gate here.
+        self::assertStringNotContainsString('SystemExecutionMode::Remote', $src);
+        self::assertStringNotContainsString('SystemExecutionMode::Shadow', $src);
+        self::assertStringContainsString('Writing hooks always enter SystemAiClient when bound', $src);
     }
 
     public function test_legacy_mode_is_default_when_capability_unset(): void

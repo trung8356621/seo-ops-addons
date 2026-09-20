@@ -11,7 +11,7 @@ use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
-use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookExecutionService;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\Content\Services\ArticleWriting\BriefArticleWritingSourceProvider;
 use Omnichannel\Addons\Content\Services\ArticleWriting\ExistingArticleWritingSourceProvider;
 use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSourceProvider;
@@ -42,7 +42,7 @@ class ArticleWritingExecutionService
         private readonly BriefArticleWritingSourceProvider $briefProvider,
         private readonly ArticleWritingInputFormatter $formatter,
         private readonly PromptBindingResolver $promptBindingResolver,
-        private readonly PromptHookExecutionService $hookExecution,
+        private readonly PromptHookBindingRunner $hookBinding,
         private readonly ArticleBodyPublishPort $publisher,
         private readonly TaskWorkflowTestRunner $workflowRunner,
         private readonly SeoCreateArticleSettingsService $settings,
@@ -406,30 +406,50 @@ class ArticleWritingExecutionService
             : $this->promptBindingResolver->resolveSettingsHook(self::HOOK_KEY);
 
         try {
-            $hookResult = $this->hookExecution->execute(
-                self::HOOK_KEY,
-                (int) $article->getKey(),
+            $payload = $this->hookBinding->execute(
+                $prompt,
                 [
                     'input' => (string) ($variables['input'] ?? ''),
                     'post_title' => $writing->title,
+                    'title' => $writing->title,
                     'focus_keyword' => $writing->keyword,
+                    'keyword' => $writing->keyword,
                     'article_length' => $variables['article_length'] ?? null,
                     'source_type' => $writing->sourceType->value,
                     'article_writing_source_type' => $writing->sourceType->value,
                 ],
-                $prompt,
+                [
+                    'article_id' => (int) $article->getKey(),
+                    'site_id' => (int) ($article->site_id ?? $context->siteId ?? 0) ?: null,
+                    'stage' => 'writing',
+                    'source' => 'editor_direct_generate',
+                    'locale' => $variables['language'] ?? $variables['locale'] ?? null,
+                ],
+                [],
             );
         } catch (\Throwable $exception) {
             return $this->fail($writing, $owner, $exception->getMessage());
         }
 
-        $markdown = trim((string) ($hookResult->output['value'] ?? $hookResult->output['raw'] ?? ''));
+        $markdown = trim((string) ($payload['value'] ?? $payload['raw'] ?? $payload['output'] ?? ''));
         $history = $this->historyMetadata($writing, $owner, $variables);
-        $lengthValidation = is_array($hookResult->output['length_validation'] ?? null)
-            ? $hookResult->output['length_validation']
+        $lengthValidation = is_array($payload['length_validation'] ?? null)
+            ? $payload['length_validation']
             : null;
         if ($lengthValidation !== null) {
             $history = array_merge($history, $lengthValidation);
+        }
+        foreach ([
+            'prompt_result_id',
+            'warning_code',
+            'warning_message',
+            'execution_source',
+            'system_ai_execution_id',
+            'system_ai_capability',
+        ] as $metaKey) {
+            if (array_key_exists($metaKey, $payload) && $payload[$metaKey] !== null && $payload[$metaKey] !== '') {
+                $history[$metaKey] = $payload[$metaKey];
+            }
         }
 
         if (! $context->persistArticle) {
