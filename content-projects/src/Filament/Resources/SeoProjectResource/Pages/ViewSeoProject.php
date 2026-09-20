@@ -516,11 +516,35 @@ final class ViewSeoProject extends Page
 
     public function manualRefreshOps(): array
     {
+        return $this->refreshProjectRuntimeState();
+    }
+
+    /**
+     * SSOT reload for project runtime UI (header running count, Emergency Stop,
+     * active-item banner, row statuses). Used by post-mutation sync and Alpine force refresh.
+     *
+     * @return array{changed: bool, summary: array<string, int>}
+     */
+    public function refreshProjectRuntimeState(): array
+    {
         $this->opsNeedsRefresh = false;
         $this->invalidateOpsCache();
         $this->summarySnapshot = $this->fetchOpsSummary();
 
         return ['changed' => true, 'summary' => $this->summarySnapshot];
+    }
+
+    /**
+     * After a successful generation mutation: remorph from backend truth + kick Alpine poll.
+     *
+     * @return array{changed: bool, summary: array<string, int>}
+     */
+    public function notifyProjectRuntimeChanged(): array
+    {
+        $result = $this->refreshProjectRuntimeState();
+        $this->dispatch('project-runtime-changed');
+
+        return $result;
     }
 
     public function markOpsNeedsRefresh(): void
@@ -686,7 +710,7 @@ final class ViewSeoProject extends Page
                         );
 
                         app(ContentProjectActionResultNotifier::class)->send($result);
-                        $this->manualRefreshOps();
+                        $this->notifyProjectRuntimeChanged();
                     } catch (Throwable $exception) {
                         RuntimeLogger::report($exception, [
                             'endpoint' => 'content_project.emergency_stop',
@@ -2525,7 +2549,8 @@ final class ViewSeoProject extends Page
                     ]))
                 ->success()
                 ->send();
-            $this->redirect(SeoProjectResource::getUrl('view', ['record' => $project]), navigate: false);
+            // Same-URL redirect is a no-op for Livewire — remorph from backend SSOT instead.
+            $this->notifyProjectRuntimeChanged();
         } catch (Throwable $e) {
             RuntimeLogger::report($e, ['endpoint' => 'content_project.operations.generate_engine']);
             $this->dispatch('cp-ops-generation-failed', taskIds: $eligible);
@@ -2620,7 +2645,22 @@ final class ViewSeoProject extends Page
             return;
         }
 
+        if ($this->commandAffectsGenerationRuntime($command)) {
+            $this->notifyProjectRuntimeChanged();
+
+            return;
+        }
+
         $this->invalidateOpsCache();
+    }
+
+    private function commandAffectsGenerationRuntime(object $command): bool
+    {
+        return $command instanceof RerunProjectItemsCommand
+            || $command instanceof RerunProjectItemStepCommand
+            || $command instanceof ResumeProjectItemFromFailedStepCommand
+            || $command instanceof RestartGenerationWithKeywordCommand
+            || $command instanceof StopProjectExecutionCommand;
     }
 
     private function shouldOptimisticRowExit(?string $action): bool

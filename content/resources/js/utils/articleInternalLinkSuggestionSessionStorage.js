@@ -4,7 +4,7 @@
  * (dedicated helper — not articleEditorStorage drafts).
  */
 
-export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 1;
+export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 2;
 
 const storageKey = (articleId, siteId) =>
     `seo_article_internal_link_suggestion_session_${Number(siteId ?? 0)}_${Number(articleId ?? 0)}`;
@@ -46,13 +46,19 @@ export function normalizeAdvancedCursor(cursor) {
         return null;
     }
 
-    const stage = String(cursor.stage ?? '').trim();
-    const offset = Math.max(0, Number(cursor.offset ?? 0) || 0);
+    let stage = String(cursor.stage ?? '').trim();
+    if (stage === 'content_fallback') {
+        stage = 'content_deep';
+    }
+    const offset = Math.max(
+        0,
+        Number(cursor.offset ?? cursor.phrase_offset ?? 0) || 0,
+    );
     if (stage === '') {
         return null;
     }
 
-    return { stage, offset };
+    return { stage, offset, phrase_offset: offset };
 }
 
 /**
@@ -195,6 +201,12 @@ export function isInternalLinkSuggestionSessionUsable(session, expected = {}) {
         return false;
     }
     if (expectedFingerprint !== '' && String(session.contentFingerprint ?? '') !== expectedFingerprint) {
+        return false;
+    }
+
+    // Stale schema (v1 Advanced pagination) must not block the new content_deep algorithm.
+    const version = Number(session.version ?? 0) || 0;
+    if (version < INTERNAL_LINK_SUGGESTION_SESSION_VERSION) {
         return false;
     }
 

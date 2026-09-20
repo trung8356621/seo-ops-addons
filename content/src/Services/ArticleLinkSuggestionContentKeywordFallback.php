@@ -6,6 +6,9 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
+use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
+use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionStopPhraseFilter;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
@@ -16,6 +19,7 @@ use App\Support\RuntimeLogger;
 /**
  * Fallback nhẹ: phrase trong content → search cùng domain (popup service).
  * Chỉ chạy khi primary internal suggestions < target.
+ * Advanced deep discovery also lives here (extractDeep + keyword target / article search).
  */
 final class ArticleLinkSuggestionContentKeywordFallback
 {
@@ -28,6 +32,7 @@ final class ArticleLinkSuggestionContentKeywordFallback
     public function __construct(
         private readonly ArticleLinkSuggestionContentPhraseExtractor $phraseExtractor,
         private readonly ArticleInternalLinkSearchService $searchService,
+        private readonly KeywordLinkTargetResolver $linkTargetResolver,
     ) {}
 
     /**
@@ -36,6 +41,390 @@ final class ArticleLinkSuggestionContentKeywordFallback
     public function lastDebug(): array
     {
         return $this->lastDebug;
+    }
+
+    /**
+     * Advanced content-driven discovery — shorter phrases, keyword target first, then article search.
+     *
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedNormalizedUrls
+     * @param  array<int, true>  $seenTargetArticleIds
+     * @param  array<string, mixed>  $validationContext
+     * @param  list<string>  $processedPhraseKeys
+     * @param  list<string>  $priorityPhrases
+     * @return array{
+     *     suggestions: list<array<string, mixed>>,
+     *     next_offset: int,
+     *     exhausted: bool,
+     *     processed_keys: list<string>,
+     *     failed_keys: list<string>,
+     *     debug: array<string, mixed>
+     * }
+     */
+    public function discoverAdvancedContentBatch(
+        SeoArticle $article,
+        string $htmlContent,
+        array $occupiedLabels,
+        array $occupiedNormalizedUrls,
+        array $seenTargetArticleIds,
+        array $validationContext,
+        array $processedPhraseKeys = [],
+        int $phraseOffset = 0,
+        int $targetCount = 5,
+        array $priorityPhrases = [],
+    ): array {
+        $targetCount = max(1, min(5, $targetCount));
+        $siteId = (int) ($article->site_id ?? 0);
+        $excludeId = (int) ($article->id ?? 0);
+        $processed = [];
+        foreach ($processedPhraseKeys as $key) {
+            $normalized = KeywordPhraseMatcher::normalize((string) $key);
+            if ($normalized !== '') {
+                $processed[$normalized] = true;
+            }
+        }
+        $newProcessed = [];
+        $newFailed = [];
+        $added = [];
+
+        $this->lastDebug = [
+            'entry' => 'advanced_content_deep',
+            'article_id' => $excludeId,
+            'site_id' => $siteId,
+            'phrase_offset' => $phraseOffset,
+            'target' => $targetCount,
+            'extracted_phrase_count' => 0,
+            'phrases_with_keyword_target' => 0,
+            'phrases_searched_index' => 0,
+            'destination_candidates' => 0,
+            'valid_after_policy' => 0,
+            'no_candidate' => 0,
+            'phrase_trace' => [],
+        ];
+
+        if ($siteId <= 0 || $excludeId <= 0 || trim($htmlContent) === '') {
+            $this->lastDebug['skip_reason'] = 'invalid_context';
+
+            return [
+                'suggestions' => [],
+                'next_offset' => $phraseOffset,
+                'exhausted' => true,
+                'processed_keys' => [],
+                'failed_keys' => [],
+                'debug' => $this->lastDebug,
+            ];
+        }
+
+        $excludePhrases = $occupiedLabels;
+        $phrases = $this->phraseExtractor->extractDeepAdvanced($htmlContent, $excludePhrases, $priorityPhrases);
+        $this->lastDebug['extracted_phrase_count'] = count($phrases);
+
+        $siteDomain = SeoLinkMapLinkTypeClassifier::normalizeDomainHost(
+            (string) ($validationContext['site_domain'] ?? $article->site?->domain ?? ''),
+        );
+        $minScore = LinkSuggestionScoreScale::fallbackMinAccept();
+        $candidateLimit = max(1, (int) config('seo-content-ai.link_suggestions.fallback_candidate_limit', 20));
+
+        $i = max(0, $phraseOffset);
+        $total = count($phrases);
+        for (; $i < $total; $i++) {
+            if (count($added) >= $targetCount) {
+                break;
+            }
+
+            $row = $phrases[$i];
+            $phrase = trim((string) ($row['phrase'] ?? ''));
+            $phraseKey = KeywordPhraseMatcher::normalize($phrase);
+            if ($phrase === '' || $phraseKey === '') {
+                continue;
+            }
+            if (isset($processed[$phraseKey])) {
+                continue;
+            }
+            if (LinkSuggestionStopPhraseFilter::isStopPhrase($phrase)) {
+                $processed[$phraseKey] = true;
+                $newProcessed[] = $phraseKey;
+                $newFailed[] = 'deep|'.$phraseKey.'|stop';
+                continue;
+            }
+            if ($this->labelOccupied($phrase, $occupiedLabels)) {
+                $processed[$phraseKey] = true;
+                $newProcessed[] = $phraseKey;
+                continue;
+            }
+
+            $trace = [
+                'phrase' => $phrase,
+                'source' => (string) ($row['source'] ?? ''),
+                'path' => null,
+                'reject' => null,
+            ];
+
+            $resolved = $this->resolveDeepDestination(
+                $article,
+                $phrase,
+                $siteId,
+                $excludeId,
+                $siteDomain,
+                $validationContext,
+                $occupiedNormalizedUrls,
+                $seenTargetArticleIds,
+                $candidateLimit,
+                $minScore,
+                $trace,
+            );
+
+            $processed[$phraseKey] = true;
+            $newProcessed[] = $phraseKey;
+
+            if ($resolved === null) {
+                $newFailed[] = 'deep|'.$phraseKey.'|'.($trace['reject'] ?? 'no_candidate');
+                if (($trace['reject'] ?? '') === 'no_candidate' || ($trace['reject'] ?? '') === 'no_candidates') {
+                    $this->lastDebug['no_candidate']++;
+                }
+                $this->lastDebug['phrase_trace'][] = $trace;
+                continue;
+            }
+
+            $added[] = $resolved;
+            $norm = SeoSuggestionUrlNormalizer::normalize((string) ($resolved['href'] ?? ''));
+            if ($norm !== '') {
+                $occupiedNormalizedUrls[] = $norm;
+            }
+            $tid = (int) ($resolved['target_article_id'] ?? 0);
+            if ($tid > 0) {
+                $seenTargetArticleIds[$tid] = true;
+            }
+            $occupiedLabels[] = mb_strtolower($phrase);
+            $this->lastDebug['valid_after_policy']++;
+            $this->lastDebug['phrase_trace'][] = $trace;
+        }
+
+        $exhausted = $i >= $total;
+        $this->lastDebug['next_offset'] = $i;
+        $this->lastDebug['exhausted'] = $exhausted;
+        $this->lastDebug['fresh_count'] = count($added);
+        $this->logDebug('advanced_content_deep', $this->lastDebug);
+
+        return [
+            'suggestions' => $added,
+            'next_offset' => $i,
+            'exhausted' => $exhausted,
+            'processed_keys' => array_values(array_unique($newProcessed)),
+            'failed_keys' => array_values(array_unique($newFailed)),
+            'debug' => $this->lastDebug,
+        ];
+    }
+
+    /**
+     * @param  list<string>  $occupiedNormalizedUrls
+     * @param  array<int, true>  $seenTargetArticleIds
+     * @param  array<string, mixed>  $validationContext
+     * @param  array<string, mixed>  $trace
+     * @return array<string, mixed>|null
+     */
+    private function resolveDeepDestination(
+        SeoArticle $article,
+        string $phrase,
+        int $siteId,
+        int $excludeId,
+        string $siteDomain,
+        array $validationContext,
+        array $occupiedNormalizedUrls,
+        array $seenTargetArticleIds,
+        int $candidateLimit,
+        int $minScore,
+        array &$trace,
+    ): ?array {
+        // 1) Keyword inventory target (same site, active).
+        $keyword = Keyword::query()
+            ->forSite($siteId)
+            ->where('type', Keyword::TYPE_NORMAL)
+            ->where('review_status', KeywordReviewStatus::Active->value)
+            ->whereRaw('LOWER(TRIM(phrase)) = ?', [mb_strtolower(trim($phrase))])
+            ->first();
+
+        if ($keyword instanceof Keyword) {
+            $this->lastDebug['phrases_with_keyword_target']++;
+            $href = $this->linkTargetResolver->resolveForKeyword(
+                $keyword,
+                $article,
+                sameLanguageOnly: true,
+                internalOnly: true,
+            );
+            $href = is_string($href) ? trim($href) : '';
+            if ($href !== '' && ! SeoSuggestionUrlNormalizer::isPlaceholder($href)) {
+                $trace['path'] = 'keyword_target';
+                $item = $this->buildDeepSuggestionItem(
+                    $phrase,
+                    $href,
+                    (int) $keyword->id,
+                    $article,
+                    $siteId,
+                    $siteDomain,
+                    $validationContext,
+                    $occupiedNormalizedUrls,
+                    $seenTargetArticleIds,
+                    90,
+                    'advanced_keyword_target',
+                    $trace,
+                );
+                if ($item !== null) {
+                    return $item;
+                }
+            }
+        }
+
+        // 2) Site article index search.
+        $this->lastDebug['phrases_searched_index']++;
+        $results = $this->searchService->search($siteId, $excludeId, $phrase, $candidateLimit);
+        $this->lastDebug['destination_candidates'] += count($results);
+        $trace['path'] = 'article_index';
+        if ($results === []) {
+            $trace['reject'] = 'no_candidates';
+
+            return null;
+        }
+
+        foreach ($results as $hit) {
+            $score = LinkSuggestionScoreScale::clamp((int) ($hit['score'] ?? 0));
+            if ($score < $minScore) {
+                $trace['reject'] = 'below_min_score';
+                continue;
+            }
+            $href = trim((string) ($hit['url'] ?? ''));
+            $targetId = (int) ($hit['id'] ?? 0);
+            if ($targetId <= 0 || $href === '' || SeoSuggestionUrlNormalizer::isPlaceholder($href)) {
+                $trace['reject'] = 'missing_url';
+                continue;
+            }
+            if ($targetId === $excludeId || isset($seenTargetArticleIds[$targetId])) {
+                $trace['reject'] = 'self_or_duplicate_target';
+                continue;
+            }
+            $item = $this->buildDeepSuggestionItem(
+                $phrase,
+                $href,
+                $this->resolveKeywordIdForPhrase($phrase, $siteId),
+                $article,
+                $siteId,
+                $siteDomain,
+                $validationContext,
+                $occupiedNormalizedUrls,
+                $seenTargetArticleIds,
+                $score,
+                (string) ($hit['match_reason'] ?? 'advanced_article_index'),
+                $trace,
+                $targetId,
+            );
+            if ($item !== null) {
+                return $item;
+            }
+        }
+
+        if (($trace['reject'] ?? null) === null) {
+            $trace['reject'] = 'no_candidate_passed';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $validationContext
+     * @param  list<string>  $occupiedNormalizedUrls
+     * @param  array<int, true>  $seenTargetArticleIds
+     * @param  array<string, mixed>  $trace
+     * @return array<string, mixed>|null
+     */
+    private function buildDeepSuggestionItem(
+        string $phrase,
+        string $href,
+        ?int $keywordId,
+        SeoArticle $article,
+        int $siteId,
+        string $siteDomain,
+        array $validationContext,
+        array $occupiedNormalizedUrls,
+        array $seenTargetArticleIds,
+        int $score,
+        string $matchReason,
+        array &$trace,
+        int $targetArticleId = 0,
+    ): ?array {
+        $norm = SeoSuggestionUrlNormalizer::normalize($href);
+        if ($norm === '' || in_array($norm, $occupiedNormalizedUrls, true)) {
+            $trace['reject'] = 'duplicate_url';
+
+            return null;
+        }
+
+        $host = SeoSuggestionUrlNormalizer::host($href);
+        if ($host !== '' && $siteDomain !== '' && $host !== $siteDomain && ! str_starts_with($href, '/')) {
+            $trace['reject'] = 'not_same_domain';
+
+            return null;
+        }
+
+        if ($targetArticleId <= 0) {
+            $found = $this->linkTargetResolver->resolveArticleFromUrl($siteId, $href, $article);
+            $targetArticleId = $found instanceof SeoArticle ? (int) $found->id : 0;
+        }
+        if ($targetArticleId > 0 && isset($seenTargetArticleIds[$targetArticleId])) {
+            $trace['reject'] = 'duplicate_target';
+
+            return null;
+        }
+
+        $item = [
+            'text' => $phrase,
+            'keyword_id' => $keywordId,
+            'href' => $href,
+            'target_url' => $href,
+            'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
+            'destination_resolved' => true,
+            'can_insert' => true,
+            'is_suggestion' => true,
+            'score' => $score,
+            'match_reason' => $matchReason,
+            'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+            'candidate_source' => 'content_deep',
+            'bucket' => 'internal',
+            'provenance' => [
+                'candidate_source' => 'content_deep',
+                'match_reason' => $matchReason,
+                'url' => $href,
+                'destination_resolved' => true,
+            ],
+        ];
+
+        if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+            $trace['reject'] = 'failed_validator';
+
+            return null;
+        }
+        unset($item['bucket']);
+        $trace['reject'] = null;
+        $trace['accepted'] = $href;
+
+        return $item;
+    }
+
+    /**
+     * @param  list<string>  $occupiedLabels
+     */
+    private function labelOccupied(string $phrase, array $occupiedLabels): bool
+    {
+        $needle = KeywordPhraseMatcher::normalize($phrase);
+        if ($needle === '') {
+            return false;
+        }
+        foreach ($occupiedLabels as $label) {
+            if (KeywordPhraseMatcher::normalize((string) $label) === $needle) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function shouldRun(int $currentInternalCount): bool
@@ -351,9 +740,14 @@ final class ArticleLinkSuggestionContentKeywordFallback
             return $this->phraseKeywordIdCache[$cacheKey];
         }
 
-        $keyword = Keyword::query()
-            ->whereRaw('phrase COLLATE utf8mb4_unicode_ci = ?', [$prepared])
-            ->first();
+        $driver = Keyword::query()->getConnection()->getDriverName();
+        $keyword = $driver === 'sqlite'
+            ? Keyword::query()
+                ->whereRaw('LOWER(TRIM(phrase)) = ?', [mb_strtolower($prepared)])
+                ->first()
+            : Keyword::query()
+                ->whereRaw('phrase COLLATE utf8mb4_unicode_ci = ?', [$prepared])
+                ->first();
 
         if (! $keyword instanceof Keyword) {
             return null;

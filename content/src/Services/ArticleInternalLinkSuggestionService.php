@@ -171,11 +171,15 @@ final class ArticleInternalLinkSuggestionService
         array $failedKeys = [],
         array $cursor = [],
         int $targetCount = 5,
+        int $usableCount = -1,
     ): array {
         $maxInternalLinks = $this->limit('max_internal_links', 10);
         $maxDisplay = $this->limit('max_display_internal', 10);
-        $alreadyCount = count($existingInternal);
-        $remainingSlots = max(0, min($maxDisplay, $maxInternalLinks) - $alreadyCount);
+        // Cap applies to usable/displayable suggestions — never raw catalog size.
+        $usable = $usableCount >= 0
+            ? max(0, $usableCount)
+            : $this->countUsableExistingSuggestions($existingInternal);
+        $remainingSlots = max(0, min($maxDisplay, $maxInternalLinks) - $usable);
         if ($remainingSlots <= 0) {
             return [
                 'internal' => [],
@@ -185,7 +189,11 @@ final class ArticleInternalLinkSuggestionService
                 'cursor' => ['stage' => ArticleInternalLinkPipeline::ADVANCED_STAGE_DONE, 'offset' => 0],
                 'exhausted' => true,
                 'failed_keys' => [],
-                'debug' => ['skip_reason' => 'display_cap_reached'],
+                'debug' => [
+                    'skip_reason' => 'display_cap_reached',
+                    'usable_count' => $usable,
+                    'remaining_slots' => 0,
+                ],
             ];
         }
 
@@ -202,6 +210,9 @@ final class ArticleInternalLinkSuggestionService
         );
 
         $this->lastDebug = is_array($batch['debug'] ?? null) ? $batch['debug'] : [];
+        $this->lastDebug['usable_count'] = $usable;
+        $this->lastDebug['remaining_slots'] = $remainingSlots;
+        $this->lastDebug['batch_target'] = $batchTarget;
         $this->logDebug('advanced_batch', $this->lastDebug);
 
         $fresh = is_array($batch['internal'] ?? null) ? $batch['internal'] : [];
@@ -219,8 +230,47 @@ final class ArticleInternalLinkSuggestionService
             'internal_link_catalog' => is_array($this->lastDebug['internal_link_catalog'] ?? null)
                 ? $this->lastDebug['internal_link_catalog']
                 : [],
-            'debug' => LinkSuggestionStopPhraseFilter::debugEnabled() ? $this->lastDebug : [],
+            'debug' => LinkSuggestionStopPhraseFilter::debugEnabled()
+                ? $this->lastDebug
+                : [
+                    'usable_count' => $usable,
+                    'remaining_slots' => $remainingSlots,
+                    'batch_target' => $batchTarget,
+                    'fresh_count' => count($fresh),
+                    'content_deep' => $this->lastDebug['content_deep'] ?? null,
+                ],
         ];
+    }
+
+    /**
+     * Count only destination-resolved, non-placeholder suggestions for cap math.
+     *
+     * @param  list<array<string, mixed>>  $existingInternal
+     */
+    private function countUsableExistingSuggestions(array $existingInternal): int
+    {
+        $count = 0;
+        $seenUrls = [];
+        foreach ($existingInternal as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if (($row['destination_resolved'] ?? true) === false) {
+                continue;
+            }
+            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
+            if ($href === '' || SeoSuggestionUrlNormalizer::isPlaceholder($href) || $href === '#') {
+                continue;
+            }
+            $norm = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($norm === '' || isset($seenUrls[$norm])) {
+                continue;
+            }
+            $seenUrls[$norm] = true;
+            $count++;
+        }
+
+        return $count;
     }
 
     /**

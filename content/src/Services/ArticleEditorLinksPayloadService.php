@@ -141,6 +141,7 @@ final class ArticleEditorLinksPayloadService
         array $failedKeys = [],
         array $cursor = [],
         int $targetCount = 5,
+        int $usableCount = -1,
     ): array {
         $content = $this->resolveSuggestionContent($article, $submittedContent);
         $base = $this->base($article);
@@ -156,6 +157,7 @@ final class ArticleEditorLinksPayloadService
             $failedKeys,
             $cursor,
             $targetCount,
+            $usableCount,
         );
 
         $payload = array_merge($base, [

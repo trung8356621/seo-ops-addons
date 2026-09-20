@@ -189,6 +189,197 @@ final class ArticleLinkSuggestionContentPhraseExtractor
     }
 
     /**
+     * Advanced-only: shorter content-driven anchors (2–4 words) from highlights,
+     * heading windows, and paragraph noun phrases. Does not change extract() used by Normal.
+     *
+     * @param  list<string>  $excludePhrases
+     * @param  list<string>  $priorityPhrases
+     * @return list<array{phrase: string, source: string, offset: int, source_score: int}>
+     */
+    public function extractDeepAdvanced(string $html, array $excludePhrases = [], array $priorityPhrases = []): array
+    {
+        $html = trim($html);
+        if ($html === '') {
+            return [];
+        }
+
+        $maxPhrases = max(20, (int) config('seo-content-ai.link_suggestions.advanced_phrase_limit', 40));
+        $minWords = 2;
+        $maxWords = 4;
+        $repeatMin = max(2, (int) config('seo-content-ai.link_suggestions.fallback_repeated_ngram_min_count', 2));
+
+        $excludeNorm = $this->normalizeSet($excludePhrases);
+        foreach ($this->extractLinkedAnchorTexts($html) as $linked) {
+            $excludeNorm[$this->normKey($linked)] = true;
+        }
+
+        $htmlWithoutLinks = $this->stripAnchorTagsKeepTextAsSpace($html);
+        $candidates = [];
+
+        // Split long highlight phrases into 2–4 word windows (Normal keeps whole strong text).
+        foreach (['strong', 'b'] as $tag) {
+            foreach ($this->extractTaggedPhrases($htmlWithoutLinks, [$tag]) as $raw) {
+                foreach ($this->phraseWindows($raw, $minWords, $maxWords) as $window) {
+                    if ($this->looksLikeFullSentence($window)) {
+                        continue;
+                    }
+                    $this->pushCandidate(
+                        $candidates,
+                        $window,
+                        'strong_window',
+                        self::SCORE_STRONG,
+                        $htmlWithoutLinks,
+                        $excludeNorm,
+                        $minWords,
+                        $maxWords,
+                    );
+                }
+            }
+        }
+        foreach (['mark'] as $tag) {
+            foreach ($this->extractTaggedPhrases($htmlWithoutLinks, [$tag]) as $raw) {
+                foreach ($this->phraseWindows($raw, $minWords, $maxWords) as $window) {
+                    $this->pushCandidate(
+                        $candidates,
+                        $window,
+                        'mark_window',
+                        self::SCORE_MARK,
+                        $htmlWithoutLinks,
+                        $excludeNorm,
+                        $minWords,
+                        $maxWords,
+                    );
+                }
+            }
+        }
+        foreach (['em', 'i'] as $tag) {
+            foreach ($this->extractTaggedPhrases($htmlWithoutLinks, [$tag]) as $raw) {
+                foreach ($this->phraseWindows($raw, $minWords, $maxWords) as $window) {
+                    $this->pushCandidate(
+                        $candidates,
+                        $window,
+                        'em_window',
+                        self::SCORE_EMPHASIS,
+                        $htmlWithoutLinks,
+                        $excludeNorm,
+                        $minWords,
+                        $maxWords,
+                    );
+                }
+            }
+        }
+
+        foreach ($priorityPhrases as $priority) {
+            $priority = $this->normalizeDisplayPhrase((string) $priority);
+            if ($priority === '') {
+                continue;
+            }
+            foreach ($this->phraseWindows($priority, $minWords, $maxWords) as $window) {
+                $this->pushCandidate(
+                    $candidates,
+                    $window,
+                    'entity',
+                    self::SCORE_ENTITY,
+                    $htmlWithoutLinks,
+                    $excludeNorm,
+                    $minWords,
+                    $maxWords,
+                );
+            }
+        }
+
+        $this->collectParagraphNounPhrases(
+            $candidates,
+            $htmlWithoutLinks,
+            $excludeNorm,
+            $minWords,
+            $maxWords,
+            $repeatMin,
+        );
+
+        $this->collectHeadingFallback(
+            $candidates,
+            $htmlWithoutLinks,
+            $excludeNorm,
+            $minWords,
+            $maxWords,
+        );
+
+        // Material / model tokens with digits (e.g. Polyester 600D) — 2-word windows from paragraphs.
+        $this->collectAlphanumericEntityWindows(
+            $candidates,
+            $htmlWithoutLinks,
+            $excludeNorm,
+            $minWords,
+            $maxWords,
+        );
+
+        usort($candidates, static function (array $a, array $b): int {
+            $sa = (int) ($a['source_score'] ?? 0);
+            $sb = (int) ($b['source_score'] ?? 0);
+            if ($sa !== $sb) {
+                return $sb <=> $sa;
+            }
+
+            return mb_strlen($a['phrase']) <=> mb_strlen($b['phrase']);
+        });
+
+        $out = [];
+        $seen = [];
+        foreach ($candidates as $row) {
+            $key = $this->normKey($row['phrase']);
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $row;
+            if (count($out) >= $maxPhrases) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{phrase: string, source: string, offset: int, source_score: int}>  $candidates
+     * @param  array<string, true>  $excludeNorm
+     */
+    private function collectAlphanumericEntityWindows(
+        array &$candidates,
+        string $htmlWithoutLinks,
+        array &$excludeNorm,
+        int $minWords,
+        int $maxWords,
+    ): void {
+        $plain = html_entity_decode(strip_tags($htmlWithoutLinks), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $plain = preg_replace('/\s+/u', ' ', $plain) ?? '';
+        if ($plain === '') {
+            return;
+        }
+
+        // Tokens that mix letters + digits (materials, models) often missed by noun heuristics.
+        if (preg_match_all('/\b[\p{L}][\p{L}\p{N}\-]{1,24}\s+\d{2,5}[A-Za-z]{0,4}\b/u', $plain, $matches) < 1) {
+            return;
+        }
+        $hits = $matches[0] ?? [];
+        foreach ($hits as $hit) {
+            foreach ($this->phraseWindows((string) $hit, $minWords, $maxWords) as $window) {
+                $this->pushCandidate(
+                    $candidates,
+                    $window,
+                    'entity_alnum',
+                    self::SCORE_ENTITY,
+                    $htmlWithoutLinks,
+                    $excludeNorm,
+                    $minWords,
+                    $maxWords,
+                );
+            }
+        }
+    }
+
+    /**
      * Normalize anchor trước khi đưa vào suggestion.
      * Chỉ trim punctuation đầu/cuối — giữ USB-C, Wi-Fi, TP.HCM, 2-in-1 ở giữa.
      */
@@ -495,6 +686,17 @@ final class ArticleLinkSuggestionContentPhraseExtractor
             return false;
         }
 
+        // Measurement / dimension windows: "45 x 30", "15 cm", "x 30 x".
+        if (preg_match('/(?:^|\s)x(?:\s|$)/iu', $phrase) === 1 && preg_match('/\d/u', $phrase) === 1) {
+            return false;
+        }
+        if (preg_match('/\b\d+(\s*[x×]\s*\d+)+\b/u', $phrase) === 1) {
+            return false;
+        }
+        if (preg_match('/\b\d+\s*(cm|mm|kg|g|inch|in|%|ml|l)\b/iu', $phrase) === 1) {
+            return false;
+        }
+
         if (preg_match('/^[^\s@]+@[^\s@]+\.[^\s@]+$/u', $phrase) === 1) {
             return false;
         }
@@ -502,6 +704,31 @@ final class ArticleLinkSuggestionContentPhraseExtractor
         $tokens = preg_split('/\s+/u', KeywordPhraseMatcher::normalize($phrase), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         if ($tokens === []) {
             return false;
+        }
+
+        // Reject connector-heavy fragments ("và chất", "kế và", "do chọn" still OK if noun-like).
+        $connectors = [
+            'va', 'cua', 'cho', 'voi', 'tu', 've', 'de', 'khi', 'neu', 'hoac', 'nhung',
+            'la', 'ma', 'thi', 'bi', 'duoc', 'cac', 'nhung', 'mot', 'nhung',
+        ];
+        $contentTokens = 0;
+        foreach ($tokens as $token) {
+            $ascii = $this->toAscii((string) $token);
+            if ($ascii === '' || in_array($ascii, $connectors, true) || preg_match('/^\d+$/u', $ascii) === 1) {
+                continue;
+            }
+            $contentTokens++;
+        }
+        if ($contentTokens < 1) {
+            return false;
+        }
+        // 2-word windows must not start/end on a connector ("và chất", "bền và").
+        if (count($tokens) === 2) {
+            $first = $this->toAscii((string) $tokens[0]);
+            $last = $this->toAscii((string) $tokens[1]);
+            if (in_array($first, $connectors, true) || in_array($last, $connectors, true)) {
+                return false;
+            }
         }
 
         if (count($tokens) === 1) {

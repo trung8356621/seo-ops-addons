@@ -102,8 +102,10 @@ final class ContentProjectPublishedQueueReturnAndOptimisticUiTest extends TestCa
         self::assertStringContainsString('beginRowProcessing(tid, kind)', $ops);
         self::assertStringContainsString('isRowProcessing(tid)', $ops);
         self::assertStringContainsString('cp-ops-row-processing', $ops);
+        self::assertStringContainsString('project-runtime-changed', $ops);
         self::assertStringContainsString('cp-ops-generation-started', $ops);
         self::assertStringContainsString('onGenerationStarted()', $ops);
+        self::assertStringContainsString('onProjectRuntimeChanged()', $ops);
         self::assertStringContainsString('doLazyRefresh(true)', $ops);
         self::assertStringNotContainsString('startGenerationTablePoll', $ops);
         self::assertStringNotContainsString('runGenerationTablePoll', $ops);
@@ -126,7 +128,9 @@ final class ContentProjectPublishedQueueReturnAndOptimisticUiTest extends TestCa
         self::assertStringContainsString('function shouldOptimisticRowExit', $page);
         self::assertStringContainsString('ACTION_RETRY', $page);
         self::assertStringContainsString('invalidateOpsCache()', $page);
-        self::assertStringContainsString("dispatch('cp-ops-generation-started'", $page);
+        self::assertStringContainsString("dispatch('project-runtime-changed'", $page);
+        self::assertStringContainsString('function notifyProjectRuntimeChanged', $page);
+        self::assertStringContainsString('function refreshProjectRuntimeState', $page);
     }
 
     public function test_generate_and_step_rerun_stamp_last_activity(): void

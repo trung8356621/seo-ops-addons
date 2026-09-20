@@ -210,6 +210,9 @@ final class ArticleEditorLazyPayloadController extends Controller
                 $cursor = [];
             }
             $targetCount = max(1, min(5, (int) $request->input('target_count', 5)));
+            $usableCount = $request->has('usable_count')
+                ? max(0, (int) $request->input('usable_count'))
+                : -1;
 
             return response()->json([
                 'success' => true,
@@ -223,6 +226,7 @@ final class ArticleEditorLazyPayloadController extends Controller
                     ), static fn (string $key): bool => $key !== '')),
                     $cursor,
                     $targetCount,
+                    $usableCount,
                 ),
             ]);
         }

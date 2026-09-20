@@ -470,7 +470,7 @@
                 if (id <= 0) return;
                 this.processingRows = { ...(this.processingRows || {}), [id]: String(kind || 'generation') };
                 // Single-item menu actions set this overlay but often do not dispatch
-                // cp-ops-generation-started — keep runtime lazy poll alive so remorph can clear it.
+                // project-runtime-changed — keep runtime lazy poll alive so remorph can clear it.
                 if (String(kind || '') === 'generation') {
                     this.startRuntimePoll();
                 }
@@ -547,6 +547,9 @@
                 try {
                     await this.doLazyRefresh(true);
                 } catch (e) {}
+            },
+            async onProjectRuntimeChanged() {
+                await this.onGenerationStarted();
             },
             clearGenerationProcessingRows(taskIds) {
                 (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
@@ -830,6 +833,7 @@
         x-on:cp-ops-client-reset-optimistic.window="resetOptimistic()"
         x-on:cp-ops-row-processing.window="beginRowProcessing(($event.detail || {}).taskId, ($event.detail || {}).kind)"
         x-on:cp-ops-row-processing-clear.window="clearRowProcessing(($event.detail || {}).taskId)"
+        x-on:project-runtime-changed.window="onProjectRuntimeChanged()"
         x-on:cp-ops-generation-started.window="onGenerationStarted()"
         x-on:cp-ops-generation-failed.window="clearGenerationProcessingRows(($event.detail || {}).taskIds)"
         x-on:cp-ops-item-transition.window="handleItemTransition($event.detail || {})"

@@ -147,6 +147,8 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
             $blade,
         );
         self::assertStringContainsString('onGenerationStarted()', $blade);
+        self::assertStringContainsString('onProjectRuntimeChanged()', $blade);
+        self::assertStringContainsString('project-runtime-changed', $blade);
         self::assertStringContainsString('runtime_revision', (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectItemOperationsReadModel::class))->getFileName(),
         ));
@@ -157,7 +159,7 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         self::assertStringNotContainsString('generationPollIds', $blade);
     }
 
-    public function test_generate_action_full_page_reloads_after_run_is_accepted(): void
+    public function test_generate_action_refreshes_runtime_state_without_full_page_reload(): void
     {
         $src = $this->viewSrc();
         $pos = strpos($src, 'function dispatchGenerate');
@@ -165,11 +167,15 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         $chunk = substr($src, $pos, 4500);
 
         $startPos = strpos($chunk, 'SeoProjectResource::startGeneratePendingItems');
+        $notifyPos = strpos($chunk, 'notifyProjectRuntimeChanged()');
         $redirectPos = strpos($chunk, "redirect(SeoProjectResource::getUrl('view'");
 
         self::assertNotFalse($startPos);
-        self::assertNotFalse($redirectPos);
-        self::assertGreaterThan($startPos, $redirectPos);
+        self::assertNotFalse($notifyPos);
+        self::assertFalse($redirectPos);
+        self::assertGreaterThan($startPos, $notifyPos);
+        self::assertStringContainsString('function refreshProjectRuntimeState(): array', $src);
+        self::assertStringContainsString("dispatch('project-runtime-changed')", $src);
     }
 
     public function test_sequential_batch_summary_fingerprint_changes_without_waiting_for_run_end(): void

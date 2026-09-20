@@ -558,6 +558,8 @@ final class ArticleInternalLinkPipeline
 
     public const ADVANCED_STAGE_CONTENT_FALLBACK = 'content_fallback';
 
+    public const ADVANCED_STAGE_CONTENT_DEEP = 'content_deep';
+
     public const ADVANCED_STAGE_DONE = 'done';
 
     /** @var list<string> */
@@ -566,7 +568,7 @@ final class ArticleInternalLinkPipeline
         self::ADVANCED_STAGE_TOPIC,
         self::ADVANCED_STAGE_KEYWORD_NON_TOPIC,
         self::ADVANCED_STAGE_GENERIC,
-        self::ADVANCED_STAGE_CONTENT_FALLBACK,
+        self::ADVANCED_STAGE_CONTENT_DEEP,
     ];
 
     /**
@@ -644,13 +646,16 @@ final class ArticleInternalLinkPipeline
         $occupiedHrefs = $linkedContext['hrefs'];
         $ownArticlePhrases = $this->ownArticlePhraseBlocklist($article);
 
-        $startStage = trim((string) ($cursor['stage'] ?? self::ADVANCED_STAGE_PRODUCT_CAT));
+        $startStage = trim((string) ($cursor['stage'] ?? self::ADVANCED_STAGE_CONTENT_DEEP));
+        if ($startStage === 'content_fallback') {
+            $startStage = self::ADVANCED_STAGE_CONTENT_DEEP;
+        }
         if ($startStage === '' || $startStage === self::ADVANCED_STAGE_DONE) {
             $startStage = self::ADVANCED_STAGE_DONE;
         }
-        $startOffset = max(0, (int) ($cursor['offset'] ?? 0));
+        $startOffset = max(0, (int) ($cursor['offset'] ?? $cursor['phrase_offset'] ?? 0));
         if (! in_array($startStage, self::ADVANCED_STAGE_ORDER, true) && $startStage !== self::ADVANCED_STAGE_DONE) {
-            $startStage = self::ADVANCED_STAGE_PRODUCT_CAT;
+            $startStage = self::ADVANCED_STAGE_CONTENT_DEEP;
             $startOffset = 0;
         }
 
@@ -786,6 +791,7 @@ final class ArticleInternalLinkPipeline
 
         $nextCursor = ['stage' => $startStage, 'offset' => $startOffset];
         $exhausted = false;
+        $contentDeepDebug = null;
 
         for ($si = (int) $stageIndex; $si < count(self::ADVANCED_STAGE_ORDER); $si++) {
             if (count($fresh) >= $targetCount) {
@@ -869,7 +875,7 @@ final class ArticleInternalLinkPipeline
                 $occupiedLabels = $result['occupied_labels'];
                 $occupiedHrefs = $result['occupied_hrefs'];
                 $nextCursor = $result['done']
-                    ? ['stage' => self::ADVANCED_STAGE_CONTENT_FALLBACK, 'offset' => 0]
+                    ? ['stage' => self::ADVANCED_STAGE_CONTENT_DEEP, 'offset' => 0]
                     : ['stage' => self::ADVANCED_STAGE_GENERIC, 'offset' => $result['next_offset']];
                 if (! $result['done'] && count($fresh) >= $targetCount) {
                     break;
@@ -877,8 +883,8 @@ final class ArticleInternalLinkPipeline
                 continue;
             }
 
-            // content_fallback
-            $result = $this->advanceContentFallbackStage(
+            // content_deep — expanded content-driven discovery (Advanced differentiator).
+            $result = $this->advanceContentDeepStage(
                 $article,
                 $content,
                 $plainText,
@@ -895,10 +901,11 @@ final class ArticleInternalLinkPipeline
             $fresh = $result['fresh'];
             $nextCursor = $result['done']
                 ? $emptyCursor
-                : ['stage' => self::ADVANCED_STAGE_CONTENT_FALLBACK, 'offset' => $result['next_offset']];
+                : ['stage' => self::ADVANCED_STAGE_CONTENT_DEEP, 'offset' => $result['next_offset']];
             if ($result['done'] && count($fresh) < $targetCount) {
                 $exhausted = true;
             }
+            $contentDeepDebug = is_array($result['debug'] ?? null) ? $result['debug'] : null;
             break;
         }
 
@@ -921,6 +928,9 @@ final class ArticleInternalLinkPipeline
             'start_stage' => $startStage,
             'start_offset' => $startOffset,
         ];
+        if (isset($contentDeepDebug) && is_array($contentDeepDebug)) {
+            $this->lastDebug['content_deep'] = $contentDeepDebug;
+        }
 
         return [
             'internal' => $fresh,
@@ -1341,9 +1351,14 @@ final class ArticleInternalLinkPipeline
      * @param  array<string, true>  $failedSet
      * @param  list<string>  $newFailed
      * @param  array<string, mixed>  $validationContext
-     * @return array{fresh: list<array<string, mixed>>, next_offset: int, done: bool}
+     * @return array{
+     *     fresh: list<array<string, mixed>>,
+     *     next_offset: int,
+     *     done: bool,
+     *     debug?: array<string, mixed>
+     * }
      */
-    private function advanceContentFallbackStage(
+    private function advanceContentDeepStage(
         SeoArticle $article,
         string $content,
         string $plainText,
@@ -1357,6 +1372,15 @@ final class ArticleInternalLinkPipeline
         array &$newFailed,
         array $validationContext,
     ): array {
+        $needed = max(0, $targetCount - count($fresh));
+        if ($needed <= 0) {
+            return [
+                'fresh' => $fresh,
+                'next_offset' => $offset,
+                'done' => false,
+            ];
+        }
+
         $seenTargets = [];
         foreach ($fresh as $row) {
             $tid = (int) ($row['target_article_id'] ?? 0);
@@ -1365,69 +1389,53 @@ final class ArticleInternalLinkPipeline
             }
         }
 
+        $processedKeys = [];
+        foreach (array_keys($failedSet) as $key) {
+            if (str_starts_with((string) $key, 'deep|')) {
+                $parts = explode('|', (string) $key);
+                if (isset($parts[1]) && $parts[1] !== '') {
+                    $processedKeys[] = $parts[1];
+                }
+            }
+        }
+
         $priorityPhrases = array_values(array_filter([
             (string) $focusKeyword,
             ...$this->secondaryKeywordsAppearingInContent($article, $plainText),
         ]));
 
-        // Force run: advanced deep search always may use content fallback.
-        $rawFallback = $this->contentKeywordFallback->supplement(
+        $batch = $this->contentKeywordFallback->discoverAdvancedContentBatch(
             $article,
             $content,
-            $fresh,
             $occupiedLabels,
             $occupiedHrefs,
             $seenTargets,
             $validationContext,
+            $processedKeys,
+            $offset,
+            $needed,
             $priorityPhrases,
-            forceRun: true,
         );
 
-        $i = $offset;
-        $total = count($rawFallback);
-        for (; $i < $total; $i++) {
-            if (count($fresh) >= $targetCount) {
-                break;
-            }
-            $row = $rawFallback[$i];
+        foreach ($batch['suggestions'] as $row) {
             if (! is_array($row)) {
                 continue;
             }
-            $phrase = trim((string) ($row['text'] ?? ''));
-            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
-            $keywordId = (int) ($row['keyword_id'] ?? 0);
-            $key = $this->advancedCandidateKey(self::ADVANCED_STAGE_CONTENT_FALLBACK, $phrase, $keywordId, $href);
-            if (isset($failedSet[$key])) {
-                continue;
-            }
-            if ($this->isAlreadyLinked($phrase, $occupiedLabels)) {
-                continue;
-            }
-            $norm = SeoSuggestionUrlNormalizer::normalize($href);
-            if ($norm !== '' && in_array($norm, $occupiedHrefs, true)) {
-                continue;
-            }
-            if (! (bool) ($row['destination_resolved'] ?? false)
-                || ! LinkSuggestionValidator::isValidLinkSuggestion($row, $validationContext)
-            ) {
-                $failedSet[$key] = true;
-                $newFailed[] = $key;
-                continue;
-            }
-
-            $row['source'] = ArticleInternalLinkPriorityMerger::STAGE_GENERIC;
-            $row['candidate_source'] = ArticleInternalLinkPriorityMerger::STAGE_GENERIC;
             $fresh[] = $row;
-            $occupiedLabels[] = mb_strtolower($phrase);
-            if ($norm !== '') {
-                $occupiedHrefs[] = $norm;
-            }
+        }
+        foreach ($batch['failed_keys'] as $key) {
+            $failedSet[(string) $key] = true;
+            $newFailed[] = (string) $key;
+        }
+        foreach ($batch['processed_keys'] as $key) {
+            $failedSet['deep|'.$key.'|processed'] = true;
         }
 
         return [
             'fresh' => $fresh,
-            'next_offset' => $i,
-            'done' => $i >= $total,
+            'next_offset' => (int) ($batch['next_offset'] ?? $offset),
+            'done' => (bool) ($batch['exhausted'] ?? false),
+            'debug' => is_array($batch['debug'] ?? null) ? $batch['debug'] : [],
         ];
     }
 

@@ -54,8 +54,28 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
         self::assertStringContainsString('function collectAdvancedBatch', $src);
         self::assertStringContainsString('ADVANCED_STAGE_ORDER', $src);
         self::assertStringContainsString('advancedCandidateKey', $src);
-        self::assertStringContainsString('content_fallback', $src);
+        self::assertStringContainsString('content_deep', $src);
+        self::assertStringContainsString('advanceContentDeepStage', $src);
         self::assertStringContainsString('failed_keys', $src);
+    }
+
+    public function test_suggestion_service_uses_usable_count_not_raw_catalog(): void
+    {
+        $body = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'suggestAdvancedBatch');
+
+        self::assertStringContainsString('countUsableExistingSuggestions', $body);
+        self::assertStringContainsString('usable_count', $body);
+        self::assertStringContainsString('remainingSlots', $body);
+    }
+
+    public function test_session_storage_version_two_invalidates_stale(): void
+    {
+        $source = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/articleInternalLinkSuggestionSessionStorage.js'
+        );
+
+        self::assertStringContainsString('INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 2', $source);
+        self::assertStringContainsString('version < INTERNAL_LINK_SUGGESTION_SESSION_VERSION', $source);
     }
 
     public function test_sidebar_restores_session_and_skips_auto_warm(): void

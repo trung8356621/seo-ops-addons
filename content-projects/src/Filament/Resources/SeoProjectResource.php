@@ -1657,12 +1657,11 @@ class SeoProjectResource extends SeoPanelResource
                     SeoConnectionContext::applyUrlDefaults();
 
                     $count = count($taskIds);
-                    if ($livewire instanceof \Livewire\Component) {
-                        if ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject) {
-                            $livewire->redirect(static::getUrl('view', ['record' => $project]), navigate: false);
-                        } else {
-                            $livewire->dispatch('cp-ops-generation-started');
-                        }
+                    if ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject) {
+                        // Same-URL redirect does not remorph — reload runtime SSOT + kick poll.
+                        $livewire->notifyProjectRuntimeChanged();
+                    } elseif ($livewire instanceof \Livewire\Component) {
+                        $livewire->dispatch('project-runtime-changed');
                     }
 
                     Notification::make()

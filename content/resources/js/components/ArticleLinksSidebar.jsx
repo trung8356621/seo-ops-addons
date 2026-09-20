@@ -116,6 +116,7 @@ async function fetchEditorLinksBase(articleId, signal) {
  *   failedKeys?: string[],
  *   cursor?: { stage?: string, offset?: number }|null,
  *   targetCount?: number,
+ *   usableCount?: number,
  *   signal?: AbortSignal,
  * }} [options]
  */
@@ -139,8 +140,9 @@ async function fetchEditorLinksSuggestions(articleId, options = {}) {
     };
     if (mode === 'advanced') {
         body.failed_keys = Array.isArray(options.failedKeys) ? options.failedKeys : [];
-        body.cursor = options.cursor && typeof options.cursor === 'object' ? options.cursor : {};
+        body.cursor = options.cursor && typeof options.cursor === 'object' ? options.cursor : { stage: 'content_deep', offset: 0 };
         body.target_count = Math.max(1, Math.min(5, Number(options.targetCount ?? 5) || 5));
+        body.usable_count = Math.max(0, Number(options.usableCount ?? 0) || 0);
     }
 
     const { response, data } = await seoArticleApiFetch(url, {
@@ -1191,18 +1193,39 @@ export default function ArticleLinksSidebar({
     };
 
     const buildExistingInternalPayload = () => {
-        const partitioned = partitionSuggestionCatalogBySite(
-            keywordCatalogRef.current,
-            siteDomainRef.current,
-        );
+        // Occupied targets for Advanced dedupe: actionable suggestions + applied article links.
+        // Do NOT send the full raw catalog (non-actionable rows must not consume cap / block discovery).
+        const actionable = Array.isArray(suggestedInternalRef.current) ? suggestedInternalRef.current : [];
+        const applied = Array.isArray(linksRef.current.internal) ? linksRef.current.internal : [];
+        const rows = [...actionable, ...applied];
+        const out = [];
+        const seen = new Set();
+        for (const item of rows) {
+            const text = String(item?.text ?? '').trim();
+            const href = String(item?.href ?? item?.target_url ?? '').trim();
+            if (text === '' && href === '') {
+                continue;
+            }
+            if (href === '#' || href.startsWith('#')) {
+                // Unresolved placeholders are not occupied destinations.
+                continue;
+            }
+            const key = `${normalizeLinkLabel(text)}|${normalizeHrefForCompare(href)}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            out.push({
+                text,
+                href,
+                keyword_id: item?.keyword_id ?? null,
+                source: item?.source ?? item?.suggestion_source ?? null,
+                target_url: item?.target_url ?? href,
+                destination_resolved: item?.destination_resolved !== false,
+            });
+        }
 
-        return partitioned.internal.map((item) => ({
-            text: String(item?.text ?? ''),
-            href: String(item?.href ?? item?.target_url ?? ''),
-            keyword_id: item?.keyword_id ?? null,
-            source: item?.source ?? item?.suggestion_source ?? null,
-            target_url: item?.target_url ?? item?.href ?? null,
-        }));
+        return out;
     };
 
     const applySuggestionPayload = (payload, source, options = {}) => {
@@ -1363,13 +1386,17 @@ export default function ArticleLinksSidebar({
                     persistSuggestionSession({ exhausted: true, contentFingerprint: cacheKey });
                     return;
                 }
+                const cursor = advancedCursorRef.current?.stage
+                    ? advancedCursorRef.current
+                    : { stage: 'content_deep', offset: 0 };
                 const payload = await fetchEditorLinksSuggestions(articleId, {
                     content,
                     mode: 'advanced',
                     existingInternal: buildExistingInternalPayload(),
                     failedKeys: failedCandidateKeysRef.current,
-                    cursor: advancedCursorRef.current,
+                    cursor,
                     targetCount: Math.min(5, remainingSlots),
+                    usableCount: usableNow,
                     signal: controller.signal,
                 });
                 if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
@@ -1414,9 +1441,12 @@ export default function ArticleLinksSidebar({
                 phase: usableCount > 0 ? 'source1_done' : 'exhausted',
                 hasResults: usableCount > 0,
             });
+            // After Normal full, Advanced starts at content_deep (expanded discovery),
+            // not a re-walk of the same production pool from product_cat/0.
             advancedCursorRef.current = {
-                stage: 'product_cat',
+                stage: 'content_deep',
                 offset: 0,
+                phrase_offset: 0,
             };
             persistSuggestionSession({ contentFingerprint: cacheKey });
         } catch (error) {
