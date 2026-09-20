@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver;
+use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\ProviderRefused;
@@ -27,7 +29,10 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeLocaleResol
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeSettingsResolver;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookShadowParityRecorder;
+use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
+use Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use ReflectionClass;
@@ -59,10 +64,40 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
     }
 
     /**
+     * Unit FakeProvider path needs shape planner without live AI Center routes.
+     * Binds a PAID first-usable candidate → SINGLE (route_cost_auto).
+     */
+    private function bindPaidShapeRouter(): void
+    {
+        $connection = new ApiConnection([
+            'name' => 'Test Paid',
+            'provider' => 'openrouter',
+        ]);
+        $connection->id = 1;
+        $candidate = new RoutedAiCandidate(
+            profile: 'text.longform',
+            connection: $connection,
+            provider: 'openrouter',
+            model: 'test-paid',
+            capabilities: ['text.generate'],
+            priority: 1,
+            isFree: false,
+        );
+        $router = $this->createMock(FirstAttemptableAiRouteResolver::class);
+        $router->method('resolveFirstAttemptable')->willReturn($candidate);
+        app()->instance(FirstAttemptableAiRouteResolver::class, $router);
+        app()->instance(
+            ArticleGenerationExecutionPlanner::class,
+            new ArticleGenerationExecutionPlanner($router, new GenerationShapeResolver($router)),
+        );
+    }
+
+    /**
      * @param  array{text?: string, refused?: bool, truncated?: bool}  $response
      */
     private function executor(FakePromptProviderAdapter $provider): PromptHookExplicitBindingExecutor
     {
+        $this->bindPaidShapeRouter();
         $loader = new PromptHookDefinitionLoader(
             PromptHookDefinitionLoader::defaultV01Directory(),
             PromptHookDefinitionLoader::defaultPhase1Directory(),
@@ -189,11 +224,12 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
         $result = $executor->execute($prompt, [
             'input' => "Outline\nVocabulary planning",
             'keyword' => 'balo du lịch',
+            'title' => 'Balo du lịch',
             'tone' => 'thân thiện',
             'language' => 'vi',
             'site_short_description' => 'Shop balo',
             'article_length' => 1800,
-        ], ['site_id' => 1, 'locale' => 'vi']);
+        ], ['site_id' => 1, 'locale' => 'vi', 'via_system_ai' => true]);
 
         self::assertCount(1, $provider->calls);
         self::assertStringStartsWith(
@@ -234,7 +270,10 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
             'preserve_headings' => true,
             'language' => 'vi',
             'article_length' => 300,
-        ], ['site_id' => 2]);
+            'keyword' => 'balo',
+            'title' => 'Balo',
+            'input' => $this->longMarkdown('# Original article body'),
+        ], ['site_id' => 2, 'via_system_ai' => true]);
 
         self::assertCount(1, $provider->calls);
         self::assertStringContainsString('Rewritten', $result['output']);
@@ -260,7 +299,7 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
 
         $this->expectException(InvalidInput::class);
         try {
-            $executor->execute($prompt, ['tone' => 'only'], []);
+            $executor->execute($prompt, ['tone' => 'only'], ['via_system_ai' => true]);
         } finally {
             self::assertCount(0, $provider->calls);
         }

@@ -123,17 +123,16 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             );
         }
 
-        // CRITICAL: resolve primary + shape BEFORE legacy whole-article compile / provider call.
+        // CRITICAL: resolve primary + shape BEFORE whole-article compile / provider call.
+        // Do not re-inject legacy strategy / writing_split flags from contextExtras —
+        // GenerationShapeResolver (route_cost_auto) is the only shape authority.
         $mergedVars = array_merge(
             $variables,
             array_filter([
-                'generation_strategy' => $contextExtras['generation_strategy'] ?? null,
-                '_item_generation_strategy' => $contextExtras['_item_generation_strategy'] ?? null,
-                'resolved_generation_strategy' => $contextExtras['resolved_generation_strategy'] ?? null,
-                'generation_strategy_override' => $contextExtras['generation_strategy_override'] ?? null,
                 'generation_shape' => $contextExtras['generation_shape'] ?? null,
+                'generation_shape_source' => $contextExtras['generation_shape_source'] ?? null,
+                'shape_decision_cost_class' => $contextExtras['shape_decision_cost_class'] ?? null,
                 'article_id' => $contextExtras['article_id'] ?? $variables['article_id'] ?? null,
-                'writing_split_enabled' => $variables['writing_split_enabled'] ?? $contextExtras['writing_split_enabled'] ?? null,
             ], static fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 

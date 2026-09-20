@@ -92,6 +92,9 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
         self::assertStringContainsString('advancedSearchEnabled', $source);
         self::assertStringContainsString('suggestionRequestSeqRef', $source);
         self::assertStringContainsString('clearInternalLinkSuggestionSession', $source);
+        // Enabling Advanced must clear prior exhausted so Find more is clickable again.
+        self::assertStringContainsString('exhausted: false', $source);
+        self::assertStringContainsString("stage: 'content_deep', offset: 0", $source);
         // Valid session must skip auto POST full.
         self::assertMatchesRegularExpression(
             '/isInternalLinkSuggestionSessionUsable[\s\S]*return;[\s\S]*loadLinkSuggestions\(\)/',

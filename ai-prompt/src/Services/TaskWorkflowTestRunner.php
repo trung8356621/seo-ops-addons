@@ -1020,12 +1020,9 @@ final class TaskWorkflowTestRunner
                             ? (int) $context->variables['project_id']
                             : null,
                         'locale' => $variables['language'] ?? $variables['locale'] ?? null,
-                        'generation_strategy' => $variables['generation_strategy'] ?? null,
-                        '_item_generation_strategy' => $variables['_item_generation_strategy'] ?? null,
-                        'resolved_generation_strategy' => $variables['resolved_generation_strategy'] ?? null,
-                        'generation_strategy_override' => $variables['generation_strategy_override'] ?? null,
+                        // History/debug mirrors only — shape is decided later via route_cost_auto.
+                        'legacy_generation_strategy_override' => $variables['legacy_generation_strategy_override'] ?? null,
                         'strategy_override' => $variables['strategy_override'] ?? null,
-                        'strategy_resolved' => $variables['strategy_resolved'] ?? null,
                         'strategy_source' => $variables['strategy_source'] ?? null,
                     ];
 
@@ -2693,28 +2690,39 @@ final class TaskWorkflowTestRunner
             ?? $context->variables['task_id']
             ?? 0);
 
-        $taskOverride = false;
+        // History / debug only. Shape authority is GenerationShapeResolver (route_cost_auto)
+        // inside PromptHookExplicitBindingExecutor / PromptRunnerService — never stamp
+        // generation_strategy* from task override into the live execution bag.
+        $taskOverrideRaw = null;
         if ($taskId > 0) {
             $task = SeoProjectTask::query()->find($taskId);
             if ($task instanceof SeoProjectTask) {
                 $raw = $task->getAttribute('generation_strategy_override');
-                $taskOverride = (is_string($raw) || is_int($raw)) && trim((string) $raw) !== ''
+                $taskOverrideRaw = (is_string($raw) || is_int($raw)) && trim((string) $raw) !== ''
                     ? trim((string) $raw)
                     : null;
 
                 $policy = app(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyResolver::class)
                     ->resolve($task);
-                if ($policy->generationStrategy !== null) {
-                    $variables = app(ContentProjectItemGenerationPolicyApplier::class)
-                        ->stampVariables($variables, $policy);
-                }
+                // Applier already maps strategy → legacy_generation_strategy_override only.
+                $variables = app(ContentProjectItemGenerationPolicyApplier::class)
+                    ->stampVariables($variables, $policy);
             }
         }
 
-        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables, $taskOverride);
-        $variables = $snapshot->mergeIntoVariables($variables);
-        foreach ($snapshot->toExecutionSnapshot($taskId > 0 ? $taskId : null) as $key => $value) {
-            $variables[$key] = $value;
+        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables, $taskOverrideRaw);
+        if ($snapshot->strategyOverride !== null && $snapshot->strategyOverride !== '') {
+            $variables['legacy_generation_strategy_override'] = $snapshot->strategyOverride;
+            $variables['strategy_override'] = $snapshot->strategyOverride;
+            $variables['strategy_source'] = $snapshot->strategySource;
+        } else {
+            $variables['strategy_override'] = null;
+            $variables['generation_strategy_override'] = null;
+            $variables['strategy_source'] = $variables['strategy_source']
+                ?? ArticleGenerationStrategySnapshot::SOURCE_DEFAULT;
+        }
+        if ($taskId > 0) {
+            $variables['task_id'] = $taskId;
         }
 
         return $variables;

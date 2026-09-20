@@ -2451,7 +2451,26 @@ export default function ArticleLinksSidebar({
                         advancedSearchEnabled={advancedSearchEnabled}
                         onAdvancedSearchChange={(enabled) => {
                             setAdvancedSearchEnabled(enabled);
-                            persistSuggestionSession({ advancedEnabled: enabled });
+                            if (enabled) {
+                                // Prior Advanced empty runs persist exhausted=true and disable
+                                // "Find more". Turning Advanced on must unlock another content_deep pass.
+                                const hasResults = suggestionCursorRef.current.hasResults === true
+                                    || keywordCatalogRef.current.length > 0;
+                                advancedCursorRef.current = { stage: 'content_deep', offset: 0 };
+                                bumpSuggestionCursor({
+                                    phase: hasResults ? 'source1_done' : 'idle',
+                                    hasResults,
+                                });
+                                persistSuggestionSession({
+                                    advancedEnabled: true,
+                                    exhausted: false,
+                                    phase: hasResults ? 'source1_done' : 'idle',
+                                    hasResults,
+                                    advancedCursor: { stage: 'content_deep', offset: 0 },
+                                });
+                                return;
+                            }
+                            persistSuggestionSession({ advancedEnabled: false });
                         }}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)

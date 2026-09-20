@@ -97,9 +97,19 @@ final class ArticleLinkSuggestionContentKeywordFallback
             'phrases_with_keyword_target' => 0,
             'phrases_searched_index' => 0,
             'destination_candidates' => 0,
+            'destination_candidates_passing_min_score' => 0,
+            'rejected_below_min_score' => 0,
+            'rejected_unresolved_or_policy' => 0,
+            // valid_candidate = accepted after destination/validator (still before FE occurrence filter).
+            'valid_candidate' => 0,
             'valid_after_policy' => 0,
+            // fresh_after_occupied_dedupe = batch rows after occupied label/URL dedupe.
+            // Not "NEW actionable" — empty existing_internal overstates novelty vs UI.
+            'fresh_after_occupied_dedupe' => 0,
+            'fresh_count' => 0,
             'no_candidate' => 0,
             'phrase_trace' => [],
+            'metric_note' => 'fresh_after_occupied_dedupe ≠ actionable_after_FE; do not label empty-occupied fresh as NEW actionable',
         ];
 
         if ($siteId <= 0 || $excludeId <= 0 || trim($htmlContent) === '') {
@@ -197,6 +207,7 @@ final class ArticleLinkSuggestionContentKeywordFallback
             }
             $occupiedLabels[] = mb_strtolower($phrase);
             $this->lastDebug['valid_after_policy']++;
+            $this->lastDebug['valid_candidate']++;
             $this->lastDebug['phrase_trace'][] = $trace;
         }
 
@@ -204,6 +215,7 @@ final class ArticleLinkSuggestionContentKeywordFallback
         $this->lastDebug['next_offset'] = $i;
         $this->lastDebug['exhausted'] = $exhausted;
         $this->lastDebug['fresh_count'] = count($added);
+        $this->lastDebug['fresh_after_occupied_dedupe'] = count($added);
         $this->logDebug('advanced_content_deep', $this->lastDebug);
 
         return [
@@ -290,16 +302,23 @@ final class ArticleLinkSuggestionContentKeywordFallback
             $score = LinkSuggestionScoreScale::clamp((int) ($hit['score'] ?? 0));
             if ($score < $minScore) {
                 $trace['reject'] = 'below_min_score';
+                $this->lastDebug['rejected_below_min_score']++;
+
                 continue;
             }
+            $this->lastDebug['destination_candidates_passing_min_score']++;
             $href = trim((string) ($hit['url'] ?? ''));
             $targetId = (int) ($hit['id'] ?? 0);
             if ($targetId <= 0 || $href === '' || SeoSuggestionUrlNormalizer::isPlaceholder($href)) {
                 $trace['reject'] = 'missing_url';
+                $this->lastDebug['rejected_unresolved_or_policy']++;
+
                 continue;
             }
             if ($targetId === $excludeId || isset($seenTargetArticleIds[$targetId])) {
                 $trace['reject'] = 'self_or_duplicate_target';
+                $this->lastDebug['rejected_unresolved_or_policy']++;
+
                 continue;
             }
             $item = $this->buildDeepSuggestionItem(
@@ -320,6 +339,7 @@ final class ArticleLinkSuggestionContentKeywordFallback
             if ($item !== null) {
                 return $item;
             }
+            $this->lastDebug['rejected_unresolved_or_policy']++;
         }
 
         if (($trace['reject'] ?? null) === null) {

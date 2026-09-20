@@ -26,8 +26,6 @@ class GlobalSeoBar extends Component
 
     public string $simulatedRole = '';
 
-    public bool $writingSplitEnabled = false;
-
     /** Planner-only active month (YYYY-MM), synced via Livewire event + URL on ContentProjectSeoAuditPlanner. */
     public string $plannerActiveMonth = '';
 
@@ -68,24 +66,6 @@ class GlobalSeoBar extends Component
         session(['seo_simulated_role' => $this->simulatedRole]);
         $this->syncGlobalContentProjectSelection();
         $this->bootstrapDatabaseForCurrentSite();
-        // Legacy preference sync kept for BC data only — UI no longer exposes the toggle.
-        $this->syncWritingSplitPreference();
-    }
-
-    /**
-     * @deprecated Preference no longer controls execution shape (route_cost_auto).
-     */
-    public function updatedWritingSplitEnabled($value): void
-    {
-        $enabled = filter_var($value, FILTER_VALIDATE_BOOLEAN);
-        $this->writingSplitEnabled = $enabled;
-
-        $userId = (int) (auth()->id() ?? 0);
-        if ($userId <= 0) {
-            return;
-        }
-
-        \Omnichannel\Addons\Content\Support\WritingSplitPreference::persistForUserId($userId, $enabled);
     }
 
     public function updatedDomainKey($value): void
@@ -188,7 +168,6 @@ class GlobalSeoBar extends Component
             'hideAllDomainsOption' => SeoAccessControl::shouldRequireConcreteGlobalDomain(),
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
-            'writingSplitEnabled' => $this->writingSplitEnabled,
             'showPlannerActiveMonth' => $this->showPlannerActiveMonth,
             'plannerMonthOptions' => $this->showPlannerActiveMonth
                 ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::selectOptions()
@@ -203,14 +182,6 @@ class GlobalSeoBar extends Component
         );
         $this->plannerActiveMonth = $month;
         $this->dispatch('seo-planner-month-changed', month: $month);
-    }
-
-    private function syncWritingSplitPreference(): void
-    {
-        $userId = (int) (auth()->id() ?? 0);
-        $this->writingSplitEnabled = \Omnichannel\Addons\Content\Support\WritingSplitPreference::enabledForUserId(
-            $userId > 0 ? $userId : null,
-        );
     }
 
     private function applyContext(DomainContext $context): void
