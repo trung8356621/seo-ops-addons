@@ -453,8 +453,11 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $suppressedFreeLanes = [];
         /** @var array<string, true> physical routes already attempted this execution */
         $attemptedPhysicalRoutes = [];
-        /** After OUTPUT_TRUNCATED, skip remaining free candidates and prefer paid physical routes. */
+        /** After OUTPUT_TRUNCATED, skip remaining free candidates and prefer paid physical routes.
+         *  Invalid in FreeOnly — remaining free candidates must still be attempted. */
         $preferPaidAfterOutputTruncation = false;
+        $isFreeOnlyRouting = $context->isFreeOnly()
+            || $routingMode === \Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode::FreeOnly;
 
         foreach ($candidates as $index => $candidate) {
             $candidateIndex = $index + 1;
@@ -557,7 +560,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 continue;
             }
 
-            if ($preferPaidAfterOutputTruncation && $candidate->isFree) {
+            if ($preferPaidAfterOutputTruncation && ! $isFreeOnlyRouting && $candidate->isFree) {
                 $candidatesSkipped++;
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
@@ -794,7 +797,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $healthMutation = 'free_lane_suppressed';
                 }
 
-                if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated) {
+                if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated
+                    && ! $isFreeOnlyRouting
+                ) {
                     $preferPaidAfterOutputTruncation = true;
                 }
 

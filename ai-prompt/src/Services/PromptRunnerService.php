@@ -2134,8 +2134,11 @@ class PromptRunnerService
             $toolType,
             $callOptions,
         );
-        $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
         $usage = is_array($usage) ? $usage : [];
+        // True provider truncation must fail the physical route inside the router
+        // attempt (outline / vocabulary / other hooks) — same contract as article.
+        $this->assertProviderTerminalReasonEligibleForFailover($usage);
+        $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
         $usage['budget'] = $budgetPlan->toDiagnostics();
         $usage['compiled_chars'] = mb_strlen($compiled);
 
@@ -2170,7 +2173,7 @@ class PromptRunnerService
             $isTaskMode,
             $toolType,
         ): array {
-            return $this->callProvider(
+            [$chunkOutput, $chunkUsage] = $this->callProvider(
                 $routed->connection,
                 $prompt,
                 $chunkPrompt,
@@ -2180,6 +2183,10 @@ class PromptRunnerService
                 $toolType,
                 array_merge($routed->options, $options),
             );
+            $chunkUsage = is_array($chunkUsage) ? $chunkUsage : [];
+            $this->assertProviderTerminalReasonEligibleForFailover($chunkUsage);
+
+            return [$chunkOutput, $chunkUsage];
         };
 
         try {
@@ -2417,6 +2424,38 @@ class PromptRunnerService
     }
 
     /**
+     * True provider truncation only (finish_reason=length/max_tokens, truncated flag,
+     * normalized provider_terminal_reason=output_truncated). Route-recoverable —
+     * must throw inside the physical attempt so AiModelRouter can failover.
+     *
+     * Does NOT enforce article word-count / below-target warning semantics.
+     *
+     * @param  array<string, mixed>  $usage
+     */
+    private function assertProviderTerminalReasonEligibleForFailover(array $usage): void
+    {
+        $finishReason = isset($usage['finish_reason']) ? (string) $usage['finish_reason'] : null;
+        $truncatedFlag = (bool) ($usage['truncated'] ?? false);
+        $terminalNormalizer = new \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer;
+        $terminalFromUsage = $terminalNormalizer->normalizeFromUsage($usage, truncatedFlag: $truncatedFlag);
+        $isTruncated = $terminalFromUsage === \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated
+            || ArticleGenerationLengthValidator::isProviderLengthTruncation($finishReason, $truncatedFlag);
+
+        if (! $isTruncated) {
+            return;
+        }
+
+        $finishLabel = $finishReason !== null && $finishReason !== ''
+            ? $finishReason
+            : 'provider_truncated_flag';
+        throw new OutputTruncated(
+            'OUTPUT_TRUNCATED: provider terminal reason=output_truncated (finish_reason='.$finishLabel.').',
+            \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated,
+            $finishReason,
+        );
+    }
+
+    /**
      * Article writing length / provider-length-stop gates that must participate in
      * AiModelRouter failover. Throws OutputTruncated (recoverable) only for true
      * truncation / below-hard-floor. Below-target usable articles return warning meta.
@@ -2430,18 +2469,7 @@ class PromptRunnerService
         array $usage,
         array $variables,
     ): ?array {
-        $finishReason = isset($usage['finish_reason']) ? (string) $usage['finish_reason'] : null;
-        $truncatedFlag = (bool) ($usage['truncated'] ?? false);
-        if (ArticleGenerationLengthValidator::isProviderLengthTruncation($finishReason, $truncatedFlag)) {
-            $finishLabel = $finishReason !== null && $finishReason !== ''
-                ? $finishReason
-                : 'provider_truncated_flag';
-            throw new OutputTruncated(
-                'OUTPUT_TRUNCATED: provider terminal reason=output_truncated (finish_reason='.$finishLabel.').',
-                \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated,
-                $finishReason,
-            );
-        }
+        $this->assertProviderTerminalReasonEligibleForFailover($usage);
 
         $target = $this->resolveArticleLengthTargetWords($variables);
         if ($target <= 0) {
