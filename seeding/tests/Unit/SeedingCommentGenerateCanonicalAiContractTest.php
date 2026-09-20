@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
+use Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 /**
- * Gen-comment AI must use canonical routing + verified budget plan (no stale direct provider path).
+ * Gen-comment AI must enter SystemAiClient (no stale direct provider path).
  */
 final class SeedingCommentGenerateCanonicalAiContractTest extends TestCase
 {
@@ -18,23 +19,27 @@ final class SeedingCommentGenerateCanonicalAiContractTest extends TestCase
         return dirname(__DIR__, 2);
     }
 
-    public function test_service_uses_canonical_text_executor_not_first_active_model(): void
+    public function test_service_uses_system_ai_client_not_first_active_model(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(SeedingCommentGenerateService::class))->getFileName()
         );
 
-        self::assertStringContainsString('CanonicalAiTextExecutionService', $source);
-        self::assertStringContainsString('seeding.comment_generate', $source);
-        self::assertStringContainsString('AiExecutionProfile::TextFast', $source);
+        self::assertStringContainsString('SystemAiClient', $source);
+        self::assertStringContainsString('seeding.comment.generate', $source);
+        self::assertStringContainsString('CAPABILITY', $source);
         self::assertStringContainsString('HOOK_KEY', $source);
+        self::assertSame(SeedingCommentGenerateCapabilityHandler::KEY, SeedingCommentGenerateService::CAPABILITY);
 
+        self::assertStringNotContainsString('SocialAiExecutionService', $source);
+        self::assertStringNotContainsString('CanonicalAiTextExecutionService', $source);
         self::assertStringNotContainsString('SeoAiModel::query', $source);
         self::assertStringNotContainsString('orderByDesc(\'priority\')', $source);
         self::assertStringNotContainsString('AiProviderResolver', $source);
         self::assertStringNotContainsString('allow_unverified_outbound', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
         self::assertStringNotContainsString('SeoPrompt', $source);
+        self::assertStringNotContainsString('RemoteHttpAiTransport', $source);
     }
 
     public function test_controller_contract_unchanged(): void

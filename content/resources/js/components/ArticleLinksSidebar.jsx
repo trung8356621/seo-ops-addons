@@ -850,7 +850,10 @@ function InternalLinksSection({
                     <button
                         type="button"
                         className="wp-article-links-clear-excluded-btn"
-                        disabled={suggestionsLoading || (suggestionsHasResults && suggestionsExhausted)}
+                        disabled={
+                            suggestionsLoading
+                            || (suggestionsHasResults && suggestionsExhausted && !advancedSearchEnabled)
+                        }
                         onClick={onGenerateSuggestions}
                     >
                         {suggestionsLoading ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RotateCcw size={13} aria-hidden />}
@@ -1062,6 +1065,9 @@ export default function ArticleLinksSidebar({
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
     const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState(false);
+    // Imperative SSOT for request mode — React state alone can be stale in the same tick
+    // as checkbox → Find more (closure sees previous advancedSearchEnabled).
+    const advancedSearchEnabledRef = useRef(false);
     const [mainDomainSuggestions, setMainDomainSuggestions] = useState({
         mainDomain: '',
         relationship: null,
@@ -1090,7 +1096,7 @@ export default function ArticleLinksSidebar({
             advancedCursor: overrides.advancedCursor !== undefined
                 ? overrides.advancedCursor
                 : advancedCursorRef.current,
-            advancedEnabled: overrides.advancedEnabled ?? advancedSearchEnabled,
+            advancedEnabled: overrides.advancedEnabled ?? advancedSearchEnabledRef.current === true,
         });
     };
 
@@ -1339,7 +1345,11 @@ export default function ArticleLinksSidebar({
 
         const force = options.force === true;
         const findMore = !force && suggestionCursorRef.current.hasResults === true;
-        const useAdvanced = findMore && advancedSearchEnabled === true;
+        const useAdvanced = findMore && advancedSearchEnabledRef.current === true;
+        // Advanced may stay ON across an exhausted pass; allow Find more without
+        // forcing checkbox OFF→ON, but restart content_deep from the top.
+        const restartAdvancedFromExhausted = useAdvanced
+            && suggestionCursorRef.current.phase === 'exhausted';
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
@@ -1353,6 +1363,9 @@ export default function ArticleLinksSidebar({
             advancedCursorRef.current = null;
             failedCandidateKeysRef.current = [];
         } else {
+            if (restartAdvancedFromExhausted) {
+                advancedCursorRef.current = { stage: 'content_deep', offset: 0 };
+            }
             bumpSuggestionCursor({
                 phase: useAdvanced ? 'advanced_active' : 'source2_active',
                 hasResults: true,
@@ -1501,6 +1514,7 @@ export default function ArticleLinksSidebar({
                         ? session.failedKeys
                         : [];
                     advancedCursorRef.current = normalizeAdvancedCursor(session.advancedCursor);
+                    advancedSearchEnabledRef.current = session.advancedEnabled === true;
                     setAdvancedSearchEnabled(session.advancedEnabled === true);
                     setCatalogVersion((value) => value + 1);
                     const exhausted = session.exhausted === true || session.phase === 'exhausted';
@@ -2450,6 +2464,7 @@ export default function ArticleLinksSidebar({
                         suggestionsError={suggestionsError}
                         advancedSearchEnabled={advancedSearchEnabled}
                         onAdvancedSearchChange={(enabled) => {
+                            advancedSearchEnabledRef.current = enabled;
                             setAdvancedSearchEnabled(enabled);
                             if (enabled) {
                                 // Prior Advanced empty runs persist exhausted=true and disable

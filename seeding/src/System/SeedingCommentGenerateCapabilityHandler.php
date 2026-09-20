@@ -6,16 +6,18 @@ namespace Omnichannel\Addons\Seeding\System;
 
 use App\System\Ai\Contracts\AiTextExecutionPort;
 use App\System\Capability\SystemCapabilityHandler;
-use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
-use Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService;
+use Omnichannel\Addons\Social\Ai\Exceptions\SocialAiValidationException;
 use Omnichannel\Addons\Social\Ai\Tasks\SocialCommentGenerateTask;
 use RuntimeException;
 
 /**
- * Non-SEO proof capability: seeding.comment.generate via System AI boundary.
- * Does not import SEO domain. Uses Canonical port (AiTextExecutionPort) for model calls.
+ * Domain adapter for seeding.comment.generate via System AI.
+ *
+ * Owns Seeding prompt assembly (MCP + Manager prompt). Model routing / provider
+ * calls go through system_ai_text_port only — no direct provider / Social AI fallback.
+ * System core must not import this class by namespace from outside registration.
  */
 final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityHandler
 {
@@ -24,17 +26,21 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
     public function __construct(
         private readonly ?SeedingSocialContextResolver $contextResolver = null,
         private readonly ?SeedingCommentPromptService $promptService = null,
-        private readonly ?SeedingCommentGenerateHistoryService $history = null,
-        private readonly ?SocialAiExecutionService $socialAi = null,
+        private readonly ?SocialCommentGenerateTask $task = null,
     ) {}
 
     public function handle(array $input, array $context = []): array
     {
-        $allowSideEffects = (bool) ($context['allow_domain_side_effects'] ?? true);
         $textPort = $context['system_ai_text_port'] ?? null;
+        if (! $textPort instanceof AiTextExecutionPort) {
+            throw new RuntimeException(
+                'System AI text port is required for seeding.comment.generate (fail closed).',
+            );
+        }
 
         $resolver = $this->contextResolver ?? new SeedingSocialContextResolver();
         $prompts = $this->promptService ?? new SeedingCommentPromptService();
+        $task = $this->task ?? new SocialCommentGenerateTask();
 
         $mcpContext = $resolver->resolve($input);
         $managerPrompt = $prompts->getPromptBody();
@@ -42,81 +48,58 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
 
         $quantity = (int) ($input['quantity'] ?? $input['count'] ?? 3);
         $quantity = max(1, min(12, $quantity));
+        $social = trim((string) ($input['social'] ?? $input['platform'] ?? 'threads'));
+        if ($social === '') {
+            $social = 'threads';
+        }
 
-        if ($textPort instanceof AiTextExecutionPort) {
-            $generated = $textPort->generate(
-                $finalPrompt,
-                SocialCommentGenerateTask::TASK_KEY,
-                [
-                    'quantity' => $quantity,
-                    'count' => $quantity,
-                    'max_output' => min(2048, max(256, $quantity * 180)),
-                    'desired_output_tokens' => min(2048, max(256, $quantity * 180)),
-                    'profile' => 'fast_text',
-                ],
-            );
-            $raw = (string) ($generated['text'] ?? '');
-            $comments = $this->parseComments($raw, $quantity);
-            $result = [
-                'comments' => $comments,
-                'raw_output' => $raw,
-                'compiled_prompt' => $finalPrompt,
-                'provider' => $generated['provider'] ?? null,
-                'model' => $generated['model'] ?? null,
-                'physical_route' => $generated['physical_route'] ?? null,
-                'path' => 'system_ai_text_port',
-            ];
-        } elseif ($this->socialAi instanceof SocialAiExecutionService || function_exists('app')) {
-            $social = $this->socialAi ?? app(SocialAiExecutionService::class);
-            $detailed = $social->generateCommentsDetailed([
-                'prompt' => $finalPrompt,
+        try {
+            $normalized = $task->normalizeInput([
+                'context' => $mcpContext,
+                'business_prompt' => $finalPrompt,
+                'social' => $social,
                 'quantity' => $quantity,
-                'social' => $input['social'] ?? $input['platform'] ?? 'threads',
             ]);
-            $result = [
-                'comments' => $detailed['comments'],
-                'raw_output' => $detailed['raw_output'],
-                'compiled_prompt' => $detailed['compiled_prompt'] ?? $finalPrompt,
-                'provider' => $detailed['provider'] ?? null,
-                'model' => $detailed['model'] ?? null,
-                'path' => 'social_ai_fallback',
-            ];
-        } else {
-            throw new RuntimeException('No AI execution port available for seeding.comment.generate.');
+        } catch (SocialAiValidationException $e) {
+            throw new RuntimeException($e->getMessage(), 0, $e);
         }
 
-        if ($allowSideEffects && $this->history instanceof SeedingCommentGenerateHistoryService) {
-            // History write stays seeding-owned; skipped in shadow mode.
+        $compiledPrompt = $task->buildCompiledPrompt($normalized);
+        $maxOutput = min(2048, max(256, $quantity * 180));
+
+        $generated = $textPort->generate(
+            $compiledPrompt,
+            $task->taskKey(),
+            [
+                'quantity' => $quantity,
+                'count' => $quantity,
+                'max_output' => $maxOutput,
+                'desired_output_tokens' => $maxOutput,
+                'profile' => 'fast_text',
+            ],
+        );
+
+        $raw = (string) ($generated['text'] ?? '');
+
+        try {
+            $comments = $task->validateAndParseOutput($raw, $quantity);
+        } catch (SocialAiValidationException $e) {
+            throw new RuntimeException($e->getMessage(), 0, $e);
         }
 
-        $result['seo_runtime_participated'] = false;
-
-        return $result;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function parseComments(string $raw, int $quantity): array
-    {
-        $lines = preg_split('/\r\n|\r|\n/', trim($raw)) ?: [];
-        $comments = [];
-        foreach ($lines as $line) {
-            $line = trim($line);
-            $line = preg_replace('/^\s*[\-\*\d]+[\.\)]\s*/', '', $line) ?? $line;
-            if ($line === '') {
-                continue;
-            }
-            $comments[] = $line;
-            if (count($comments) >= $quantity) {
-                break;
-            }
-        }
-
-        if ($comments === [] && trim($raw) !== '') {
-            $comments[] = trim($raw);
-        }
-
-        return $comments;
+        return [
+            'comments' => $comments,
+            'raw_output' => $raw,
+            'compiled_prompt' => $compiledPrompt,
+            'mcp_context' => $mcpContext,
+            'final_prompt' => $finalPrompt,
+            'provider' => $generated['provider'] ?? null,
+            'model' => $generated['model'] ?? null,
+            'physical_route' => $generated['physical_route'] ?? null,
+            'path' => 'system_ai_text_port',
+            'seo_runtime_participated' => false,
+            'system_ai_capability' => self::KEY,
+            'hook_key' => $task->taskKey(),
+        ];
     }
 }

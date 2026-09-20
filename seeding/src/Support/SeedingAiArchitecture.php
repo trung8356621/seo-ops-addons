@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seeding\Support;
 
 /**
- * Permanent architecture boundary: Seeding Gen Comment AI ≠ SEO AI Prompt/Task/History.
+ * Architecture boundary: Seeding Gen Comment AI ≠ SEO Writing Prompt/Task/History UI.
  *
- * Do not design Seeding AI for a future merge into the SEO prompt pipeline.
- * Prefer Seeding-local duplication over coupling to the stable SEO AI system.
+ * Seeding is a second domain consumer of shared System AI
+ * (SystemAiClient → capability → AiTextExecutionPort / routing).
+ * Manager prompt text + quota/link/share/report stay Seeding-owned.
+ * Do not merge into SEO Prompt management screens.
  *
  * Canonical docs: docs/modules/SEEDING.md §8.
  */

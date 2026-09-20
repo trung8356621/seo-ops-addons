@@ -14,7 +14,7 @@ use Throwable;
 
 /**
  * AI sample-comment generation boundary.
- * Normalizes source → MCP context → Manager prompt → Social AI.
+ * Normalizes source → SystemAiClient (seeding.comment.generate).
  * Writes lightweight Gen Comment debug history (max 20); no topic/comment rows.
  */
 final class SeedingCommentGenerateController

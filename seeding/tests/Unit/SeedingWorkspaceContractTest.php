@@ -43,18 +43,19 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringNotContainsString('$this->loadMigrationsFrom', $provider);
     }
 
-    public function test_ai_generate_service_uses_shared_ai_prompt_not_seo_business(): void
+    public function test_ai_generate_service_uses_system_ai_not_seo_business(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(SeedingCommentGenerateService::class))->getFileName()
         );
-        self::assertStringContainsString('CanonicalAiTextExecutionService', $source);
-        self::assertStringContainsString('seeding.comment_generate', $source);
+        self::assertStringContainsString('SystemAiClient', $source);
+        self::assertStringContainsString('seeding.comment.generate', $source);
         self::assertStringNotContainsString('Omnichannel\\Addons\\Seo\\', $source);
         self::assertStringNotContainsString('SeoPrompt', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
         self::assertStringNotContainsString('SeoAiModel::query', $source);
         self::assertStringNotContainsString('allow_unverified_outbound', $source);
+        self::assertStringNotContainsString('SocialAiExecutionService', $source);
         self::assertStringContainsString('nội dung seeding', $source);
     }
 

@@ -25,8 +25,10 @@ final class SeedingSystemAiCapabilityProofTest extends TestCase
         self::assertStringNotContainsString('Omnichannel\\Addons\\Seo\\', $source);
         self::assertStringNotContainsString('Omnichannel\\Addons\\ContentProjects\\', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
+        self::assertStringNotContainsString('SocialAiExecutionService', $source);
         self::assertStringContainsString('AiTextExecutionPort', $source);
         self::assertStringContainsString('seeding.comment.generate', $source);
+        self::assertStringContainsString('fail closed', $source);
     }
 
     public function test_system_ai_executes_seeding_capability_via_text_port(): void
@@ -43,7 +45,7 @@ final class SeedingSystemAiCapabilityProofTest extends TestCase
                     if (! $textPort instanceof AiTextExecutionPort) {
                         return ['error' => 'missing_port'];
                     }
-                    $generated = $textPort->generate('compiled', 'seeding.comment_generate', []);
+                    $generated = $textPort->generate('compiled', 'social.comment.generate', []);
 
                     return [
                         'comments' => ['c1', 'c2'],

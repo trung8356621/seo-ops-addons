@@ -6,21 +6,26 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
 use App\Core\Sites\SiteAccess;
 use App\Models\User;
+use App\System\Ai\Client\DefaultSystemAiClient;
+use App\System\Ai\Contracts\AiTextExecutionPort;
+use App\System\Ai\Transport\LegacyLocalAiTransport;
+use App\System\Capability\SystemCapabilityDefinition;
+use App\System\Capability\SystemCapabilityRegistry;
+use App\System\Support\CapabilityModeResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
-use Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService;
+use Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler;
 use Omnichannel\Addons\Social\Ai\Tasks\SocialCommentGenerateTask;
 use ReflectionClass;
 use Tests\TestCase;
 
 /**
- * Controller boundary: source_type normalization + plain-text Social AI flow.
+ * Controller boundary: source_type normalization + System AI comment flow.
  */
 final class SeedingCommentGenerateHttpContractTest extends TestCase
 {
@@ -42,29 +47,44 @@ final class SeedingCommentGenerateHttpContractTest extends TestCase
         ]);
         $this->actingAs($user);
 
-        $rawExecutor = static function (
-            string $compiled,
-            string $hookKey,
-            ?AiExecutionProfile $profile,
-            mixed $context,
-            array $options,
-        ): array {
-            unset($compiled, $hookKey, $profile, $context, $options);
-            $json = json_encode([
-                'comments' => [
-                    'Comment A rất tự nhiên',
-                    'Comment B góc nhìn khác',
-                    'Comment C ngắn gọn',
-                ],
-            ], JSON_UNESCAPED_UNICODE);
+        $textPort = new class implements AiTextExecutionPort {
+            public function generate(string $compiledPrompt, string $hookKey, array $options = []): array
+            {
+                unset($compiledPrompt, $hookKey, $options);
 
-            return [(string) $json, null, null];
+                return [
+                    'text' => json_encode([
+                        'comments' => [
+                            'Comment A rất tự nhiên',
+                            'Comment B góc nhìn khác',
+                            'Comment C ngắn gọn',
+                        ],
+                    ], JSON_UNESCAPED_UNICODE),
+                    'provider' => 'test',
+                    'model' => 'test-model',
+                ];
+            }
         };
 
-        $socialAi = new SocialAiExecutionService(aiText: null, rawExecutor: $rawExecutor);
+        $registry = new SystemCapabilityRegistry();
+        $registry->register(new SystemCapabilityDefinition(
+            key: SeedingCommentGenerateCapabilityHandler::KEY,
+            owner: 'seeding',
+            handler: new SeedingCommentGenerateCapabilityHandler(
+                contextResolver: new SeedingSocialContextResolver(),
+            ),
+            sideEffectFree: false,
+        ));
+
+        $client = new DefaultSystemAiClient(
+            modes: new CapabilityModeResolver(),
+            local: new LegacyLocalAiTransport($registry, $textPort),
+            capabilities: $registry,
+        );
+
         $resolver = new SeedingSocialContextResolver();
         $generator = new SeedingCommentGenerateService(
-            socialAi: $socialAi,
+            systemAi: $client,
             contextResolver: $resolver,
         );
         $access = new SeedingAccess(app(SiteAccess::class), new SeedingServiceResolver());

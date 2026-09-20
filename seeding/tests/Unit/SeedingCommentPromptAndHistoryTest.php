@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
-use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use App\System\Ai\Client\DefaultSystemAiClient;
+use App\System\Ai\Contracts\AiTextExecutionPort;
+use App\System\Ai\Transport\LegacyLocalAiTransport;
+use App\System\Capability\SystemCapabilityDefinition;
+use App\System\Capability\SystemCapabilityRegistry;
+use App\System\Support\CapabilityModeResolver;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
@@ -12,9 +17,9 @@ use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingAiArchitecture;
 use Omnichannel\Addons\Seeding\Support\SeedingCommentPromptDefaults;
 use Omnichannel\Addons\Seeding\Support\SeedingCommentPromptRenderer;
-use Omnichannel\Addons\Social\Ai\Exceptions\SocialAiException;
-use Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService;
+use Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 /**
  * Focused Gen Comment Manager prompt + debug history contracts (no SEO prompt system).
@@ -67,7 +72,6 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             $seen[$slot] = $seq;
         }
         self::assertCount(20, $seen);
-        // Two concurrent logical writes at seq 5 and 6 never share a slot.
         self::assertNotSame(
             SeedingCommentGenerateHistoryService::slotForSequence(5),
             SeedingCommentGenerateHistoryService::slotForSequence(6),
@@ -97,30 +101,24 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             }
         };
 
-        $rawExecutor = static function (
-            string $compiled,
-            string $hookKey,
-            ?AiExecutionProfile $profile,
-            mixed $context,
-            array $options,
-        ) use (&$captured): array {
-            $captured['compiled'] = $compiled;
-            unset($hookKey, $profile, $context, $options);
+        $textPort = new class($captured) implements AiTextExecutionPort {
+            /** @param array<string, mixed> $captured */
+            public function __construct(private array &$captured) {}
 
-            return [
-                json_encode(['comments' => ['c1', 'c2', 'c3']], JSON_UNESCAPED_UNICODE),
-                null,
-                (object) ['provider' => 'deepseek', 'model' => 'deepseek-chat'],
-            ];
+            public function generate(string $compiledPrompt, string $hookKey, array $options = []): array
+            {
+                $this->captured['compiled'] = $compiledPrompt;
+                unset($hookKey, $options);
+
+                return [
+                    'text' => json_encode(['comments' => ['c1', 'c2', 'c3']], JSON_UNESCAPED_UNICODE),
+                    'provider' => 'deepseek',
+                    'model' => 'deepseek-chat',
+                ];
+            }
         };
 
-        $socialAi = new SocialAiExecutionService(aiText: null, rawExecutor: $rawExecutor);
-        $service = new SeedingCommentGenerateService(
-            socialAi: $socialAi,
-            contextResolver: new SeedingSocialContextResolver(),
-            promptService: $prompt,
-            history: $history,
-        );
+        $service = $this->makeService($prompt, $history, $textPort);
 
         $comments = $service->generateFromPayload([
             'content' => 'Balo laptop chống sốc',
@@ -142,7 +140,6 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         self::assertSame('deepseek-chat', $snap['model']);
         self::assertStringContainsString('"comments"', (string) $snap['ai_output']);
 
-        // Compiled AI request includes Manager final prompt, without hidden style append after it.
         self::assertStringContainsString($snap['final_prompt'], $captured['compiled']);
         self::assertStringNotContainsString('Adapt naturally to the supplied social platform', $captured['compiled']);
         self::assertStringNotContainsString('Avoid sounding like spam', $captured['compiled']);
@@ -170,16 +167,15 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             }
         };
 
-        $rawExecutor = static function (): array {
-            throw new SocialAiException('model blew up');
+        $textPort = new class implements AiTextExecutionPort {
+            public function generate(string $compiledPrompt, string $hookKey, array $options = []): array
+            {
+                unset($compiledPrompt, $hookKey, $options);
+                throw new RuntimeException('model blew up');
+            }
         };
 
-        $service = new SeedingCommentGenerateService(
-            socialAi: new SocialAiExecutionService(aiText: null, rawExecutor: $rawExecutor),
-            contextResolver: new SeedingSocialContextResolver(),
-            promptService: $prompt,
-            history: $history,
-        );
+        $service = $this->makeService($prompt, $history, $textPort);
 
         try {
             $service->generateFromPayload([
@@ -187,8 +183,8 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
                 'social' => 'facebook',
                 'quantity' => 2,
             ]);
-            self::fail('Expected SocialAiException');
-        } catch (SocialAiException $e) {
+            self::fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
             self::assertStringContainsString('model blew up', $e->getMessage());
         }
 
@@ -251,6 +247,7 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
             dirname(__DIR__, 2).'/src/Support/SeedingAiArchitecture.php',
             dirname(__DIR__, 2).'/src/Models/SeedingCommentPromptSetting.php',
             dirname(__DIR__, 2).'/src/Models/SeedingCommentGenerateLog.php',
+            dirname(__DIR__, 2).'/src/System/SeedingCommentGenerateCapabilityHandler.php',
         ];
 
         foreach ($files as $path) {
@@ -279,6 +276,36 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         self::assertSame(
             SeedingAiArchitecture::RETENTION_MAX_LOGS,
             SeedingCommentGenerateHistoryService::MAX_LOGS,
+        );
+    }
+
+    private function makeService(
+        SeedingCommentPromptService $prompt,
+        SeedingCommentGenerateHistoryService $history,
+        AiTextExecutionPort $textPort,
+    ): SeedingCommentGenerateService {
+        $registry = new SystemCapabilityRegistry();
+        $registry->register(new SystemCapabilityDefinition(
+            key: SeedingCommentGenerateCapabilityHandler::KEY,
+            owner: 'seeding',
+            handler: new SeedingCommentGenerateCapabilityHandler(
+                contextResolver: new SeedingSocialContextResolver(),
+                promptService: $prompt,
+            ),
+            sideEffectFree: false,
+        ));
+
+        $client = new DefaultSystemAiClient(
+            modes: new CapabilityModeResolver(),
+            local: new LegacyLocalAiTransport($registry, $textPort),
+            capabilities: $registry,
+        );
+
+        return new SeedingCommentGenerateService(
+            systemAi: $client,
+            contextResolver: new SeedingSocialContextResolver(),
+            promptService: $prompt,
+            history: $history,
         );
     }
 }

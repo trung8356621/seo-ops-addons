@@ -6,8 +6,6 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
-use Omnichannel\Addons\Social\Ai\Exceptions\SocialAiException;
-use Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -18,17 +16,20 @@ final class SeedingSocialCommentGenerateIntegrationTest extends TestCase
         return dirname(__DIR__, 2);
     }
 
-    public function test_seeding_comment_generate_service_has_social_ai_delegation(): void
+    public function test_seeding_comment_generate_service_enters_system_ai(): void
     {
         $serviceFile = (string) file_get_contents(
             (new ReflectionClass(SeedingCommentGenerateService::class))->getFileName()
         );
 
-        self::assertStringContainsString('SocialAiExecutionService', $serviceFile);
+        self::assertStringContainsString('SystemAiClient', $serviceFile);
+        self::assertStringContainsString('seeding.comment.generate', $serviceFile);
         self::assertStringContainsString('SeedingSocialContextResolver', $serviceFile);
         self::assertStringContainsString('generateFromPayload', $serviceFile);
         self::assertStringContainsString('public const HOOK_KEY = \'seeding.comment_generate\'', $serviceFile);
         self::assertStringContainsString('public function generate(', $serviceFile);
+        self::assertStringNotContainsString('SocialAiExecutionService', $serviceFile);
+        self::assertStringNotContainsString('RemoteHttpAiTransport', $serviceFile);
     }
 
     public function test_seeding_controller_supports_new_payload_contracts(): void
