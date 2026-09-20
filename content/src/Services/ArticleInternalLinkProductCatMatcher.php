@@ -206,8 +206,9 @@ final class ArticleInternalLinkProductCatMatcher
         array $validationContext,
         array $alreadyLinkedNormalizedUrls = [],
         array $alreadyLinkedLabels = [],
+        ?string $sourceLanguage = null,
     ): array {
-        $rows = $this->catalog->forSite($siteId);
+        $rows = $this->catalog->forSite($siteId, $sourceLanguage);
         $catalogDebug = $this->catalog->lastDebug();
         $result = $this->match(
             $plainText,

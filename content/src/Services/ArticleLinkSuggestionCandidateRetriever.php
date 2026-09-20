@@ -252,11 +252,14 @@ final class ArticleLinkSuggestionCandidateRetriever
             return $this->siteIndexCache[$cacheKey];
         }
 
-        $persistentKey = WordPressInternalLinkTargetPolicy::siteIndexCacheKey($siteId);
+        // Language must be in the SQL pool — a shared 600-row all-language cache lets EN
+        // crowd out VI destinations on bilingual sites (e.g. site 6: 526 EN vs 74 VI in top 600).
+        $persistentKey = WordPressInternalLinkTargetPolicy::siteIndexCacheKey($siteId, $language);
         /** @var list<array<string, mixed>> $fullIndex */
-        $fullIndex = Cache::remember($persistentKey, 90, function () use ($siteId): array {
+        $fullIndex = Cache::remember($persistentKey, 90, function () use ($siteId, $language): array {
             $articles = SeoArticle::query()
                 ->where('site_id', $siteId)
+                ->where('language', $language)
                 ->notContentArchived()
                 ->orderByDesc('id')
                 ->limit(600)

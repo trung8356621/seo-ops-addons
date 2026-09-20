@@ -84,11 +84,19 @@ final class WordPressInternalLinkTargetPolicyTest extends TestCase
     public function test_site_index_cache_key_is_versioned(): void
     {
         self::assertSame(
-            'article_link_suggest.site_index.v3.7',
+            'article_link_suggest.site_index.v4.7.vi',
+            WordPressInternalLinkTargetPolicy::siteIndexCacheKey(7, 'vi'),
+        );
+        self::assertSame(
+            'article_link_suggest.site_index.v4.7._',
             WordPressInternalLinkTargetPolicy::siteIndexCacheKey(7),
         );
         self::assertStringNotContainsString(
             '.v1.',
+            WordPressInternalLinkTargetPolicy::SITE_INDEX_CACHE_PREFIX,
+        );
+        self::assertStringNotContainsString(
+            '.v3.',
             WordPressInternalLinkTargetPolicy::SITE_INDEX_CACHE_PREFIX,
         );
     }

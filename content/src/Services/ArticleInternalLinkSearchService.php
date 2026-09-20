@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
@@ -77,12 +76,13 @@ final class ArticleInternalLinkSearchService
         }
 
         // Fallback hẹp: title LIKE + exclude current (khi index rank không có kết quả).
-        // Same eligibility as ranked index: must be synced to WordPress with a real permalink.
+        // Destination eligibility SSOT — NOT ArticleResource list access scopes
+        // (CM ownership / review / global-site UI filters must not shrink link targets).
         // Hard gate: fallback candidates must match the current article's language.
         $currentLanguage = $current instanceof SeoArticle ? ((string) ($current->language ?? '') ?: 'vi') : 'vi';
         $escaped = str_replace(['%', '_'], ['\%', '\_'], $query);
         $poolLimit = min(100, max(40, $limit * 5));
-        $builder = ArticleResource::getEloquentQuery()
+        $builder = SeoArticle::query()
             ->with(['site', 'articleMetas', 'wordpressLink'])
             ->where('site_id', $siteId)
             ->where('id', '!=', $excludeArticleId)

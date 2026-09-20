@@ -106,6 +106,7 @@ final class ArticleInternalLinkPipeline
             $validationContext,
             $alreadyLinkedHrefs,
             $alreadyLinkedLabels,
+            (string) ($article->language ?? '') ?: null,
         );
         $productCatSuggestions = [];
         foreach ($productCatResult['suggestions'] as $row) {
@@ -678,6 +679,7 @@ final class ArticleInternalLinkPipeline
             $validationContext,
             $occupiedHrefs,
             $occupiedLabels,
+            (string) ($article->language ?? '') ?: null,
         );
         $productCatItems = [];
         foreach ($productCatResult['suggestions'] as $row) {
@@ -1390,11 +1392,16 @@ final class ArticleInternalLinkPipeline
         }
 
         $processedKeys = [];
-        foreach (array_keys($failedSet) as $key) {
-            if (str_starts_with((string) $key, 'deep|')) {
-                $parts = explode('|', (string) $key);
-                if (isset($parts[1]) && $parts[1] !== '') {
-                    $processedKeys[] = $parts[1];
+        // Fresh content_deep pass (offset 0) must re-search phrases. Prior deep|*
+        // failed/processed keys from an exhausted run would otherwise skip every
+        // phrase (extracted=N, searched=0, offset→N) without destination lookup.
+        if ($offset > 0) {
+            foreach (array_keys($failedSet) as $key) {
+                if (str_starts_with((string) $key, 'deep|')) {
+                    $parts = explode('|', (string) $key);
+                    if (isset($parts[1]) && $parts[1] !== '') {
+                        $processedKeys[] = $parts[1];
+                    }
                 }
             }
         }

@@ -45,6 +45,7 @@ final class ArticleInternalLinkProductCatCatalog
      *     depth: int,
      *     ancestors: list<int>,
      *     article_id: int,
+     *     language: string,
      *     verified: bool,
      *     source: string,
      *     health: string,
@@ -54,7 +55,7 @@ final class ArticleInternalLinkProductCatCatalog
      *     slug_norm: string
      * }>
      */
-    public function forSite(int $siteId): array
+    public function forSite(int $siteId, ?string $sourceLanguage = null): array
     {
         $this->resetDebug();
 
@@ -62,7 +63,7 @@ final class ArticleInternalLinkProductCatCatalog
             return [];
         }
 
-        $cacheKey = 'article_link_suggest.product_cat_catalog.v2.'.$siteId;
+        $cacheKey = 'article_link_suggest.product_cat_catalog.v3.'.$siteId;
         /** @var array{rows: list<array<string, mixed>>, incomplete: int, source: string} $cached */
         $cached = Cache::remember($cacheKey, 300, function () use ($siteId): array {
             $local = $this->loadFromLocalArticles($siteId);
@@ -92,6 +93,27 @@ final class ArticleInternalLinkProductCatCatalog
             (int) ($cached['incomplete'] ?? 0),
         );
         $this->lastDebug['source'] = (string) ($cached['source'] ?? 'local_articles_taxonomy_sync');
+
+        $sourceLanguage = trim((string) ($sourceLanguage ?? ''));
+        if ($sourceLanguage !== '') {
+            $before = count($eligible);
+            $eligible = array_values(array_filter(
+                $eligible,
+                static function (array $row) use ($sourceLanguage): bool {
+                    $rowLang = trim((string) ($row['language'] ?? ''));
+                    // Rows without stored language (live export) stay visible — local
+                    // taxonomy articles carry SeoArticle.language as the SSOT gate.
+                    if ($rowLang === '') {
+                        return true;
+                    }
+
+                    return $rowLang === $sourceLanguage;
+                },
+            ));
+            $this->lastDebug['product_cat_language_filtered'] = $before - count($eligible);
+            $this->lastDebug['product_cat_source_language'] = $sourceLanguage;
+            $this->lastDebug['product_cat_after_language'] = count($eligible);
+        }
 
         return $eligible;
     }
@@ -168,6 +190,9 @@ final class ArticleInternalLinkProductCatCatalog
             'product_cat_missing_url' => 0,
             'product_cat_incomplete_identity' => 0,
             'product_cat_after_filter' => 0,
+            'product_cat_language_filtered' => 0,
+            'product_cat_source_language' => null,
+            'product_cat_after_language' => 0,
             'source' => 'local_articles_taxonomy_sync',
         ];
     }
@@ -305,7 +330,7 @@ final class ArticleInternalLinkProductCatCatalog
         ArticleContentClassification::scopeContentType($query, ContentType::Product);
         ArticleContentClassification::scopeIsTerm($query, true);
 
-        $articles = $query->get(['id', 'title', 'slug', 'status', 'site_id']);
+        $articles = $query->get(['id', 'title', 'slug', 'status', 'site_id', 'language']);
         $raw = [];
         $incomplete = 0;
 
@@ -350,6 +375,7 @@ final class ArticleInternalLinkProductCatCatalog
                 'permalink' => $url,
                 'seo_title' => $seoTitle,
                 'article_id' => (int) $article->id,
+                'language' => trim((string) ($article->language ?? '')),
                 'source' => 'taxonomy_sync',
                 'health' => $this->resolveHealth($metas),
                 'wp_taxonomy' => 'product_cat',
@@ -429,6 +455,7 @@ final class ArticleInternalLinkProductCatCatalog
                 'url' => $url,
                 'seo_title' => $seoTitle,
                 'article_id' => (int) ($payload['article_id'] ?? 0),
+                'language' => trim((string) ($payload['language'] ?? '')),
                 'verified' => (bool) ($verified['verified'] ?? true),
                 'source' => (string) ($verified['source'] ?? 'taxonomy_sync'),
                 'health' => (string) ($payload['health'] ?? 'ok'),

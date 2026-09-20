@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\Cache;
  */
 final class WordPressInternalLinkTargetPolicy
 {
-    public const SITE_INDEX_CACHE_PREFIX = 'article_link_suggest.site_index.v3.';
+    public const SITE_INDEX_CACHE_PREFIX = 'article_link_suggest.site_index.v4.';
 
     public function wpPostId(SeoArticle $article): int
     {
@@ -70,9 +71,11 @@ final class WordPressInternalLinkTargetPolicy
         return null;
     }
 
-    public static function siteIndexCacheKey(int $siteId): string
+    public static function siteIndexCacheKey(int $siteId, ?string $language = null): string
     {
-        return self::SITE_INDEX_CACHE_PREFIX.$siteId;
+        $lang = ArticleLanguageCode::normalize((string) ($language ?? '')) ?: '_';
+
+        return self::SITE_INDEX_CACHE_PREFIX.$siteId.'.'.$lang;
     }
 
     public static function forgetSiteIndexCache(int $siteId): void
@@ -81,7 +84,11 @@ final class WordPressInternalLinkTargetPolicy
             return;
         }
 
-        Cache::forget(self::siteIndexCacheKey($siteId));
+        // Forget language-scoped v4 keys + legacy unscoped v3 key if still present.
+        Cache::forget('article_link_suggest.site_index.v3.'.$siteId);
+        foreach (['_', 'vi', 'en', 'zh', 'ja', 'ko', 'fr', 'de', 'th', 'id'] as $lang) {
+            Cache::forget(self::SITE_INDEX_CACHE_PREFIX.$siteId.'.'.$lang);
+        }
     }
 
     public static function forgetSiteIndexCacheForArticle(SeoArticle $article): void

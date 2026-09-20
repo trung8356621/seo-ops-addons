@@ -94,6 +94,10 @@ final class ArticleLinkSuggestionContentKeywordFallback
             'phrase_offset' => $phraseOffset,
             'target' => $targetCount,
             'extracted_phrase_count' => 0,
+            'skipped_empty' => 0,
+            'skipped_already_processed' => 0,
+            'skipped_stop_phrase' => 0,
+            'skipped_occupied_anchor' => 0,
             'phrases_with_keyword_target' => 0,
             'phrases_searched_index' => 0,
             'destination_candidates' => 0,
@@ -146,18 +150,22 @@ final class ArticleLinkSuggestionContentKeywordFallback
             $phrase = trim((string) ($row['phrase'] ?? ''));
             $phraseKey = KeywordPhraseMatcher::normalize($phrase);
             if ($phrase === '' || $phraseKey === '') {
+                $this->lastDebug['skipped_empty']++;
                 continue;
             }
             if (isset($processed[$phraseKey])) {
+                $this->lastDebug['skipped_already_processed']++;
                 continue;
             }
             if (LinkSuggestionStopPhraseFilter::isStopPhrase($phrase)) {
+                $this->lastDebug['skipped_stop_phrase']++;
                 $processed[$phraseKey] = true;
                 $newProcessed[] = $phraseKey;
                 $newFailed[] = 'deep|'.$phraseKey.'|stop';
                 continue;
             }
             if ($this->labelOccupied($phrase, $occupiedLabels)) {
+                $this->lastDebug['skipped_occupied_anchor']++;
                 $processed[$phraseKey] = true;
                 $newProcessed[] = $phraseKey;
                 continue;
