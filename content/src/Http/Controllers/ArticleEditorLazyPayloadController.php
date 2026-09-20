@@ -196,6 +196,37 @@ final class ArticleEditorLazyPayloadController extends Controller
         $mode = strtolower(trim((string) $request->input('mode', 'full')));
         $service = app(ArticleEditorLinksPayloadService::class);
 
+        if ($mode === 'advanced') {
+            $existing = $request->input('existing_internal', []);
+            if (! is_array($existing)) {
+                $existing = [];
+            }
+            $failedKeys = $request->input('failed_keys', []);
+            if (! is_array($failedKeys)) {
+                $failedKeys = [];
+            }
+            $cursor = $request->input('cursor', []);
+            if (! is_array($cursor)) {
+                $cursor = [];
+            }
+            $targetCount = max(1, min(5, (int) $request->input('target_count', 5)));
+
+            return response()->json([
+                'success' => true,
+                'data' => $service->withAdvancedBatch(
+                    $article,
+                    $submitted,
+                    $existing,
+                    array_values(array_filter(array_map(
+                        static fn ($key): string => trim((string) $key),
+                        $failedKeys,
+                    ), static fn (string $key): bool => $key !== '')),
+                    $cursor,
+                    $targetCount,
+                ),
+            ]);
+        }
+
         if ($mode === 'fallback') {
             $existing = $request->input('existing_internal', []);
             if (! is_array($existing)) {

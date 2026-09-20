@@ -126,7 +126,7 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         self::assertStringContainsString('suggestionCursorRef', $source);
         self::assertStringContainsString('links_find_more_suggestions', $source);
         self::assertStringContainsString('is-content-suggestion', $source);
-        self::assertStringContainsString('findPhraseOccurrencesInBlocks', $source);
+        self::assertStringContainsString('findSuggestionPhraseOccurrences', $source);
         self::assertStringNotContainsString('onGenerateFallbackSuggestions', $source);
         self::assertStringNotContainsString('links_generate_fallback', $source);
     }

@@ -277,6 +277,17 @@ export function normalizeLinksPayload(payload) {
         suggestionDebug: src.suggestion_debug && typeof src.suggestion_debug === 'object'
             ? src.suggestion_debug
             : null,
+        suggestionCursor:
+            src.suggestion_cursor && typeof src.suggestion_cursor === 'object'
+                ? {
+                    stage: String(src.suggestion_cursor.stage ?? ''),
+                    offset: Math.max(0, Number(src.suggestion_cursor.offset ?? 0) || 0),
+                }
+                : null,
+        suggestionsExhausted: src.suggestions_exhausted === true,
+        failedCandidateKeys: Array.isArray(src.failed_candidate_keys)
+            ? src.failed_candidate_keys.map((key) => String(key ?? '').trim()).filter(Boolean)
+            : [],
     };
 }
 

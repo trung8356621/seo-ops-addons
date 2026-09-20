@@ -18,6 +18,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\AiGeneratedContentNormalizer;
 use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
 use Omnichannel\Addons\Content\Services\ArticleCtaPlaceholderService;
+use Omnichannel\Addons\Content\Services\ArticleEditorPersistService;
 use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
@@ -106,6 +107,10 @@ final class PromptTestPublishService implements ArticleBodyPublishPort
             $import['faqs'],
         );
         $html = app(AiGeneratedContentNormalizer::class)->normalizeHtml($cta['html']);
+        // Hash + write must use the same representation articles.body stores
+        // (stripTransientEditorMarkup / CTA blank unwrap). Writer re-runs this
+        // canonicalize idempotently.
+        $html = app(ArticleEditorPersistService::class)->canonicalizeBodyForPersist($html);
 
         return [
             'markdown' => $markdown,

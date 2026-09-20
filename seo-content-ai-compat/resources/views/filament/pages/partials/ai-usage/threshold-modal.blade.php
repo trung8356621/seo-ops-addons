@@ -1,11 +1,11 @@
 {{-- Shared threshold modal for provider wallet --}}
 @if ($editingThresholdConnectionId !== null)
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/50 backdrop-blur-sm" wire:key="threshold-modal">
-        <div class="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Cấu hình ngưỡng cảnh báo số dư</h3>
-            <p class="mt-1 text-xs text-gray-500">Hệ thống sẽ phát cảnh báo trên Dashboard khi số dư thấp hơn ngưỡng này.</p>
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-sm" wire:key="threshold-modal">
+        <div class="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-800 dark:bg-gray-900">
+            <h3 class="text-base font-semibold leading-6 text-gray-950 dark:text-white">Cấu hình ngưỡng cảnh báo số dư</h3>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Dashboard sẽ cảnh báo khi số dư thấp hơn ngưỡng này.</p>
             <div class="mt-4">
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Ngưỡng cảnh báo ($ USD)</label>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Ngưỡng cảnh báo (USD)</label>
                 <div class="relative mt-1">
                     <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-gray-400">$</span>
                     <input

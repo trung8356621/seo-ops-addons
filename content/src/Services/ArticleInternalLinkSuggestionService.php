@@ -144,6 +144,86 @@ final class ArticleInternalLinkSuggestionService
     }
 
     /**
+     * Advanced Find-more — same pipeline stages with stage+offset resume.
+     *
+     * @param  list<array<string, mixed>>  $existingInternal
+     * @param  list<array<string, mixed>>  $internalLinks
+     * @param  list<array<string, mixed>>  $externalLinks
+     * @param  list<string>  $failedKeys
+     * @param  array{stage?: string, offset?: int}  $cursor
+     * @return array{
+     *     internal: list<array<string, mixed>>,
+     *     internal_catalog: list<array<string, mixed>>,
+     *     external: list<array<string, mixed>>,
+     *     external_catalog: list<array<string, mixed>>,
+     *     cursor: array{stage: string, offset: int},
+     *     exhausted: bool,
+     *     failed_keys: list<string>,
+     *     debug?: array<string, mixed>
+     * }
+     */
+    public function suggestAdvancedBatch(
+        SeoArticle $article,
+        string $content,
+        array $existingInternal,
+        array $internalLinks,
+        array $externalLinks = [],
+        array $failedKeys = [],
+        array $cursor = [],
+        int $targetCount = 5,
+    ): array {
+        $maxInternalLinks = $this->limit('max_internal_links', 10);
+        $maxDisplay = $this->limit('max_display_internal', 10);
+        $alreadyCount = count($existingInternal);
+        $remainingSlots = max(0, min($maxDisplay, $maxInternalLinks) - $alreadyCount);
+        if ($remainingSlots <= 0) {
+            return [
+                'internal' => [],
+                'internal_catalog' => [],
+                'external' => [],
+                'external_catalog' => [],
+                'cursor' => ['stage' => ArticleInternalLinkPipeline::ADVANCED_STAGE_DONE, 'offset' => 0],
+                'exhausted' => true,
+                'failed_keys' => [],
+                'debug' => ['skip_reason' => 'display_cap_reached'],
+            ];
+        }
+
+        $batchTarget = max(1, min(5, $targetCount, $remainingSlots));
+        $batch = $this->pipeline->collectAdvancedBatch(
+            $article,
+            $content,
+            $internalLinks,
+            $externalLinks,
+            $existingInternal,
+            $failedKeys,
+            $cursor,
+            $batchTarget,
+        );
+
+        $this->lastDebug = is_array($batch['debug'] ?? null) ? $batch['debug'] : [];
+        $this->logDebug('advanced_batch', $this->lastDebug);
+
+        $fresh = is_array($batch['internal'] ?? null) ? $batch['internal'] : [];
+
+        return [
+            'internal' => array_slice($fresh, 0, $batchTarget),
+            'internal_catalog' => $fresh,
+            'external' => [],
+            'external_catalog' => [],
+            'cursor' => is_array($batch['cursor'] ?? null)
+                ? $batch['cursor']
+                : ['stage' => ArticleInternalLinkPipeline::ADVANCED_STAGE_DONE, 'offset' => 0],
+            'exhausted' => (bool) ($batch['exhausted'] ?? false),
+            'failed_keys' => is_array($batch['failed_keys'] ?? null) ? $batch['failed_keys'] : [],
+            'internal_link_catalog' => is_array($this->lastDebug['internal_link_catalog'] ?? null)
+                ? $this->lastDebug['internal_link_catalog']
+                : [],
+            'debug' => LinkSuggestionStopPhraseFilter::debugEnabled() ? $this->lastDebug : [],
+        ];
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $internalLinks
      * @param  array<int, array<string, mixed>>  $externalLinks
      * @return array{

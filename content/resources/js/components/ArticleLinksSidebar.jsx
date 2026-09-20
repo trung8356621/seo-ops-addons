@@ -25,6 +25,13 @@ import {
     loadExcludedLinkSuggestions,
     saveExcludedLinkSuggestions,
 } from '../utils/articleExcludedLinkSuggestionsStorage';
+import {
+    clearInternalLinkSuggestionSession,
+    isInternalLinkSuggestionSessionUsable,
+    loadInternalLinkSuggestionSession,
+    normalizeAdvancedCursor,
+    saveInternalLinkSuggestionSession,
+} from '../utils/articleInternalLinkSuggestionSessionStorage';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
 import {
     normalizeLinksPayload,
@@ -102,7 +109,15 @@ async function fetchEditorLinksBase(articleId, signal) {
  * Keyword suggestion catalogs — only after explicit Generate Suggestions.
  * Sends live editor HTML when available (articles.body often empty after WP sync).
  * @param {number} articleId
- * @param {{ content?: string, mode?: 'full'|'fallback', existingInternal?: unknown[], signal?: AbortSignal }} [options]
+ * @param {{
+ *   content?: string,
+ *   mode?: 'full'|'fallback'|'advanced',
+ *   existingInternal?: unknown[],
+ *   failedKeys?: string[],
+ *   cursor?: { stage?: string, offset?: number }|null,
+ *   targetCount?: number,
+ *   signal?: AbortSignal,
+ * }} [options]
  */
 async function fetchEditorLinksSuggestions(articleId, options = {}) {
     const id = Number(articleId ?? 0);
@@ -114,12 +129,19 @@ async function fetchEditorLinksSuggestions(articleId, options = {}) {
         window.__SEO_EDITOR_LAZY_ENDPOINTS__?.linksSuggestions
         || `/api/seo/articles/${id}/editor/links/suggestions`;
 
-    const mode = options.mode === 'fallback' ? 'fallback' : 'full';
+    const mode = options.mode === 'fallback'
+        ? 'fallback'
+        : (options.mode === 'advanced' ? 'advanced' : 'full');
     const body = {
         mode,
         content: typeof options.content === 'string' ? options.content : '',
         existing_internal: Array.isArray(options.existingInternal) ? options.existingInternal : [],
     };
+    if (mode === 'advanced') {
+        body.failed_keys = Array.isArray(options.failedKeys) ? options.failedKeys : [];
+        body.cursor = options.cursor && typeof options.cursor === 'object' ? options.cursor : {};
+        body.target_count = Math.max(1, Math.min(5, Number(options.targetCount ?? 5) || 5));
+    }
 
     const { response, data } = await seoArticleApiFetch(url, {
         method: 'POST',
@@ -787,6 +809,8 @@ function InternalLinksSection({
     suggestionsHasResults = false,
     suggestionsExhausted = false,
     suggestionsError = null,
+    advancedSearchEnabled = false,
+    onAdvancedSearchChange = null,
     reviewLoadingKey = '',
     errorKeywordIds,
     onKeywordClick,
@@ -834,6 +858,17 @@ function InternalLinksSection({
                               ? t('links_find_more_suggestions')
                               : t('links_generate_suggestions')}
                     </button>
+                    {typeof onAdvancedSearchChange === 'function' ? (
+                        <label className="wp-article-links-advanced-toggle">
+                            <input
+                                type="checkbox"
+                                checked={advancedSearchEnabled}
+                                disabled={suggestionsLoading}
+                                onChange={(event) => onAdvancedSearchChange(event.target.checked)}
+                            />
+                            <span>{t('links_advanced_search')}</span>
+                        </label>
+                    ) : null}
                 </div>
             ) : null}
             {suggestionsLoading && suggestedInternal.length === 0 ? (
@@ -1018,8 +1053,13 @@ export default function ArticleLinksSidebar({
     const suggestionsCacheRef = useRef(new Map());
     const suggestionsAutoStartedRef = useRef(false);
     const suggestionCursorRef = useRef({ phase: 'idle', hasResults: false });
+    const advancedCursorRef = useRef(null);
+    const failedCandidateKeysRef = useRef([]);
+    const contentFingerprintRef = useRef('');
+    const suggestionRequestSeqRef = useRef(0);
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
+    const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState(false);
     const [mainDomainSuggestions, setMainDomainSuggestions] = useState({
         mainDomain: '',
         relationship: null,
@@ -1030,6 +1070,26 @@ export default function ArticleLinksSidebar({
         suggestionCursorRef.current = next;
         setSuggestionPhase(next.phase);
         setSuggestionsHasResults(next.hasResults === true);
+    };
+
+    const persistSuggestionSession = (overrides = {}) => {
+        const { articleId, siteId } = articleMetaRef.current;
+        const phase = overrides.phase ?? suggestionCursorRef.current.phase;
+        const hasResults = overrides.hasResults ?? suggestionCursorRef.current.hasResults === true;
+        const exhausted = overrides.exhausted ?? phase === 'exhausted';
+        saveInternalLinkSuggestionSession(articleId, siteId, {
+            contentFingerprint: overrides.contentFingerprint ?? contentFingerprintRef.current,
+            catalog: overrides.catalog ?? keywordCatalogRef.current,
+            externalCatalog: overrides.externalCatalog ?? externalKeywordCatalogRef.current,
+            phase,
+            hasResults,
+            exhausted,
+            failedKeys: overrides.failedKeys ?? failedCandidateKeysRef.current,
+            advancedCursor: overrides.advancedCursor !== undefined
+                ? overrides.advancedCursor
+                : advancedCursorRef.current,
+            advancedEnabled: overrides.advancedEnabled ?? advancedSearchEnabled,
+        });
     };
 
     useEffect(() => {
@@ -1175,6 +1235,22 @@ export default function ArticleLinksSidebar({
             });
         }
 
+        if (Array.isArray(payload.failedCandidateKeys) && payload.failedCandidateKeys.length > 0) {
+            failedCandidateKeysRef.current = [...new Set([
+                ...failedCandidateKeysRef.current,
+                ...payload.failedCandidateKeys,
+            ])];
+        }
+        if (payload.suggestionCursor) {
+            advancedCursorRef.current = normalizeAdvancedCursor(payload.suggestionCursor);
+        }
+        if (payload.suggestionsExhausted === true) {
+            bumpSuggestionCursor({
+                phase: 'exhausted',
+                hasResults: suggestionCursorRef.current.hasResults || !empty,
+            });
+        }
+
         if (append) {
             const partitioned = partitionSuggestionCatalogBySite(incomingInternal, siteDomainRef.current);
             keywordCatalogRef.current = mergeSuggestionCatalog(
@@ -1187,12 +1263,16 @@ export default function ArticleLinksSidebar({
                 incomingExternal,
             );
             setCatalogVersion((value) => value + 1);
-            if (!empty) {
+            if (!empty && payload.suggestionsExhausted !== true) {
                 bumpSuggestionCursor({
                     phase: 'source1_done',
                     hasResults: true,
                 });
             }
+            persistSuggestionSession({
+                catalog: keywordCatalogRef.current,
+                externalCatalog: externalKeywordCatalogRef.current,
+            });
             return;
         }
 
@@ -1236,17 +1316,22 @@ export default function ArticleLinksSidebar({
 
         const force = options.force === true;
         const findMore = !force && suggestionCursorRef.current.hasResults === true;
+        const useAdvanced = findMore && advancedSearchEnabled === true;
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
+        const requestSeq = suggestionRequestSeqRef.current + 1;
+        suggestionRequestSeqRef.current = requestSeq;
         setSuggestionsLoading(true);
         setSuggestionsError(null);
         if (!findMore) {
             setSuggestionsEmpty(false);
             bumpSuggestionCursor({ phase: 'idle', hasResults: false });
+            advancedCursorRef.current = null;
+            failedCandidateKeysRef.current = [];
         } else {
             bumpSuggestionCursor({
-                phase: 'source2_active',
+                phase: useAdvanced ? 'advanced_active' : 'source2_active',
                 hasResults: true,
             });
         }
@@ -1254,6 +1339,8 @@ export default function ArticleLinksSidebar({
         try {
             const content = await requestEditorDocumentHtml();
             const cacheKey = buildSuggestionsInputKey(articleId, content);
+            contentFingerprintRef.current = cacheKey;
+
             if (!findMore && !force) {
                 const cached = suggestionsCacheRef.current.get(cacheKey);
                 if (cached) {
@@ -1263,8 +1350,34 @@ export default function ArticleLinksSidebar({
                         phase: usableCached > 0 ? 'source1_done' : 'exhausted',
                         hasResults: usableCached > 0,
                     });
+                    persistSuggestionSession({ contentFingerprint: cacheKey });
                     return;
                 }
+            }
+
+            if (useAdvanced) {
+                const usableNow = countUsableSuggestions();
+                const remainingSlots = Math.max(0, 10 - usableNow);
+                if (remainingSlots <= 0) {
+                    bumpSuggestionCursor({ phase: 'exhausted', hasResults: true });
+                    persistSuggestionSession({ exhausted: true, contentFingerprint: cacheKey });
+                    return;
+                }
+                const payload = await fetchEditorLinksSuggestions(articleId, {
+                    content,
+                    mode: 'advanced',
+                    existingInternal: buildExistingInternalPayload(),
+                    failedKeys: failedCandidateKeysRef.current,
+                    cursor: advancedCursorRef.current,
+                    targetCount: Math.min(5, remainingSlots),
+                    signal: controller.signal,
+                });
+                if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
+                    return;
+                }
+                applySuggestionPayload(payload, 'links-suggestions-advanced', { append: true });
+                persistSuggestionSession({ contentFingerprint: cacheKey });
+                return;
             }
 
             if (findMore) {
@@ -1274,10 +1387,11 @@ export default function ArticleLinksSidebar({
                     existingInternal: buildExistingInternalPayload(),
                     signal: controller.signal,
                 });
-                if (controller.signal.aborted) {
+                if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
                     return;
                 }
                 applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
+                persistSuggestionSession({ contentFingerprint: cacheKey });
                 return;
             }
 
@@ -1286,7 +1400,7 @@ export default function ArticleLinksSidebar({
                 mode: 'full',
                 signal: controller.signal,
             });
-            if (controller.signal.aborted) {
+            if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
                 return;
             }
             applySuggestionPayload(payload, 'links-suggestions');
@@ -1300,8 +1414,16 @@ export default function ArticleLinksSidebar({
                 phase: usableCount > 0 ? 'source1_done' : 'exhausted',
                 hasResults: usableCount > 0,
             });
+            advancedCursorRef.current = {
+                stage: 'product_cat',
+                offset: 0,
+            };
+            persistSuggestionSession({ contentFingerprint: cacheKey });
         } catch (error) {
             if (error?.name === 'AbortError' || controller.signal.aborted) {
+                return;
+            }
+            if (requestSeq !== suggestionRequestSeqRef.current) {
                 return;
             }
             setSuggestionsError(t('editor_links_suggestions_error'));
@@ -1312,7 +1434,7 @@ export default function ArticleLinksSidebar({
                 });
             }
         } finally {
-            if (!controller.signal.aborted) {
+            if (!controller.signal.aborted && requestSeq === suggestionRequestSeqRef.current) {
                 setSuggestionsLoading(false);
             }
         }
@@ -1323,12 +1445,55 @@ export default function ArticleLinksSidebar({
             return undefined;
         }
         suggestionsAutoStartedRef.current = true;
+
         const timer = window.setTimeout(() => {
-            void loadLinkSuggestions();
+            void (async () => {
+                const { articleId, siteId } = articleMetaRef.current;
+                let content = '';
+                try {
+                    content = await requestEditorDocumentHtml();
+                } catch {
+                    content = '';
+                }
+                const fingerprint = buildSuggestionsInputKey(articleId, content);
+                contentFingerprintRef.current = fingerprint;
+                const session = loadInternalLinkSuggestionSession(articleId, siteId);
+                if (isInternalLinkSuggestionSessionUsable(session, {
+                    articleId,
+                    siteId,
+                    contentFingerprint: fingerprint,
+                })) {
+                    keywordCatalogRef.current = Array.isArray(session.catalog) ? session.catalog : [];
+                    externalKeywordCatalogRef.current = Array.isArray(session.externalCatalog)
+                        ? session.externalCatalog
+                        : [];
+                    failedCandidateKeysRef.current = Array.isArray(session.failedKeys)
+                        ? session.failedKeys
+                        : [];
+                    advancedCursorRef.current = normalizeAdvancedCursor(session.advancedCursor);
+                    setAdvancedSearchEnabled(session.advancedEnabled === true);
+                    setCatalogVersion((value) => value + 1);
+                    const exhausted = session.exhausted === true || session.phase === 'exhausted';
+                    bumpSuggestionCursor({
+                        phase: exhausted ? 'exhausted' : (session.phase || 'source1_done'),
+                        hasResults: session.hasResults === true || (session.catalog?.length ?? 0) > 0,
+                    });
+                    setSuggestionsEmpty(
+                        (session.catalog?.length ?? 0) === 0 && session.hasResults !== true,
+                    );
+                    return;
+                }
+
+                if (session && String(session.contentFingerprint ?? '') !== fingerprint) {
+                    clearInternalLinkSuggestionSession(articleId, siteId);
+                }
+
+                void loadLinkSuggestions();
+            })();
         }, 0);
 
         return () => window.clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot warm suggestions; cache prevents regen
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot warm suggestions; session restore skips regen
     }, []);
 
     const [hiddenRowKeys, setHiddenRowKeys] = useState(() => new Set());
@@ -2253,6 +2418,11 @@ export default function ArticleLinksSidebar({
                         suggestionsHasResults={suggestionsHasResults}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
                         suggestionsError={suggestionsError}
+                        advancedSearchEnabled={advancedSearchEnabled}
+                        onAdvancedSearchChange={(enabled) => {
+                            setAdvancedSearchEnabled(enabled);
+                            persistSuggestionSession({ advancedEnabled: enabled });
+                        }}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)
                         }

@@ -27,14 +27,14 @@
     </div>
 
     <x-filament::button
-        wire:click="$refresh"
+        wire:click="refreshUsageOverview"
         size="sm"
         color="gray"
         icon="heroicon-o-arrow-path"
         wire:loading.attr="disabled"
-        wire:target="$refresh"
+        wire:target="refreshUsageOverview"
     >
-        <span wire:loading.remove wire:target="$refresh">Làm mới</span>
-        <span wire:loading wire:target="$refresh">Đang tải...</span>
+        <span wire:loading.remove wire:target="refreshUsageOverview">Làm mới</span>
+        <span wire:loading wire:target="refreshUsageOverview">Đang tải...</span>
     </x-filament::button>
 </div>

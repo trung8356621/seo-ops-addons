@@ -127,6 +127,59 @@ final class ArticleEditorLinksPayloadService
     }
 
     /**
+     * «Tìm kiếm nâng cao» — same staged pipeline with stage+offset resume.
+     *
+     * @param  list<array<string, mixed>>  $existingInternal
+     * @param  list<string>  $failedKeys
+     * @param  array{stage?: string, offset?: int}  $cursor
+     * @return array<string, mixed>
+     */
+    public function withAdvancedBatch(
+        SeoArticle $article,
+        ?string $submittedContent = null,
+        array $existingInternal = [],
+        array $failedKeys = [],
+        array $cursor = [],
+        int $targetCount = 5,
+    ): array {
+        $content = $this->resolveSuggestionContent($article, $submittedContent);
+        $base = $this->base($article);
+        $internalLinks = $base['extracted_links']['internal'] ?? [];
+        $externalLinks = $base['extracted_links']['external'] ?? [];
+
+        $bundle = $this->suggestionService->suggestAdvancedBatch(
+            $article,
+            $content,
+            $existingInternal,
+            $internalLinks,
+            $externalLinks,
+            $failedKeys,
+            $cursor,
+            $targetCount,
+        );
+
+        $payload = array_merge($base, [
+            'suggested_internal_links' => $bundle['internal'],
+            'suggested_internal_links_catalog' => $bundle['internal_catalog'],
+            'suggested_external_links' => $bundle['external'],
+            'suggested_external_links_catalog' => $bundle['external_catalog'],
+            'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
+                ? $bundle['internal_link_catalog']
+                : [],
+            'suggestion_cursor' => $bundle['cursor'],
+            'suggestions_exhausted' => (bool) ($bundle['exhausted'] ?? false),
+            'failed_candidate_keys' => is_array($bundle['failed_keys'] ?? null) ? $bundle['failed_keys'] : [],
+            'content_source' => $this->describeContentSource($article, $submittedContent, $content),
+        ]);
+
+        if (isset($bundle['debug']) && is_array($bundle['debug'])) {
+            $payload['suggestion_debug'] = $bundle['debug'];
+        }
+
+        return $payload;
+    }
+
+    /**
      * Content thật cho suggestion: submitted editor HTML → articles.body.
      */
     public function resolveSuggestionContent(SeoArticle $article, ?string $submittedContent): string

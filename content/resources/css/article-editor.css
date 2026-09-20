@@ -8453,6 +8453,33 @@ section[data-seo-section-id].is-outline-jump-highlight {
     cursor: pointer;
 }
 
+.wp-article-links-generate-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.35rem;
+}
+
+.wp-article-links-advanced-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 11px;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wp-article-links-advanced-toggle input {
+    margin: 0;
+}
+
+.dark .wp-article-links-advanced-toggle {
+    color: #cbd5e1;
+}
+
 .wp-article-links-clear-excluded-btn:hover {
     background: #ffedd5;
 }

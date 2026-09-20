@@ -24,6 +24,45 @@ trait InteractsWithAiUsageOverview
 
     public float $editingThresholdValue = 5.0;
 
+    public function refreshUsageOverview(): void
+    {
+        $this->assertUsageManager();
+
+        Notification::make()
+            ->title('Đã làm mới dữ liệu dashboard')
+            ->success()
+            ->send();
+    }
+
+    public function refreshProviderWallets(): void
+    {
+        $this->assertUsageManager();
+
+        $results = app(AiProviderWalletService::class)->checkAllActiveConnections();
+        $successful = 0;
+        $failed = 0;
+
+        foreach ($results as $result) {
+            if ($result->success) {
+                $successful++;
+            } elseif ($result->supported) {
+                $failed++;
+            }
+        }
+
+        $notification = Notification::make()
+            ->title('Đã kiểm tra số dư nhà cung cấp')
+            ->body("Thành công: {$successful}. Thất bại: {$failed}.");
+
+        if ($failed > 0) {
+            $notification->warning();
+        } else {
+            $notification->success();
+        }
+
+        $notification->send();
+    }
+
     public function refreshConnectionBalance(int $connectionId): void
     {
         $this->assertUsageManager();

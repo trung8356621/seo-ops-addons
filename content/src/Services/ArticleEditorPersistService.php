@@ -117,6 +117,20 @@ final class ArticleEditorPersistService
     }
 
     /**
+     * PURE canonical body representation that `articles.body` stores after transient
+     * editor/decorator markup is removed (CTA blank placeholders, link marks, …).
+     *
+     * No DB reads/writes. Idempotent. Shared by writer + publish expected-hash.
+     *
+     * Does NOT include article-state FAQ extract or empty-body guard (those are
+     * side-effect / state-dependent steps after this canonicalize).
+     */
+    public function canonicalizeBodyForPersist(string $html): string
+    {
+        return $this->htmlSanitize->stripTransientEditorMarkup($html);
+    }
+
+    /**
      * Critical section only: sanitize + UPDATE `articles` row.
      * Keep this free of heavy meta/revision/link work so callers can hold a short DB TX.
      *
@@ -169,7 +183,7 @@ final class ArticleEditorPersistService
             }
         }
 
-        $html = $this->htmlSanitize->stripTransientEditorMarkup($html);
+        $html = $this->canonicalizeBodyForPersist($html);
         $html = $this->guardArticleBodyBeforeSave($article, $html);
 
         $faqSync = $this->faqBodySync->extractFromBodyWhenMissing($article, $html);

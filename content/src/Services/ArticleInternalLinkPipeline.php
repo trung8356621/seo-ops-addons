@@ -548,6 +548,899 @@ final class ArticleInternalLinkPipeline
         ];
     }
 
+    public const ADVANCED_STAGE_PRODUCT_CAT = ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT;
+
+    public const ADVANCED_STAGE_TOPIC = ArticleInternalLinkPriorityMerger::STAGE_TOPIC;
+
+    public const ADVANCED_STAGE_KEYWORD_NON_TOPIC = ArticleInternalLinkPriorityMerger::STAGE_KEYWORD_NON_TOPIC;
+
+    public const ADVANCED_STAGE_GENERIC = ArticleInternalLinkPriorityMerger::STAGE_GENERIC;
+
+    public const ADVANCED_STAGE_CONTENT_FALLBACK = 'content_fallback';
+
+    public const ADVANCED_STAGE_DONE = 'done';
+
+    /** @var list<string> */
+    public const ADVANCED_STAGE_ORDER = [
+        self::ADVANCED_STAGE_PRODUCT_CAT,
+        self::ADVANCED_STAGE_TOPIC,
+        self::ADVANCED_STAGE_KEYWORD_NON_TOPIC,
+        self::ADVANCED_STAGE_GENERIC,
+        self::ADVANCED_STAGE_CONTENT_FALLBACK,
+    ];
+
+    /**
+     * Advanced / deep Find-more: resume by stage+offset, resolve only from cursor forward.
+     * Stops after $targetCount usable (destination_resolved) suggestions or source exhausted.
+     *
+     * @param  list<array<string, mixed>>  $internalLinks
+     * @param  list<array<string, mixed>>  $externalLinks
+     * @param  list<array<string, mixed>>  $existingSuggestions
+     * @param  list<string>  $failedKeys
+     * @param  array{stage?: string, offset?: int}  $cursor
+     * @return array{
+     *     internal: list<array<string, mixed>>,
+     *     cursor: array{stage: string, offset: int},
+     *     exhausted: bool,
+     *     failed_keys: list<string>,
+     *     debug: array<string, mixed>
+     * }
+     */
+    public function collectAdvancedBatch(
+        SeoArticle $article,
+        string $content,
+        array $internalLinks,
+        array $externalLinks,
+        array $existingSuggestions = [],
+        array $failedKeys = [],
+        array $cursor = [],
+        int $targetCount = 5,
+    ): array {
+        $targetCount = max(1, min(5, $targetCount));
+        $emptyCursor = ['stage' => self::ADVANCED_STAGE_DONE, 'offset' => 0];
+        $failedSet = [];
+        foreach ($failedKeys as $key) {
+            $normalized = trim((string) $key);
+            if ($normalized !== '') {
+                $failedSet[$normalized] = true;
+            }
+        }
+        $newFailed = [];
+
+        $siteId = (int) ($article->site_id ?? 0);
+        if ($siteId <= 0) {
+            return [
+                'internal' => [],
+                'cursor' => $emptyCursor,
+                'exhausted' => true,
+                'failed_keys' => [],
+                'debug' => ['skip_reason' => 'invalid_site'],
+            ];
+        }
+
+        $plainText = $this->plainTextFromHtml($content);
+        if ($plainText === '') {
+            return [
+                'internal' => [],
+                'cursor' => $emptyCursor,
+                'exhausted' => true,
+                'failed_keys' => [],
+                'debug' => ['skip_reason' => 'empty_plain_text'],
+            ];
+        }
+
+        $article->loadMissing('site', 'articleMetas');
+        $siteDomain = SeoLinkMapLinkTypeClassifier::normalizeDomainHost((string) ($article->site?->domain ?? ''));
+        $validationContext = [
+            'site_domain' => $siteDomain,
+            'site_id' => $siteId,
+            'current_article_id' => (int) $article->id,
+            'current_urls' => $this->currentArticleUrls($article),
+            'current_slug' => trim((string) ($article->slug ?? ''), '/'),
+        ];
+
+        $linkedContext = $this->collectLinkedContext(array_merge($internalLinks, $externalLinks, $existingSuggestions));
+        $occupiedLabels = $linkedContext['labels'];
+        $occupiedHrefs = $linkedContext['hrefs'];
+        $ownArticlePhrases = $this->ownArticlePhraseBlocklist($article);
+
+        $startStage = trim((string) ($cursor['stage'] ?? self::ADVANCED_STAGE_PRODUCT_CAT));
+        if ($startStage === '' || $startStage === self::ADVANCED_STAGE_DONE) {
+            $startStage = self::ADVANCED_STAGE_DONE;
+        }
+        $startOffset = max(0, (int) ($cursor['offset'] ?? 0));
+        if (! in_array($startStage, self::ADVANCED_STAGE_ORDER, true) && $startStage !== self::ADVANCED_STAGE_DONE) {
+            $startStage = self::ADVANCED_STAGE_PRODUCT_CAT;
+            $startOffset = 0;
+        }
+
+        $fresh = [];
+        $stageIndex = array_search($startStage, self::ADVANCED_STAGE_ORDER, true);
+        if ($startStage === self::ADVANCED_STAGE_DONE || $stageIndex === false) {
+            return [
+                'internal' => [],
+                'cursor' => $emptyCursor,
+                'exhausted' => true,
+                'failed_keys' => [],
+                'debug' => ['entry' => 'advanced_batch', 'already_done' => true],
+            ];
+        }
+
+        // Precompute stage worklists once (phrase match). Destination resolve only from cursor.
+        $productCatResult = $this->productCatMatcher->matchForSite(
+            $siteId,
+            $plainText,
+            $validationContext,
+            $occupiedHrefs,
+            $occupiedLabels,
+        );
+        $productCatItems = [];
+        foreach ($productCatResult['suggestions'] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $row['source'] = ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT;
+            $row['candidate_source'] = ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT;
+            $productCatItems[] = $row;
+        }
+
+        $excludeKeywordIds = $this->mainKeywordIdsForArticle((int) $article->id);
+        $keywords = $this->keywordsForSite($siteId, $excludeKeywordIds);
+        $focusKeyword = app(SeoAnalyzerService::class)->resolveFocusKeywordForArticle($article) ?? '';
+        $articleContextBase = [
+            'title' => (string) ($article->title ?? ''),
+            'focus_keyword' => (string) $focusKeyword,
+            'slug' => (string) ($article->slug ?? ''),
+            'meta_title' => app(SeoAnalyzerService::class)->resolveSeoTitleForArticle($article),
+            'meta_description' => app(SeoAnalyzerService::class)->resolveMetaDescriptionForArticle($article),
+        ];
+
+        $topicItems = [];
+        $keywordNonTopicItems = [];
+        $genericAnchors = [];
+        /** @var list<array{keyword: Keyword, phrase: string}> $matched */
+        $matched = [];
+        foreach ($keywords as $keyword) {
+            $phrase = trim((string) $keyword->phrase);
+            if ($phrase === '' || $this->isAlreadyLinked($phrase, $occupiedLabels)) {
+                continue;
+            }
+            if (LinkSuggestionStopPhraseFilter::isStopPhrase($phrase)) {
+                continue;
+            }
+            if ($this->isOwnArticlePhrase($phrase, $ownArticlePhrases)) {
+                continue;
+            }
+            if (in_array((int) $keyword->id, $excludeKeywordIds, true)) {
+                continue;
+            }
+            if (! $this->textContainsPhrase($plainText, $phrase)) {
+                continue;
+            }
+            $matched[] = ['keyword' => $keyword, 'phrase' => $phrase];
+        }
+        $matchedIds = array_map(
+            static fn (array $row): int => (int) $row['keyword']->id,
+            $matched,
+        );
+        $topicIdsByKeyword = $this->topicMembership->topicIdsByKeywordId($siteId, $matchedIds);
+        foreach ($matched as $row) {
+            $keyword = $row['keyword'];
+            $phrase = $row['phrase'];
+            $isTopic = $this->topicMembership->isTopicKeyword($keyword, $topicIdsByKeyword);
+            $entry = [
+                'keyword' => $keyword,
+                'phrase' => $phrase,
+                'keyword_id' => (int) $keyword->id,
+                'is_topic' => $isTopic,
+                'context' => array_merge($articleContextBase, [
+                    'paragraph_context' => $this->termsBuilder->extractParagraphContext($plainText, $phrase),
+                ]),
+            ];
+            if ($isTopic) {
+                $topicItems[] = $entry;
+            } else {
+                $keywordNonTopicItems[] = $entry;
+            }
+        }
+
+        // When resuming at/after generic, rebuild deferral anchors without emitting fresh rows.
+        if ((int) $stageIndex >= array_search(self::ADVANCED_STAGE_GENERIC, self::ADVANCED_STAGE_ORDER, true)) {
+            $discardFresh = [];
+            $discardFailed = [];
+            $topicProbe = $this->advanceKeywordStage(
+                self::ADVANCED_STAGE_TOPIC,
+                $topicItems,
+                0,
+                0,
+                $discardFresh,
+                $article,
+                $siteDomain,
+                $siteId,
+                $occupiedLabels,
+                $occupiedHrefs,
+                $failedSet,
+                $discardFailed,
+                $validationContext,
+                $genericAnchors,
+            );
+            $genericAnchors = $topicProbe['generic_anchors'];
+            $keywordProbe = $this->advanceKeywordStage(
+                self::ADVANCED_STAGE_KEYWORD_NON_TOPIC,
+                $keywordNonTopicItems,
+                0,
+                0,
+                $discardFresh,
+                $article,
+                $siteDomain,
+                $siteId,
+                $occupiedLabels,
+                $occupiedHrefs,
+                $failedSet,
+                $discardFailed,
+                $validationContext,
+                $genericAnchors,
+            );
+            $genericAnchors = $keywordProbe['generic_anchors'];
+        }
+
+        $nextCursor = ['stage' => $startStage, 'offset' => $startOffset];
+        $exhausted = false;
+
+        for ($si = (int) $stageIndex; $si < count(self::ADVANCED_STAGE_ORDER); $si++) {
+            if (count($fresh) >= $targetCount) {
+                break;
+            }
+            $stage = self::ADVANCED_STAGE_ORDER[$si];
+            $offset = ($si === (int) $stageIndex) ? $startOffset : 0;
+
+            if ($stage === self::ADVANCED_STAGE_PRODUCT_CAT) {
+                $result = $this->advanceProductCatStage(
+                    $productCatItems,
+                    $offset,
+                    $targetCount,
+                    $fresh,
+                    $occupiedLabels,
+                    $occupiedHrefs,
+                    $failedSet,
+                    $newFailed,
+                    $validationContext,
+                );
+                $fresh = $result['fresh'];
+                $occupiedLabels = $result['occupied_labels'];
+                $occupiedHrefs = $result['occupied_hrefs'];
+                $nextCursor = $result['done']
+                    ? ['stage' => self::ADVANCED_STAGE_TOPIC, 'offset' => 0]
+                    : ['stage' => self::ADVANCED_STAGE_PRODUCT_CAT, 'offset' => $result['next_offset']];
+                if (! $result['done'] && count($fresh) >= $targetCount) {
+                    break;
+                }
+                continue;
+            }
+
+            if ($stage === self::ADVANCED_STAGE_TOPIC || $stage === self::ADVANCED_STAGE_KEYWORD_NON_TOPIC) {
+                $pool = $stage === self::ADVANCED_STAGE_TOPIC ? $topicItems : $keywordNonTopicItems;
+                $result = $this->advanceKeywordStage(
+                    $stage,
+                    $pool,
+                    $offset,
+                    $targetCount,
+                    $fresh,
+                    $article,
+                    $siteDomain,
+                    $siteId,
+                    $occupiedLabels,
+                    $occupiedHrefs,
+                    $failedSet,
+                    $newFailed,
+                    $validationContext,
+                    $genericAnchors,
+                );
+                $fresh = $result['fresh'];
+                $occupiedLabels = $result['occupied_labels'];
+                $occupiedHrefs = $result['occupied_hrefs'];
+                $genericAnchors = $result['generic_anchors'];
+                $nextStage = $stage === self::ADVANCED_STAGE_TOPIC
+                    ? self::ADVANCED_STAGE_KEYWORD_NON_TOPIC
+                    : self::ADVANCED_STAGE_GENERIC;
+                $nextCursor = $result['done']
+                    ? ['stage' => $nextStage, 'offset' => 0]
+                    : ['stage' => $stage, 'offset' => $result['next_offset']];
+                if (! $result['done'] && count($fresh) >= $targetCount) {
+                    break;
+                }
+                continue;
+            }
+
+            if ($stage === self::ADVANCED_STAGE_GENERIC) {
+                $result = $this->advanceGenericStage(
+                    $genericAnchors,
+                    $offset,
+                    $targetCount,
+                    $fresh,
+                    $article,
+                    $occupiedLabels,
+                    $occupiedHrefs,
+                    $failedSet,
+                    $newFailed,
+                    $validationContext,
+                );
+                $fresh = $result['fresh'];
+                $occupiedLabels = $result['occupied_labels'];
+                $occupiedHrefs = $result['occupied_hrefs'];
+                $nextCursor = $result['done']
+                    ? ['stage' => self::ADVANCED_STAGE_CONTENT_FALLBACK, 'offset' => 0]
+                    : ['stage' => self::ADVANCED_STAGE_GENERIC, 'offset' => $result['next_offset']];
+                if (! $result['done'] && count($fresh) >= $targetCount) {
+                    break;
+                }
+                continue;
+            }
+
+            // content_fallback
+            $result = $this->advanceContentFallbackStage(
+                $article,
+                $content,
+                $plainText,
+                $focusKeyword,
+                $offset,
+                $targetCount,
+                $fresh,
+                $occupiedLabels,
+                $occupiedHrefs,
+                $failedSet,
+                $newFailed,
+                $validationContext,
+            );
+            $fresh = $result['fresh'];
+            $nextCursor = $result['done']
+                ? $emptyCursor
+                : ['stage' => self::ADVANCED_STAGE_CONTENT_FALLBACK, 'offset' => $result['next_offset']];
+            if ($result['done'] && count($fresh) < $targetCount) {
+                $exhausted = true;
+            }
+            break;
+        }
+
+        if ($nextCursor['stage'] === self::ADVANCED_STAGE_DONE) {
+            $exhausted = true;
+        }
+        if (count($fresh) < $targetCount && $nextCursor['stage'] === self::ADVANCED_STAGE_DONE) {
+            $exhausted = true;
+        }
+
+        $this->lastDebug = [
+            'entry' => 'advanced_batch',
+            'article_id' => (int) $article->id,
+            'site_id' => $siteId,
+            'target' => $targetCount,
+            'fresh_count' => count($fresh),
+            'cursor' => $nextCursor,
+            'exhausted' => $exhausted,
+            'new_failed' => count($newFailed),
+            'start_stage' => $startStage,
+            'start_offset' => $startOffset,
+        ];
+
+        return [
+            'internal' => $fresh,
+            'cursor' => $nextCursor,
+            'exhausted' => $exhausted,
+            'failed_keys' => array_values(array_unique($newFailed)),
+            'debug' => $this->lastDebug,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  list<array<string, mixed>>  $fresh
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedHrefs
+     * @param  array<string, true>  $failedSet
+     * @param  list<string>  $newFailed
+     * @param  array<string, mixed>  $validationContext
+     * @return array{
+     *     fresh: list<array<string, mixed>>,
+     *     occupied_labels: list<string>,
+     *     occupied_hrefs: list<string>,
+     *     next_offset: int,
+     *     done: bool
+     * }
+     */
+    private function advanceProductCatStage(
+        array $items,
+        int $offset,
+        int $targetCount,
+        array $fresh,
+        array $occupiedLabels,
+        array $occupiedHrefs,
+        array &$failedSet,
+        array &$newFailed,
+        array $validationContext,
+    ): array {
+        $i = $offset;
+        $total = count($items);
+        for (; $i < $total; $i++) {
+            if (count($fresh) >= $targetCount) {
+                break;
+            }
+            $row = $items[$i];
+            $phrase = trim((string) ($row['text'] ?? ''));
+            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
+            $key = $this->advancedCandidateKey(self::ADVANCED_STAGE_PRODUCT_CAT, $phrase, 0, $href);
+            if (isset($failedSet[$key])) {
+                continue;
+            }
+            if ($this->isAlreadyLinked($phrase, $occupiedLabels)) {
+                continue;
+            }
+            $norm = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($norm !== '' && in_array($norm, $occupiedHrefs, true)) {
+                continue;
+            }
+            if (! LinkSuggestionValidator::isValidLinkSuggestion($row, $validationContext)) {
+                $failedSet[$key] = true;
+                $newFailed[] = $key;
+                continue;
+            }
+            $fresh[] = $row;
+            $occupiedLabels[] = mb_strtolower($phrase);
+            if ($norm !== '') {
+                $occupiedHrefs[] = $norm;
+            }
+        }
+
+        return [
+            'fresh' => $fresh,
+            'occupied_labels' => $occupiedLabels,
+            'occupied_hrefs' => $occupiedHrefs,
+            'next_offset' => $i,
+            'done' => $i >= $total,
+        ];
+    }
+
+    /**
+     * @param  list<array{keyword: Keyword, phrase: string, keyword_id: int, is_topic: bool, context: array<string, mixed>}>  $pool
+     * @param  list<array<string, mixed>>  $fresh
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedHrefs
+     * @param  array<string, true>  $failedSet
+     * @param  list<string>  $newFailed
+     * @param  array<string, mixed>  $validationContext
+     * @param  list<array<string, mixed>>  $genericAnchors
+     * @return array{
+     *     fresh: list<array<string, mixed>>,
+     *     occupied_labels: list<string>,
+     *     occupied_hrefs: list<string>,
+     *     generic_anchors: list<array<string, mixed>>,
+     *     next_offset: int,
+     *     done: bool
+     * }
+     */
+    private function advanceKeywordStage(
+        string $stage,
+        array $pool,
+        int $offset,
+        int $targetCount,
+        array $fresh,
+        SeoArticle $article,
+        string $siteDomain,
+        int $siteId,
+        array $occupiedLabels,
+        array $occupiedHrefs,
+        array &$failedSet,
+        array &$newFailed,
+        array $validationContext,
+        array $genericAnchors,
+    ): array {
+        $i = $offset;
+        $total = count($pool);
+        // Prefix before cursor: collect generic deferrals only (do not emit fresh).
+        for ($j = 0; $j < $offset && $j < $total; $j++) {
+            $prefix = $pool[$j];
+            $this->classifyKeywordDestination(
+                $stage,
+                $prefix,
+                $article,
+                $siteDomain,
+                $siteId,
+                $validationContext,
+                $failedSet,
+                $newFailed,
+                $genericAnchors,
+                emitFresh: false,
+                fresh: $fresh,
+                occupiedLabels: $occupiedLabels,
+                occupiedHrefs: $occupiedHrefs,
+            );
+        }
+
+        for (; $i < $total; $i++) {
+            if ($targetCount > 0 && count($fresh) >= $targetCount) {
+                break;
+            }
+            $entry = $pool[$i];
+            $this->classifyKeywordDestination(
+                $stage,
+                $entry,
+                $article,
+                $siteDomain,
+                $siteId,
+                $validationContext,
+                $failedSet,
+                $newFailed,
+                $genericAnchors,
+                emitFresh: $targetCount > 0,
+                fresh: $fresh,
+                occupiedLabels: $occupiedLabels,
+                occupiedHrefs: $occupiedHrefs,
+            );
+        }
+
+        return [
+            'fresh' => $fresh,
+            'occupied_labels' => $occupiedLabels,
+            'occupied_hrefs' => $occupiedHrefs,
+            'generic_anchors' => $genericAnchors,
+            'next_offset' => $i,
+            'done' => $i >= $total,
+        ];
+    }
+
+    /**
+     * @param  array{keyword: Keyword, phrase: string, keyword_id: int, context: array<string, mixed>}  $entry
+     * @param  array<string, mixed>  $validationContext
+     * @param  array<string, true>  $failedSet
+     * @param  list<string>  $newFailed
+     * @param  list<array<string, mixed>>  $genericAnchors
+     * @param  list<array<string, mixed>>  $fresh
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedHrefs
+     */
+    private function classifyKeywordDestination(
+        string $stage,
+        array $entry,
+        SeoArticle $article,
+        string $siteDomain,
+        int $siteId,
+        array $validationContext,
+        array &$failedSet,
+        array &$newFailed,
+        array &$genericAnchors,
+        bool $emitFresh,
+        array &$fresh,
+        array &$occupiedLabels,
+        array &$occupiedHrefs,
+    ): bool {
+        $keyword = $entry['keyword'];
+        $phrase = (string) $entry['phrase'];
+        $keywordId = (int) $entry['keyword_id'];
+        $probeKey = $this->advancedCandidateKey($stage, $phrase, $keywordId, '');
+        if (isset($failedSet[$probeKey])) {
+            return false;
+        }
+
+        $resolvedInternal = $this->linkTargetResolver->resolveForKeyword(
+            $keyword,
+            $article,
+            sameLanguageOnly: true,
+            internalOnly: true,
+        );
+        $resolvedAny = $resolvedInternal
+            ?? $this->linkTargetResolver->resolveForKeyword(
+                $keyword,
+                $article,
+                sameLanguageOnly: true,
+                internalOnly: false,
+            );
+        $href = is_string($resolvedAny) ? trim($resolvedAny) : '';
+
+        if ($href === '' || $this->isSpecialSchemeOrContactHref($href)) {
+            $genericAnchors[] = [
+                'keyword_id' => $keywordId,
+                'phrase' => $phrase,
+                'context' => $entry['context'],
+                'destination_reject_reason' => 'no_mapped_destination',
+            ];
+
+            return false;
+        }
+
+        $bucket = $this->suggestionBucketForHref($href, $siteDomain, $siteId);
+        if ($bucket !== 'internal') {
+            $key = $this->advancedCandidateKey($stage, $phrase, $keywordId, $href);
+            $failedSet[$key] = true;
+            $failedSet[$probeKey] = true;
+            $newFailed[] = $key;
+            $genericAnchors[] = [
+                'keyword_id' => $keywordId,
+                'phrase' => $phrase,
+                'context' => $entry['context'],
+                'destination_reject_reason' => 'destination_wrong_bucket',
+            ];
+
+            return false;
+        }
+
+        $targetArticleId = $this->resolveTargetArticleId($siteId, $href, $article);
+        $item = [
+            'text' => $phrase,
+            'keyword_id' => $keywordId,
+            'href' => $href,
+            'target_url' => $href,
+            'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
+            'destination_resolved' => true,
+            'can_insert' => true,
+            'is_suggestion' => true,
+            'score' => $stage === self::ADVANCED_STAGE_TOPIC ? 92 : 88,
+            'match_reason' => $stage === self::ADVANCED_STAGE_TOPIC ? 'topic_focus_destination' : 'keyword_link_map',
+            'source' => $stage,
+            'candidate_source' => $stage,
+            'bucket' => 'internal',
+        ];
+
+        $key = $this->advancedCandidateKey($stage, $phrase, $keywordId, $href);
+        if (isset($failedSet[$key])) {
+            return false;
+        }
+        $norm = SeoSuggestionUrlNormalizer::normalize($href);
+        if ($norm !== '' && in_array($norm, $occupiedHrefs, true)) {
+            return false;
+        }
+        if ($this->isAlreadyLinked($phrase, $occupiedLabels)) {
+            return false;
+        }
+
+        if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+            $failedSet[$key] = true;
+            $failedSet[$probeKey] = true;
+            $newFailed[] = $key;
+            $genericAnchors[] = [
+                'keyword_id' => $keywordId,
+                'phrase' => $phrase,
+                'context' => $entry['context'],
+                'destination_reject_reason' => 'destination_validator_reject',
+            ];
+
+            return false;
+        }
+        unset($item['bucket']);
+
+        if (! $emitFresh) {
+            return false;
+        }
+
+        $fresh[] = $item;
+        $occupiedLabels[] = mb_strtolower($phrase);
+        if ($norm !== '') {
+            $occupiedHrefs[] = $norm;
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $anchors
+     * @param  list<array<string, mixed>>  $fresh
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedHrefs
+     * @param  array<string, true>  $failedSet
+     * @param  list<string>  $newFailed
+     * @param  array<string, mixed>  $validationContext
+     * @return array{
+     *     fresh: list<array<string, mixed>>,
+     *     occupied_labels: list<string>,
+     *     occupied_hrefs: list<string>,
+     *     next_offset: int,
+     *     done: bool
+     * }
+     */
+    private function advanceGenericStage(
+        array $anchors,
+        int $offset,
+        int $targetCount,
+        array $fresh,
+        SeoArticle $article,
+        array $occupiedLabels,
+        array $occupiedHrefs,
+        array &$failedSet,
+        array &$newFailed,
+        array $validationContext,
+    ): array {
+        $articleTargets = $this->candidateRetriever->resolveBestForAnchors(
+            $article,
+            array_slice($anchors, $offset),
+            $occupiedHrefs,
+        );
+
+        $i = $offset;
+        $total = count($anchors);
+        $sliceIndex = 0;
+        for (; $i < $total; $i++, $sliceIndex++) {
+            if (count($fresh) >= $targetCount) {
+                break;
+            }
+            $anchor = $anchors[$i];
+            $keywordId = (int) ($anchor['keyword_id'] ?? 0);
+            $phrase = trim((string) ($anchor['phrase'] ?? ''));
+            $probeKey = $this->advancedCandidateKey(self::ADVANCED_STAGE_GENERIC, $phrase, $keywordId, '');
+            if (isset($failedSet[$probeKey])) {
+                continue;
+            }
+            if (! LinkSuggestionValidator::isUsableAnchorCandidate(['text' => $phrase])) {
+                $failedSet[$probeKey] = true;
+                $newFailed[] = $probeKey;
+                continue;
+            }
+
+            $resolved = $articleTargets[$keywordId] ?? null;
+            if (! is_array($resolved) || ! (bool) ($resolved['destination_resolved'] ?? false)) {
+                $failedSet[$probeKey] = true;
+                $newFailed[] = $probeKey;
+                continue;
+            }
+
+            $href = trim((string) ($resolved['url'] ?? $resolved['href'] ?? ''));
+            $key = $this->advancedCandidateKey(self::ADVANCED_STAGE_GENERIC, $phrase, $keywordId, $href);
+            if (isset($failedSet[$key])) {
+                continue;
+            }
+            $norm = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($norm !== '' && in_array($norm, $occupiedHrefs, true)) {
+                continue;
+            }
+            if ($this->isAlreadyLinked($phrase, $occupiedLabels)) {
+                continue;
+            }
+
+            $targetArticleId = (int) ($resolved['target_article_id'] ?? 0);
+            $item = [
+                'text' => $phrase,
+                'keyword_id' => $keywordId,
+                'href' => $href,
+                'target_url' => $href,
+                'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
+                'destination_resolved' => true,
+                'can_insert' => true,
+                'is_suggestion' => true,
+                'score' => (int) ($resolved['score'] ?? 0),
+                'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
+                'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                'candidate_source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                'bucket' => 'internal',
+            ];
+
+            if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+                $failedSet[$key] = true;
+                $failedSet[$probeKey] = true;
+                $newFailed[] = $key;
+                continue;
+            }
+            unset($item['bucket']);
+
+            $fresh[] = $item;
+            $occupiedLabels[] = mb_strtolower($phrase);
+            if ($norm !== '') {
+                $occupiedHrefs[] = $norm;
+            }
+        }
+
+        return [
+            'fresh' => $fresh,
+            'occupied_labels' => $occupiedLabels,
+            'occupied_hrefs' => $occupiedHrefs,
+            'next_offset' => $i,
+            'done' => $i >= $total,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $fresh
+     * @param  list<string>  $occupiedLabels
+     * @param  list<string>  $occupiedHrefs
+     * @param  array<string, true>  $failedSet
+     * @param  list<string>  $newFailed
+     * @param  array<string, mixed>  $validationContext
+     * @return array{fresh: list<array<string, mixed>>, next_offset: int, done: bool}
+     */
+    private function advanceContentFallbackStage(
+        SeoArticle $article,
+        string $content,
+        string $plainText,
+        string $focusKeyword,
+        int $offset,
+        int $targetCount,
+        array $fresh,
+        array $occupiedLabels,
+        array $occupiedHrefs,
+        array &$failedSet,
+        array &$newFailed,
+        array $validationContext,
+    ): array {
+        $seenTargets = [];
+        foreach ($fresh as $row) {
+            $tid = (int) ($row['target_article_id'] ?? 0);
+            if ($tid > 0) {
+                $seenTargets[$tid] = true;
+            }
+        }
+
+        $priorityPhrases = array_values(array_filter([
+            (string) $focusKeyword,
+            ...$this->secondaryKeywordsAppearingInContent($article, $plainText),
+        ]));
+
+        // Force run: advanced deep search always may use content fallback.
+        $rawFallback = $this->contentKeywordFallback->supplement(
+            $article,
+            $content,
+            $fresh,
+            $occupiedLabels,
+            $occupiedHrefs,
+            $seenTargets,
+            $validationContext,
+            $priorityPhrases,
+            forceRun: true,
+        );
+
+        $i = $offset;
+        $total = count($rawFallback);
+        for (; $i < $total; $i++) {
+            if (count($fresh) >= $targetCount) {
+                break;
+            }
+            $row = $rawFallback[$i];
+            if (! is_array($row)) {
+                continue;
+            }
+            $phrase = trim((string) ($row['text'] ?? ''));
+            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
+            $keywordId = (int) ($row['keyword_id'] ?? 0);
+            $key = $this->advancedCandidateKey(self::ADVANCED_STAGE_CONTENT_FALLBACK, $phrase, $keywordId, $href);
+            if (isset($failedSet[$key])) {
+                continue;
+            }
+            if ($this->isAlreadyLinked($phrase, $occupiedLabels)) {
+                continue;
+            }
+            $norm = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($norm !== '' && in_array($norm, $occupiedHrefs, true)) {
+                continue;
+            }
+            if (! (bool) ($row['destination_resolved'] ?? false)
+                || ! LinkSuggestionValidator::isValidLinkSuggestion($row, $validationContext)
+            ) {
+                $failedSet[$key] = true;
+                $newFailed[] = $key;
+                continue;
+            }
+
+            $row['source'] = ArticleInternalLinkPriorityMerger::STAGE_GENERIC;
+            $row['candidate_source'] = ArticleInternalLinkPriorityMerger::STAGE_GENERIC;
+            $fresh[] = $row;
+            $occupiedLabels[] = mb_strtolower($phrase);
+            if ($norm !== '') {
+                $occupiedHrefs[] = $norm;
+            }
+        }
+
+        return [
+            'fresh' => $fresh,
+            'next_offset' => $i,
+            'done' => $i >= $total,
+        ];
+    }
+
+    private function advancedCandidateKey(string $stage, string $phrase, int $keywordId = 0, string $href = ''): string
+    {
+        return implode('|', [
+            $stage,
+            (string) max(0, $keywordId),
+            KeywordPhraseMatcher::normalize($phrase),
+            SeoSuggestionUrlNormalizer::normalize($href),
+        ]);
+    }
+
     /**
      * @param  list<string>  $excludeKeywordIds
      * @return Collection<int, Keyword>
