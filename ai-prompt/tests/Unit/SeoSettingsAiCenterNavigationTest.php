@@ -19,6 +19,8 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringContainsString("public string \$tab = 'models'", $page);
         $this->assertStringContainsString("'connections' => 'models'", $page);
         $this->assertStringContainsString("'models', 'routing', 'resilience', 'health'", $page);
+        $this->assertStringNotContainsString("'health', 'usage'", $page);
+        $this->assertStringNotContainsString("usageHydrated", $page);
         $this->assertStringNotContainsString("'connections', 'models', 'routing'", $page);
         $this->assertStringContainsString("PromptResource::getUrl()", $page);
         $this->assertStringContainsString('isSeo(', $page);

@@ -1384,6 +1384,17 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 $meta['provider_finish_reason'] = $exception->providerFinishReason;
             }
             $meta['failure_code'] = $exception->failureCode->value;
+            $budget = is_array($exception->usage['budget'] ?? null) ? $exception->usage['budget'] : [];
+            foreach ([
+                'desired_output_tokens',
+                'requested_max_output_tokens',
+                'model_max_output_tokens',
+                'minimum_required_output_tokens',
+            ] as $budgetKey) {
+                if (isset($budget[$budgetKey]) && is_numeric($budget[$budgetKey])) {
+                    $meta[$budgetKey] = (int) $budget[$budgetKey];
+                }
+            }
         }
 
         if (! $exception instanceof PromptRunException) {
@@ -1425,6 +1436,10 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
 
     private function extractFailureUsage(\Throwable $exception): ?array
     {
+        if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated) {
+            return is_array($exception->usage) && $exception->usage !== [] ? $exception->usage : null;
+        }
+
         if (! $exception instanceof PromptRunException) {
             return null;
         }

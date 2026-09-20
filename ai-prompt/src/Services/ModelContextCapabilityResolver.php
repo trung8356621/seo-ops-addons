@@ -18,7 +18,7 @@ final class ModelContextCapabilityResolver
 {
     public const DEFAULT_CONTEXT_WINDOW = 8192;
 
-    public const DEFAULT_MAX_OUTPUT = 2048;
+    public const DEFAULT_MAX_OUTPUT = 8192;
 
     public const CONSERVATIVE_CONTEXT_WINDOW = 4096;
 
@@ -83,6 +83,8 @@ final class ModelContextCapabilityResolver
             }
         }
 
+        // Catalog often omits max_completion_tokens. Keep an explicit provider-known floor
+        // for DeepSeek V4 Pro; otherwise DEFAULT_MAX_OUTPUT is the inferred ceiling.
         if (strtolower((string) $connection->provider) === ApiConnectionProviders::DEEPSEEK
             && strtolower(trim($model)) === 'deepseek-v4-pro') {
             $maxOut = max($maxOut, 8192);

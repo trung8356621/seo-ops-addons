@@ -61,13 +61,14 @@ final class PromptSplitStrategyRegistry
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::DirectFit, $reserve));
         }
 
-        // Business-split already exists (outline ↔ vocabulary). Still needs budget preflight per call.
+        // Business-split already exists (outline ↔ vocabulary). Capability-aware
+        // desired reserve (reasoning→8192 / else→4096); preflight caps by model max.
         foreach ([
             'article.outline.generate',
             'article.outline.structure.generate',
             'article.vocabulary.generate',
         ] as $hook) {
-            $this->register(new DirectFitStrategy($hook, PromptSplitClass::BusinessSplit, 2048));
+            $this->register(new DirectFitStrategy($hook, PromptSplitClass::BusinessSplit));
         }
 
         // Long-form article.content.generate is owned by SectionedArticle generation when primary is free.

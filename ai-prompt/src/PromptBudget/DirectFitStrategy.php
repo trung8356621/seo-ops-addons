@@ -32,13 +32,20 @@ final class DirectFitStrategy implements PromptSplitStrategy
 
     public function estimateOutputReserve(array $options, ModelContextCapability $capability): int
     {
-        unset($capability);
         $requested = (int) ($options['requested_output_tokens'] ?? 0);
         if ($requested > 0) {
             return $requested;
         }
 
-        // Desired reserve only — capability check lives in PromptBudgetPreflightService.
+        // Business-split Outline/Vocabulary: capability-aware desired reserve.
+        // Cap by model max here so minimum_required (derived from desired) stays sendable.
+        // Preflight still applies min(desired, modelMax) as the outbound ceiling.
+        if ($this->class === PromptSplitClass::BusinessSplit) {
+            $base = $capability->isReasoningModel ? 8192 : 4096;
+
+            return max(256, min($base, max(256, $capability->maxOutputTokens)));
+        }
+
         return $this->defaultOutputReserve;
     }
 

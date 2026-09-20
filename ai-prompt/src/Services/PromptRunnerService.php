@@ -2067,15 +2067,6 @@ class PromptRunnerService
             'section_count' => max(1, (int) ($routeVariables['section_count'] ?? 1)),
             'block_count' => max(1, (int) ($routeVariables['block_count'] ?? 1)),
         ], $capability);
-        if ($routed->provider === ApiConnectionProviders::DEEPSEEK
-            && strtolower(trim($routed->model)) === 'deepseek-v4-pro'
-            && in_array($hookKey, [
-                'article.outline.generate',
-                ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK,
-                ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK,
-            ], true)) {
-            $desiredOutputTokens = max($desiredOutputTokens, 8192);
-        }
 
         $planOptions = [
             'quantity' => (int) ($routeVariables['quantity'] ?? $routeVariables['count'] ?? 0),
@@ -2135,12 +2126,13 @@ class PromptRunnerService
             $callOptions,
         );
         $usage = is_array($usage) ? $usage : [];
-        // True provider truncation must fail the physical route inside the router
-        // attempt (outline / vocabulary / other hooks) — same contract as article.
-        $this->assertProviderTerminalReasonEligibleForFailover($usage);
-        $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
         $usage['budget'] = $budgetPlan->toDiagnostics();
         $usage['compiled_chars'] = mb_strlen($compiled);
+        // True provider truncation must fail the physical route inside the router
+        // attempt (outline / vocabulary / other hooks) — same contract as article.
+        // Budget diagnostics are stamped first so failed attempts retain observability.
+        $this->assertProviderTerminalReasonEligibleForFailover($usage);
+        $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
 
         return [$output, $usage];
     }
@@ -2452,6 +2444,7 @@ class PromptRunnerService
             'OUTPUT_TRUNCATED: provider terminal reason=output_truncated (finish_reason='.$finishLabel.').',
             \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated,
             $finishReason,
+            $usage,
         );
     }
 

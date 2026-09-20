@@ -481,26 +481,28 @@ final class DeepSeekCatalogAndTextReasoningEligibilityTest extends TestCase
             ->estimateOutputReserve([], $capability);
 
         self::assertGreaterThanOrEqual(8192, $capability->maxOutputTokens);
-        self::assertSame(2048, $reserve);
-        self::assertSame(2048, $vocabularyReserve);
+        self::assertSame(8192, $reserve);
+        self::assertSame(8192, $vocabularyReserve);
         self::assertLessThanOrEqual($capability->maxOutputTokens, $reserve);
 
-        $openrouter = $this->openrouter(63);
-        $candidate = new RoutedAiCandidate(
-            AiExecutionProfile::TextReasoning->value,
-            $openrouter,
-            ApiConnectionProviders::OPENROUTER,
-            'openai/gpt-5.4',
-            [AiModelCapability::TextGenerate->value, AiModelCapability::TextReasoning->value],
-            1,
+        $openrouterCapability = new \Omnichannel\Addons\AiPrompt\DataTransfer\ModelContextCapability(
+            contextWindow: 128_000,
+            maxOutputTokens: 8192,
+            capabilitySource: 'test',
+            estimatorFamily: \Omnichannel\Addons\AiPrompt\Services\PromptTokenEstimator::FAMILY_DEFAULT,
+            isReasoningModel: true,
+            safetyMarginTokens: 800,
         );
-        $plan = (new PromptBudgetPreflightService())->plan(
-            $candidate,
+        $plan = (new PromptBudgetPreflightService())->planWithCapability(
+            $openrouterCapability,
+            (new PromptSplitStrategyRegistry())->forHook('article.outline.structure.generate'),
             'Write a short outline.',
-            'article.outline.structure.generate',
+            ['desired_output_tokens' => 8192],
         );
         self::assertTrue($plan->requestFits);
-        self::assertSame(2048, $plan->requestedMaxOutputTokens);
+        self::assertGreaterThan(2048, $plan->requestedMaxOutputTokens);
+        self::assertSame(8192, $plan->requestedMaxOutputTokens);
+        unset($openrouter); // keep other routes eligible — deepseek still resolved above
     }
 
     public function test_split_article_hooks_disable_thinking_unless_explicitly_enabled(): void

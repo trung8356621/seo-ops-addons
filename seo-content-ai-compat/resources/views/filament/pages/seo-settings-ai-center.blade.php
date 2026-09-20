@@ -15,7 +15,6 @@
                     routingHydrated: @js($routingHydrated),
                     resilienceHydrated: @js($resilienceHydrated),
                     healthHydrated: @js($healthHydrated),
-                    usageHydrated: @js($usageHydrated),
                     editingProfile: @js($editingProfile),
                     routingUnsaved: @js($routingUnsaved),
                 })"
@@ -26,7 +25,7 @@
                 </header>
 
                 <nav class="seo-ai-segment" aria-label="{{ __('seo-content-ai::filament.ai_center.title') }}">
-                    @foreach (['models', 'routing', 'resilience', 'health', 'usage'] as $tabKey)
+                    @foreach (['models', 'routing', 'resilience', 'health'] as $tabKey)
                         <button
                             type="button"
                             @click="setTab('{{ $tabKey }}')"
@@ -780,10 +779,6 @@
                     </div>
                 @endif
 
-                @if ($usageHydrated)
-                    @include('seo-content-ai::filament.pages.partials.seo-ai-center-usage-panel')
-                @endif
-
                 <div
                     class="seo-ai-panel-loading"
                     x-show="activeMainTab === 'resilience' && (panelLoading || !resilienceHydrated)"
@@ -818,19 +813,6 @@
                         <div class="h-4 w-1/3 rounded bg-gray-200 dark:bg-gray-700"></div>
                         <div class="h-24 rounded bg-gray-200 dark:bg-gray-700"></div>
                         <div class="h-24 rounded bg-gray-200 dark:bg-gray-700"></div>
-                    </div>
-                </div>
-
-                <div
-                    class="seo-ai-panel-loading"
-                    x-show="activeMainTab === 'usage' && (panelLoading || !usageHydrated)"
-                    x-cloak
-                    wire:key="ai-center-usage-loading"
-                >
-                    <div class="animate-pulse space-y-3 py-6">
-                        <div class="h-4 w-1/3 rounded bg-gray-200 dark:bg-gray-700"></div>
-                        <div class="h-24 rounded bg-gray-200 dark:bg-gray-700"></div>
-                        <div class="h-48 rounded bg-gray-200 dark:bg-gray-700"></div>
                     </div>
                 </div>
             </div>
@@ -1043,7 +1025,7 @@
     <script>
         function seoAiCenter(initial) {
             return {
-                activeMainTab: ['routing', 'resilience', 'health', 'usage'].includes(initial.tab) ? initial.tab : 'models',
+                activeMainTab: ['routing', 'resilience', 'health'].includes(initial.tab) ? initial.tab : 'models',
                 activeCapability: (function () {
                     const modelAreas = ['free_models', 'fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
                     const routingGroups = ['text', 'image', 'video'];
@@ -1060,7 +1042,6 @@
                 routingHydrated: !!initial.routingHydrated,
                 resilienceHydrated: !!initial.resilienceHydrated,
                 healthHydrated: !!initial.healthHydrated,
-                usageHydrated: !!initial.usageHydrated,
                 panelLoading: false,
                 editingProfile: initial.editingProfile || null,
                 routingUnsaved: !!initial.routingUnsaved,
@@ -1122,10 +1103,6 @@
                         this.healthHydrated = !!this.$root.querySelector('#ai-center-health');
                         return this.healthHydrated;
                     }
-                    if (panel === 'usage') {
-                        this.usageHydrated = !!this.$root.querySelector('#ai-center-usage');
-                        return this.usageHydrated;
-                    }
                     return false;
                 },
                 async setTab(next) {
@@ -1165,10 +1142,6 @@
                             await this.$wire.openPanel('health');
                             await this.$nextTick();
                             this.markPanelHydrated('health');
-                        } else if (next === 'usage' && ! this.usageHydrated) {
-                            await this.$wire.openPanel('usage');
-                            await this.$nextTick();
-                            this.markPanelHydrated('usage');
                         } else if (areaForWire !== null) {
                             await this.$wire.setModelArea(areaForWire);
                         }
