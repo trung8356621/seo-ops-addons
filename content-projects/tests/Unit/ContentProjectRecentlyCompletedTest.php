@@ -284,7 +284,8 @@ final class ContentProjectRecentlyCompletedTest extends TestCase
         $viewSrc = (string) file_get_contents(
             (string) (new ReflectionClass(ViewSeoProject::class))->getFileName(),
         );
-        self::assertStringContainsString("visible(fn (): bool => \$this->runningCount > 0)", $viewSrc);
+        self::assertStringContainsString('headerShowsRuntimeControls()', $viewSrc);
+        self::assertStringContainsString('->visible(fn (): bool => $this->headerShowsRuntimeControls())', $viewSrc);
         self::assertStringContainsString('ops_running_items_indicator', $viewSrc);
     }
 

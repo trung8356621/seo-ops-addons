@@ -200,6 +200,12 @@ final class ViewSeoProject extends Page
     /** Client dirty hint — Editor save sets via event; lazy refresh clears. */
     public bool $opsNeedsRefresh = false;
 
+    /**
+     * Bumped on every runtime SSOT reload so Filament header action morph
+     * cannot reuse an idle heading/actions fingerprint after Create with AI.
+     */
+    public int $runtimeUiEpoch = 0;
+
     /** Request-local only — never public (payload has LengthAwarePaginator). */
     protected ?array $cachedOperationsPayload = null;
 
@@ -334,7 +340,7 @@ final class ViewSeoProject extends Page
         }
 
         return new HtmlString(
-            '<span class="inline-flex flex-wrap items-center gap-2">'
+            '<span class="inline-flex flex-wrap items-center gap-2" data-cp-runtime-epoch="'.e((string) $this->runtimeUiEpoch).'" data-cp-runtime-revision="'.e((string) ($this->summarySnapshot['runtime_revision'] ?? '')).'">'
             .'<span>'.e($name).'</span>'
             .$draftBadge
             .'<span class="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-500/20 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-400/30">'
@@ -510,6 +516,8 @@ final class ViewSeoProject extends Page
         }
 
         $this->invalidateOpsCache();
+        $this->runtimeUiEpoch++;
+        $this->rebuildCachedHeaderActions();
 
         return ['changed' => true, 'summary' => $summary];
     }
@@ -529,7 +537,9 @@ final class ViewSeoProject extends Page
     {
         $this->opsNeedsRefresh = false;
         $this->invalidateOpsCache();
+        $this->runtimeUiEpoch++;
         $this->summarySnapshot = $this->fetchOpsSummary();
+        $this->rebuildCachedHeaderActions();
 
         return ['changed' => true, 'summary' => $this->summarySnapshot];
     }
@@ -558,6 +568,21 @@ final class ViewSeoProject extends Page
         $this->opsTableEpoch++;
         $this->cachedOperationsPayload = null;
         $this->cachedOperationsKey = '';
+        // Livewire caches get*Property() for the request — clearing the internal
+        // ops cache alone leaves stale operationsPayload / runningCount in store.
+        unset($this->operationsPayload, $this->runningCount, $this->activeSummaryCard, $this->hasActiveFilters);
+    }
+
+    /**
+     * Filament builds header Action objects once per request boot. After runtime
+     * SSOT changes, rebuild so newly-visible Running / Emergency Stop actions are
+     * present in the morph payload (visibility closures alone are not enough when
+     * the surrounding header fingerprint stays identical).
+     */
+    private function rebuildCachedHeaderActions(): void
+    {
+        $this->cachedHeaderActions = [];
+        $this->cacheHeaderActions();
     }
 
     private function buildOpsCacheKey(): string
@@ -643,6 +668,36 @@ final class ViewSeoProject extends Page
         return (int) (($this->operationsPayload['stats']['running'] ?? 0));
     }
 
+    /**
+     * Header Running pill — true while a SeoProjectRun is STATUS_RUNNING even before
+     * row-level generation badges flip to running.
+     */
+    private function headerShowsRuntimeControls(): bool
+    {
+        if ($this->runningCount > 0) {
+            return true;
+        }
+
+        return $this->hasRunningExecution();
+    }
+
+    private function headerRunningItemsCount(): int
+    {
+        $count = $this->runningCount;
+        if ($count > 0) {
+            return $count;
+        }
+
+        if (! $this->hasRunningExecution()) {
+            return 0;
+        }
+
+        $summary = is_array($this->summarySnapshot) ? $this->summarySnapshot : [];
+        $live = (int) ($summary['runtime_active'] ?? 0) + (int) ($summary['runtime_waiting'] ?? 0);
+
+        return max(1, $live);
+    }
+
     public function getHasActiveFiltersProperty(): bool
     {
         return $this->search !== ''
@@ -671,15 +726,16 @@ final class ViewSeoProject extends Page
                 ])),
             Actions\Action::make('running_items_indicator')
                 ->label(fn (): string => __('seo-content-ai::filament.projects.ops_running_items_indicator', [
-                    'count' => $this->runningCount,
+                    'count' => $this->headerRunningItemsCount(),
                 ]))
                 ->icon('heroicon-o-arrow-path')
                 ->color('info')
                 ->disabled()
                 ->extraAttributes([
                     'class' => 'pointer-events-none animate-pulse',
+                    'data-cp-runtime-epoch' => (string) $this->runtimeUiEpoch,
                 ])
-                ->visible(fn (): bool => $this->runningCount > 0),
+                ->visible(fn (): bool => $this->headerShowsRuntimeControls()),
             Actions\Action::make('emergency_stop_generation')
                 ->label('Dừng khẩn cấp')
                 ->icon('heroicon-o-stop-circle')
@@ -688,6 +744,9 @@ final class ViewSeoProject extends Page
                 ->modalHeading('Dừng khẩn cấp Generate')
                 ->modalDescription('Dừng execution đang chạy, hủy step active và giữ các item chưa chạy ở trạng thái pending.')
                 ->modalSubmitActionLabel('Dừng ngay')
+                ->extraAttributes([
+                    'data-cp-runtime-epoch' => (string) $this->runtimeUiEpoch,
+                ])
                 ->visible(fn (): bool => SeoAccessControl::canManageContentProjectWorkflow()
                     && ! $project->isDraftPlanning()
                     && ! $project->isProjectArchived()

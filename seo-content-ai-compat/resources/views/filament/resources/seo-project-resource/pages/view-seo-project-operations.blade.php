@@ -1431,7 +1431,12 @@
                 </div>
             @else
                 @if (is_array($activeRuntime))
-                    <div class="mb-2 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200" aria-live="polite">
+                    <div
+                        wire:key="cp-active-runtime-{{ $projectId }}-{{ (int) ($activeRuntime['task_id'] ?? 0) }}-{{ $summarySnapshot['runtime_revision'] ?? '' }}"
+                        class="mb-2 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+                        aria-live="polite"
+                        data-cp-active-runtime="1"
+                    >
                         <svg class="h-3.5 w-3.5 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                         <span class="truncate">
                             {{ $activeRuntime['label'] ?: __('seo-content-ai::filament.projects.badge_generating_active') }}:
@@ -1443,6 +1448,16 @@
                                 · {{ $activeRuntime['time_label'] }}
                             @endif
                         </span>
+                    </div>
+                @elseif (($payload['last_execution_status'] ?? null) === \Omnichannel\Addons\ContentProjects\Models\SeoProjectRun::STATUS_RUNNING)
+                    <div
+                        wire:key="cp-runtime-live-{{ $projectId }}-{{ $summarySnapshot['runtime_revision'] ?? $this->runtimeUiEpoch }}"
+                        class="mb-2 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+                        aria-live="polite"
+                        data-cp-runtime-live="1"
+                    >
+                        <svg class="h-3.5 w-3.5 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                        <span class="truncate">{{ __('seo-content-ai::filament.projects.ops_running') }}…</span>
                     </div>
                 @endif
                 <x-seo-content-ai::content-project-items-list

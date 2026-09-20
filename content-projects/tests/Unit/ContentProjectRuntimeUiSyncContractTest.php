@@ -21,12 +21,16 @@ final class ContentProjectRuntimeUiSyncContractTest extends TestCase
         $src = $this->viewSrc();
 
         self::assertStringContainsString('running_items_indicator', $src);
-        self::assertStringContainsString('$this->runningCount > 0', $src);
+        self::assertStringContainsString('headerShowsRuntimeControls()', $src);
+        self::assertStringContainsString('headerRunningItemsCount()', $src);
         self::assertStringContainsString('emergency_stop_generation', $src);
         self::assertStringContainsString('hasRunningExecution()', $src);
-        self::assertStringContainsString("STATUS_RUNNING", $src);
-        self::assertStringContainsString("function getRunningCountProperty(): int", $src);
+        self::assertStringContainsString('STATUS_RUNNING', $src);
+        self::assertStringContainsString('function getRunningCountProperty(): int', $src);
         self::assertStringContainsString("operationsPayload['stats']['running']", $src);
+        self::assertStringContainsString('unset($this->operationsPayload, $this->runningCount', $src);
+        self::assertStringContainsString('rebuildCachedHeaderActions()', $src);
+        self::assertStringContainsString('runtimeUiEpoch', $src);
     }
 
     public function test_run_and_create_with_ai_notify_runtime_without_redirect(): void
@@ -68,6 +72,7 @@ final class ContentProjectRuntimeUiSyncContractTest extends TestCase
         $refreshChunk = substr($view, $refreshPos, 500);
         self::assertStringContainsString('invalidateOpsCache()', $refreshChunk);
         self::assertStringContainsString('fetchOpsSummary()', $refreshChunk);
+        self::assertStringContainsString('rebuildCachedHeaderActions()', $refreshChunk);
 
         // Alpine force path (post-event / manual) uses the same Livewire loader.
         self::assertStringContainsString('$wire.manualRefreshOps()', $blade);
@@ -88,6 +93,8 @@ final class ContentProjectRuntimeUiSyncContractTest extends TestCase
         self::assertStringContainsString('activeRuntimeRow', $readModel);
         self::assertStringContainsString('@if (is_array($activeRuntime))', $blade);
         self::assertStringContainsString("\$activeRuntime['title']", $blade);
+        self::assertStringContainsString('wire:key="cp-active-runtime-', $blade);
+        self::assertStringContainsString('data-cp-runtime-live', $blade);
 
         $view = $this->viewSrc();
         self::assertStringContainsString('notifyProjectRuntimeChanged()', $view);
