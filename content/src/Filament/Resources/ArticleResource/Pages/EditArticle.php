@@ -76,6 +76,10 @@ use Omnichannel\Addons\WordPress\Services\SitePolylangService;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowRunRequest;
+use App\System\Workflow\Dto\WorkflowRunResult;
 use Omnichannel\Addons\WordPress\Services\VirtualCommentService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
@@ -5651,7 +5655,7 @@ class EditArticle extends SeoEditRecord
         );
 
         try {
-            $steps = app(TaskWorkflowTestRunner::class)->run($task, $workflowContext);
+            $systemResult = $this->runOutlineRewriteViaSystemWorkflow($task, $workflowContext);
         } catch (\Throwable $exception) {
             return [
                 'success' => false,
@@ -5660,13 +5664,23 @@ class EditArticle extends SeoEditRecord
             ];
         }
 
+        $steps = $systemResult['steps'];
+        if ($systemResult['status'] === 'failed') {
+            $failedMessage = $this->firstFailedStepMessage($steps);
+            $systemMessage = trim((string) ($systemResult['error_message'] ?? ''));
+
+            return [
+                'success' => false,
+                'message' => $failedMessage !== null
+                    ? $failedMessage
+                    : ($systemMessage !== '' ? $systemMessage : 'Workflow chạy lỗi.'),
+                'outline' => '',
+            ];
+        }
+
         $hasFailedStep = collect($steps)->contains(fn (array $step): bool => (string) ($step['status'] ?? '') === 'failed');
         if ($hasFailedStep) {
-            $failedMessage = collect($steps)
-                ->filter(fn (array $step): bool => (string) ($step['status'] ?? '') === 'failed')
-                ->map(fn (array $step): string => trim((string) ($step['message'] ?? 'Workflow step failed.')))
-                ->filter(fn (string $message): bool => $message !== '')
-                ->first();
+            $failedMessage = $this->firstFailedStepMessage($steps);
 
             return [
                 'success' => false,
@@ -5675,6 +5689,7 @@ class EditArticle extends SeoEditRecord
             ];
         }
 
+        // Domain helper — not graph execution. Remains outside System Workflow.
         app(TaskWorkflowTestRunner::class)->applyParsedMetaFromSteps($this->record, $steps);
         $this->record->refresh();
 
@@ -5707,6 +5722,75 @@ class EditArticle extends SeoEditRecord
             'message' => 'Đã tạo outline từ workflow.',
             'outline' => $outline,
         ];
+    }
+
+    /**
+     * FULL_RUN via System Workflow only — no TaskWorkflowTestRunner::run fallback.
+     *
+     * @return array{
+     *     steps: list<array<string, mixed>>,
+     *     run_id: string,
+     *     status: string,
+     *     error_message: ?string
+     * }
+     */
+    private function runOutlineRewriteViaSystemWorkflow(SeoTask $task, TaskTestContext $workflowContext): array
+    {
+        $result = app(SystemWorkflowClient::class)->run(new WorkflowRunRequest(
+            definitionId: (int) $task->getKey(),
+            definition: null,
+            input: is_array($workflowContext->variables) ? $workflowContext->variables : [],
+            context: [
+                'source' => 'edit_article_outline',
+                'task_test_context' => $workflowContext->toArray(),
+            ],
+            correlation: [
+                'capability' => 'workflow.edit_article_outline',
+                'task_id' => (int) $task->getKey(),
+                'article_id' => $workflowContext->article?->id,
+            ],
+            executionMode: WorkflowExecutionMode::FullRun->value,
+        ));
+
+        return [
+            'steps' => $this->orderedStepsFromWorkflowResult($result),
+            'run_id' => $result->id,
+            'status' => $result->status,
+            'error_message' => $result->errorMessage,
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function orderedStepsFromWorkflowResult(WorkflowRunResult $result): array
+    {
+        $ordered = $result->meta['ordered_steps'] ?? null;
+        if (is_array($ordered) && $ordered !== []) {
+            /** @var list<array<string, mixed>> $steps */
+            $steps = array_values(array_filter($ordered, static fn (mixed $s): bool => is_array($s)));
+
+            return $steps;
+        }
+
+        /** @var list<array<string, mixed>> $steps */
+        $steps = array_values(array_filter($result->steps, static fn (mixed $s): bool => is_array($s)));
+
+        return $steps;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     */
+    private function firstFailedStepMessage(array $steps): ?string
+    {
+        $failedMessage = collect($steps)
+            ->filter(fn (array $step): bool => (string) ($step['status'] ?? '') === 'failed')
+            ->map(fn (array $step): string => trim((string) ($step['message'] ?? 'Workflow step failed.')))
+            ->filter(fn (string $message): bool => $message !== '')
+            ->first();
+
+        return is_string($failedMessage) && $failedMessage !== '' ? $failedMessage : null;
     }
 
     /**

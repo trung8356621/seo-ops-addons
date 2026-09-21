@@ -250,7 +250,6 @@ final class EditorWorkflowSystemCutoverContractTest extends TestCase
             dirname(__DIR__, 3).'/content-projects/src/Services/CreateArticlesFromTaskService.php',
             dirname(__DIR__, 2).'/src/Services/ArticleWritingExecutionService.php',
             dirname(__DIR__, 3).'/content-projects/src/Services/SeoProjectWorkflowStepRetryService.php',
-            dirname(__DIR__, 2).'/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
         ];
         foreach ($paths as $path) {
             self::assertFileExists($path, $path);
