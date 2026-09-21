@@ -12,6 +12,8 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Tables;
@@ -34,7 +36,34 @@ class TaskResource extends SeoPanelResource
 
     protected static ?string $pluralModelLabel = 'Task workflows';
 
-    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_WORKFLOWS;
+    protected static ?int $navigationSort = SeoUserNavigation::SORT_WORKFLOWS;
+
+    /**
+     * Dual-registration phase: SEO remains the default panel.
+     * When the request is already on Admin, keep management URLs on Admin.
+     */
+    public static function getNavigationGroup(): ?string
+    {
+        if (Filament::getCurrentPanel()?->getId() === 'admin') {
+            return SeoUserNavigation::GROUP_SYSTEM;
+        }
+
+        return parent::getNavigationGroup();
+    }
+
+    public static function getUrl(
+        string $name = 'index',
+        array $parameters = [],
+        bool $isAbsolute = true,
+        ?string $panel = null,
+        ?\Illuminate\Database\Eloquent\Model $tenant = null,
+    ): string {
+        if ($panel === null && Filament::getCurrentPanel()?->getId() === 'admin') {
+            $panel = 'admin';
+        }
+
+        return parent::getUrl($name, $parameters, $isAbsolute, $panel, $tenant);
+    }
 
     public static function canViewAny(): bool
     {
