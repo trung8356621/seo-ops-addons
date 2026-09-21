@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Content\Services;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\InternalLinkAnchorQuality;
+use Omnichannel\Addons\Content\Support\InternalLinkFinalAnchorReconstructor;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
@@ -105,7 +106,9 @@ final class ArticleLinkSuggestionContentKeywordFallback
             'skipped_stop_phrase' => 0,
             'skipped_occupied_anchor' => 0,
             'rejected_generic_anchor' => 0,
+            'rejected_anchor_reconstruction' => 0,
             'passed_anchor_quality' => 0,
+            'reconstructed_anchor_count' => 0,
             'focus_keyword_matches' => 0,
             'title_only_matches' => 0,
             'phrases_with_keyword_target' => 0,
@@ -191,6 +194,7 @@ final class ArticleLinkSuggestionContentKeywordFallback
 
             $trace = [
                 'phrase' => $phrase,
+                'probe_phrase' => $phrase,
                 'source' => (string) ($row['source'] ?? ''),
                 'path' => null,
                 'reject' => null,
@@ -198,16 +202,22 @@ final class ArticleLinkSuggestionContentKeywordFallback
                 'anchor_quality_reason' => null,
                 'destination_score' => null,
                 'destination_match_reason' => null,
+                'destination_focus_keyword' => null,
+                'reconstructed_anchor' => null,
+                'reconstruction_reason' => null,
+                'source_context' => null,
             ];
 
             $resolved = $this->resolveDeepDestination(
                 $article,
+                $htmlContent,
                 $phrase,
                 (string) ($row['source'] ?? ''),
                 $siteId,
                 $excludeId,
                 $siteDomain,
                 $validationContext,
+                $occupiedLabels,
                 $occupiedNormalizedUrls,
                 $seenTargetArticleIds,
                 $candidateLimit,
@@ -236,7 +246,8 @@ final class ArticleLinkSuggestionContentKeywordFallback
             if ($tid > 0) {
                 $seenTargetArticleIds[$tid] = true;
             }
-            $occupiedLabels[] = mb_strtolower($phrase);
+            $finalLabel = (string) ($resolved['text'] ?? $phrase);
+            $occupiedLabels[] = mb_strtolower($finalLabel);
             $this->lastDebug['valid_after_policy']++;
             $this->lastDebug['valid_candidate']++;
             $this->lastDebug['phrase_trace'][] = $trace;
@@ -268,39 +279,30 @@ final class ArticleLinkSuggestionContentKeywordFallback
      */
     private function resolveDeepDestination(
         SeoArticle $article,
-        string $phrase,
+        string $htmlContent,
+        string $probePhrase,
         string $phraseSource,
         int $siteId,
         int $excludeId,
         string $siteDomain,
         array $validationContext,
+        array $occupiedLabels,
         array $occupiedNormalizedUrls,
         array $seenTargetArticleIds,
         int $candidateLimit,
         int $minScore,
         array &$trace,
     ): ?array {
+        // SEARCH PROBE only — do not gate destination search on final-anchor quality.
+        // Final anchor is reconstructed after a destination is found.
+
         // 1) Keyword inventory target (same site, active).
         $keyword = Keyword::query()
             ->forSite($siteId)
             ->where('type', Keyword::TYPE_NORMAL)
             ->where('review_status', KeywordReviewStatus::Active->value)
-            ->whereRaw('LOWER(TRIM(phrase)) = ?', [mb_strtolower(trim($phrase))])
+            ->whereRaw('LOWER(TRIM(phrase)) = ?', [mb_strtolower(trim($probePhrase))])
             ->first();
-
-        $anchor = InternalLinkAnchorQuality::evaluate($phrase, [
-            'source' => $phraseSource,
-            'is_inventory_keyword' => $keyword instanceof Keyword,
-        ]);
-        $trace['anchor_quality_score'] = $anchor['score'];
-        $trace['anchor_quality_reason'] = $anchor['reason'];
-        if (! $anchor['accepted']) {
-            $trace['reject'] = 'rejected_generic_anchor';
-            $this->lastDebug['rejected_generic_anchor']++;
-
-            return null;
-        }
-        $this->lastDebug['passed_anchor_quality']++;
 
         if ($keyword instanceof Keyword) {
             $this->lastDebug['phrases_with_keyword_target']++;
@@ -315,34 +317,37 @@ final class ArticleLinkSuggestionContentKeywordFallback
                 $trace['path'] = 'keyword_target';
                 $trace['destination_score'] = 90;
                 $trace['destination_match_reason'] = 'advanced_keyword_target';
+                $targetArticle = $this->linkTargetResolver->resolveArticleFromUrl($siteId, $href, $article);
+                $targetId = $targetArticle instanceof SeoArticle ? (int) $targetArticle->id : 0;
                 $item = $this->buildDeepSuggestionItem(
-                    $phrase,
+                    $htmlContent,
+                    $probePhrase,
+                    $phraseSource,
                     $href,
                     (int) $keyword->id,
+                    (string) ($keyword->phrase ?? $probePhrase),
                     $article,
                     $siteId,
                     $siteDomain,
                     $validationContext,
+                    $occupiedLabels,
                     $occupiedNormalizedUrls,
                     $seenTargetArticleIds,
                     90,
                     'advanced_keyword_target',
                     $trace,
+                    $targetId,
+                    $targetArticle instanceof SeoArticle ? $targetArticle : null,
                 );
                 if ($item !== null) {
-                    $item['anchor_quality_score'] = $anchor['score'];
-                    $item['anchor_quality_reason'] = $anchor['reason'];
-                    $item['destination_score'] = 90;
-                    $item['destination_match_reason'] = 'advanced_keyword_target';
-
                     return $item;
                 }
             }
         }
 
-        // 2) Site article index search.
+        // 2) Site article index search (probe phrase).
         $this->lastDebug['phrases_searched_index']++;
-        $results = $this->searchService->search($siteId, $excludeId, $phrase, $candidateLimit);
+        $results = $this->searchService->search($siteId, $excludeId, $probePhrase, $candidateLimit);
         $this->lastDebug['destination_candidates'] += count($results);
         $trace['path'] = 'article_index';
         if ($results === []) {
@@ -396,26 +401,27 @@ final class ArticleLinkSuggestionContentKeywordFallback
                 continue;
             }
             $item = $this->buildDeepSuggestionItem(
-                $phrase,
+                $htmlContent,
+                $probePhrase,
+                $phraseSource,
                 $href,
-                $this->resolveKeywordIdForPhrase($phrase, $siteId),
+                $this->resolveKeywordIdForPhrase($probePhrase, $siteId),
+                $keyword instanceof Keyword ? (string) ($keyword->phrase ?? '') : '',
                 $article,
                 $siteId,
                 $siteDomain,
                 $validationContext,
+                $occupiedLabels,
                 $occupiedNormalizedUrls,
                 $seenTargetArticleIds,
                 $score,
                 $matchReason !== '' ? $matchReason : 'advanced_article_index',
                 $trace,
                 $targetId,
+                null,
+                (string) ($hit['title'] ?? ''),
             );
             if ($item !== null) {
-                $item['anchor_quality_score'] = $anchor['score'];
-                $item['anchor_quality_reason'] = $anchor['reason'];
-                $item['destination_score'] = $score;
-                $item['destination_match_reason'] = $matchReason;
-
                 return $item;
             }
             $this->lastDebug['rejected_unresolved_or_policy']++;
@@ -436,19 +442,25 @@ final class ArticleLinkSuggestionContentKeywordFallback
      * @return array<string, mixed>|null
      */
     private function buildDeepSuggestionItem(
-        string $phrase,
+        string $htmlContent,
+        string $probePhrase,
+        string $phraseSource,
         string $href,
         ?int $keywordId,
+        string $inventoryKeyword,
         SeoArticle $article,
         int $siteId,
         string $siteDomain,
         array $validationContext,
+        array $occupiedLabels,
         array $occupiedNormalizedUrls,
         array $seenTargetArticleIds,
         int $score,
         string $matchReason,
         array &$trace,
         int $targetArticleId = 0,
+        ?SeoArticle $targetArticle = null,
+        string $destinationTitle = '',
     ): ?array {
         $norm = SeoSuggestionUrlNormalizer::normalize($href);
         if ($norm === '' || in_array($norm, $occupiedNormalizedUrls, true)) {
@@ -466,7 +478,8 @@ final class ArticleLinkSuggestionContentKeywordFallback
 
         if ($targetArticleId <= 0) {
             $found = $this->linkTargetResolver->resolveArticleFromUrl($siteId, $href, $article);
-            $targetArticleId = $found instanceof SeoArticle ? (int) $found->id : 0;
+            $targetArticle = $found instanceof SeoArticle ? $found : null;
+            $targetArticleId = $targetArticle instanceof SeoArticle ? (int) $targetArticle->id : 0;
         }
         if ($targetArticleId > 0 && isset($seenTargetArticleIds[$targetArticleId])) {
             $trace['reject'] = 'duplicate_target';
@@ -474,8 +487,64 @@ final class ArticleLinkSuggestionContentKeywordFallback
             return null;
         }
 
+        if ($targetArticle === null && $targetArticleId > 0) {
+            $targetArticle = SeoArticle::query()->with('articleMetas')->find($targetArticleId);
+        }
+
+        $destFocus = $this->resolveFocusKeywordFromArticle($targetArticle);
+        $destTitle = $destinationTitle !== ''
+            ? $destinationTitle
+            : trim((string) ($targetArticle?->title ?? ''));
+        $trace['destination_focus_keyword'] = $destFocus !== '' ? $destFocus : null;
+
+        $reconstructed = InternalLinkFinalAnchorReconstructor::reconstruct($htmlContent, $probePhrase, [
+            'destination_focus_keyword' => $destFocus,
+            'inventory_keyword' => $inventoryKeyword,
+            'destination_title' => $destTitle,
+        ]);
+        if ($reconstructed === null) {
+            $trace['reject'] = 'rejected_anchor_reconstruction';
+            $this->lastDebug['rejected_anchor_reconstruction']++;
+
+            return null;
+        }
+
+        $finalAnchor = (string) $reconstructed['anchor'];
+        $trace['reconstructed_anchor'] = $finalAnchor;
+        $trace['reconstruction_reason'] = (string) ($reconstructed['reason'] ?? '');
+        $trace['source_context'] = (string) ($reconstructed['source_context'] ?? '');
+        $this->lastDebug['reconstructed_anchor_count']++;
+
+        $anchor = InternalLinkAnchorQuality::evaluate($finalAnchor, [
+            'source' => $phraseSource,
+            'is_inventory_keyword' => $inventoryKeyword !== ''
+                && KeywordPhraseMatcher::normalize($inventoryKeyword) === KeywordPhraseMatcher::normalize($finalAnchor),
+        ]);
+        $trace['anchor_quality_score'] = $anchor['score'];
+        $trace['anchor_quality_reason'] = $anchor['reason'];
+        if (! $anchor['accepted']) {
+            $trace['reject'] = 'rejected_generic_anchor';
+            $this->lastDebug['rejected_generic_anchor']++;
+
+            return null;
+        }
+        $this->lastDebug['passed_anchor_quality']++;
+
+        if ($this->labelOccupied($finalAnchor, $occupiedLabels)) {
+            $trace['reject'] = 'occupied_anchor';
+            $this->lastDebug['skipped_occupied_anchor']++;
+
+            return null;
+        }
+
         $item = [
-            'text' => $phrase,
+            'text' => $finalAnchor,
+            'probe_phrase' => $probePhrase,
+            'reconstructed_anchor' => $finalAnchor,
+            'reconstruction_reason' => (string) ($reconstructed['reason'] ?? ''),
+            'source_context' => (string) ($reconstructed['source_context'] ?? ''),
+            'destination_title' => $destTitle !== '' ? $destTitle : null,
+            'destination_focus_keyword' => $destFocus !== '' ? $destFocus : null,
             'keyword_id' => $keywordId,
             'href' => $href,
             'target_url' => $href,
@@ -488,11 +557,18 @@ final class ArticleLinkSuggestionContentKeywordFallback
             'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
             'candidate_source' => 'content_deep',
             'bucket' => 'internal',
+            'anchor_quality_score' => $anchor['score'],
+            'anchor_quality_reason' => $anchor['reason'],
+            'destination_score' => $score,
+            'destination_match_reason' => $matchReason,
             'provenance' => [
                 'candidate_source' => 'content_deep',
                 'match_reason' => $matchReason,
                 'url' => $href,
                 'destination_resolved' => true,
+                'probe_phrase' => $probePhrase,
+                'reconstructed_anchor' => $finalAnchor,
+                'reconstruction_reason' => (string) ($reconstructed['reason'] ?? ''),
             ],
         ];
 
@@ -504,8 +580,27 @@ final class ArticleLinkSuggestionContentKeywordFallback
         unset($item['bucket']);
         $trace['reject'] = null;
         $trace['accepted'] = $href;
+        $trace['phrase'] = $finalAnchor;
 
         return $item;
+    }
+
+    private function resolveFocusKeywordFromArticle(?SeoArticle $article): string
+    {
+        if (! $article instanceof SeoArticle) {
+            return '';
+        }
+
+        $article->loadMissing('articleMetas');
+        $metas = $article->articleMetas ?? collect();
+        foreach (['seo_focus_keyword', 'rank_math_focus_keyword'] as $key) {
+            $value = trim((string) ($metas->firstWhere('meta_key', $key)?->meta_value ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     /**
