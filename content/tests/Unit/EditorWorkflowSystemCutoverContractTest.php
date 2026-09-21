@@ -246,15 +246,18 @@ final class EditorWorkflowSystemCutoverContractTest extends TestCase
 
     public function test_other_production_callers_remain_direct_runner(): void
     {
-        $paths = [
-            dirname(__DIR__, 3).'/content-projects/src/Services/CreateArticlesFromTaskService.php',
-            dirname(__DIR__, 2).'/src/Services/ArticleWritingExecutionService.php',
-        ];
-        foreach ($paths as $path) {
-            self::assertFileExists($path, $path);
-            $src = (string) file_get_contents($path);
-            self::assertStringContainsString('TaskWorkflowTestRunner', $src, $path);
-            self::assertStringNotContainsString('SystemWorkflowClient', $src, $path);
-        }
+        $path = dirname(__DIR__, 3).'/content-projects/src/Services/CreateArticlesFromTaskService.php';
+        self::assertFileExists($path);
+        $src = (string) file_get_contents($path);
+        self::assertStringContainsString('TaskWorkflowTestRunner', $src);
+        self::assertStringNotContainsString('SystemWorkflowClient', $src);
+
+        $writing = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Content\Services\ArticleWritingExecutionService::class))->getFileName()
+        );
+        preg_match('/private function executePublishGraph\([\s\S]*?\n    \}/', $writing, $pub);
+        self::assertNotSame([], $pub);
+        self::assertStringContainsString('workflowRunner->run', $pub[0]);
+        self::assertStringNotContainsString('workflows->run', $pub[0]);
     }
 }

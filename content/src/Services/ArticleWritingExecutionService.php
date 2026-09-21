@@ -27,6 +27,10 @@ use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowRunRequest;
+use App\System\Workflow\Dto\WorkflowRunResult;
 
 /**
  * Entry duy nhất cho article.content.generate (outline / existing_article / brief).
@@ -45,6 +49,7 @@ class ArticleWritingExecutionService
         private readonly PromptHookBindingRunner $hookBinding,
         private readonly ArticleBodyPublishPort $publisher,
         private readonly TaskWorkflowTestRunner $workflowRunner,
+        private readonly SystemWorkflowClient $workflows,
         private readonly SeoCreateArticleSettingsService $settings,
         private readonly SeoPromptSettingsService $promptSettings,
         private readonly WorkflowExecutionRoleResolver $roleResolver,
@@ -367,14 +372,77 @@ class ArticleWritingExecutionService
             $taskContext = $taskContext->withVariables($vars);
         }
 
-        $steps = $this->workflowRunner->runFromNodeId(
-            $task,
-            $taskContext,
-            $nodeId,
-            seedOutlineFromArticle: true,
-        );
+        // FROM_NODE via System Workflow only — no TaskWorkflowTestRunner::runFromNodeId fallback.
+        $steps = $this->runContentNodeViaSystemWorkflow($task, $taskContext, $nodeId);
 
         return $this->finalizeWorkflowSteps($writing, $owner, $taskContext, $steps, $context);
+    }
+
+    /**
+     * FROM_NODE content execution via System Workflow.
+     * seed_from_artifact maps to runner seedOutlineFromArticle (existing semantics).
+     * Domain finalizeWorkflowSteps / persistence remain outside System.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function runContentNodeViaSystemWorkflow(
+        SeoTask $task,
+        TaskTestContext $taskContext,
+        string $nodeId,
+    ): array {
+        $result = $this->workflows->run(new WorkflowRunRequest(
+            definitionId: (int) $task->getKey(),
+            definition: null,
+            input: is_array($taskContext->variables) ? $taskContext->variables : [],
+            context: [
+                'source' => 'article_writing_content_node',
+                'task_test_context' => $taskContext->toArray(),
+                'seed_from_artifact' => true,
+            ],
+            correlation: [
+                'capability' => 'workflow.article_writing_content_node',
+                'task_id' => (int) $task->getKey(),
+                'article_id' => $taskContext->article?->id,
+                'start_node_id' => $nodeId,
+            ],
+            executionMode: WorkflowExecutionMode::FromNode->value,
+            startNodeId: $nodeId,
+            targetNodeId: null,
+        ));
+
+        $steps = $this->orderedStepsFromWorkflowResult($result);
+        if ($steps !== []) {
+            return $steps;
+        }
+
+        // Preserve old Throwable bubble when adapter returns failed-without-steps.
+        $message = trim((string) ($result->errorMessage ?? ''));
+        if ($message === '') {
+            $message = $result->status === 'failed'
+                ? 'System Workflow from_node failed.'
+                : 'System Workflow from_node không trả về steps.';
+        }
+
+        throw new \RuntimeException($message);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function orderedStepsFromWorkflowResult(WorkflowRunResult $result): array
+    {
+        $ordered = $result->meta['ordered_steps'] ?? null;
+        if (is_array($ordered) && $ordered !== []) {
+            /** @var list<array<string, mixed>> $steps */
+            $steps = array_values(array_filter($ordered, static fn (mixed $s): bool => is_array($s)));
+
+            return $steps;
+        }
+
+        /** @var list<array<string, mixed>> $steps */
+        $steps = array_values(array_filter($result->steps, static fn (mixed $s): bool => is_array($s)));
+
+        return $steps;
     }
 
     /**
