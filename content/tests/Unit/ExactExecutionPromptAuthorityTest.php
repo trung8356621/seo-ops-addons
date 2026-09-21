@@ -63,4 +63,67 @@ final class ExactExecutionPromptAuthorityTest extends TestCase
         self::assertSame($sectionPrompt, $resolved['prompt']);
         self::assertSame(hash('sha256', $sectionPrompt), hash('sha256', $resolved['prompt']));
     }
+
+    public function test_section_preview_fills_language_token_already_in_exact_prompt(): void
+    {
+        $sectionPrompt = implode("\n", [
+            '## INPUT DATA',
+            '* Language: `Vietnamese`',
+            '* Outline & Instructions: `section slice only`',
+            '* Website Context: `Shop balo`',
+            '* Tone: `Chuyên nghiệp`',
+            '',
+            'Return ONLY the content body for the CURRENT OUTLINE SLICE in `{{language}}`.',
+        ]);
+        $result = new PromptResult;
+        $result->forceFill([
+            'compiled_prompt_hash' => hash('sha256', trim($sectionPrompt)),
+            'input_snapshot' => [
+                'compiled_prompt' => $sectionPrompt,
+                'manual_compiled' => true,
+                'sectioned_free_section' => true,
+                'variables' => [
+                    'generation_strategy' => 'sectioned',
+                    'section_id' => 'h3_19',
+                ],
+            ],
+        ]);
+
+        $resolved = ArticleAiCallRawDetailService::resolvePromptAuthority($result, null);
+
+        self::assertSame(ArticleAiCallRawDetailService::PROMPT_SOURCE_EXECUTION_SNAPSHOT, $resolved['prompt_source']);
+        self::assertTrue($resolved['exact_execution_prompt']);
+        self::assertNull($resolved['warning']);
+        self::assertStringContainsString('in `Vietnamese`.', $resolved['prompt']);
+        self::assertStringNotContainsString('{{language}}', $resolved['prompt']);
+        self::assertStringNotContainsString('{{input}}', $resolved['prompt']);
+        self::assertStringNotContainsString('{{site_short_description}}', $resolved['prompt']);
+        self::assertStringNotContainsString('{{tone}}', $resolved['prompt']);
+    }
+
+    public function test_unresolved_section_placeholders_stay_when_prompt_has_no_resolved_label(): void
+    {
+        $sectionPrompt = implode("\n", [
+            '* Language: `{{language}}`',
+            '* Website Context: `{{site_short_description}}`',
+            '* Tone: `{{tone}}`',
+            'Outline: {{input}}',
+        ]);
+        $result = new PromptResult;
+        $result->forceFill([
+            'compiled_prompt_hash' => hash('sha256', trim($sectionPrompt)),
+            'input_snapshot' => [
+                'compiled_prompt' => $sectionPrompt,
+                'sectioned_free_section' => true,
+            ],
+        ]);
+
+        $resolved = ArticleAiCallRawDetailService::resolvePromptAuthority($result, null);
+
+        self::assertNull($resolved['warning']);
+        self::assertStringContainsString('{{language}}', $resolved['prompt']);
+        self::assertStringContainsString('{{input}}', $resolved['prompt']);
+        self::assertStringContainsString('{{site_short_description}}', $resolved['prompt']);
+        self::assertStringContainsString('{{tone}}', $resolved['prompt']);
+    }
 }

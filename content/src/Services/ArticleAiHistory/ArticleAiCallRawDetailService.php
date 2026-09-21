@@ -153,7 +153,7 @@ final class ArticleAiCallRawDetailService
             }
 
             return [
-                'prompt' => $exact,
+                'prompt' => self::fillPlaceholdersAlreadyResolvedInPrompt($exact),
                 'prompt_source' => self::PROMPT_SOURCE_EXECUTION_SNAPSHOT,
                 'exact_execution_prompt' => true,
                 'hash_mismatch' => $hashMismatch,
@@ -168,7 +168,7 @@ final class ArticleAiCallRawDetailService
         $legacyMismatch = (bool) ($reconstructed['mismatch'] ?? false);
 
         return [
-            'prompt' => $promptText,
+            'prompt' => self::fillPlaceholdersAlreadyResolvedInPrompt($promptText),
             'prompt_source' => self::PROMPT_SOURCE_RECONSTRUCTED_LEGACY,
             'exact_execution_prompt' => false,
             'hash_mismatch' => $legacyMismatch,
@@ -177,6 +177,39 @@ final class ArticleAiCallRawDetailService
                 ? $reconstructed['version_label']
                 : null,
         ];
+    }
+
+    /**
+     * Section compile appends an output-format line that still contains {{language}}
+     * after the body has already been substituted. Fill only tokens whose resolved
+     * value is already inside this same persisted prompt. Never read live article state.
+     */
+    private static function fillPlaceholdersAlreadyResolvedInPrompt(string $prompt): string
+    {
+        $labels = [
+            'language' => 'Language',
+            'tone' => 'Tone',
+            'site_short_description' => 'Website Context',
+        ];
+        foreach ($labels as $token => $label) {
+            $value = self::captureBacktickedLabel($prompt, $label);
+            if ($value === null || $value === '' || str_contains($value, '{{')) {
+                continue;
+            }
+            $prompt = str_replace('{{'.$token.'}}', $value, $prompt);
+        }
+
+        return $prompt;
+    }
+
+    private static function captureBacktickedLabel(string $prompt, string $label): ?string
+    {
+        $pattern = '/'.preg_quote($label, '/').':\s*`([^`]*)`/u';
+        if (preg_match($pattern, $prompt, $matches) !== 1) {
+            return null;
+        }
+
+        return trim($matches[1]);
     }
 
     public static function resolveRawPromptText(PromptResult $result, ?array $step = null): string
