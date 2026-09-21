@@ -3,6 +3,7 @@
     $projectTypeOptions = $this->getProjectTypeOptions();
     $domainChart = $this->getDomainWorkloadChart();
     $writerChart = $this->getWriterWorkloadChart();
+    $monthlyPlanning = $this->getMonthlyPlanningMatrix();
     $queueStatus = $this->getCompactQueueStatus();
     $activeMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($this->planningMonth ?: null);
     $nearbyMonths = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::nearbyMonths($activeMonth, 2);
@@ -69,6 +70,7 @@
     <x-seo-content-ai::content-project-month-charts
         :domain-chart="$domainChart"
         :writer-chart="$writerChart"
+        :planning-matrix="$monthlyPlanning"
     />
 
     {{ \Filament\Support\Facades\FilamentView::renderHook(\Filament\View\PanelsRenderHook::RESOURCE_PAGES_LIST_RECORDS_TABLE_BEFORE, scopes: $this->getRenderHookScopes()) }}

@@ -4,6 +4,7 @@
     'domainEmptyKey' => 'seo-content-ai::filament.projects.chart_domain_empty',
     'writerEmptyKey' => 'seo-content-ai::filament.projects.chart_writer_empty',
     'variant' => 'both',
+    'planningMatrix' => null,
 ])
 
 @php
@@ -12,6 +13,8 @@
     $variant = in_array($variant ?? 'both', ['both', 'domain', 'writer'], true) ? $variant : 'both';
     $showDomain = $variant === 'both' || $variant === 'domain';
     $showWriter = $variant === 'both' || $variant === 'writer';
+    $planningMatrix = is_array($planningMatrix) ? $planningMatrix : null;
+    $showPlanning = $planningMatrix !== null;
     $domainTotal = (int) ($domainChart['total'] ?? 0);
     $writerTotal = (int) ($writerChart['total'] ?? 0);
     $teamCapacity = (int) ($writerChart['team_capacity'] ?? 0);
@@ -35,6 +38,9 @@
             }
             .cp-month-charts--single {
                 grid-template-columns: minmax(0, 1fr);
+            }
+            .cp-month-charts--with-planning {
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
             }
         }
         .cp-month-charts__card {
@@ -287,8 +293,12 @@
     </style>
 @endonce
 
-{{-- Compact month charts: domain + writer, 50/50 desktop — shared by Content Projects + Archived + Dashboard --}}
-<div {{ $attributes->class(['cp-month-charts', 'cp-month-charts--single' => $variant !== 'both']) }}>
+{{-- Compact month charts: domain + writer (+ optional Monthly planning) — shared by Content Projects + Archived + Dashboard --}}
+<div {{ $attributes->class([
+    'cp-month-charts',
+    'cp-month-charts--single' => $variant !== 'both' && ! $showPlanning,
+    'cp-month-charts--with-planning' => $showPlanning && $variant === 'both',
+]) }}>
     @if ($showDomain)
     <section class="cp-month-charts__card">
         <div class="cp-month-charts__head">
@@ -464,5 +474,14 @@
             </div>
         @endif
     </section>
+    @endif
+
+    @if ($showPlanning)
+        <section class="cp-month-charts__card cp-month-charts__card--planning">
+            <x-seo-content-ai::content-project-list-monthly-planning
+                :matrix="$planningMatrix"
+                :embedded="true"
+            />
+        </section>
     @endif
 </div>

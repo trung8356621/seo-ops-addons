@@ -230,17 +230,66 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString('balance_months', $list);
         self::assertStringContainsString('ContentProjectMonthBalanceService', $list);
         self::assertStringContainsString('compact_success_items', $list);
+        self::assertStringContainsString('SitePlanningReadModel', $list);
+        self::assertStringContainsString('getMonthlyPlanningMatrix', $list);
+        self::assertStringContainsString('balance_months_col_before', $list);
+        self::assertStringContainsString('balance_months_stat_will_move', $list);
+        self::assertStringContainsString('balance_months_stat_fixed_stay', $list);
+        self::assertStringContainsString('space-y-4', $list);
+        self::assertStringContainsString('px-3 py-2.5', $list);
+        self::assertStringNotContainsString('balance_months_stat_fixed_changed', $list);
+        self::assertStringNotContainsString('balance_months_col_fixed', $list);
+        self::assertStringNotContainsString('balance_months_col_movable', $list);
+        self::assertStringNotContainsString('balance_months_col_current', $list);
+
+        // Internal fixed/movable still live in Balance service preview contract.
+        $service = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService::class))->getFileName(),
+        );
+        self::assertStringContainsString("'fixed_total'", $service);
+        self::assertStringContainsString("'movable_total'", $service);
+        self::assertStringContainsString("'fixed'", $service);
+        self::assertStringContainsString("'movable'", $service);
 
         $viewPath = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php';
         $navPath = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/components/content-project-list-month-nav.blade.php';
+        $matrixPath = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/components/content-project-list-monthly-planning.blade.php';
         self::assertFileExists($viewPath);
         self::assertFileExists($navPath);
+        self::assertFileExists($matrixPath);
         $view = (string) file_get_contents($viewPath);
         $nav = (string) file_get_contents($navPath);
+        $matrix = (string) file_get_contents($matrixPath);
         self::assertStringContainsString('content-project-list-month-nav', $view);
+        self::assertStringContainsString('planning-matrix', $view);
+        self::assertStringContainsString('content-project-month-charts', $view);
         self::assertStringNotContainsString('id="planning-month"', $view);
         self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
         self::assertStringContainsString('active_month', $nav);
         self::assertStringContainsString('data-cp-list-month-nav', $nav);
+        self::assertStringContainsString('data-cp-list-monthly-planning', $matrix);
+        self::assertStringContainsString('list_monthly_planning_title', $matrix);
+        self::assertStringContainsString('is-active', $matrix);
+        self::assertStringNotContainsString('sitePlanningCellDetail', $matrix);
+        self::assertStringNotContainsString('$wire.', $matrix);
+
+        // Planner Site Planning blade remains Planner-coupled; list uses local presentation.
+        $plannerMatrix = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/components/content-project-site-planning.blade.php';
+        self::assertFileExists($plannerMatrix);
+        $plannerSrc = (string) file_get_contents($plannerMatrix);
+        self::assertStringContainsString('sitePlanningCellDetail', $plannerSrc);
+
+        $plannerPage = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        self::assertStringContainsString('sitePlanningPayload', $plannerPage);
+        self::assertStringNotContainsString('getMonthlyPlanningMatrix', $plannerPage);
+
+        $globalSeoBar = dirname(__DIR__, 3).'/seo/resources/views/livewire/global-seo-bar.blade.php';
+        if (is_file($globalSeoBar)) {
+            $bar = (string) file_get_contents($globalSeoBar);
+            self::assertStringNotContainsString('getMonthlyPlanningMatrix', $bar);
+            self::assertStringNotContainsString('content-project-list-monthly-planning', $bar);
+        }
     }
 }

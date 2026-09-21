@@ -43,13 +43,16 @@ final class ContentProjectMonthChartContractTest extends TestCase
 
         $monthPos = strpos($blade, 'content-project-list-month-nav');
         $chartsPos = strpos($blade, 'content-project-month-charts');
+        $planningPropPos = strpos($blade, 'planning-matrix');
         $tablePos = strpos($blade, '$this->table');
 
         self::assertNotFalse($monthPos);
         self::assertNotFalse($chartsPos);
+        self::assertNotFalse($planningPropPos);
         self::assertNotFalse($tablePos);
         self::assertLessThan($chartsPos, $monthPos);
         self::assertLessThan($tablePos, $chartsPos);
+        self::assertGreaterThan($chartsPos, $planningPropPos); // planning-matrix is an attr on charts
         $nav = LegacyAddonPath::read('resources/views/components/content-project-list-month-nav.blade.php');
         self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
         self::assertStringContainsString('chart_articles_by_domain', $charts);
@@ -58,6 +61,9 @@ final class ContentProjectMonthChartContractTest extends TestCase
         self::assertStringContainsString('chart_writer_empty', $charts);
         self::assertStringContainsString('content-project-month-charts', $blade);
         self::assertStringContainsString('minmax(0, 1fr) minmax(0, 1fr)', $charts);
+        self::assertStringContainsString('cp-month-charts--with-planning', $charts);
+        self::assertStringContainsString('minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', $charts);
+        self::assertStringContainsString('content-project-list-monthly-planning', $charts);
         self::assertStringContainsString('donut_gradient', $charts);
         self::assertStringContainsString('overall_progress_pct', $charts);
         self::assertStringContainsString('team_capacity', $charts);

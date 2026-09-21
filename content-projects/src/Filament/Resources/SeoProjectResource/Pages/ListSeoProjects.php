@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCompactSuccessService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
@@ -40,6 +41,10 @@ class ListSeoProjects extends ListRecords
 
     /** @var array<string, mixed>|null Request-local cache for forMonth() (domain + writer share one query set). */
     private ?array $monthWorkloadCache = null;
+
+    /** @var array<string, mixed>|null Request-local Site Planning overview for list matrix. */
+    private ?array $monthlyPlanningCache = null;
+
     public function mount(): void
     {
         parent::mount();
@@ -97,6 +102,23 @@ class ListSeoProjects extends ListRecords
     {
         return app(ContentProjectMonthChartPresenter::class)
             ->presentWriter($this->monthWorkload());
+    }
+
+    /**
+     * Read-only Site Planning matrix for Projects list (planning_month SSOT).
+     * Same aggregation as Planner Site Planning via SitePlanningReadModel::overview().
+     *
+     * @return array{
+     *     months: list<array<string, mixed>>,
+     *     year_groups: list<array{year: int, span: int}>,
+     *     rows: list<array<string, mixed>>,
+     *     active_month: string
+     * }
+     */
+    public function getMonthlyPlanningMatrix(): array
+    {
+        return $this->monthlyPlanningCache ??= app(SitePlanningReadModel::class)
+            ->overview(null, $this->planningMonth ?: null);
     }
 
     /**
@@ -248,6 +270,7 @@ class ListSeoProjects extends ListRecords
 
                         $this->resetTable();
                         $this->monthWorkloadCache = null;
+                        $this->monthlyPlanningCache = null;
                     } catch (ValidationException $exception) {
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.balance_months_failed'))
@@ -370,21 +393,16 @@ class ListSeoProjects extends ListRecords
      */
     private function renderBalanceMonthsPreviewHtml(array $preview): string
     {
-        $html = '<div class="space-y-2 text-sm">';
-        $html .= '<p class="font-medium">'.e((string) __('seo-content-ai::filament.projects.balance_months_preview_title', [
+        $html = '<div class="space-y-4 text-sm">';
+        $html .= '<p class="m-0 font-medium leading-6">'.e((string) __('seo-content-ai::filament.projects.balance_months_preview_title', [
             'domain' => (string) ($preview['domain'] ?? ''),
         ])).'</p>';
-        $html .= '<p class="text-xs text-gray-500 dark:text-gray-400">'.e((string) __('seo-content-ai::filament.projects.balance_months_preview_movable', [
-            'count' => (int) ($preview['movable_total'] ?? 0),
-            'months' => count($preview['months'] ?? []),
-        ])).'</p>';
 
-        $html .= '<div class="overflow-x-auto"><table class="min-w-full text-xs"><thead><tr class="text-left text-gray-500">'
-            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_month')).'</th>'
-            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_current')).'</th>'
-            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_fixed')).'</th>'
-            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_movable')).'</th>'
-            .'<th class="py-1">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_after')).'</th>'
+        $html .= '<div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">'
+            .'<table class="min-w-full text-sm"><thead><tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:bg-gray-900/60 dark:text-gray-400">'
+            .'<th class="px-3 py-2.5">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_month')).'</th>'
+            .'<th class="px-3 py-2.5">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_before')).'</th>'
+            .'<th class="px-3 py-2.5">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_after')).'</th>'
             .'</tr></thead><tbody>';
 
         foreach ($preview['rows'] ?? [] as $row) {
@@ -392,27 +410,25 @@ class ListSeoProjects extends ListRecords
                 continue;
             }
             $html .= '<tr class="border-t border-gray-100 dark:border-white/10">'
-                .'<td class="py-1 pr-3 font-medium">'.e((string) ($row['month_label'] ?? '')).'</td>'
-                .'<td class="py-1 pr-3">'.(int) ($row['current'] ?? 0).'</td>'
-                .'<td class="py-1 pr-3">'.(int) ($row['fixed'] ?? 0).'</td>'
-                .'<td class="py-1 pr-3">'.(int) ($row['movable'] ?? 0).'</td>'
-                .'<td class="py-1 font-semibold">'.(int) ($row['after'] ?? 0).'</td>'
+                .'<td class="px-3 py-2.5 font-medium text-gray-900 dark:text-gray-100">'.e((string) ($row['month_label'] ?? '')).'</td>'
+                .'<td class="px-3 py-2.5 tabular-nums text-gray-700 dark:text-gray-200">'.(int) ($row['current'] ?? 0).'</td>'
+                .'<td class="px-3 py-2.5 tabular-nums font-semibold text-gray-900 dark:text-gray-50">'.(int) ($row['after'] ?? 0).'</td>'
                 .'</tr>';
         }
         $html .= '</tbody></table></div>';
 
-        $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_moves', [
+        $html .= '<div class="space-y-1.5 pt-0.5">';
+        $html .= '<p class="m-0 text-sm text-gray-600 dark:text-gray-300">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_will_move', [
             'count' => (int) ($preview['move_count'] ?? 0),
         ])).'</p>';
-        $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_changed', [
-            'count' => (int) ($preview['fixed_changed'] ?? 0),
-        ])).'</p>';
 
-        if ((int) ($preview['fixed_total'] ?? 0) > 0) {
-            $html .= '<p class="text-xs text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_total', [
-                'count' => (int) $preview['fixed_total'],
+        $fixedTotal = (int) ($preview['fixed_total'] ?? 0);
+        if ($fixedTotal > 0) {
+            $html .= '<p class="m-0 text-sm text-gray-500 dark:text-gray-400">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_stay', [
+                'count' => $fixedTotal,
             ])).'</p>';
         }
+        $html .= '</div>';
 
         $html .= '</div>';
 
