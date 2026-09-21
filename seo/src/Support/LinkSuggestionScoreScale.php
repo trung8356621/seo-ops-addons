@@ -15,6 +15,9 @@ final class LinkSuggestionScoreScale
 
     public const FOCUS_KEYWORD = 95;
 
+    /** Strong focus-keyword token/phrase overlap (not exact equality). */
+    public const FOCUS_OVERLAP = 90;
+
     public const TITLE_CONTAINS = 80;
 
     public const SLUG_MATCH = 75;

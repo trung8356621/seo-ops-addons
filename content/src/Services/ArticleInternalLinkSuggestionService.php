@@ -181,18 +181,27 @@ final class ArticleInternalLinkSuggestionService
             : $this->countUsableExistingSuggestions($existingInternal);
         $remainingSlots = max(0, min($maxDisplay, $maxInternalLinks) - $usable);
         if ($remainingSlots <= 0) {
+            // Display full — stop this click, but preserve discovery cursor so a later
+            // Find-more (after a slot frees) resumes instead of restarting from 0.
+            $preservedStage = trim((string) ($cursor['stage'] ?? ArticleInternalLinkPipeline::ADVANCED_STAGE_CONTENT_DEEP));
+            if ($preservedStage === '' || $preservedStage === ArticleInternalLinkPipeline::ADVANCED_STAGE_DONE) {
+                $preservedStage = ArticleInternalLinkPipeline::ADVANCED_STAGE_CONTENT_DEEP;
+            }
+            $preservedOffset = max(0, (int) ($cursor['offset'] ?? $cursor['phrase_offset'] ?? 0));
+
             return [
                 'internal' => [],
                 'internal_catalog' => [],
                 'external' => [],
                 'external_catalog' => [],
-                'cursor' => ['stage' => ArticleInternalLinkPipeline::ADVANCED_STAGE_DONE, 'offset' => 0],
+                'cursor' => ['stage' => $preservedStage, 'offset' => $preservedOffset],
                 'exhausted' => true,
                 'failed_keys' => [],
                 'debug' => [
                     'skip_reason' => 'display_cap_reached',
                     'usable_count' => $usable,
                     'remaining_slots' => 0,
+                    'cursor_preserved' => true,
                 ],
             ];
         }

@@ -43,6 +43,8 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
         self::assertStringContainsString('remainingSlots', $body);
         self::assertStringContainsString('collectAdvancedBatch', $body);
         self::assertStringContainsString('min(5', $body);
+        self::assertStringContainsString('display_cap_reached', $body);
+        self::assertStringContainsString('cursor_preserved', $body);
     }
 
     public function test_pipeline_advanced_batch_has_stage_resume_cursor(): void

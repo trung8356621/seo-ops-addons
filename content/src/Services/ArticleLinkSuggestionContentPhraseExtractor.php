@@ -194,19 +194,32 @@ final class ArticleLinkSuggestionContentPhraseExtractor
      *
      * @param  list<string>  $excludePhrases
      * @param  list<string>  $priorityPhrases
+     * @param  'strong'|'extended'|'deeper'  $mode  Progressive discovery breadth (quality gates stay elsewhere).
      * @return list<array{phrase: string, source: string, offset: int, source_score: int}>
      */
-    public function extractDeepAdvanced(string $html, array $excludePhrases = [], array $priorityPhrases = []): array
-    {
+    public function extractDeepAdvanced(
+        string $html,
+        array $excludePhrases = [],
+        array $priorityPhrases = [],
+        string $mode = 'strong',
+    ): array {
         $html = trim($html);
         if ($html === '') {
             return [];
         }
 
-        $maxPhrases = max(20, (int) config('seo-content-ai.link_suggestions.advanced_phrase_limit', 40));
+        $mode = in_array($mode, ['strong', 'extended', 'deeper'], true) ? $mode : 'strong';
+        $maxPhrases = match ($mode) {
+            'extended' => max(40, (int) config('seo-content-ai.link_suggestions.advanced_phrase_limit_extended', 80)),
+            'deeper' => max(60, (int) config('seo-content-ai.link_suggestions.advanced_phrase_limit_deeper', 120)),
+            default => max(20, (int) config('seo-content-ai.link_suggestions.advanced_phrase_limit', 40)),
+        };
         $minWords = 2;
         $maxWords = 4;
-        $repeatMin = max(2, (int) config('seo-content-ai.link_suggestions.fallback_repeated_ngram_min_count', 2));
+        $repeatMin = match ($mode) {
+            'strong' => max(2, (int) config('seo-content-ai.link_suggestions.fallback_repeated_ngram_min_count', 2)),
+            default => 1,
+        };
 
         $excludeNorm = $this->normalizeSet($excludePhrases);
         foreach ($this->extractLinkedAnchorTexts($html) as $linked) {

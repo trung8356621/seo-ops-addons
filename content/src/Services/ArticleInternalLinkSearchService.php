@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\InternalLinkFocusRelevance;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
@@ -19,6 +20,8 @@ final class ArticleInternalLinkSearchService
     public const REASON_TITLE_CONTAINS = 'title_contains';
 
     public const REASON_FOCUS_KEYWORD = 'focus_keyword';
+
+    public const REASON_FOCUS_OVERLAP = 'focus_overlap';
 
     public const REASON_SLUG_MATCH = 'slug_match';
 
@@ -123,6 +126,9 @@ final class ArticleInternalLinkSearchService
      * Deterministic LIKE-fallback relevance — SSOT for any consumer of unscored SQL LIKE rows.
      * Compatible with LinkSuggestionScoreScale (0..100). Weak token overlap stays below fallbackMinAccept.
      *
+     * Destination ranking priority:
+     * focus exact → focus strong overlap → title exact/boundary/contains → slug → weak overlap.
+     *
      * @return array{score: int, match_reason: string}
      */
     public function scoreLikeFallbackRelevance(
@@ -140,17 +146,19 @@ final class ArticleInternalLinkSearchService
         $slugNorm = KeywordPhraseMatcher::normalize(str_replace(['-', '_'], ' ', $slug));
         $focusNorm = KeywordPhraseMatcher::normalize($focusKeyword);
 
+        // Focus keyword is the strongest destination signal (exact / strong overlap before title).
+        $focusHit = InternalLinkFocusRelevance::score($phraseNorm, $focusNorm);
+        if ($focusHit !== null) {
+            return [
+                'score' => (int) $focusHit['score'],
+                'match_reason' => (string) $focusHit['reason'],
+            ];
+        }
+
         if ($titleNorm !== '' && $titleNorm === $phraseNorm) {
             return [
                 'score' => LinkSuggestionScoreScale::TITLE_EXACT,
                 'match_reason' => self::REASON_TITLE_EXACT,
-            ];
-        }
-
-        if ($focusNorm !== '' && $focusNorm === $phraseNorm) {
-            return [
-                'score' => LinkSuggestionScoreScale::FOCUS_KEYWORD,
-                'match_reason' => self::REASON_FOCUS_KEYWORD,
             ];
         }
 
@@ -181,6 +189,15 @@ final class ArticleInternalLinkSearchService
             'score' => $overlapScore,
             'match_reason' => self::REASON_TOKEN_OVERLAP,
         ];
+    }
+
+    /**
+     * Strong focus-keyword overlap (entity/material tokens) — not exact equality.
+     * Returns 0 when overlap is too weak to outrank title/slug paths.
+     */
+    public function focusKeywordOverlapScore(string $phraseNormOrRaw, string $focusNormOrRaw): int
+    {
+        return InternalLinkFocusRelevance::overlapScore($phraseNormOrRaw, $focusNormOrRaw);
     }
 
     /**

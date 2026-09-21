@@ -561,6 +561,12 @@ final class ArticleInternalLinkPipeline
 
     public const ADVANCED_STAGE_CONTENT_DEEP = 'content_deep';
 
+    /** Broader phrase extraction after strong content_deep is exhausted. */
+    public const ADVANCED_STAGE_CONTENT_DEEP_EXTENDED = 'content_deep_extended';
+
+    /** Widest phrase pool + deeper destination search; quality gates unchanged. */
+    public const ADVANCED_STAGE_CONTENT_DEEP_DEEPER = 'content_deep_deeper';
+
     public const ADVANCED_STAGE_DONE = 'done';
 
     /** @var list<string> */
@@ -570,6 +576,15 @@ final class ArticleInternalLinkPipeline
         self::ADVANCED_STAGE_KEYWORD_NON_TOPIC,
         self::ADVANCED_STAGE_GENERIC,
         self::ADVANCED_STAGE_CONTENT_DEEP,
+        self::ADVANCED_STAGE_CONTENT_DEEP_EXTENDED,
+        self::ADVANCED_STAGE_CONTENT_DEEP_DEEPER,
+    ];
+
+    /** @var list<string> */
+    public const ADVANCED_CONTENT_DEEP_STAGES = [
+        self::ADVANCED_STAGE_CONTENT_DEEP,
+        self::ADVANCED_STAGE_CONTENT_DEEP_EXTENDED,
+        self::ADVANCED_STAGE_CONTENT_DEEP_DEEPER,
     ];
 
     /**
@@ -885,29 +900,48 @@ final class ArticleInternalLinkPipeline
                 continue;
             }
 
-            // content_deep — expanded content-driven discovery (Advanced differentiator).
-            $result = $this->advanceContentDeepStage(
-                $article,
-                $content,
-                $plainText,
-                $focusKeyword,
-                $offset,
-                $targetCount,
-                $fresh,
-                $occupiedLabels,
-                $occupiedHrefs,
-                $failedSet,
-                $newFailed,
-                $validationContext,
-            );
-            $fresh = $result['fresh'];
-            $nextCursor = $result['done']
-                ? $emptyCursor
-                : ['stage' => self::ADVANCED_STAGE_CONTENT_DEEP, 'offset' => $result['next_offset']];
-            if ($result['done'] && count($fresh) < $targetCount) {
-                $exhausted = true;
+            // content_deep* — progressive discovery depths (strong → extended → deeper).
+            if (in_array($stage, self::ADVANCED_CONTENT_DEEP_STAGES, true)) {
+                $result = $this->advanceContentDeepStage(
+                    $article,
+                    $content,
+                    $plainText,
+                    $focusKeyword,
+                    $offset,
+                    $targetCount,
+                    $fresh,
+                    $occupiedLabels,
+                    $occupiedHrefs,
+                    $failedSet,
+                    $newFailed,
+                    $validationContext,
+                    $stage,
+                );
+                $fresh = $result['fresh'];
+                $nextCursor = $result['done']
+                    ? $this->nextContentDeepCursorAfterDone($stage)
+                    : ['stage' => $stage, 'offset' => $result['next_offset']];
+                $contentDeepDebug = is_array($result['debug'] ?? null)
+                    ? array_merge(
+                        is_array($contentDeepDebug) ? $contentDeepDebug : [],
+                        [
+                            'stage' => $stage,
+                            'depth' => $this->contentDeepDiscoveryMode($stage),
+                        ],
+                        $result['debug'],
+                    )
+                    : $contentDeepDebug;
+                if (! $result['done'] && count($fresh) >= $targetCount) {
+                    break;
+                }
+                if ($result['done'] && count($fresh) >= $targetCount) {
+                    // Quota filled on the last phrase of this depth — next click starts next depth.
+                    break;
+                }
+                // Depth exhausted with room remaining → try next content_deep* stage in-loop.
+                continue;
             }
-            $contentDeepDebug = is_array($result['debug'] ?? null) ? $result['debug'] : null;
+
             break;
         }
 
@@ -1373,6 +1407,7 @@ final class ArticleInternalLinkPipeline
         array &$failedSet,
         array &$newFailed,
         array $validationContext,
+        string $stage = self::ADVANCED_STAGE_CONTENT_DEEP,
     ): array {
         $needed = max(0, $targetCount - count($fresh));
         if ($needed <= 0) {
@@ -1391,17 +1426,14 @@ final class ArticleInternalLinkPipeline
             }
         }
 
+        // Progressive discovery: always honor deep|* processed/failed keys so a prior
+        // batch never re-consumes the same phrase. New session sends failed_keys=[].
         $processedKeys = [];
-        // Fresh content_deep pass (offset 0) must re-search phrases. Prior deep|*
-        // failed/processed keys from an exhausted run would otherwise skip every
-        // phrase (extracted=N, searched=0, offset→N) without destination lookup.
-        if ($offset > 0) {
-            foreach (array_keys($failedSet) as $key) {
-                if (str_starts_with((string) $key, 'deep|')) {
-                    $parts = explode('|', (string) $key);
-                    if (isset($parts[1]) && $parts[1] !== '') {
-                        $processedKeys[] = $parts[1];
-                    }
+        foreach (array_keys($failedSet) as $key) {
+            if (str_starts_with((string) $key, 'deep|')) {
+                $parts = explode('|', (string) $key);
+                if (isset($parts[1]) && $parts[1] !== '') {
+                    $processedKeys[] = $parts[1];
                 }
             }
         }
@@ -1422,6 +1454,7 @@ final class ArticleInternalLinkPipeline
             $offset,
             $needed,
             $priorityPhrases,
+            $this->contentDeepDiscoveryMode($stage),
         );
 
         foreach ($batch['suggestions'] as $row) {
@@ -1444,6 +1477,36 @@ final class ArticleInternalLinkPipeline
             'done' => (bool) ($batch['exhausted'] ?? false),
             'debug' => is_array($batch['debug'] ?? null) ? $batch['debug'] : [],
         ];
+    }
+
+    /**
+     * @return array{stage: string, offset: int}
+     */
+    private function nextContentDeepCursorAfterDone(string $stage): array
+    {
+        return match ($stage) {
+            self::ADVANCED_STAGE_CONTENT_DEEP => [
+                'stage' => self::ADVANCED_STAGE_CONTENT_DEEP_EXTENDED,
+                'offset' => 0,
+            ],
+            self::ADVANCED_STAGE_CONTENT_DEEP_EXTENDED => [
+                'stage' => self::ADVANCED_STAGE_CONTENT_DEEP_DEEPER,
+                'offset' => 0,
+            ],
+            default => [
+                'stage' => self::ADVANCED_STAGE_DONE,
+                'offset' => 0,
+            ],
+        };
+    }
+
+    private function contentDeepDiscoveryMode(string $stage): string
+    {
+        return match ($stage) {
+            self::ADVANCED_STAGE_CONTENT_DEEP_EXTENDED => 'extended',
+            self::ADVANCED_STAGE_CONTENT_DEEP_DEEPER => 'deeper',
+            default => 'strong',
+        };
     }
 
     private function advancedCandidateKey(string $stage, string $phrase, int $keywordId = 0, string $href = ''): string

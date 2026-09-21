@@ -14,6 +14,7 @@ use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Omnichannel\Addons\Content\Support\InternalLinkDestinationGate;
+use Omnichannel\Addons\Content\Support\InternalLinkFocusRelevance;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Illuminate\Support\Facades\Cache;
@@ -32,6 +33,8 @@ final class ArticleLinkSuggestionCandidateRetriever
     public const REASON_KEYWORD_MATCH = 'keyword_match';
 
     public const REASON_FOCUS_KEYWORD = 'focus_keyword';
+
+    public const REASON_FOCUS_OVERLAP = 'focus_overlap';
 
     public const REASON_SLUG_MATCH = 'slug_match';
 
@@ -430,11 +433,18 @@ final class ArticleLinkSuggestionCandidateRetriever
         $slugNorm = (string) ($candidate['slug_norm'] ?? '');
 
         if ($phraseNorm !== '' && ($titleNorm === $phraseNorm || $titleAscii === $phraseAscii)) {
+            // Focus exact still outranks title-exact when both apply.
+            $focusHit = InternalLinkFocusRelevance::score($phraseNorm, $focusNorm);
+            if ($focusHit !== null && (int) $focusHit['score'] >= LinkSuggestionScoreScale::FOCUS_KEYWORD) {
+                return ['score' => (int) $focusHit['score'], 'reason' => (string) $focusHit['reason']];
+            }
+
             return ['score' => 100, 'reason' => self::REASON_TITLE_EXACT];
         }
 
-        if ($phraseNorm !== '' && $focusNorm === $phraseNorm) {
-            $this->bump($best, 95, self::REASON_FOCUS_KEYWORD);
+        $focusHit = InternalLinkFocusRelevance::score($phraseNorm, $focusNorm);
+        if ($focusHit !== null) {
+            $this->bump($best, (int) $focusHit['score'], (string) $focusHit['reason']);
         }
 
         if ($phraseNorm !== '' && $titleNorm !== '' && str_contains($titleNorm, $phraseNorm)) {

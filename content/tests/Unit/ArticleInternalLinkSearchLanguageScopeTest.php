@@ -59,11 +59,10 @@ final class ArticleInternalLinkSearchLanguageScopeTest extends TestCase
             (new ReflectionClass(ArticleInternalLinkPipeline::class))->getFileName()
         );
 
-        self::assertMatchesRegularExpression(
-            '/if\s*\(\s*\$offset\s*>\s*0\s*\)\s*\{[\s\S]*deep\|/',
-            $src
-        );
-        self::assertStringContainsString('Fresh content_deep pass', $src);
+        // Progressive resume always honors deep|* keys; empty failed_keys = new session restart.
+        self::assertStringContainsString('Progressive discovery: always honor deep|*', $src);
+        self::assertStringContainsString('content_deep_extended', $src);
+        self::assertStringContainsString('nextContentDeepCursorAfterDone', $src);
     }
 
     public function test_content_deep_debug_counts_pre_search_skips(): void
