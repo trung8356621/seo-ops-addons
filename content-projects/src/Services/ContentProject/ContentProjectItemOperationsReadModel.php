@@ -54,6 +54,7 @@ final class ContentProjectItemOperationsReadModel
         private readonly ContentProjectExistingArticleReconciler $existingArticleReconciler,
         private readonly ContentProjectGenerationCapabilityResolver $generationCapability,
         private readonly ContentProjectArticleRuntimeStatusResolver $runtimeStatus,
+        private readonly ContentProjectItemAiModeReadModel $aiModes,
     ) {}
 
     /**
@@ -217,7 +218,7 @@ final class ContentProjectItemOperationsReadModel
         $perPage = max(10, min(100, (int) ($filters['per_page'] ?? 30)));
         $page = max(1, (int) ($filters['page'] ?? LengthAwarePaginator::resolveCurrentPage()));
         $total = $filtered->count();
-        $slice = $filtered->forPage($page, $perPage)->values()->all();
+        $slice = $this->aiModes->apply($filtered->forPage($page, $perPage)->values()->all());
 
         $paginator = new LengthAwarePaginator(
             $slice,

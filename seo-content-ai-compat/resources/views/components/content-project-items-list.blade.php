@@ -76,6 +76,7 @@
                                 <x-seo-content-ai::content-project-status-badge :badge="$row['publish_badge'] ?? null" />
                             @else
                                 <x-seo-content-ai::content-project-status-badge :badge="$row['generation_badge']" />
+                                <x-seo-content-ai::content-project-item-ai-mode :row="$row" />
                             @endif
                         </div>
                         @if (! $isPublishingQueue && ! empty($row['runtime_detail']))
@@ -143,6 +144,7 @@
                         @else
                             <th class="cp-ops-col-keywords" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_keywords') }}</th>
                             <th class="cp-ops-col-workflow" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</th>
+                            <th class="cp-ops-col-ai-mode" scope="col">AI MODE</th>
                         @endif
                         <th class="cp-ops-col-activity" scope="col">Last activity</th>
                         <th class="cp-ops-col-actions" scope="col">Actions</th>
@@ -262,6 +264,9 @@
                                     @elseif (! empty($row['current_step']) && in_array($row['generation_badge']['key'] ?? '', ['running', 'failed'], true))
                                         <div class="cp-ops-step" title="{{ $row['current_step'] }}">{{ $row['current_step'] }}</div>
                                     @endif
+                                </td>
+                                <td class="cp-ops-col-ai-mode">
+                                    <x-seo-content-ai::content-project-item-ai-mode :row="$row" />
                                 </td>
                             @endif
                             <td class="cp-ops-muted" title="{{ $row['last_activity_full'] ?? '' }}">

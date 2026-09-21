@@ -572,6 +572,25 @@
         .cp-ops-col-domain { width: 13%; min-width: 7rem; padding-right: 0.75rem; white-space: nowrap; }
         .cp-ops-col-keywords { width: 16%; min-width: 7rem; padding-right: 0.75rem; }
         .cp-ops-col-workflow { width: 14%; min-width: 7rem; padding-left: 0.25rem; }
+        .cp-ops-col-ai-mode { width: 8%; min-width: 5.75rem; white-space: nowrap; }
+        .cp-ops-ai-mode {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 0.375rem;
+            padding: 0.125rem 0.375rem;
+            font-size: 0.6875rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            line-height: 1.2;
+        }
+        .cp-ops-ai-mode--free { background: #dcfce7; color: #166534; }
+        .cp-ops-ai-mode--paid { background: #ffedd5; color: #9a3412; }
+        .cp-ops-ai-mode--mixed { background: #ede9fe; color: #5b21b6; }
+        .cp-ops-ai-mode--empty { color: rgb(107 114 128); font-weight: 500; background: transparent; padding: 0; }
+        .dark .cp-ops-ai-mode--free { background: rgb(20 83 45 / 0.45); color: #86efac; }
+        .dark .cp-ops-ai-mode--paid { background: rgb(124 45 18 / 0.45); color: #fdba74; }
+        .dark .cp-ops-ai-mode--mixed { background: rgb(91 33 182 / 0.4); color: #ddd6fe; }
+        .dark .cp-ops-ai-mode--empty { color: rgb(156 163 175); }
         .cp-ops-col-activity { width: 16%; }
         .cp-ops-col-actions { width: 10%; }
         .cp-ops-kw-count {
