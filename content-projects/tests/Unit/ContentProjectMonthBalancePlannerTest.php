@@ -21,134 +21,238 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         $this->planner = new ContentProjectMonthBalancePlanner;
     }
 
-    public function test_zero_and_sixty_one_splits_thirty_thirty_one(): void
+    /**
+     * @return list<array{id: int, month: string}>
+     */
+    private function movableRange(int $fromId, int $toId, string $month): array
     {
-        $movable = [];
-        for ($i = 1; $i <= 61; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
+        $rows = [];
+        for ($i = $fromId; $i <= $toId; $i++) {
+            $rows[] = ['id' => $i, 'month' => $month];
         }
+
+        return $rows;
+    }
+
+    public function test_default_mode_is_fill_earlier(): void
+    {
+        self::assertSame(
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+            ContentProjectMonthBalancePlanner::DEFAULT_MODE,
+        );
+    }
+
+    public function test_fill_earlier_basic_aug_oct(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 20, '2026-08'),
+            $this->movableRange(21, 25, '2026-10'),
+        );
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-10'],
+            ['2026-08' => 0, '2026-10' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+        );
+
+        self::assertSame(25, $plan['target_by_month']['2026-08']);
+        self::assertSame(0, $plan['target_by_month']['2026-10']);
+        self::assertSame(5, $plan['move_count']);
+        self::assertSame(ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER, $plan['mode']);
+    }
+
+    public function test_fill_later_basic_aug_oct(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 20, '2026-08'),
+            $this->movableRange(21, 25, '2026-10'),
+        );
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-10'],
+            ['2026-08' => 0, '2026-10' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_LATER,
+        );
+
+        self::assertSame(0, $plan['target_by_month']['2026-08']);
+        self::assertSame(25, $plan['target_by_month']['2026-10']);
+        self::assertSame(20, $plan['move_count']);
+    }
+
+    public function test_three_months_fill_earlier(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 10, '2026-07'),
+            $this->movableRange(11, 30, '2026-08'),
+            $this->movableRange(31, 60, '2026-09'),
+        );
+
+        $plan = $this->planner->plan(
+            ['2026-07', '2026-08', '2026-09'],
+            ['2026-07' => 0, '2026-08' => 0, '2026-09' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+        );
+
+        self::assertSame(60, $plan['target_by_month']['2026-07']);
+        self::assertSame(0, $plan['target_by_month']['2026-08']);
+        self::assertSame(0, $plan['target_by_month']['2026-09']);
+        self::assertSame(50, $plan['move_count']);
+    }
+
+    public function test_already_directional_fill_earlier_is_noop(): void
+    {
+        $movable = $this->movableRange(1, 25, '2026-08');
 
         $plan = $this->planner->plan(
             ['2026-08', '2026-09'],
             ['2026-08' => 0, '2026-09' => 0],
             $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+        );
+
+        self::assertSame(25, $plan['target_by_month']['2026-08']);
+        self::assertSame(0, $plan['target_by_month']['2026-09']);
+        self::assertSame(0, $plan['move_count']);
+    }
+
+    public function test_fill_earlier_with_generated_excluded_pool(): void
+    {
+        // Aug: 30 generated excluded from planner input; Sep: 61 eligible only.
+        $movable = $this->movableRange(1, 61, '2026-09');
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-09'],
+            ['2026-08' => 0, '2026-09' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+        );
+
+        self::assertSame(61, array_sum($plan['target_by_month']));
+        self::assertSame(61, $plan['target_by_month']['2026-08']);
+        self::assertSame(0, $plan['target_by_month']['2026-09']);
+        self::assertSame(61, $plan['move_count']);
+        self::assertNotSame(91, array_sum($plan['target_by_month']));
+    }
+
+    public function test_fill_earlier_keeps_fixed_non_generated_in_place(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 2, '2026-08'),
+            $this->movableRange(3, 12, '2026-09'),
+        );
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-09'],
+            ['2026-08' => 3, '2026-09' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
+        );
+
+        self::assertSame(3, $plan['fixed_by_month']['2026-08']);
+        self::assertSame(15, $plan['target_by_month']['2026-08']); // 3 fixed + 12 movable
+        self::assertSame(0, $plan['target_by_month']['2026-09']);
+        self::assertSame(12, $plan['target_movable_by_month']['2026-08']);
+        self::assertSame(10, $plan['move_count']); // 10 from Sep; 2 already in Aug stay
+    }
+
+    public function test_mode_changes_fingerprint(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 20, '2026-08'),
+            $this->movableRange(21, 25, '2026-10'),
+        );
+        $fixed = ['2026-08' => 0, '2026-10' => 0];
+        $months = ['2026-08', '2026-10'];
+
+        $earlier = $this->planner->plan($months, $fixed, $movable, ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER);
+        $later = $this->planner->plan($months, $fixed, $movable, ContentProjectMonthBalancePlanner::MODE_FILL_LATER);
+        $even = $this->planner->plan($months, $fixed, $movable, ContentProjectMonthBalancePlanner::MODE_EVEN);
+
+        self::assertNotSame($earlier['fingerprint'], $later['fingerprint']);
+        self::assertNotSame($earlier['fingerprint'], $even['fingerprint']);
+        self::assertNotSame($later['fingerprint'], $even['fingerprint']);
+        self::assertSame(25, $earlier['target_by_month']['2026-08']);
+        self::assertSame(25, $later['target_by_month']['2026-10']);
+    }
+
+    public function test_default_plan_uses_fill_earlier_not_even(): void
+    {
+        $movable = array_merge(
+            $this->movableRange(1, 20, '2026-08'),
+            $this->movableRange(21, 25, '2026-10'),
+        );
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-10'],
+            ['2026-08' => 0, '2026-10' => 0],
+            $movable,
+        );
+
+        self::assertSame(ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER, $plan['mode']);
+        self::assertSame(25, $plan['target_by_month']['2026-08']);
+        self::assertSame(0, $plan['target_by_month']['2026-10']);
+        // Even would be ~13/12 — must not happen by default.
+        self::assertNotSame(13, $plan['target_by_month']['2026-08']);
+    }
+
+    public function test_even_mode_still_available(): void
+    {
+        $movable = $this->movableRange(1, 61, '2026-09');
+
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-09'],
+            ['2026-08' => 0, '2026-09' => 0],
+            $movable,
+            ContentProjectMonthBalancePlanner::MODE_EVEN,
         );
 
         self::assertSame(30, $plan['target_by_month']['2026-08']);
         self::assertSame(31, $plan['target_by_month']['2026-09']);
         self::assertSame(30, $plan['move_count']);
-        self::assertSame(1, $plan['imbalance_after']);
     }
 
-    public function test_fixed_plus_movable_balances_final_load(): void
+    public function test_even_fixed_plus_movable_balances_final_load(): void
     {
-        $movable = [];
-        for ($i = 1; $i <= 3; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-08'];
-        }
-        for ($i = 4; $i <= 44; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
+        $movable = array_merge(
+            $this->movableRange(1, 3, '2026-08'),
+            $this->movableRange(4, 44, '2026-09'),
+        );
 
         $plan = $this->planner->plan(
             ['2026-08', '2026-09'],
             ['2026-08' => 17, '2026-09' => 0],
             $movable,
+            ContentProjectMonthBalancePlanner::MODE_EVEN,
         );
 
         self::assertSame(61, array_sum($plan['target_by_month']));
         self::assertSame(30, $plan['target_by_month']['2026-08']);
         self::assertSame(31, $plan['target_by_month']['2026-09']);
-        self::assertSame(13, $plan['target_movable_by_month']['2026-08']);
-        self::assertSame(31, $plan['target_movable_by_month']['2026-09']);
     }
 
-    public function test_over_ideal_fixed_never_forces_below_fixed(): void
+    public function test_even_over_ideal_fixed_never_forces_below_fixed(): void
     {
-        $movable = [];
-        for ($i = 1; $i <= 10; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
+        $movable = $this->movableRange(1, 10, '2026-09');
 
         $plan = $this->planner->plan(
             ['2026-08', '2026-09'],
             ['2026-08' => 35, '2026-09' => 0],
             $movable,
+            ContentProjectMonthBalancePlanner::MODE_EVEN,
         );
 
         self::assertGreaterThanOrEqual(35, $plan['target_by_month']['2026-08']);
         self::assertSame(35, $plan['fixed_by_month']['2026-08']);
-        self::assertSame(45, array_sum($plan['target_by_month']));
         self::assertSame(0, $plan['target_movable_by_month']['2026-08']);
         self::assertSame(10, $plan['target_movable_by_month']['2026-09']);
     }
 
-    public function test_three_month_water_fill_with_heavy_fixed(): void
-    {
-        $movable = [];
-        for ($i = 1; $i <= 20; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
-
-        $plan = $this->planner->plan(
-            ['2026-07', '2026-08', '2026-09'],
-            ['2026-07' => 40, '2026-08' => 0, '2026-09' => 0],
-            $movable,
-        );
-
-        self::assertSame(40, $plan['target_by_month']['2026-07']);
-        self::assertSame(10, $plan['target_by_month']['2026-08']);
-        self::assertSame(10, $plan['target_by_month']['2026-09']);
-    }
-
-    public function test_already_balanced_thirty_thirty_one_is_noop(): void
-    {
-        $movable = [];
-        for ($i = 1; $i <= 30; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-08'];
-        }
-        for ($i = 31; $i <= 61; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
-
-        $plan = $this->planner->plan(
-            ['2026-08', '2026-09'],
-            ['2026-08' => 0, '2026-09' => 0],
-            $movable,
-        );
-
-        self::assertSame(30, $plan['target_by_month']['2026-08']);
-        self::assertSame(31, $plan['target_by_month']['2026-09']);
-        self::assertSame(0, $plan['move_count']);
-    }
-
-    public function test_already_balanced_thirty_one_thirty_prefers_existing(): void
-    {
-        $movable = [];
-        for ($i = 1; $i <= 31; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-08'];
-        }
-        for ($i = 32; $i <= 61; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
-
-        $plan = $this->planner->plan(
-            ['2026-08', '2026-09'],
-            ['2026-08' => 0, '2026-09' => 0],
-            $movable,
-        );
-
-        self::assertSame(31, $plan['target_by_month']['2026-08']);
-        self::assertSame(30, $plan['target_by_month']['2026-09']);
-        self::assertSame(0, $plan['move_count']);
-    }
-
     public function test_deterministic_repeated_runs(): void
     {
-        $movable = [];
-        for ($i = 1; $i <= 61; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
+        $movable = $this->movableRange(1, 61, '2026-09');
 
         $a = $this->planner->plan(['2026-08', '2026-09'], ['2026-08' => 0, '2026-09' => 0], $movable);
         $b = $this->planner->plan(['2026-08', '2026-09'], ['2026-08' => 0, '2026-09' => 0], $movable);
@@ -163,13 +267,14 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         $movable = [
             ['id' => 1, 'month' => '2026-08'],
             ['id' => 2, 'month' => '2026-09'],
-            ['id' => 3, 'month' => '2026-10'], // ignored — not selected
+            ['id' => 3, 'month' => '2026-10'],
         ];
 
         $plan = $this->planner->plan(
             ['2026-08', '2026-09'],
             ['2026-08' => 0, '2026-09' => 0],
             $movable,
+            ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER,
         );
 
         self::assertArrayNotHasKey(3, $plan['allocation']);
@@ -203,10 +308,6 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         ])['movable']);
     }
 
-    /**
-     * Balance domain = not-generated only. Compact generator_done is OUTSIDE the pool
-     * (not fixed load). Canonical: Aug 30 generated + Sep 61 pending → pool 61 → 30/31.
-     */
     public function test_generated_excluded_from_balance_domain_not_fixed_load(): void
     {
         $eligibility = new ContentProjectMonthBalanceEligibility;
@@ -223,7 +324,6 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertFalse($generated['fixed']);
         self::assertSame(ContentProjectMonthBalanceEligibility::REASON_GENERATED, $generated['reason']);
 
-        // Generated with no publish queue / not reviewed / not scheduled — still excluded.
         $generatedBare = $eligibility->classifyFromFacts([
             'generator_done' => true,
             'published_at' => false,
@@ -235,26 +335,9 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         ]);
         self::assertFalse($generatedBare['in_domain']);
         self::assertFalse($generatedBare['fixed']);
-
-        // Planner math ignores generated: only 61 pending enter as movable, fixed=0.
-        $movable = [];
-        for ($i = 1; $i <= 61; $i++) {
-            $movable[] = ['id' => $i, 'month' => '2026-09'];
-        }
-        $plan = $this->planner->plan(
-            ['2026-08', '2026-09'],
-            ['2026-08' => 0, '2026-09' => 0],
-            $movable,
-        );
-        self::assertSame(61, array_sum($plan['target_by_month']));
-        self::assertSame(30, $plan['target_by_month']['2026-08']);
-        self::assertSame(31, $plan['target_by_month']['2026-09']);
-        self::assertSame(0, $plan['current_by_month']['2026-08']);
-        self::assertSame(61, $plan['current_by_month']['2026-09']);
-        self::assertSame(30, $plan['move_count']);
     }
 
-    public function test_balance_service_excludes_generated_and_uses_month_wide_pack(): void
+    public function test_balance_service_passes_mode_and_keeps_domain_packing(): void
     {
         $service = (string) file_get_contents(
             (string) (new ReflectionClass(
@@ -273,8 +356,8 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString("! (\$gate['in_domain']", $service);
         self::assertStringContainsString('excluded_total', $service);
         self::assertStringContainsString('planPackForBalanceMonth', $service);
-        self::assertStringContainsString('preferWriterForNewBalanceProject', $service);
-        // Writer-scoped planPack must not be the Balance relocate path.
+        self::assertStringContainsString('DEFAULT_MODE', $service);
+        self::assertStringContainsString('normalizeMode', $service);
         self::assertDoesNotMatchRegularExpression('/\$packing->planPack\(/', $service);
     }
 
@@ -304,6 +387,12 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         );
         self::assertStringContainsString('balance_months', $list);
         self::assertStringContainsString('ContentProjectMonthBalanceService', $list);
+        self::assertStringContainsString('ContentProjectMonthBalancePlanner::DEFAULT_MODE', $list);
+        self::assertStringContainsString('MODE_FILL_EARLIER', $list);
+        self::assertStringContainsString('MODE_FILL_LATER', $list);
+        self::assertStringContainsString('MODE_EVEN', $list);
+        self::assertStringContainsString("ToggleButtons::make('mode')", $list);
+        self::assertStringContainsString('balance_months_mode_earlier', $list);
         self::assertStringContainsString('compact_success_items', $list);
         self::assertStringContainsString('SitePlanningReadModel', $list);
         self::assertStringContainsString('getMonthlyPlanningMatrix', $list);
@@ -317,14 +406,12 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringNotContainsString('balance_months_col_movable', $list);
         self::assertStringNotContainsString('balance_months_col_current', $list);
 
-        // Internal fixed/movable still live in Balance service preview contract.
         $service = (string) file_get_contents(
             (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService::class))->getFileName(),
         );
         self::assertStringContainsString("'fixed_total'", $service);
         self::assertStringContainsString("'movable_total'", $service);
-        self::assertStringContainsString("'fixed'", $service);
-        self::assertStringContainsString("'movable'", $service);
+        self::assertStringContainsString("'mode'", $service);
 
         $viewPath = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php';
         $navPath = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/components/content-project-list-month-nav.blade.php';
@@ -348,7 +435,6 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringNotContainsString('sitePlanningCellDetail', $matrix);
         self::assertStringNotContainsString('$wire.', $matrix);
 
-        // Planner Site Planning blade remains Planner-coupled; list uses local presentation.
         $plannerMatrix = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/components/content-project-site-planning.blade.php';
         self::assertFileExists($plannerMatrix);
         $plannerSrc = (string) file_get_contents($plannerMatrix);

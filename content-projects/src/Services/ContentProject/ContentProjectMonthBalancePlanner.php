@@ -5,21 +5,33 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 /**
- * Pure planner for horizontal “Balance months”.
+ * Pure planner for horizontal month redistribution (“Balance months”).
  *
- * Priority:
- * 1) minimize final-load imbalance (max − min)
- * 2) minimize number of moved tasks
- * 3) deterministic ties (higher current mass, then earlier selected month; task id ASC)
+ * Modes:
+ * - fill_earlier (default): pull all movable Balance-domain load to earliest selected month(s)
+ * - fill_later: push all movable load to latest selected month(s)
+ * - even: optional equal-balance (not default)
+ *
+ * Domain input is already filtered by the service (not generator_done).
+ * Fixed non-generated tasks stay in place and raise that month's floor.
  */
 final class ContentProjectMonthBalancePlanner
 {
+    public const MODE_FILL_EARLIER = 'fill_earlier';
+
+    public const MODE_FILL_LATER = 'fill_later';
+
+    public const MODE_EVEN = 'even';
+
+    public const DEFAULT_MODE = self::MODE_FILL_EARLIER;
+
     /**
      * @param  list<string>  $months  YYYY-MM
      * @param  array<string, int>  $fixedByMonth
      * @param  list<array{id: int, month: string}>  $movable
      * @return array{
      *     months: list<string>,
+     *     mode: string,
      *     fixed_by_month: array<string, int>,
      *     movable_by_month: array<string, int>,
      *     current_by_month: array<string, int>,
@@ -33,11 +45,12 @@ final class ContentProjectMonthBalancePlanner
      *     fingerprint: string
      * }
      */
-    public function plan(array $months, array $fixedByMonth, array $movable): array
+    public function plan(array $months, array $fixedByMonth, array $movable, string $mode = self::DEFAULT_MODE): array
     {
+        $mode = $this->normalizeMode($mode);
         $months = $this->normalizeMonths($months);
         if ($months === []) {
-            return $this->emptyResult();
+            return $this->emptyResult($mode);
         }
 
         $fixed = [];
@@ -68,7 +81,12 @@ final class ContentProjectMonthBalancePlanner
             $current[$month] = $fixed[$month] + $currentMovable[$month];
         }
 
-        $target = $this->resolveTargetLoads($months, $fixed, $currentMovable, count($movableNormalized));
+        $target = match ($mode) {
+            self::MODE_FILL_EARLIER => $this->resolveDirectionalTargets($months, $fixed, count($movableNormalized), earlier: true),
+            self::MODE_FILL_LATER => $this->resolveDirectionalTargets($months, $fixed, count($movableNormalized), earlier: false),
+            default => $this->resolveEvenTargetLoads($months, $fixed, $currentMovable, count($movableNormalized)),
+        };
+
         $targetMovable = [];
         foreach ($months as $month) {
             $targetMovable[$month] = max(0, $target[$month] - $fixed[$month]);
@@ -88,6 +106,7 @@ final class ContentProjectMonthBalancePlanner
         }
 
         $fingerprintPayload = [
+            'mode' => $mode,
             'months' => $months,
             'fixed' => $fixed,
             'movable' => array_map(
@@ -99,6 +118,7 @@ final class ContentProjectMonthBalancePlanner
 
         return [
             'months' => $months,
+            'mode' => $mode,
             'fixed_by_month' => $fixed,
             'movable_by_month' => $currentMovable,
             'current_by_month' => $current,
@@ -113,16 +133,51 @@ final class ContentProjectMonthBalancePlanner
         ];
     }
 
+    public function normalizeMode(string $mode): string
+    {
+        $mode = strtolower(trim($mode));
+
+        return match ($mode) {
+            self::MODE_FILL_LATER => self::MODE_FILL_LATER,
+            self::MODE_EVEN => self::MODE_EVEN,
+            default => self::MODE_FILL_EARLIER,
+        };
+    }
+
     /**
-     * Water-fill from fixed floors (mass-preferring ties), then locally improve
-     * for minimal movement while keeping optimal imbalance.
+     * Dump all movable Balance-domain load onto the earliest (or latest) selected month.
+     * Fixed floors stay; no month-level hard capacity.
+     *
+     * @param  list<string>  $months  ascending
+     * @param  array<string, int>  $fixed
+     * @return array<string, int>
+     */
+    private function resolveDirectionalTargets(array $months, array $fixed, int $movableCount, bool $earlier): array
+    {
+        $loads = [];
+        foreach ($months as $month) {
+            $loads[$month] = $fixed[$month];
+        }
+
+        if ($movableCount < 1 || $months === []) {
+            return $loads;
+        }
+
+        $anchor = $earlier ? $months[0] : $months[array_key_last($months)];
+        $loads[$anchor] += $movableCount;
+
+        return $loads;
+    }
+
+    /**
+     * Legacy equal-balance (optional mode).
      *
      * @param  list<string>  $months
      * @param  array<string, int>  $fixed
      * @param  array<string, int>  $currentMovable
      * @return array<string, int>
      */
-    private function resolveTargetLoads(array $months, array $fixed, array $currentMovable, int $movableCount): array
+    private function resolveEvenTargetLoads(array $months, array $fixed, array $currentMovable, int $movableCount): array
     {
         $loads = $this->waterFillWithMass($months, $fixed, $movableCount, $currentMovable);
         $bestImbalance = $this->imbalance($loads);
@@ -210,6 +265,8 @@ final class ContentProjectMonthBalancePlanner
     }
 
     /**
+     * Prefer keeping tasks already in their final month; assign overflow by task id ASC.
+     *
      * @param  list<string>  $months
      * @param  list<array{id: int, month: string}>  $movable
      * @param  array<string, int>  $targetMovable
@@ -336,10 +393,11 @@ final class ContentProjectMonthBalancePlanner
     /**
      * @return array<string, mixed>
      */
-    private function emptyResult(): array
+    private function emptyResult(string $mode = self::DEFAULT_MODE): array
     {
         return [
             'months' => [],
+            'mode' => $mode,
             'fixed_by_month' => [],
             'movable_by_month' => [],
             'current_by_month' => [],
@@ -350,7 +408,7 @@ final class ContentProjectMonthBalancePlanner
             'move_count' => 0,
             'imbalance_before' => 0,
             'imbalance_after' => 0,
-            'fingerprint' => hash('sha256', 'empty'),
+            'fingerprint' => hash('sha256', 'empty:'.$mode),
         ];
     }
 }

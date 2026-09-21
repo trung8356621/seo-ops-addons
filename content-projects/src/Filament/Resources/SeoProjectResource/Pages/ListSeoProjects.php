@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCompactSuccessService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalancePlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
@@ -250,6 +251,9 @@ class ListSeoProjects extends ListRecords
                     try {
                         $siteId = (int) ($data['site_id'] ?? 0);
                         $months = is_array($data['months'] ?? null) ? $data['months'] : [];
+                        $mode = is_string($data['mode'] ?? null)
+                            ? (string) $data['mode']
+                            : ContentProjectMonthBalancePlanner::DEFAULT_MODE;
                         $fingerprint = is_string($data['fingerprint'] ?? null) ? (string) $data['fingerprint'] : null;
 
                         $result = app(ContentProjectMonthBalanceService::class)->apply(
@@ -257,6 +261,7 @@ class ListSeoProjects extends ListRecords
                             $months,
                             $fingerprint,
                             auth()->id() ? (int) auth()->id() : null,
+                            $mode,
                         );
 
                         Notification::make()
@@ -319,13 +324,16 @@ class ListSeoProjects extends ListRecords
         $syncFingerprint = function (Set $set, Get $get): void {
             $siteId = (int) ($get('site_id') ?? 0);
             $months = is_array($get('months')) ? $get('months') : [];
+            $mode = is_string($get('mode') ?? null)
+                ? (string) $get('mode')
+                : ContentProjectMonthBalancePlanner::DEFAULT_MODE;
             if ($siteId <= 0 || count($months) < 2) {
                 $set('fingerprint', '');
 
                 return;
             }
             try {
-                $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months);
+                $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months, $mode);
                 $set('fingerprint', (string) ($preview['fingerprint'] ?? ''));
             } catch (Throwable) {
                 $set('fingerprint', '');
@@ -359,12 +367,28 @@ class ListSeoProjects extends ListRecords
                 ->default([$previous, $active])
                 ->live()
                 ->afterStateUpdated($syncFingerprint),
+            Forms\Components\ToggleButtons::make('mode')
+                ->label(__('seo-content-ai::filament.projects.balance_months_mode'))
+                ->options([
+                    ContentProjectMonthBalancePlanner::MODE_FILL_EARLIER => (string) __('seo-content-ai::filament.projects.balance_months_mode_earlier'),
+                    ContentProjectMonthBalancePlanner::MODE_EVEN => (string) __('seo-content-ai::filament.projects.balance_months_mode_even'),
+                    ContentProjectMonthBalancePlanner::MODE_FILL_LATER => (string) __('seo-content-ai::filament.projects.balance_months_mode_later'),
+                ])
+                ->default(ContentProjectMonthBalancePlanner::DEFAULT_MODE)
+                ->inline()
+                ->grouped()
+                ->required()
+                ->live()
+                ->afterStateUpdated($syncFingerprint),
             Forms\Components\Hidden::make('fingerprint')->default(''),
             Forms\Components\Placeholder::make('balance_preview')
                 ->label(__('seo-content-ai::filament.projects.balance_months_preview'))
                 ->content(function (Get $get): HtmlString {
                     $siteId = (int) ($get('site_id') ?? 0);
                     $months = is_array($get('months')) ? $get('months') : [];
+                    $mode = is_string($get('mode') ?? null)
+                        ? (string) $get('mode')
+                        : ContentProjectMonthBalancePlanner::DEFAULT_MODE;
                     if ($siteId <= 0) {
                         return new HtmlString(
                             '<p class="text-sm text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_pick_domain')).'</p>'
@@ -376,7 +400,7 @@ class ListSeoProjects extends ListRecords
                         );
                     }
                     try {
-                        $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months);
+                        $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months, $mode);
 
                         return new HtmlString($this->renderBalanceMonthsPreviewHtml($preview));
                     } catch (Throwable $exception) {

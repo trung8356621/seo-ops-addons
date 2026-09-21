@@ -97,8 +97,11 @@ final class ContentProjectMonthBalanceService
      * @param  list<string>  $months
      * @return array<string, mixed>
      */
-    public function preview(int $siteId, array $months): array
-    {
+    public function preview(
+        int $siteId,
+        array $months,
+        string $mode = ContentProjectMonthBalancePlanner::DEFAULT_MODE,
+    ): array {
         if ($siteId <= 0) {
             throw ValidationException::withMessages([
                 'site_id' => __('seo-content-ai::filament.projects.balance_months_domain_required'),
@@ -112,11 +115,13 @@ final class ContentProjectMonthBalanceService
             ]);
         }
 
+        $mode = $this->planner->normalizeMode($mode);
         $snapshot = $this->buildSnapshot($siteId, $normalized, lock: false);
         $plan = $this->planner->plan(
             $normalized,
             $snapshot['fixed_by_month'],
             $snapshot['movable'],
+            $mode,
         );
 
         return $this->presentPreview($siteId, $snapshot, $plan);
@@ -126,8 +131,13 @@ final class ContentProjectMonthBalanceService
      * @param  list<string>  $months
      * @return array<string, mixed>
      */
-    public function apply(int $siteId, array $months, ?string $expectedFingerprint = null, ?int $actorUserId = null): array
-    {
+    public function apply(
+        int $siteId,
+        array $months,
+        ?string $expectedFingerprint = null,
+        ?int $actorUserId = null,
+        string $mode = ContentProjectMonthBalancePlanner::DEFAULT_MODE,
+    ): array {
         if ($siteId <= 0) {
             throw ValidationException::withMessages([
                 'site_id' => __('seo-content-ai::filament.projects.balance_months_domain_required'),
@@ -141,6 +151,7 @@ final class ContentProjectMonthBalanceService
             ]);
         }
 
+        $mode = $this->planner->normalizeMode($mode);
         $lock = Cache::lock($this->lockKey($siteId, $normalized), 120);
         if (! $lock->get()) {
             throw ValidationException::withMessages([
@@ -149,7 +160,7 @@ final class ContentProjectMonthBalanceService
         }
 
         try {
-            return $this->applyLocked($siteId, $normalized, $expectedFingerprint, $actorUserId);
+            return $this->applyLocked($siteId, $normalized, $expectedFingerprint, $actorUserId, $mode);
         } finally {
             optional($lock)->release();
         }
@@ -159,20 +170,27 @@ final class ContentProjectMonthBalanceService
      * @param  list<string>  $months
      * @return array<string, mixed>
      */
-    private function applyLocked(int $siteId, array $months, ?string $expectedFingerprint, ?int $actorUserId): array
-    {
+    private function applyLocked(
+        int $siteId,
+        array $months,
+        ?string $expectedFingerprint,
+        ?int $actorUserId,
+        string $mode,
+    ): array {
         $connection = (new SeoProjectTask)->getConnectionName();
 
         return DB::connection($connection)->transaction(function () use (
             $siteId,
             $months,
             $expectedFingerprint,
+            $mode,
         ): array {
             $snapshot = $this->buildSnapshot($siteId, $months, lock: true);
             $plan = $this->planner->plan(
                 $months,
                 $snapshot['fixed_by_month'],
                 $snapshot['movable'],
+                $mode,
             );
 
             if ($expectedFingerprint !== null && $expectedFingerprint !== ''
@@ -189,6 +207,7 @@ final class ContentProjectMonthBalanceService
                 'site_id' => $siteId,
                 'domain' => $snapshot['domain'],
                 'months' => $months,
+                'mode' => $mode,
                 'moved_count' => $moved,
                 'fixed_changed' => 0,
                 'fingerprint' => $plan['fingerprint'],
@@ -630,6 +649,7 @@ final class ContentProjectMonthBalanceService
             'site_id' => $siteId,
             'domain' => $snapshot['domain'],
             'months' => $plan['months'],
+            'mode' => (string) ($plan['mode'] ?? ContentProjectMonthBalancePlanner::DEFAULT_MODE),
             'rows' => $rows,
             'movable_total' => (int) $snapshot['movable_total'],
             'fixed_total' => (int) $snapshot['fixed_total'],
