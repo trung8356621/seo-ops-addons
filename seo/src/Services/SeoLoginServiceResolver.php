@@ -4,25 +4,23 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services;
 
-use App\Models\SeoDatabaseConnection;
-use App\Models\Site;
 use App\Models\User;
+use App\Services\SiteServiceBindingService;
 use Illuminate\Support\Collection;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
+use App\Models\SeoDatabaseConnection;
 
 /**
  * Post-auth service/workspace resolution for SEO panel login.
  *
- * Explicit hash login preserves that hash.
- * Short /seo/login uses Main Service when configured; never picks a random first()
- * connection for multi-service accounts without Main Service.
+ * Canonical plane: one Service → ServiceDatabaseConnection (shared omi_seo_ai).
+ * Short /seo is the default; explicit hash is remembered for session only.
  */
 class SeoLoginServiceResolver
 {
     public function __construct(
         private readonly SeoDatabaseConnectionService $databaseConnection,
-        private readonly SeoMainDomainService $mainDomainService,
     ) {}
 
     /**
@@ -30,27 +28,7 @@ class SeoLoginServiceResolver
      */
     public function resolveAfterLogin(User $user, ?string $explicitHash = null): array
     {
-        if (is_string($explicitHash) && SeoConnectionContext::isValidHashFormat($explicitHash)) {
-            $connection = SeoDatabaseConnection::query()
-                ->where('hash_id', $explicitHash)
-                ->where('is_active', true)
-                ->first();
-
-            if (
-                $connection instanceof SeoDatabaseConnection
-                && $this->databaseConnection->userCanAccessConnection($user, $connection)
-            ) {
-                return [
-                    'hash' => (string) $connection->hash_id,
-                    'use_short_url' => false,
-                    'needs_selection' => false,
-                ];
-            }
-        }
-
-        $connections = $this->accessibleConnections($user);
-
-        if ($connections->isEmpty()) {
+        if (! $this->userHasSeoAccess($user)) {
             return [
                 'hash' => null,
                 'use_short_url' => false,
@@ -58,30 +36,28 @@ class SeoLoginServiceResolver
             ];
         }
 
-        if ($connections->count() === 1) {
-            /** @var SeoDatabaseConnection $only */
-            $only = $connections->first();
-
-            return [
-                'hash' => (string) $only->hash_id,
-                'use_short_url' => true,
-                'needs_selection' => false,
-            ];
+        $canonical = $this->databaseConnection->bootstrapCanonicalSharedConnection();
+        if ($canonical === null) {
+            $this->databaseConnection->bootstrapLegacySharedConnection();
+            $canonical = $this->databaseConnection->bootstrapCanonicalSharedConnection();
         }
 
-        $mainHash = $this->resolveMainConnectionHash($user, $connections);
-        if ($mainHash !== null) {
+        $canonicalHash = $canonical instanceof SeoDatabaseConnection
+            ? (string) $canonical->hash_id
+            : hash('sha256', 'service_database_connection:seo');
+
+        if (is_string($explicitHash) && SeoConnectionContext::isValidHashFormat($explicitHash)) {
             return [
-                'hash' => $mainHash,
-                'use_short_url' => true,
+                'hash' => $explicitHash,
+                'use_short_url' => false,
                 'needs_selection' => false,
             ];
         }
 
         return [
-            'hash' => null,
-            'use_short_url' => false,
-            'needs_selection' => true,
+            'hash' => $canonicalHash,
+            'use_short_url' => true,
+            'needs_selection' => false,
         ];
     }
 
@@ -113,19 +89,9 @@ class SeoLoginServiceResolver
 
     public function resolveMainConnectionHashForUser(User $user): ?string
     {
-        $connections = $this->accessibleConnections($user);
-        if ($connections->isEmpty()) {
-            return null;
-        }
+        $resolution = $this->resolveAfterLogin($user);
 
-        if ($connections->count() === 1) {
-            /** @var SeoDatabaseConnection $only */
-            $only = $connections->first();
-
-            return (string) $only->hash_id;
-        }
-
-        return $this->resolveMainConnectionHash($user, $connections);
+        return $resolution['hash'];
     }
 
     public function isMainConnectionHash(User $user, string $hash): bool
@@ -136,63 +102,48 @@ class SeoLoginServiceResolver
     }
 
     /**
+     * Canonical plane exposes at most one synthetic connection adapter.
+     *
      * @return Collection<int, SeoDatabaseConnection>
      */
     public function accessibleConnections(User $user): Collection
     {
-        $query = SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->orderBy('id');
-
-        $ownerId = $this->databaseConnection->resolveOwnerIdForUser($user);
-        if ($ownerId <= 0) {
+        if (! $this->userHasSeoAccess($user)) {
             return collect();
         }
 
-        $query->whereHas(
-            'users',
-            static fn ($builder) => $builder->where('users.id', $ownerId),
-        );
+        $canonical = $this->databaseConnection->bootstrapCanonicalSharedConnection();
+        if ($canonical instanceof SeoDatabaseConnection) {
+            return collect([$canonical]);
+        }
 
-        return $query->get();
+        return collect();
     }
 
-    /**
-     * @param  Collection<int, SeoDatabaseConnection>  $connections
-     */
-    private function resolveMainConnectionHash(User $user, Collection $connections): ?string
+    private function userHasSeoAccess(User $user): bool
     {
         $ownerId = $this->databaseConnection->resolveOwnerIdForUser($user);
         if ($ownerId <= 0) {
-            return null;
+            return false;
         }
 
-        $mainSiteId = $this->mainDomainService->primarySiteIdForOwner($ownerId);
-        if ($mainSiteId === null) {
-            return null;
+        try {
+            if (app(SiteServiceBindingService::class)->ownerHasActiveSeoService($ownerId)) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // site_services may be absent in disposable tests — fall through.
         }
 
-        $site = Site::query()->find($mainSiteId);
-        if (! $site instanceof Site) {
-            return null;
+        try {
+            if ($this->databaseConnection->bootstrapCanonicalSharedConnection() instanceof SeoDatabaseConnection) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // ignore
         }
 
-        $siteOwnerId = (int) $site->user_id;
-        if ($siteOwnerId <= 0) {
-            return null;
-        }
-
-        $mainConnection = $this->databaseConnection->resolveActiveConnectionForOwner($siteOwnerId);
-        if (! $mainConnection instanceof SeoDatabaseConnection) {
-            return null;
-        }
-
-        $hash = (string) $mainConnection->hash_id;
-        $allowed = $connections->contains(
-            static fn (SeoDatabaseConnection $connection): bool => (string) $connection->hash_id === $hash,
-        );
-
-        return $allowed ? $hash : null;
+        return in_array((string) ($user->role ?? ''), [User::ROLE_OWNER, User::ROLE_ADMIN], true);
     }
 
     private function isSafeInternalUrl(string $url): bool

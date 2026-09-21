@@ -16,7 +16,6 @@ use Omnichannel\Addons\Content\Support\RunEngine\ArticleExecutionResult;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
-use App\Models\SeoDatabaseConnection;
 use App\Models\User;
 use App\Support\RuntimeLogger;
 use Illuminate\Bus\Queueable;
@@ -71,13 +70,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
         // Domain-neutral projects (site_id null) skip bootstrapSeoDatabaseConnection below —
         // without context, panelOwnerId()/site access fallbacks are empty on queue workers.
         if (SeoConnectionContext::current() === null) {
-            $shared = SeoDatabaseConnection::query()
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->first();
-            if ($shared instanceof SeoDatabaseConnection) {
-                $databaseConnection->bootstrapFromConnection($shared);
-            }
+            $databaseConnection->bootstrapCanonicalSharedConnection()
+                ?? $databaseConnection->bootstrapLegacySharedConnection();
         }
 
         $run = SeoProjectRun::query()->find($this->runId);

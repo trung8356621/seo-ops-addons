@@ -63,19 +63,8 @@ final class AutomationMigrateCommand extends Command
             return self::SUCCESS;
         }
 
-        // Full SEO addon migrate (không tạo automation_* trên omi_seo_ai nữa — legacy no-op).
-        $connectionId = $this->option('connection-id');
-        $model = $connectionId
-            ? \App\Models\SeoDatabaseConnection::query()->find((int) $connectionId)
-            : \App\Models\SeoDatabaseConnection::query()->where('is_active', true)->orderBy('id')->first();
-
-        if ($model === null) {
-            $this->error('No active SEO database connection.');
-
-            return self::FAILURE;
-        }
-
-        $connections->bootstrapFromConnection($model);
+        // Full SEO addon migrate via canonical Service DB (automation schema is no-op / owned by core).
+        $connections->bootstrapLegacySharedConnection();
         $this->info('Running SEO addon migrations (automation schema is no-op / owned by core)…');
 
         // Compat shell path after peer split (was app/Addons/SeoContentAi/database/migrations).

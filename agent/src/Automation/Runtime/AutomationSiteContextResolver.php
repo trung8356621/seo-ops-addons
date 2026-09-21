@@ -55,11 +55,14 @@ final class AutomationSiteContextResolver
                 $connectionHash = (string) $current->hash_id;
             }
         } else {
-            try {
-                $connectionHash = SeoDatabaseConnection::query()->whereKey($connectionId)->value('hash_id');
-                $connectionHash = is_string($connectionHash) ? $connectionHash : null;
-            } catch (Throwable) {
-                $connectionHash = null;
+            $current = SeoConnectionContext::current();
+            if ($current instanceof SeoDatabaseConnection
+                && (int) $current->getKey() === $connectionId
+            ) {
+                $connectionHash = (string) $current->hash_id;
+            } else {
+                // Canonical shared plane — stable synthetic hash (no legacy credential table).
+                $connectionHash = hash('sha256', 'service_database_connection:seo:'.$connectionId);
             }
         }
 

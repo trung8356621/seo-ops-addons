@@ -12,13 +12,11 @@ use App\Models\Site;
 use App\Models\SiteService;
 use App\Models\User;
 use App\Services\SiteServiceBindingService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use PDOException;
 use RuntimeException;
 use Throwable;
@@ -44,20 +42,6 @@ final class SeoDatabaseConnectionService
     {
         if (! SeoConnectionContext::isValidHashFormat($hashId)) {
             throw new RuntimeException('Mã định danh kết nối SEO không hợp lệ.');
-        }
-
-        // Retired table: fall through to canonical ServiceDatabaseConnection.
-        if ($this->legacyCredentialTableExists()) {
-            $connection = SeoDatabaseConnection::query()
-                ->where('hash_id', $hashId)
-                ->where('is_active', true)
-                ->first();
-
-            if ($connection instanceof SeoDatabaseConnection) {
-                $this->bootstrapFromConnection($connection);
-
-                return $connection;
-            }
         }
 
         $canonical = $this->bootstrapCanonicalSharedConnection();
@@ -212,7 +196,6 @@ final class SeoDatabaseConnectionService
             return null;
         }
 
-        // Canonical Service DB first (1:1 Service → credentials).
         $canonical = $this->bootstrapCanonicalSharedConnection();
         if ($canonical instanceof SeoDatabaseConnection) {
             return $canonical;
@@ -223,27 +206,6 @@ final class SeoDatabaseConnectionService
             $this->bootstrapLegacySharedConnection();
 
             return null;
-        }
-
-        $ownerId = (int) $site->user_id;
-        if ($ownerId <= 0) {
-            $this->bootstrapLegacySharedConnection();
-
-            return null;
-        }
-
-        if ($this->legacyCredentialTableExists()) {
-            $connection = SeoDatabaseConnection::query()
-                ->where('is_active', true)
-                ->whereHas('users', fn (Builder $query): Builder => $query->where('users.id', $ownerId))
-                ->orderBy('id')
-                ->first();
-
-            if ($connection instanceof SeoDatabaseConnection) {
-                $this->bootstrapFromConnection($connection);
-
-                return $connection;
-            }
         }
 
         $siteService = $this->findSiteService($siteId);
@@ -268,18 +230,6 @@ final class SeoDatabaseConnectionService
 
     public function bootstrapByConnectionId(int $connectionId): SeoDatabaseConnection
     {
-        if ($this->legacyCredentialTableExists()) {
-            $connection = SeoDatabaseConnection::query()
-                ->whereKey($connectionId)
-                ->first();
-
-            if ($connection instanceof SeoDatabaseConnection) {
-                $this->bootstrapFromConnection($connection);
-
-                return $connection;
-            }
-        }
-
         $canonical = $this->bootstrapCanonicalSharedConnection();
         if ($canonical instanceof SeoDatabaseConnection) {
             return $canonical;
@@ -343,38 +293,7 @@ final class SeoDatabaseConnectionService
 
     public function resolveDefaultSharedConnectionRecord(): ?SeoDatabaseConnection
     {
-        $canonical = $this->bootstrapCanonicalSharedConnection();
-        if ($canonical instanceof SeoDatabaseConnection) {
-            return $canonical;
-        }
-
-        if (! $this->legacyCredentialTableExists()) {
-            return null;
-        }
-
-        $candidates = SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->withCount('users')
-            ->orderByRaw("CASE WHEN `database` = 'omi_seo_ai' THEN 0 WHEN `type` = 'auto' THEN 1 ELSE 2 END")
-            ->orderBy('id')
-            ->get();
-
-        $resolver = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\PublishingConnectionCandidateResolver::class);
-        foreach ($candidates as $candidate) {
-            if ($resolver->isEligible($candidate) === null) {
-                return $candidate;
-            }
-        }
-
-        // Legacy fallback: first active non-demo row (hosting manual may lack users in tests/early tenant).
-        foreach ($candidates as $candidate) {
-            $database = strtolower(trim((string) ($candidate->database ?? '')));
-            if ($database !== '' && ! $resolver->looksLikeDemoOrLegacyOrphanDatabase($database)) {
-                return $candidate;
-            }
-        }
-
-        return null;
+        return $this->bootstrapCanonicalSharedConnection();
     }
 
     /**
@@ -502,46 +421,13 @@ final class SeoDatabaseConnectionService
 
     public function resolveRedirectHash(?User $user = null): ?string
     {
-        if (! $this->legacyCredentialTableExists()) {
-            // Canonical shared plane has no per-owner hash; short /seo URL is enough.
-            return null;
-        }
-
-        $query = SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->orderBy('id');
-
-        if (! $user instanceof User) {
-            return $query->value('hash_id');
-        }
-
-        $ownerId = $this->resolveOwnerIdForUser($user);
-        if ($ownerId <= 0) {
-            return null;
-        }
-
-        $query->whereHas('users', fn (Builder $builder): Builder => $builder->where('users.id', $ownerId));
-
-        return $query->value('hash_id');
+        // Canonical shared plane — short /seo URL; no per-owner hash rows.
+        return null;
     }
 
     public function userCanAccessConnection(?User $user, SeoDatabaseConnection $connection): bool
     {
-        if ($user === null) {
-            return false;
-        }
-
-        // Retired pivot / synthetic canonical adapter — ACL is panel auth, not connection pivot.
-        if (! Schema::hasTable('seo_connection_users') || (int) $connection->getKey() <= 0) {
-            return true;
-        }
-
-        $ownerId = $this->resolveOwnerIdForUser($user);
-        if ($ownerId <= 0) {
-            return false;
-        }
-
-        return $connection->users()->where('users.id', $ownerId)->exists();
+        return $user !== null;
     }
 
     public function resolveOwnerIdForUser(User $user): int
@@ -602,53 +488,21 @@ final class SeoDatabaseConnectionService
             throw new RuntimeException('Dịch vụ không phải SEO Content AI.');
         }
 
-        $site = Site::query()->find((int) $record->site_id);
-        $ownerId = app(SiteServiceBindingService::class)->resolveOwnerId($record);
-        if ($ownerId <= 0) {
-            throw new RuntimeException('Site service chưa gán owner hợp lệ.');
+        $canonical = $this->bootstrapCanonicalSharedConnection();
+        if ($canonical instanceof SeoDatabaseConnection) {
+            return $canonical;
         }
 
-        $settings = is_array($record->settings) ? $record->settings : [];
-        $type = (string) ($settings['db_config_type'] ?? 'auto');
+        $fromService = $this->connectionFromSiteService($record);
+        if ($fromService instanceof SeoDatabaseConnection) {
+            $this->bootstrapFromConnection($fromService);
 
-        if ($type === 'manual') {
-            $connection = $this->resolveActiveConnectionForOwner($ownerId);
-            if ($connection === null) {
-                throw new RuntimeException(
-                    'Chưa có SEO Database Connection cho owner của site này. Tạo tại SEO Database Connections.',
-                );
-            }
-
-            return $connection;
+            return $fromService;
         }
 
-        $attributes = $this->mapSiteServiceSettingsToConnectionRecord(
-            $settings,
-            (int) ($site?->id ?? 0),
-            (string) ($site?->domain ?? ('Owner #'.$ownerId)),
+        throw new RuntimeException(
+            'Chưa cấu hình Service Database Connection cho SEO. Tạo tại Admin → Dịch vụ → SEO.',
         );
-
-        $connection = SeoDatabaseConnection::query()
-            ->whereHas('users', fn (Builder $query): Builder => $query->where('users.id', $ownerId))
-            ->orderBy('id')
-            ->first();
-
-        if ($connection === null) {
-            $connection = new SeoDatabaseConnection($attributes);
-            $connection->save();
-            $connection->users()->sync([$ownerId]);
-
-            return $connection->fresh() ?? $connection;
-        }
-
-        $connection->fill($attributes);
-        $connection->save();
-
-        if (! $connection->users()->where('users.id', $ownerId)->exists()) {
-            $connection->users()->attach($ownerId);
-        }
-
-        return $connection->fresh() ?? $connection;
     }
 
     public function resolveActiveConnectionForOwner(int $ownerId): ?SeoDatabaseConnection
@@ -657,20 +511,7 @@ final class SeoDatabaseConnectionService
             return null;
         }
 
-        $canonical = $this->bootstrapCanonicalSharedConnection();
-        if ($canonical instanceof SeoDatabaseConnection) {
-            return $canonical;
-        }
-
-        if (! $this->legacyCredentialTableExists()) {
-            return null;
-        }
-
-        return SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->whereHas('users', fn (Builder $query): Builder => $query->where('users.id', $ownerId))
-            ->orderBy('id')
-            ->first();
+        return $this->bootstrapCanonicalSharedConnection();
     }
 
     public function connectionFromSiteService(SiteService $siteService): ?SeoDatabaseConnection
@@ -714,7 +555,7 @@ final class SeoDatabaseConnectionService
 
         if ($type === 'manual') {
             throw new RuntimeException(
-                'Chế độ manual không cấu hình DB trên Site Service. Dùng SEO Database Connections.',
+                'Chế độ manual không cấu hình DB trên Site Service. Dùng Admin → Dịch vụ → SEO.',
             );
         }
 
@@ -842,15 +683,6 @@ final class SeoDatabaseConnectionService
         }
 
         DB::purge($name);
-    }
-
-    private function legacyCredentialTableExists(): bool
-    {
-        try {
-            return Schema::hasTable('seo_database_connections');
-        } catch (Throwable) {
-            return false;
-        }
     }
 
     /**

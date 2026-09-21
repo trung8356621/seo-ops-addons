@@ -304,7 +304,14 @@ final class OperationalStatusFormatter
         }
 
         try {
-            $name = SeoDatabaseConnection::query()->whereKey($connectionId)->value('name');
+            $current = \Omnichannel\Addons\Seo\Support\SeoConnectionContext::current();
+            if ($current instanceof SeoDatabaseConnection
+                && (int) $current->getKey() === $connectionId
+            ) {
+                $name = (string) ($current->name ?? '');
+            } else {
+                $name = 'Canonical Service DB';
+            }
         } catch (\Throwable) {
             return null;
         }

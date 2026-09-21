@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\AiPrompt\Console;
 use Illuminate\Console\Command;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleRepairService;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
-use App\Models\SeoDatabaseConnection;
 
 /**
  * php artisan seo:repair-multiple-pass-article {articleId} --parent-result=1486 [--dry-run]
@@ -33,10 +32,7 @@ final class RepairMultiplePassArticleCommand extends Command
             return self::FAILURE;
         }
 
-        $rec = SeoDatabaseConnection::query()->where('is_active', true)->orderBy('id')->first();
-        if ($rec) {
-            app(SeoDatabaseConnectionService::class)->bootstrapFromConnection($rec);
-        }
+        app(SeoDatabaseConnectionService::class)->bootstrapLegacySharedConnection();
 
         $report = $dryRun
             ? $repairService->dryRun($articleId, $parentId)

@@ -15,15 +15,13 @@ use App\Models\SeoDatabaseConnection;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 /**
  * Cron due-scheduled articles: emit business event only — never direct WordPress mutate.
  * Content Project items dùng scheduled_publish_at (SaaS queue), không WP future/cron.
  *
- * Connection bootstrap MUST reuse SeoDatabaseConnectionService (same as /seo/{connection_hash}).
- * Per-connection failures are isolated — never abort the whole command for one stale row.
+ * Connection bootstrap uses canonical ServiceDatabaseConnection via SeoDatabaseConnectionService.
  */
 final class ScheduledArticlePublishRunner
 {
@@ -57,128 +55,56 @@ final class ScheduledArticlePublishRunner
             'connections_skipped' => 0,
         ];
 
-        // Legacy seo_database_connections may be absent — fall through to canonical Service DB path.
-        $legacyTablePresent = false;
         try {
-            $legacyTablePresent = Schema::hasTable('seo_database_connections');
-        } catch (Throwable $e) {
+            $canonical = $this->databaseConnection->resolveDefaultSharedConnectionRecord();
+            if ($canonical instanceof SeoDatabaseConnection
+                && $this->connectionCandidates->isEligible($canonical) === null
+            ) {
+                $stats['connections_attempted']++;
+                $this->runForConnection($canonical, $stats);
+
+                return $stats;
+            }
+
+            $this->databaseConnection->bootstrapLegacySharedConnection();
+            $meta = [
+                'connection_id' => null,
+                'hash_id' => null,
+                'connection_name' => $this->databaseConnection->connectionName(),
+                'database' => (string) config('seo-content-ai.legacy_shared_database', 'omi_seo_ai'),
+                'resolver' => 'SeoDatabaseConnectionService::bootstrapLegacySharedConnection',
+                'runtime' => 'console',
+            ];
+            try {
+                DB::connection($this->databaseConnection->connectionName())->getPdo();
+            } catch (Throwable $e) {
+                throw new \RuntimeException(
+                    'Không kết nối được tới database SEO: '.$e->getMessage(),
+                    previous: $e,
+                );
+            }
+            $projectStats = $this->contentProjectQueue->dispatchDue($meta);
+            $stats['processed'] += $projectStats['processed'];
+            $stats['published'] += (int) ($projectStats['published_confirmed'] ?? $projectStats['published'] ?? 0);
+            $stats['published_confirmed'] = ($stats['published_confirmed'] ?? 0) + (int) ($projectStats['published_confirmed'] ?? $projectStats['published'] ?? 0);
+            $stats['claimed'] = ($stats['claimed'] ?? 0) + (int) ($projectStats['claimed'] ?? $projectStats['claimed_count'] ?? 0);
+            $stats['dispatched'] = ($stats['dispatched'] ?? 0) + (int) ($projectStats['dispatched'] ?? $projectStats['dispatched_count'] ?? 0);
+            $stats['publisher_started'] = ($stats['publisher_started'] ?? 0) + (int) ($projectStats['publisher_started'] ?? $projectStats['publisher_started_count'] ?? 0);
+            $stats['retry_scheduled'] = ($stats['retry_scheduled'] ?? 0) + (int) ($projectStats['retry_scheduled'] ?? $projectStats['retry_wait_count'] ?? 0);
+            $stats['failed'] += $projectStats['failed'];
+            $stats['skipped'] += $projectStats['skipped'] ?? 0;
+            $this->dispatchDueArticles($stats, $meta);
+        } catch (Throwable $exception) {
+            $stats['bootstrap_failed']++;
+            $this->contentProjectQueue->health()->rememberBootstrapFailure($exception->getMessage(), null);
             RuntimeLogger::warning('publishing.connection_bootstrap_failed', [
                 'runtime' => 'console',
-                'phase' => 'inspect_core_table',
-                'error' => $e->getMessage(),
-                'exception' => $e::class,
+                'phase' => 'canonical_shared',
+                'error' => $exception->getMessage(),
+                'exception' => $exception::class,
             ]);
 
-            throw $e;
-        }
-
-        if ($legacyTablePresent) {
-            foreach ($this->connectionCandidates->skippedActiveConnections() as $skipped) {
-                $connection = $skipped['connection'];
-                $stats['connections_skipped']++;
-                RuntimeLogger::info('publishing.connection_skipped', [
-                    'runtime' => 'console',
-                    'connection_id' => (int) $connection->getKey(),
-                    'hash_id' => (string) $connection->hash_id,
-                    'database' => (string) ($connection->database ?? ''),
-                    'type' => (string) ($connection->type ?? ''),
-                    'skip_reason' => $skipped['skip_reason'],
-                    'result' => 'skipped',
-                ]);
-            }
-        }
-
-        $connections = $legacyTablePresent
-            ? $this->connectionCandidates->eligibleForPublishingScan()
-            : collect();
-
-        if ($connections->isEmpty()) {
-            try {
-                $legacy = $this->databaseConnection->resolveDefaultSharedConnectionRecord();
-                if ($legacy instanceof SeoDatabaseConnection
-                    && $this->connectionCandidates->isEligible($legacy) === null
-                ) {
-                    $stats['connections_attempted']++;
-                    $this->runForConnection($legacy, $stats);
-                } elseif (! $legacy instanceof SeoDatabaseConnection) {
-                    $this->databaseConnection->bootstrapLegacySharedConnection();
-                    $meta = [
-                        'connection_id' => null,
-                        'hash_id' => null,
-                        'connection_name' => $this->databaseConnection->connectionName(),
-                        'database' => (string) config('seo-content-ai.legacy_shared_database', 'omi_seo_ai'),
-                        'resolver' => 'SeoDatabaseConnectionService::bootstrapLegacySharedConnection',
-                        'runtime' => 'console',
-                    ];
-                    try {
-                        DB::connection($this->databaseConnection->connectionName())->getPdo();
-                    } catch (Throwable $e) {
-                        throw new \RuntimeException(
-                            'Không kết nối được tới database SEO (legacy): '.$e->getMessage(),
-                            previous: $e,
-                        );
-                    }
-                    $projectStats = $this->contentProjectQueue->dispatchDue($meta);
-                    $stats['processed'] += $projectStats['processed'];
-                    $stats['published'] += (int) ($projectStats['published_confirmed'] ?? $projectStats['published'] ?? 0);
-                    $stats['published_confirmed'] = ($stats['published_confirmed'] ?? 0) + (int) ($projectStats['published_confirmed'] ?? $projectStats['published'] ?? 0);
-                    $stats['claimed'] = ($stats['claimed'] ?? 0) + (int) ($projectStats['claimed'] ?? $projectStats['claimed_count'] ?? 0);
-                    $stats['dispatched'] = ($stats['dispatched'] ?? 0) + (int) ($projectStats['dispatched'] ?? $projectStats['dispatched_count'] ?? 0);
-                    $stats['publisher_started'] = ($stats['publisher_started'] ?? 0) + (int) ($projectStats['publisher_started'] ?? $projectStats['publisher_started_count'] ?? 0);
-                    $stats['retry_scheduled'] = ($stats['retry_scheduled'] ?? 0) + (int) ($projectStats['retry_scheduled'] ?? $projectStats['retry_wait_count'] ?? 0);
-                    $stats['failed'] += $projectStats['failed'];
-                    $stats['skipped'] += $projectStats['skipped'] ?? 0;
-                    $this->dispatchDueArticles($stats, $meta);
-                }
-            } catch (Throwable $exception) {
-                $stats['bootstrap_failed']++;
-                $this->contentProjectQueue->health()->rememberBootstrapFailure($exception->getMessage(), null);
-                RuntimeLogger::warning('publishing.connection_bootstrap_failed', [
-                    'runtime' => 'console',
-                    'phase' => 'canonical_shared',
-                    'error' => $exception->getMessage(),
-                    'exception' => $exception::class,
-                ]);
-
-                throw $exception;
-            }
-
-            return $stats;
-        }
-
-        foreach ($connections as $connection) {
-            if (! $connection instanceof SeoDatabaseConnection) {
-                continue;
-            }
-
-            $stats['connections_attempted']++;
-
-            try {
-                $this->runForConnection($connection, $stats);
-            } catch (Throwable $exception) {
-                // Failure isolation: log + keep scanning remaining connections.
-                $stats['bootstrap_failed']++;
-                $connectionId = (int) $connection->getKey();
-                $this->contentProjectQueue->health()->rememberBootstrapFailure(
-                    $exception->getMessage(),
-                    $connectionId,
-                );
-                RuntimeLogger::warning('publishing.connection_bootstrap_failed', [
-                    'runtime' => 'console',
-                    'connection_id' => $connectionId,
-                    'hash_id' => (string) $connection->hash_id,
-                    'database' => (string) ($connection->database ?? ''),
-                    'type' => (string) ($connection->type ?? ''),
-                    'resolver' => 'SeoDatabaseConnectionService',
-                    'result' => 'failed_continue',
-                    'error' => $exception->getMessage(),
-                    'exception' => $exception::class,
-                ]);
-            } finally {
-                $this->databaseConnection->forgetBootstrappedHash((string) $connection->hash_id);
-                DB::purge($this->databaseConnection->connectionName());
-                SeoConnectionContext::reset();
-            }
+            throw $exception;
         }
 
         return $stats;
@@ -215,7 +141,7 @@ final class ScheduledArticlePublishRunner
             'result' => 'processed',
         ]);
 
-        if ($resolvedId !== null && $resolvedId !== $expectedId) {
+        if ($resolvedId !== null && $expectedId > 0 && $resolvedId !== $expectedId) {
             throw new \RuntimeException(sprintf(
                 'Publishing connection mismatch: expected id=%d hash=%s, resolved id=%d hash=%s',
                 $expectedId,
@@ -237,6 +163,10 @@ final class ScheduledArticlePublishRunner
         $stats['skipped'] += $projectStats['skipped'] ?? 0;
 
         $this->dispatchDueArticles($stats, $meta);
+
+        $this->databaseConnection->forgetBootstrappedHash((string) $connection->hash_id);
+        DB::purge($this->databaseConnection->connectionName());
+        SeoConnectionContext::reset();
     }
 
     /**

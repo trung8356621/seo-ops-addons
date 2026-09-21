@@ -36,13 +36,15 @@ final class LegacyDatabaseCodeCleanupContractTest extends TestCase
         self::assertStringContainsString('Legacy seo_database_connections credential plane is retired', $src);
     }
 
-    public function test_publishing_cron_does_not_abort_when_legacy_credential_table_absent(): void
+    public function test_publishing_cron_uses_canonical_service_db_only(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/publishing/src/Services/ScheduledArticlePublishRunner.php');
 
-        self::assertStringNotContainsString("if (! Schema::hasTable('seo_database_connections')) {\n                return \$stats;", $src);
+        self::assertStringNotContainsString("hasTable('seo_database_connections')", $src);
+        self::assertStringNotContainsString('SeoDatabaseConnection::query(', $src);
         self::assertStringContainsString('bootstrapLegacySharedConnection', $src);
         self::assertStringContainsString('canonical_shared', $src);
+        self::assertStringContainsString('resolveDefaultSharedConnectionRecord', $src);
     }
 
     public function test_seeding_runtime_has_no_link_resource_consumer(): void

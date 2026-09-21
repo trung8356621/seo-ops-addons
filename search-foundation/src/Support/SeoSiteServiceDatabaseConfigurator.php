@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Support;
 
+use App\Filament\Pages\ServiceConfigure;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
-use App\Filament\Resources\SeoDatabaseConnectionResource;
 use App\Models\SiteService;
 use App\Services\SiteServiceBindingService;
 use Filament\Forms;
@@ -173,7 +173,7 @@ final class SeoSiteServiceDatabaseConfigurator
      */
     public static function formSchema(): array
     {
-        $connectionsUrl = SeoDatabaseConnectionResource::getUrl('index');
+        $connectionsUrl = ServiceConfigure::getUrl(['service' => 'seo']);
 
         return [
             Forms\Components\Section::make(__('site-service.seo_db_section_title'))

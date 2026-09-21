@@ -6,14 +6,12 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use App\Models\SeoDatabaseConnection;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Schema;
 
 /**
- * Which seo_database_connections rows the publishing cron may touch.
+ * Publishing connection eligibility.
  *
- * Does NOT bootstrap PDO here — eligibility is from core metadata only.
- * Orphan/demo rows (no users + demo-like DB name) are skipped so a stale
- * manual connection cannot poison scans or global health.
+ * Legacy seo_database_connections scanning is retired. Cron uses canonical
+ * ServiceDatabaseConnection via SeoDatabaseConnectionService shared bootstrap.
  */
 final class PublishingConnectionCandidateResolver
 {
@@ -22,18 +20,7 @@ final class PublishingConnectionCandidateResolver
      */
     public function eligibleForPublishingScan(): Collection
     {
-        if (! Schema::hasTable('seo_database_connections')) {
-            return collect();
-        }
-
-        $query = SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->withCount('users')
-            ->orderBy('id');
-
-        return $query->get()->filter(
-            fn (SeoDatabaseConnection $connection): bool => $this->isEligible($connection) === null,
-        )->values();
+        return collect();
     }
 
     /**
@@ -41,28 +28,7 @@ final class PublishingConnectionCandidateResolver
      */
     public function skippedActiveConnections(): array
     {
-        if (! Schema::hasTable('seo_database_connections')) {
-            return [];
-        }
-
-        $skipped = [];
-        $rows = SeoDatabaseConnection::query()
-            ->where('is_active', true)
-            ->withCount('users')
-            ->orderBy('id')
-            ->get();
-
-        foreach ($rows as $connection) {
-            $reason = $this->isEligible($connection);
-            if ($reason !== null) {
-                $skipped[] = [
-                    'connection' => $connection,
-                    'skip_reason' => $reason,
-                ];
-            }
-        }
-
-        return $skipped;
+        return [];
     }
 
     /**
@@ -88,7 +54,11 @@ final class PublishingConnectionCandidateResolver
 
         $userCount = $connection->users_count ?? null;
         if ($userCount === null) {
-            $userCount = $connection->users()->count();
+            try {
+                $userCount = $connection->users()->count();
+            } catch (\Throwable) {
+                $userCount = 0;
+            }
         }
         $userCount = (int) $userCount;
 
@@ -96,7 +66,6 @@ final class PublishingConnectionCandidateResolver
             return $userCount === 0 ? 'orphan_demo_no_users' : 'demo_database';
         }
 
-        // Manual rows with zero user assignments are orphan for publishing scan.
         if ($connection->isManual() && $userCount === 0) {
             return 'manual_orphan_no_users';
         }
@@ -123,13 +92,16 @@ final class PublishingConnectionCandidateResolver
     }
 
     /**
-     * Audit payload for one core row (no password).
-     *
      * @return array<string, mixed>
      */
     public function auditRow(SeoDatabaseConnection $connection): array
     {
-        $userCount = (int) ($connection->users_count ?? $connection->users()->count());
+        $userCount = 0;
+        try {
+            $userCount = (int) ($connection->users_count ?? $connection->users()->count());
+        } catch (\Throwable) {
+            $userCount = (int) ($connection->users_count ?? 0);
+        }
         $skip = $this->isEligible($connection);
 
         return [
@@ -150,7 +122,7 @@ final class PublishingConnectionCandidateResolver
             'skip_reason' => $skip,
             'created_at' => $connection->created_at?->toIso8601String(),
             'updated_at' => $connection->updated_at?->toIso8601String(),
-            'created_via' => 'Admin Filament SEO Database Connections / site-service sync / legacy migration seed',
+            'created_via' => 'canonical ServiceDatabaseConnection',
         ];
     }
 }

@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchFoundation\Jobs;
 
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseBackupService;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
-use App\Models\SeoDatabaseConnection;
 use App\Models\TaskJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,6 +14,10 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Throwable;
 
+/**
+ * Import SQL into the canonical SEO Service DB plane.
+ * Legacy seo_database_connections.id is ignored — always boots ServiceDatabaseConnection.
+ */
 final class ImportSeoDatabaseJob implements ShouldQueue
 {
     use Dispatchable;
@@ -39,11 +42,16 @@ final class ImportSeoDatabaseJob implements ShouldQueue
         /** @var TaskJob|null $task */
         $task = TaskJob::query()->find($this->taskJobId);
 
-        /** @var SeoDatabaseConnection|null $connection */
-        $connection = SeoDatabaseConnection::query()->find($this->connectionId);
-
+        $connection = $connectionService->bootstrapCanonicalSharedConnection();
         if ($task === null || $connection === null) {
             $this->cleanupTempFile();
+            if ($task !== null) {
+                $task->update([
+                    'status' => 'failed',
+                    'finished_at' => now(),
+                    'error_log' => 'Canonical SEO ServiceDatabaseConnection unavailable.',
+                ]);
+            }
 
             return;
         }
@@ -56,7 +64,7 @@ final class ImportSeoDatabaseJob implements ShouldQueue
         ]);
 
         try {
-            $connectionService->bootstrapByConnectionId($this->connectionId);
+            $connectionService->bootstrapFromConnection($connection, forceReconnect: true);
 
             $result = $backupService->runImport(
                 $connection,
@@ -79,25 +87,9 @@ final class ImportSeoDatabaseJob implements ShouldQueue
                 'finished_at' => now(),
                 'error_log' => $exception->getMessage(),
             ]);
-
-            throw $exception;
         } finally {
             $this->cleanupTempFile();
         }
-    }
-
-    public function failed(?Throwable $exception): void
-    {
-        TaskJob::query()
-            ->whereKey($this->taskJobId)
-            ->where('status', '!=', 'completed')
-            ->update([
-                'status' => 'failed',
-                'finished_at' => now(),
-                'error_log' => $exception?->getMessage() ?? 'Import SEO database failed.',
-            ]);
-
-        $this->cleanupTempFile();
     }
 
     private function cleanupTempFile(): void

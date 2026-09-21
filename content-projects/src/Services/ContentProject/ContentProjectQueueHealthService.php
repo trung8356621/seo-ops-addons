@@ -144,10 +144,12 @@ final class ContentProjectQueueHealthService
                 $resolvedHash = (string) $current->hash_id;
             }
         } else {
-            $resolvedHash = SeoDatabaseConnection::query()
-                ->whereKey($resolvedConnectionId)
-                ->value('hash_id');
-            $resolvedHash = is_string($resolvedHash) ? $resolvedHash : null;
+            $current = SeoConnectionContext::current();
+            if ($current instanceof SeoDatabaseConnection
+                && (int) $current->getKey() === (int) $resolvedConnectionId
+            ) {
+                $resolvedHash = (string) $current->hash_id;
+            }
         }
 
         $scopeId = ($resolvedConnectionId !== null && $resolvedConnectionId > 0)

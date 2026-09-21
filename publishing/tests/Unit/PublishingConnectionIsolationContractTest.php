@@ -69,30 +69,20 @@ final class PublishingConnectionIsolationContractTest extends TestCase
         self::assertSame('inactive', $resolver->isEligible($row));
     }
 
-    public function test_runner_isolates_per_connection_failures_without_abort(): void
+    public function test_runner_uses_canonical_shared_bootstrap_only(): void
     {
         $runner = (string) file_get_contents(
             (string) (new ReflectionClass(ScheduledArticlePublishRunner::class))->getFileName(),
         );
 
-        self::assertStringContainsString('PublishingConnectionCandidateResolver', $runner);
-        self::assertStringContainsString('eligibleForPublishingScan', $runner);
-        self::assertStringContainsString('publishing.connection_skipped', $runner);
-        self::assertStringContainsString('failed_continue', $runner);
-        self::assertStringContainsString('expected_connection_id', $runner);
-        self::assertStringContainsString('resolved_connection_id', $runner);
-        self::assertStringContainsString('rememberBootstrapFailure(', $runner);
-
-        // Per-connection catch must keep scanning — no early exit in that catch body.
-        self::assertMatchesRegularExpression(
-            '/catch \(Throwable \$exception\) \{\s*\/\/ Failure isolation:.*rememberBootstrapFailure/s',
-            $runner,
-        );
-        self::assertDoesNotMatchRegularExpression(
-            '/catch \(Throwable \$exception\) \{[^}]*\breturn\b/s',
-            $runner,
-        );
-        self::assertStringContainsString("'result' => 'failed_continue'", $runner);
+        self::assertStringContainsString('resolveDefaultSharedConnectionRecord', $runner);
+        self::assertStringContainsString('bootstrapLegacySharedConnection', $runner);
+        self::assertStringContainsString('canonical_shared', $runner);
+        self::assertStringNotContainsString('SeoDatabaseConnection::query()', $runner);
+        self::assertStringNotContainsString("hasTable('seo_database_connections')", $runner);
+        self::assertStringContainsString('eligibleForPublishingScan', (string) file_get_contents(
+            (string) (new ReflectionClass(PublishingConnectionCandidateResolver::class))->getFileName(),
+        ));
     }
 
     public function test_health_is_connection_scoped_and_hub_passes_context(): void
@@ -113,6 +103,7 @@ final class PublishingConnectionIsolationContractTest extends TestCase
             'Never write unscoped global bootstrap failure from a known connection',
             $health,
         );
+        self::assertStringNotContainsString('SeoDatabaseConnection::query()', $health);
         self::assertStringContainsString('SeoConnectionContext::current()', $hub);
         self::assertStringContainsString('snapshot($siteIds, $connectionId, $projectId)', $hub);
         self::assertStringContainsString('rememberBootstrapFailure(', $queueRunner);
@@ -143,19 +134,15 @@ final class PublishingConnectionIsolationContractTest extends TestCase
         );
     }
 
-    public function test_default_shared_order_by_quotes_database_column(): void
+    public function test_candidate_resolver_never_queries_legacy_table(): void
     {
-        $service = (string) file_get_contents(
-            (string) (new ReflectionClass(\Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService::class))->getFileName(),
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(PublishingConnectionCandidateResolver::class))->getFileName(),
         );
 
-        self::assertStringContainsString(
-            "CASE WHEN `database` = 'omi_seo_ai' THEN 0 WHEN `type` = 'auto' THEN 1 ELSE 2 END",
-            $service,
-        );
-        self::assertStringNotContainsString(
-            "CASE WHEN database = 'omi_seo_ai'",
-            $service,
-        );
+        self::assertStringNotContainsString('SeoDatabaseConnection::query()', $src);
+        self::assertStringNotContainsString("hasTable('seo_database_connections')", $src);
+        self::assertSame([], (new PublishingConnectionCandidateResolver)->skippedActiveConnections());
+        self::assertCount(0, (new PublishingConnectionCandidateResolver)->eligibleForPublishingScan());
     }
 }
