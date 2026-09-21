@@ -9,7 +9,6 @@ use App\Providers\Filament\AdminPanelProvider;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Auth;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
-use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\EditTask;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
@@ -116,7 +115,8 @@ final class TaskAdminDualRegistrationContractTest extends TestCase
         }
 
         $test = (string) file_get_contents((new ReflectionClass(TestTask::class))->getFileName());
-        self::assertStringContainsString(TaskWorkflowTestRunner::class, $test);
+        self::assertStringContainsString('SystemWorkflowClient', $test);
+        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $test);
         self::assertStringContainsString("view = 'seo-content-ai::filament.resources.task-resource.pages.test-task'", $test);
 
         $workflow = (string) file_get_contents((new ReflectionClass(EditTaskWorkflow::class))->getFileName());

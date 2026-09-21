@@ -1,7 +1,7 @@
 {
     "name":  "Content Projects",
     "slug":  "content-projects",
-    "version":  "0.1.3",
+    "version":  "0.1.4",
     "description":  "Peer addon — Content Projects. Equal-level; no parent/child ownership.",
     "provider":  "Omnichannel\\Addons\\ContentProjects\\ContentProjectsServiceProvider",
     "register_early":  false,

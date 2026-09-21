@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Filament\Facades\Filament;
-use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\TestTask;
@@ -75,7 +74,10 @@ final class TaskAdminCanonicalCutoverContractTest extends TestCase
         self::assertSame(1, substr_count($vite, 'addons/content-projects/resources/js/task-builder.jsx'));
 
         $test = (string) file_get_contents((new ReflectionClass(TestTask::class))->getFileName());
-        self::assertStringContainsString(TaskWorkflowTestRunner::class, $test);
+        self::assertStringContainsString('SystemWorkflowClient', $test);
+        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $test);
+        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $test);
+        self::assertStringNotContainsString('use Omnichannel\\Addons\\AiPrompt\\Services\\TaskWorkflowTestRunner', $test);
 
         $workflow = (string) file_get_contents((new ReflectionClass(EditTaskWorkflow::class))->getFileName());
         self::assertStringContainsString('function persistTaskFlow', $workflow);

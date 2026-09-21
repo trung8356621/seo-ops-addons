@@ -1,7 +1,7 @@
 {
     "name": "AI Prompt",
     "slug": "ai-prompt",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "description": "Peer addon — AI Prompt / Core AI inventory. Equal-level; no parent/child ownership.",
     "provider": "Omnichannel\\Addons\\AiPrompt\\AiPromptServiceProvider",
     "providers": [

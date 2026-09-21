@@ -29,6 +29,9 @@ final class SystemLegacyAdapterContractTest extends TestCase
         self::assertStringContainsString('WorkflowRuntimePort', $source);
         self::assertStringContainsString('TaskWorkflowTestRunner', $source);
         self::assertStringContainsString('$this->runner->run', $source);
+        self::assertStringContainsString('runFromNodeId', $source);
+        self::assertStringContainsString('runSingleStep', $source);
+        self::assertStringContainsString('invalid_execution_mode', $source);
         self::assertStringNotContainsString('CreateArticlesFromTaskService', $source);
         self::assertStringNotContainsString("'execution' => 'deferred'", $source);
     }

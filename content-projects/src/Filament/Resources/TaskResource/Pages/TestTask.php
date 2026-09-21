@@ -11,9 +11,9 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Models\TaskTestResult;
 use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
 use App\System\Workflow\Dto\WorkflowRunRequest;
 use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
-use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
@@ -191,6 +191,7 @@ class TestTask extends Page implements HasForms
                     'capability' => 'workflow.test_task',
                     'task_id' => (int) $this->getTask()->getKey(),
                 ],
+                executionMode: WorkflowExecutionMode::FullRun->value,
             ));
 
             $ordered = $workflowResult->meta['ordered_steps'] ?? null;
@@ -259,7 +260,7 @@ class TestTask extends Page implements HasForms
         }
     }
 
-    public function rerunStep(int $stepIndex, TaskWorkflowTestRunner $runner): void
+    public function rerunStep(int $stepIndex, SystemWorkflowClient $workflows): void
     {
         if ($this->resolvedContext === null || $this->stepResults === []) {
             Notification::make()
@@ -283,18 +284,49 @@ class TestTask extends Page implements HasForms
         $this->runningStepIndex = $stepIndex;
 
         try {
-            $context = TaskTestContext::fromArray($this->resolvedContext);
             $priorSteps = array_slice($this->stepResults, 0, $stepIndex);
-            $this->stepResults[$stepIndex] = $runner->runSingleStep(
-                $this->getTask(),
-                $context,
-                $nodeId,
-                $priorSteps,
-            );
+
+            // Fail-closed: SINGLE_STEP only through System Workflow. No runner bypass.
+            $workflowResult = $workflows->run(new WorkflowRunRequest(
+                definitionId: (int) $this->getTask()->getKey(),
+                definition: null,
+                input: is_array($this->resolvedContext['variables'] ?? null)
+                    ? $this->resolvedContext['variables']
+                    : [],
+                context: [
+                    'source' => 'test_task',
+                    'task_test_context' => $this->resolvedContext,
+                    'prior_steps' => $priorSteps,
+                ],
+                correlation: [
+                    'capability' => 'workflow.test_task',
+                    'task_id' => (int) $this->getTask()->getKey(),
+                ],
+                executionMode: WorkflowExecutionMode::SingleStep->value,
+                targetNodeId: $nodeId,
+            ));
+
+            $ordered = $workflowResult->meta['ordered_steps'] ?? null;
+            $steps = is_array($ordered) && $ordered !== []
+                ? array_values($ordered)
+                : array_values($workflowResult->steps);
+
+            if ($workflowResult->status === 'failed' && $steps === []) {
+                throw new \RuntimeException(
+                    $workflowResult->errorMessage
+                        ?? ($workflowResult->errorCode ?? 'System Workflow single-step execution failed.')
+                );
+            }
+
+            $step = $steps[0] ?? null;
+            if (! is_array($step)) {
+                throw new \RuntimeException('System Workflow single-step returned no step result.');
+            }
+
+            $this->stepResults[$stepIndex] = $step;
 
             $this->syncSelectedResult();
 
-            $step = $this->stepResults[$stepIndex];
             $status = (string) ($step['status'] ?? '');
 
             $notification = Notification::make()

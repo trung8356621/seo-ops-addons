@@ -30,8 +30,15 @@ final class SystemWorkflowTestTaskVerticalSliceContractTest extends TestCase
         self::assertNotSame([], $m);
         $runTest = $m[0];
         self::assertStringContainsString('$workflows->run', $runTest);
+        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $runTest);
         self::assertStringNotContainsString('$runner->run', $runTest);
         self::assertStringNotContainsString('TaskWorkflowTestRunner $runner', $runTest);
+
+        preg_match('/public function rerunStep\([\s\S]*?\n    \}/', $src, $rerun);
+        self::assertNotSame([], $rerun);
+        self::assertStringContainsString('SystemWorkflowClient $workflows', $rerun[0]);
+        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $rerun[0]);
+        self::assertStringNotContainsString('TaskWorkflowTestRunner', $rerun[0]);
     }
 
     public function test_legacy_workflow_port_delegates_to_canonical_runner(): void
@@ -39,6 +46,8 @@ final class SystemWorkflowTestTaskVerticalSliceContractTest extends TestCase
         $src = (string) file_get_contents((new ReflectionClass(LegacySeoTaskWorkflowRuntimePort::class))->getFileName());
         self::assertStringContainsString('TaskWorkflowTestRunner', $src);
         self::assertStringContainsString('$this->runner->run', $src);
+        self::assertStringContainsString('runFromNodeId', $src);
+        self::assertStringContainsString('runSingleStep', $src);
         self::assertStringNotContainsString("'execution' => 'deferred'", $src);
         self::assertStringContainsString('status: $failed > 0 ? \'failed\' : \'completed\'', $src);
     }
