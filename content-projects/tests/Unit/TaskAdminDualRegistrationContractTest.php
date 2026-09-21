@@ -43,10 +43,10 @@ final class TaskAdminDualRegistrationContractTest extends TestCase
 
     public function test_default_panel_id_stays_seo_main(): void
     {
-        self::assertSame('seo-main', TaskResource::panelId());
+        self::assertSame('admin', TaskResource::panelId());
         Filament::setCurrentPanel(null);
-        self::assertStringContainsString('/seo/tasks', TaskResource::getUrl('index'));
-        self::assertStringContainsString('/admin/tasks', TaskResource::getUrl('index', panel: 'admin'));
+        self::assertStringContainsString('/admin/tasks', TaskResource::getUrl('index'));
+        self::assertStringContainsString('/seo/tasks', TaskResource::getUrl('index', panel: 'seo-main'));
     }
 
     public function test_admin_and_seo_task_routes_exist(): void

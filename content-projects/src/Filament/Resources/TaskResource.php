@@ -39,8 +39,16 @@ class TaskResource extends SeoPanelResource
     protected static ?int $navigationSort = SeoUserNavigation::SORT_WORKFLOWS;
 
     /**
-     * Dual-registration phase: SEO remains the default panel.
-     * When the request is already on Admin, keep management URLs on Admin.
+     * Canonical Task/Workflow management is Admin.
+     * SEO registration stays for compatibility routes only.
+     */
+    public static function panelId(): string
+    {
+        return 'admin';
+    }
+
+    /**
+     * Admin: show under Hệ thống. SEO: hide nav (routes stay registered).
      */
     public static function getNavigationGroup(): ?string
     {
@@ -51,6 +59,11 @@ class TaskResource extends SeoPanelResource
         return parent::getNavigationGroup();
     }
 
+    public static function shouldRegisterNavigation(array $parameters = []): bool
+    {
+        return Filament::getCurrentPanel()?->getId() === 'admin';
+    }
+
     public static function getUrl(
         string $name = 'index',
         array $parameters = [],
@@ -58,8 +71,11 @@ class TaskResource extends SeoPanelResource
         ?string $panel = null,
         ?\Illuminate\Database\Eloquent\Model $tenant = null,
     ): string {
-        if ($panel === null && Filament::getCurrentPanel()?->getId() === 'admin') {
-            $panel = 'admin';
+        if ($panel === null) {
+            $current = Filament::getCurrentPanel()?->getId();
+            if ($current === 'seo-main' || $current === 'seo') {
+                $panel = $current;
+            }
         }
 
         return parent::getUrl($name, $parameters, $isAbsolute, $panel, $tenant);

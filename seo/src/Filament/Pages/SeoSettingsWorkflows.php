@@ -232,7 +232,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
         $link = '';
         if ($taskId !== null && $taskId > 0) {
             try {
-                $url = TaskResource::getUrl('builder', ['record' => $taskId]);
+                $url = TaskResource::getUrl('builder', ['record' => $taskId], panel: 'admin');
                 $link = ' <a href="'.e($url).'" class="underline font-medium" wire:navigate>'
                     .e(__('seo-content-ai::filament.settings_workflows.open_workflow_builder'))
                     .'</a>';
@@ -394,7 +394,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
         $taskId = $this->positiveIntOrNull($this->settingsData[SeoCreateArticleSettingsService::KEY_PUBLISH_ARTICLE] ?? null);
         if ($publishErrors !== [] && $taskId !== null) {
             try {
-                $url = TaskResource::getUrl('builder', ['record' => $taskId]);
+                $url = TaskResource::getUrl('builder', ['record' => $taskId], panel: 'admin');
                 $body .= "\n".__('seo-content-ai::filament.settings_workflows.open_workflow_builder').': '.$url;
             } catch (\Throwable) {
                 // ignore
