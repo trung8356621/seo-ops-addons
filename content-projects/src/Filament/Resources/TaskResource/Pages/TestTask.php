@@ -10,6 +10,8 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Models\TaskTestResult;
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowRunRequest;
 use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Media\Support\ImageToolType;
@@ -160,7 +162,7 @@ class TestTask extends Page implements HasForms
 
     public function runTest(
         TaskTestInputResolver $resolver,
-        TaskWorkflowTestRunner $runner,
+        SystemWorkflowClient $workflows,
     ): void {
         $this->isRunning = true;
         $this->errorMessage = null;
@@ -174,12 +176,42 @@ class TestTask extends Page implements HasForms
         try {
             $context = $this->resolveContext($resolver, $state);
             $this->resolvedContext = $context->toArray();
-            $this->stepResults = $runner->run($this->getTask(), $context);
+
+            // Fail-closed: System Workflow is the only full-run boundary for TestTask.
+            // No silent fallback to TaskWorkflowTestRunner at this caller.
+            $workflowResult = $workflows->run(new WorkflowRunRequest(
+                definitionId: (int) $this->getTask()->getKey(),
+                definition: null,
+                input: is_array($context->variables) ? $context->variables : [],
+                context: [
+                    'source' => 'test_task',
+                    'task_test_context' => $this->resolvedContext,
+                ],
+                correlation: [
+                    'capability' => 'workflow.test_task',
+                    'task_id' => (int) $this->getTask()->getKey(),
+                ],
+            ));
+
+            $ordered = $workflowResult->meta['ordered_steps'] ?? null;
+            $this->stepResults = is_array($ordered) && $ordered !== []
+                ? array_values($ordered)
+                : array_values($workflowResult->steps);
+
+            if ($workflowResult->status === 'failed' && $this->stepResults === []) {
+                throw new \RuntimeException(
+                    $workflowResult->errorMessage
+                        ?? ($workflowResult->errorCode ?? 'System Workflow execution failed.')
+                );
+            }
 
             $failed = collect($this->stepResults)->where('status', 'failed')->count();
+            if ($failed === 0 && $workflowResult->status === 'failed') {
+                $failed = 1;
+            }
             $status = $failed > 0 ? 'failed' : 'completed';
 
-            $result = $this->persistResult($state, $status, $startedAt);
+            $result = $this->persistResult($state, $status, $startedAt, $workflowResult->id);
             $this->selectedResultId = (int) $result->id;
             unset($this->taskTestResults);
 
@@ -498,18 +530,27 @@ class TestTask extends Page implements HasForms
     /**
      * @param  array<string, mixed>  $state
      */
-    private function persistResult(array $state, string $status, \DateTimeInterface $startedAt): TaskTestResult
-    {
+    private function persistResult(
+        array $state,
+        string $status,
+        \DateTimeInterface $startedAt,
+        ?string $systemWorkflowRunId = null,
+    ): TaskTestResult {
+        $inputSnapshot = [
+            'input_type' => $this->normalizeInputType((string) ($state['input_type'] ?? self::INPUT_TYPE_ARTICLE)),
+            'article_id' => filled($state['article_id'] ?? null) ? (int) $state['article_id'] : null,
+            'title_or_keyword' => (string) ($state['title_or_keyword'] ?? ''),
+            'raw_input' => (string) ($state['raw_input'] ?? ''),
+        ];
+        if ($systemWorkflowRunId !== null && $systemWorkflowRunId !== '') {
+            $inputSnapshot['system_workflow_run_id'] = $systemWorkflowRunId;
+        }
+
         return TaskTestResult::query()->create([
             'task_id' => $this->getTask()->id,
             'user_id' => auth()->id(),
             'status' => $status,
-            'input_snapshot' => [
-                'input_type' => $this->normalizeInputType((string) ($state['input_type'] ?? self::INPUT_TYPE_ARTICLE)),
-                'article_id' => filled($state['article_id'] ?? null) ? (int) $state['article_id'] : null,
-                'title_or_keyword' => (string) ($state['title_or_keyword'] ?? ''),
-                'raw_input' => (string) ($state['raw_input'] ?? ''),
-            ],
+            'input_snapshot' => $inputSnapshot,
             'resolved_context' => $this->resolvedContext,
             'step_results' => $this->stepResults,
             'error_message' => $this->errorMessage,

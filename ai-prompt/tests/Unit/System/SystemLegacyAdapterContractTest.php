@@ -20,17 +20,17 @@ final class SystemLegacyAdapterContractTest extends TestCase
         self::assertStringNotContainsString('Omnichannel\\Addons\\ContentProjects\\', $source);
     }
 
-    public function test_legacy_workflow_port_uses_seo_tasks_without_runner_side_effects(): void
+    public function test_legacy_workflow_port_delegates_to_canonical_runner_without_deferred_stub(): void
     {
         $path = dirname(__DIR__, 3).'/src/System/LegacySeoTaskWorkflowRuntimePort.php';
         self::assertFileExists($path);
         $source = (string) file_get_contents($path);
         self::assertStringContainsString('seo_tasks', $source);
         self::assertStringContainsString('WorkflowRuntimePort', $source);
-        self::assertStringNotContainsString('use Omnichannel\\Addons\\AiPrompt\\Services\\TaskWorkflowTestRunner', $source);
+        self::assertStringContainsString('TaskWorkflowTestRunner', $source);
+        self::assertStringContainsString('$this->runner->run', $source);
         self::assertStringNotContainsString('CreateArticlesFromTaskService', $source);
-        self::assertStringContainsString('execution', $source);
-        self::assertStringContainsString('deferred', $source);
+        self::assertStringNotContainsString("'execution' => 'deferred'", $source);
     }
 
     public function test_provider_registers_system_ports(): void
