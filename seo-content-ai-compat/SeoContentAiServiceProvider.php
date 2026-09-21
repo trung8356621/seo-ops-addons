@@ -1147,7 +1147,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 'seo_content_project_operations',
                 'seo_content_project_ops_metrics',
                 'seo_content_project_publish_attempts',
-                'seo_extension_states',
                 'seo_faqs',
                 'seo_image_optimization_settings',
                 'seo_keyword_analysis_operations',

@@ -57,10 +57,10 @@ final class ScheduledArticlePublishRunner
             'connections_skipped' => 0,
         ];
 
+        // Legacy seo_database_connections may be absent — fall through to canonical Service DB path.
+        $legacyTablePresent = false;
         try {
-            if (! Schema::hasTable('seo_database_connections')) {
-                return $stats;
-            }
+            $legacyTablePresent = Schema::hasTable('seo_database_connections');
         } catch (Throwable $e) {
             RuntimeLogger::warning('publishing.connection_bootstrap_failed', [
                 'runtime' => 'console',
@@ -72,21 +72,25 @@ final class ScheduledArticlePublishRunner
             throw $e;
         }
 
-        foreach ($this->connectionCandidates->skippedActiveConnections() as $skipped) {
-            $connection = $skipped['connection'];
-            $stats['connections_skipped']++;
-            RuntimeLogger::info('publishing.connection_skipped', [
-                'runtime' => 'console',
-                'connection_id' => (int) $connection->getKey(),
-                'hash_id' => (string) $connection->hash_id,
-                'database' => (string) ($connection->database ?? ''),
-                'type' => (string) ($connection->type ?? ''),
-                'skip_reason' => $skipped['skip_reason'],
-                'result' => 'skipped',
-            ]);
+        if ($legacyTablePresent) {
+            foreach ($this->connectionCandidates->skippedActiveConnections() as $skipped) {
+                $connection = $skipped['connection'];
+                $stats['connections_skipped']++;
+                RuntimeLogger::info('publishing.connection_skipped', [
+                    'runtime' => 'console',
+                    'connection_id' => (int) $connection->getKey(),
+                    'hash_id' => (string) $connection->hash_id,
+                    'database' => (string) ($connection->database ?? ''),
+                    'type' => (string) ($connection->type ?? ''),
+                    'skip_reason' => $skipped['skip_reason'],
+                    'result' => 'skipped',
+                ]);
+            }
         }
 
-        $connections = $this->connectionCandidates->eligibleForPublishingScan();
+        $connections = $legacyTablePresent
+            ? $this->connectionCandidates->eligibleForPublishingScan()
+            : collect();
 
         if ($connections->isEmpty()) {
             try {
@@ -131,7 +135,7 @@ final class ScheduledArticlePublishRunner
                 $this->contentProjectQueue->health()->rememberBootstrapFailure($exception->getMessage(), null);
                 RuntimeLogger::warning('publishing.connection_bootstrap_failed', [
                     'runtime' => 'console',
-                    'phase' => 'legacy',
+                    'phase' => 'canonical_shared',
                     'error' => $exception->getMessage(),
                     'exception' => $exception::class,
                 ]);

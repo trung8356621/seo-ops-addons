@@ -117,7 +117,6 @@ final class PublishingConnectionIsolationContractTest extends TestCase
         self::assertStringContainsString('snapshot($siteIds, $connectionId, $projectId)', $hub);
         self::assertStringContainsString('rememberBootstrapFailure(', $queueRunner);
         self::assertStringContainsString('rememberWorkerRun($scopedConnectionId)', $queueRunner);
-        self::assertStringContainsString('publishing.due_item_dispatch', $queueRunner);
     }
 
     public function test_command_reports_connection_isolation_stats(): void

@@ -33,7 +33,6 @@ use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingTopicController;
 use Omnichannel\Addons\Seeding\Http\Controllers\WebsiteShareFeedController;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkExtractor;
-use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
 use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
 use Omnichannel\Addons\Seeding\Listeners\ArticleIndexStatusChangedListener;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
@@ -64,7 +63,6 @@ final class SeedingServiceProvider extends ServiceProvider
     {
         $this->app->singleton(UrlNormalizer::class);
         $this->app->singleton(LinkExtractor::class);
-        $this->app->singleton(LinkResourceService::class);
         $this->app->singleton(SeedingSocialPlatformDetector::class);
         $this->app->singleton(SeedingTargetCalculator::class);
         $this->app->singleton(SeedingSharedTopicService::class);

@@ -79,6 +79,13 @@ final class PublishingConnectionCandidateResolver
             return 'empty_database';
         }
 
+        // In-memory adapter from ServiceDatabaseConnection — no user pivot required.
+        if ((int) $connection->getKey() <= 0
+            && (string) ($connection->name ?? '') === 'Canonical Service DB'
+        ) {
+            return $this->looksLikeDemoOrLegacyOrphanDatabase($database) ? 'orphan_demo_no_users' : null;
+        }
+
         $userCount = $connection->users_count ?? null;
         if ($userCount === null) {
             $userCount = $connection->users()->count();

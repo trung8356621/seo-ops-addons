@@ -9,8 +9,6 @@ use App\Services\ServiceDatabaseConnectionResolver;
 use App\Services\ServiceIdentity;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 use RuntimeException;
 use Throwable;
 
@@ -19,8 +17,9 @@ use Throwable;
  *
  * Precedence:
  *   ServiceDatabaseConnection (canonical)
- *     → legacy seeding_database_connections
- *     → SEEDING_DB_* env
+ *     → SEEDING_DB_* env (local fallback)
+ *
+ * Legacy seeding_database_connections credential table is retired.
  */
 final class SeedingDatabaseConnectionService
 {
@@ -32,21 +31,15 @@ final class SeedingDatabaseConnectionService
 
     public function connectionName(): string
     {
-        return SeedingServiceConfig::CONNECTION;
+        return \Omnichannel\Addons\Seeding\Support\SeedingServiceConfig::CONNECTION;
     }
 
+    /**
+     * @deprecated Legacy table retired — always null. Kept for Filament resource type-hints.
+     */
     public function activeConnection(): ?SeedingDatabaseConnection
     {
-        if (! Schema::hasTable('seeding_database_connections')) {
-            return null;
-        }
-
-        $row = SeedingDatabaseConnection::query()
-            ->where('is_active', true)
-            ->orderByDesc('id')
-            ->first();
-
-        return $row instanceof SeedingDatabaseConnection ? $row : null;
+        return null;
     }
 
     public function bootstrap(?SeedingDatabaseConnection $connection = null, bool $forceReconnect = false): void
@@ -55,7 +48,7 @@ final class SeedingDatabaseConnectionService
             return;
         }
 
-        $connection ??= $this->activeConnection();
+        // Explicit Filament record (admin CRUD shell) may still pass a model; prefer it over ENV.
         $config = $connection instanceof SeedingDatabaseConnection
             ? $this->resolveConnectionArrayFromModel($connection)
             : $this->envFallbackConfig();
@@ -114,16 +107,15 @@ final class SeedingDatabaseConnectionService
         }
 
         $name = $this->connectionName();
-        $active = $this->activeConnection();
-        $source = $active instanceof SeedingDatabaseConnection ? 'legacy_seeding' : 'env';
+        $source = 'env';
 
         try {
-            $this->bootstrap($active, forceReconnect: true);
+            $this->bootstrap(null, forceReconnect: true);
         } catch (Throwable) {
             return [
                 'source' => $source,
                 'connection' => $name,
-                'database' => (string) ($active?->database ?: config('database.connections.'.$name.'.database', '')),
+                'database' => (string) config('database.connections.'.$name.'.database', ''),
                 'configured' => false,
                 'reachable' => false,
                 'error' => 'bootstrap_failed',
@@ -136,13 +128,13 @@ final class SeedingDatabaseConnectionService
                 'source' => $source,
                 'connection' => $name,
                 'database' => $database,
-                'configured' => $active instanceof SeedingDatabaseConnection || $this->envLooksConfigured(),
+                'configured' => $this->envLooksConfigured(),
                 'reachable' => false,
                 'error' => $database === '' ? 'database_empty' : 'invalid_database_name_omi_seo_ai',
             ];
         }
 
-        $configured = $active instanceof SeedingDatabaseConnection || $this->envLooksConfigured();
+        $configured = $this->envLooksConfigured();
 
         try {
             DB::connection($name)->getPdo();

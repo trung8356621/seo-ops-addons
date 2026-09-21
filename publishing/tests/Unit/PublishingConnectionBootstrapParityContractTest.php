@@ -57,9 +57,9 @@ final class PublishingConnectionBootstrapParityContractTest extends TestCase
             (string) (new ReflectionClass(ContentProjectPublishingQueueRunner::class))->getFileName(),
         );
 
-        self::assertStringContainsString('rememberWorkerRun()', $runner);
+        self::assertStringContainsString('rememberWorkerRun($scopedConnectionId)', $runner);
         self::assertLessThan(
-            strpos($runner, 'rememberWorkerRun()') ?: PHP_INT_MAX,
+            strpos($runner, 'rememberWorkerRun($scopedConnectionId)') ?: PHP_INT_MAX,
             strpos($runner, 'hasColumn') ?: 0,
         );
         self::assertStringContainsString('publishing.connection_bootstrap_failed', $runner);

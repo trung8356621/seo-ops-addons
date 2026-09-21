@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\Seeding\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
-use Omnichannel\Addons\Seeding\LinkIntelligence\Models\LinkResource;
 use Throwable;
 
 /**
@@ -95,8 +94,8 @@ final class SeedingSocialContextResolver
      *
      * Preferred lookup priority:
      * 1. Existing metadata attached to the Seeding topic / payload preview
-     * 2. Existing LinkResource matched by URL
-     * 3. Existing seo_site_link_catalog matched by URL
+     * 2. Existing seo_site_link_catalog matched by URL
+     * 3. Existing article metadata matched by wp_permalink
      * 4. Controlled validation error if metadata cannot be found
      *
      * @param  array<string, mixed>  $payload
@@ -111,20 +110,7 @@ final class SeedingSocialContextResolver
         $title = trim((string) ($payload['title'] ?? $payload['preview_title'] ?? ''));
         $description = trim((string) ($payload['description'] ?? $payload['preview_description'] ?? ''));
 
-        // Priority 2: Existing LinkResource database record
-        if ($title === '' || $description === '') {
-            $fromResource = $this->lookupLinkResource($url);
-            if ($fromResource !== null) {
-                if ($title === '' && ! empty($fromResource['title'])) {
-                    $title = trim((string) $fromResource['title']);
-                }
-                if ($description === '' && ! empty($fromResource['description'])) {
-                    $description = trim((string) $fromResource['description']);
-                }
-            }
-        }
-
-        // Priority 3: Existing seo_site_link_catalog database record
+        // Priority 2: Existing seo_site_link_catalog database record
         if ($title === '' || $description === '') {
             $fromCatalog = $this->lookupSiteLinkCatalog($url);
             if ($fromCatalog !== null) {
@@ -137,7 +123,7 @@ final class SeedingSocialContextResolver
             }
         }
 
-        // Priority 4: Existing article metadata matched by wp_permalink (title + meta description only)
+        // Priority 3: Existing article metadata matched by wp_permalink (title + meta description only)
         if ($title === '' || $description === '') {
             $fromArticle = $this->lookupArticleByPermalink($url);
             if ($fromArticle !== null) {
@@ -150,7 +136,7 @@ final class SeedingSocialContextResolver
             }
         }
 
-        // Priority 5: Controlled validation error if metadata cannot be found
+        // Priority 4: Controlled validation error if metadata cannot be found
         if ($title === '' && $description === '') {
             throw new InvalidArgumentException(
                 'Không tìm thấy tiêu đề hoặc mô tả cho liên kết này. Vui lòng nhập nội dung gợi ý.'
@@ -166,34 +152,6 @@ final class SeedingSocialContextResolver
         }
 
         return implode("\n", $lines);
-    }
-
-    /**
-     * @return array{title: string|null, description: string|null}|null
-     */
-    private function lookupLinkResource(string $url): ?array
-    {
-        try {
-            if (! function_exists('app') || ! app()->bound('db')) {
-                return null;
-            }
-
-            $row = LinkResource::query()
-                ->where('original_url', $url)
-                ->orWhere('normalized_url', $url)
-                ->first(['title', 'description']);
-
-            if ($row instanceof LinkResource) {
-                return [
-                    'title' => $row->title,
-                    'description' => $row->description,
-                ];
-            }
-        } catch (Throwable) {
-            // Non-blocking lookup
-        }
-
-        return null;
     }
 
     /**
