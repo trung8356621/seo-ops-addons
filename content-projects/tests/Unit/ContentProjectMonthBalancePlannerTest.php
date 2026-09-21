@@ -203,6 +203,81 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         ])['movable']);
     }
 
+    /**
+     * Balance domain = not-generated only. Compact generator_done is OUTSIDE the pool
+     * (not fixed load). Canonical: Aug 30 generated + Sep 61 pending → pool 61 → 30/31.
+     */
+    public function test_generated_excluded_from_balance_domain_not_fixed_load(): void
+    {
+        $eligibility = new ContentProjectMonthBalanceEligibility;
+
+        $generated = $eligibility->classifyFromFacts([
+            'generator_done' => true,
+            'queue' => 'none',
+            'raw_status' => 'completed',
+            'safety_movable' => true,
+            'project_ok' => true,
+        ]);
+        self::assertFalse($generated['in_domain']);
+        self::assertFalse($generated['movable']);
+        self::assertFalse($generated['fixed']);
+        self::assertSame(ContentProjectMonthBalanceEligibility::REASON_GENERATED, $generated['reason']);
+
+        // Generated with no publish queue / not reviewed / not scheduled — still excluded.
+        $generatedBare = $eligibility->classifyFromFacts([
+            'generator_done' => true,
+            'published_at' => false,
+            'queue' => 'none',
+            'lifecycle' => 'review',
+            'publish_state' => 'none',
+            'safety_movable' => true,
+            'project_ok' => true,
+        ]);
+        self::assertFalse($generatedBare['in_domain']);
+        self::assertFalse($generatedBare['fixed']);
+
+        // Planner math ignores generated: only 61 pending enter as movable, fixed=0.
+        $movable = [];
+        for ($i = 1; $i <= 61; $i++) {
+            $movable[] = ['id' => $i, 'month' => '2026-09'];
+        }
+        $plan = $this->planner->plan(
+            ['2026-08', '2026-09'],
+            ['2026-08' => 0, '2026-09' => 0],
+            $movable,
+        );
+        self::assertSame(61, array_sum($plan['target_by_month']));
+        self::assertSame(30, $plan['target_by_month']['2026-08']);
+        self::assertSame(31, $plan['target_by_month']['2026-09']);
+        self::assertSame(0, $plan['current_by_month']['2026-08']);
+        self::assertSame(61, $plan['current_by_month']['2026-09']);
+        self::assertSame(30, $plan['move_count']);
+    }
+
+    public function test_balance_service_excludes_generated_and_uses_month_wide_pack(): void
+    {
+        $service = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService::class,
+            ))->getFileName(),
+        );
+        $eligibility = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectMonthBalanceEligibility::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('ContentProjectGeneratorDoneClassifier', $eligibility);
+        self::assertStringContainsString('REASON_GENERATED', $eligibility);
+        self::assertStringContainsString('in_domain', $eligibility);
+        self::assertStringContainsString('OUTSIDE the Balance domain', $eligibility);
+
+        self::assertStringContainsString("! (\$gate['in_domain']", $service);
+        self::assertStringContainsString('excluded_total', $service);
+        self::assertStringContainsString('planPackForBalanceMonth', $service);
+        self::assertStringContainsString('preferWriterForNewBalanceProject', $service);
+        // Writer-scoped planPack must not be the Balance relocate path.
+        self::assertDoesNotMatchRegularExpression('/\$packing->planPack\(/', $service);
+    }
+
     public function test_month_context_nearby_and_shift(): void
     {
         self::assertSame(

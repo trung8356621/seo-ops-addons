@@ -778,7 +778,7 @@
                                                 @endif
                                             </div>
                                             @if ($childAttempts !== [])
-                                                <ul class="mt-1 space-y-1 border-l border-dashed border-gray-300 pl-3 text-xs dark:border-gray-600">
+                                                <ul class="mt-1 space-y-1 border-l border-dashed border-gray-300 pl-3 text-xs dark:border-gray-600 p-4">
                                                     @foreach ($childAttempts as $attemptItem)
                                                         @php
                                                             $attemptRef = trim((string) ($attemptItem['artifact_ref'] ?? ''));

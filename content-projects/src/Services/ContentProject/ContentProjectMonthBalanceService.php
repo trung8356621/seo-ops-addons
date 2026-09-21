@@ -24,11 +24,19 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 /**
  * Preview + apply horizontal “Balance months” for one site across selected planning months.
  *
+ * Ownership boundary (strict):
+ * - Balance Months = NOT-generated (pre-generation) workload only.
+ * - Compact done articles = generator_done compaction.
+ * - Generated tasks are OUTSIDE the Balance domain (excluded from current/fixed/target/moves).
+ *
  * Invariant after apply for movable execution tasks:
  *   task.planning_month == destination month
  *   AND task.project.month == destination month (when in a monthly execution project)
  *
  * Draft-planning tasks: planning_month only (stay in draft container).
+ *
+ * Relocate packing uses {@see ContentProjectExecutionPackingService::planPackForBalanceMonth}
+ * (month-wide free capacity; writer affinity ignored for Balance only).
  */
 final class ContentProjectMonthBalanceService
 {
@@ -203,8 +211,8 @@ final class ContentProjectMonthBalanceService
         $ownerSync = $this->articleOwnerSync ?? app(SeoProjectArticleOwnerSyncService::class);
         $mcp = $this->mcpMeta ?? app(McpPlanningMetaStore::class);
 
-        /** @var array<string, list<int>> $relocateByWriterMonth writerId|month => task ids */
-        $relocateByWriterMonth = [];
+        /** @var array<string, list<int>> $relocateByMonth YYYY-MM => task ids */
+        $relocateByMonth = [];
         $planningOnly = [];
         $touchedProjectIds = [];
 
@@ -213,6 +221,9 @@ final class ContentProjectMonthBalanceService
             $destMonth = ContentProjectMonthContext::normalize((string) $destMonth);
             $meta = $tasksById[$taskId] ?? null;
             if (! is_array($meta)) {
+                continue;
+            }
+            if (! ($meta['in_domain'] ?? true) || ! ($meta['movable'] ?? false)) {
                 continue;
             }
 
@@ -236,25 +247,21 @@ final class ContentProjectMonthBalanceService
             $projectMonth = $project instanceof SeoProject
                 ? ContentProjectMonthContext::parseOrNull($project->month)
                 : null;
-            $writerId = $project instanceof SeoProject ? (int) ($project->user_id ?? 0) : 0;
 
             $needsRelocate = $project instanceof SeoProject
                 && ! $project->isDraftPlanning()
                 && $projectMonth !== null
-                && $projectMonth !== $destMonth
-                && $writerId > 0;
+                && $projectMonth !== $destMonth;
 
             if ($needsRelocate) {
-                $key = $writerId.'|'.$destMonth;
-                $relocateByWriterMonth[$key] ??= [];
-                $relocateByWriterMonth[$key][] = $taskId;
+                $relocateByMonth[$destMonth] ??= [];
+                $relocateByMonth[$destMonth][] = $taskId;
                 continue;
             }
 
             if ($needsPlanningStamp || $fromMonth !== $destMonth) {
                 $payload = ['planning_month' => $destDate];
                 if ($projectMonth === $destMonth && $project instanceof SeoProject) {
-                    // Keep target_date inside destination month when already colocated.
                     $day = Carbon::parse((string) ($task->target_date ?? $destDate))->day;
                     $payload['target_date'] = Carbon::parse($destDate)->startOfMonth()
                         ->addDays(min(max($day, 1), 28) - 1)
@@ -270,22 +277,20 @@ final class ContentProjectMonthBalanceService
 
         $movedCount = count($planningOnly);
 
-        foreach ($relocateByWriterMonth as $key => $taskIds) {
-            [$writerIdRaw, $destMonth] = explode('|', $key, 2);
-            $writerId = (int) $writerIdRaw;
-            $destMonth = ContentProjectMonthContext::normalize($destMonth);
+        foreach ($relocateByMonth as $destMonth => $taskIds) {
+            $destMonth = ContentProjectMonthContext::normalize((string) $destMonth);
             $destCarbon = Carbon::parse(ContentProjectMonthContext::toDateString($destMonth));
             $taskIds = array_values(array_unique(array_map('intval', $taskIds)));
+            $newProjectUserId = $this->preferWriterForNewBalanceProject($taskIds, $tasksById, $destCarbon);
 
             SeoProject::query()
                 ->activeProjects()
-                ->where('user_id', $writerId)
                 ->whereDate('month', $destCarbon->format('Y-m-d'))
                 ->where('status', '!=', SeoProject::STATUS_DRAFT)
                 ->lockForUpdate()
                 ->get(['id']);
 
-            $bins = $packing->planPack($writerId, $destCarbon, $taskIds);
+            $bins = $packing->planPackForBalanceMonth($destCarbon, $taskIds, $newProjectUserId);
             /** @var list<string> $reservedNames */
             $reservedNames = [];
             $sourceMetaByTask = [];
@@ -311,6 +316,7 @@ final class ContentProjectMonthBalanceService
                 }
 
                 $projectId = isset($bin['project_id']) ? (int) $bin['project_id'] : 0;
+                $binUserId = (int) ($bin['user_id'] ?? 0);
                 if ($projectId > 0) {
                     $execution = SeoProject::query()->whereKey($projectId)->lockForUpdate()->first();
                     if (! $execution instanceof SeoProject || ! $packing->canAcceptMoreItems($execution)) {
@@ -319,7 +325,13 @@ final class ContentProjectMonthBalanceService
                         ]);
                     }
                 } else {
-                    $name = $naming->nextExecutionProjectName($writerId, $destCarbon, $reservedNames);
+                    $createUserId = $binUserId > 0 ? $binUserId : $newProjectUserId;
+                    if ($createUserId <= 0) {
+                        throw ValidationException::withMessages([
+                            'balance' => __('seo-content-ai::filament.projects.balance_months_pack_failed'),
+                        ]);
+                    }
+                    $name = $naming->nextExecutionProjectName($createUserId, $destCarbon, $reservedNames);
                     $reservedNames[] = $name;
                     $sourceDraftId = null;
                     foreach ($chunkIds as $tid) {
@@ -336,7 +348,7 @@ final class ContentProjectMonthBalanceService
                         'month' => $destCarbon->format('Y-m-d'),
                         'status' => SeoProject::STATUS_PENDING,
                         'kind' => SeoProject::KIND_MONTHLY,
-                        'user_id' => $writerId,
+                        'user_id' => $createUserId,
                         'total_tasks' => 0,
                         'description' => null,
                         'source_draft_project_id' => $sourceDraftId,
@@ -383,6 +395,37 @@ final class ContentProjectMonthBalanceService
     }
 
     /**
+     * Prefer a writer already present among relocating tasks; else any writer with
+     * projects in the destination month (for rare empty-month creates).
+     *
+     * @param  list<int>  $taskIds
+     * @param  array<int, array<string, mixed>>  $tasksById
+     */
+    private function preferWriterForNewBalanceProject(array $taskIds, array $tasksById, Carbon $destMonth): int
+    {
+        foreach ($taskIds as $taskId) {
+            $meta = $tasksById[$taskId] ?? null;
+            $project = is_array($meta) ? ($meta['project'] ?? null) : null;
+            if ($project instanceof SeoProject) {
+                $writerId = (int) ($project->user_id ?? 0);
+                if ($writerId > 0) {
+                    return $writerId;
+                }
+            }
+        }
+
+        $existing = SeoProject::query()
+            ->activeProjects()
+            ->whereDate('month', $destMonth->format('Y-m-d'))
+            ->where('status', '!=', SeoProject::STATUS_DRAFT)
+            ->where('user_id', '>', 0)
+            ->orderBy('id')
+            ->value('user_id');
+
+        return (int) ($existing ?? 0);
+    }
+
+    /**
      * @param  list<int>  $taskIds
      */
     private function relocateTasksPreservingState(SeoProject $execution, array $taskIds, Carbon $month): void
@@ -391,6 +434,7 @@ final class ContentProjectMonthBalanceService
         $packing = $this->packing ?? app(ContentProjectExecutionPackingService::class);
         $tasks = SeoProjectTask::query()
             ->whereIn('id', $taskIds)
+            ->with(['article', 'project'])
             ->lockForUpdate()
             ->get()
             ->keyBy(static fn (SeoProjectTask $t): int => (int) $t->id);
@@ -407,17 +451,20 @@ final class ContentProjectMonthBalanceService
                 ]);
             }
 
-            // Re-validate eligibility under lock against the task's current project.
             $sourceProject = $task->relationLoaded('project')
                 ? $task->project
                 : SeoProject::query()->whereKey((int) ($task->project_id ?? 0))->first();
-            $state = ($this->stateResolver ?? app(ContentProjectItemStateResolver::class))->resolve($task);
+            $article = $task->relationLoaded('article') && $task->article instanceof \Omnichannel\Addons\Content\Models\SeoArticle
+                ? $task->article
+                : null;
+            $state = ($this->stateResolver ?? app(ContentProjectItemStateResolver::class))->resolve($task, $article);
             $gate = $this->eligibility->classify(
                 $task,
                 $sourceProject instanceof SeoProject ? $sourceProject : null,
                 $state,
+                $article,
             );
-            if (! $gate['movable']) {
+            if (! ($gate['in_domain'] ?? false) || ! ($gate['movable'] ?? false)) {
                 throw ValidationException::withMessages([
                     'balance' => __('seo-content-ai::filament.projects.balance_months_preview_stale'),
                 ]);
@@ -456,6 +503,8 @@ final class ContentProjectMonthBalanceService
         $movable = [];
         $tasksById = [];
         $fixedReasons = [];
+        $excludedReasons = [];
+        $excludedTotal = 0;
         foreach ($months as $month) {
             $fixedByMonth[$month] = 0;
         }
@@ -495,17 +544,31 @@ final class ContentProjectMonthBalanceService
                 continue;
             }
 
-            $state = $stateResolver->resolve($task, $task->article);
+            $article = $task->relationLoaded('article')
+                && $task->article instanceof \Omnichannel\Addons\Content\Models\SeoArticle
+                ? $task->article
+                : null;
+            $state = $stateResolver->resolve($task, $article);
             $gate = $this->eligibility->classify(
                 $task,
                 $project instanceof SeoProject ? $project : null,
                 $state,
+                $article,
             );
+
+            // Generated / out-of-domain: outside Balance pool entirely (not fixed load).
+            if (! ($gate['in_domain'] ?? true)) {
+                $excludedTotal++;
+                $reason = (string) ($gate['reason'] ?? 'excluded');
+                $excludedReasons[$reason] = ($excludedReasons[$reason] ?? 0) + 1;
+                continue;
+            }
 
             $tasksById[(int) $task->getKey()] = [
                 'task' => $task,
                 'project' => $project instanceof SeoProject ? $project : null,
                 'planning_month' => $planningMonth,
+                'in_domain' => true,
                 'movable' => $gate['movable'],
                 'fixed' => $gate['fixed'],
                 'reason' => $gate['reason'],
@@ -531,6 +594,8 @@ final class ContentProjectMonthBalanceService
             'movable' => $movable,
             'tasks_by_id' => $tasksById,
             'fixed_reasons' => $fixedReasons,
+            'excluded_reasons' => $excludedReasons,
+            'excluded_total' => $excludedTotal,
             'fixed_total' => array_sum($fixedByMonth),
             'movable_total' => count($movable),
         ];
@@ -568,9 +633,11 @@ final class ContentProjectMonthBalanceService
             'rows' => $rows,
             'movable_total' => (int) $snapshot['movable_total'],
             'fixed_total' => (int) $snapshot['fixed_total'],
+            'excluded_total' => (int) ($snapshot['excluded_total'] ?? 0),
             'move_count' => (int) $plan['move_count'],
             'fixed_changed' => 0,
             'fixed_reasons' => $snapshot['fixed_reasons'],
+            'excluded_reasons' => $snapshot['excluded_reasons'] ?? [],
             'fingerprint' => $plan['fingerprint'],
             'allocation' => $plan['allocation'],
             'moves' => $plan['moves'],

@@ -227,6 +227,87 @@ final class ContentProjectExecutionPackingService
     }
 
     /**
+     * Balance Months ONLY: pack across ALL writers in the destination month.
+     * Fills free capacity first (writer affinity intentionally ignored), then creates
+     * new containers under $newProjectUserId only after month capacity is exhausted.
+     *
+     * Do not use for Compact / Split / Move-next — those keep writer-scoped planPack().
+     *
+     * @param  list<int>  $taskIds
+     * @return list<array{
+     *     project_id: int|null,
+     *     reused: bool,
+     *     task_ids: list<int>,
+     *     slots_before: int,
+     *     item_count: int,
+     *     user_id: int|null
+     * }>
+     */
+    public function planPackForBalanceMonth(Carbon|string $month, array $taskIds, int $newProjectUserId): array
+    {
+        $taskIds = array_values(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $taskIds),
+            static fn (int $id): bool => $id > 0,
+        ));
+
+        if ($taskIds === []) {
+            return [];
+        }
+
+        $remaining = $taskIds;
+        $bins = [];
+        $projects = $this->listAppendableProjectsForMonth($month);
+
+        foreach ($projects as $project) {
+            if ($remaining === []) {
+                break;
+            }
+            $free = $this->freeSlots($project);
+            if ($free < 1) {
+                continue;
+            }
+            $take = array_splice($remaining, 0, $free);
+            if ($take === []) {
+                continue;
+            }
+            $before = $this->activeItemCount($project);
+            $bins[] = [
+                'project_id' => (int) $project->getKey(),
+                'reused' => true,
+                'task_ids' => $take,
+                'slots_before' => $before,
+                'item_count' => count($take),
+                'user_id' => (int) ($project->user_id ?? 0) ?: null,
+            ];
+        }
+
+        if ($remaining === []) {
+            return $bins;
+        }
+
+        if ($newProjectUserId <= 0) {
+            throw new InvalidArgumentException(
+                'Balance packing needs a writer user_id to create a new destination project after capacity is exhausted.',
+            );
+        }
+
+        $max = $this->maxItemsPerProject();
+        while ($remaining !== []) {
+            $take = array_splice($remaining, 0, $max);
+            $bins[] = [
+                'project_id' => null,
+                'reused' => false,
+                'task_ids' => $take,
+                'slots_before' => 0,
+                'item_count' => count($take),
+                'user_id' => $newProjectUserId,
+            ];
+        }
+
+        return $bins;
+    }
+
+    /**
      * Projects that can receive more items under max-30 for writer+month.
      * Order: WORK (no generator_done) first, then base name, then id.
      *
@@ -263,6 +344,39 @@ final class ContentProjectExecutionPackingService
             $isBase = $name === $baseName ? 0 : 1;
 
             return [$isWork, $isBase, (int) $project->getKey()];
+        })->values();
+    }
+
+    /**
+     * Balance Months ONLY: appendable monthly execution projects for a month (all writers).
+     * Order: WORK first, then free slots descending, then id ascending.
+     *
+     * @return Collection<int, SeoProject>
+     */
+    public function listAppendableProjectsForMonth(Carbon|string $month): Collection
+    {
+        $monthDate = Carbon::parse($month)->startOfMonth()->format('Y-m-d');
+        $safety = $this->compactSafety ?? new ContentProjectCompactSuccessSafetyGuard;
+
+        $projects = SeoProject::query()
+            ->activeProjects()
+            ->whereDate('month', $monthDate)
+            ->where('status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('kind');
+            })
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (SeoProject $project): bool => $this->canAcceptMoreItems($project))
+            ->values();
+
+        return $projects->sortBy(function (SeoProject $project) use ($safety): array {
+            $isWork = $safety->projectHasGeneratorDoneItems($project) ? 1 : 0;
+            $free = $this->freeSlots($project);
+
+            return [$isWork, -$free, (int) $project->getKey()];
         })->values();
     }
 

@@ -4,21 +4,29 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemExecutionState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemPublishState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectLifecyclePhase;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGeneratorDoneClassifier;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemState;
 use Omnichannel\Addons\Publishing\Services\Publishing\PublishingActiveProcessing;
 
 /**
- * Conservative movable/fixed classification for Balance months (horizontal).
- * Stricter than Compact done: published / scheduled / near-publish never move across months.
+ * Balance Months eligibility (pre-generation domain only).
+ *
+ * Ownership contract:
+ * - Balance Months owns NOT-generated workload redistribution across months.
+ * - Compact done articles owns generator_done compaction.
+ * - generator_done tasks are OUTSIDE the Balance domain (not “fixed load”).
  */
 final class ContentProjectMonthBalanceEligibility
 {
+    public const REASON_GENERATED = 'generated';
+
     public const REASON_PUBLISHED = 'published';
 
     public const REASON_SCHEDULED = 'scheduled';
@@ -40,15 +48,22 @@ final class ContentProjectMonthBalanceEligibility
     public function __construct(
         private readonly ContentProjectCompactSuccessSafetyGuard $safety = new ContentProjectCompactSuccessSafetyGuard,
         private readonly PublishingActiveProcessing $publishActive = new PublishingActiveProcessing,
+        private readonly ContentProjectGeneratorDoneClassifier $generatorDone = new ContentProjectGeneratorDoneClassifier,
     ) {}
 
     /**
-     * @return array{movable: bool, fixed: bool, reason: string|null}
+     * @return array{
+     *     in_domain: bool,
+     *     movable: bool,
+     *     fixed: bool,
+     *     reason: string|null
+     * }
      */
     public function classify(
         SeoProjectTask $task,
         ?SeoProject $project,
         ?ContentProjectItemState $state = null,
+        ?SeoArticle $article = null,
     ): array {
         if ($task->archived_at !== null) {
             return $this->fixed(self::REASON_ARCHIVED);
@@ -63,6 +78,11 @@ final class ContentProjectMonthBalanceEligibility
             if ($project->isArchive() || $project->isProjectArchived()) {
                 return $this->fixed(self::REASON_PROJECT_ARCHIVED);
             }
+        }
+
+        // Hard boundary: Compact's generator_done domain is excluded from Balance entirely.
+        if ($state instanceof ContentProjectItemState && $this->isGeneratorDone($task, $state, $article)) {
+            return $this->excluded(self::REASON_GENERATED);
         }
 
         if ($task->publish_published_at !== null) {
@@ -108,7 +128,6 @@ final class ContentProjectMonthBalanceEligibility
                 return $this->fixed(self::REASON_ARCHIVED);
             }
 
-            // Near-publish ambiguity: approved with any non-none publish footprint → fixed.
             if ($state->lifecycleState === ContentProjectLifecyclePhase::Approved
                 && $state->publishState !== ContentProjectItemPublishState::None
                 && $state->publishState !== ContentProjectItemPublishState::Skipped
@@ -150,16 +169,15 @@ final class ContentProjectMonthBalanceEligibility
             }
         }
 
-        return ['movable' => true, 'fixed' => false, 'reason' => null];
+        return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
     }
 
     /**
-     * Fact-based classify for pure unit tests (no Eloquent).
-     *
      * @param  array{
      *     archived?: bool,
      *     cancelled?: bool,
      *     project_archived?: bool,
+     *     generator_done?: bool,
      *     published_at?: bool,
      *     queue?: string|null,
      *     lifecycle?: string|null,
@@ -173,7 +191,7 @@ final class ContentProjectMonthBalanceEligibility
      *     project_ok?: bool,
      *     project_reason?: string|null
      * }  $facts
-     * @return array{movable: bool, fixed: bool, reason: string|null}
+     * @return array{in_domain: bool, movable: bool, fixed: bool, reason: string|null}
      */
     public function classifyFromFacts(array $facts): array
     {
@@ -185,6 +203,9 @@ final class ContentProjectMonthBalanceEligibility
         }
         if (! empty($facts['project_archived'])) {
             return $this->fixed(self::REASON_PROJECT_ARCHIVED);
+        }
+        if (! empty($facts['generator_done'])) {
+            return $this->excluded(self::REASON_GENERATED);
         }
         if (! empty($facts['published_at']) || ! empty($facts['has_published_revision'])) {
             return $this->fixed(self::REASON_PUBLISHED);
@@ -247,14 +268,39 @@ final class ContentProjectMonthBalanceEligibility
             return $this->fixed((string) ($facts['project_reason'] ?? self::REASON_ACTIVE_RUNNING));
         }
 
-        return ['movable' => true, 'fixed' => false, 'reason' => null];
+        return ['in_domain' => true, 'movable' => true, 'fixed' => false, 'reason' => null];
+    }
+
+    private function isGeneratorDone(
+        SeoProjectTask $task,
+        ContentProjectItemState $state,
+        ?SeoArticle $article,
+    ): bool {
+        $resolved = $article;
+        if (! $resolved instanceof SeoArticle && $task->relationLoaded('article')) {
+            $resolved = $task->article instanceof SeoArticle ? $task->article : null;
+        }
+
+        $hasContent = $this->generatorDone->articleHasGeneratedContent(
+            $resolved instanceof SeoArticle ? $resolved : null,
+        );
+
+        return $this->generatorDone->isGeneratorDone($state, $hasContent);
     }
 
     /**
-     * @return array{movable: bool, fixed: bool, reason: string|null}
+     * @return array{in_domain: bool, movable: bool, fixed: bool, reason: string|null}
+     */
+    private function excluded(string $reason): array
+    {
+        return ['in_domain' => false, 'movable' => false, 'fixed' => false, 'reason' => $reason];
+    }
+
+    /**
+     * @return array{in_domain: bool, movable: bool, fixed: bool, reason: string|null}
      */
     private function fixed(string $reason): array
     {
-        return ['movable' => false, 'fixed' => true, 'reason' => $reason];
+        return ['in_domain' => true, 'movable' => false, 'fixed' => true, 'reason' => $reason];
     }
 }

@@ -20,10 +20,12 @@ final class ContentProjectExecutionPackingContractTest extends TestCase
         );
 
         self::assertStringContainsString('function planPack', $src);
+        self::assertStringContainsString('function planPackForBalanceMonth', $src);
         self::assertStringContainsString('function planRepack', $src);
         self::assertStringContainsString('function listReusableProjects', $src);
         self::assertStringContainsString('function listReusableWorkProjects', $src);
         self::assertStringContainsString('function listAppendableProjects', $src);
+        self::assertStringContainsString('function listAppendableProjectsForMonth', $src);
         self::assertStringContainsString('function canAcceptMoreItems', $src);
         self::assertStringContainsString('projectHasGeneratorDoneItems', $src);
         self::assertStringContainsString('function isReusable', $src);
@@ -33,6 +35,40 @@ final class ContentProjectExecutionPackingContractTest extends TestCase
         self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $src);
         self::assertStringContainsString('deleteEmptyMutableProject', $src);
         self::assertStringNotContainsString('created manually', strtolower($src));
+    }
+
+    /**
+     * Balance Months packing ignores writer affinity; normal planPack stays writer-scoped.
+     */
+    public function test_balance_month_packing_ignores_writer_affinity(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService::class,
+            ))->getFileName(),
+        );
+
+        self::assertStringContainsString('Balance Months ONLY', $src);
+        self::assertStringContainsString('function planPackForBalanceMonth', $src);
+        self::assertStringContainsString('function listAppendableProjectsForMonth', $src);
+        self::assertStringContainsString('listAppendableProjectsForMonth($month)', $src);
+
+        // Writer-scoped path still filters by user_id (not globally weakened).
+        self::assertMatchesRegularExpression(
+            '/function listAppendableProjects\(int \$userId[\s\S]*?->where\(\'user_id\', \$userId\)/',
+            $src,
+        );
+
+        // Month-wide Balance path must not filter by a single writer within its method body.
+        if (! preg_match(
+            '/function listAppendableProjectsForMonth\(Carbon\|string \$month\): Collection\s*\{([\s\S]*?)\n    public function /',
+            $src,
+            $m,
+        )) {
+            self::fail('listAppendableProjectsForMonth method body not found');
+        }
+        self::assertStringNotContainsString("->where('user_id'", $m[1]);
+        self::assertStringContainsString('freeSlots', $m[1]);
     }
 
     public function test_fair_allocation_then_independent_chunk_math(): void
