@@ -18,6 +18,8 @@ use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -43,7 +45,20 @@ class PromptResource extends SeoPanelResource
 
     protected static ?string $pluralModelLabel = 'Prompts';
 
-    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROMPTS;
+    protected static ?int $navigationSort = SeoUserNavigation::SORT_PROMPTS;
+
+    /**
+     * Transitional dual-panel: SEO keeps top-level Prompts; Admin nests under Hệ thống.
+     * Does not change default getUrl panelId (still seo-main).
+     */
+    public static function getNavigationGroup(): ?string
+    {
+        if (Filament::getCurrentPanel()?->getId() === 'admin') {
+            return SeoUserNavigation::GROUP_SYSTEM;
+        }
+
+        return static::$navigationGroup;
+    }
 
     public static function canViewAny(): bool
     {
