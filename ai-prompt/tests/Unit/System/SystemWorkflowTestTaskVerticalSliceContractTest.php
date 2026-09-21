@@ -68,12 +68,18 @@ final class SystemWorkflowTestTaskVerticalSliceContractTest extends TestCase
         $create = dirname(__DIR__, 4).'/content-projects/src/Services/CreateArticlesFromTaskService.php';
         $writing = dirname(__DIR__, 4).'/content/src/Services/ArticleWritingExecutionService.php';
         $editor = dirname(__DIR__, 4).'/content/src/Services/EditorWorkflowExecutionService.php';
-        foreach ([$create, $writing, $editor] as $path) {
+        foreach ([$create, $writing] as $path) {
             self::assertFileExists($path);
             $src = (string) file_get_contents($path);
             self::assertStringContainsString('TaskWorkflowTestRunner', $src);
             self::assertStringNotContainsString('SystemWorkflowClient', $src);
         }
+
+        self::assertFileExists($editor);
+        $editorSrc = (string) file_get_contents($editor);
+        self::assertStringContainsString('SystemWorkflowClient', $editorSrc);
+        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $editorSrc);
+        self::assertStringNotContainsString('$this->workflowRunner->run(', $editorSrc);
     }
 
     public function test_workflow_run_request_carries_test_context_contract(): void

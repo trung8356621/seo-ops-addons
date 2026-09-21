@@ -85,7 +85,6 @@ final class SystemWorkflowExecutionModeParityContractTest extends TestCase
         $paths = [
             dirname(__DIR__, 4).'/content-projects/src/Services/CreateArticlesFromTaskService.php',
             dirname(__DIR__, 4).'/content/src/Services/ArticleWritingExecutionService.php',
-            dirname(__DIR__, 4).'/content/src/Services/EditorWorkflowExecutionService.php',
             dirname(__DIR__, 4).'/content-projects/src/Services/SeoProjectWorkflowStepRetryService.php',
             dirname(__DIR__, 4).'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
         ];
@@ -95,6 +94,13 @@ final class SystemWorkflowExecutionModeParityContractTest extends TestCase
             self::assertStringContainsString('TaskWorkflowTestRunner', $src, $path);
             self::assertStringNotContainsString('SystemWorkflowClient', $src, $path);
         }
+
+        $editor = (string) file_get_contents(
+            dirname(__DIR__, 4).'/content/src/Services/EditorWorkflowExecutionService.php'
+        );
+        self::assertStringContainsString('SystemWorkflowClient', $editor);
+        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $editor);
+        self::assertStringNotContainsString('$this->workflowRunner->run(', $editor);
         self::assertTrue(interface_exists(SystemWorkflowClient::class));
         self::assertTrue(interface_exists(WorkflowRuntimePort::class));
         self::assertTrue(class_exists(TaskWorkflowTestRunner::class));

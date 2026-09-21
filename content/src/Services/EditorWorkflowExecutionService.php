@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowRunRequest;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
@@ -26,6 +29,7 @@ final class EditorWorkflowExecutionService
     public const MODE_EXTRACT_LAST_PROMPT_BC = 'extract_last_prompt_bc';
 
     public function __construct(
+        private readonly SystemWorkflowClient $workflows,
         private readonly TaskWorkflowTestRunner $workflowRunner,
         private readonly PromptRunnerService $promptRunner,
         private readonly PromptMediaStorageService $promptMediaStorage,
@@ -94,13 +98,17 @@ final class EditorWorkflowExecutionService
         ImageToolType $expectedTool,
         ?SeoMedia $targetMedia,
     ): array {
+        // Domain-owned persist context wraps System Workflow — System core stays unaware.
+        $systemWorkflowRunId = null;
         $steps = $this->promptMediaStorage->usingTargetMedia(
             $targetMedia,
             fn () => PromptMediaPersistContext::using(
                 (int) ($context->siteId ?? 0),
                 (int) ($context->article?->id ?? 0),
                 null,
-                fn () => $this->workflowRunner->run($task, $context),
+                function () use ($task, $context, &$systemWorkflowRunId): array {
+                    return $this->runFullGraphViaSystemWorkflow($task, $context, $systemWorkflowRunId);
+                },
             ),
         );
 
@@ -136,8 +144,58 @@ final class EditorWorkflowExecutionService
                 'final_node_id' => (string) ($mediaStep['node_id'] ?? ''),
                 'prompt_id' => (int) ($mediaStep['prompt_id'] ?? 0),
                 'validation_owner' => 'workflow',
+                'system_workflow_run_id' => $systemWorkflowRunId,
             ],
         ];
+    }
+
+    /**
+     * FULL_RUN via System Workflow only — no TaskWorkflowTestRunner::run fallback.
+     * Failed WorkflowRunResult throws so executeForEditor enters intentional BC PromptRunner.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function runFullGraphViaSystemWorkflow(
+        SeoTask $task,
+        TaskTestContext $context,
+        ?string &$systemWorkflowRunId,
+    ): array {
+        $result = $this->workflows->run(new WorkflowRunRequest(
+            definitionId: (int) $task->getKey(),
+            definition: null,
+            input: is_array($context->variables) ? $context->variables : [],
+            context: [
+                'source' => 'editor_media',
+                'task_test_context' => $context->toArray(),
+            ],
+            correlation: [
+                'capability' => 'workflow.editor_media',
+                'task_id' => (int) $task->getKey(),
+            ],
+            executionMode: WorkflowExecutionMode::FullRun->value,
+        ));
+
+        $systemWorkflowRunId = $result->id;
+
+        if ($result->status === 'failed') {
+            throw new PromptRunException(
+                $result->errorMessage
+                    ?? ($result->errorCode ?? 'System Workflow media full_run failed.')
+            );
+        }
+
+        $ordered = $result->meta['ordered_steps'] ?? null;
+        if (is_array($ordered) && $ordered !== []) {
+            /** @var list<array<string, mixed>> $steps */
+            $steps = array_values(array_filter($ordered, static fn (mixed $s): bool => is_array($s)));
+
+            return $steps;
+        }
+
+        /** @var list<array<string, mixed>> $steps */
+        $steps = array_values(array_filter($result->steps, static fn (mixed $s): bool => is_array($s)));
+
+        return $steps;
     }
 
     /**
