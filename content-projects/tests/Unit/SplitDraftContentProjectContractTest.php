@@ -169,6 +169,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('WriterMonthlyCapacityGate', $move);
         self::assertStringContainsString('assertMoveRespectsWriterCapacity', $move);
         self::assertStringContainsString('move_target_option_items', $move);
+        self::assertStringContainsString('move_month_mismatch', $move);
+        self::assertStringContainsString('isSamePlanningMonth', $move);
         self::assertStringContainsString('restoreToSourceDraftAndDelete', $move);
         self::assertStringContainsString('hasStartedExecution', $move);
         self::assertStringContainsString('isRestorableUnstartedExecution', $move);

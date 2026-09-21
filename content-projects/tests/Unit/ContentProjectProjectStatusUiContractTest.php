@@ -89,6 +89,41 @@ final class ContentProjectProjectStatusUiContractTest extends TestCase
         self::assertStringNotContainsString('BulkActionGroup::make([', $resource);
     }
 
+    public function test_list_does_not_expose_misleading_edit_action(): void
+    {
+        $resource = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoProjectResource::class))->getFileName(),
+        );
+
+        // Row/name still use projectRecordUrl → workspace; list must not label that as Edit.
+        self::assertStringNotContainsString('Tables\\Actions\\EditAction::make()', $resource);
+        self::assertStringContainsString('projectRecordUrl($record)', $resource);
+        self::assertStringContainsString('ViewAction::make()', $resource);
+    }
+
+    public function test_move_item_is_within_month_not_cross_month(): void
+    {
+        $move = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoProjectTaskMoveService::class))->getFileName(),
+        );
+        self::assertStringContainsString('move_month_mismatch', $move);
+        self::assertStringContainsString('whereDate(\'month\'', $move);
+        self::assertStringContainsString('whereNull(\'archived_at\')', $move);
+        self::assertStringContainsString('writerLabelForMoveOption', $move);
+        self::assertStringContainsString('isSamePlanningMonth', $move);
+        // Writer identity is not an eligibility filter — capacity gate remains.
+        self::assertStringNotContainsString("->where('user_id'", $move);
+
+        $en = LegacyAddonPath::read('lang/en/filament.php');
+        $vi = LegacyAddonPath::read('lang/vi/filament.php');
+        self::assertStringContainsString("'move_task_heading' => 'Move item within month'", $en);
+        self::assertStringContainsString("'move_task_heading' => 'Chuyển hạng mục trong cùng tháng'", $vi);
+        self::assertStringContainsString(':writer', $en);
+        self::assertStringContainsString(':writer', $vi);
+        self::assertStringContainsString('move_month_mismatch', $en);
+        self::assertStringContainsString('move_month_mismatch', $vi);
+    }
+
     public function test_list_and_delete_guards_wire_draft_and_archived(): void
     {
         $resource = (string) file_get_contents(

@@ -67,13 +67,14 @@ final class InternalLinkFinalAnchorReconstructor
 
         $candidates = [];
 
+        // High-priority KW anchors must be local to the probe's block/sentence.
         $destFocus = self::normalizeDisplay((string) ($options['destination_focus_keyword'] ?? ''));
-        if ($destFocus !== '' && self::occursIn($plain, $destFocus)) {
+        if ($destFocus !== '' && self::occursIn($block, $destFocus)) {
             $candidates[] = [$destFocus, self::REASON_DESTINATION_FOCUS];
         }
 
         $inventory = self::normalizeDisplay((string) ($options['inventory_keyword'] ?? ''));
-        if ($inventory !== '' && self::occursIn($plain, $inventory)) {
+        if ($inventory !== '' && self::occursIn($block, $inventory)) {
             $candidates[] = [$inventory, self::REASON_INVENTORY_KEYWORD];
         }
 
@@ -104,6 +105,12 @@ final class InternalLinkFinalAnchorReconstructor
             }
             $seen[$key] = true;
 
+            // Lexical mid-window heuristics apply only to raw sliding-window probes.
+            if ($reason === self::REASON_PROBE_CLEAN
+                && self::looksLikeBrokenTokenWindow($candidate, $block)) {
+                continue;
+            }
+
             if (! self::isValidFinalAnchor($candidate, $plain, $block)) {
                 continue;
             }
@@ -120,6 +127,9 @@ final class InternalLinkFinalAnchorReconstructor
 
     /**
      * Structural + quality gate for a FINAL anchor (not a search probe).
+     *
+     * Lexical fragment blacklists are intentionally NOT applied here — those only
+     * gate REASON_PROBE_CLEAN inside reconstruct().
      */
     public static function isValidFinalAnchor(string $anchor, string $plainSource, string $blockSource = ''): bool
     {
@@ -132,10 +142,9 @@ final class InternalLinkFinalAnchorReconstructor
             return false;
         }
 
-        // Prefer staying inside the probe's block when known.
+        // When probe block/sentence is known, final anchor must stay local to it.
         if ($blockSource !== '' && ! self::occursIn($blockSource, $anchor)) {
-            // Destination focus / inventory may appear elsewhere in the article — still OK
-            // only when the phrase is a clean multi-word entity (checked below).
+            return false;
         }
 
         if (self::looksLikeTimeOrMeasurement($anchor)) {
@@ -143,14 +152,6 @@ final class InternalLinkFinalAnchorReconstructor
         }
 
         if (self::hasConnectorBoundary($anchor)) {
-            return false;
-        }
-
-        if (self::looksLikeBrokenTokenWindow($anchor)) {
-            return false;
-        }
-
-        if (self::hasIncompleteEdgeToken($anchor)) {
             return false;
         }
 
@@ -207,105 +208,95 @@ final class InternalLinkFinalAnchorReconstructor
     }
 
     /**
-     * Reject spans that start/end on an incomplete compound fragment.
+     * @deprecated Kept for call-site compat; edge blacklists are no longer used on finals.
+     *             Prefer hasConnectorBoundary() / looksLikeBrokenTokenWindow($phrase, $block).
      */
     public static function hasIncompleteEdgeToken(string $phrase): bool
     {
-        $tokens = preg_split('/\s+/u', KeywordPhraseMatcher::normalize($phrase), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        if ($tokens === []) {
-            return true;
-        }
-
-        // Starts that almost always mean a mid-window fragment.
-        $fragileStarts = [
-            'năng', 'nổi', 'ứng', 'chứa', 'dụng', 'kiếm', 'sự',
-            'nang', 'noi', 'ung', 'chua', 'dung', 'kiem', 'su',
-        ];
-        // Ends that mean the compound was cut off.
-        $fragileEnds = [
-            'năng', 'nổi', 'ngân', 'ứng', 'thông', 'chứa', 'dụng', 'kiếm',
-            'nang', 'noi', 'ngan', 'ung', 'thong', 'chua', 'dung', 'kiem',
-        ];
-
-        $first = $tokens[0];
-        $last = $tokens[count($tokens) - 1];
-        $firstAscii = self::toAscii($first);
-        $lastAscii = self::toAscii($last);
-
-        if (in_array($first, $fragileStarts, true) || in_array($firstAscii, $fragileStarts, true)) {
-            return true;
-        }
-        if (in_array($last, $fragileEnds, true) || in_array($lastAscii, $fragileEnds, true)) {
-            return true;
-        }
-
-        return false;
+        return self::hasConnectorBoundary($phrase);
     }
 
     /**
-     * Heuristic: 2-token mid-compound fragments like "dụng linh", "chứa thông", "năng ứng".
+     * Detect raw sliding-window fragments (SEARCH PROBE), not reconstructed finals.
+     *
+     * With block context: a 2-token span with non-connector neighbors on both sides
+     * is a mid-compound window (e.g. "năng ứng" inside "khả năng ứng dụng").
+     *
+     * Without context: only connector-boundary / time-like structure — no token blacklist.
      */
-    public static function looksLikeBrokenTokenWindow(string $phrase): bool
+    public static function looksLikeBrokenTokenWindow(string $phrase, string $blockContext = ''): bool
     {
+        $phrase = self::normalizeDisplay($phrase);
+        if ($phrase === '') {
+            return true;
+        }
+
+        if (self::hasConnectorBoundary($phrase) || self::looksLikeTimeOrMeasurement($phrase)) {
+            return true;
+        }
+
         $tokens = preg_split('/\s+/u', KeywordPhraseMatcher::normalize($phrase), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        if (count($tokens) === 2) {
-            [$a, $b] = $tokens;
-
-            $fragilePrefixes = [
-                'dung', 'dụng', 'chua', 'chứa', 'nang', 'năng', 'tinh', 'tính', 'ung', 'ứng',
-                'noi', 'nổi', 'thong', 'thông', 'kha', 'khả', 'he', 'hệ', 'kiem', 'kiếm',
-                'dau', 'đầu', 'su', 'sự',
-            ];
-            $fragileSeconds = [
-                'linh', 'thong', 'thông', 'ung', 'ứng', 'noi', 'nổi', 'minh', 'nang', 'năng',
-                'ket', 'kết', 'nghia', 'nghĩa', 'ngan', 'ngân',
-            ];
-
-            $aAscii = self::toAscii($a);
-            $bAscii = self::toAscii($b);
-
-            if (in_array($a, $fragilePrefixes, true) || in_array($aAscii, $fragilePrefixes, true)) {
-                if (mb_strlen($b) <= 5 || in_array($b, $fragileSeconds, true) || in_array($bAscii, $fragileSeconds, true)) {
-                    return true;
-                }
-            }
-
-            if (mb_strlen($a) <= 4 && mb_strlen($b) <= 4 && ! preg_match('/\d/u', $a.$b)) {
-                if (! self::looksLikeStandaloneEntityBigram($a, $b)) {
-                    return true;
-                }
-            }
-
+        if (count($tokens) !== 2) {
             return false;
         }
 
-        // 3+ tokens still starting on a fragile prefix are usually mid-phrase windows.
-        if (count($tokens) >= 3) {
-            $first = $tokens[0];
-            $firstAscii = self::toAscii($first);
-            $fragilePrefixes = [
-                'dung', 'dụng', 'chua', 'chứa', 'nang', 'năng', 'ung', 'ứng',
-                'noi', 'nổi', 'kiem', 'kiếm', 'su', 'sự',
-            ];
-            if (in_array($first, $fragilePrefixes, true) || in_array($firstAscii, $fragilePrefixes, true)) {
+        $blockContext = self::normalizeDisplay($blockContext);
+        if ($blockContext === '') {
+            return false;
+        }
+
+        return self::isMidCompoundWindow($phrase, $blockContext);
+    }
+
+    /**
+     * True when $phrase is a 2-token island with expandable noun-like neighbors on both sides.
+     */
+    private static function isMidCompoundWindow(string $phrase, string $block): bool
+    {
+        $displayTokens = preg_split('/\s+/u', self::normalizeDisplay($block), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $probeTokens = preg_split('/\s+/u', self::normalizeDisplay($phrase), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (count($probeTokens) !== 2 || $displayTokens === []) {
+            return false;
+        }
+
+        $probeNorm = array_map(
+            static fn (string $t): string => KeywordPhraseMatcher::normalize($t),
+            $probeTokens,
+        );
+        $n = count($displayTokens);
+        for ($i = 0; $i <= $n - 2; $i++) {
+            if (KeywordPhraseMatcher::normalize($displayTokens[$i]) !== $probeNorm[0]
+                || KeywordPhraseMatcher::normalize($displayTokens[$i + 1]) !== $probeNorm[1]) {
+                continue;
+            }
+
+            $hasLeft = false;
+            $hasRight = false;
+            if ($i > 0) {
+                $left = $displayTokens[$i - 1];
+                $leftNorm = KeywordPhraseMatcher::normalize($left);
+                if ($leftNorm !== ''
+                    && ! self::isConnector($leftNorm)
+                    && ! self::isExpansionStopToken($left)) {
+                    $hasLeft = true;
+                }
+            }
+            if ($i + 2 < $n) {
+                $right = $displayTokens[$i + 2];
+                $rightNorm = KeywordPhraseMatcher::normalize($right);
+                if ($rightNorm !== ''
+                    && ! self::isConnector($rightNorm)
+                    && ! self::isExpansionStopToken($right)) {
+                    $hasRight = true;
+                }
+            }
+
+            if ($hasLeft && $hasRight) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    private static function looksLikeStandaloneEntityBigram(string $a, string $b): bool
-    {
-        // Túi xách, quà tặng, chất liệu, tuổi thọ, …
-        $known = [
-            'tui xach', 'qua tang', 'chat lieu', 'tuoi tho', 'tinh nang', 'linh hoat',
-            'thong minh', 'thiet ke', 'he thong', 'ngan chua', 'polyester',
-        ];
-        $key = self::toAscii($a).' '.self::toAscii($b);
-
-        return in_array($key, $known, true)
-            || (mb_strlen($a) >= 4 && mb_strlen($b) >= 4);
     }
 
     /**
@@ -371,7 +362,7 @@ final class InternalLinkFinalAnchorReconstructor
         }
 
         $out = [];
-        $probeBroken = self::looksLikeBrokenTokenWindow($probe) || self::hasConnectorBoundary($probe);
+        $probeBroken = self::looksLikeBrokenTokenWindow($probe, $block) || self::hasConnectorBoundary($probe);
 
         // Tight pads around the probe. Broken probes prefer balanced healing (±1 each side).
         $padPlans = [];
@@ -405,7 +396,11 @@ final class InternalLinkFinalAnchorReconstructor
             if ($words < 2 || $words > 5) {
                 continue;
             }
-            if (self::looksLikeBrokenTokenWindow($span) || self::hasConnectorBoundary($span)) {
+            if (self::hasConnectorBoundary($span)) {
+                continue;
+            }
+            // Skip spans that are still mid-compound 2-token windows in this block.
+            if (self::looksLikeBrokenTokenWindow($span, $block)) {
                 continue;
             }
             $out[] = $span;

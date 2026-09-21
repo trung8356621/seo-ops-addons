@@ -1211,9 +1211,8 @@ class SeoProjectResource extends SeoPanelResource
                     ->visible(fn (SeoProject $record): bool => static::canView($record)
                         && (! static::canEdit($record) || $record->isProjectArchived()))
                     ->url(fn (SeoProject $record): string => static::projectRecordUrl($record)),
-                Tables\Actions\EditAction::make()
-                    ->visible(fn (SeoProject $record): bool => static::canEdit($record))
-                    ->url(fn (SeoProject $record): string => static::projectRecordUrl($record)),
+                // No list "Edit" — that label implied metadata edit but historically
+                // routed to the items workspace via projectRecordUrl(). Use name/row click.
             ])
             // No bulk select / bulk delete — row actions only.
             ->bulkActions([]);

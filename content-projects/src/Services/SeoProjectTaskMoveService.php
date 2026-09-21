@@ -272,7 +272,8 @@ final class SeoProjectTaskMoveService
     }
 
     /**
-     * Chuyển một hoặc nhiều task sang project tháng khác (cùng domain).
+     * Chuyển một hoặc nhiều task sang project cùng tháng + cùng domain
+     * (writer đích có thể khác; status/AI data giữ nguyên).
      *
      * @param  list<int>  $taskIds
      * @return array{moved: int, target_project_id: int, target_month: string}
@@ -304,6 +305,12 @@ final class SeoProjectTaskMoveService
             ]);
         }
 
+        if (! $this->isSamePlanningMonth($source, $target)) {
+            throw ValidationException::withMessages([
+                'target_project_id' => __('seo-content-ai::filament.projects.move_month_mismatch'),
+            ]);
+        }
+
         return DB::connection($source->getConnectionName())->transaction(function () use ($source, $target, $taskIds): array {
             /** @var SeoProject|null $lockedSource */
             $lockedSource = SeoProject::query()
@@ -319,6 +326,12 @@ final class SeoProjectTaskMoveService
 
             if (! $lockedSource instanceof SeoProject || ! $lockedTarget instanceof SeoProject) {
                 throw new RuntimeException(__('seo-content-ai::filament.projects.move_failed'));
+            }
+
+            if (! $this->isSamePlanningMonth($lockedSource, $lockedTarget)) {
+                throw ValidationException::withMessages([
+                    'target_project_id' => __('seo-content-ai::filament.projects.move_month_mismatch'),
+                ]);
             }
 
             $tasks = $lockedSource->tasks()
@@ -355,6 +368,9 @@ final class SeoProjectTaskMoveService
     }
 
     /**
+     * Eligible targets: same site + same planning month, any writer, not source,
+     * not soft-archived / KIND archive. Capacity checked on submit.
+     *
      * @return array<int, string>
      */
     public function moveTargetOptions(SeoProject $source): array
@@ -364,25 +380,30 @@ final class SeoProjectTaskMoveService
             return [];
         }
 
+        $monthDate = $source->monthCarbon()->startOfMonth()->format('Y-m-d');
+
         return SeoProject::query()
+            ->with('user')
             ->where('site_id', $siteId)
             ->whereKeyNot($source->getKey())
+            ->whereNull('archived_at')
+            ->whereDate('month', $monthDate)
             ->where(function ($query): void {
                 $query
                     ->where('kind', SeoProject::KIND_MONTHLY)
                     ->orWhereNull('kind');
             })
-            ->orderByDesc('month')
             ->orderBy('id')
             ->get()
             ->filter(static fn (SeoProject $project): bool => ! $project->isArchive())
-            ->mapWithKeys(static function (SeoProject $project): array {
+            ->mapWithKeys(function (SeoProject $project): array {
                 $count = $project->registeredTaskCount();
 
                 return [
                     (int) $project->getKey() => __('seo-content-ai::filament.projects.move_target_option_items', [
                         'name' => (string) $project->name,
                         'month' => $project->monthCarbon()->format('m/Y'),
+                        'writer' => $this->writerLabelForMoveOption($project),
                         'count' => $count,
                     ]),
                 ];
@@ -423,7 +444,7 @@ final class SeoProjectTaskMoveService
 
     public function assertTargetAcceptsMoves(SeoProject $target): void
     {
-        if ($target->isArchive()) {
+        if ($target->isArchive() || $target->isProjectArchived()) {
             throw ValidationException::withMessages([
                 'target_project_id' => __('seo-content-ai::filament.projects.move_target_archive'),
             ]);
@@ -431,8 +452,10 @@ final class SeoProjectTaskMoveService
     }
 
     /**
-     * Moving within the same writer+month is capacity-neutral.
-     * Draft → execution or cross-month/user moves consume target monthly capacity.
+     * Same-writer + same-month between consuming projects is capacity-neutral
+     * (workload merely relocates). Cross-writer same-month still gates on the
+     * *target* writer's remaining monthly capacity. Cross-month moves are rejected
+     * earlier — never reach this gate.
      */
     private function assertMoveRespectsWriterCapacity(SeoProject $source, SeoProject $target, int $incomingCount): void
     {
@@ -441,7 +464,7 @@ final class SeoProjectTaskMoveService
         }
 
         $sameWriter = (int) ($source->user_id ?? 0) === (int) ($target->user_id ?? 0);
-        $sameMonth = $source->monthCarbon()->format('Y-m') === $target->monthCarbon()->format('Y-m');
+        $sameMonth = $this->isSamePlanningMonth($source, $target);
         $sourceConsumes = ! $source->isDraftPlanning() && ! $source->isArchive();
 
         if ($sameWriter && $sameMonth && $sourceConsumes) {
@@ -457,6 +480,24 @@ final class SeoProjectTaskMoveService
                     : ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
             ]);
         }
+    }
+
+    private function isSamePlanningMonth(SeoProject $source, SeoProject $target): bool
+    {
+        return $source->monthCarbon()->format('Y-m') === $target->monthCarbon()->format('Y-m');
+    }
+
+    private function writerLabelForMoveOption(SeoProject $project): string
+    {
+        $user = $project->user;
+        $name = trim((string) ($user?->name ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        $userId = (int) ($project->user_id ?? 0);
+
+        return $userId > 0 ? '#'.$userId : __('seo-content-ai::filament.projects.move_target_writer_unknown');
     }
 
     /**
