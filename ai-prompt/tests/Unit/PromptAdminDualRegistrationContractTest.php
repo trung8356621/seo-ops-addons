@@ -23,27 +23,30 @@ use Tests\TestCase;
  */
 final class PromptAdminDualRegistrationContractTest extends TestCase
 {
-    public function test_panel_aware_nav_group_does_not_change_seo_default(): void
+    public function test_panel_aware_nav_group_and_canonical_admin_panel_id(): void
     {
         $src = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
         self::assertStringContainsString('getNavigationGroup', $src);
+        self::assertStringContainsString('shouldRegisterNavigation', $src);
         self::assertStringContainsString("=== 'admin'", $src);
         self::assertStringContainsString('SeoUserNavigation::GROUP_SYSTEM', $src);
-        self::assertStringContainsString('Does not change default getUrl panelId', $src);
-        self::assertSame('seo-main', PromptResource::panelId());
+        self::assertSame('admin', PromptResource::panelId());
     }
 
-    public function test_default_panel_id_remains_seo_main(): void
+    public function test_default_panel_id_is_admin(): void
     {
-        self::assertSame('seo-main', PromptResource::panelId());
+        self::assertSame('admin', PromptResource::panelId());
+        self::assertStringContainsString('/admin/prompts', PromptResource::getUrl('index'));
     }
 
-    public function test_admin_nav_group_is_system_when_panel_is_admin(): void
+    public function test_admin_nav_shown_seo_nav_hidden(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
+        self::assertTrue(PromptResource::shouldRegisterNavigation());
         self::assertSame(SeoUserNavigation::GROUP_SYSTEM, PromptResource::getNavigationGroup());
 
         Filament::setCurrentPanel(Filament::getPanel('seo-main'));
+        self::assertFalse(PromptResource::shouldRegisterNavigation());
         self::assertNull(PromptResource::getNavigationGroup());
     }
 
@@ -137,15 +140,18 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
 
     public function test_admin_and_seo_prompt_routes_generate(): void
     {
+        $default = PromptResource::getUrl('index');
         $admin = PromptResource::getUrl('index', panel: 'admin');
         $seo = PromptResource::getUrl('index', panel: 'seo-main');
+        self::assertStringContainsString('/admin/prompts', $default);
         self::assertStringContainsString('/admin/prompts', $admin);
         self::assertStringContainsString('/seo/prompts', $seo);
+        self::assertSame($default, $admin);
         self::assertNotSame($admin, $seo);
 
-        self::assertStringContainsString('/admin/prompts/create', PromptResource::getUrl('create', panel: 'admin'));
-        self::assertStringContainsString('/admin/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26], panel: 'admin'));
-        self::assertStringContainsString('/admin/prompts/26/test', PromptResource::getUrl('test', ['record' => 26], panel: 'admin'));
+        self::assertStringContainsString('/admin/prompts/create', PromptResource::getUrl('create'));
+        self::assertStringContainsString('/admin/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26]));
+        self::assertStringContainsString('/admin/prompts/26/test', PromptResource::getUrl('test', ['record' => 26]));
 
         self::assertStringContainsString('/seo/prompts/create', PromptResource::getUrl('create', panel: 'seo-main'));
         self::assertStringContainsString('/seo/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26], panel: 'seo-main'));

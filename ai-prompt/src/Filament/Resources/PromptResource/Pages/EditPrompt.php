@@ -34,7 +34,7 @@ class EditPrompt extends SeoEditRecord
                 ->url(
                     $isReady
                         ? PromptResource::getUrl('test', ['record' => $record])
-                        : SeoSettingsOverview::getUrl(),
+                        : SeoSettingsOverview::getUrl(panel: 'admin'),
                 ),
             Actions\DeleteAction::make()
                 ->form(function (): array {

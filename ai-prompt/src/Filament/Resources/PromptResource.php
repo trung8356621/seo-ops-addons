@@ -48,8 +48,16 @@ class PromptResource extends SeoPanelResource
     protected static ?int $navigationSort = SeoUserNavigation::SORT_PROMPTS;
 
     /**
-     * Transitional dual-panel: SEO keeps top-level Prompts; Admin nests under Hệ thống.
-     * Does not change default getUrl panelId (still seo-main).
+     * Canonical Prompt management lives on Admin.
+     * SEO registration remains for temporary compatibility routes only.
+     */
+    public static function panelId(): string
+    {
+        return 'admin';
+    }
+
+    /**
+     * Admin: show under Hệ thống. SEO: hide nav (routes stay registered).
      */
     public static function getNavigationGroup(): ?string
     {
@@ -58,6 +66,11 @@ class PromptResource extends SeoPanelResource
         }
 
         return static::$navigationGroup;
+    }
+
+    public static function shouldRegisterNavigation(array $parameters = []): bool
+    {
+        return Filament::getCurrentPanel()?->getId() === 'admin';
     }
 
     public static function canViewAny(): bool
@@ -440,7 +453,7 @@ class PromptResource extends SeoPanelResource
 
         $aiCenterUrl = '';
         try {
-            $aiCenterUrl = (string) \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl();
+            $aiCenterUrl = (string) \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl(panel: 'admin');
         } catch (\Throwable) {
             $aiCenterUrl = '';
         }
@@ -855,7 +868,7 @@ class PromptResource extends SeoPanelResource
                         : 'warning')
                     ->url(fn (SeoPrompt $record): string => app(AiModelsReadinessService::class)->isPromptReady($record)
                         ? static::getUrl('test', ['record' => $record])
-                        : SeoSettingsOverview::getUrl()),
+                        : SeoSettingsOverview::getUrl(panel: 'admin')),
                 Tables\Actions\Action::make('duplicate')
                     ->label(__('seo-content-ai::filament.prompt.duplicate'))
                     ->icon('heroicon-o-document-duplicate')
