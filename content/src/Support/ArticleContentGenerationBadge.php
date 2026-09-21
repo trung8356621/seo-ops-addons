@@ -139,7 +139,116 @@ final class ArticleContentGenerationBadge
             return self::empty();
         }
 
-        foreach (self::candidateContentResults($articleId) as $result) {
+        return self::forArticleIds([$articleId])[$articleId] ?? self::empty();
+    }
+
+    /**
+     * Batch variant of {@see forArticleId()} — fixed query count (no N+1).
+     *
+     * @param  list<int>  $articleIds
+     * @return array<int, array{
+     *     show_free_badge: bool,
+     *     route_cost: string|null,
+     *     generation_shape: string|null,
+     *     generation_shape_source: string|null
+     * }>
+     */
+    public static function forArticleIds(array $articleIds): array
+    {
+        $articleIds = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $articleIds),
+            static fn (int $id): bool => $id > 0,
+        )));
+        if ($articleIds === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($articleIds as $articleId) {
+            $out[$articleId] = self::empty();
+        }
+
+        $linked = SeoPromptResultLink::query()
+            ->whereIn('article_id', $articleIds)
+            ->orderByDesc('id')
+            ->get(['id', 'article_id', 'prompt_result_id']);
+
+        /** @var array<int, list<int>> $linkedIdsByArticle */
+        $linkedIdsByArticle = [];
+        $allLinkedResultIds = [];
+        foreach ($linked as $link) {
+            $articleId = (int) ($link->article_id ?? 0);
+            $resultId = (int) ($link->prompt_result_id ?? 0);
+            if ($articleId <= 0 || $resultId <= 0 || ! isset($out[$articleId])) {
+                continue;
+            }
+            $linkedIdsByArticle[$articleId][] = $resultId;
+            $allLinkedResultIds[$resultId] = true;
+        }
+
+        $resultsById = [];
+        if ($allLinkedResultIds !== []) {
+            $resultsById = PromptResult::query()
+                ->whereIn('id', array_keys($allLinkedResultIds))
+                ->whereIn('status', ['completed', 'success'])
+                ->get(['id', 'status', 'input_snapshot', 'created_at'])
+                ->keyBy(static fn (PromptResult $row): int => (int) $row->id)
+                ->all();
+        }
+
+        $missingArticleIds = [];
+        foreach ($articleIds as $articleId) {
+            $candidates = [];
+            foreach ($linkedIdsByArticle[$articleId] ?? [] as $resultId) {
+                $row = $resultsById[$resultId] ?? null;
+                if ($row instanceof PromptResult) {
+                    $candidates[] = $row;
+                }
+            }
+            if ($candidates === []) {
+                $missingArticleIds[] = $articleId;
+                continue;
+            }
+            $out[$articleId] = self::classifyCandidates($candidates);
+        }
+
+        if ($missingArticleIds !== []) {
+            $ownership = app(ArticlePromptResultOwnershipResolver::class);
+            foreach ($missingArticleIds as $articleId) {
+                $fallback = $ownership->constrainToSnapshotArticle(
+                    PromptResult::query()
+                        ->whereIn('status', ['completed', 'success'])
+                        ->orderByDesc('id')
+                        ->limit(40),
+                    $articleId,
+                )->get(['id', 'status', 'input_snapshot', 'created_at'])->all();
+                if ($fallback !== []) {
+                    $out[$articleId] = self::classifyCandidates($fallback);
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<PromptResult>  $candidates
+     * @return array{
+     *     show_free_badge: bool,
+     *     route_cost: string|null,
+     *     generation_shape: string|null,
+     *     generation_shape_source: string|null
+     * }
+     */
+    private static function classifyCandidates(array $candidates): array
+    {
+        usort($candidates, static function (PromptResult $a, PromptResult $b): int {
+            return self::contentPriority(is_array($b->input_snapshot) ? $b->input_snapshot : [])
+                <=> self::contentPriority(is_array($a->input_snapshot) ? $a->input_snapshot : [])
+                ?: ((int) $b->id <=> (int) $a->id);
+        });
+
+        foreach ($candidates as $result) {
             if (! $result instanceof PromptResult) {
                 continue;
             }
@@ -187,58 +296,6 @@ final class ArticleContentGenerationBadge
         );
 
         return $shape !== null && $hook === '';
-    }
-
-    /**
-     * @return list<PromptResult>
-     */
-    private static function candidateContentResults(int $articleId): array
-    {
-        $linkedIds = SeoPromptResultLink::query()
-            ->where('article_id', $articleId)
-            ->orderByDesc('id')
-            ->limit(60)
-            ->pluck('prompt_result_id')
-            ->map(static fn ($id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->values()
-            ->all();
-
-        $out = [];
-        if ($linkedIds !== []) {
-            $byId = PromptResult::query()
-                ->whereIn('id', $linkedIds)
-                ->whereIn('status', ['completed', 'success'])
-                ->get(['id', 'status', 'input_snapshot', 'created_at'])
-                ->keyBy(static fn (PromptResult $row): int => (int) $row->id);
-
-            foreach ($linkedIds as $id) {
-                $row = $byId->get($id);
-                if ($row instanceof PromptResult) {
-                    $out[] = $row;
-                }
-            }
-        }
-
-        if ($out === []) {
-            $ownership = app(ArticlePromptResultOwnershipResolver::class);
-            $out = $ownership->constrainToSnapshotArticle(
-                PromptResult::query()
-                    ->whereIn('status', ['completed', 'success'])
-                    ->orderByDesc('id')
-                    ->limit(40),
-                $articleId,
-            )->get(['id', 'status', 'input_snapshot', 'created_at'])->all();
-        }
-
-        // Prefer orchestrator / content.generate ahead of section children.
-        usort($out, static function (PromptResult $a, PromptResult $b): int {
-            return self::contentPriority(is_array($b->input_snapshot) ? $b->input_snapshot : [])
-                <=> self::contentPriority(is_array($a->input_snapshot) ? $a->input_snapshot : [])
-                ?: ((int) $b->id <=> (int) $a->id);
-        });
-
-        return $out;
     }
 
     /**

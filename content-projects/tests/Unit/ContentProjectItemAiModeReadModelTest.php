@@ -11,6 +11,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectIte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAiModeReadModel;
 use Tests\TestCase;
 
+/**
+ * List AI MODE must follow editor FREE badge SSOT (snapshot stamps via article links).
+ */
 final class ContentProjectItemAiModeReadModelTest extends TestCase
 {
     private string $connection = 'omi_seo_ai';
@@ -23,333 +26,217 @@ final class ContentProjectItemAiModeReadModelTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::connection($this->connection)->dropIfExists('prompt_result_routing_attempts');
+        Schema::connection($this->connection)->dropIfExists('seo_prompt_result_links');
         Schema::connection($this->connection)->dropIfExists('prompt_results');
         parent::tearDown();
     }
 
-    public function test_all_free_execution_displays_free_split(): void
+    public function test_free_split_snapshot_displays_free_split(): void
     {
-        $parentId = $this->insertResult(11, 'article.content.generate', 'completed', [
+        $resultId = $this->insertResult([
+            'hook_key' => 'article.content.generate',
             'generation_shape' => 'sectioned',
+            'generation_shape_source' => 'route_cost_auto',
+            'primary_is_free' => true,
             'sectioned_free_orchestrator' => true,
-            'child_prompt_result_ids' => [],
         ]);
-        $sectionA = $this->insertResult(11, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $sectionB = $this->insertResult(11, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $this->pointChildren($parentId, [$sectionA, $sectionB]);
-        $this->insertAttempt($sectionA, 'free', 'SUCCESS', true, 1);
-        $this->insertAttempt($sectionA, 'paid', 'SKIPPED', false, 2);
-        $this->insertAttempt($sectionB, 'free', 'FAILED', true, 1);
-        $this->insertAttempt($sectionB, 'free', 'SUCCESS', true, 2);
+        $this->link(13637, $resultId);
 
-        $mode = $this->modeFor(11);
+        $mode = $this->modeFor(13637);
 
         self::assertSame('FREE', $mode['mode']);
         self::assertSame('SPLIT', $mode['shape']);
         self::assertSame('FREE · SPLIT', $mode['label']);
     }
 
-    public function test_all_paid_execution_displays_paid_single(): void
+    public function test_paid_single_snapshot_displays_paid_single(): void
     {
-        $parentId = $this->insertResult(22, 'article.content.generate', 'completed', [
+        $resultId = $this->insertResult([
+            'hook_key' => 'article.content.generate',
             'generation_shape' => 'single_pass',
+            'shape_decision_cost_class' => 'paid',
         ]);
-        $this->insertAttempt($parentId, 'free', 'FAILED', true, 1);
-        $this->insertAttempt($parentId, 'paid', 'SKIPPED', false, 2);
-        $this->insertAttempt($parentId, 'paid', 'SUCCESS', true, 3);
+        $this->link(200, $resultId);
 
-        $mode = $this->modeFor(22);
+        $mode = $this->modeFor(200);
 
         self::assertSame('PAID', $mode['mode']);
         self::assertSame('SINGLE', $mode['shape']);
         self::assertSame('PAID · SINGLE', $mode['label']);
     }
 
-    public function test_sectioned_shape_does_not_infer_free_when_used_routes_are_paid(): void
+    public function test_shape_alone_does_not_infer_free(): void
     {
-        $parentId = $this->insertResult(23, 'article.content.generate', 'completed', [
-            'generation_shape' => 'sectioned',
-            'shape_decision_cost_class' => 'free',
-            'primary_is_free' => true,
-        ]);
-        $this->insertAttempt($parentId, 'paid', 'SUCCESS', true, 1);
-
-        $mode = $this->modeFor(23);
-
-        self::assertSame('PAID', $mode['mode']);
-        self::assertSame('SPLIT', $mode['shape']);
-        self::assertSame('PAID · SPLIT', $mode['label']);
-    }
-
-    public function test_mixed_successful_section_routes_display_mixed(): void
-    {
-        $parentId = $this->insertResult(33, 'article.content.generate', 'completed', [
-            'generation_shape' => 'sectioned',
-            'sectioned_free_orchestrator' => true,
-        ]);
-        $freeSection = $this->insertResult(33, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => false,
-        ]);
-        $paidSection = $this->insertResult(33, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $this->pointChildren($parentId, [$freeSection, $paidSection]);
-        $this->insertAttempt($freeSection, 'free', 'SUCCESS', true, 1);
-        $this->insertAttempt($paidSection, 'free', 'FAILED', true, 1);
-        $this->insertAttempt($paidSection, 'paid', 'SUCCESS', true, 2);
-
-        $mode = $this->modeFor(33);
-
-        self::assertSame('MIXED', $mode['mode']);
-        self::assertSame('SPLIT', $mode['shape']);
-        self::assertSame('MIXED · SPLIT', $mode['label']);
-    }
-
-    public function test_successful_section_without_routing_rows_uses_persisted_route_flag(): void
-    {
-        $parentId = $this->insertResult(34, 'article.content.generate', 'completed', [
+        $resultId = $this->insertResult([
+            'hook_key' => 'article.content.generate',
             'generation_shape' => 'sectioned',
         ]);
-        $freeSection = $this->insertResult(34, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $paidSection = $this->insertResult(34, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => false,
-        ]);
-        $failedFree = $this->insertResult(34, 'article.content.section.generate', 'failed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $this->pointChildren($parentId, [$freeSection, $paidSection, $failedFree]);
+        $this->link(201, $resultId);
 
-        $mode = $this->modeFor(34);
-
-        self::assertSame('MIXED', $mode['mode']);
-        self::assertSame('MIXED · SPLIT', $mode['label']);
-    }
-
-    public function test_routing_attempt_cost_class_overrides_contradictory_section_flag(): void
-    {
-        $parentId = $this->insertResult(35, 'article.content.generate', 'completed', [
-            'generation_shape' => 'sectioned',
-        ]);
-        $sectionId = $this->insertResult(35, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $this->pointChildren($parentId, [$sectionId]);
-        $this->insertAttempt($sectionId, 'paid', 'SUCCESS', true, 1);
-
-        $mode = $this->modeFor(35);
-
-        self::assertSame('PAID', $mode['mode']);
-        self::assertSame('PAID · SPLIT', $mode['label']);
-    }
-
-    public function test_failed_section_route_does_not_create_mixed_mode(): void
-    {
-        $parentId = $this->insertResult(36, 'article.content.generate', 'completed', [
-            'generation_shape' => 'sectioned',
-        ]);
-        $paidSection = $this->insertResult(36, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => false,
-        ]);
-        $failedFree = $this->insertResult(36, 'article.content.section.generate', 'failed', [
-            'parent_prompt_result_id' => $parentId,
-            'is_free' => true,
-        ]);
-        $this->pointChildren($parentId, [$paidSection, $failedFree]);
-
-        $mode = $this->modeFor(36);
-
-        self::assertSame('PAID', $mode['mode']);
-        self::assertSame('PAID · SPLIT', $mode['label']);
-    }
-
-    public function test_unrelated_ai_calls_do_not_affect_mode(): void
-    {
-        $parentId = $this->insertResult(44, 'article.content.generate', 'completed', [
-            'generation_shape' => 'single_pass',
-        ]);
-        $this->insertAttempt($parentId, 'free', 'SUCCESS', true, 1);
-
-        $faqId = $this->insertResult(44, 'article.faq.generate', 'completed', [
-            'generation_shape' => 'single_pass',
-        ]);
-        $this->insertAttempt($faqId, 'paid', 'SUCCESS', true, 1);
-        $outlineId = $this->insertResult(44, 'article.outline.generate', 'completed', []);
-        $this->insertAttempt($outlineId, 'paid', 'SUCCESS', true, 1);
-        $imageId = $this->insertResult(44, 'article.image.generate', 'completed', []);
-        $this->insertAttempt($imageId, 'paid', 'SUCCESS', true, 1);
-
-        $mode = $this->modeFor(44);
-
-        self::assertSame('FREE', $mode['mode']);
-        self::assertSame('FREE · SINGLE', $mode['label']);
-    }
-
-    public function test_no_execution_history_displays_dash(): void
-    {
-        $rows = (new ContentProjectItemAiModeReadModel())->apply([
-            ['task_id' => 55],
-        ]);
-
-        self::assertNull($rows[0]['ai_mode']);
-        self::assertNull($rows[0]['ai_mode_shape']);
-        self::assertSame('—', $rows[0]['ai_mode_label']);
-    }
-
-    public function test_shape_stamp_without_successful_routes_is_unknown(): void
-    {
-        $this->insertResult(56, 'article.content.generate', 'completed', [
-            'generation_shape' => 'sectioned',
-            'primary_is_free' => true,
-            'shape_decision_cost_class' => 'free',
-        ]);
-
-        $mode = $this->modeFor(56);
+        $mode = $this->modeFor(201);
 
         self::assertNull($mode['mode']);
         self::assertSame('—', $mode['label']);
     }
 
-    public function test_latest_generation_wins_over_older_generation(): void
+    public function test_unrelated_outline_call_does_not_affect_mode(): void
     {
-        $older = $this->insertResult(66, 'article.content.generate', 'completed', [
+        $outline = $this->insertResult([
+            'hook_key' => 'article.outline.generate',
             'generation_shape' => 'sectioned',
+            'shape_decision_cost_class' => 'paid',
         ]);
-        $olderSection = $this->insertResult(66, 'article.content.section.generate', 'completed', [
-            'parent_prompt_result_id' => $older,
-            'is_free' => true,
+        $content = $this->insertResult([
+            'hook_key' => 'article.content.generate',
+            'generation_shape' => 'sectioned',
+            'primary_is_free' => true,
+            'sectioned_free_orchestrator' => true,
         ]);
-        $this->pointChildren($older, [$olderSection]);
-        $this->insertAttempt($olderSection, 'free', 'SUCCESS', true, 1);
+        $this->link(202, $outline);
+        $this->link(202, $content);
 
-        $latest = $this->insertResult(66, 'article.content.generate', 'completed', [
+        $mode = $this->modeFor(202);
+
+        self::assertSame('FREE · SPLIT', $mode['label']);
+    }
+
+    public function test_no_execution_history_displays_dash(): void
+    {
+        $rows = (new ContentProjectItemAiModeReadModel())->apply([
+            ['task_id' => 1, 'article_id' => 999],
+            ['task_id' => 2, 'article_id' => null],
+        ]);
+
+        self::assertSame('—', $rows[0]['ai_mode_label']);
+        self::assertSame('—', $rows[1]['ai_mode_label']);
+    }
+
+    public function test_latest_content_generation_wins_over_older(): void
+    {
+        $older = $this->insertResult([
+            'hook_key' => 'article.content.generate',
+            'generation_shape' => 'sectioned',
+            'primary_is_free' => true,
+        ]);
+        $newer = $this->insertResult([
+            'hook_key' => 'article.content.generate',
             'generation_shape' => 'single_pass',
+            'shape_decision_cost_class' => 'paid',
         ]);
-        $this->insertAttempt($latest, 'paid', 'SUCCESS', true, 1);
+        $this->link(203, $older);
+        $this->link(203, $newer);
 
-        $mode = $this->modeFor(66);
+        self::assertGreaterThan($older, $newer);
+        self::assertSame('PAID · SINGLE', $this->modeFor(203)['label']);
+    }
 
-        self::assertGreaterThan($older, $latest);
-        self::assertSame('PAID', $mode['mode']);
-        self::assertSame('PAID · SINGLE', $mode['label']);
+    public function test_orchestrator_preferred_over_section_child_link(): void
+    {
+        $section = $this->insertResult([
+            'hook_key' => 'article.content.section.generate',
+            'generation_shape' => 'sectioned',
+            'is_free' => false,
+        ]);
+        $parent = $this->insertResult([
+            'hook_key' => 'article.content.generate',
+            'generation_shape' => 'sectioned',
+            'primary_is_free' => true,
+            'sectioned_free_orchestrator' => true,
+        ]);
+        // Newer section link first in id order — priority must still pick orchestrator.
+        $this->link(204, $parent);
+        $this->link(204, $section);
+
+        self::assertSame('FREE · SPLIT', $this->modeFor(204)['label']);
     }
 
     public function test_list_query_count_does_not_grow_with_row_count(): void
     {
-        foreach ([71, 72, 73, 74] as $taskId) {
-            $parentId = $this->insertResult($taskId, 'article.content.generate', 'completed', [
+        foreach ([301, 302, 303, 304] as $articleId) {
+            $resultId = $this->insertResult([
+                'hook_key' => 'article.content.generate',
                 'generation_shape' => 'sectioned',
+                'primary_is_free' => true,
+                'sectioned_free_orchestrator' => true,
             ]);
-            $sectionId = $this->insertResult($taskId, 'article.content.section.generate', 'completed', [
-                'parent_prompt_result_id' => $parentId,
-                'is_free' => true,
-            ]);
-            $this->pointChildren($parentId, [$sectionId]);
-            $this->insertAttempt($sectionId, 'free', 'SUCCESS', true, 1);
+            $this->link($articleId, $resultId);
         }
 
         $reader = new ContentProjectItemAiModeReadModel();
-        $reader->forTaskIds([71]);
+        $reader->apply([['article_id' => 301]]);
 
         $db = DB::connection($this->connection);
         $db->flushQueryLog();
         $db->enableQueryLog();
-        $reader->forTaskIds([71]);
+        $reader->apply([['article_id' => 301]]);
         $one = $db->getQueryLog();
 
         $db->flushQueryLog();
-        $reader->forTaskIds([71, 72, 73, 74]);
+        $reader->apply([
+            ['article_id' => 301],
+            ['article_id' => 302],
+            ['article_id' => 303],
+            ['article_id' => 304],
+        ]);
         $many = $db->getQueryLog();
 
         self::assertNotEmpty($one);
         self::assertCount(count($one), $many);
-        self::assertSame(1, $this->countSql($many, 'from "prompt_result_routing_attempts"'));
-        self::assertSame(1, $this->countSql($many, 'article.content.section.generate'));
-        self::assertLessThanOrEqual(8, count($many));
+        self::assertSame(1, $this->countSql($many, 'seo_prompt_result_links'));
+        self::assertSame(1, $this->countSql($many, 'prompt_results'));
+        self::assertLessThanOrEqual(4, count($many));
     }
 
-    public function test_classifier_does_not_treat_shape_as_cost_class(): void
+    public function test_classifier_maps_badge_cost_and_shape(): void
     {
-        $splitOnly = ContentProjectItemAiModeClassifier::classify([], 'sectioned');
-        self::assertNull($splitOnly['mode']);
-        self::assertSame('—', $splitOnly['label']);
-
-        $paidSplit = ContentProjectItemAiModeClassifier::classify(['paid', 'paid'], 'sectioned');
-        self::assertSame('PAID · SPLIT', $paidSplit['label']);
-
-        $mixed = ContentProjectItemAiModeClassifier::classify(['free', 'paid'], 'single_pass');
-        self::assertSame('MIXED · SINGLE', $mixed['label']);
+        self::assertSame(
+            'FREE · SPLIT',
+            ContentProjectItemAiModeClassifier::classify(['free'], 'sectioned')['label'],
+        );
+        self::assertSame(
+            'PAID · SINGLE',
+            ContentProjectItemAiModeClassifier::classify(['paid'], 'single_pass')['label'],
+        );
+        self::assertSame(
+            '—',
+            ContentProjectItemAiModeClassifier::classify([], 'sectioned')['label'],
+        );
     }
 
     /**
      * @param  array<string, mixed>  $snapshot
      */
-    private function insertResult(int $taskId, string $key, string $status, array $snapshot): int
+    private function insertResult(array $snapshot): int
     {
         return (int) DB::connection($this->connection)->table('prompt_results')->insertGetId([
             'prompt_id' => 1,
             'user_id' => 1,
             'site_id' => 1,
-            'status' => $status,
-            'canonical_prompt_key' => $key,
-            'project_item_id' => $taskId,
+            'status' => 'completed',
             'input_snapshot' => json_encode($snapshot, JSON_THROW_ON_ERROR),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
     }
 
-    private function insertAttempt(int $resultId, string $costClass, string $state, bool $attempted, int $sequence): void
+    private function link(int $articleId, int $promptResultId): void
     {
-        DB::connection($this->connection)->table('prompt_result_routing_attempts')->insert([
-            'prompt_result_id' => $resultId,
-            'sequence' => $sequence,
-            'cost_class' => $costClass,
-            'state' => $state,
-            'attempted' => $attempted,
+        DB::connection($this->connection)->table('seo_prompt_result_links')->insert([
+            'article_id' => $articleId,
+            'prompt_result_id' => $promptResultId,
+            'source' => 'test',
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
-    }
-
-    /**
-     * @param  list<int>  $childIds
-     */
-    private function pointChildren(int $parentId, array $childIds): void
-    {
-        $row = DB::connection($this->connection)->table('prompt_results')->where('id', $parentId)->first();
-        $snapshot = json_decode((string) ($row->input_snapshot ?? '{}'), true);
-        if (! is_array($snapshot)) {
-            $snapshot = [];
-        }
-        $snapshot['child_prompt_result_ids'] = $childIds;
-        DB::connection($this->connection)->table('prompt_results')->where('id', $parentId)->update([
-            'input_snapshot' => json_encode($snapshot, JSON_THROW_ON_ERROR),
         ]);
     }
 
     /**
      * @return array{mode: string|null, shape: string|null, label: string}
      */
-    private function modeFor(int $taskId): array
+    private function modeFor(int $articleId): array
     {
         $rows = (new ContentProjectItemAiModeReadModel())->apply([
-            ['task_id' => $taskId],
+            ['task_id' => 1, 'article_id' => $articleId],
         ]);
 
         return [
@@ -378,7 +265,7 @@ final class ContentProjectItemAiModeReadModelTest extends TestCase
     private function createSchema(): void
     {
         $schema = Schema::connection($this->connection);
-        $schema->dropIfExists('prompt_result_routing_attempts');
+        $schema->dropIfExists('seo_prompt_result_links');
         $schema->dropIfExists('prompt_results');
 
         $schema->create('prompt_results', function (Blueprint $table): void {
@@ -387,19 +274,15 @@ final class ContentProjectItemAiModeReadModelTest extends TestCase
             $table->unsignedBigInteger('user_id')->default(0);
             $table->unsignedBigInteger('site_id')->default(0);
             $table->string('status', 32)->default('pending');
-            $table->string('canonical_prompt_key', 191)->nullable();
-            $table->unsignedBigInteger('project_item_id')->nullable();
             $table->json('input_snapshot')->nullable();
             $table->timestamps();
         });
 
-        $schema->create('prompt_result_routing_attempts', function (Blueprint $table): void {
+        $schema->create('seo_prompt_result_links', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('article_id')->index();
             $table->unsignedBigInteger('prompt_result_id')->index();
-            $table->unsignedInteger('sequence')->default(1);
-            $table->string('cost_class', 32)->nullable();
-            $table->string('state', 32)->nullable();
-            $table->boolean('attempted')->default(false);
+            $table->string('source', 64)->nullable();
             $table->timestamps();
         });
     }
