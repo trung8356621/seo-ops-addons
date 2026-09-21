@@ -75,4 +75,63 @@ final class SeedingCommentPromptListVisibilityContractTest extends TestCase
         self::assertSame('seeding.comment.generate', DefaultSeedingCommentPromptInstaller::HOOK_KEY);
         self::assertSame('Generate seeding social comments (default)', DefaultSeedingCommentPromptInstaller::PROMPT_NAME);
     }
+
+    public function test_installer_does_not_create_duplicate_named_prompt(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(DefaultSeedingCommentPromptInstaller::class))->getFileName()
+        );
+        self::assertStringContainsString("where('hook_key', self::HOOK_KEY)", $src);
+        self::assertStringContainsString("where('name', self::PROMPT_NAME)", $src);
+        self::assertStringContainsString('create a second Prompt', $src);
+        self::assertStringContainsString('Keep canonical prompt_id', $src);
+        self::assertStringNotContainsString('PROMPT_NAME_ALT', $src);
+        self::assertLessThanOrEqual(1, substr_count($src, 'new SeoPrompt'));
+    }
+
+    public function test_seeding_resolver_reads_shared_prompt_markdown_not_legacy_settings_table(): void
+    {
+        $resolverPath = dirname(__DIR__, 3).'/seeding/src/Services/SeedingSharedCommentPromptResolver.php';
+        self::assertFileExists($resolverPath);
+        $src = (string) file_get_contents($resolverPath);
+        self::assertStringContainsString('resolveSettingsHook', $src);
+        self::assertStringContainsString('markdown_content', $src);
+        self::assertStringContainsString(
+            'Does not read seeding_comment_prompt_settings for execution authority',
+            $src,
+        );
+        // No query/table access beyond the doc comment above.
+        self::assertSame(
+            1,
+            substr_count($src, 'seeding_comment_prompt_settings'),
+            'resolver must not query legacy seeding_comment_prompt_settings',
+        );
+    }
+
+    public function test_prompt_resource_does_not_broaden_to_all_system_prompts(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(PromptResource::class))->getFileName()
+        );
+        // Still owner-scoped — do not open list to every is_system_default / all user_ids.
+        self::assertStringContainsString("where('user_id', SeoAccessControl::accountSiteOwnerId())", $src);
+        self::assertStringContainsString('shouldScopeToAccountOwner', $src);
+        self::assertStringNotContainsString('is_system_default', $src);
+        // SoftDeletes remains applied (comment may mention withoutGlobalScopes historically).
+        self::assertMatchesRegularExpression(
+            '/SoftDeletes scope giữ nguyên|deleted_at/',
+            $src
+        );
+        self::assertStringNotContainsString('->withoutGlobalScopes(', $src);
+    }
+
+    public function test_edit_prompt_page_still_owns_normal_save_path(): void
+    {
+        $editPath = dirname(__DIR__, 2).'/src/Filament/Resources/PromptResource/Pages/EditPrompt.php';
+        self::assertFileExists($editPath);
+        $src = (string) file_get_contents($editPath);
+        self::assertStringContainsString('mutateFormDataBeforeSave', $src);
+        self::assertStringContainsString('markdown_content', $src);
+        self::assertStringNotContainsString('seeding.comment.generate', $src);
+    }
 }
