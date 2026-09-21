@@ -248,7 +248,7 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         );
 
         self::assertStringContainsString('CONTEXT_MISMATCH', $policySource);
-        self::assertStringContainsString('Project does not belong to site context.', $policySource);
+        self::assertStringContainsString('Legacy project.site_id does not match site context.', $policySource);
         self::assertSame('context_mismatch', AgentErrorCodes::CONTEXT_MISMATCH);
         self::assertSame('missing_required_context', AgentErrorCodes::MISSING_REQUIRED_CONTEXT);
     }

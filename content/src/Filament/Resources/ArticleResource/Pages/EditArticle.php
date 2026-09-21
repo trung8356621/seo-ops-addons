@@ -98,6 +98,7 @@ use Omnichannel\Addons\SearchIntelligence\Support\RankMathSeoValueNormalizer;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard;
 use Omnichannel\Addons\Content\Support\ArticleEditorContentLifecycle;
 use Omnichannel\Addons\Content\Support\ArticleEditorPerfDebug;
+use Omnichannel\Addons\Content\Support\ArticleContentGenerationBadge;
 use Omnichannel\Addons\Content\Support\ArticleMetaMap;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticleEditorSessionErrorCode;
@@ -4143,6 +4144,8 @@ class EditArticle extends SeoEditRecord
             ],
             'faqCount' => (int) $this->record->faqs()->count(),
             'settings' => $this->getEditorCoreSettingsPayload($analysisPolicy, $externalFacts),
+            // FREE badge SSOT — must live on core bootstrap (blade no longer embeds getEditorMetaPayload).
+            'content_generation' => ArticleContentGenerationBadge::forArticleId($articleId),
             'aiHistoryPendingApply' => $aiHistoryPending,
         ];
 
@@ -4484,6 +4487,7 @@ class EditArticle extends SeoEditRecord
                 ? trim((string) $metaMap->get('gallery_description', ''))
                 : '',
             'ai_debug' => $this->getEditorAiDebugPayload(),
+            'content_generation' => ArticleContentGenerationBadge::forArticleId((int) $this->record->id),
             'supplemental_images' => $this->getEditorSupplementalImagesPayload(),
         ];
 

@@ -1095,6 +1095,7 @@ function readArticleEditorBootstrap() {
     let productCategoryOptions = [];
     let initialProductGallery = [];
     let aiDebug = { enabled: false };
+    let contentGeneration = { show_free_badge: false };
     let initialVirtualReviews = [];
     let mediaPickerUrl = '';
     let initialFaqs = [];
@@ -1159,6 +1160,11 @@ function readArticleEditorBootstrap() {
             }
             if (core?.settings && typeof core.settings === 'object') {
                 editorSettings = { ...editorSettings, ...core.settings };
+            }
+            if (core?.content_generation && typeof core.content_generation === 'object') {
+                contentGeneration = core.content_generation;
+            } else if (core?.contentGeneration && typeof core.contentGeneration === 'object') {
+                contentGeneration = core.contentGeneration;
             }
             if (core?.endpoints && typeof core.endpoints === 'object') {
                 lazyEndpoints = core.endpoints;
@@ -1289,6 +1295,9 @@ function readArticleEditorBootstrap() {
                 : [];
             initialProductGallery = Array.isArray(meta?.product_gallery) ? meta.product_gallery : [];
             aiDebug = meta?.ai_debug ?? { enabled: false };
+            if (meta?.content_generation && typeof meta.content_generation === 'object') {
+                contentGeneration = meta.content_generation;
+            }
             initialSupplementalImages = Array.isArray(meta?.supplemental_images)
                 ? meta.supplemental_images
                 : [];
@@ -1335,6 +1344,7 @@ function readArticleEditorBootstrap() {
         productCategoryOptions,
         initialProductGallery,
         aiDebug,
+        contentGeneration,
         initialVirtualReviews,
         mediaPickerUrl,
         initialFaqs,
@@ -1417,6 +1427,7 @@ function mountArticleEditorPage() {
         productCategoryOptions,
         initialProductGallery,
         aiDebug,
+        contentGeneration,
         initialVirtualReviews,
         mediaPickerUrl,
         initialFaqs,
@@ -1529,6 +1540,7 @@ function mountArticleEditorPage() {
                 editorSettings={{
                     ...(editorSettings && typeof editorSettings === 'object' ? editorSettings : {}),
                     ai_debug: aiDebug,
+                    content_generation: contentGeneration,
                 }}
                 mediaPickerUrl={mediaPickerUrl}
                 initialLoaiSanPham={initialLoaiSanPham}

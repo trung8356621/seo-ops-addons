@@ -28,8 +28,9 @@ class SeoProjectTaskSyncDataNormalizer
     public function normalize(SeoProject $project, array $tasksData, ?int $defaultSiteId = null): array
     {
         $projectId = (int) $project->id;
-        $canonicalSiteId = $this->canonicalSiteId($project, $defaultSiteId);
+        $legacyFallbackSiteId = $this->legacyFallbackSiteId($project, $defaultSiteId);
         $allowedSiteIds = $this->allowedSiteIds();
+        $persistedTaskSites = $this->persistedTaskSiteMap($tasksData);
         $out = [];
 
         foreach ($tasksData as $index => $row) {
@@ -75,10 +76,21 @@ class SeoProjectTaskSyncDataNormalizer
                 continue;
             }
 
-            // Project.site_id is the ownership source of truth. Ignore stale
-            // tasks_data[*].site_id — the edit repeater no longer exposes a
-            // per-item domain selector, so leftover hidden values must not win.
-            $siteId = $canonicalSiteId;
+            $taskIdRaw = (int) ($row['id'] ?? $row['task_id'] ?? 0);
+            $taskId = $taskIdRaw > 0 ? $taskIdRaw : null;
+
+            // Canonical ownership = task.site_id. project.site_id is legacy fallback for new rows only.
+            $siteId = 0;
+            if ($taskId !== null && isset($persistedTaskSites[$taskId]) && $persistedTaskSites[$taskId] > 0) {
+                $siteId = $persistedTaskSites[$taskId];
+            } else {
+                $fromRow = (int) ($row['site_id'] ?? 0);
+                if ($fromRow > 0) {
+                    $siteId = $fromRow;
+                } elseif ($legacyFallbackSiteId > 0) {
+                    $siteId = $legacyFallbackSiteId;
+                }
+            }
 
             if ($siteId <= 0 || ! in_array($siteId, $allowedSiteIds, true)) {
                 throw ValidationException::withMessages([
@@ -114,9 +126,6 @@ class SeoProjectTaskSyncDataNormalizer
                 $notes = trim((string) ($row['rewrite_notes'] ?? $row['improve_instruction'] ?? ''));
                 $rewriteNotes = $notes !== '' ? $notes : null;
             }
-
-            $taskIdRaw = (int) ($row['id'] ?? $row['task_id'] ?? 0);
-            $taskId = $taskIdRaw > 0 ? $taskIdRaw : null;
 
             $sourceKey = $this->sourceKeys->generate($projectId, $type, $postType, $content);
 
@@ -209,13 +218,12 @@ class SeoProjectTaskSyncDataNormalizer
     }
 
     /**
-     * Canonical site for project-item sync.
+     * Legacy fallback site for *new* rows only (no persisted task.site_id).
      *
-     * Persisted project.site_id always wins. Compatibility helpers that run
-     * without a persisted project may pass defaultSiteId (create-form site).
-     * Row-level site_id is never authoritative.
+     * project.site_id is compatibility metadata — never overrides an existing task site.
+     * Create-form helpers may pass defaultSiteId when the project stub has no site.
      */
-    public function canonicalSiteId(SeoProject $project, ?int $defaultSiteId = null): int
+    public function legacyFallbackSiteId(SeoProject $project, ?int $defaultSiteId = null): int
     {
         $fromProject = $project->site_id !== null ? (int) $project->site_id : 0;
         if ($fromProject > 0) {
@@ -223,6 +231,54 @@ class SeoProjectTaskSyncDataNormalizer
         }
 
         return (int) ($defaultSiteId ?? 0);
+    }
+
+    /**
+     * @deprecated Use legacyFallbackSiteId — project.site_id is not domain ownership.
+     */
+    public function canonicalSiteId(SeoProject $project, ?int $defaultSiteId = null): int
+    {
+        return $this->legacyFallbackSiteId($project, $defaultSiteId);
+    }
+
+    /**
+     * @param  list<mixed>  $tasksData
+     * @return array<int, int> taskId => positive site_id
+     */
+    protected function persistedTaskSiteMap(array $tasksData): array
+    {
+        $ids = [];
+        foreach ($tasksData as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (int) ($row['id'] ?? $row['task_id'] ?? 0);
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        if ($ids === []) {
+            return [];
+        }
+
+        try {
+            /** @var array<int, int> $map */
+            $map = [];
+            SeoProjectTask::query()
+                ->whereIn('id', $ids)
+                ->whereNotNull('site_id')
+                ->where('site_id', '>', 0)
+                ->get(['id', 'site_id'])
+                ->each(static function (SeoProjectTask $task) use (&$map): void {
+                    $map[(int) $task->id] = (int) $task->site_id;
+                });
+
+            return $map;
+        } catch (\Throwable) {
+            // Unit stubs without DB: fall through to row / legacy project fallback.
+            return [];
+        }
     }
 
     /**

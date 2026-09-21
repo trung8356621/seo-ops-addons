@@ -30,15 +30,16 @@ final class ProjectTaskCallerBridge
     {
         $taskId = (int) $task->id;
         $task->loadMissing('project');
-        $canonicalSiteId = (int) ($task->project?->site_id ?? 0);
+        $canonicalSiteId = (int) ($task->site_id ?? 0);
         if ($canonicalSiteId <= 0) {
-            $canonicalSiteId = (int) ($siteId ?? $task->site_id ?? 0);
+            // Legacy fallback only — project.site_id is not canonical ownership.
+            $canonicalSiteId = (int) ($siteId ?? $task->project?->site_id ?? 0);
         }
         if ($canonicalSiteId <= 0
             || LocalArticleAssociationGuard::resolveLocalArticleId($articleId, $canonicalSiteId) === null
         ) {
             throw new \InvalidArgumentException(
-                'Article must belong to the same site as this project.',
+                'Article must belong to the same site as this item (task.site_id).',
             );
         }
         $siteId = $canonicalSiteId > 0 ? $canonicalSiteId : $siteId;

@@ -413,6 +413,7 @@ export default function SeoArticleEditor({
     const parentChildAllowed = Boolean(parentChildAllowedProp);
     const parentChildReason = String(parentChildReasonProp ?? '').trim();
     const historyStep = editorSettings?.history_step ?? 20;
+    const showFreeGenerationBadge = Boolean(editorSettings?.content_generation?.show_free_badge);
     const connectionHashRef = useRef(connectionHash);
     connectionHashRef.current = connectionHash;
     const siteIdRef = useRef(siteId);
@@ -1761,12 +1762,21 @@ export default function SeoArticleEditor({
             <div className="editor-container">
                     <div className="max-w-none space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-xs font-medium text-gray-500 dark:text-gray-300">
+                            <div className="seo-editor-meta-wordcount flex flex-wrap items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-300">
                                 {contentLoading && contentLifecycle.wordpress_linked
                                     ? t('content_wp_loading')
                                     : syncRequired
                                     ? t('content_wp_loading')
-                                    : `${t('editor_total_words')}: ${totalWordCount}`}
+                                    : (
+                                        <>
+                                            {showFreeGenerationBadge ? (
+                                                <span className="seo-editor-free-badge" aria-label="FREE">
+                                                    FREE
+                                                </span>
+                                            ) : null}
+                                            <span>{`${t('editor_total_words')}: ${totalWordCount}`}</span>
+                                        </>
+                                    )}
                             </div>
                             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                                 <button

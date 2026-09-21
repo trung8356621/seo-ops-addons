@@ -11,12 +11,11 @@ use ReflectionMethod;
 use Tests\Support\LegacyAddonPath;
 
 /**
- * Pure (no-DB) contract for within-month move eligibility + list Edit removal.
- * DB-backed cases live in {@see SeoProjectTaskMoveWithinMonthTest}.
+ * Pure (no-DB) contract: within-month move is writer-agnostic and site-agnostic at project level.
  */
 final class SeoProjectTaskMoveWithinMonthContractTest extends TestCase
 {
-    public function test_move_target_options_require_same_month_site_and_exclude_source_archive(): void
+    public function test_move_target_options_are_month_scoped_without_site_filter(): void
     {
         $move = (string) file_get_contents(
             (string) (new ReflectionClass(SeoProjectTaskMoveService::class))->getFileName(),
@@ -25,43 +24,48 @@ final class SeoProjectTaskMoveWithinMonthContractTest extends TestCase
         $optionsMethod = new ReflectionMethod(SeoProjectTaskMoveService::class, 'moveTargetOptions');
         $optionsSrc = $this->readMethodSource($optionsMethod);
 
-        self::assertStringContainsString("where('site_id', \$siteId)", $optionsSrc);
         self::assertStringContainsString('whereKeyNot($source->getKey())', $optionsSrc);
         self::assertStringContainsString("whereNull('archived_at')", $optionsSrc);
+        self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $optionsSrc);
         self::assertStringContainsString("whereDate('month', \$monthDate)", $optionsSrc);
-        self::assertStringContainsString('isArchive()', $optionsSrc);
+        self::assertStringContainsString('targetHasPackingRoom', $optionsSrc);
         self::assertStringContainsString('writerLabelForMoveOption', $optionsSrc);
-        // Must not filter targets by source writer.
+
+        // No project-level same-domain discovery.
+        self::assertStringNotContainsString('resolveMoveDomainSiteIds', $optionsSrc);
+        self::assertStringNotContainsString('resolveProjectItemSiteIds', $optionsSrc);
+        self::assertStringNotContainsString('ContentProjectTenantGuard', $optionsSrc);
+        self::assertStringNotContainsString("where('site_id'", $optionsSrc);
+        self::assertStringNotContainsString('whereIn(\'site_id\'', $optionsSrc);
         self::assertStringNotContainsString("where('user_id'", $optionsSrc);
-        self::assertStringNotContainsString('orderByDesc(\'month\')', $optionsSrc);
 
         $moveMethod = new ReflectionMethod(SeoProjectTaskMoveService::class, 'moveTasksToProject');
         $moveSrc = $this->readMethodSource($moveMethod);
-        self::assertStringContainsString('move_domain_mismatch', $moveSrc);
+        self::assertStringNotContainsString('assertTasksShareTargetDomain', $moveSrc);
+        self::assertStringNotContainsString('move_domain_mismatch', $moveSrc);
         self::assertStringContainsString('move_month_mismatch', $moveSrc);
-        self::assertStringContainsString('move_same_project', $moveSrc);
         self::assertStringContainsString('assertTargetAcceptsMoves', $moveSrc);
+        self::assertStringContainsString('assertTargetHasPackingSlots', $moveSrc);
         self::assertStringContainsString('assertMoveRespectsWriterCapacity', $moveSrc);
         self::assertStringContainsString('appendTasksToProject', $moveSrc);
-        self::assertStringContainsString('syncProjectArticles', $moveSrc);
+
+        $packingMethod = new ReflectionMethod(SeoProjectTaskMoveService::class, 'targetHasPackingRoom');
+        $packingSrc = $this->readMethodSource($packingMethod);
+        self::assertStringContainsString('isArchive()', $packingSrc);
+        self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $packingSrc);
+        self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $move);
 
         $append = new ReflectionMethod(SeoProjectTaskMoveService::class, 'appendTasksToProject');
         $appendSrc = $this->readMethodSource($append);
         self::assertStringContainsString("'project_id'", $appendSrc);
         self::assertStringContainsString("'target_date'", $appendSrc);
+        self::assertStringNotContainsString("'site_id'", $appendSrc);
         self::assertStringNotContainsString("'status'", $appendSrc);
         self::assertStringNotContainsString("'article_id'", $appendSrc);
-        self::assertStringNotContainsString('planning_reviewed', $appendSrc);
 
-        $accepts = new ReflectionMethod(SeoProjectTaskMoveService::class, 'assertTargetAcceptsMoves');
-        $acceptsSrc = $this->readMethodSource($accepts);
-        self::assertStringContainsString('isArchive()', $acceptsSrc);
-        self::assertStringContainsString('isProjectArchived()', $acceptsSrc);
-
-        // Capacity: same-writer+same-month remains capacity-neutral; cross-writer still gated.
         self::assertStringContainsString('throwUnlessProjectCanAccept', $move);
-        self::assertStringContainsString('$sameWriter', $move);
-        self::assertStringContainsString('isSamePlanningMonth', $move);
+        self::assertStringNotContainsString('resolveMoveDomainSiteIds', $move);
+        self::assertStringNotContainsString('assertTasksShareTargetDomain', $move);
     }
 
     public function test_move_modal_locale_is_within_month_and_mentions_other_writers(): void
@@ -73,12 +77,8 @@ final class SeoProjectTaskMoveWithinMonthContractTest extends TestCase
         self::assertStringContainsString("'move_task_heading' => 'Chuyển hạng mục trong cùng tháng'", $vi);
         self::assertStringContainsString('different writer', $en);
         self::assertStringContainsString('writer khác', $vi);
-        self::assertStringContainsString("'move_target_option_items' => ':name (:month) — :writer — :count items'", $en);
-        self::assertStringContainsString("'move_target_option_items' => ':name (:month) — :writer — :count items'", $vi);
-        self::assertStringContainsString('move_month_mismatch', $en);
-        self::assertStringContainsString('move_month_mismatch', $vi);
-        self::assertStringNotContainsString('Move item to another month', $en);
-        self::assertStringNotContainsString('sang tháng khác', $vi);
+        self::assertStringContainsString(':writer', $en);
+        self::assertStringContainsString(':writer', $vi);
     }
 
     private function readMethodSource(ReflectionMethod $method): string

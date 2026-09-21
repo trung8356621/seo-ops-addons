@@ -114,11 +114,11 @@ final class SelectExistingArticleForProjectItemHandler extends AbstractPublishin
                         );
                     }
 
-                    $siteId = (int) ($project->site_id ?? 0);
+                    $siteId = (int) ($task->site_id ?? 0);
                     if ($siteId <= 0 || ! $this->articleReconciler->articleBelongsToSite($articleId, $siteId)) {
                         return ContentProjectActionResult::fail(
                             ContentProjectActionCodes::VALIDATION_FAILED,
-                            'Article must belong to the same site as this project.',
+                            'Article must belong to the same site as this item (task.site_id).',
                             $projectId,
                             affectedItemIds: [$taskId],
                             metadata: ['reason' => 'article_wrong_site'],

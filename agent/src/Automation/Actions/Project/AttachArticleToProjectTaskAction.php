@@ -58,13 +58,17 @@ final class AttachArticleToProjectTaskAction implements BusinessAction
         }
 
         $task->loadMissing('project');
-        $canonicalSiteId = (int) ($task->project?->site_id ?? $task->site_id ?? 0);
+        $canonicalSiteId = (int) ($task->site_id ?? 0);
+        if ($canonicalSiteId <= 0) {
+            // Legacy fallback only — project.site_id is not canonical ownership.
+            $canonicalSiteId = (int) ($task->project?->site_id ?? 0);
+        }
         if ($canonicalSiteId <= 0
             || LocalArticleAssociationGuard::resolveLocalArticleId($articleId, $canonicalSiteId) === null
         ) {
             return ActionResult::failure(
                 'article_wrong_site',
-                'Article must belong to the same site as this project.',
+                'Article must belong to the same site as this item (task.site_id).',
             );
         }
 

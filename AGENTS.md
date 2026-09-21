@@ -22,6 +22,7 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | WP sync | `wordpress/` |
 | Publishing | `publishing/` |
 | Content Project | `content-projects/` |
+| **Content Project architecture (domain ownership)** | `docs/modules/CONTENT_PROJECT_ARCHITECTURE.md` — Project is domain-neutral; **item/task.site_id** is canonical site ownership |
 | AI/prompt | `ai-prompt/` |
 | Site Sync | `site-sync/` |
 | Agent/MCP | `agent/` |

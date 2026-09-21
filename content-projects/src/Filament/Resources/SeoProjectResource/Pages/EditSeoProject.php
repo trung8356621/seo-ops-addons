@@ -94,6 +94,7 @@ class EditSeoProject extends SeoEditRecord
         }
 
         $projectSiteId = isset($data['site_id']) ? (int) $data['site_id'] : null;
+        // projectSiteId is legacy fallback for *new* rows only; existing task.site_id is preserved in the normalizer.
         $sanitized = app(SeoProjectTaskSyncService::class)->sanitizeTasksData($tasksData, $projectSiteId);
 
         app(SeoProjectTaskSyncService::class)->assertNoDuplicateTasksData($record, is_array($tasksData) ? $tasksData : []);

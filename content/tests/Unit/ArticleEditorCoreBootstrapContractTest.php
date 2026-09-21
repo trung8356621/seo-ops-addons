@@ -28,9 +28,12 @@ final class ArticleEditorCoreBootstrapContractTest extends TestCase
             "'expectedContentHash'", "'featuredImageUrl'", "'supportsProductGallery'", "'isCanaryProduct'",
             "'parentChildAllowed'", "'parentChildReason'",
             "'endpoints'", "'settings'",
+            "'content_generation'",
         ] as $needle) {
             self::assertStringContainsString($needle, $body, "core bootstrap missing key {$needle}");
         }
+
+        self::assertStringContainsString('ArticleContentGenerationBadge::forArticleId', $body);
 
         foreach ([
             'seoSummary', 'images', 'faqs', 'faqsCount', 'meta', 'links', 'linksSuggestions', 'vocabulary', 'settings', 'mediaPickerConfig',

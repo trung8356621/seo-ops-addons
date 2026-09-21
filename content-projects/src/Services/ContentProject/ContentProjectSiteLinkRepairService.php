@@ -75,10 +75,30 @@ final class ContentProjectSiteLinkRepairService
         }
 
         if ($projectSiteId <= 0) {
+            // Domain-neutral project: task.site_id is ownership; do not require project.site_id.
+            if ($taskSiteId > 0) {
+                if ($articleId > 0 && $articleSiteId > 0 && $articleSiteId !== $taskSiteId) {
+                    return [
+                        'decision' => self::DECISION_DETACH_AND_RECONCILE,
+                        'problem' => 'attached_article_wrong_site',
+                        'proposed' => [
+                            'detach task.article_id (article.site_id !== task.site_id)',
+                            'leave unlinked — no auto-reconcile',
+                        ],
+                    ];
+                }
+
+                return [
+                    'decision' => self::DECISION_OK,
+                    'problem' => '',
+                    'proposed' => [],
+                ];
+            }
+
             return [
                 'decision' => self::STATUS_NEEDS_ATTENTION,
-                'problem' => 'project_site_missing',
-                'proposed' => ['manual: set SeoProject.site_id before repair'],
+                'problem' => 'task_site_missing_on_domain_neutral_project',
+                'proposed' => ['manual: set task.site_id (project.site_id is not required)'],
             ];
         }
 

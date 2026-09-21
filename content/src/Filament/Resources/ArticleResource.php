@@ -2086,7 +2086,10 @@ class ArticleResource extends SeoPanelResource
             ->with(['site', 'user'])
             ->orderByDesc('month')
             ->orderBy('id')
-            ->where('site_id', $siteId)
+            ->where(function ($builder) use ($siteId): void {
+                // Domain-neutral EPs (null site_id) are eligible; legacy rows may still match site_id.
+                $builder->whereNull('site_id')->orWhere('site_id', $siteId);
+            })
             ->where(function ($builder): void {
                 $builder->where('kind', SeoProject::KIND_MONTHLY)->orWhereNull('kind');
             });
@@ -2098,9 +2101,9 @@ class ArticleResource extends SeoPanelResource
         return $query
             ->get()
             ->filter(fn (SeoProject $project): bool => $project->canRegisterMoreTasks())
-            ->mapWithKeys(function (SeoProject $project): array {
+            ->mapWithKeys(function (SeoProject $project) use ($siteId): array {
                 $remaining = $project->remainingTaskCapacity();
-                $domain = trim((string) ($project->site?->domain ?? ''));
+                $domain = self::contentProjectOptionDomainLabel($project, $siteId);
                 $writer = $project->user instanceof User
                     ? SeoProjectResource::formatUserSelectLabel($project->user)
                     : '';
@@ -2109,7 +2112,7 @@ class ArticleResource extends SeoPanelResource
                     (int) $project->id => sprintf(
                         '%s · %s · %s (%s, còn %d)',
                         (string) $project->name,
-                        $domain !== '' ? $domain : '—',
+                        $domain,
                         $writer !== '' ? $writer : '—',
                         $project->monthCarbon()->format('m/Y'),
                         $remaining,
@@ -2117,6 +2120,21 @@ class ArticleResource extends SeoPanelResource
                 ];
             })
             ->all();
+    }
+
+    /**
+     * Domain-neutral projects must not present $project->site as authoritative ownership.
+     */
+    private static function contentProjectOptionDomainLabel(SeoProject $project, int $_workingSiteId): string
+    {
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        if ($projectSiteId <= 0) {
+            return 'multi-domain';
+        }
+
+        $domain = trim((string) ($project->site?->domain ?? ''));
+
+        return $domain !== '' ? $domain : '—';
     }
 
     /**
@@ -2140,7 +2158,9 @@ class ArticleResource extends SeoPanelResource
             ->with(['site', 'user'])
             ->orderByDesc('month')
             ->orderBy('id')
-            ->where('site_id', $siteId)
+            ->where(function ($builder) use ($siteId): void {
+                $builder->whereNull('site_id')->orWhere('site_id', $siteId);
+            })
             ->whereNull('archived_at')
             ->where(function ($builder): void {
                 $builder->where('kind', SeoProject::KIND_MONTHLY)->orWhereNull('kind');
@@ -2152,9 +2172,9 @@ class ArticleResource extends SeoPanelResource
 
         $options = $query
             ->get()
-            ->mapWithKeys(function (SeoProject $project): array {
+            ->mapWithKeys(function (SeoProject $project) use ($siteId): array {
                 $remaining = $project->remainingTaskCapacity();
-                $domain = trim((string) ($project->site?->domain ?? ''));
+                $domain = self::contentProjectOptionDomainLabel($project, $siteId);
                 $capacityLabel = $remaining > 0
                     ? sprintf('còn %d', $remaining)
                     : 'đầy';
@@ -2163,7 +2183,7 @@ class ArticleResource extends SeoPanelResource
                     (int) $project->id => sprintf(
                         '%s · %s (%s, %s)',
                         (string) $project->name,
-                        $domain !== '' ? $domain : '—',
+                        $domain,
                         $project->monthCarbon()->format('m/Y'),
                         $capacityLabel,
                     ),
@@ -2179,16 +2199,17 @@ class ArticleResource extends SeoPanelResource
             $selected = SeoProject::query()
                 ->with(['site'])
                 ->whereKey($includeSelectedProjectId)
-                ->where('site_id', $siteId)
+                ->where(function ($builder) use ($siteId): void {
+                    $builder->whereNull('site_id')->orWhere('site_id', $siteId);
+                })
                 ->whereNull('archived_at')
                 ->first();
             if ($selected instanceof SeoProject) {
-                $domain = trim((string) ($selected->site?->domain ?? ''));
                 $remaining = $selected->remainingTaskCapacity();
                 $options[(int) $selected->id] = sprintf(
                     '%s · %s (%s, %s)',
                     (string) $selected->name,
-                    $domain !== '' ? $domain : '—',
+                    self::contentProjectOptionDomainLabel($selected, $siteId),
                     $selected->monthCarbon()->format('m/Y'),
                     $remaining > 0 ? sprintf('còn %d', $remaining) : 'đầy',
                 );

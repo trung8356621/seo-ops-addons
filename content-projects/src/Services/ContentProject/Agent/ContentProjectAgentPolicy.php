@@ -86,22 +86,13 @@ final class ContentProjectAgentPolicy
         }
 
         $projectSiteId = (int) ($project->site_id ?? 0);
-        // Shared Draft is domain-neutral — working Site comes from agent site_ref / command.siteId.
-        if ($projectSiteId > 0 && $projectSiteId !== $siteId) {
+        // Legacy only: when project.site_id is set, soft-match working site_ref.
+        // Domain-neutral projects (null site_id) — Shared Draft AND execution — are valid;
+        // working Site comes from agent site_ref / command.siteId / task.site_id.
+        if ($projectSiteId > 0 && $siteId > 0 && $projectSiteId !== $siteId) {
             return AgentCapabilityResult::fail(
                 AgentErrorCodes::CONTEXT_MISMATCH,
-                'Project does not belong to site context.',
-                data: [
-                    'required' => ['project_ref'],
-                    'mismatch' => 'site_ref',
-                ],
-            );
-        }
-
-        if ($projectSiteId <= 0 && ! $project->isDraftPlanning()) {
-            return AgentCapabilityResult::fail(
-                AgentErrorCodes::CONTEXT_MISMATCH,
-                'Project does not belong to site context.',
+                'Legacy project.site_id does not match site context.',
                 data: [
                     'required' => ['project_ref'],
                     'mismatch' => 'site_ref',

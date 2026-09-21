@@ -114,7 +114,10 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         continue;
                     }
 
-                    $projectSiteId = (int) ($target->site_id ?? $project->site_id ?? 0);
+                    $rowSiteId = (int) ($row['site_id'] ?? 0);
+                    $projectSiteId = $rowSiteId > 0
+                        ? $rowSiteId
+                        : (int) ($target->site_id ?? $project->site_id ?? 0);
                     $rawArticleId = isset($row['article_id']) ? (int) $row['article_id'] : 0;
                     $localArticleId = $rawArticleId > 0
                         ? LocalArticleAssociationGuard::resolveLocalArticleId(

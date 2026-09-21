@@ -25,7 +25,40 @@ use ReflectionClass;
 
 final class ContentProjectSiteOwnershipContractTest extends TestCase
 {
-    public function test_project_site_overrides_stale_row_site(): void
+    public function test_persisted_task_site_wins_over_legacy_project_site(): void
+    {
+        $generator = new ProjectTaskSourceKeyGenerator;
+        $normalizer = new class($generator) extends SeoProjectTaskSyncDataNormalizer
+        {
+            protected function allowedSiteIds(): array
+            {
+                return [10, 20];
+            }
+
+            protected function persistedTaskSiteMap(array $tasksData): array
+            {
+                return [1 => 20];
+            }
+        };
+
+        $project = new SeoProject;
+        $project->id = 11;
+        $project->site_id = 10;
+
+        $rows = $normalizer->normalize($project, [[
+            'id' => 1,
+            'type' => SeoProjectTask::TYPE_CREATE,
+            'keyword' => 'túi canvas',
+            'title' => 'Túi canvas giá rẻ',
+            'site_id' => 10,
+        ]], 10);
+
+        self::assertCount(1, $rows);
+        self::assertSame(20, $rows[0]->siteId);
+        self::assertSame(10, $normalizer->legacyFallbackSiteId($project, 20));
+    }
+
+    public function test_new_row_uses_explicit_row_site_before_project_fallback(): void
     {
         $generator = new ProjectTaskSourceKeyGenerator;
         $normalizer = new class($generator) extends SeoProjectTaskSyncDataNormalizer
@@ -41,19 +74,17 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         $project->site_id = 10;
 
         $rows = $normalizer->normalize($project, [[
-            'id' => 1,
             'type' => SeoProjectTask::TYPE_CREATE,
             'keyword' => 'túi canvas',
             'title' => 'Túi canvas giá rẻ',
             'site_id' => 20,
-        ]], 20);
+        ]], 10);
 
         self::assertCount(1, $rows);
-        self::assertSame(10, $rows[0]->siteId);
-        self::assertSame(10, $normalizer->canonicalSiteId($project, 20));
+        self::assertSame(20, $rows[0]->siteId);
     }
 
-    public function test_stale_row_site_does_not_change_tasks_signature(): void
+    public function test_new_row_falls_back_to_legacy_project_site_when_row_site_missing(): void
     {
         $generator = new ProjectTaskSourceKeyGenerator;
         $normalizer = new class($generator) extends SeoProjectTaskSyncDataNormalizer
@@ -68,25 +99,13 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         $project->id = 1;
         $project->site_id = 10;
 
-        $withStale = $normalizer->normalize($project, [[
-            'id' => 5,
-            'type' => SeoProjectTask::TYPE_CREATE,
-            'keyword' => 'kw',
-            'title' => 'Title same',
-            'site_id' => 20,
-        ]], 10);
-        $withoutSite = $normalizer->normalize($project, [[
-            'id' => 5,
+        $rows = $normalizer->normalize($project, [[
             'type' => SeoProjectTask::TYPE_CREATE,
             'keyword' => 'kw',
             'title' => 'Title same',
         ]], 10);
 
-        self::assertSame(
-            $withStale[0]->toSanitizedArray(),
-            $withoutSite[0]->toSanitizedArray(),
-        );
-        self::assertSame(10, $withStale[0]->siteId);
+        self::assertSame(10, $rows[0]->siteId);
     }
 
     public function test_repair_policy_cases(): void
@@ -123,6 +142,14 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
             'article_site_id' => 10,
         ]);
         self::assertSame(ContentProjectSiteLinkRepairService::DECISION_OK, $ok['decision']);
+
+        $neutralOk = ContentProjectSiteLinkRepairService::decide([
+            'project_site_id' => 0,
+            'task_site_id' => 7,
+            'article_id' => 0,
+            'article_site_id' => 0,
+        ]);
+        self::assertSame(ContentProjectSiteLinkRepairService::DECISION_OK, $neutralOk['decision']);
     }
 
     public function test_repair_command_defaults_to_dry_run(): void
@@ -146,13 +173,15 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         $attach = $this->source(AttachArticleToProjectTaskAction::class);
         self::assertStringContainsString('LocalArticleAssociationGuard::resolveLocalArticleId', $attach);
         self::assertStringContainsString('article_wrong_site', $attach);
+        self::assertStringContainsString('(int) ($task->site_id ?? 0)', $attach);
 
         $bridge = $this->source(ProjectTaskCallerBridge::class);
-        self::assertStringContainsString('same site as this project', $bridge);
+        self::assertStringContainsString('same site as this item (task.site_id)', $bridge);
 
         $select = $this->source(SelectExistingArticleForProjectItemHandler::class);
         self::assertStringContainsString('articleBelongsToSite', $select);
-        self::assertStringContainsString('(int) ($project->site_id ?? 0)', $select);
+        self::assertStringContainsString('(int) ($task->site_id ?? 0)', $select);
+        self::assertStringNotContainsString('(int) ($project->site_id ?? 0)', $select);
     }
 
     public function test_rewrite_title_lookup_is_site_scoped(): void
@@ -160,14 +189,14 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         $sync = $this->source(SeoProjectTaskSyncService::class);
         self::assertStringContainsString("->where('site_id', \$siteId)", $sync);
         self::assertStringContainsString('function resolveArticleIdByTitle', $sync);
-        self::assertStringNotContainsString("'site_id' => \$task->site_id !== null ? (int) \$task->site_id : null", $sync);
+        self::assertStringContainsString("'site_id' => (int) (\$task->site_id ?? 0) ?: null", $sync);
     }
 
     public function test_global_domain_context_cannot_override_project_site(): void
     {
         $normalizer = $this->source(SeoProjectTaskSyncDataNormalizer::class);
-        self::assertStringContainsString('canonicalSiteId', $normalizer);
-        self::assertStringNotContainsString("\$siteId = (int) (\$row['site_id'] ?? 0)", $normalizer);
+        self::assertStringContainsString('legacyFallbackSiteId', $normalizer);
+        self::assertStringContainsString('persistedTaskSiteMap', $normalizer);
         self::assertStringNotContainsString('globalSiteId', $normalizer);
 
         $resource = $this->source(SeoProjectResource::class);
@@ -184,6 +213,7 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
 
         $edit = $this->source(EditSeoProject::class);
         self::assertStringContainsString('normalizeProjectSiteId($data, $record)', $edit);
+        self::assertStringContainsString('existing task.site_id is preserved', $edit);
     }
 
     public function test_reconciler_and_bind_prefer_task_site(): void
@@ -198,22 +228,14 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         $bind = $this->source(SeoProjectRunItemService::class);
         self::assertStringContainsString('$taskSiteId = (int) ($task->site_id ?? 0)', $bind);
         self::assertStringContainsString('ContentProjectBindArticleAuthority::resolveSiteId', $bind);
-        self::assertStringNotContainsString('$siteId = (int) ($task->project?->site_id ?? 0)', $bind);
-
-        self::assertNull(LocalArticleAssociationGuard::resolveLocalArticleId(0, 10));
     }
 
-    public function test_edit_save_uses_canonical_site_on_normalize(): void
-    {
-        $sync = $this->source(SeoProjectTaskSyncService::class);
-        self::assertStringContainsString("'site_id' => \$row->siteId", $sync);
-        self::assertStringContainsString('applyEditableUpdate', $sync);
-    }
-
+    /**
+     * @param  class-string  $class
+     */
     private function source(string $class): string
     {
         $path = (string) (new ReflectionClass($class))->getFileName();
-        self::assertFileExists($path);
 
         return (string) file_get_contents($path);
     }

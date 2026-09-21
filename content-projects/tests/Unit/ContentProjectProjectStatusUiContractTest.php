@@ -109,8 +109,12 @@ final class ContentProjectProjectStatusUiContractTest extends TestCase
         self::assertStringContainsString('move_month_mismatch', $move);
         self::assertStringContainsString('whereDate(\'month\'', $move);
         self::assertStringContainsString('whereNull(\'archived_at\')', $move);
+        self::assertStringContainsString('STATUS_DRAFT', $move);
         self::assertStringContainsString('writerLabelForMoveOption', $move);
         self::assertStringContainsString('isSamePlanningMonth', $move);
+        self::assertStringNotContainsString('resolveMoveDomainSiteIds', $move);
+        self::assertStringNotContainsString('assertTasksShareTargetDomain', $move);
+        self::assertStringNotContainsString('ContentProjectTenantGuard', $move);
         // Writer identity is not an eligibility filter — capacity gate remains.
         self::assertStringNotContainsString("->where('user_id'", $move);
 

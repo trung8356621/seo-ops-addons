@@ -9,8 +9,9 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectContinuationService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectContinuationService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -77,43 +78,45 @@ final class SeoProjectTaskMoveService
                 return $this->restoreToSourceDraftAndDelete($locked);
             }
 
+            $activeTasks = $locked->tasks()
+                ->active()
+                ->lockForUpdate()
+                ->get();
+
+            // Empty project: always deletable (items may already have been moved away;
+            // leftover runs/status must not block cleanup).
+            if ($activeTasks->isEmpty()) {
+                $archivedTasks = $locked->tasks()
+                    ->archived()
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($archivedTasks as $archivedTask) {
+                    $archivedTask->delete();
+                }
+
+                $locked->delete();
+
+                return [
+                    'deleted' => true,
+                    'moved' => 0,
+                    'restored' => 0,
+                    'target_project_id' => null,
+                    'target_month' => null,
+                ];
+            }
+
             if ($this->hasStartedExecution($locked)) {
                 throw ValidationException::withMessages([
                     'project' => __('seo-content-ai::filament.projects.delete_blocked_already_started'),
                 ]);
             }
 
-            $activeTasks = $locked->tasks()
-                ->active()
-                ->lockForUpdate()
-                ->get();
-
-            if ($activeTasks->isNotEmpty()) {
-                throw ValidationException::withMessages([
-                    'project' => __('seo-content-ai::filament.projects.delete_blocked_has_items', [
-                        'count' => $activeTasks->count(),
-                    ]),
-                ]);
-            }
-
-            $archivedTasks = $locked->tasks()
-                ->archived()
-                ->lockForUpdate()
-                ->get();
-
-            foreach ($archivedTasks as $archivedTask) {
-                $archivedTask->delete();
-            }
-
-            $locked->delete();
-
-            return [
-                'deleted' => true,
-                'moved' => 0,
-                'restored' => 0,
-                'target_project_id' => null,
-                'target_month' => null,
-            ];
+            throw ValidationException::withMessages([
+                'project' => __('seo-content-ai::filament.projects.delete_blocked_has_items', [
+                    'count' => $activeTasks->count(),
+                ]),
+            ]);
         });
     }
 
@@ -272,8 +275,8 @@ final class SeoProjectTaskMoveService
     }
 
     /**
-     * Chuyển một hoặc nhiều task sang project cùng tháng + cùng domain
-     * (writer đích có thể khác; status/AI data giữ nguyên).
+     * Chuyển một hoặc nhiều task sang project cùng tháng planning
+     * (writer đích có thể khác; task.site_id / status / AI data giữ nguyên).
      *
      * @param  list<int>  $taskIds
      * @return array{moved: int, target_project_id: int, target_month: string}
@@ -294,14 +297,6 @@ final class SeoProjectTaskMoveService
         if ((int) $source->getKey() === (int) $target->getKey()) {
             throw ValidationException::withMessages([
                 'target_project_id' => __('seo-content-ai::filament.projects.move_same_project'),
-            ]);
-        }
-
-        if ((int) ($source->site_id ?? 0) <= 0
-            || (int) ($target->site_id ?? 0) !== (int) $source->site_id
-        ) {
-            throw ValidationException::withMessages([
-                'target_project_id' => __('seo-content-ai::filament.projects.move_domain_mismatch'),
             ]);
         }
 
@@ -353,6 +348,7 @@ final class SeoProjectTaskMoveService
             );
 
             $this->assertTargetAcceptsMoves($lockedTarget);
+            $this->assertTargetHasPackingSlots($lockedTarget, $tasks->count());
             $this->assertMoveRespectsWriterCapacity($lockedSource, $lockedTarget, $tasks->count());
             $this->appendTasksToProject($lockedTarget, $tasks);
             $lockedSource->syncTotalTasksCounter();
@@ -368,25 +364,22 @@ final class SeoProjectTaskMoveService
     }
 
     /**
-     * Eligible targets: same site + same planning month, any writer, not source,
-     * not soft-archived / KIND archive. Capacity checked on submit.
+     * Eligible targets: same planning month, any writer, any item-domain mix.
+     * Domain lives on the task (task.site_id) and is never used to filter projects.
+     * Projects already at max-30 packing slots are omitted; writer monthly capacity
+     * still gates on submit.
      *
      * @return array<int, string>
      */
     public function moveTargetOptions(SeoProject $source): array
     {
-        $siteId = (int) ($source->site_id ?? 0);
-        if ($siteId <= 0) {
-            return [];
-        }
-
         $monthDate = $source->monthCarbon()->startOfMonth()->format('Y-m-d');
 
         return SeoProject::query()
             ->with('user')
-            ->where('site_id', $siteId)
             ->whereKeyNot($source->getKey())
             ->whereNull('archived_at')
+            ->where('status', '!=', SeoProject::STATUS_DRAFT)
             ->whereDate('month', $monthDate)
             ->where(function ($query): void {
                 $query
@@ -395,7 +388,7 @@ final class SeoProjectTaskMoveService
             })
             ->orderBy('id')
             ->get()
-            ->filter(static fn (SeoProject $project): bool => ! $project->isArchive())
+            ->filter(fn (SeoProject $project): bool => $this->targetHasPackingRoom($project, 1))
             ->mapWithKeys(function (SeoProject $project): array {
                 $count = $project->registeredTaskCount();
 
@@ -449,6 +442,63 @@ final class SeoProjectTaskMoveService
                 'target_project_id' => __('seo-content-ai::filament.projects.move_target_archive'),
             ]);
         }
+
+        if ($target->isDraftPlanning() || (string) ($target->status ?? '') === SeoProject::STATUS_DRAFT) {
+            throw ValidationException::withMessages([
+                'target_project_id' => __('seo-content-ai::filament.projects.move_target_draft'),
+            ]);
+        }
+    }
+
+    private function assertTargetHasPackingSlots(SeoProject $target, int $incomingCount): void
+    {
+        if ($incomingCount <= 0 || $target->isDraftPlanning()) {
+            return;
+        }
+
+        if ($this->targetHasPackingRoom($target, $incomingCount)) {
+            return;
+        }
+
+        $max = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
+        $free = max(0, $max - $target->registeredTaskCount());
+
+        throw ValidationException::withMessages([
+            'target_project_id' => __('seo-content-ai::filament.projects.move_target_full', [
+                'month' => $target->monthCarbon()->format('m/Y'),
+                'remaining' => $free,
+                'needed' => $incomingCount,
+                'max' => $max,
+            ]),
+        ]);
+    }
+
+    /**
+     * Max-30 execution packing room (same family as ContentProjectExecutionPackingService).
+     * Inline to avoid circular DI with the packing service.
+     */
+    private function targetHasPackingRoom(SeoProject $project, int $needed): bool
+    {
+        if ($needed <= 0) {
+            return true;
+        }
+
+        if ($project->isArchive() || $project->isProjectArchived() || $project->isDraftPlanning()) {
+            return false;
+        }
+
+        $status = (string) ($project->status ?? '');
+        if (in_array($status, [
+            SeoProject::STATUS_RUNNING,
+            SeoProject::STATUS_COMPLETED,
+            SeoProject::STATUS_PAUSED,
+        ], true)) {
+            return false;
+        }
+
+        $free = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS - $project->registeredTaskCount();
+
+        return $free >= $needed;
     }
 
     /**
@@ -501,6 +551,8 @@ final class SeoProjectTaskMoveService
     }
 
     /**
+     * Persist ownership change only. Never rewrite task.site_id — domain stays on the item.
+     *
      * @param  Collection<int, SeoProjectTask>  $tasks
      */
     private function appendTasksToProject(SeoProject $target, Collection $tasks): void

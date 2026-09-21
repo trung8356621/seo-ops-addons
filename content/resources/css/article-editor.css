@@ -2623,6 +2623,28 @@ p.article-cta a.article-cta__value {
     color: #94a3b8;
 }
 
+/* FREE + SPLIT generation badge — high-visibility attention cue before Total words */
+.seo-editor-free-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    background: #ea580c;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+    text-transform: uppercase;
+    box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.35);
+}
+
+.dark .seo-editor-free-badge {
+    background: #f97316;
+    box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.45);
+}
+
 .editor-container {
     overflow: visible;
 }

@@ -216,10 +216,11 @@ final class ContentProjectAgentReadService
     public function getPlanningIntelligence(AgentExecutionContext $context, array $input): array
     {
         $project = $this->findProject($input, $context);
-        $siteId = (int) ($project->site_id ?? $context->resolvedSiteId ?? 0);
+        // Prefer explicit working Site; legacy project.site_id is fallback only.
+        $siteId = (int) ($context->resolvedSiteId ?? $project->site_id ?? 0);
         $site = $siteId > 0 ? \App\Models\Site::query()->find($siteId) : null;
         if (! $site instanceof \App\Models\Site) {
-            throw new RuntimeException('Project domain is required.');
+            throw new RuntimeException('Working site context is required.');
         }
 
         $language = '';
@@ -378,8 +379,11 @@ final class ContentProjectAgentReadService
         }
 
         $siteId = (int) ($context->resolvedSiteId ?? 0);
-        if ($siteId > 0 && (int) ($project->site_id ?? 0) !== $siteId) {
-            throw new RuntimeException('Project does not belong to site context.');
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        // Domain-neutral project (null site_id) is valid under any working site context.
+        // Legacy project.site_id, when set, must match site_ref.
+        if ($siteId > 0 && $projectSiteId > 0 && $projectSiteId !== $siteId) {
+            throw new RuntimeException('Legacy project.site_id does not match site context.');
         }
 
         return $project;
