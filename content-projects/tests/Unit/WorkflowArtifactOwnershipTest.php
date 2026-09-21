@@ -138,7 +138,8 @@ final class WorkflowArtifactOwnershipTest extends TestCase
         self::assertStringContainsString('ContentProjectRerunFromStep::Article', $src);
         self::assertStringContainsString('withForcedAiRegenerate', $src);
         self::assertStringContainsString('force_ai_regenerate', $src);
-        self::assertStringContainsString('runFromNodeId', $src);
+        self::assertStringContainsString('runOutlineVocabularyViaSystemWorkflow', $src);
+        self::assertStringContainsString('SystemWorkflowClient', $src);
         self::assertStringNotContainsString('runOutlineThenArticleForContext($context', $src);
     }
 

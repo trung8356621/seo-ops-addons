@@ -307,8 +307,13 @@ final class ArticleWritingContentNodeSystemCutoverContractTest extends TestCase
         $createArticles = (string) file_get_contents(
             dirname(__DIR__, 3).'/content-projects/src/Services/CreateArticlesFromTaskService.php'
         );
-        self::assertStringContainsString('TaskWorkflowTestRunner', $createArticles);
-        self::assertStringNotContainsString('SystemWorkflowClient', $createArticles);
+        self::assertStringContainsString('SystemWorkflowClient', $createArticles);
+        self::assertStringContainsString('content_project_outline_vocabulary', $createArticles);
+        self::assertStringContainsString('WorkflowGraphScope::OutlineVocabulary', $createArticles);
+        self::assertDoesNotMatchRegularExpression(
+            '/\$this->workflowRunner->runFromNodeId\s*\(/',
+            $createArticles,
+        );
 
         $writing = (string) file_get_contents((new ReflectionClass(ArticleWritingExecutionService::class))->getFileName());
         preg_match('/private function executePublishGraph\([\s\S]*?\n    \}/', $writing, $pub);

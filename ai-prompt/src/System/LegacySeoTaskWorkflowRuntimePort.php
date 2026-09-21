@@ -6,11 +6,13 @@ namespace Omnichannel\Addons\AiPrompt\System;
 
 use App\System\Workflow\Contracts\WorkflowRuntimePort;
 use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowGraphScope;
 use App\System\Workflow\Dto\WorkflowRunRequest;
 use App\System\Workflow\Dto\WorkflowRunResult;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
+use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Throwable;
 
@@ -205,6 +207,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
             taskId: $taskId,
             mode: $mode,
             source: (string) ($request->context['source'] ?? ''),
+            executionScope: $request->executionScope,
         );
     }
 
@@ -268,13 +271,39 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
         }
 
         $seedFromArtifact = (bool) ($request->context['seed_from_artifact'] ?? false);
+        $executionScope = $this->resolveDomainExecutionScope($request->executionScope);
 
         return $this->runner->runFromNodeId(
             $task,
             $context,
             $startNodeId,
             seedOutlineFromArticle: $seedFromArtifact,
+            executionScope: $executionScope,
         );
+    }
+
+    /**
+     * Map generic System WorkflowGraphScope wire values → domain WorkflowExecutionScope.
+     * Unknown values fail closed (never silently downgrade to Full).
+     */
+    private function resolveDomainExecutionScope(?string $raw): WorkflowExecutionScope
+    {
+        $trimmed = trim((string) ($raw ?? ''));
+        if ($trimmed === '') {
+            return WorkflowExecutionScope::Full;
+        }
+
+        $systemScope = WorkflowGraphScope::tryParse($trimmed);
+        if ($systemScope === null) {
+            throw new \InvalidArgumentException(
+                "Unsupported workflow execution_scope «{$trimmed}».",
+            );
+        }
+
+        return match ($systemScope) {
+            WorkflowGraphScope::Full => WorkflowExecutionScope::Full,
+            WorkflowGraphScope::OutlineVocabulary => WorkflowExecutionScope::OutlineVocabulary,
+        };
     }
 
     /**
@@ -313,6 +342,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
         int $taskId,
         WorkflowExecutionMode $mode,
         string $source,
+        ?string $executionScope = null,
     ): WorkflowRunResult {
         $failed = 0;
         $artifacts = [];
@@ -351,6 +381,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
                 'definition_id' => $taskId,
                 'runner' => TaskWorkflowTestRunner::class,
                 'execution_mode' => $mode->value,
+                'execution_scope' => $executionScope,
                 'source' => $source,
                 'step_count' => count($mappedSteps),
                 'failed_count' => $failed,

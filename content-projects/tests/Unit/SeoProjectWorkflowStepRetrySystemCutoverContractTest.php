@@ -353,13 +353,17 @@ final class SeoProjectWorkflowStepRetrySystemCutoverContractTest extends TestCas
         );
     }
 
-    public function test_other_production_callers_remain_direct_runner(): void
+    public function test_other_production_callers_remain_on_system_where_cut_over(): void
     {
         $path = dirname(__DIR__, 2).'/src/Services/CreateArticlesFromTaskService.php';
         self::assertFileExists($path);
         $src = (string) file_get_contents($path);
-        self::assertStringContainsString('TaskWorkflowTestRunner', $src);
-        self::assertStringNotContainsString('SystemWorkflowClient', $src);
+        self::assertStringContainsString('SystemWorkflowClient', $src);
+        self::assertStringContainsString('content_project_outline_vocabulary', $src);
+        self::assertDoesNotMatchRegularExpression(
+            '/\$this->workflowRunner->runFromNodeId\s*\(/',
+            $src,
+        );
 
         $writing = (string) file_get_contents(
             (new ReflectionClass(\Omnichannel\Addons\Content\Services\ArticleWritingExecutionService::class))->getFileName()

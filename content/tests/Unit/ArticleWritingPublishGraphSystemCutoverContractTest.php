@@ -298,13 +298,18 @@ final class ArticleWritingPublishGraphSystemCutoverContractTest extends TestCase
         self::assertSame('outline prompt failed', $steps[0]['message'] ?? null);
     }
 
-    public function test_create_articles_remains_direct_legacy(): void
+    public function test_create_articles_outline_vocab_uses_system_workflow(): void
     {
         $path = dirname(__DIR__, 3).'/content-projects/src/Services/CreateArticlesFromTaskService.php';
         self::assertFileExists($path);
         $src = (string) file_get_contents($path);
-        self::assertStringContainsString('TaskWorkflowTestRunner', $src);
-        self::assertStringNotContainsString('SystemWorkflowClient', $src);
+        self::assertStringContainsString('SystemWorkflowClient', $src);
+        self::assertStringContainsString('content_project_outline_vocabulary', $src);
+        self::assertStringContainsString('WorkflowGraphScope::OutlineVocabulary', $src);
+        self::assertDoesNotMatchRegularExpression(
+            '/\$this->workflowRunner->runFromNodeId\s*\(/',
+            $src,
+        );
     }
 
     private function makeService(SystemWorkflowClient $workflows): ArticleWritingExecutionService

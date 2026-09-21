@@ -27,7 +27,7 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         self::assertNotFalse($end);
         $chunk = substr($src, $methodPos, $end - $methodPos);
 
-        self::assertStringContainsString('WorkflowExecutionScope::OutlineVocabulary', $chunk);
+        self::assertStringContainsString('WorkflowGraphScope::OutlineVocabulary', $chunk);
         self::assertStringContainsString('runPhase1OutlineVocabularySteps', $chunk);
         self::assertStringContainsString('articleOutlinePersist->persist', $chunk);
         self::assertStringContainsString('resolveMarkdown', $chunk);
@@ -42,6 +42,10 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         // Must not rely on a single graph run that assumes Content is downstream.
         self::assertStringNotContainsString(
             "runFromNodeId(\n            \$task,\n            \$context,\n            \$outlineNodeId,\n            seedOutlineFromArticle: false,\n        );",
+            $chunk,
+        );
+        self::assertDoesNotMatchRegularExpression(
+            '/\$this->workflowRunner->runFromNodeId\s*\(/',
             $chunk,
         );
     }

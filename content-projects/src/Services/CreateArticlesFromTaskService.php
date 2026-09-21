@@ -22,7 +22,6 @@ use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
-use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionScope;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -40,6 +39,11 @@ use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use App\Models\Site;
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowGraphScope;
+use App\System\Workflow\Dto\WorkflowRunRequest;
+use App\System\Workflow\Dto\WorkflowRunResult;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 
@@ -49,6 +53,7 @@ class CreateArticlesFromTaskService
         private readonly SeoCreateArticleSettingsService $settings,
         private readonly TaskTestInputResolver $inputResolver,
         private readonly TaskWorkflowTestRunner $workflowRunner,
+        private readonly SystemWorkflowClient $workflows,
         private readonly SeoMainDomainService $mainDomain,
         private readonly DomainLinkListKeywordSyncService $linkListSync,
         private readonly ProjectArticleCreateCallerBridge $articleCreateBridge,
@@ -262,13 +267,7 @@ class CreateArticlesFromTaskService
             ];
         }
 
-        $steps = $this->workflowRunner->runFromNodeId(
-            $task,
-            $context,
-            $outlineNodeId,
-            seedOutlineFromArticle: false,
-            executionScope: WorkflowExecutionScope::OutlineVocabulary,
-        );
+        $steps = $this->runOutlineVocabularyViaSystemWorkflow($task, $context, $outlineNodeId);
 
         return $this->finalizeWorkflowGraphRun(
             $context,
@@ -463,7 +462,7 @@ class CreateArticlesFromTaskService
             WorkflowExecutionRole::ArticleOutlineGenerate,
         );
 
-        // ── PHASE 1: Outline + Vocabulary ONLY (WorkflowExecutionScope::OutlineVocabulary) ──
+        // ── PHASE 1: Outline + Vocabulary ONLY (WorkflowGraphScope::OutlineVocabulary) ──
         $context = $this->withForcedAiRegenerate($context, 'outline');
         $phase1Steps = $this->runPhase1OutlineVocabularySteps($task, $context, $outlineNodeId);
         $phase1Steps = $this->stampPhaseOnSteps($phase1Steps, 'outline');
@@ -1406,13 +1405,75 @@ class CreateArticlesFromTaskService
         TaskTestContext $context,
         string $outlineNodeId,
     ): array {
-        return $this->workflowRunner->runFromNodeId(
-            $task,
-            $context,
-            $outlineNodeId,
-            seedOutlineFromArticle: false,
-            executionScope: WorkflowExecutionScope::OutlineVocabulary,
-        );
+        return $this->runOutlineVocabularyViaSystemWorkflow($task, $context, $outlineNodeId);
+    }
+
+    /**
+     * FROM_NODE OutlineVocabulary via System Workflow.
+     * Domain finalize / CP lifecycle remain outside System.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function runOutlineVocabularyViaSystemWorkflow(
+        SeoTask $task,
+        TaskTestContext $context,
+        string $outlineNodeId,
+    ): array {
+        $result = $this->workflows->run(new WorkflowRunRequest(
+            definitionId: (int) $task->getKey(),
+            definition: null,
+            input: is_array($context->variables) ? $context->variables : [],
+            context: [
+                'source' => 'content_project_outline_vocabulary',
+                'task_test_context' => $context->toArray(),
+                'seed_from_artifact' => false,
+            ],
+            correlation: [
+                'capability' => 'workflow.content_project_outline_vocabulary',
+                'task_id' => (int) $task->getKey(),
+                'article_id' => $context->article?->id,
+                'start_node_id' => $outlineNodeId,
+                'execution_scope' => WorkflowGraphScope::OutlineVocabulary->value,
+            ],
+            executionMode: WorkflowExecutionMode::FromNode->value,
+            startNodeId: $outlineNodeId,
+            targetNodeId: null,
+            executionScope: WorkflowGraphScope::OutlineVocabulary->value,
+        ));
+
+        $steps = $this->orderedStepsFromWorkflowResult($result);
+        if ($steps !== []) {
+            return $steps;
+        }
+
+        // Preserve old Throwable bubble when adapter returns failed-without-steps.
+        $message = trim((string) ($result->errorMessage ?? ''));
+        if ($message === '') {
+            $message = $result->status === 'failed'
+                ? 'System Workflow from_node (outline_vocabulary) failed.'
+                : 'System Workflow from_node (outline_vocabulary) không trả về steps.';
+        }
+
+        throw new \RuntimeException($message);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function orderedStepsFromWorkflowResult(WorkflowRunResult $result): array
+    {
+        $ordered = $result->meta['ordered_steps'] ?? null;
+        if (is_array($ordered) && $ordered !== []) {
+            /** @var list<array<string, mixed>> $steps */
+            $steps = array_values(array_filter($ordered, static fn (mixed $s): bool => is_array($s)));
+
+            return $steps;
+        }
+
+        /** @var list<array<string, mixed>> $steps */
+        $steps = array_values(array_filter($result->steps, static fn (mixed $s): bool => is_array($s)));
+
+        return $steps;
     }
 
     /**
