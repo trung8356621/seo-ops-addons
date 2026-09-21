@@ -330,9 +330,52 @@ class ArticleWritingExecutionService
             return $this->fail($writing, $owner, 'Thiếu TaskTestContext cho Publish graph.');
         }
 
-        $steps = $this->workflowRunner->run($task, $taskContext);
+        // FULL_RUN via System Workflow only — no TaskWorkflowTestRunner::run fallback.
+        $steps = $this->runPublishGraphViaSystemWorkflow($task, $taskContext);
 
         return $this->finalizeWorkflowSteps($writing, $owner, $taskContext, $steps, $context);
+    }
+
+    /**
+     * FULL_RUN publish-graph execution via System Workflow.
+     * Domain finalizeWorkflowSteps / persistence remain outside System.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function runPublishGraphViaSystemWorkflow(
+        SeoTask $task,
+        TaskTestContext $taskContext,
+    ): array {
+        $result = $this->workflows->run(new WorkflowRunRequest(
+            definitionId: (int) $task->getKey(),
+            definition: null,
+            input: is_array($taskContext->variables) ? $taskContext->variables : [],
+            context: [
+                'source' => 'article_writing_publish_graph',
+                'task_test_context' => $taskContext->toArray(),
+            ],
+            correlation: [
+                'capability' => 'workflow.article_writing_publish_graph',
+                'task_id' => (int) $task->getKey(),
+                'article_id' => $taskContext->article?->id,
+            ],
+            executionMode: WorkflowExecutionMode::FullRun->value,
+        ));
+
+        $steps = $this->orderedStepsFromWorkflowResult($result);
+        if ($steps !== []) {
+            return $steps;
+        }
+
+        // Preserve old Throwable bubble when adapter returns failed-without-steps.
+        $message = trim((string) ($result->errorMessage ?? ''));
+        if ($message === '') {
+            $message = $result->status === 'failed'
+                ? 'System Workflow full_run failed.'
+                : 'System Workflow full_run không trả về steps.';
+        }
+
+        throw new \RuntimeException($message);
     }
 
     /**

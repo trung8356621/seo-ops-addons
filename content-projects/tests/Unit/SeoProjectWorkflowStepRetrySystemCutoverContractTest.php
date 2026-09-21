@@ -366,8 +366,9 @@ final class SeoProjectWorkflowStepRetrySystemCutoverContractTest extends TestCas
         );
         preg_match('/private function executePublishGraph\([\s\S]*?\n    \}/', $writing, $pub);
         self::assertNotSame([], $pub);
-        self::assertStringContainsString('workflowRunner->run', $pub[0]);
-        self::assertStringNotContainsString('workflows->run', $pub[0]);
+        self::assertStringContainsString('runPublishGraphViaSystemWorkflow', $pub[0]);
+        self::assertStringNotContainsString('workflowRunner->run', $pub[0]);
+        self::assertStringContainsString("'source' => 'article_writing_publish_graph'", $writing);
     }
 
     public function test_editor_media_and_editarticle_system_cutovers_remain(): void

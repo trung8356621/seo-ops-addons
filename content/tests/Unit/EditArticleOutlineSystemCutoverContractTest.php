@@ -277,8 +277,9 @@ final class EditArticleOutlineSystemCutoverContractTest extends TestCase
         );
         preg_match('/private function executePublishGraph\([\s\S]*?\n    \}/', $writing, $pub);
         self::assertNotSame([], $pub);
-        self::assertStringContainsString('workflowRunner->run', $pub[0]);
-        self::assertStringNotContainsString('workflows->run', $pub[0]);
+        self::assertStringContainsString('runPublishGraphViaSystemWorkflow', $pub[0]);
+        self::assertStringNotContainsString('workflowRunner->run', $pub[0]);
+        self::assertStringContainsString("'source' => 'article_writing_publish_graph'", $writing);
     }
 
     public function test_editor_media_system_cutover_remains(): void
