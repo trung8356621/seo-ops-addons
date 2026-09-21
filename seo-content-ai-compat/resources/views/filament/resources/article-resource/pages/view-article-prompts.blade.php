@@ -124,29 +124,10 @@
                     class="seo-execution-history-workflow-shell"
                     data-props='@json($executionHistoryProps)'
                     wire:ignore
+                    x-data
+                    x-init="$nextTick(() => { if (typeof window.mountArticleExecutionHistory === 'function') window.mountArticleExecutionHistory($el); })"
                 ></div>
             </section>
-            <script>
-                (() => {
-                    const mount = () => {
-                        const el = document.getElementById('article-execution-history-root');
-                        if (!el || el.dataset.executionHistoryMounted === '1') {
-                            return;
-                        }
-                        if (typeof window.mountArticleExecutionHistory !== 'function') {
-                            return;
-                        }
-                        el.dataset.executionHistoryMounted = '1';
-                        window.mountArticleExecutionHistory(el);
-                    };
-                    mount();
-                    queueMicrotask(mount);
-                    document.addEventListener('livewire:navigated', mount);
-                    if (window.Livewire && typeof window.Livewire.hook === 'function') {
-                        window.Livewire.hook('morph.updated', () => queueMicrotask(mount));
-                    }
-                })();
-            </script>
         @else
         <section class="seo-run-history-summary">
             <div>

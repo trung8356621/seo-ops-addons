@@ -588,10 +588,19 @@ export function ArticleExecutionHistoryApp({ runs = [], labels = {}, prompts = [
   );
 }
 
+/** @type {WeakMap<Element, unknown>} */
+const mountedRoots = new WeakMap();
+
 export function mountArticleExecutionHistory(el) {
   if (!el) return;
+  if (mountedRoots.has(el) || el.dataset.executionHistoryMounted === '1') {
+    return;
+  }
+
   const props = JSON.parse(el.dataset.props || '{}');
   const root = createRoot(el);
+  mountedRoots.set(el, root);
+  el.dataset.executionHistoryMounted = '1';
   root.render(
     <div className="flex h-full min-h-0 w-full">
       <ArticleExecutionHistoryApp
@@ -608,4 +617,9 @@ export function mountArticleExecutionHistory(el) {
 
 if (typeof window !== 'undefined') {
   window.mountArticleExecutionHistory = mountArticleExecutionHistory;
+  // Hard refresh / direct Workflow: Vite may load after Alpine x-init no-oped.
+  const existingRoot = document.getElementById('article-execution-history-root');
+  if (existingRoot) {
+    mountArticleExecutionHistory(existingRoot);
+  }
 }
