@@ -298,7 +298,7 @@ final class ArticlePromptRunHistoryService
                                 $step['attempt'] = $step['attempt'] ?? ($item['attempt'] ?? null);
 
                                 $step = $this->enrichStepFromParentPromptResult($step, $results);
-                                $children = $this->expandSplitChildSteps($step);
+                                $children = $this->expandSplitChildSteps($step, $results);
                                 $normalizedChildren = [];
                                 foreach ($children as $childIndex => $childStep) {
                                     $resultId = (int) ($childStep['result_id'] ?? 0);
@@ -500,11 +500,13 @@ final class ArticlePromptRunHistoryService
             ]);
         }
 
-        return $groups
+        $sorted = $groups
             ->filter(fn (array $group): bool => ($group['prompts'] ?? []) !== [])
             ->sortByDesc(fn (array $group): int => $group['ran_at']?->getTimestamp() ?? 0)
             ->values()
             ->all();
+
+        return $this->canonicalizeSectionedWritingLayout($sorted);
     }
 
     /**
@@ -1244,6 +1246,13 @@ final class ArticlePromptRunHistoryService
             static fn (int $id): bool => $id > 0,
         ));
 
+        // Reader-only: also discover section children that point at this parent.
+        foreach ($this->discoverSectionChildIdsForParent($resultId, $results) as $discoveredId) {
+            if (! in_array($discoveredId, $childIds, true)) {
+                $childIds[] = $discoveredId;
+            }
+        }
+
         if ($childIds !== []) {
             $existing = array_values(array_filter(
                 array_map('intval', is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : []),
@@ -1251,6 +1260,8 @@ final class ArticlePromptRunHistoryService
             ));
             if ($existing === []) {
                 $step['child_prompt_result_ids'] = $childIds;
+            } else {
+                $step['child_prompt_result_ids'] = array_values(array_unique(array_merge($existing, $childIds)));
             }
 
             $promptIds = array_values(array_filter(
@@ -1428,7 +1439,7 @@ final class ArticlePromptRunHistoryService
      * @param  array<string, mixed>  $step
      * @return list<array<string, mixed>>
      */
-    private function expandSectionedFreeChildSteps(array $step): array
+    private function expandSectionedFreeChildSteps(array $step, ?Collection $results = null): array
     {
         $parentId = (int) ($step['result_id'] ?? 0);
         $childIds = [];
@@ -1443,6 +1454,13 @@ final class ArticlePromptRunHistoryService
                 $id = (int) $rid;
                 if ($id > 0 && $id !== $parentId) {
                     $childIds[] = $id;
+                }
+            }
+        }
+        if ($results instanceof Collection && $parentId > 0) {
+            foreach ($this->discoverSectionChildIdsForParent($parentId, $results) as $discoveredId) {
+                if ($discoveredId !== $parentId && ! in_array($discoveredId, $childIds, true)) {
+                    $childIds[] = $discoveredId;
                 }
             }
         }
@@ -1564,12 +1582,13 @@ final class ArticlePromptRunHistoryService
      * Also expands sectioned_free parent + section PromptResults.
      *
      * @param  array<string, mixed>  $step
+     * @param  Collection<int, PromptResult>|null  $results
      * @return list<array<string, mixed>>
      */
-    private function expandSplitChildSteps(array $step): array
+    private function expandSplitChildSteps(array $step, ?Collection $results = null): array
     {
         if ($this->isSectionedFreeHistoryStep($step)) {
-            return $this->expandSectionedFreeChildSteps($step);
+            return $this->expandSectionedFreeChildSteps($step, $results);
         }
 
         $outlineId = (int) ($step['outline_result_id'] ?? 0);
@@ -1585,6 +1604,8 @@ final class ArticlePromptRunHistoryService
             || str_contains(strtolower((string) ($step['hook_key'] ?? '')), 'outline.structure');
 
         if (! $isSplit) {
+            // Standalone section writing rows are never expanded as their own top-level group here;
+            // canonicalizeSectionedWritingLayout nests or hides them under a valid parent.
             if (! isset($step['execution_sequence'])) {
                 $step['execution_sequence'] = 10;
             }
@@ -1693,6 +1714,264 @@ final class ArticlePromptRunHistoryService
         }
 
         return $children;
+    }
+
+    /**
+     * @param  Collection<int, PromptResult>  $results
+     * @return list<int>
+     */
+    private function discoverSectionChildIdsForParent(int $parentId, Collection $results): array
+    {
+        if ($parentId <= 0) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($results as $candidate) {
+            if (! $candidate instanceof PromptResult) {
+                continue;
+            }
+            $snap = is_array($candidate->input_snapshot) ? $candidate->input_snapshot : [];
+            if ((int) ($snap['parent_prompt_result_id'] ?? 0) !== $parentId) {
+                continue;
+            }
+            if (! $this->snapshotLooksLikeSectionWriting($snap)) {
+                continue;
+            }
+            $cid = (int) $candidate->id;
+            if ($cid > 0) {
+                $ids[] = $cid;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function snapshotLooksLikeSectionWriting(array $snapshot): bool
+    {
+        if (! empty($snapshot['sectioned_free_section'])) {
+            return true;
+        }
+        if (trim((string) ($snapshot['section_id'] ?? '')) !== '') {
+            return true;
+        }
+        $hook = strtolower(trim((string) ($snapshot['display_hook_key'] ?? $snapshot['hook_key'] ?? '')));
+
+        return str_contains($hook, 'section.generate');
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function isSectionWritingHistoryItem(array $item): bool
+    {
+        if (($item['history_role'] ?? '') === 'assemble') {
+            return false;
+        }
+        if (($item['history_role'] ?? '') === 'orchestrator') {
+            return false;
+        }
+
+        $hook = strtolower(trim((string) ($item['hook_key'] ?? $item['canonical_prompt_key'] ?? '')));
+        if (str_contains($hook, 'article.content.generate') && ! str_contains($hook, 'section')) {
+            return false;
+        }
+        if (str_contains($hook, 'section.generate')) {
+            return true;
+        }
+        if (trim((string) ($item['section_id'] ?? '')) !== '') {
+            return true;
+        }
+        if (($item['outline_subtask'] ?? '') === 'section'
+            || ($item['outline_subtask'] ?? '') === 'section_attempt'
+            || str_starts_with((string) ($item['outline_subtask'] ?? ''), 'section_')
+        ) {
+            return true;
+        }
+
+        return (int) ($item['parent_prompt_result_id'] ?? 0) > 0
+            && str_contains($hook, 'article.content.');
+    }
+
+    /**
+     * Reader-only: keep ONE canonical sectioned writing layout.
+     * Attach section rows under article.content.generate parents; hide unattached legacy sections.
+     *
+     * @param  list<array<string, mixed>>  $groups
+     * @return list<array<string, mixed>>
+     */
+    private function canonicalizeSectionedWritingLayout(array $groups): array
+    {
+        /** @var array<int, array{group: int, prompt: int}> $topLevelIndex */
+        $parentsById = [];
+        $nestedChildIds = [];
+
+        foreach ($groups as $gIdx => $group) {
+            $prompts = is_array($group['prompts'] ?? null) ? $group['prompts'] : [];
+            foreach ($prompts as $pIdx => $prompt) {
+                if (! is_array($prompt)) {
+                    continue;
+                }
+                $resultId = (int) ($prompt['result_id'] ?? 0);
+                if ($resultId > 0) {
+                    $parentsById[$resultId] = ['group' => $gIdx, 'prompt' => $pIdx];
+                }
+                foreach (is_array($prompt['children'] ?? null) ? $prompt['children'] : [] as $child) {
+                    if (! is_array($child)) {
+                        continue;
+                    }
+                    $cid = (int) ($child['result_id'] ?? 0);
+                    if ($cid > 0) {
+                        $nestedChildIds[$cid] = true;
+                    }
+                }
+                foreach (is_array($prompt['child_prompt_result_ids'] ?? null) ? $prompt['child_prompt_result_ids'] : [] as $cid) {
+                    $cid = (int) $cid;
+                    if ($cid > 0) {
+                        $nestedChildIds[$cid] = true;
+                    }
+                }
+            }
+        }
+
+        $hideTopLevel = [];
+        $attachToParent = [];
+
+        foreach ($groups as $gIdx => $group) {
+            $prompts = is_array($group['prompts'] ?? null) ? $group['prompts'] : [];
+            foreach ($prompts as $pIdx => $prompt) {
+                if (! is_array($prompt) || ! $this->isSectionWritingHistoryItem($prompt)) {
+                    continue;
+                }
+                $sectionId = (int) ($prompt['result_id'] ?? 0);
+                if ($sectionId <= 0) {
+                    $hideTopLevel[$gIdx.':'.$pIdx] = true;
+                    continue;
+                }
+
+                // Already nested under a parent from expand — drop duplicate top-level card.
+                if (isset($nestedChildIds[$sectionId])) {
+                    $hideTopLevel[$gIdx.':'.$pIdx] = true;
+                    continue;
+                }
+
+                $parentId = (int) ($prompt['parent_prompt_result_id'] ?? 0);
+                if ($parentId <= 0) {
+                    // Relation (b): claimed by a parent's child_prompt_result_ids.
+                    foreach ($parentsById as $candidateParentId => $loc) {
+                        $parentPrompt = $groups[$loc['group']]['prompts'][$loc['prompt']] ?? null;
+                        if (! is_array($parentPrompt)) {
+                            continue;
+                        }
+                        $claimed = array_map(
+                            'intval',
+                            is_array($parentPrompt['child_prompt_result_ids'] ?? null)
+                                ? $parentPrompt['child_prompt_result_ids']
+                                : [],
+                        );
+                        if (in_array($sectionId, $claimed, true)) {
+                            $parentId = (int) $candidateParentId;
+                            break;
+                        }
+                    }
+                }
+
+                if ($parentId > 0 && isset($parentsById[$parentId])) {
+                    $attachToParent[$sectionId] = [
+                        'parent_id' => $parentId,
+                        'section' => $prompt,
+                        'from' => ['group' => $gIdx, 'prompt' => $pIdx],
+                    ];
+                    $hideTopLevel[$gIdx.':'.$pIdx] = true;
+                    continue;
+                }
+
+                // No valid parent in this history read-model → hide (do not invent parent).
+                $hideTopLevel[$gIdx.':'.$pIdx] = true;
+            }
+        }
+
+        foreach ($attachToParent as $payload) {
+            $parentId = (int) $payload['parent_id'];
+            $loc = $parentsById[$parentId] ?? null;
+            if ($loc === null) {
+                continue;
+            }
+            $parent = &$groups[$loc['group']]['prompts'][$loc['prompt']];
+            if (! is_array($parent)) {
+                unset($parent);
+                continue;
+            }
+
+            $children = is_array($parent['children'] ?? null) ? $parent['children'] : [];
+            $existingIds = [];
+            foreach ($children as $child) {
+                if (is_array($child)) {
+                    $existingIds[(int) ($child['result_id'] ?? 0)] = true;
+                }
+            }
+            $section = $payload['section'];
+            $sid = (int) ($section['result_id'] ?? 0);
+            if ($sid > 0 && ! isset($existingIds[$sid])) {
+                $assemble = null;
+                $withoutAssemble = [];
+                foreach ($children as $child) {
+                    if (is_array($child) && ($child['history_role'] ?? '') === 'assemble') {
+                        $assemble = $child;
+                        continue;
+                    }
+                    $withoutAssemble[] = $child;
+                }
+                $withoutAssemble[] = $section;
+                if ($assemble !== null) {
+                    $withoutAssemble[] = $assemble;
+                }
+                $parent['children'] = $withoutAssemble;
+                $parent['child_count'] = count(array_filter(
+                    $withoutAssemble,
+                    static fn (mixed $c): bool => is_array($c) && ($c['history_role'] ?? '') !== 'assemble',
+                ));
+                $childIds = array_values(array_filter(array_map(
+                    'intval',
+                    is_array($parent['child_prompt_result_ids'] ?? null) ? $parent['child_prompt_result_ids'] : [],
+                )));
+                if (! in_array($sid, $childIds, true)) {
+                    $childIds[] = $sid;
+                    $parent['child_prompt_result_ids'] = $childIds;
+                }
+            }
+            if (($parent['history_role'] ?? '') !== 'orchestrator'
+                && str_contains(strtolower((string) ($parent['hook_key'] ?? '')), 'article.content.generate')
+            ) {
+                $parent['history_role'] = 'orchestrator';
+                $parent['type'] = $parent['type'] ?? 'orchestrator';
+                $parent['ai_call'] = false;
+                $parent['final_output_authority'] = true;
+            }
+            unset($parent);
+        }
+
+        foreach ($groups as $gIdx => $group) {
+            $prompts = is_array($group['prompts'] ?? null) ? $group['prompts'] : [];
+            $kept = [];
+            foreach ($prompts as $pIdx => $prompt) {
+                if (isset($hideTopLevel[$gIdx.':'.$pIdx])) {
+                    continue;
+                }
+                if (is_array($prompt)) {
+                    $kept[] = $prompt;
+                }
+            }
+            $groups[$gIdx]['prompts'] = $this->finalizePromptList($kept);
+        }
+
+        return array_values(array_filter(
+            $groups,
+            static fn (array $group): bool => ($group['prompts'] ?? []) !== [],
+        ));
     }
 
     /**

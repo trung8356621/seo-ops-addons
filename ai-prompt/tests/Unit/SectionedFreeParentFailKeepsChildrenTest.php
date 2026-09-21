@@ -154,9 +154,11 @@ final class SectionedFreeParentFailKeepsChildrenTest extends TestCase
             'prompt_result_ids' => array_merge([(int) $parent->id], $childIds),
             'child_prompt_result_ids' => $childIds,
         ]);
-        self::assertCount(5, $rows);
+        self::assertCount(1, $rows);
+        self::assertSame('orchestrator', (string) ($rows[0]['history_role'] ?? ''));
+        $childSteps = is_array($rows[0]['child_steps'] ?? null) ? $rows[0]['child_steps'] : [];
         self::assertCount(4, array_filter(
-            $rows,
+            $childSteps,
             static fn (array $row): bool => (string) ($row['hook_key'] ?? '') === 'article.content.section.generate',
         ));
     }

@@ -750,6 +750,7 @@ final class ArticleExecutionHistoryService
                 continue;
             }
             $children = [];
+            $claimedChildIds = [];
             foreach (is_array($call['child_prompt_result_ids'] ?? null) ? $call['child_prompt_result_ids'] : [] as $cid) {
                 $cid = (int) $cid;
                 if ($cid <= 0 || ! isset($byId[$cid])) {
@@ -757,6 +758,26 @@ final class ArticleExecutionHistoryService
                 }
                 $children[] = $byId[$cid];
                 $claimed[$cid] = true;
+                $claimedChildIds[$cid] = true;
+            }
+            // Relation (a): also claim section rows that point at this orchestrator.
+            foreach ($calls as $candidate) {
+                $cid = (int) ($candidate['result_id'] ?? 0);
+                if ($cid <= 0 || isset($claimedChildIds[$cid]) || ! isset($byId[$cid])) {
+                    continue;
+                }
+                if (($candidate['history_role'] ?? '') !== 'provider_call'
+                    && empty($candidate['section_id'])
+                    && ! str_contains(strtolower((string) ($candidate['hook_key'] ?? '')), 'section.generate')
+                ) {
+                    continue;
+                }
+                if ((int) ($candidate['parent_prompt_result_id'] ?? 0) !== $id) {
+                    continue;
+                }
+                $children[] = $byId[$cid];
+                $claimed[$cid] = true;
+                $claimedChildIds[$cid] = true;
             }
             usort($children, static function (array $a, array $b): int {
                 $ao = (int) ($a['section_order'] ?? 0);
@@ -799,6 +820,10 @@ final class ArticleExecutionHistoryService
             $call['steps_success'] = $progressArr['completed_sections'];
             $call['resume_hint'] = $progressArr['resume_hint'];
             $call['cta_label'] = $progressArr['cta_label'];
+            $call['child_prompt_result_ids'] = array_values(array_map(
+                static fn (array $child): int => (int) ($child['result_id'] ?? 0),
+                array_filter($children, static fn (array $c): bool => (int) ($c['result_id'] ?? 0) > 0),
+            ));
 
             $assembleStatus = (string) ($progressArr['assemble_status'] ?? 'not_run');
             $assembleLabel = match ($assembleStatus) {
@@ -832,9 +857,18 @@ final class ArticleExecutionHistoryService
         }
         foreach ($calls as $call) {
             $id = (int) $call['result_id'];
-            if (! isset($claimed[$id])) {
-                $nested[] = $call;
+            if (isset($claimed[$id])) {
+                continue;
             }
+            // Hide unattached section writing rows — do not render standalone section.generate groups.
+            $hook = strtolower(trim((string) ($call['hook_key'] ?? '')));
+            $isSectionCall = ($call['history_role'] ?? '') === 'provider_call'
+                || str_contains($hook, 'section.generate')
+                || trim((string) ($call['section_id'] ?? '')) !== '';
+            if ($isSectionCall) {
+                continue;
+            }
+            $nested[] = $call;
         }
 
         usort($nested, static function (array $a, array $b): int {
