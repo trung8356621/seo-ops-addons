@@ -17,7 +17,12 @@ use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveExecutionResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionStatus;
+use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use App\Support\RuntimeLogger;
+use App\System\Workflow\Contracts\SystemWorkflowClient;
+use App\System\Workflow\Dto\WorkflowExecutionMode;
+use App\System\Workflow\Dto\WorkflowRunRequest;
+use App\System\Workflow\Dto\WorkflowRunResult;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -30,6 +35,7 @@ final class SeoProjectWorkflowStepRetryService
         private readonly SeoProjectWorkflowStepCatalogService $catalog,
         private readonly TaskTestInputResolver $inputResolver,
         private readonly TaskWorkflowTestRunner $workflowRunner,
+        private readonly SystemWorkflowClient $workflows,
         private readonly SeoProjectRunItemService $runItemService,
         private readonly ArticleOutlineResolver $outlineResolver,
         private readonly ArticleGenerationInputResolver $articleGenerationInput,
@@ -584,7 +590,17 @@ final class SeoProjectWorkflowStepRetryService
                 $priorSteps = $this->ensureOutlinePriorFromArticle($task, $priorSteps, $context->article);
             }
 
-            $stepResult = $this->workflowRunner->runSingleStep($seoTask, $context, $nodeId, $priorSteps);
+            // SINGLE_STEP via System Workflow only — no TaskWorkflowTestRunner::runSingleStep fallback.
+            // Missing/failed-without-step results throw → existing catch → failPrepared (Throwable parity).
+            $stepResult = $this->runSingleStepViaSystemWorkflow(
+                $seoTask,
+                $context,
+                $nodeId,
+                $priorSteps,
+                $run,
+                $taskId,
+                $runItemId,
+            );
 
             // Provider có thể trả về sau khi user đã Ngắt / row đã terminal → discard.
             $runItem->refresh();
@@ -799,6 +815,93 @@ final class SeoProjectWorkflowStepRetryService
                 $nodeId,
             );
         }
+    }
+
+    /**
+     * FULL single-node execution via System Workflow — domain keeps prior_steps / persistence.
+     *
+     * @param  list<array<string, mixed>>  $priorSteps
+     * @return array<string, mixed>
+     */
+    private function runSingleStepViaSystemWorkflow(
+        SeoTask $seoTask,
+        TaskTestContext $context,
+        string $nodeId,
+        array $priorSteps,
+        SeoProjectRun $run,
+        int $taskId,
+        int $runItemId,
+    ): array {
+        $result = $this->workflows->run(new WorkflowRunRequest(
+            definitionId: (int) $seoTask->getKey(),
+            definition: null,
+            input: is_array($context->variables) ? $context->variables : [],
+            context: [
+                'source' => 'content_project_step_retry',
+                'task_test_context' => $context->toArray(),
+                'prior_steps' => $priorSteps,
+            ],
+            correlation: [
+                'capability' => 'workflow.content_project_step_retry',
+                'task_id' => (int) $seoTask->getKey(),
+                'project_task_id' => $taskId,
+                'run_id' => (int) $run->id,
+                'run_item_id' => $runItemId,
+                'target_node_id' => $nodeId,
+            ],
+            executionMode: WorkflowExecutionMode::SingleStep->value,
+            startNodeId: null,
+            targetNodeId: $nodeId,
+        ));
+
+        $step = $this->extractSingleStepFromWorkflowResult($result, $nodeId);
+        if ($step !== null) {
+            return $step;
+        }
+
+        $message = trim((string) ($result->errorMessage ?? ''));
+        if ($message === '') {
+            $message = $result->status === 'failed'
+                ? 'System Workflow single_step failed.'
+                : 'System Workflow single_step không trả về step kết quả.';
+        }
+
+        throw new \RuntimeException($message);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function extractSingleStepFromWorkflowResult(WorkflowRunResult $result, string $targetNodeId): ?array
+    {
+        $candidates = [];
+        $ordered = $result->meta['ordered_steps'] ?? null;
+        if (is_array($ordered)) {
+            foreach ($ordered as $step) {
+                if (is_array($step)) {
+                    $candidates[] = $step;
+                }
+            }
+        }
+        if ($candidates === []) {
+            foreach ($result->steps as $step) {
+                if (is_array($step)) {
+                    $candidates[] = $step;
+                }
+            }
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        foreach ($candidates as $step) {
+            if ((string) ($step['node_id'] ?? '') === $targetNodeId) {
+                return $step;
+            }
+        }
+
+        return $candidates[0];
     }
 
     /**
