@@ -8,13 +8,17 @@ use App\Models\ApiConnection;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 /**
  * Idempotent default Prompt + Settings binding for seeding.comment.generate.
  *
  * Prefer existing omi_seeding.seeding_comment_prompt_settings body when present
  * so operator customizations become the initial shared Prompt version.
- * Does not overwrite an existing Settings binding or an already-created named Prompt.
+ * Does not overwrite an existing Settings binding or create a second Prompt.
+ *
+ * Ownership: PromptResource scopes list by accountSiteOwnerId(). Installer must
+ * assign/repair user_id to that managed owner so the prompt is list-visible.
  */
 final class DefaultSeedingCommentPromptInstaller
 {
@@ -46,10 +50,12 @@ MD;
     ) {}
 
     /**
-     * @return array{prompt_id: int, created: bool, binding_set: bool, source: string}
+     * @return array{prompt_id: int, created: bool, binding_set: bool, ownership_repaired: bool, source: string, user_id: int}
      */
     public function install(): array
     {
+        $ownerUserId = $this->managedPromptOwnerUserId();
+
         $existing = SeoPrompt::query()
             ->where('hook_key', self::HOOK_KEY)
             ->where('name', self::PROMPT_NAME)
@@ -57,6 +63,7 @@ MD;
             ->first();
 
         $created = false;
+        $ownershipRepaired = false;
         $source = 'existing_prompt';
 
         if ($existing === null) {
@@ -77,7 +84,7 @@ MD;
                 'ai_connection_id' => $connectionId,
                 'tools' => 'default',
                 'is_active' => true,
-                'user_id' => $this->systemUserId(),
+                'user_id' => $ownerUserId,
                 'settings' => [
                     'is_system_default' => true,
                     'ownership' => 'settings_binding',
@@ -86,6 +93,12 @@ MD;
             ]);
             $existing->save();
             $created = true;
+        } elseif ((int) $existing->user_id !== $ownerUserId && $ownerUserId > 0) {
+            // Keep canonical prompt_id; only repair ownership so PromptResource list can see it.
+            $existing->user_id = $ownerUserId;
+            $existing->save();
+            $ownershipRepaired = true;
+            $source = 'ownership_repaired';
         }
 
         $promptId = (int) $existing->id;
@@ -104,8 +117,53 @@ MD;
             'prompt_id' => $promptId,
             'created' => $created,
             'binding_set' => $bindingSet,
+            'ownership_repaired' => $ownershipRepaired,
             'source' => $source,
+            'user_id' => (int) $existing->user_id,
         ];
+    }
+
+    /**
+     * User id that PromptResource list scopes to (account site owner).
+     * Falls back to dominant prompts.user_id then first User.
+     */
+    public function managedPromptOwnerUserId(): int
+    {
+        try {
+            $owner = (int) SeoAccessControl::accountSiteOwnerId();
+            if ($owner > 0) {
+                return $owner;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        try {
+            $panelOwner = SeoAccessControl::panelOwnerId();
+            if ($panelOwner !== null && $panelOwner > 0) {
+                return $panelOwner;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        try {
+            $dominant = SeoPrompt::query()
+                ->selectRaw('user_id, COUNT(*) as c')
+                ->whereNotNull('user_id')
+                ->where('user_id', '>', 0)
+                ->groupBy('user_id')
+                ->orderByDesc('c')
+                ->orderBy('user_id')
+                ->value('user_id');
+            if ($dominant !== null && (int) $dominant > 0) {
+                return (int) $dominant;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        return $this->fallbackSystemUserId();
     }
 
     /**
@@ -142,7 +200,7 @@ MD;
         }
     }
 
-    private function systemUserId(): int
+    private function fallbackSystemUserId(): int
     {
         $authId = auth()->id();
         if ($authId !== null && (int) $authId > 0) {

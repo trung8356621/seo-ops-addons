@@ -22,15 +22,17 @@ final class InstallDefaultSeedingCommentPromptCommand extends Command
         $result = $installer->install();
 
         $this->info(sprintf(
-            'prompt_id=%d created=%s binding_set=%s source=%s',
+            'prompt_id=%d created=%s binding_set=%s ownership_repaired=%s user_id=%d source=%s',
             $result['prompt_id'],
             $result['created'] ? 'yes' : 'no',
             $result['binding_set'] ? 'yes' : 'no',
+            ! empty($result['ownership_repaired']) ? 'yes' : 'no',
+            (int) ($result['user_id'] ?? 0),
             $result['source'],
         ));
 
-        if (! $result['binding_set'] && ! $result['created']) {
-            $this->comment('Binding đã có — không ghi đè Prompt Settings của operator.');
+        if (! $result['binding_set'] && ! $result['created'] && empty($result['ownership_repaired'])) {
+            $this->comment('Binding/ownership đã đúng — không ghi đè Prompt Settings của operator.');
         }
 
         return self::SUCCESS;
