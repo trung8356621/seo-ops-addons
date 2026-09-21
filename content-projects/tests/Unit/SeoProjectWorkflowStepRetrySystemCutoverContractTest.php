@@ -131,7 +131,7 @@ final class SeoProjectWorkflowStepRetrySystemCutoverContractTest extends TestCas
                 );
             }
 
-            public function getRun(string $id): ?WorkflowRunResult
+            public function getRun(string $id, array $context = []): ?WorkflowRunResult
             {
                 return null;
             }
@@ -211,7 +211,7 @@ final class SeoProjectWorkflowStepRetrySystemCutoverContractTest extends TestCas
                 );
             }
 
-            public function getRun(string $id): ?WorkflowRunResult
+            public function getRun(string $id, array $context = []): ?WorkflowRunResult
             {
                 return null;
             }
@@ -293,7 +293,7 @@ final class SeoProjectWorkflowStepRetrySystemCutoverContractTest extends TestCas
                 );
             }
 
-            public function getRun(string $id): ?WorkflowRunResult
+            public function getRun(string $id, array $context = []): ?WorkflowRunResult
             {
                 return null;
             }

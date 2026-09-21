@@ -102,7 +102,7 @@ final class EditArticleOutlineSystemCutoverContractTest extends TestCase
                 );
             }
 
-            public function getRun(string $id): ?WorkflowRunResult
+            public function getRun(string $id, array $context = []): ?WorkflowRunResult
             {
                 return null;
             }
@@ -195,7 +195,7 @@ final class EditArticleOutlineSystemCutoverContractTest extends TestCase
                 );
             }
 
-            public function getRun(string $id): ?WorkflowRunResult
+            public function getRun(string $id, array $context = []): ?WorkflowRunResult
             {
                 return null;
             }

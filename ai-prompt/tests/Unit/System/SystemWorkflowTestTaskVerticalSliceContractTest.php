@@ -63,23 +63,23 @@ final class SystemWorkflowTestTaskVerticalSliceContractTest extends TestCase
         self::assertTrue(interface_exists(WorkflowRuntimePort::class));
     }
 
-    public function test_production_callers_still_invoke_runner_directly(): void
+    public function test_production_callers_use_system_workflow_client(): void
     {
-        $create = dirname(__DIR__, 4).'/content-projects/src/Services/CreateArticlesFromTaskService.php';
-        $writing = dirname(__DIR__, 4).'/content/src/Services/ArticleWritingExecutionService.php';
-        $editor = dirname(__DIR__, 4).'/content/src/Services/EditorWorkflowExecutionService.php';
-        foreach ([$create, $writing] as $path) {
+        $paths = [
+            dirname(__DIR__, 4).'/content-projects/src/Services/CreateArticlesFromTaskService.php',
+            dirname(__DIR__, 4).'/content/src/Services/ArticleWritingExecutionService.php',
+            dirname(__DIR__, 4).'/content/src/Services/EditorWorkflowExecutionService.php',
+        ];
+        foreach ($paths as $path) {
             self::assertFileExists($path);
             $src = (string) file_get_contents($path);
-            self::assertStringContainsString('TaskWorkflowTestRunner', $src);
-            self::assertStringNotContainsString('SystemWorkflowClient', $src);
+            self::assertStringContainsString('SystemWorkflowClient', $src, $path);
+            self::assertDoesNotMatchRegularExpression(
+                '/\$this->workflowRunner->run(FromNodeId|SingleStep)?\s*\(/',
+                $src,
+                $path,
+            );
         }
-
-        self::assertFileExists($editor);
-        $editorSrc = (string) file_get_contents($editor);
-        self::assertStringContainsString('SystemWorkflowClient', $editorSrc);
-        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $editorSrc);
-        self::assertStringNotContainsString('$this->workflowRunner->run(', $editorSrc);
     }
 
     public function test_workflow_run_request_carries_test_context_contract(): void

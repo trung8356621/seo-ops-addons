@@ -152,6 +152,25 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
             );
         }
 
+        $ownerGate = $this->assertExecutionOwnership($request, $task);
+        if ($ownerGate !== null) {
+            return new WorkflowRunResult(
+                id: $runId,
+                status: 'failed',
+                errorCode: $ownerGate['code'],
+                errorMessage: $ownerGate['message'],
+                meta: [
+                    'adapter' => 'legacy_seo_task',
+                    'execution_mode' => $mode->value,
+                    'definition_id' => $taskId,
+                    'owner_user_id' => $ownerGate['owner_user_id'] ?? null,
+                    'task_owner_user_id' => (int) ($task->user_id ?? 0),
+                ],
+            );
+        }
+
+        $ownerUserId = (int) ($request->correlation['owner_user_id'] ?? $request->context['owner_user_id'] ?? 0);
+
         $contextPayload = is_array($request->context['task_test_context'] ?? null)
             ? $request->context['task_test_context']
             : [];
@@ -180,6 +199,22 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
             );
         }
 
+        $articleScopeError = $this->assertArticleSiteOwnership($contextPayload, $ownerUserId);
+        if ($articleScopeError !== null) {
+            return new WorkflowRunResult(
+                id: $runId,
+                status: 'failed',
+                errorCode: $articleScopeError['code'],
+                errorMessage: $articleScopeError['message'],
+                meta: [
+                    'adapter' => 'legacy_seo_task',
+                    'execution_mode' => $mode->value,
+                    'definition_id' => $taskId,
+                    'owner_user_id' => $ownerUserId > 0 ? $ownerUserId : null,
+                ],
+            );
+        }
+
         try {
             $context = TaskTestContext::fromArray($contextPayload);
             $steps = $this->executeByMode($mode, $task, $context, $request);
@@ -195,6 +230,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
                     'runner' => TaskWorkflowTestRunner::class,
                     'execution_mode' => $mode->value,
                     'source' => (string) ($request->context['source'] ?? ''),
+                    'owner_user_id' => $ownerUserId > 0 ? $ownerUserId : null,
                 ],
                 errorCode: 'runner_exception',
                 errorMessage: $e->getMessage(),
@@ -208,6 +244,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
             mode: $mode,
             source: (string) ($request->context['source'] ?? ''),
             executionScope: $request->executionScope,
+            ownerUserId: $ownerUserId > 0 ? $ownerUserId : null,
         );
     }
 
@@ -334,6 +371,90 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
     }
 
     /**
+     * Fail-closed ownership for remote/API and any request that asserts owner_user_id.
+     *
+     * @return null|array{code: string, message: string, owner_user_id?: int}
+     */
+    private function assertExecutionOwnership(WorkflowRunRequest $request, SeoTask $task): ?array
+    {
+        $viaHttp = (bool) ($request->context['via_http_api'] ?? false);
+        $ownerUserId = (int) ($request->correlation['owner_user_id'] ?? $request->context['owner_user_id'] ?? 0);
+        $taskOwnerId = (int) ($task->user_id ?? 0);
+
+        if ($viaHttp && $ownerUserId <= 0) {
+            return [
+                'code' => 'owner_required',
+                'message' => 'owner_user_id is required for Workflow API execution.',
+                'owner_user_id' => 0,
+            ];
+        }
+
+        if ($ownerUserId <= 0) {
+            // Local in-process without asserted owner (e.g. console) — preserve BC.
+            return null;
+        }
+
+        if ($taskOwnerId <= 0 || $taskOwnerId !== $ownerUserId) {
+            return [
+                'code' => 'owner_mismatch',
+                'message' => 'SeoTask does not belong to the asserted execution owner.',
+                'owner_user_id' => $ownerUserId,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $contextPayload
+     * @return null|array{code: string, message: string}
+     */
+    private function assertArticleSiteOwnership(array $contextPayload, int $ownerUserId): ?array
+    {
+        if ($ownerUserId <= 0) {
+            return null;
+        }
+
+        $articleId = (int) ($contextPayload['article_id'] ?? 0);
+        $siteId = (int) ($contextPayload['site_id'] ?? 0);
+        if ($articleId <= 0 && $siteId <= 0) {
+            return null;
+        }
+
+        if ($articleId > 0) {
+            $article = \Omnichannel\Addons\Content\Models\SeoArticle::query()->find($articleId);
+            if ($article === null) {
+                return [
+                    'code' => 'article_not_found',
+                    'message' => "Article #{$articleId} not found for asserted owner scope.",
+                ];
+            }
+            $siteId = (int) ($article->site_id ?? $siteId);
+        }
+
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        $site = \App\Models\Site::query()->find($siteId);
+        if ($site === null) {
+            return [
+                'code' => 'site_not_found',
+                'message' => "Site #{$siteId} not found for asserted owner scope.",
+            ];
+        }
+
+        if ((int) ($site->user_id ?? 0) !== $ownerUserId) {
+            return [
+                'code' => 'site_owner_mismatch',
+                'message' => 'Site does not belong to the asserted execution owner.',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $steps
      */
     private function mapRunnerSteps(
@@ -343,6 +464,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
         WorkflowExecutionMode $mode,
         string $source,
         ?string $executionScope = null,
+        ?int $ownerUserId = null,
     ): WorkflowRunResult {
         $failed = 0;
         $artifacts = [];
@@ -385,6 +507,7 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
                 'source' => $source,
                 'step_count' => count($mappedSteps),
                 'failed_count' => $failed,
+                'owner_user_id' => $ownerUserId,
                 'ordered_steps' => array_values(array_filter($steps, static fn (mixed $s): bool => is_array($s))),
             ],
             errorCode: $failed > 0 ? 'step_failures' : null,
