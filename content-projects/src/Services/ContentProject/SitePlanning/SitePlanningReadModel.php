@@ -17,6 +17,9 @@ use Illuminate\Support\Facades\Schema;
  * Site Planning overview: window anchored to activeMonth (−2…+1).
  * Matrix = article distribution count / site / planning_month (includes completed/published/archived).
  * Month Detail = Topic History only (no project reconstruction).
+ *
+ * Projects-list Monthly Planning uses {@see overviewForProjectsList()} which additionally
+ * excludes Global Legacy import shells — same helper as Articles-by-domain workload.
  */
 final class SitePlanningReadModel
 {
@@ -28,6 +31,9 @@ final class SitePlanningReadModel
     ) {}
 
     /**
+     * Historical Site Planning matrix (Planner / reporting).
+     * Keeps Global Legacy import shells in distribution counts.
+     *
      * @return array{
      *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
      *     year_groups: list<array{year: int, span: int}>,
@@ -37,6 +43,41 @@ final class SitePlanningReadModel
      */
     public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $activeMonth = null): array
     {
+        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: false);
+    }
+
+    /**
+     * Projects-list Monthly Planning matrix (adjacent to workload charts / Balance Months).
+     * Same window + archive/history semantics as overview(), except Global Legacy import
+     * shells (`import_source = seo_content_archive_items`) are excluded.
+     *
+     * @return array{
+     *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
+     *     year_groups: list<array{year: int, span: int}>,
+     *     rows: list<array<string, mixed>>,
+     *     active_month: string
+     * }
+     */
+    public function overviewForProjectsList(
+        ?int $selectedSiteId = null,
+        CarbonImmutable|Carbon|string|null $activeMonth = null,
+    ): array {
+        return $this->buildOverview($selectedSiteId, $activeMonth, excludeGlobalLegacy: true);
+    }
+
+    /**
+     * @return array{
+     *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
+     *     year_groups: list<array{year: int, span: int}>,
+     *     rows: list<array<string, mixed>>,
+     *     active_month: string
+     * }
+     */
+    private function buildOverview(
+        ?int $selectedSiteId,
+        CarbonImmutable|Carbon|string|null $activeMonth,
+        bool $excludeGlobalLegacy,
+    ): array {
         unset($selectedSiteId);
 
         $anchorMonth = ContentProjectMonthContext::normalize($activeMonth);
@@ -50,7 +91,7 @@ final class SitePlanningReadModel
         $plannedBySiteMonth = [];
         foreach ($months as $month) {
             $monthKeyYm = ContentProjectMonthContext::normalize($month['key']);
-            foreach ($this->units->plannedCountsBySite($monthKeyYm) as $siteId => $count) {
+            foreach ($this->units->plannedCountsBySite($monthKeyYm, $excludeGlobalLegacy) as $siteId => $count) {
                 $plannedBySiteMonth[(int) $siteId][$month['key']] = (int) $count;
             }
         }

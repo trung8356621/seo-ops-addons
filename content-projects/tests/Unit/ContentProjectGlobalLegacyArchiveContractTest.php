@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ContentProjectArchive;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ContentProjectArchivePreview;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ListSeoProjects;
 use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestoreContentProjectHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitAggregator;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -49,6 +52,24 @@ final class ContentProjectGlobalLegacyArchiveContractTest extends TestCase
         );
 
         self::assertStringContainsString('ContentProjectGlobalLegacyArchive::excludeFromProjectAlias', $src);
+    }
+
+    public function test_projects_list_planning_reuses_global_legacy_exclude_helper(): void
+    {
+        $agg = (string) file_get_contents(
+            (new ReflectionClass(SitePlanningActiveUnitAggregator::class))->getFileName(),
+        );
+        $list = (string) file_get_contents(
+            (new ReflectionClass(ListSeoProjects::class))->getFileName(),
+        );
+        $planner = (string) file_get_contents(
+            (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('ContentProjectGlobalLegacyArchive::excludeFromProjectAlias', $agg);
+        self::assertStringContainsString('overviewForProjectsList', $list);
+        self::assertStringContainsString('->overview(null, $this->resolvePlannerActiveMonth())', $planner);
+        self::assertStringNotContainsString('overviewForProjectsList', $planner);
     }
 
     public function test_restore_handlers_reject_global_legacy(): void

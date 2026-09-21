@@ -396,6 +396,8 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString('compact_success_items', $list);
         self::assertStringContainsString('SitePlanningReadModel', $list);
         self::assertStringContainsString('getMonthlyPlanningMatrix', $list);
+        self::assertStringContainsString('overviewForProjectsList', $list);
+        self::assertStringNotContainsString('->overview(null, $this->planningMonth', $list);
         self::assertStringContainsString('balance_months_col_before', $list);
         self::assertStringContainsString('balance_months_stat_will_move', $list);
         self::assertStringContainsString('balance_months_stat_fixed_stay', $list);

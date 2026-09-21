@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
 /**
@@ -16,6 +17,10 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
  * Count = distinct project_task_id (t.id) where site_id + planning_month match.
  * Includes completed / published / archived projects.
  * Excludes only soft-deleted + cancelled.
+ *
+ * Optional: exclude Global Legacy import shells (`import_source = seo_content_archive_items`)
+ * when callers need planning-workload semantics (Projects list). Default keeps historical
+ * distribution including Global Legacy.
  *
  * Not an "active workload" / capacity gate.
  */
@@ -26,12 +31,12 @@ final class SitePlanningActiveUnitAggregator
      *
      * @return array<int, int>
      */
-    public function plannedCountsBySite(string $planningMonth): array
+    public function plannedCountsBySite(string $planningMonth, bool $excludeGlobalLegacy = false): array
     {
         $month = ContentProjectMonthContext::normalize($planningMonth);
         $counts = [];
 
-        foreach ($this->distributionRows($month) as $row) {
+        foreach ($this->distributionRows($month, null, $excludeGlobalLegacy) as $row) {
             $siteId = (int) ($row->site_id ?? 0);
             $taskId = (int) ($row->id ?? 0);
             if ($siteId <= 0 || $taskId <= 0) {
@@ -53,7 +58,7 @@ final class SitePlanningActiveUnitAggregator
      *
      * @return array{planned: int, task_ids: list<int>}
      */
-    public function forSiteMonth(int $siteId, string $planningMonth): array
+    public function forSiteMonth(int $siteId, string $planningMonth, bool $excludeGlobalLegacy = false): array
     {
         $month = ContentProjectMonthContext::normalize($planningMonth);
         if ($siteId <= 0) {
@@ -61,7 +66,7 @@ final class SitePlanningActiveUnitAggregator
         }
 
         $taskIds = [];
-        foreach ($this->distributionRows($month, $siteId) as $row) {
+        foreach ($this->distributionRows($month, $siteId, $excludeGlobalLegacy) as $row) {
             $taskId = (int) ($row->id ?? 0);
             if ($taskId > 0) {
                 $taskIds[$taskId] = true;
@@ -80,7 +85,7 @@ final class SitePlanningActiveUnitAggregator
     /**
      * @return \Illuminate\Support\Collection<int, object>
      */
-    private function distributionRows(string $month, ?int $siteId = null)
+    private function distributionRows(string $month, ?int $siteId = null, bool $excludeGlobalLegacy = false)
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_project_tasks')
             || ! Schema::connection('omi_seo_ai')->hasTable('seo_projects')) {
@@ -102,6 +107,10 @@ final class SitePlanningActiveUnitAggregator
                 'p.month as project_month',
                 'p.status as project_status',
             ]);
+
+        if ($excludeGlobalLegacy) {
+            ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
+        }
 
         if ($siteId !== null && $siteId > 0) {
             $query->where('t.site_id', $siteId);

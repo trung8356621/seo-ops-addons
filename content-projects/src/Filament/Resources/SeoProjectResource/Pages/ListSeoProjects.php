@@ -107,7 +107,8 @@ class ListSeoProjects extends ListRecords
 
     /**
      * Read-only Site Planning matrix for Projects list (planning_month SSOT).
-     * Same aggregation as Planner Site Planning via SitePlanningReadModel::overview().
+     * Uses overviewForProjectsList(): same archive/history semantics as Planner overview,
+     * but excludes Global Legacy import shells (aligned with Articles-by-domain workload).
      *
      * @return array{
      *     months: list<array<string, mixed>>,
@@ -119,7 +120,7 @@ class ListSeoProjects extends ListRecords
     public function getMonthlyPlanningMatrix(): array
     {
         return $this->monthlyPlanningCache ??= app(SitePlanningReadModel::class)
-            ->overview(null, $this->planningMonth ?: null);
+            ->overviewForProjectsList(null, $this->planningMonth ?: null);
     }
 
     /**
