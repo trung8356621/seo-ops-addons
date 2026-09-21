@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\PromptLanguageVariableService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 
 /**
