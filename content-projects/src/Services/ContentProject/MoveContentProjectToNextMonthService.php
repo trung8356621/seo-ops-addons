@@ -359,6 +359,9 @@ final class MoveContentProjectToNextMonthService
             if ($siteId > 0) {
                 $payload['site_id'] = $siteId;
             }
+            if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+                $payload['planning_month'] = $monthStart->format('Y-m-d');
+            }
 
             $task->forceFill($payload)->save();
 

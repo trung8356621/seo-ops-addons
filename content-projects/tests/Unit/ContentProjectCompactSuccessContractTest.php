@@ -399,11 +399,22 @@ final class ContentProjectCompactSuccessContractTest extends TestCase
             dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Pages/ListSeoProjects.php',
         );
         self::assertStringContainsString('compact_success_items', $listSrc);
-        self::assertStringNotContainsString("Select::make('site_id')", $listSrc);
         self::assertStringContainsString('->preview(0, $month)', $listSrc);
         self::assertStringNotContainsString('destination_project_id', $listSrc);
         self::assertStringNotContainsString('include_scheduled_published', $listSrc);
         self::assertStringContainsString('moved_generator_done', $listSrc);
+        // Compact remains month-wide (site_id=0). Domain Select is Balance-only.
+        self::assertTrue(
+            (bool) preg_match(
+                '/function compactSuccessFormSchema\(\): array\s*\{(?P<body>.*?)(?=\n    (?:private|protected|public) function)/s',
+                $listSrc,
+                $compactForm,
+            ),
+            'compactSuccessFormSchema() must exist',
+        );
+        self::assertStringNotContainsString("Select::make('site_id')", $compactForm['body']);
+        self::assertStringContainsString('balance_months', $listSrc);
+        self::assertStringContainsString("Select::make('site_id')", $listSrc);
 
         $plannerSrc = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectCompactSuccessPlanner::class))->getFileName(),

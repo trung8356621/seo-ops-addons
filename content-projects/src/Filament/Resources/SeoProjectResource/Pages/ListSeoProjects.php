@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCompactSuccessService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthBalanceService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
@@ -15,6 +16,8 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
 use Filament\Forms;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\MaxWidth;
@@ -209,6 +212,57 @@ class ListSeoProjects extends ListRecords
                             ->send();
                     }
                 }),
+            Actions\Action::make('balance_months')
+                ->label(__('seo-content-ai::filament.projects.balance_months'))
+                ->icon('heroicon-o-arrows-right-left')
+                ->color('gray')
+                ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
+                ->modalHeading(__('seo-content-ai::filament.projects.balance_months_heading'))
+                ->modalDescription(__('seo-content-ai::filament.projects.balance_months_subtitle'))
+                ->modalWidth(MaxWidth::ThreeExtraLarge)
+                ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.balance_months_confirm'))
+                ->form(fn (): array => $this->balanceMonthsFormSchema())
+                ->action(function (array $data): void {
+                    abort_unless(SeoAccessControl::canMutateContentProjects(), 403);
+
+                    try {
+                        $siteId = (int) ($data['site_id'] ?? 0);
+                        $months = is_array($data['months'] ?? null) ? $data['months'] : [];
+                        $fingerprint = is_string($data['fingerprint'] ?? null) ? (string) $data['fingerprint'] : null;
+
+                        $result = app(ContentProjectMonthBalanceService::class)->apply(
+                            $siteId,
+                            $months,
+                            $fingerprint,
+                            auth()->id() ? (int) auth()->id() : null,
+                        );
+
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.balance_months_done'))
+                            ->body((string) __('seo-content-ai::filament.projects.balance_months_done_body', [
+                                'moved' => (int) ($result['moved_count'] ?? 0),
+                                'domain' => (string) ($result['domain'] ?? ''),
+                            ]))
+                            ->success()
+                            ->send();
+
+                        $this->resetTable();
+                        $this->monthWorkloadCache = null;
+                    } catch (ValidationException $exception) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.balance_months_failed'))
+                            ->body($exception->validator->errors()->first() ?: $exception->getMessage())
+                            ->danger()
+                            ->send();
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.balance_months_failed'))
+                            ->body($exception->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
             Actions\Action::make('product_gallery_canary')
                 ->label('PG Canary fixture')
                 ->icon('heroicon-o-beaker')
@@ -224,6 +278,145 @@ class ListSeoProjects extends ListRecords
             Actions\CreateAction::make()
                 ->url(fn (): string => $this->createProjectUrl()),
         ];
+    }
+
+    /**
+     * @return list<\Filament\Forms\Components\Component>
+     */
+    private function balanceMonthsFormSchema(): array
+    {
+        $active = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+        $previous = ContentProjectMonthContext::shift($active, -1);
+        $chipMonths = ContentProjectMonthContext::nearbyMonths($active, 2);
+        $chipOptions = [];
+        foreach ($chipMonths as $month) {
+            $chipOptions[$month] = ContentProjectMonthContext::shortLabel($month).' '.substr($month, 0, 4);
+        }
+
+        $syncFingerprint = function (Set $set, Get $get): void {
+            $siteId = (int) ($get('site_id') ?? 0);
+            $months = is_array($get('months')) ? $get('months') : [];
+            if ($siteId <= 0 || count($months) < 2) {
+                $set('fingerprint', '');
+
+                return;
+            }
+            try {
+                $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months);
+                $set('fingerprint', (string) ($preview['fingerprint'] ?? ''));
+            } catch (Throwable) {
+                $set('fingerprint', '');
+            }
+        };
+
+        return [
+            Forms\Components\Select::make('site_id')
+                ->label(__('seo-content-ai::filament.projects.balance_months_domain'))
+                ->options(function () use ($active, $previous): array {
+                    $months = ContentProjectMonthContext::nearbyMonths($active, 2);
+                    if (! in_array($previous, $months, true)) {
+                        $months[] = $previous;
+                    }
+                    if (! in_array($active, $months, true)) {
+                        $months[] = $active;
+                    }
+
+                    return app(ContentProjectMonthBalanceService::class)->domainOptionsForMonths($months);
+                })
+                ->searchable()
+                ->required()
+                ->live()
+                ->afterStateUpdated($syncFingerprint),
+            Forms\Components\ToggleButtons::make('months')
+                ->label(__('seo-content-ai::filament.projects.balance_months_months'))
+                ->options($chipOptions)
+                ->multiple()
+                ->inline()
+                ->required()
+                ->default([$previous, $active])
+                ->live()
+                ->afterStateUpdated($syncFingerprint),
+            Forms\Components\Hidden::make('fingerprint')->default(''),
+            Forms\Components\Placeholder::make('balance_preview')
+                ->label(__('seo-content-ai::filament.projects.balance_months_preview'))
+                ->content(function (Get $get): HtmlString {
+                    $siteId = (int) ($get('site_id') ?? 0);
+                    $months = is_array($get('months')) ? $get('months') : [];
+                    if ($siteId <= 0) {
+                        return new HtmlString(
+                            '<p class="text-sm text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_pick_domain')).'</p>'
+                        );
+                    }
+                    if (count($months) < 2) {
+                        return new HtmlString(
+                            '<p class="text-sm text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_pick_months')).'</p>'
+                        );
+                    }
+                    try {
+                        $preview = app(ContentProjectMonthBalanceService::class)->preview($siteId, $months);
+
+                        return new HtmlString($this->renderBalanceMonthsPreviewHtml($preview));
+                    } catch (Throwable $exception) {
+                        return new HtmlString(
+                            '<p class="text-sm text-danger-600">'.e($exception->getMessage()).'</p>'
+                        );
+                    }
+                }),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $preview
+     */
+    private function renderBalanceMonthsPreviewHtml(array $preview): string
+    {
+        $html = '<div class="space-y-2 text-sm">';
+        $html .= '<p class="font-medium">'.e((string) __('seo-content-ai::filament.projects.balance_months_preview_title', [
+            'domain' => (string) ($preview['domain'] ?? ''),
+        ])).'</p>';
+        $html .= '<p class="text-xs text-gray-500 dark:text-gray-400">'.e((string) __('seo-content-ai::filament.projects.balance_months_preview_movable', [
+            'count' => (int) ($preview['movable_total'] ?? 0),
+            'months' => count($preview['months'] ?? []),
+        ])).'</p>';
+
+        $html .= '<div class="overflow-x-auto"><table class="min-w-full text-xs"><thead><tr class="text-left text-gray-500">'
+            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_month')).'</th>'
+            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_current')).'</th>'
+            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_fixed')).'</th>'
+            .'<th class="py-1 pr-3">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_movable')).'</th>'
+            .'<th class="py-1">'.e((string) __('seo-content-ai::filament.projects.balance_months_col_after')).'</th>'
+            .'</tr></thead><tbody>';
+
+        foreach ($preview['rows'] ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $html .= '<tr class="border-t border-gray-100 dark:border-white/10">'
+                .'<td class="py-1 pr-3 font-medium">'.e((string) ($row['month_label'] ?? '')).'</td>'
+                .'<td class="py-1 pr-3">'.(int) ($row['current'] ?? 0).'</td>'
+                .'<td class="py-1 pr-3">'.(int) ($row['fixed'] ?? 0).'</td>'
+                .'<td class="py-1 pr-3">'.(int) ($row['movable'] ?? 0).'</td>'
+                .'<td class="py-1 font-semibold">'.(int) ($row['after'] ?? 0).'</td>'
+                .'</tr>';
+        }
+        $html .= '</tbody></table></div>';
+
+        $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_moves', [
+            'count' => (int) ($preview['move_count'] ?? 0),
+        ])).'</p>';
+        $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_changed', [
+            'count' => (int) ($preview['fixed_changed'] ?? 0),
+        ])).'</p>';
+
+        if ((int) ($preview['fixed_total'] ?? 0) > 0) {
+            $html .= '<p class="text-xs text-gray-500">'.e((string) __('seo-content-ai::filament.projects.balance_months_stat_fixed_total', [
+                'count' => (int) $preview['fixed_total'],
+            ])).'</p>';
+        }
+
+        $html .= '</div>';
+
+        return $html;
     }
 
     /**
@@ -248,13 +441,13 @@ class ListSeoProjects extends ListRecords
                 ->content(function () use ($month): HtmlString {
                     try {
                         $plan = app(ContentProjectCompactSuccessService::class)->preview(0, $month);
+
+                        return new HtmlString($this->renderCompactSuccessPreviewHtml($plan));
                     } catch (Throwable $exception) {
                         return new HtmlString(
                             '<p class="text-sm text-danger-600">'.e($exception->getMessage()).'</p>'
                         );
                     }
-
-                    return new HtmlString($this->renderCompactSuccessPreviewHtml($plan));
                 }),
         ];
     }

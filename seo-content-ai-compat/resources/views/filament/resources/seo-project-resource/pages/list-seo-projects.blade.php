@@ -4,6 +4,20 @@
     $domainChart = $this->getDomainWorkloadChart();
     $writerChart = $this->getWriterWorkloadChart();
     $queueStatus = $this->getCompactQueueStatus();
+    $activeMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+    $nearbyMonths = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::nearbyMonths($activeMonth, 2);
+    $monthUrls = [];
+    foreach ($nearbyMonths as $month) {
+        $monthUrls[$month] = $this->planningMonthUrl($month, $this->projectType);
+    }
+    $prevUrl = $this->planningMonthUrl(
+        \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, -1),
+        $this->projectType,
+    );
+    $nextUrl = $this->planningMonthUrl(
+        \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, 1),
+        $this->projectType,
+    );
 @endphp
 
 <x-filament-panels::page
@@ -16,22 +30,17 @@
         preset="filament-table"
         targets="planningMonth,projectType,updatedPlanningMonth,updatedProjectType"
     >
-    {{-- Month selector = page SoT (above charts) --}}
+    {{-- Active month navigator = page SoT (above charts) --}}
     <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-200" for="planning-month">
-                {{ __('seo-content-ai::filament.projects.planning_month') }}:
-            </label>
-            <x-select
-                id="planning-month"
-                wire:model.live="planningMonth"
-                size="inline"
-                class="min-w-[8.5rem] text-sm"
-            >
-                @foreach ($monthOptions as $option)
-                    <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
-                @endforeach
-            </x-select>
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+            <x-seo-content-ai::content-project-list-month-nav
+                :active-month="$activeMonth"
+                :month-urls="$monthUrls"
+                :prev-url="$prevUrl"
+                :next-url="$nextUrl"
+                :all-options="$monthOptions"
+                :radius="2"
+            />
 
             <label class="sr-only" for="project-type">{{ __('seo-content-ai::filament.projects.project_type') }}</label>
             <x-select

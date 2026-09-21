@@ -61,6 +61,38 @@ final class ContentProjectMonthContext
         return $yyyyMm.'-01';
     }
 
+    /** Hiển thị UI ngắn: Mmm (vd. Sep) */
+    public static function shortLabel(CarbonImmutable|Carbon|string|null $month): string
+    {
+        $yyyyMm = self::normalize($month);
+
+        return CarbonImmutable::createFromFormat('Y-m', $yyyyMm)->startOfMonth()->format('M');
+    }
+
+    /**
+     * Nearby months around an anchor (inclusive), sorted ascending.
+     *
+     * @return list<string> YYYY-MM
+     */
+    public static function nearbyMonths(CarbonImmutable|Carbon|string|null $anchor, int $radius = 2): array
+    {
+        $center = CarbonImmutable::createFromFormat('Y-m', self::normalize($anchor))->startOfMonth();
+        $radius = max(0, $radius);
+        $out = [];
+        for ($i = -$radius; $i <= $radius; $i++) {
+            $out[] = $center->addMonthsNoOverflow($i)->format('Y-m');
+        }
+
+        return $out;
+    }
+
+    public static function shift(CarbonImmutable|Carbon|string|null $month, int $deltaMonths): string
+    {
+        $center = CarbonImmutable::createFromFormat('Y-m', self::normalize($month))->startOfMonth();
+
+        return $center->addMonthsNoOverflow($deltaMonths)->format('Y-m');
+    }
+
     /** Hiển thị UI: m/Y */
     public static function display(CarbonImmutable|Carbon|string|null $month): string
     {

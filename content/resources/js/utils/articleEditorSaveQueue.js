@@ -175,6 +175,79 @@ export function isArticleSaveInFlight() {
 }
 
 /**
+ * Manual explicit Save only: hard-reload when publish post_type differs from page bootstrap.
+ * Autosave / Save & Close must not use this — they keep current no-reload / exit behavior.
+ *
+ * @returns {boolean}
+ */
+export function shouldReloadArticleEditorAfterPostTypeChange() {
+    const baseline = resolveBootstrappedArticlePostType();
+    const current = resolveCurrentPublishBoxPostType();
+    if (baseline === '' || current === '') {
+        return false;
+    }
+
+    return baseline !== current;
+}
+
+/**
+ * Prefer the mount-time freeze — live #seo-article-core-bootstrap can morph after
+ * applyPublishBoxFromClient updates Livewire articlePostType (script is not wire:ignore).
+ *
+ * @returns {string}
+ */
+function resolveBootstrappedArticlePostType() {
+    if (typeof window !== 'undefined') {
+        const frozen = String(window.__SEO_EDITOR_BOOTSTRAP_POST_TYPE__ ?? '').trim().toLowerCase();
+        if (frozen !== '') {
+            return frozen;
+        }
+    }
+
+    try {
+        const coreEl = document.getElementById('seo-article-core-bootstrap');
+        const rawCore = coreEl?.textContent?.trim();
+        if (rawCore) {
+            const core = JSON.parse(rawCore);
+            const fromCore = String(core?.postType ?? core?.post_type ?? '').trim().toLowerCase();
+            if (fromCore !== '') {
+                return fromCore;
+            }
+        }
+    } catch {
+        /* ignore */
+    }
+
+    try {
+        const metaEl = document.getElementById('seo-article-meta');
+        const meta = metaEl?.textContent?.trim() ? JSON.parse(metaEl.textContent) : {};
+
+        return String(meta?.post_type ?? meta?.postType ?? '').trim().toLowerCase();
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Current publish-box post_type (Alpine shell → window.__seoPublishBoxSnapshot).
+ *
+ * @returns {string}
+ */
+function resolveCurrentPublishBoxPostType() {
+    if (typeof window === 'undefined' || typeof window.__seoPublishBoxSnapshot !== 'function') {
+        return '';
+    }
+
+    try {
+        const box = window.__seoPublishBoxSnapshot();
+
+        return String(box?.post_type ?? box?.postType ?? '').trim().toLowerCase();
+    } catch {
+        return '';
+    }
+}
+
+/**
  * Save toàn bộ editor hiện tại (await) — dùng trước Fix slug all / action cần DB mới nhất.
  * Không bật/tắt heavy overlay (caller tự quản lý UI busy).
  *

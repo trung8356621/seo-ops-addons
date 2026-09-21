@@ -38,6 +38,7 @@ import {
     endExplicitEditorSave,
     isArticleSaveInFlight,
     saveArticleViaApiSingleFlight,
+    shouldReloadArticleEditorAfterPostTypeChange,
 } from './utils/articleEditorSaveQueue';
 import { flushMediaSnapshotMutations } from './utils/articleEditorMediaSnapshot';
 import { EditorSessionClient, getOrCreateClientInstanceId } from './utils/editorSessionClient';
@@ -342,7 +343,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? editorBundle.html ?? ''),
                     keepOverlay: false,
-                    reloadAfterSuccess: false,
+                    reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange(),
                 });
                 window.__seoResetPublishTabPrimed?.();
             }
@@ -454,7 +455,7 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
                     siteId,
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? apiPayload.html ?? ''),
-                    reloadAfterSuccess: false,
+                    reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange(),
                 });
             } catch (error) {
                 if (error?.conflict) {
@@ -1463,6 +1464,9 @@ function mountArticleEditorPage() {
     window.__SEO_EDITOR_CURRENT_USER_ID__ = currentUserId != null ? Number(currentUserId) || 0 : 0;
     window.__SEO_EDITOR_CONNECTION_HASH__ = connectionHash || '';
     window.__SEO_ARTICLE_SITE_ID__ = Number(siteId ?? 0) || 0;
+    // Freeze page-load post_type — #seo-article-core-bootstrap is outside wire:ignore and can
+    // morph to the Livewire articlePostType after applyPublishBoxFromClient + later renders.
+    window.__SEO_EDITOR_BOOTSTRAP_POST_TYPE__ = String(articlePostType ?? '').trim().toLowerCase();
     window.__SEO_EDITOR_LAZY_ENDPOINTS__ = lazyEndpoints || window.__SEO_EDITOR_LAZY_ENDPOINTS__ || {};
 
     const perfDebugEnabled = Boolean(window.__SEO_ARTICLE_EDITOR_PERF_DEBUG__ || editorSettings?.perf_debug);

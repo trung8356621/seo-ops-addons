@@ -147,7 +147,11 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $editor = $this->js('article-editor.jsx');
         self::assertStringContainsString('saveArticleViaApiSingleFlight(articleId, buildPayload', $editor);
         self::assertStringContainsString("priority: 'explicit'", $editor);
-        self::assertStringContainsString('reloadAfterSuccess: false', $editor);
+        // Manual Save may reload only when post_type changed — never unconditional true.
+        self::assertStringContainsString(
+            'reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange()',
+            $editor,
+        );
         self::assertStringNotContainsString('reloadAfterSuccess: true', $editor);
         self::assertStringContainsString("const requiresBlockingOverlay = normalizedAction !== 'save'", $editor);
         // Active session path must prefer session document endpoint.
@@ -161,6 +165,35 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertNotFalse($sessionPos);
         self::assertNotFalse($legacyPos);
         self::assertTrue($sessionPos < $legacyPos);
+    }
+
+    public function test_explicit_save_reloads_only_when_post_type_changed(): void
+    {
+        $queue = $this->js('utils/articleEditorSaveQueue.js');
+        self::assertStringContainsString('export function shouldReloadArticleEditorAfterPostTypeChange', $queue);
+        self::assertStringContainsString('__seoPublishBoxSnapshot', $queue);
+        self::assertStringContainsString('__SEO_EDITOR_BOOTSTRAP_POST_TYPE__', $queue);
+        self::assertStringContainsString('seo-article-core-bootstrap', $queue);
+        self::assertStringContainsString('seo-article-meta', $queue);
+
+        $editor = $this->js('article-editor.jsx');
+        self::assertStringContainsString(
+            'window.__SEO_EDITOR_BOOTSTRAP_POST_TYPE__ = String(articlePostType',
+            $editor,
+        );
+        self::assertStringContainsString(
+            'reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange()',
+            $editor,
+        );
+        // Save & Close must keep exit behavior — do not opt into post_type reload.
+        self::assertDoesNotMatchRegularExpression(
+            "/normalizedAction === 'save-close'[\\s\\S]{0,900}reloadAfterSuccess:\\s*shouldReloadArticleEditorAfterPostTypeChange/",
+            $editor,
+        );
+        // Autosave path must never call finishArticleSaveFromApi reload helper.
+        $autosaveHook = $this->js('hooks/useArticleEditorSaveQueue.js');
+        self::assertStringNotContainsString('shouldReloadArticleEditorAfterPostTypeChange', $autosaveHook);
+        self::assertStringNotContainsString('finishArticleSaveFromApi', $autosaveHook);
     }
 
     public function test_slug_fix_does_not_poison_content_hash_with_tiptap_export(): void

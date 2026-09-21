@@ -211,7 +211,11 @@ final class ContentProjectProjectStatusUiContractTest extends TestCase
         self::assertStringNotContainsString('staffSearch', $listSource);
 
         $view = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php');
-        self::assertStringContainsString('wire:model.live="planningMonth"', $view);
+        self::assertStringContainsString('content-project-list-month-nav', $view);
+        self::assertStringNotContainsString('id="planning-month"', $view);
+        $nav = LegacyAddonPath::read('resources/views/components/content-project-list-month-nav.blade.php');
+        self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringContainsString('active_month', $nav);
         self::assertStringNotContainsString('unassigned_staff_badge', $view);
         self::assertStringNotContainsString('unassigned_staff_view', $view);
         self::assertStringNotContainsString('getUnassignedStaffPayload', $view);

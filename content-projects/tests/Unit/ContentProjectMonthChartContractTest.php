@@ -41,7 +41,7 @@ final class ContentProjectMonthChartContractTest extends TestCase
             'resources/views/components/content-project-month-charts.blade.php',
         );
 
-        $monthPos = strpos($blade, 'wire:model.live="planningMonth"');
+        $monthPos = strpos($blade, 'content-project-list-month-nav');
         $chartsPos = strpos($blade, 'content-project-month-charts');
         $tablePos = strpos($blade, '$this->table');
 
@@ -50,6 +50,8 @@ final class ContentProjectMonthChartContractTest extends TestCase
         self::assertNotFalse($tablePos);
         self::assertLessThan($chartsPos, $monthPos);
         self::assertLessThan($tablePos, $chartsPos);
+        $nav = LegacyAddonPath::read('resources/views/components/content-project-list-month-nav.blade.php');
+        self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
         self::assertStringContainsString('chart_articles_by_domain', $charts);
         self::assertStringContainsString('chart_articles_by_writer', $charts);
         self::assertStringContainsString('chart_domain_empty', $charts);
