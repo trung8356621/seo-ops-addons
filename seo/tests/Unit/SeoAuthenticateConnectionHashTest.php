@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
-
 use Tests\Support\ProjectRoot;
 use Omnichannel\Addons\Seo\Http\Middleware\SeoAuthenticate;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
@@ -36,16 +35,15 @@ final class SeoAuthenticateConnectionHashTest extends TestCase
         self::assertSame($hash, SeoConnectionContext::resolveHashFromRequest($request));
     }
 
-    public function test_seo_authenticate_middleware_exists(): void
+    public function test_seo_authenticate_redirects_to_canonical_login(): void
     {
         self::assertTrue(class_exists(SeoAuthenticate::class));
         $source = file_get_contents(
             ProjectRoot::addonsPath().'/seo/src/Http/Middleware/SeoAuthenticate.php'
         );
         self::assertNotFalse($source);
-        self::assertStringContainsString("route('filament.seo.auth.login'", $source);
-        self::assertStringContainsString('connection_hash', $source);
-        self::assertStringContainsString('SeoPanelRoutes::shortLoginUrl', $source);
-        self::assertStringContainsString('seo-main', $source);
+        self::assertStringContainsString("route('login')", $source);
+        self::assertStringNotContainsString('filament.seo.auth.login', $source);
+        self::assertStringNotContainsString('shortLoginUrl', $source);
     }
 }

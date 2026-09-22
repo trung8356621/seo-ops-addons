@@ -33,7 +33,12 @@ final class AuditNoteDnaNormalizer
 
     public const SOURCE_TYPE_MANUAL_SEED = 'manual_seed';
 
+    /** Temporary AI-discovered Topic candidate (PR3) — never a DB Topic id. */
+    public const SOURCE_TYPE_GENERATED = 'generated';
+
     public const MANUAL_REF_PREFIX = 'manual:';
+
+    public const GENERATED_REF_PREFIX = 'generated:';
 
     /** @deprecated Legacy Cluster fallback only — never treat as planner slot multiplicity. */
     public const DEFAULT_WEIGHT = 1;
@@ -381,6 +386,15 @@ final class AuditNoteDnaNormalizer
             $name = $seedText;
             $share = null;
             $targetModeRaw = AuditNoteTargetAllocator::TARGET_MODE_MANUAL;
+        } elseif ($sourceType === self::SOURCE_TYPE_GENERATED) {
+            if ($name === '') {
+                return null;
+            }
+            if (! self::isGeneratedRef($ref)) {
+                $ref = self::generatedRef((string) ($item['candidate_key'] ?? $ref));
+            }
+            $share = null;
+            $targetModeRaw = $targetModeRaw ?? AuditNoteTargetAllocator::TARGET_MODE_MANUAL;
         } else {
             if ($name === '') {
                 $name = $ref;
@@ -399,7 +413,7 @@ final class AuditNoteDnaNormalizer
             $dna,
         );
 
-        return [
+        $out = [
             'source_type' => $sourceType,
             'cluster_ref' => $ref,
             'cluster_name_snapshot' => $name,
@@ -409,6 +423,11 @@ final class AuditNoteDnaNormalizer
             'target_mode' => AuditNoteTargetAllocator::normalizeTargetMode($targetModeRaw),
             'dna' => $dna,
         ];
+        if ($sourceType === self::SOURCE_TYPE_GENERATED) {
+            $out['candidate_key'] = self::generatedCandidateKey($ref);
+        }
+
+        return $out;
     }
 
     public static function normalizeSourceType(mixed $raw, string $clusterRef = ''): string
@@ -416,6 +435,9 @@ final class AuditNoteDnaNormalizer
         $type = strtolower(trim((string) ($raw ?? '')));
         if ($type === self::SOURCE_TYPE_MANUAL_SEED || self::isManualRef($clusterRef)) {
             return self::SOURCE_TYPE_MANUAL_SEED;
+        }
+        if ($type === self::SOURCE_TYPE_GENERATED || self::isGeneratedRef($clusterRef)) {
+            return self::SOURCE_TYPE_GENERATED;
         }
 
         return self::SOURCE_TYPE_CLUSTER;
@@ -443,6 +465,62 @@ final class AuditNoteDnaNormalizer
     public static function manualSeedRef(): string
     {
         return self::MANUAL_REF_PREFIX.str_replace('-', '', (string) \Illuminate\Support\Str::uuid());
+    }
+
+    public static function isGenerated(array $item): bool
+    {
+        return self::normalizeSourceType($item['source_type'] ?? null, (string) ($item['cluster_ref'] ?? ''))
+            === self::SOURCE_TYPE_GENERATED;
+    }
+
+    public static function isGeneratedRef(string $ref): bool
+    {
+        return str_starts_with(trim($ref), self::GENERATED_REF_PREFIX);
+    }
+
+    public static function generatedRef(string $candidateKey): string
+    {
+        $key = trim($candidateKey);
+        if ($key === '') {
+            $key = 'generated-'.str_replace('-', '', (string) \Illuminate\Support\Str::uuid());
+        }
+        if (str_starts_with($key, self::GENERATED_REF_PREFIX)) {
+            return $key;
+        }
+
+        return self::GENERATED_REF_PREFIX.$key;
+    }
+
+    public static function generatedCandidateKey(string $ref): string
+    {
+        $ref = trim($ref);
+        if (self::isGeneratedRef($ref)) {
+            return substr($ref, strlen(self::GENERATED_REF_PREFIX));
+        }
+
+        return $ref;
+    }
+
+    /**
+     * @param  array{candidate_key: string, name: string, target_dna_count: int, dna: list<string>}  $candidate
+     * @return NoteItem|null
+     */
+    public static function noteItemFromGeneratedCandidate(array $candidate): ?array
+    {
+        $dnaRows = [];
+        foreach ($candidate['dna'] as $phrase) {
+            $dnaRows[] = ['phrase' => $phrase, 'slots' => self::DEFAULT_SLOTS, 'source' => self::SOURCE_MANUAL];
+        }
+
+        return self::normalizeNoteItem([
+            'source_type' => self::SOURCE_TYPE_GENERATED,
+            'candidate_key' => (string) ($candidate['candidate_key'] ?? ''),
+            'cluster_ref' => self::generatedRef((string) ($candidate['candidate_key'] ?? '')),
+            'cluster_name_snapshot' => (string) ($candidate['name'] ?? ''),
+            'target_dna_count' => (int) ($candidate['target_dna_count'] ?? self::DEFAULT_TARGET_DNA_COUNT),
+            'target_mode' => AuditNoteTargetAllocator::TARGET_MODE_MANUAL,
+            'dna' => $dnaRows,
+        ]);
     }
 
     /**

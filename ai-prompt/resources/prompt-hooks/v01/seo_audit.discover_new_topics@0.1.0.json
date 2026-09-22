@@ -1,0 +1,63 @@
+{
+  "spec_version": "0.1",
+  "key": "seo_audit.discover_new_topics",
+  "version": "0.1.0",
+  "name": "Discover New Topics",
+  "description": "Propose entirely new Topic candidates with Target DNA from the site Keyword Landscape. Temporary planning candidates only — no Topic DB write, no article generation.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "seo_audit",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": { "temperature": 0.35 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "landscape_json": { "type": "string", "required": true, "max_length": 100000, "label": "Keyword Landscape JSON" },
+    "count": { "type": "integer", "required": false, "default": 8, "label": "Requested new topic count" },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
+    "site_domain": { "type": "string", "required": false, "nullable": true, "max_length": 255, "label": "Site domain" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You propose NEW Topic candidates for SEO Audit planning from the site Keyword Landscape.\n\nYou do NOT write articles.\nYou do NOT invent Topic database ids.\nYou do NOT copy or lightly rename existing Topics.\n\nGoal: escape Topic path-dependence. Find directions the site does not already cover as a Topic, with enough distinctiveness to become their own content cluster.\n\nUse ONLY the supplied landscape_json as evidence of what already exists (topic names, MCP share, DNA coverage).\n\nFor each NEW Topic return:\n- candidate_key: unique string within this response (e.g. generated-1). NEVER a DB id.\n- name: non-empty Topic name in the requested primary language when provided.\n- target_dna_count: integer >= 1 (suggested DNA slot count for planning).\n- dna: array of distinct short DNA phrases (normalized strings). Prefer target_dna_count phrases when reasonable; never duplicate DNA inside one Topic.\n\nAvoid:\n- Topics that match existing landscape names (case/whitespace insensitive).\n- Mere expansions of an existing Topic already listed.\n- Article titles, keyword dumps, prose explanations.\n\nSite domain: {{site_domain}}\nPrimary language: {{primary_language}}\nRequested count: {{count}}\n\nKeyword Landscape JSON:\n{{landscape_json}}\n\nOUTPUT CONTRACT — STRICT\nReturn ONLY valid JSON object:\n{\"topics\":[{\"candidate_key\":\"generated-1\",\"name\":\"...\",\"target_dna_count\":10,\"dna\":[\"...\",\"...\"]}]}\nNo markdown fences, no commentary, no text before/after JSON.\nFirst non-whitespace character MUST be { and last MUST be }."
+  },
+  "presentation": {
+    "description": "Propose entirely new Topic candidates with Target DNA from Keyword Landscape (temporary SEO Audit candidates).",
+    "default_instructions": [
+      "Read the full Keyword Landscape JSON.",
+      "Propose Topics that do not already exist on the site.",
+      "Return candidate_key, name, target_dna_count, and dna[] only.",
+      "No articles, no DB Topic ids, no prose outside JSON."
+    ],
+    "output_format": [
+      "{\"topics\":[{\"candidate_key\":\"generated-1\",\"name\":\"...\",\"target_dna_count\":10,\"dna\":[\"...\"]}]}"
+    ],
+    "notes": [
+      "PR3: temporary UI/session candidates only — callers must not materialize Topic rows or articles.",
+      "Landscape must come from KeywordLandscapeGateway / approved MCP boundary."
+    ],
+    "variables": [
+      { "key": "landscape_json", "required": true },
+      { "key": "count", "required": false },
+      { "key": "primary_language", "required": false },
+      { "key": "site_domain", "required": false }
+    ]
+  },
+  "retry": { "max": 1 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

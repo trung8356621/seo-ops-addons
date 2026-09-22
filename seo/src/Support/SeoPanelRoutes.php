@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Support;
 
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 /**
@@ -315,11 +314,7 @@ final class SeoPanelRoutes
      */
     public static function shortLoginUrl(array $parameters = []): string
     {
-        if (Route::has('filament.seo-main.auth.login')) {
-            return route('filament.seo-main.auth.login', $parameters);
-        }
-
-        return url('/seo/login');
+        return route('login');
     }
 
     private static function check(?string $route, string ...$patterns): bool

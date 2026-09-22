@@ -12,7 +12,6 @@ use Omnichannel\Addons\Seo\Services\SeoLoginServiceResolver;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
-use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 
 /**
  * Short /seo/* panel: resolve Main/default connection into the same SEO context
@@ -32,9 +31,7 @@ final class ResolveSeoMainServiceContext
         }
 
         if (! auth()->check()) {
-            return redirect()->to(SeoPanelRoutes::shortLoginUrl([
-                'return_url' => $request->fullUrl(),
-            ]));
+            return redirect()->route('login');
         }
 
         /** @var User $user */
@@ -46,17 +43,17 @@ final class ResolveSeoMainServiceContext
         }
 
         if ($hash === null || ! SeoConnectionContext::isValidHashFormat($hash)) {
-            return redirect()->route('seo.panel.redirect');
+            return redirect()->to('/workspace');
         }
 
         try {
             $connection = $this->databaseConnection->bootstrapByHash($hash);
         } catch (RuntimeException) {
-            return redirect()->route('seo.panel.redirect');
+            return redirect()->to('/workspace');
         }
 
         if (! $this->databaseConnection->userCanAccessConnection($user, $connection)) {
-            abort(403, 'Tài khoản của bạn không có quyền truy cập vào không gian lưu trữ SEO này.');
+            return redirect()->to('/workspace');
         }
 
         SeoConnectionContext::rememberHash($hash);
@@ -68,8 +65,7 @@ final class ResolveSeoMainServiceContext
     {
         $path = trim($request->path(), '/');
 
-        return $path === 'seo/login'
-            || $path === 'seo/logout'
+        return $path === 'seo/logout'
             || str_starts_with($path, 'seo/oauth/');
     }
 }

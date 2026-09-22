@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithAuditNotes;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithContentProjectPublishingActions;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDiscoverNewTopics;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
@@ -70,6 +71,7 @@ final class ViewSeoProject extends Page
 {
     use InteractsWithAuditNotes;
     use InteractsWithContentProjectPublishingActions;
+    use InteractsWithDiscoverNewTopics;
     use InteractsWithDraftSplit;
     use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
@@ -267,6 +269,7 @@ final class ViewSeoProject extends Page
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
         $this->mountInteractsWithAuditNotes();
+        $this->mountInteractsWithDiscoverNewTopics();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
         $this->syncArticleGenerationModePreference();

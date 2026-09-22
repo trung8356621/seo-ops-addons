@@ -20,17 +20,47 @@
     $defaultTarget = \Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer::DEFAULT_TARGET_DNA_COUNT;
     $maxDna = \Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer::MAX_DNA_PER_NOTE;
     $maxTarget = \Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer::MAX_TARGET_DNA_COUNT;
+    $discover = method_exists($this, 'getDiscoverNewTopicsPayloadProperty') || property_exists($this, 'newTopicCandidates')
+        ? ($this->discoverNewTopicsPayload ?? [])
+        : [];
+    $auditTab = (string) ($discover['tab'] ?? ($this->auditNotesTab ?? 'existing'));
+    $newCandidates = is_array($discover['candidates'] ?? null) ? $discover['candidates'] : [];
+    $newSelected = is_array($discover['selected'] ?? null) ? $discover['selected'] : [];
+    $newSelectedKeys = array_fill_keys(is_array($discover['selected_keys'] ?? null) ? $discover['selected_keys'] : [], true);
+    $newGenerating = (bool) ($discover['generating'] ?? false);
+    $newError = (string) ($discover['error'] ?? '');
 @endphp
 
 <div
     class="cp-audit-notes cp-ai-topic-workspace"
     data-audit-notes="1"
     data-ai-topic-workspace="1"
+    data-audit-notes-tab="{{ $auditTab }}"
     wire:key="cp-audit-notes-{{ $siteId }}"
     wire:init="loadAuditNoteSuggestions"
     x-data="cpAuditNotesRoot(@js($selectedItems), {{ (int) $siteId }}, {{ (int) $defaultTarget }}, {{ (int) $maxDna }}, {{ (int) $maxTarget }})"
     @cp-audit-notes-selected.window="mergeServerSelected(($event.detail && $event.detail.items) ? $event.detail.items : [])"
 >
+    <div class="cp-audit-notes__mode-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.audit_notes_mode_tabs') }}">
+        <button
+            type="button"
+            role="tab"
+            class="cp-audit-notes__mode-tab {{ $auditTab === 'existing' ? 'is-active' : '' }}"
+            wire:click="setAuditNotesTab('existing')"
+            aria-selected="{{ $auditTab === 'existing' ? 'true' : 'false' }}"
+            data-audit-notes-tab-btn="existing"
+        >{{ __('seo-content-ai::filament.projects.audit_notes_tab_existing') }}</button>
+        <button
+            type="button"
+            role="tab"
+            class="cp-audit-notes__mode-tab {{ $auditTab === 'new' ? 'is-active' : '' }}"
+            wire:click="setAuditNotesTab('new')"
+            aria-selected="{{ $auditTab === 'new' ? 'true' : 'false' }}"
+            data-audit-notes-tab-btn="new"
+        >{{ __('seo-content-ai::filament.projects.audit_notes_tab_new') }}</button>
+    </div>
+
+    @if ($auditTab === 'existing')
     {{-- LEFT: available Topics --}}
     <section
         class="cp-ai-topic-column cp-ai-topic-column--available"
@@ -406,6 +436,149 @@
             </p>
         </div>
     </section>
+    @else
+    {{-- NEW TOPICS TAB --}}
+    <section
+        class="cp-ai-topic-column cp-ai-topic-column--available"
+        data-ai-topic-column="available"
+        data-new-topics-candidates="1"
+        aria-label="{{ __('seo-content-ai::filament.projects.new_topics_candidates_heading') }}"
+    >
+        <div class="cp-ai-topic-column__head">
+            <h4 class="cp-audit-notes__title">
+                {{ __('seo-content-ai::filament.projects.new_topics_candidates_heading') }}
+                <span class="cp-audit-notes__count">{{ count($newCandidates) }}</span>
+            </h4>
+            <p class="cp-audit-notes__help">{{ __('seo-content-ai::filament.projects.new_topics_help') }}</p>
+            <div class="cp-audit-notes__toolbar">
+                <button
+                    type="button"
+                    class="fi-btn fi-btn-color-primary fi-size-sm"
+                    wire:click="discoverNewTopics"
+                    wire:loading.attr="disabled"
+                    wire:target="discoverNewTopics"
+                    @disabled(! $canWrite || $newGenerating)
+                    data-discover-new-topics="1"
+                >
+                    <span wire:loading.remove wire:target="discoverNewTopics">
+                        {{ __('seo-content-ai::filament.projects.new_topics_generate') }}
+                    </span>
+                    <span wire:loading wire:target="discoverNewTopics" class="inline-flex items-center gap-1">
+                        <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3"/></svg>
+                        {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
+                    </span>
+                </button>
+            </div>
+            @if ($newError !== '')
+                <p class="cp-audit-notes__alloc-warn" data-new-topics-error="1">{{ $newError }}</p>
+            @endif
+        </div>
+        <div class="cp-ai-topic-column__body">
+            <ul class="cp-audit-notes__list" data-new-topics-list="1">
+                @forelse ($newCandidates as $candidate)
+                    @php
+                        $ckey = (string) ($candidate['candidate_key'] ?? '');
+                        $isSel = isset($newSelectedKeys[$ckey]);
+                        $dnaList = is_array($candidate['dna'] ?? null) ? $candidate['dna'] : [];
+                    @endphp
+                    <li class="cp-audit-notes__row {{ $isSel ? 'is-selected' : '' }}" data-candidate-key="{{ $ckey }}">
+                        <label class="cp-audit-notes__check">
+                            <input
+                                type="checkbox"
+                                @checked($isSel)
+                                wire:click="toggleNewTopicCandidate(@js($ckey))"
+                                @disabled(! $canWrite)
+                            >
+                            <span class="cp-audit-notes__row-body">
+                                <span class="cp-audit-notes__name">{{ $candidate['name'] ?? $ckey }}</span>
+                                <span class="cp-audit-notes__meta">
+                                    <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.audit_notes_target_dna') }} {{ (int) ($candidate['target_dna_count'] ?? 0) }}</span>
+                                    <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.audit_notes_dna_count', ['count' => count($dnaList)]) }}</span>
+                                </span>
+                                @if ($dnaList !== [])
+                                    <span class="cp-audit-notes__meta">{{ implode(' · ', array_slice($dnaList, 0, 6)) }}</span>
+                                @endif
+                            </span>
+                        </label>
+                    </li>
+                @empty
+                    <li class="cp-audit-notes__empty">{{ __('seo-content-ai::filament.projects.new_topics_empty') }}</li>
+                @endforelse
+            </ul>
+        </div>
+    </section>
+
+    <section
+        class="cp-ai-topic-column cp-ai-topic-column--selected"
+        data-ai-topic-column="selected"
+        data-new-topics-selected="1"
+        aria-label="{{ __('seo-content-ai::filament.projects.new_topics_selected_heading') }}"
+    >
+        <div class="cp-ai-topic-column__head">
+            <div class="cp-audit-notes__selected-head">
+                <h5 class="cp-audit-notes__selected-title">{{ __('seo-content-ai::filament.projects.new_topics_selected_heading') }}</h5>
+                @if ($newSelected !== [])
+                    <button type="button" class="cp-audit-notes__clear-all" wire:click="clearNewTopicSelected" @disabled(! $canWrite)>
+                        {{ __('seo-content-ai::filament.projects.audit_notes_clear_all') }}
+                    </button>
+                @endif
+            </div>
+        </div>
+        <div class="cp-ai-topic-column__body">
+            @forelse ($newSelected as $item)
+                @php
+                    $ref = (string) ($item['cluster_ref'] ?? '');
+                    $dnaRows = is_array($item['dna'] ?? null) ? $item['dna'] : [];
+                @endphp
+                <div class="cp-audit-notes__item" data-cluster-ref="{{ $ref }}" data-source-type="generated">
+                    <div class="cp-audit-notes__item-head">
+                        <div>
+                            <input
+                                type="text"
+                                class="cp-audit-notes__dna-input"
+                                value="{{ $item['cluster_name_snapshot'] ?? '' }}"
+                                wire:change="updateNewTopicName(@js($ref), $event.target.value)"
+                                @disabled(! $canWrite)
+                            >
+                            <div class="cp-audit-notes__meta">
+                                <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.new_topics_badge') }}</span>
+                            </div>
+                        </div>
+                        <button type="button" class="cp-audit-notes__remove" wire:click="removeNewTopicSelected(@js($ref))" @disabled(! $canWrite) title="{{ __('seo-content-ai::filament.projects.audit_notes_remove_topic') }}">×</button>
+                    </div>
+                    <div class="cp-audit-notes__target-row">
+                        <label class="cp-audit-notes__field-label">
+                            {{ __('seo-content-ai::filament.projects.audit_notes_target_dna') }}
+                            <input
+                                type="number"
+                                min="1"
+                                max="{{ $maxTarget }}"
+                                class="cp-audit-notes__dna-weight-input"
+                                value="{{ (int) ($item['target_dna_count'] ?? $defaultTarget) }}"
+                                wire:change="updateNewTopicTargetDna(@js($ref), Number($event.target.value || 0))"
+                                @disabled(! $canWrite)
+                            >
+                        </label>
+                    </div>
+                    <ul class="cp-audit-notes__dna">
+                        @foreach ($dnaRows as $di => $dna)
+                            <li class="cp-audit-notes__dna-row">
+                                <span class="cp-audit-notes__dna-phrase">{{ $dna['phrase'] ?? '' }}</span>
+                                <button type="button" class="cp-audit-notes__dna-remove" wire:click="removeNewTopicDna(@js($ref), {{ (int) $di }})" @disabled(! $canWrite)>×</button>
+                            </li>
+                        @endforeach
+                    </ul>
+                    <form class="cp-audit-notes__dna-form" x-data="{ phrase: '' }" @submit.prevent="if (phrase.trim()) { $wire.addNewTopicDna(@js($ref), phrase.trim()); phrase = ''; }">
+                        <input type="text" class="cp-audit-notes__dna-input" x-model="phrase" placeholder="{{ __('seo-content-ai::filament.projects.audit_notes_dna_phrase') }}" @disabled(! $canWrite)>
+                        <button type="submit" class="fi-btn fi-btn-color-primary fi-size-sm" @disabled(! $canWrite)>{{ __('seo-content-ai::filament.projects.audit_notes_add_dna_confirm') }}</button>
+                    </form>
+                </div>
+            @empty
+                <p class="cp-audit-notes__selected-empty">{{ __('seo-content-ai::filament.projects.new_topics_selected_empty') }}</p>
+            @endforelse
+        </div>
+    </section>
+    @endif
 </div>
 
 @once

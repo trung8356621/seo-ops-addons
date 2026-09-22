@@ -14,7 +14,7 @@ class CheckMainRole
     public function handle(Request $request, Closure $next): Response
     {
         if (! SeoAccessControl::canAccessSeoPanel($request->user())) {
-            abort(403, 'Bạn không có quyền truy cập');
+            return redirect()->to('/workspace');
         }
 
         return $next($request);

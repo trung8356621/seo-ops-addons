@@ -63,19 +63,13 @@ class SeoLoginServiceResolver
 
     public function redirectUrlAfterLogin(User $user, ?string $explicitHash = null, ?string $intended = null): string
     {
-        if (is_string($intended) && $intended !== '' && $this->isSafeInternalUrl($intended)) {
-            $resolution = $this->resolveAfterLogin($user, $explicitHash);
-            if ($resolution['hash'] !== null) {
-                SeoConnectionContext::rememberHash($resolution['hash']);
-            }
-
-            return $intended;
-        }
+        // Canonical auth does not preserve intended/return URLs across login.
+        unset($intended);
 
         $resolution = $this->resolveAfterLogin($user, $explicitHash);
 
         if ($resolution['hash'] === null) {
-            return url('/seo');
+            return url('/workspace');
         }
 
         SeoConnectionContext::rememberHash($resolution['hash']);
@@ -144,19 +138,5 @@ class SeoLoginServiceResolver
         }
 
         return in_array((string) ($user->role ?? ''), [User::ROLE_OWNER, User::ROLE_ADMIN], true);
-    }
-
-    private function isSafeInternalUrl(string $url): bool
-    {
-        if (str_starts_with($url, '/')) {
-            return ! str_starts_with($url, '//');
-        }
-
-        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
-        $urlHost = parse_url($url, PHP_URL_HOST);
-
-        return is_string($appHost)
-            && is_string($urlHost)
-            && strcasecmp($appHost, $urlHost) === 0;
     }
 }

@@ -27,11 +27,8 @@ use Omnichannel\Addons\SearchFoundation\Http\Controllers\KeywordReviewController
 use Omnichannel\Addons\AiPrompt\Http\Controllers\PromptHookExecuteController;
 use Omnichannel\Addons\Content\Http\Controllers\SeoArticleRevisionController;
 use Omnichannel\Addons\Media\Http\Controllers\SeoMediaController;
-use Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoLogin;
-use Omnichannel\Addons\Seo\Http\Controllers\SeoLoginController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelLogoutController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelRedirectController;
-use Omnichannel\Addons\Seo\Http\Middleware\BootFilamentSeoPanel;
 use Omnichannel\Addons\Seo\Http\Middleware\ResolveSeoMainServiceContext;
 use Omnichannel\Addons\Media\Http\Controllers\SeoWatermarkController;
 use Omnichannel\Addons\Seo\Http\Controllers\SupportTicketController;
@@ -116,25 +113,12 @@ class SeoPanelProvider extends PanelProvider
         $this->loadViewsFrom($addonRoot.'/resources/views', 'seo-content-ai');
         $this->loadTranslationsFrom($addonRoot.'/lang', 'seo-content-ai');
 
-        // Short login POST (Filament seo-main owns GET /seo/login).
-        // Hash login POST remains explicit — Filament hash panel only registers GET login.
-        Route::middleware(['web'])
-            ->group(function (): void {
-                Route::post('/seo/login', [SeoLoginController::class, 'store'])
-                    ->middleware([BootFilamentSeoPanel::class])
-                    ->name('seo.auth.login.store');
-                Route::post('/seo/{connection_hash}/login', [SeoLoginController::class, 'store'])
-                    ->middleware([BootFilamentSeoPanel::class])
-                    ->where(['connection_hash' => '[a-zA-Z0-9]{32,64}'])
-                    ->name('seo.auth.login.hash.store');
-            });
-
         Route::middleware(['web'])
             ->get('/seo/select-workspace', SeoPanelRedirectController::class)
             ->name('seo.panel.redirect');
 
         // Exact /seo stays Filament seo-main Dashboard (registered by panel path "seo").
-        // Guests are sent to /seo/login by auth middleware.
+        // Guests are sent to /login by auth middleware.
 
         Route::middleware(['web', 'auth'])
             ->post('/seo/logout', SeoPanelLogoutController::class)
@@ -778,14 +762,8 @@ class SeoPanelProvider extends PanelProvider
                 for: 'App\\Addons\\SeoContentAi\\Filament\\Widgets'
             );
 
-        if ($hashed) {
-            $panel = $panel->login(SeoLogin::class);
-        } else {
-            // Short Main panel needs Filament auth routes (logout/profile) without URI rewrite.
-            // Login page lives at GET /seo/login (same SeoLogin class; no connection_hash).
-            $panel = $panel
-                ->login(SeoLogin::class)
-                ->homeUrl(static fn (): string => url('/seo'));
+        if (! $hashed) {
+            $panel = $panel->homeUrl(static fn (): string => url('/seo'));
         }
 
         foreach ($this->peerFilamentDiscoveries() as $discovery) {

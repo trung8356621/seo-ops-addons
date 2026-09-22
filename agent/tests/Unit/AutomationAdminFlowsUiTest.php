@@ -65,13 +65,14 @@ final class AutomationAdminFlowsUiTest extends TestCase
         self::assertSame('admin', AutomationFlowsPage::adminPanelId());
     }
 
-    public function test_custom_login_does_not_send_staff_to_admin_automation(): void
+    public function test_canonical_login_does_not_send_staff_to_admin_automation(): void
     {
         $source = (string) file_get_contents(
-            ProjectRoot::path().'/app/Filament/Pages/Auth/CustomLogin.php'
+            ProjectRoot::path().'/app/Services/Auth/PostLoginRedirector.php'
         );
 
         self::assertStringNotContainsString('canAccessAdminAutomationPanel', $source);
         self::assertStringNotContainsString('/admin/automation/flows', $source);
+        self::assertStringContainsString('/workspace', $source);
     }
 }

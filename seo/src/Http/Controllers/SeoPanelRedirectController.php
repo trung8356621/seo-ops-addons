@@ -15,12 +15,12 @@ final class SeoPanelRedirectController extends Controller
 {
     public function __invoke(Request $request, SeoDatabaseConnectionService $databaseConnection): RedirectResponse|View
     {
-        if (! SeoAccessControl::canAccessSeoPanel()) {
-            if ($databaseConnection->resolveRedirectHash() === null) {
-                return view('seo-content-ai::pages.no-seo-workspace');
-            }
+        if (! auth()->check()) {
+            return redirect()->route('login');
+        }
 
-            return redirect()->to(\Omnichannel\Addons\Seo\Support\SeoPanelRoutes::shortLoginUrl());
+        if (! SeoAccessControl::canAccessSeoPanel()) {
+            return redirect()->to('/workspace');
         }
 
         $user = auth()->user();
@@ -35,10 +35,9 @@ final class SeoPanelRedirectController extends Controller
                 return redirect('/seo/content-operations');
             }
 
-            // Multi-service without Main — show picker / first explicit hash workspace.
-            return view('seo-content-ai::pages.no-seo-workspace');
+            return redirect()->to('/workspace');
         }
 
-        return view('seo-content-ai::pages.no-seo-workspace');
+        return redirect()->to('/workspace');
     }
 }

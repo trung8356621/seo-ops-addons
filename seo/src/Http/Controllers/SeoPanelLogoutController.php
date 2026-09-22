@@ -18,6 +18,6 @@ final class SeoPanelLogoutController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->to('/seo');
+        return redirect()->to(route('login'));
     }
 }

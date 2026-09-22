@@ -726,6 +726,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\AiPrompt\Console\InstallDefaultImprovePromptCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\InstallDefaultNewsThumbnailPromptCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\InstallDefaultKeywordDiscoveryPromptCommand::class,
+                \Omnichannel\Addons\AiPrompt\Console\InstallDefaultDiscoverNewTopicsPromptCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\InstallDefaultSplitOutlinePromptsCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\EnsureOpenRouterTextRoutingCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\RepairAiRuntimeHealthCommand::class,

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Providers;
 
-use App\Filament\Pages\Auth\CustomLogin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -25,6 +24,7 @@ use Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage;
 
 /**
  * Standalone Seeding Filament surface — path `/seeding`, no SEO panel boot.
+ * Authentication is canonical at /login (no panel-owned login page).
  */
 final class SeedingPanelProvider extends PanelProvider
 {
@@ -33,7 +33,6 @@ final class SeedingPanelProvider extends PanelProvider
         return $panel
             ->id('seeding')
             ->path('seeding')
-            ->login(CustomLogin::class)
             ->homeUrl(static fn (): string => url('/seeding'))
             ->brandName('Seeding')
             ->brandLogo(asset('images/logo.png'))
