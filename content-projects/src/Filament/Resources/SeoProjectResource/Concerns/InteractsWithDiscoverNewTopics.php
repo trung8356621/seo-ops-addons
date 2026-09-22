@@ -195,7 +195,7 @@ trait InteractsWithDiscoverNewTopics
      *
      * @param  array<string, mixed>  $payload
      */
-    public function hydrateDiscoverNewTopicsFromStorage(array $payload): void
+    public function restoreDiscoverNewTopicsFromStorage(array $payload): void
     {
         if ($this->newTopicsGenerating) {
             return;

@@ -53,7 +53,7 @@ final class DiscoverNewTopicsUxAndLegacyGeneratorRetirementContractTest extends 
         self::assertStringContainsString("getUrl('clusters')", $src);
         self::assertStringContainsString('appendSiteToUrl', $src);
         self::assertStringContainsString('applyGeneratedTopicBatch', $src);
-        self::assertStringContainsString('hydrateDiscoverNewTopicsFromStorage', $src);
+        self::assertStringContainsString('restoreDiscoverNewTopicsFromStorage', $src);
         self::assertStringContainsString('window.cpNewTopicsStorage', $src);
 
         $blade = (string) file_get_contents(

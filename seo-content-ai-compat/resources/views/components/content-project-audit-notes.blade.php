@@ -652,11 +652,11 @@
             },
             hydrate(wire, siteId, projectId) {
                 const data = this.read(siteId, projectId);
-                if (!data || !wire || typeof wire.hydrateDiscoverNewTopicsFromStorage !== 'function') {
+                if (!data || !wire || typeof wire.restoreDiscoverNewTopicsFromStorage !== 'function') {
                     return;
                 }
                 try {
-                    wire.hydrateDiscoverNewTopicsFromStorage(data);
+                    wire.restoreDiscoverNewTopicsFromStorage(data);
                 } catch (e) {}
             },
         };
