@@ -463,6 +463,13 @@ a.ops-landing-table__title:hover {
     color: #0c4a6e;
 }
 
+.ops-landing-banner__link {
+    margin-left: 0.35rem;
+    font-weight: 600;
+    color: #0369a1;
+    text-decoration: underline;
+}
+
 @media (min-width: 40rem) {
     .ops-landing__kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));

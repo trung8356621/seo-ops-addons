@@ -7,7 +7,7 @@ SEO Ops tách rõ hai bề mặt:
 1. **Dashboard** — operational, nhẹ, vào thường xuyên. Trả lời: *"Việc gì cần xử lý ngay?"*
 2. **Statistics** — analytical, nặng hơn. Trả lời: *"Dữ liệu nói gì?"*
 
-Dashboard **không** phải trang analytics SEO. Không đưa lại domain-wide SEO score, phân bổ điểm, ranking domain, keyword analytics sâu, hay chart lịch sử nặng vào Dashboard. Reporting nặng thuộc Statistics (out of scope lần này).
+Dashboard **không** phải trang analytics SEO. Không đưa lại domain-wide SEO score, phân bổ điểm, ranking domain, keyword analytics sâu, hay chart lịch sử nặng vào Dashboard. Reporting nặng thuộc **Statistics** (`/seo/statistics`).
 
 **Landing Dashboard = tổng quan account-wide.** Không hiện Global domain selectbox trên trang này; data luôn aggregate theo accessible sites (không phụ thuộc sticky domain filter).
 
@@ -109,8 +109,8 @@ Không dùng màu badge bão hòa.
 
 ## Dashboard vs Statistics
 
-| | Dashboard | Statistics (future) |
-|---|-----------|---------------------|
+| | Dashboard | Statistics |
+|---|-----------|-----------|
 | Job | What needs attention now | What data tells me |
 | Load | Cheap counts + bounded lists | Heavier aggregates / charts |
 | Owns | Review workload, publish queue preview, attention, recent activity, monthly ops progress | Domain/user analytics, SEO scores, historical charts, optimization counts, index/sync analytical trends |
@@ -169,9 +169,7 @@ Primary axis: **Chưa xử lý vs Đã xử lý** (product labels map tới Need
 
 ## Statistics Layout Contract
 
-Reference: `statistics.png` — **không implement** trong task này.
-
-Contract ghi nhận để Dashboard đồng bộ visual sau này:
+Reference: `statistics.png` — **implemented** at `/seo/statistics` (manager/planner).
 
 ```
 [Page heading + subtitle]
@@ -181,7 +179,12 @@ Contract ghi nhận để Dashboard đồng bộ visual sau này:
 
 Filters nằm **cùng hàng với tabs**, căn phải — **không** cạnh page heading.
 
-Statistics owns domain/user analytics, SEO score metrics, historical charts, comparisons, export.
+Statistics owns domain/user analytics, SEO score metrics, historical charts, comparisons.
+Export CTA hiện disabled (chưa có export subsystem riêng).
+
+CSS: `seo/resources/css/ops-statistics.css` (Vite), prefix `.ops-statistics*`.
+Read models: `DomainStatisticsReadModel` (seo), `UserStatisticsReadModel` (content-projects).
+Không reuse `OperationalLandingDashboardReadModel`.
 
 ## Responsive Rules
 

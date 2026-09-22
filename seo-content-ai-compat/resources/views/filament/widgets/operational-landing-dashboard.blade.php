@@ -291,7 +291,14 @@
 
         <div class="ops-landing-banner">
             <x-filament::icon icon="heroicon-o-information-circle" class="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{{ __('seo-content-ai::filament.dashboard.ops_stats_moved_notice') }}</span>
+            <span>
+                {{ __('seo-content-ai::filament.dashboard.ops_stats_moved_notice') }}
+                @if (\Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessPlannerFeatures())
+                    <a href="{{ \Omnichannel\Addons\SearchFoundation\Filament\Pages\Statistics::getUrl() }}" class="ops-landing-banner__link">
+                        {{ __('seo-content-ai::filament.dashboard.ops_stats_moved_cta') }}
+                    </a>
+                @endif
+            </span>
         </div>
     </div>
 </x-filament-widgets::widget>

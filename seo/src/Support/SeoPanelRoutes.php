@@ -341,6 +341,36 @@ final class SeoPanelRoutes
         return false;
     }
 
+    public static function isStatisticsPage(?string $route = null): bool
+    {
+        if (self::check($route, 'filament.seo.pages.statistics')) {
+            return true;
+        }
+
+        if (! app()->bound('request')) {
+            return false;
+        }
+
+        $path = trim((string) request()->path(), '/');
+
+        if ((bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?/statistics$#', $path)) {
+            return true;
+        }
+
+        if ($path === 'livewire/update' || str_starts_with($path, 'livewire/')) {
+            $referer = (string) request()->headers->get('referer', '');
+            if ($referer === '') {
+                return false;
+            }
+
+            $refererPath = trim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
+
+            return (bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?/statistics$#', $refererPath);
+        }
+
+        return false;
+    }
+
     /**
      * @param  array<string, mixed>  $parameters
      */

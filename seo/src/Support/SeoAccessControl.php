@@ -250,7 +250,7 @@ final class SeoAccessControl
         }
 
         // Landing Dashboard = account-wide operational overview — no domain filter.
-        if (SeoPanelRoutes::isLandingDashboard()) {
+        if (SeoPanelRoutes::isLandingDashboard() || SeoPanelRoutes::isStatisticsPage()) {
             return false;
         }
 
