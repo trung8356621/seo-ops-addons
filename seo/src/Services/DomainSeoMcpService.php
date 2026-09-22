@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\Seo\Services;
 use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordGenerationContextBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
@@ -40,6 +42,7 @@ final class DomainSeoMcpService
         private readonly KeywordTagResolver $keywordTags,
         private readonly KeywordTagQuery $keywordTagQuery,
         private readonly \Omnichannel\Addons\Seo\Services\MonthlyMcp\DomainMonthlyIntelligenceService $monthlyIntelligence,
+        private readonly KeywordLandscapeReadModel $landscapeReadModel,
     ) {}
 
     /**
@@ -357,17 +360,60 @@ final class DomainSeoMcpService
      */
     private function keywordLandscape(Site $site, array $freshness): array
     {
-        $clusters = [];
-        $lines = ['Keyword Landscape — '.(string) $site->domain, '', 'Core topics', '', 'Saturated topics', '', 'Weak / missing topics'];
+        $landscape = $this->landscapeReadModel->forSite((int) $site->id, true);
+        $core = [];
+        $weak = [];
+        $missing = [];
+        $topics = [];
+
+        foreach ($landscape->topics as $topic) {
+            $row = $this->landscapeTopicSummary($topic);
+            $topics[] = $row;
+            $coverage = $topic->coverage;
+            if ($coverage === 'strong') {
+                $core[] = $row;
+            } elseif ($coverage === 'weak') {
+                $weak[] = $row;
+            } elseif ($coverage === 'unknown' || $topic->articleCount <= 0) {
+                $missing[] = $row;
+            }
+        }
+
+        $lines = [
+            'Keyword Landscape — '.(string) $site->domain,
+            '',
+            'Topics: '.$landscape->topicCount(),
+            'Core (strong): '.count($core),
+            'Weak: '.count($weak),
+            'Missing / thin: '.count($missing),
+        ];
 
         return $this->keywordPayload($freshness, self::IDLE_PROGRESS, [
             'text' => implode("\n", $lines),
-            'core_topics' => [],
+            'topics' => $topics,
+            'core_topics' => $core,
             'saturated_topics' => [],
-            'weak_topics' => [],
-            'missing_topics' => [],
-            'cluster_count' => count($clusters),
+            'weak_topics' => $weak,
+            'missing_topics' => $missing,
+            'cluster_count' => $landscape->topicCount(),
+            'source_updated_at' => $landscape->sourceUpdatedAt,
         ]);
+    }
+
+    /**
+     * @return array{
+     *   id: int,
+     *   name: string,
+     *   mcp: float,
+     *   dna_count: int,
+     *   article_count: int,
+     *   coverage: string,
+     *   dna: list<array{phrase: string, weight: int}>
+     * }
+     */
+    private function landscapeTopicSummary(KeywordLandscapeTopic $topic): array
+    {
+        return $topic->toMcpContextRow();
     }
 
     /**

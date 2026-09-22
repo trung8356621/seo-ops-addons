@@ -14,7 +14,7 @@ enum McpSourceKey: string
     {
         return match ($this) {
             self::Site => 'site.mcp.v1',
-            self::Keywords => 'keywords.mcp.v1',
+            self::Keywords => 'keywords.mcp.v2',
             self::Gsc => 'gsc.mcp.v1',
         };
     }

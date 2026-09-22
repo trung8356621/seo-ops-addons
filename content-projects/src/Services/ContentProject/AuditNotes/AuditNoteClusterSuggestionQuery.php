@@ -8,20 +8,20 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\TopicHistoryReadModel;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicDetailQuery;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicLinkedArticleCounter;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicPlanningRef;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicTopicalShareCalculator;
 
 /**
- * SEO Audit Notes suggestions — Topic Core adapter (seo_topics.id).
+ * SEO Audit Notes suggestions — Topic Core adapter via Keyword Landscape SSOT.
  *
  * Public API keeps legacy field names (`cluster_ref`, `mcp_share`) as transport
  * compatibility. Live identity is always topic:{seo_topics.id}.
+ *
+ * Business landscape truth comes from KeywordLandscapeReadModel only.
+ * This class owns Audit Notes presentation: filter / search / pagination / planned history.
  */
 final class AuditNoteClusterSuggestionQuery
 {
@@ -30,8 +30,7 @@ final class AuditNoteClusterSuggestionQuery
     public const DNA_LIMIT = 30;
 
     public function __construct(
-        private readonly TopicListQuery $topicList,
-        private readonly TopicDetailQuery $topicDetail,
+        private readonly KeywordLandscapeReadModel $landscape,
         private readonly TopicHistoryReadModel $topicHistory = new TopicHistoryReadModel,
     ) {}
 
@@ -125,30 +124,12 @@ final class AuditNoteClusterSuggestionQuery
             return null;
         }
 
-        $detail = $this->topicDetail->find($siteId, $topicId);
-        if ($detail === null) {
+        $topic = $this->landscape->findTopic($siteId, $topicId, true);
+        if (! $topic instanceof KeywordLandscapeTopic) {
             return null;
         }
 
-        $plannedByRef = $this->topicHistory->plannedCountsByTopicRef($siteId);
-        $ref = TopicPlanningRef::encode($topicId);
-        $articleCount = (int) ($detail['article_count'] ?? 0);
-        $share = $this->topicalShareForTopic($siteId, $topicId);
-        $dna = $this->loadTopicDna($siteId, $topicId);
-        $plannedHistory = (int) ($plannedByRef[$ref] ?? 0);
-
-        return [
-            'topic_id' => $topicId,
-            'cluster_ref' => $ref,
-            'cluster_name' => (string) ($detail['name'] ?? ''),
-            'mcp_share' => round($share, 1),
-            'dna_count' => count($dna),
-            'article_count' => $articleCount,
-            'has_focus_article' => $articleCount > 0,
-            'planned_history_count' => $plannedHistory,
-            'already_planned' => $plannedHistory > 0,
-            'cluster_dna' => $dna,
-        ];
+        return $this->mapTopicToSuggestion($topic, $this->topicHistory->plannedCountsByTopicRef($siteId), true);
     }
 
     /**
@@ -189,13 +170,13 @@ final class AuditNoteClusterSuggestionQuery
             return [];
         }
 
-        $detail = $this->topicDetail->find($siteId, $topicId);
-        if ($detail === null) {
+        $topic = $this->landscape->findTopic($siteId, $topicId, true);
+        if (! $topic instanceof KeywordLandscapeTopic) {
             return [];
         }
 
         $phrases = [];
-        foreach ($this->loadTopicDna($siteId, $topicId, $limit) as $row) {
+        foreach (array_slice($topic->dna, 0, max(1, $limit)) as $row) {
             $phrase = trim((string) ($row['phrase'] ?? ''));
             if ($phrase !== '') {
                 $phrases[] = $phrase;
@@ -220,130 +201,55 @@ final class AuditNoteClusterSuggestionQuery
      */
     private function buildSuggestionItems(int $siteId): array
     {
-        $paginator = $this->topicList->paginate($siteId, [
-            'per_page' => 10_000,
-            'page' => 1,
-            'sort' => 'name_asc',
-        ]);
-
+        // List rows do not need DNA payloads; dna_count comes from landscape metrics.
+        $landscape = $this->landscape->forSite($siteId, false);
         $plannedByRef = $this->topicHistory->plannedCountsByTopicRef($siteId);
         $out = [];
 
-        foreach ($paginator->items() as $topic) {
-            if (! is_array($topic)) {
-                continue;
-            }
-            $topicId = (int) ($topic['topic_id'] ?? 0);
-            if ($topicId <= 0) {
-                continue;
-            }
-            $name = trim((string) ($topic['name'] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-            $ref = TopicPlanningRef::encode($topicId);
-            $articleCount = (int) ($topic['article_count'] ?? 0);
-            $share = (float) ($topic['topical_share'] ?? 0.0);
-            $dnaCount = (int) ($topic['dna_branch_count'] ?? 0);
-            $plannedHistory = (int) ($plannedByRef[$ref] ?? 0);
-
-            $out[] = [
-                'topic_id' => $topicId,
-                'cluster_ref' => $ref,
-                'cluster_name' => $name,
-                'mcp_share' => round($share, 1),
-                'dna_count' => $dnaCount,
-                'article_count' => $articleCount,
-                'has_focus_article' => $articleCount > 0,
-                'planned_history_count' => $plannedHistory,
-                'already_planned' => $plannedHistory > 0,
-            ];
+        foreach ($landscape->topics as $topic) {
+            $out[] = $this->mapTopicToSuggestion($topic, $plannedByRef, false);
         }
 
         return $out;
     }
 
     /**
-     * @return list<array{phrase: string, weight: int}>
+     * @param  array<string, int>  $plannedByRef
+     * @return array{
+     *   topic_id: int,
+     *   cluster_ref: string,
+     *   cluster_name: string,
+     *   mcp_share: float,
+     *   dna_count: int,
+     *   article_count: int,
+     *   has_focus_article: bool,
+     *   planned_history_count: int,
+     *   already_planned: bool,
+     *   cluster_dna?: list<array{phrase: string, weight: int}>
+     * }
      */
-    private function loadTopicDna(int $siteId, int $topicId, int $limit = self::DNA_LIMIT): array
+    private function mapTopicToSuggestion(KeywordLandscapeTopic $topic, array $plannedByRef, bool $withDna): array
     {
-        if ($siteId <= 0 || $topicId <= 0 || ! $this->topicDnaTableReady()) {
-            return [];
+        $ref = TopicPlanningRef::encode($topic->id);
+        $plannedHistory = (int) ($plannedByRef[$ref] ?? 0);
+
+        $row = [
+            'topic_id' => $topic->id,
+            'cluster_ref' => $ref,
+            'cluster_name' => $topic->name,
+            'mcp_share' => round($topic->mcp, 1),
+            'dna_count' => $topic->dnaCount,
+            'article_count' => $topic->articleCount,
+            'has_focus_article' => $topic->hasFocusArticle,
+            'planned_history_count' => $plannedHistory,
+            'already_planned' => $plannedHistory > 0,
+        ];
+
+        if ($withDna) {
+            $row['cluster_dna'] = array_slice($topic->dna, 0, self::DNA_LIMIT);
         }
 
-        $rows = SeoTopicKeywordDna::query()
-            ->where('site_id', $siteId)
-            ->where('topic_id', $topicId)
-            ->get(['value']);
-
-        /** @var array<string, array{phrase: string, weight: int}> $byKey */
-        $byKey = [];
-        foreach ($rows as $row) {
-            $phrase = AuditNoteDnaNormalizer::displayPhrase((string) ($row->value ?? ''));
-            if ($phrase === '') {
-                continue;
-            }
-            $key = AuditNoteDnaNormalizer::normalizeKey($phrase);
-            if ($key === '') {
-                continue;
-            }
-            if (! isset($byKey[$key])) {
-                $byKey[$key] = [
-                    'phrase' => $phrase,
-                    'weight' => 0,
-                ];
-            }
-            $byKey[$key]['weight']++;
-        }
-
-        $out = array_values($byKey);
-        usort(
-            $out,
-            static function (array $a, array $b): int {
-                $byWeight = ((int) $b['weight']) <=> ((int) $a['weight']);
-                if ($byWeight !== 0) {
-                    return $byWeight;
-                }
-
-                return strcmp(
-                    mb_strtolower((string) $a['phrase'], 'UTF-8'),
-                    mb_strtolower((string) $b['phrase'], 'UTF-8'),
-                );
-            },
-        );
-
-        $out = array_slice($out, 0, max(1, $limit));
-        foreach ($out as &$row) {
-            $weight = (int) ($row['weight'] ?? 0);
-            if ($weight < 1) {
-                $row['weight'] = AuditNoteDnaNormalizer::DEFAULT_WEIGHT;
-            }
-        }
-        unset($row);
-
-        return $out;
-    }
-
-    private function topicalShareForTopic(int $siteId, int $topicId): float
-    {
-        if ($siteId <= 0 || $topicId <= 0) {
-            return 0.0;
-        }
-
-        $allTopicIds = SeoTopic::query()
-            ->where('site_id', $siteId)
-            ->pluck('id')
-            ->map(static fn ($id): int => (int) $id)
-            ->all();
-        if ($allTopicIds === []) {
-            return 0.0;
-        }
-
-        $counts = app(TopicLinkedArticleCounter::class)->countForTopics($siteId, $allTopicIds);
-        $shares = (new TopicTopicalShareCalculator)->percentages($counts);
-
-        return round((float) ($shares[$topicId] ?? 0.0), 1);
+        return $row;
     }
 
     /**
