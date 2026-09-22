@@ -135,7 +135,12 @@ trait InteractsWithNewContentSuggestions
     public function generateNewContentSuggestions(?array $noteItems = null): void
     {
         if ($noteItems !== null && method_exists($this, 'applyAuditNoteItems')) {
-            $this->applyAuditNoteItems($noteItems);
+            // Alpine snapshot is Existing Topics SoT; never let it wipe Generated Topics.
+            $fromAlpine = array_values(array_filter(
+                AuditNoteDnaNormalizer::normalizeNoteItems($noteItems),
+                static fn (array $item): bool => ! AuditNoteDnaNormalizer::isGenerated($item),
+            ));
+            $this->applyAuditNoteItems($fromAlpine);
         }
 
         $project = $this->resolveNewContentProject();
@@ -205,9 +210,7 @@ trait InteractsWithNewContentSuggestions
 
             return;
         }
-        if (method_exists($this, 'applyAuditNoteItems')) {
-            $this->applyAuditNoteItems($allocation['items']);
-        }
+        $this->applyMergedPlanningNoteItems($allocation['items']);
         $options['note_items'] = $allocation['items'];
         $options['quantity'] = max(1, (int) $allocation['total_target']);
         $this->newContentQuantity = $options['quantity'];
@@ -441,10 +444,7 @@ trait InteractsWithNewContentSuggestions
             }
         }
 
-        $plannedTotal = 0;
-        if (method_exists($this, 'auditNoteItemsForOptions')) {
-            $plannedTotal = AuditNoteDnaNormalizer::totalTargetDnaCount($this->auditNoteItemsForOptions());
-        }
+        $plannedTotal = AuditNoteDnaNormalizer::totalTargetDnaCount($this->mergedPlanningNoteItems());
 
         $partialFill = $this->resolveNewContentPartialFill($project);
         $activeStatus = (string) ($readiness->generation['status'] ?? '');
@@ -684,9 +684,7 @@ trait InteractsWithNewContentSuggestions
             'direction' => NewContentSuggestionOptions::DIRECTION_AUTOMATIC,
             // Free-text notes retired — Selected note_items is the only prompt path.
             'notes' => '',
-            'note_items' => method_exists($this, 'auditNoteItemsForOptions')
-                ? $this->auditNoteItemsForOptions()
-                : [],
+            'note_items' => $this->mergedPlanningNoteItems(),
             'focus' => '',
             'post_type' => $postType,
             'content_type' => $postType,
@@ -698,6 +696,47 @@ trait InteractsWithNewContentSuggestions
     }
 
     /**
+     * Existing Topics (auditNoteItems) ∪ Generated Topics (newTopicSelectedItems).
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function mergedPlanningNoteItems(): array
+    {
+        $existing = method_exists($this, 'auditNoteItemsForOptions')
+            ? $this->auditNoteItemsForOptions()
+            : [];
+        $generated = property_exists($this, 'newTopicSelectedItems') && is_array($this->newTopicSelectedItems)
+            ? AuditNoteDnaNormalizer::normalizeNoteItems($this->newTopicSelectedItems)
+            : [];
+
+        return AuditNoteDnaNormalizer::normalizeNoteItems(array_merge($existing, $generated));
+    }
+
+    /**
+     * Split allocated note_items back into Existing vs Generated Livewire state.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    protected function applyMergedPlanningNoteItems(array $items): void
+    {
+        $existing = [];
+        $generated = [];
+        foreach (AuditNoteDnaNormalizer::normalizeNoteItems($items) as $item) {
+            if (AuditNoteDnaNormalizer::isGenerated($item)) {
+                $generated[] = $item;
+            } else {
+                $existing[] = $item;
+            }
+        }
+        if (method_exists($this, 'applyAuditNoteItems')) {
+            $this->applyAuditNoteItems($existing);
+        }
+        if (property_exists($this, 'newTopicSelectedItems')) {
+            $this->newTopicSelectedItems = $generated;
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $options
      */
     protected function applyNewContentOptions(array $options): void
@@ -706,9 +745,7 @@ trait InteractsWithNewContentSuggestions
         $this->newContentQuantity = $normalized['quantity'];
         $this->newContentNotes = $normalized['notes'];
         $this->newContentPostType = $normalized['content_type'];
-        if (method_exists($this, 'applyAuditNoteItems')) {
-            $this->applyAuditNoteItems(is_array($normalized['note_items'] ?? null) ? $normalized['note_items'] : []);
-        }
+        $this->applyMergedPlanningNoteItems(is_array($normalized['note_items'] ?? null) ? $normalized['note_items'] : []);
 
         $project = $this->resolveNewContentProject();
         if ($project instanceof SeoProject

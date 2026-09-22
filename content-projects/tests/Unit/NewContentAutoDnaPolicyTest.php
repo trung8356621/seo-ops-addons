@@ -104,7 +104,7 @@ final class NewContentAutoDnaPolicyTest extends TestCase
     public function test_policy_emits_missing_slots_independent_of_user_prompt(): void
     {
         $policy = new NewContentAutoDnaPolicy;
-        self::assertSame(3, NewContentAutoDnaPolicy::VERSION);
+        self::assertSame(4, NewContentAutoDnaPolicy::VERSION);
 
         $noteItems = [[
             'cluster_ref' => 'clu_a',
@@ -118,7 +118,7 @@ final class NewContentAutoDnaPolicyTest extends TestCase
             ],
         ]];
         $meta = $policy->metadata(20, $noteItems);
-        self::assertSame(3, $meta['auto_dna_version']);
+        self::assertSame(4, $meta['auto_dna_version']);
         self::assertSame(5, $meta['total_missing_slots']);
         self::assertSame(10, $meta['total_topic_target']);
 
@@ -157,7 +157,7 @@ final class NewContentAutoDnaPolicyTest extends TestCase
             'note_items' => $noteItems,
         ]);
         self::assertStringContainsString('SYSTEM AUTOMATION POLICY', $brief);
-        self::assertStringContainsString('auto_dna v3', $brief);
+        self::assertStringContainsString('auto_dna v4', $brief);
         self::assertStringContainsString('Write discovery ideas in a friendly tone only.', $brief);
         self::assertStringContainsString('Missing slots: 5', $brief);
     }
@@ -178,7 +178,7 @@ final class NewContentAutoDnaPolicyTest extends TestCase
 
         $snap = NewContentSuggestionOptions::snapshot($opts, 'vi', 9);
         self::assertSame(10, $snap['note_items'][0]['target_dna_count']);
-        self::assertSame(3, $snap['automation_policy']['auto_dna_version']);
+        self::assertSame(4, $snap['automation_policy']['auto_dna_version']);
         self::assertSame(10, $snap['automation_policy']['total_topic_target']);
         self::assertSame(8, $snap['automation_policy']['total_missing_slots']);
     }

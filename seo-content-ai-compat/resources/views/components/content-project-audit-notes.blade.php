@@ -607,6 +607,17 @@
             if (type === 'manual_seed') return true;
             return String(item?.cluster_ref || '').startsWith('manual:');
         };
+        const isGeneratedItem = (item) => {
+            const type = String(item?.source_type || '').toLowerCase();
+            if (type === 'generated') return true;
+            return String(item?.cluster_ref || '').startsWith('generated:');
+        };
+        const resolveSourceType = (raw, ref) => {
+            const type = String(raw?.source_type || '').toLowerCase();
+            if (type === 'manual_seed' || String(ref || '').startsWith('manual:')) return 'manual_seed';
+            if (type === 'generated' || String(ref || '').startsWith('generated:')) return 'generated';
+            return 'cluster';
+        };
 
         const register = () => {
             if (window.__cpAuditNotesAlpineRegistered || !window.Alpine) {
@@ -678,17 +689,21 @@
                     let target = parseInt(raw?.target_dna_count ?? raw?.topic_weight, 10);
                     if (!Number.isFinite(target) || target < 1 || target > this.maxTarget) target = this.defaultTarget;
                     if (specified > target) target = Math.min(this.maxTarget, specified);
-                    const sourceType = (String(raw?.source_type || '').toLowerCase() === 'manual_seed' || ref.startsWith('manual:'))
-                        ? 'manual_seed'
-                        : 'cluster';
+                    const sourceType = resolveSourceType(raw, ref);
                     let seedText = null;
                     let mcp = Number(raw?.mcp_share_snapshot || 0);
                     let targetMode = this.normalizeTargetMode(raw?.target_mode);
                     let name = String(raw?.cluster_name_snapshot || ref);
+                    let candidateKey = null;
                     if (sourceType === 'manual_seed') {
                         seedText = displayPhrase(raw?.seed_text || name).slice(0, MAX_SEED_LEN);
                         if (!seedText) return null;
                         name = seedText;
+                        mcp = null;
+                        targetMode = 'manual';
+                    } else if (sourceType === 'generated') {
+                        candidateKey = String(raw?.candidate_key || (ref.startsWith('generated:') ? ref.slice('generated:'.length) : '')).trim();
+                        if (!candidateKey) return null;
                         mcp = null;
                         targetMode = 'manual';
                     }
@@ -697,6 +712,7 @@
                         cluster_ref: ref,
                         cluster_name_snapshot: name,
                         seed_text: seedText,
+                        candidate_key: candidateKey,
                         mcp_share_snapshot: mcp,
                         target_dna_count: target,
                         target_mode: targetMode,
@@ -979,13 +995,14 @@
                 },
                 snapshot() {
                     return this.topicList().map((item) => ({
-                        source_type: isManualSeedItem(item) ? 'manual_seed' : 'cluster',
+                        source_type: isManualSeedItem(item) ? 'manual_seed' : (isGeneratedItem(item) ? 'generated' : 'cluster'),
                         cluster_ref: item.cluster_ref,
                         cluster_name_snapshot: item.cluster_name_snapshot,
                         seed_text: isManualSeedItem(item) ? (item.seed_text || item.cluster_name_snapshot) : null,
-                        mcp_share_snapshot: isManualSeedItem(item) ? null : item.mcp_share_snapshot,
+                        candidate_key: isGeneratedItem(item) ? (item.candidate_key || null) : null,
+                        mcp_share_snapshot: (isManualSeedItem(item) || isGeneratedItem(item)) ? null : item.mcp_share_snapshot,
                         target_dna_count: item.target_dna_count,
-                        target_mode: (isManualSeedItem(item) || item.target_mode === 'manual') ? 'manual' : 'auto',
+                        target_mode: (isManualSeedItem(item) || isGeneratedItem(item) || item.target_mode === 'manual') ? 'manual' : 'auto',
                         dna: Array.isArray(item.dna) ? item.dna.map((row) => ({
                             phrase: row.phrase,
                             slots: row.slots,
@@ -1082,13 +1099,14 @@
                             site_id: id,
                             updated_at: new Date().toISOString(),
                             items: Object.values(normalized).map((item) => ({
-                                source_type: isManualSeedItem(item) ? 'manual_seed' : 'cluster',
+                                source_type: isManualSeedItem(item) ? 'manual_seed' : (isGeneratedItem(item) ? 'generated' : 'cluster'),
                                 cluster_ref: item.cluster_ref,
                                 cluster_name_snapshot: item.cluster_name_snapshot,
                                 seed_text: isManualSeedItem(item) ? (item.seed_text || item.cluster_name_snapshot) : null,
-                                mcp_share_snapshot: isManualSeedItem(item) ? null : item.mcp_share_snapshot,
+                                candidate_key: isGeneratedItem(item) ? (item.candidate_key || null) : null,
+                                mcp_share_snapshot: (isManualSeedItem(item) || isGeneratedItem(item)) ? null : item.mcp_share_snapshot,
                                 target_dna_count: item.target_dna_count,
-                                target_mode: (isManualSeedItem(item) || item.target_mode === 'manual') ? 'manual' : 'auto',
+                                target_mode: (isManualSeedItem(item) || isGeneratedItem(item) || item.target_mode === 'manual') ? 'manual' : 'auto',
                                 dna: Array.isArray(item.dna) ? item.dna.map((row) => ({
                                     phrase: row.phrase,
                                     slots: row.slots,

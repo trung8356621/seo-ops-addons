@@ -71,6 +71,9 @@ final class NewContentClusterAttributionValidator
             );
             $candidate['cluster_ref'] = $clusterRef;
             $candidate['dna_phrases'] = $dna;
+            if (AuditNoteDnaNormalizer::isGeneratedRef($clusterRef)) {
+                $candidate['candidate_key'] = AuditNoteDnaNormalizer::generatedCandidateKey($clusterRef);
+            }
             $accepted[] = $candidate;
         }
 

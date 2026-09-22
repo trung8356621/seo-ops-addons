@@ -77,7 +77,8 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
         $view = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php');
         self::assertStringContainsString('content-project-list-month-nav', $view);
         $nav = LegacyAddonPath::read('resources/views/components/content-project-list-month-nav.blade.php');
-        self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('planning-month-jump', $nav);
         self::assertStringNotContainsString('unassigned_staff_badge', $view);
         self::assertStringNotContainsString('staffSearch', $view);
         self::assertStringNotContainsString('fi-wi-widget', $view);

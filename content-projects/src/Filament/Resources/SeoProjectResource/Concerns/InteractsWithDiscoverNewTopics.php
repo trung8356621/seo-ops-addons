@@ -107,6 +107,16 @@ trait InteractsWithDiscoverNewTopics
         }
     }
 
+    public function removeNewTopicSelected(string $clusterRef): void
+    {
+        $clusterRef = trim($clusterRef);
+        $this->newTopicSelectedItems = array_values(array_filter(
+            $this->newTopicSelectedItems,
+            static fn (array $item): bool => (string) ($item['cluster_ref'] ?? '') !== $clusterRef,
+        ));
+        $this->purgeGeneratedDraftIdeasForClusterRef($clusterRef);
+    }
+
     public function toggleNewTopicCandidate(string $candidateKey): void
     {
         $candidateKey = trim($candidateKey);
@@ -121,6 +131,7 @@ trait InteractsWithDiscoverNewTopics
             ) {
                 unset($this->newTopicSelectedItems[$index]);
                 $this->newTopicSelectedItems = array_values($this->newTopicSelectedItems);
+                $this->purgeGeneratedDraftIdeasForClusterRef($ref);
 
                 return;
             }
@@ -145,13 +156,98 @@ trait InteractsWithDiscoverNewTopics
         $this->newTopicSelectedItems[] = $item;
     }
 
-    public function removeNewTopicSelected(string $clusterRef): void
+    public function clearNewTopicSelected(): void
     {
-        $clusterRef = trim($clusterRef);
+        $refs = [];
+        foreach ($this->newTopicSelectedItems as $item) {
+            $ref = trim((string) ($item['cluster_ref'] ?? ''));
+            if ($ref !== '') {
+                $refs[] = $ref;
+            }
+        }
+        $this->newTopicSelectedItems = [];
+        foreach ($refs as $ref) {
+            $this->purgeGeneratedDraftIdeasForClusterRef($ref);
+        }
+    }
+
+    /**
+     * Clear temporary Livewire generated state after successful final materialization.
+     *
+     * @param  list<string>  $candidateKeys
+     */
+    public function consumeGeneratedTopicsAfterMaterialize(array $candidateKeys): void
+    {
+        $keys = [];
+        foreach ($candidateKeys as $key) {
+            $key = trim((string) $key);
+            if ($key !== '') {
+                $keys[$key] = true;
+            }
+        }
+        if ($keys === []) {
+            return;
+        }
+
         $this->newTopicSelectedItems = array_values(array_filter(
             $this->newTopicSelectedItems,
-            static fn (array $item): bool => (string) ($item['cluster_ref'] ?? '') !== $clusterRef,
+            static function (array $item) use ($keys): bool {
+                $key = (string) ($item['candidate_key'] ?? AuditNoteDnaNormalizer::generatedCandidateKey((string) ($item['cluster_ref'] ?? '')));
+
+                return $key === '' || ! isset($keys[$key]);
+            },
         ));
+        $this->newTopicCandidates = array_values(array_filter(
+            $this->newTopicCandidates,
+            static fn (array $row): bool => ! isset($keys[(string) ($row['candidate_key'] ?? '')]),
+        ));
+    }
+
+    /**
+     * Removing a generated candidate must not leave orphan Draft ideas.
+     */
+    protected function purgeGeneratedDraftIdeasForClusterRef(string $clusterRef): void
+    {
+        $clusterRef = trim($clusterRef);
+        if ($clusterRef === '' || ! AuditNoteDnaNormalizer::isGeneratedRef($clusterRef)) {
+            return;
+        }
+        if (! method_exists($this, 'resolveNewContentProject')) {
+            return;
+        }
+        $project = $this->resolveNewContentProject();
+        if (! $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject) {
+            return;
+        }
+
+        $taskIds = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+        if ($taskIds === []) {
+            return;
+        }
+
+        $attributedTaskIds = \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttribution::query()
+            ->whereIn('project_task_id', $taskIds)
+            ->where('cluster_ref', $clusterRef)
+            ->pluck('project_task_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+        if ($attributedTaskIds === []) {
+            return;
+        }
+
+        \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttribution::query()
+            ->whereIn('project_task_id', $attributedTaskIds)
+            ->delete();
+        \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin::query()
+            ->whereIn('project_task_id', $attributedTaskIds)
+            ->delete();
+        \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()
+            ->whereIn('id', $attributedTaskIds)
+            ->delete();
     }
 
     public function updateNewTopicName(string $clusterRef, string $name): void
@@ -237,11 +333,6 @@ trait InteractsWithDiscoverNewTopics
 
             return;
         }
-    }
-
-    public function clearNewTopicSelected(): void
-    {
-        $this->newTopicSelectedItems = [];
     }
 
     /**

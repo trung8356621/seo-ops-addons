@@ -54,7 +54,9 @@ final class ContentProjectMonthChartContractTest extends TestCase
         self::assertLessThan($tablePos, $chartsPos);
         self::assertGreaterThan($chartsPos, $planningPropPos); // planning-matrix is an attr on charts
         $nav = LegacyAddonPath::read('resources/views/components/content-project-list-month-nav.blade.php');
-        self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('planning-month-jump', $nav);
+        self::assertStringContainsString('shortLabel', $nav);
         self::assertStringContainsString('chart_articles_by_domain', $charts);
         self::assertStringContainsString('chart_articles_by_writer', $charts);
         self::assertStringContainsString('chart_domain_empty', $charts);

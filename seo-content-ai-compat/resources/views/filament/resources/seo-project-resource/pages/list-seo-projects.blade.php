@@ -1,5 +1,4 @@
 @php
-    $monthOptions = $this->getPlanningMonthOptions();
     $projectTypeOptions = $this->getProjectTypeOptions();
     $domainChart = $this->getDomainWorkloadChart();
     $writerChart = $this->getWriterWorkloadChart();
@@ -39,7 +38,6 @@
                 :month-urls="$monthUrls"
                 :prev-url="$prevUrl"
                 :next-url="$nextUrl"
-                :all-options="$monthOptions"
                 :radius="2"
             />
 

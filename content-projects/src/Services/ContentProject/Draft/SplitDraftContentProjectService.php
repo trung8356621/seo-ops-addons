@@ -10,6 +10,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\GeneratedTopicMaterializer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
@@ -157,6 +158,7 @@ final class SplitDraftContentProjectService
 
             if ($assignableTaskIds === [] && $writerIds !== []) {
                 // Team out of capacity — leave everything in Draft (normal handled result).
+                // Do NOT materialize Generated Topics when nothing moves.
                 return [
                     'source_draft_project_id' => (int) $lockedDraft->getKey(),
                     'requested_items' => $requestedItems,
@@ -192,6 +194,8 @@ final class SplitDraftContentProjectService
                     'max_items_per_project' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
                     'redirect_month' => $month->format('Y-m'),
                     'capacity_exhausted' => true,
+                    'generated_topic_mapping' => [],
+                    'generated_topics_materialized' => [],
                 ];
             }
 
@@ -200,6 +204,9 @@ final class SplitDraftContentProjectService
                     (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
                 );
             }
+
+            // Final create boundary: materialize Generated Topics only for items that will move.
+            $generatedMaterialize = $this->materializeGeneratedTopicsForTasks($assignableTaskIds);
 
             $tasks = SeoProjectTask::query()
                 ->where('project_id', (int) $lockedDraft->getKey())
@@ -385,6 +392,12 @@ final class SplitDraftContentProjectService
                 'max_items_per_project' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
                 'redirect_month' => $month->format('Y-m'),
                 'capacity_exhausted' => ((int) ($plan['unallocated_count'] ?? 0)) > 0,
+                'generated_topic_mapping' => is_array($generatedMaterialize['mapping'] ?? null)
+                    ? $generatedMaterialize['mapping']
+                    : [],
+                'generated_topics_materialized' => is_array($generatedMaterialize['materialized'] ?? null)
+                    ? $generatedMaterialize['materialized']
+                    : [],
             ];
         });
     }
@@ -860,5 +873,42 @@ final class SplitDraftContentProjectService
                 'Item '.$task->id.' already has generation run history and cannot be split from Draft.',
             );
         }
+    }
+
+    /**
+     * Materialize generated:{candidate_key} attributions → real Topic Core ids before packing.
+     *
+     * @param  list<int>  $taskIds
+     * @return array{materialized: list<array<string, mixed>>, skipped: int, mapping: array<string, int>}
+     */
+    private function materializeGeneratedTopicsForTasks(array $taskIds): array
+    {
+        $siteIds = SeoProjectTask::query()
+            ->whereIn('id', $taskIds)
+            ->pluck('site_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        $materializer = app(GeneratedTopicMaterializer::class);
+        $merged = ['materialized' => [], 'skipped' => 0, 'mapping' => []];
+        foreach ($siteIds as $siteId) {
+            $siteTaskIds = SeoProjectTask::query()
+                ->whereIn('id', $taskIds)
+                ->where('site_id', $siteId)
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            $result = $materializer->materializeForTasks($siteId, $siteTaskIds);
+            $merged['materialized'] = array_merge($merged['materialized'], $result['materialized']);
+            $merged['skipped'] += (int) ($result['skipped'] ?? 0);
+            foreach ($result['mapping'] as $key => $topicId) {
+                $merged['mapping'][(string) $key] = (int) $topicId;
+            }
+        }
+
+        return $merged;
     }
 }

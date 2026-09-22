@@ -139,7 +139,12 @@ final class AiPromptServiceProvider extends ServiceProvider
                         if (! auth()->check()) {
                             return '';
                         }
-                        $status = app(\Omnichannel\Addons\AiPrompt\Services\AiCapacityStatusService::class)->status();
+                        $capacity = app(\Omnichannel\Addons\AiPrompt\Services\AiCapacityStatusService::class);
+                        // Same authorization as API Connections — content_manager never sees this rail.
+                        if (! $capacity->viewerMayInspectCapacity()) {
+                            return '';
+                        }
+                        $status = $capacity->status();
                         if (! in_array($status['state'] ?? '', ['rescue', 'critical'], true)) {
                             return '';
                         }

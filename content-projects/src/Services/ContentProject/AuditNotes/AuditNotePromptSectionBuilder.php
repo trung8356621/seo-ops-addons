@@ -39,6 +39,11 @@ final class AuditNotePromptSectionBuilder
                 $seed = trim((string) ($item['seed_text'] ?? $item['cluster_name_snapshot'] ?? ''));
                 $ref = trim((string) ($item['cluster_ref'] ?? ''));
                 $head = '- Planning Seed "'.$seed.'" · cluster_ref='.$ref.' · source_type=manual_seed · no existing Topic/MCP required';
+            } elseif (AuditNoteDnaNormalizer::isGenerated($item)) {
+                $ref = trim((string) ($item['cluster_ref'] ?? ''));
+                $key = (string) ($item['candidate_key'] ?? AuditNoteDnaNormalizer::generatedCandidateKey($ref));
+                $head = '- Generated Topic "'.$item['cluster_name_snapshot'].'" · cluster_ref='.$ref
+                    .' · candidate_key='.$key.' · source_type=generated · temporary candidate (no Topic DB id yet)';
             } else {
                 $share = number_format((float) ($item['mcp_share_snapshot'] ?? 0), 1, '.', '');
                 $ref = trim((string) ($item['cluster_ref'] ?? ''));
@@ -99,6 +104,10 @@ final class AuditNotePromptSectionBuilder
                 $seed = trim((string) ($item['seed_text'] ?? $item['cluster_name_snapshot'] ?? ''));
                 $lines[] = 'Seed: '.$seed;
                 $lines[] = 'source_type=manual_seed · DNA mục tiêu '.$target.' · Manual DNA '.$specified.' · AI fill '.$missing;
+            } elseif (AuditNoteDnaNormalizer::isGenerated($item)) {
+                $key = (string) ($item['candidate_key'] ?? AuditNoteDnaNormalizer::generatedCandidateKey((string) ($item['cluster_ref'] ?? '')));
+                $lines[] = (string) $item['cluster_name_snapshot'];
+                $lines[] = 'source_type=generated · candidate_key='.$key.' · DNA mục tiêu '.$target.' · Đã chỉ định '.$specified.' · AI bổ sung '.$missing;
             } else {
                 $lines[] = (string) $item['cluster_name_snapshot'];
                 $lines[] = 'DNA mục tiêu '.$target.' · Đã chỉ định '.$specified.' · AI bổ sung '.$missing;

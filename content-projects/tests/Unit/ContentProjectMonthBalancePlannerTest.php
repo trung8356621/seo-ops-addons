@@ -368,7 +368,18 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
             ContentProjectMonthContext::nearbyMonths('2026-09', 2),
         );
         self::assertSame('2026-08', ContentProjectMonthContext::shift('2026-09', -1));
-        self::assertSame('Sep', ContentProjectMonthContext::shortLabel('2026-09'));
+        self::assertSame('09', ContentProjectMonthContext::shortLabel('2026-09'));
+        self::assertSame(
+            ['2025-11', '2025-12', '2026-01', '2026-02', '2026-03'],
+            ContentProjectMonthContext::nearbyMonths('2026-01', 2),
+        );
+        self::assertSame(
+            ['11', '12', '01', '02', '03'],
+            array_map(
+                static fn (string $m): string => ContentProjectMonthContext::shortLabel($m),
+                ContentProjectMonthContext::nearbyMonths('2026-01', 2),
+            ),
+        );
     }
 
     public function test_move_next_month_stamps_planning_month(): void
@@ -428,7 +439,11 @@ final class ContentProjectMonthBalancePlannerTest extends TestCase
         self::assertStringContainsString('planning-matrix', $view);
         self::assertStringContainsString('content-project-month-charts', $view);
         self::assertStringNotContainsString('id="planning-month"', $view);
-        self::assertStringContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('wire:model.live="planningMonth"', $nav);
+        self::assertStringNotContainsString('planning-month-jump', $nav);
+        self::assertStringNotContainsString('allOptions', $nav);
+        self::assertStringNotContainsString(':all-options', $view);
+        self::assertStringContainsString('shortLabel', $nav);
         self::assertStringContainsString('active_month', $nav);
         self::assertStringContainsString('data-cp-list-month-nav', $nav);
         self::assertStringContainsString('data-cp-list-monthly-planning', $matrix);

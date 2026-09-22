@@ -61,12 +61,13 @@ final class ContentProjectMonthContext
         return $yyyyMm.'-01';
     }
 
-    /** Hiển thị UI ngắn: Mmm (vd. Sep) */
+    /** Hiển thị UI ngắn: MM số (vd. 09) — tránh locale EN/VI. */
     public static function shortLabel(CarbonImmutable|Carbon|string|null $month): string
     {
         $yyyyMm = self::normalize($month);
+        [, $monthNum] = explode('-', $yyyyMm);
 
-        return CarbonImmutable::createFromFormat('Y-m', $yyyyMm)->startOfMonth()->format('M');
+        return sprintf('%02d', (int) $monthNum);
     }
 
     /**

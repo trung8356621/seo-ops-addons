@@ -4,7 +4,6 @@
     $nearby = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::nearbyMonths($activeMonth, $radius);
     $prevMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, -1);
     $nextMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::shift($activeMonth, 1);
-    $allOptions = is_array($allOptions ?? null) ? $allOptions : [];
 @endphp
 
 <div class="flex min-w-0 flex-wrap items-center gap-2" data-cp-list-month-nav="1">
@@ -57,21 +56,4 @@
             <x-filament::icon icon="heroicon-m-chevron-right" class="h-4 w-4" />
         </a>
     </div>
-
-    @if ($allOptions !== [])
-        <div class="flex items-center gap-1.5">
-            <label class="sr-only" for="planning-month-jump">{{ __('seo-content-ai::filament.projects.active_month_jump') }}</label>
-            <x-select
-                id="planning-month-jump"
-                wire:model.live="planningMonth"
-                size="inline"
-                class="min-w-[7.5rem] text-sm"
-                title="{{ __('seo-content-ai::filament.projects.active_month_jump') }}"
-            >
-                @foreach ($allOptions as $option)
-                    <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
-                @endforeach
-            </x-select>
-        </div>
-    @endif
 </div>

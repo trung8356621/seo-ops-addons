@@ -309,6 +309,13 @@ trait InteractsWithDraftSplit
             return;
         }
 
+        $mapping = is_array($result->metadata['generated_topic_mapping'] ?? null)
+            ? $result->metadata['generated_topic_mapping']
+            : [];
+        if ($mapping !== [] && method_exists($this, 'consumeGeneratedTopicsAfterMaterialize')) {
+            $this->consumeGeneratedTopicsAfterMaterialize(array_keys($mapping));
+        }
+
         $this->draftSplitModalOpen = false;
         $this->draftSplitError = null;
         $this->draftSplitIncludedUserIds = [];

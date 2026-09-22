@@ -14,7 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditN
  */
 final class NewContentAutoDnaPolicy
 {
-    public const VERSION = 3;
+    public const VERSION = 4;
 
     public const KEY = 'auto_dna';
 
@@ -81,13 +81,14 @@ final class NewContentAutoDnaPolicy
         $lines = [
             'SYSTEM AUTOMATION POLICY ('.$this->policyLabel().'):',
             '- requested_quantity='.$qty.' is the total desired generated articles.',
-            '- Distinguish source_type=cluster (expand an existing Topic/MCP area) vs source_type=manual_seed (create a NEW semantic area from free-form seed_text).',
+            '- Distinguish source_type=cluster (expand an existing Topic/MCP area) vs source_type=manual_seed (create a NEW semantic area from free-form seed_text) vs source_type=generated (temporary New Topic candidate identified by candidate_key / cluster_ref generated:{key}; no Topic DB id yet).',
             '- For each item: missing_slots = max(0, target_dna_count - SUM(dna.slots)). AI MUST derive that many additional distinct DNA/content angles.',
             '- Specified DNA phrases are explicit user demand; preserve them with placement (before|after).',
             '- placement=before → DNA is guided BEFORE the base topic/keyword; placement=after → AFTER. Do not invert.',
             '- Repeated phrase slots (e.g. quà tặng ×3) = repeated semantic demand, NOT permission to duplicate search intent — diversify angles.',
             '- Avoid cannibalizing / duplicate search intent vs existing Articles, Draft items, and ideas already accepted in this run; preserve site primary language and Planning Intelligence.',
             '- For manual_seed: do NOT require MCP, focus articles, or membership in the current keyword inventory. Generate genuinely NEW keyword opportunities from seed_text when useful.',
+            '- For generated: treat candidate_key / cluster_ref as the ONLY Topic association. Return cluster_ref exactly as provided. Do not invent or remap candidate_key.',
             '- For cluster: use the note-item label, MCP signals, and keyword inventory to expand an existing semantic area (live cluster_key DNA is unavailable).',
         ];
 
