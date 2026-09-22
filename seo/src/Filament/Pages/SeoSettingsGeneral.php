@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 use Omnichannel\Addons\Content\Support\ContentLanguageRegistry;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
+use Omnichannel\Addons\Seo\Services\SeoAnalyticsScopeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
@@ -48,6 +49,7 @@ class SeoSettingsGeneral extends Page implements HasForms
         SeoOverviewSettingsService $overviewSettings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
         ContentProjectWriterCapacitySettingsService $writerCapacitySettings,
+        SeoAnalyticsScopeSettingsService $analyticsScopeSettings,
         SocialSupportedDomainService $socialSupportedDomains,
     ): void {
         abort_unless(static::canAccess(), 403);
@@ -56,6 +58,7 @@ class SeoSettingsGeneral extends Page implements HasForms
             $dateTimeSettings->getSettings(),
             $contentLanguageSettings->getSettings(),
             $writerCapacitySettings->getSettings(),
+            $analyticsScopeSettings->getSettings(),
         );
         $this->form->fill($this->dateTimeSettingsData);
 
@@ -165,6 +168,15 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->integer(),
                     ])
                     ->columns(1),
+                Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.statistics_section'))
+                    ->schema([
+                        Forms\Components\Toggle::make(SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS)
+                            ->label(__('seo-content-ai::filament.settings_general.exclude_pages_from_statistics'))
+                            ->helperText(__('seo-content-ai::filament.settings_general.exclude_pages_from_statistics_hint'))
+                            ->default(true)
+                            ->inline(false),
+                    ])
+                    ->columns(1),
             ])
             ->statePath('dateTimeSettingsData');
     }
@@ -217,6 +229,7 @@ class SeoSettingsGeneral extends Page implements HasForms
         SeoDateTimeSettingsService $settings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
         ContentProjectWriterCapacitySettingsService $writerCapacitySettings,
+        SeoAnalyticsScopeSettingsService $analyticsScopeSettings,
     ): void {
         $data = $this->form->getState();
         $settings->save([
@@ -237,10 +250,17 @@ class SeoSettingsGeneral extends Page implements HasForms
             ),
         ]);
 
+        $analyticsScopeSettings->save([
+            SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS => (bool) (
+                $data[SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS] ?? true
+            ),
+        ]);
+
         $this->dateTimeSettingsData = array_merge(
             $settings->getSettings(),
             $contentLanguageSettings->getSettings(),
             $writerCapacitySettings->getSettings(),
+            $analyticsScopeSettings->getSettings(),
         );
         $this->form->fill($this->dateTimeSettingsData);
 

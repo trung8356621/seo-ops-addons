@@ -6,11 +6,11 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Statistics;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
+use Omnichannel\Addons\Seo\Support\SeoAnalyticsArticleScope;
 use App\Services\Users\SeoOpsSystemUser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -20,18 +20,19 @@ use Illuminate\Support\Facades\Schema;
  *
  * Semantics:
  * - Month = seo_projects.month (ContentProjectMonthContext YYYY-MM).
- * - Assigned = active + archived execution items (same SSOT as capacity).
- * - Completed = active tasks with status completed (or reviewing with CM stamp)
- *   + all archived items count as completed for progress.
- * - Pending = assigned active tasks that are not completed.
- * - Capacity = ContentProjectWriterCapacitySettingsService effective capacity.
+ * - Assigned = active + archived execution items (capacity cardinality).
+ * - Completed = active completed/CM-reviewed + archived items.
+ * - Pending = active not completed.
+ * - Capacity = ContentProjectWriterCapacitySettingsService.
+ * - Page exclusion via {@see SeoAnalyticsArticleScope} on linked article
+ *   (META_CONTENT_TYPE), never task.post_type alone.
  */
 final class UserStatisticsReadModel
 {
     public function __construct(
-        private readonly ContentProjectMonthlyWorkloadService $workload,
         private readonly ContentProjectWriterMonthlyCapacityService $writerCapacity,
         private readonly ContentProjectWriterCapacitySettingsService $capacitySettings,
+        private readonly SeoAnalyticsArticleScope $analyticsScope,
     ) {}
 
     /**
@@ -40,37 +41,48 @@ final class UserStatisticsReadModel
     public function build(string $month, ?int $userId = null): array
     {
         $monthKey = ContentProjectMonthContext::normalize($month);
-        $payload = $this->workload->forMonth($monthKey, ContentProjectMonthlyWorkloadService::SCOPE_ALL);
+        $breakdown = $this->itemBreakdownByUser($monthKey);
         $statusByUser = $this->activeStatusByUser($monthKey);
 
+        $userIds = array_keys($breakdown);
+        if ($userId !== null && $userId > 0) {
+            $userIds = in_array($userId, $userIds, true) ? [$userId] : [];
+        }
+
+        $names = $this->writerCapacity->displayNamesByUserId($userIds);
+        $capacities = $this->writerCapacity->capacityByUserId($userIds);
+        $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
+
         $rows = [];
-        foreach ($payload['by_writer'] as $writer) {
-            $uid = (int) ($writer['user_id'] ?? 0);
+        $workloadMax = 1;
+        foreach ($userIds as $uid) {
             if ($uid <= 0 || SeoOpsSystemUser::isSystemUserId($uid)) {
                 continue;
             }
-            if ($userId !== null && $userId > 0 && $uid !== $userId) {
+            $counts = $breakdown[$uid] ?? ['active' => 0, 'archived' => 0, 'total' => 0];
+            $assigned = (int) ($counts['total'] ?? 0);
+            if ($assigned <= 0) {
                 continue;
             }
 
             $status = $statusByUser[$uid] ?? ['completed' => 0, 'pending' => 0];
-            $archived = (int) ($writer['archived_count'] ?? 0);
+            $archived = (int) ($counts['archived'] ?? 0);
             $completed = (int) ($status['completed'] ?? 0) + $archived;
             $pending = (int) ($status['pending'] ?? 0);
-            $assigned = (int) ($writer['total_count'] ?? 0);
-            $capacity = (int) ($writer['capacity'] ?? $payload['default_capacity']);
+            $capacity = (int) ($capacities[$uid] ?? $defaultCapacity);
             $progress = $assigned > 0 ? (int) round(($completed / $assigned) * 100) : 0;
+            $workloadMax = max($workloadMax, $assigned, $capacity);
 
             $rows[] = [
                 'user_id' => $uid,
-                'name' => (string) ($writer['name'] ?? ('#'.$uid)),
+                'name' => (string) ($names[$uid] ?? ('#'.$uid)),
                 'assigned' => $assigned,
                 'completed' => $completed,
                 'pending' => $pending,
                 'progress' => min(100, max(0, $progress)),
                 'capacity' => $capacity,
-                'remaining' => (int) ($writer['remaining'] ?? ($capacity - $assigned)),
-                'active_count' => (int) ($writer['active_count'] ?? 0),
+                'remaining' => $capacity - $assigned,
+                'active_count' => (int) ($counts['active'] ?? 0),
                 'archived_count' => $archived,
             ];
         }
@@ -80,11 +92,10 @@ final class UserStatisticsReadModel
             static fn (array $a, array $b): int => ($b['assigned'] ?? 0) <=> ($a['assigned'] ?? 0),
         );
 
-        $usersWithWork = count(array_filter($rows, static fn (array $r): bool => ($r['assigned'] ?? 0) > 0));
+        $usersWithWork = count($rows);
         $totalAssigned = array_sum(array_column($rows, 'assigned'));
         $totalCompleted = array_sum(array_column($rows, 'completed'));
         $totalPending = array_sum(array_column($rows, 'pending'));
-
         $empty = $rows === [] || $totalAssigned === 0;
 
         return [
@@ -99,6 +110,7 @@ final class UserStatisticsReadModel
                 'pending' => 'active_tasks_not_completed',
                 'capacity' => 'writer_monthly_capacity_settings',
                 'month_field' => 'seo_projects.month',
+                'page_exclusion' => 'seo_analytics_article_scope_via_content_type_meta',
             ],
             'kpis' => [
                 'users_with_work' => $usersWithWork,
@@ -106,11 +118,98 @@ final class UserStatisticsReadModel
                 'total_completed' => $totalCompleted,
                 'total_pending' => $totalPending,
             ],
-            'default_capacity' => (int) ($payload['default_capacity'] ?? $this->capacitySettings->defaultMonthlyCapacity()),
-            'team_capacity' => (int) ($payload['team_capacity'] ?? 0),
+            'default_capacity' => $defaultCapacity,
+            'team_capacity' => 0,
             'rows' => $rows,
-            'workload_max' => max(1, (int) ($payload['writer_max'] ?? 1)),
+            'workload_max' => max(1, $workloadMax),
         ];
+    }
+
+    /**
+     * @return array<int, array{active: int, archived: int, total: int}>
+     */
+    private function itemBreakdownByUser(string $monthKey): array
+    {
+        /** @var array<int, array{active: int, archived: int, total: int}> $counts */
+        $counts = [];
+        $monthDate = ContentProjectMonthContext::toDateString($monthKey);
+
+        $activeQuery = DB::connection('omi_seo_ai')
+            ->table('seo_project_tasks as t')
+            ->join('seo_projects as p', 'p.id', '=', 't.project_id')
+            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('p.kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('p.kind');
+            })
+            ->whereDate('p.month', $monthDate)
+            ->whereNull('p.archived_at')
+            ->whereNull('t.archived_at')
+            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->whereNotNull('p.user_id')
+            ->where('p.user_id', '>', 0);
+
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
+            $activeQuery->whereNull('t.deleted_at');
+        }
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($activeQuery, 'p');
+        $this->analyticsScope->applyToTaskArticleId($activeQuery, 't.article_id');
+
+        foreach (
+            $activeQuery
+                ->groupBy('p.user_id')
+                ->selectRaw('p.user_id as user_id, COUNT(t.id) as item_count')
+                ->get() as $row
+        ) {
+            $uid = (int) ($row->user_id ?? 0);
+            if ($uid <= 0) {
+                continue;
+            }
+            $counts[$uid] ??= ['active' => 0, 'archived' => 0, 'total' => 0];
+            $counts[$uid]['active'] = max(0, (int) ($row->item_count ?? 0));
+        }
+
+        $archivedQuery = DB::connection('omi_seo_ai')
+            ->table('seo_project_archive_items as ai')
+            ->join('seo_project_archives as a', 'a.id', '=', 'ai.seo_project_archive_id')
+            ->join('seo_projects as p', 'p.id', '=', 'a.project_id')
+            ->whereNull('a.restored_at')
+            ->whereNotNull('p.archived_at')
+            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('p.kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('p.kind');
+            })
+            ->whereDate('p.month', $monthDate)
+            ->whereNotNull('p.user_id')
+            ->where('p.user_id', '>', 0);
+
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($archivedQuery, 'p');
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_archive_items', 'article_id')) {
+            $this->analyticsScope->applyToTaskArticleId($archivedQuery, 'ai.article_id');
+        }
+
+        foreach (
+            $archivedQuery
+                ->groupBy('p.user_id')
+                ->selectRaw('p.user_id as user_id, COUNT(ai.id) as item_count')
+                ->get() as $row
+        ) {
+            $uid = (int) ($row->user_id ?? 0);
+            if ($uid <= 0) {
+                continue;
+            }
+            $counts[$uid] ??= ['active' => 0, 'archived' => 0, 'total' => 0];
+            $counts[$uid]['archived'] = max(0, (int) ($row->item_count ?? 0));
+        }
+
+        foreach ($counts as $uid => $row) {
+            $counts[$uid]['total'] = (int) $row['active'] + (int) $row['archived'];
+        }
+
+        return $counts;
     }
 
     /**
@@ -140,6 +239,7 @@ final class UserStatisticsReadModel
             $query->whereNull('t.deleted_at');
         }
         ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
 
         $rows = $query
             ->groupBy('p.user_id')

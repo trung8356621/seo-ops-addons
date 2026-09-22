@@ -10,14 +10,14 @@ use Tests\TestCase;
 
 final class StatisticsUserContractTest extends TestCase
 {
-    public function test_user_read_model_reuses_monthly_workload_ssot(): void
+    public function test_user_read_model_uses_capacity_ssot_and_analytics_page_scope(): void
     {
         $src = (string) file_get_contents((string) (new \ReflectionClass(UserStatisticsReadModel::class))->getFileName());
-        $this->assertStringContainsString('ContentProjectMonthlyWorkloadService', $src);
         $this->assertStringContainsString('ContentProjectWriterCapacitySettingsService', $src);
         $this->assertStringContainsString('seo_projects.month', $src);
-        $this->assertStringContainsString('active_tasks_plus_archived_items_for_project_month', $src);
-        $this->assertStringContainsString('content_manager_reviewed_at', $src);
+        $this->assertStringContainsString('SeoAnalyticsArticleScope', $src);
+        $this->assertStringContainsString('applyToTaskArticleId', $src);
+        $this->assertStringNotContainsString('t.post_type', $src);
         $this->assertStringNotContainsString('OperationalLandingDashboardReadModel', $src);
         $this->assertStringNotContainsString('teamProductivity', $src);
     }

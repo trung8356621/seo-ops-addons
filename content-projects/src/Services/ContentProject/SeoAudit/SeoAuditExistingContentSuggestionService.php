@@ -531,11 +531,10 @@ final class SeoAuditExistingContentSuggestionService
             return;
         }
 
-        // Default: all except page (business classification, not raw CPT slug).
-        $base->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
-            $metaQ->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)
-                ->where('meta_value', ContentType::Page->value);
-        });
+        // Default mode all_except_page: honor analytics scope setting (ON = exclude Page).
+        // Explicit specific/all modes above are never overridden by the global setting.
+        app(\Omnichannel\Addons\Seo\Support\SeoAnalyticsArticleScope::class)
+            ->applyToArticleQuery($base);
     }
 
     /**

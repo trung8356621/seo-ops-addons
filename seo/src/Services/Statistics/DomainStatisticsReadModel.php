@@ -10,9 +10,11 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\Seo\Models\SeoArticleIndexHealth;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoAnalyticsArticleScope;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use App\Models\Site;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
@@ -25,10 +27,25 @@ use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
  *   (countsTowardSeoScore), not filtered by month.
  * - Performance chart + period comparison deltas: articles.created_at within month.
  * - Sync/index issues: persisted Site Sync run status + index health rows (no live WP).
+ * - Page exclusion: {@see SeoAnalyticsArticleScope} (Settings → General), applied to all
+ *   article-derived metrics in this read model.
  */
 final class DomainStatisticsReadModel
 {
     public const URGENT_LIMIT = 8;
+
+    public function __construct(
+        private readonly SeoAnalyticsArticleScope $analyticsScope,
+    ) {}
+
+    /**
+     * @param  Builder<\Omnichannel\Addons\Content\Models\SeoArticle>  $query
+     * @return Builder<\Omnichannel\Addons\Content\Models\SeoArticle>
+     */
+    private function scopedArticles(Builder $query): Builder
+    {
+        return $this->analyticsScope->applyToArticleQuery($query);
+    }
 
     /**
      * @return array<string, mixed>
@@ -76,6 +93,7 @@ final class DomainStatisticsReadModel
                 'chart_avg_score' => 'avg_seo_score_of_articles_created_that_day',
                 'distribution' => 'inventory_bands_poor_fair_good_excellent',
                 'comparison' => 'created_at_avg_score_current_month_vs_previous_month',
+                'page_exclusion' => 'seo_analytics_article_scope_via_content_type_meta',
             ],
             'kpis' => $kpis,
             'distribution' => $distribution,
@@ -139,14 +157,16 @@ final class DomainStatisticsReadModel
     private function inventoryBySite(array $siteIds): array
     {
         $threshold = (int) SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD;
-        $rows = SeoArticle::query()
-            ->from('articles')
-            ->whereIn('articles.site_id', $siteIds)
-            ->leftJoin('seo_article_profiles as sap_stats', 'sap_stats.article_id', '=', 'articles.id')
-            ->where(function ($query): void {
-                $query->where('sap_stats.skip_seo_score', false)
-                    ->orWhereNull('sap_stats.skip_seo_score');
-            })
+        $rows = $this->scopedArticles(
+            SeoArticle::query()
+                ->from('articles')
+                ->whereIn('articles.site_id', $siteIds)
+                ->leftJoin('seo_article_profiles as sap_stats', 'sap_stats.article_id', '=', 'articles.id')
+                ->where(function ($query): void {
+                    $query->where('sap_stats.skip_seo_score', false)
+                        ->orWhereNull('sap_stats.skip_seo_score');
+                }),
+        )
             ->groupBy('articles.site_id')
             ->selectRaw('articles.site_id as site_id')
             ->selectRaw('COUNT(articles.id) as total')
@@ -330,15 +350,17 @@ final class DomainStatisticsReadModel
         $end = $start->endOfMonth();
         $daysInMonth = (int) $start->daysInMonth;
 
-        $raw = SeoArticle::query()
-            ->from('articles')
-            ->whereIn('articles.site_id', $siteIds)
-            ->leftJoin('seo_article_profiles as sap_chart', 'sap_chart.article_id', '=', 'articles.id')
-            ->where(function ($query): void {
-                $query->where('sap_chart.skip_seo_score', false)
-                    ->orWhereNull('sap_chart.skip_seo_score');
-            })
-            ->whereBetween('articles.created_at', [$start->toDateTimeString(), $end->toDateTimeString()])
+        $raw = $this->scopedArticles(
+            SeoArticle::query()
+                ->from('articles')
+                ->whereIn('articles.site_id', $siteIds)
+                ->leftJoin('seo_article_profiles as sap_chart', 'sap_chart.article_id', '=', 'articles.id')
+                ->where(function ($query): void {
+                    $query->where('sap_chart.skip_seo_score', false)
+                        ->orWhereNull('sap_chart.skip_seo_score');
+                })
+                ->whereBetween('articles.created_at', [$start->toDateTimeString(), $end->toDateTimeString()]),
+        )
             ->groupBy(DB::raw('DATE(articles.created_at)'))
             ->orderBy(DB::raw('DATE(articles.created_at)'))
             ->selectRaw('DATE(articles.created_at) as day')
@@ -451,16 +473,18 @@ final class DomainStatisticsReadModel
         $start = CarbonImmutable::createFromFormat('Y-m', $monthKey)->startOfMonth();
         $end = $start->endOfMonth();
 
-        $rows = SeoArticle::query()
-            ->from('articles')
-            ->whereIn('articles.site_id', $siteIds)
-            ->leftJoin('seo_article_profiles as sap_period', 'sap_period.article_id', '=', 'articles.id')
-            ->where(function ($query): void {
-                $query->where('sap_period.skip_seo_score', false)
-                    ->orWhereNull('sap_period.skip_seo_score');
-            })
-            ->whereNotNull('sap_period.seo_score')
-            ->whereBetween('articles.created_at', [$start->toDateTimeString(), $end->toDateTimeString()])
+        $rows = $this->scopedArticles(
+            SeoArticle::query()
+                ->from('articles')
+                ->whereIn('articles.site_id', $siteIds)
+                ->leftJoin('seo_article_profiles as sap_period', 'sap_period.article_id', '=', 'articles.id')
+                ->where(function ($query): void {
+                    $query->where('sap_period.skip_seo_score', false)
+                        ->orWhereNull('sap_period.skip_seo_score');
+                })
+                ->whereNotNull('sap_period.seo_score')
+                ->whereBetween('articles.created_at', [$start->toDateTimeString(), $end->toDateTimeString()]),
+        )
             ->groupBy('articles.site_id')
             ->selectRaw('articles.site_id as site_id, AVG(sap_period.seo_score) as avg_score')
             ->get();
@@ -487,16 +511,18 @@ final class DomainStatisticsReadModel
         }
 
         $threshold = (int) SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD;
-        $articles = SeoArticle::query()
-            ->from('articles')
-            ->whereIn('articles.site_id', $siteIds)
-            ->leftJoin('seo_article_profiles as sap_urgent', 'sap_urgent.article_id', '=', 'articles.id')
-            ->where(function ($query): void {
-                $query->where('sap_urgent.skip_seo_score', false)
-                    ->orWhereNull('sap_urgent.skip_seo_score');
-            })
-            ->whereNotNull('sap_urgent.seo_score')
-            ->where('sap_urgent.seo_score', '<', $threshold)
+        $articles = $this->scopedArticles(
+            SeoArticle::query()
+                ->from('articles')
+                ->whereIn('articles.site_id', $siteIds)
+                ->leftJoin('seo_article_profiles as sap_urgent', 'sap_urgent.article_id', '=', 'articles.id')
+                ->where(function ($query): void {
+                    $query->where('sap_urgent.skip_seo_score', false)
+                        ->orWhereNull('sap_urgent.skip_seo_score');
+                })
+                ->whereNotNull('sap_urgent.seo_score')
+                ->where('sap_urgent.seo_score', '<', $threshold),
+        )
             ->orderBy('sap_urgent.seo_score')
             ->orderBy('articles.updated_at')
             ->limit(self::URGENT_LIMIT)
