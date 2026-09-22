@@ -133,6 +133,33 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('domain.action_plan', 'Deterministic action plan from open SEO findings.', ['site_ref']),
             $this->readTool('domain.monthly_intelligence', 'Stored monthly MCP report AI context. Does not rebuild source modules.', ['site_ref']),
             $this->readTool('domain.run_analysis', 'Dispatch link_health, link_opportunities, or keyword_refresh. Does not wait.', ['site_ref']),
+
+            // Keyword MCP type-2 — on-demand one-keyword relationship (not keywords.mcp.v2 landscape).
+            $this->keywordRelationshipTool(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function keywordRelationshipTool(): array
+    {
+        return [
+            'name' => 'keyword.relationship',
+            'description' => 'On-demand canonical relationships for ONE keyword (topics, focus article, DNA, same-topic keywords, links, GSC mappings, planning). Schema keyword.relationship.v1. Does not write seo_mcp_source_snapshots. Identify by keyword_id or keyword_ref=keyword:{id}; no phrase lookup.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'site_ref' => ['type' => 'string'],
+                    'keyword_id' => ['type' => 'integer'],
+                    'keyword_ref' => ['type' => 'string', 'description' => 'Stable ref keyword:{id}'],
+                ],
+                'required' => ['site_ref'],
+                'additionalProperties' => false,
+            ],
+            'side_effects' => 'none',
+            'confirmation_policy' => 'none',
+            'mode' => 'read',
         ];
     }
 

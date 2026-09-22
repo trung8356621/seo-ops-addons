@@ -290,6 +290,19 @@ class ListKeywords extends ListRecords
                 Tables\Actions\Action::make('item_view_linked')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_view_linked_articles'))
                     ->action(fn (Keyword $record): mixed => $this->openKeywordLinkedArticles((int) $record->id)),
+                Tables\Actions\Action::make('item_relationships')
+                    ->label(__('seo-content-ai::filament.keyword.relationship_action'))
+                    ->url(function (Keyword $record): string {
+                        $siteId = KeywordResource::resolveKeywordSiteId($record)
+                            ?? $this->resolveKeywordWorkspaceSiteId();
+                        $url = KeywordResource::getUrl('relationships', ['keyword' => (int) $record->id]);
+                        if ($siteId !== null && $siteId > 0) {
+                            return app(\Omnichannel\Addons\Seo\Support\DomainContextResolver::class)
+                                ->appendSiteToUrl($url, (int) $siteId);
+                        }
+
+                        return $url;
+                    }),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
                     ->visible(function (Keyword $record): bool {

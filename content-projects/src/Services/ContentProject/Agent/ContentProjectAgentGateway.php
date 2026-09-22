@@ -82,6 +82,9 @@ final class ContentProjectAgentGateway
         'domain.indexability',
         'domain.action_plan',
         'domain.monthly_intelligence',
+
+        // Keyword MCP type-2 — one-keyword relationship (on-demand, no snapshots).
+        'keyword.relationship',
     ];
 
     public function __construct(
@@ -98,6 +101,7 @@ final class ContentProjectAgentGateway
         private readonly GscIntelligenceReadService $gscReads,
         private readonly \Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService $seoAuditReads,
         private readonly \Omnichannel\Addons\Seo\Services\DomainSeoMcpService $domainSeoReads,
+        private readonly \Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGateway $keywordRelationship,
         private readonly CapabilityContextGuard $contextGuard = new CapabilityContextGuard,
     ) {}
 
@@ -369,6 +373,7 @@ final class ContentProjectAgentGateway
             'gsc_intelligence.get_operation' => $this->gscReads->getOperation($context, $input),
 
             'seo_audit.list' => $this->seoAuditReads->listArticles($context, $input),
+            'keyword.relationship' => $this->mapKeywordRelationship($context, $input),
             default => str_starts_with($capability, 'domain.')
                 ? $this->mapDomainSeo($context, $capability, $input)
                 : throw new InvalidArgumentException('Unsupported read capability.'),
@@ -386,6 +391,22 @@ final class ContentProjectAgentGateway
         $result = $this->domainSeoReads->execute((int) $context->resolvedSiteId, $capability, $input);
         if (! ($result['ok'] ?? false)) {
             throw new InvalidArgumentException((string) ($result['message'] ?? 'Domain SEO read failed.'));
+        }
+
+        return is_array($result['data'] ?? null) ? $result['data'] : [];
+    }
+
+    /**
+     * Keyword MCP type-2 — soft-deny wrong site (same not-found message).
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    private function mapKeywordRelationship(AgentExecutionContext $context, array $input): array
+    {
+        $result = $this->keywordRelationship->execute((int) $context->resolvedSiteId, $input);
+        if (! ($result['ok'] ?? false)) {
+            throw new RuntimeException((string) ($result['message'] ?? 'Keyword not found.'));
         }
 
         return is_array($result['data'] ?? null) ? $result['data'] : [];

@@ -1,0 +1,148 @@
+.keyword-relationship-page .keyword-relationship-header__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+}
+
+.keyword-relationship-page .keyword-relationship-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.keyword-relationship-page .keyword-relationship-toolbar {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    padding: 0.25rem;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.65rem;
+    background: rgba(248, 250, 252, 0.9);
+}
+
+.keyword-relationship-page .keyword-relationship-toolbar__btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+}
+
+.keyword-relationship-page .keyword-relationship-toolbar__btn:hover {
+    background: rgba(15, 23, 42, 0.06);
+}
+
+.keyword-relationship-page .keyword-relationship-toolbar__btn.is-active {
+    background: #0f172a;
+    color: #fff;
+}
+
+.keyword-relationship-page .keyword-relationship-truncation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin-top: 0.65rem;
+    color: #64748b;
+    font-size: 0.8125rem;
+}
+
+.keyword-relationship-page .keyword-relationship-issues {
+    margin-top: 0.5rem;
+    color: #b45309;
+    font-size: 0.8125rem;
+}
+
+.keyword-relationship-page .keyword-relationship-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 560px;
+}
+
+.keyword-relationship-page .keyword-relationship-chart-shell {
+    position: relative;
+    min-height: 560px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.75rem;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    overflow: hidden;
+}
+
+.keyword-relationship-page .keyword-relationship-chart {
+    width: 100%;
+    height: 560px;
+}
+
+.keyword-relationship-page .keyword-relationship-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 560px;
+    padding: 1.5rem;
+    color: #64748b;
+    font-size: 0.9375rem;
+    text-align: center;
+}
+
+.keyword-relationship-page .keyword-relationship-side {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 1rem;
+    min-height: 560px;
+}
+
+.keyword-relationship-page .keyword-relationship-side__title {
+    margin: 0 0 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.keyword-relationship-page .keyword-relationship-side__placeholder {
+    color: #94a3b8;
+    font-size: 0.875rem;
+}
+
+.keyword-relationship-page .keyword-relationship-side__dl {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.keyword-relationship-page .keyword-relationship-side__row {
+    display: grid;
+    grid-template-columns: minmax(0, 40%) minmax(0, 60%);
+    gap: 0.35rem 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.keyword-relationship-page .keyword-relationship-side__row dt {
+    color: #64748b;
+    font-weight: 600;
+}
+
+.keyword-relationship-page .keyword-relationship-side__row dd {
+    margin: 0;
+    color: #0f172a;
+    word-break: break-word;
+}
+
+@media (max-width: 960px) {
+    .keyword-relationship-page .keyword-relationship-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .keyword-relationship-page .keyword-relationship-side {
+        min-height: 0;
+    }
+}

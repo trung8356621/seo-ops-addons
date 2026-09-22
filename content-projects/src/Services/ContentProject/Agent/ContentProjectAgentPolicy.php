@@ -163,6 +163,10 @@ final class ContentProjectAgentPolicy
             return 'content-project:read';
         }
 
+        if ($capability === 'keyword.relationship') {
+            return 'content-project:read';
+        }
+
         if (str_starts_with($capability, 'domain.run_analysis')) {
             return 'content-project:write';
         }
