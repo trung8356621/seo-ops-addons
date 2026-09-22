@@ -54,7 +54,7 @@
                 <label class="ops-statistics__filter">
                     <span class="ops-statistics__filter-label">{{ __('seo-content-ai::filament.statistics.filter_user') }}</span>
                     <x-select wire:model.live="filterUserId" class="ops-statistics__select">
-                        <option value="">{{ __('seo-content-ai::filament.statistics.filter_all_users') }}</option>
+                        <option value="">{{ __('seo-content-ai::filament.statistics.filter_all_cms') }}</option>
                         @foreach ($userOptions as $uid => $uname)
                             <option value="{{ (int) $uid }}">{{ $uname }}</option>
                         @endforeach
@@ -76,11 +76,11 @@
                     <input type="checkbox" wire:model.live="compare" class="ops-statistics__compare-input" />
                     <span>{{ __('seo-content-ai::filament.statistics.filter_compare') }}</span>
                 </label>
-
-                <button type="button" class="ops-statistics__export" disabled title="{{ __('seo-content-ai::filament.statistics.export_deferred') }}">
-                    {{ __('seo-content-ai::filament.statistics.export') }}
-                </button>
             @endif
+
+            <button type="button" class="ops-statistics__export" disabled title="{{ __('seo-content-ai::filament.statistics.export_deferred') }}">
+                {{ __('seo-content-ai::filament.statistics.export') }}
+            </button>
         </div>
     </div>
 

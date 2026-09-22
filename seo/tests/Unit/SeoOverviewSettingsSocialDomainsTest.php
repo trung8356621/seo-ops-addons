@@ -25,16 +25,18 @@ final class SeoOverviewSettingsSocialDomainsTest extends TestCase
         $page = (string) file_get_contents((new \ReflectionClass(SeoSettingsGeneral::class))->getFileName());
 
         self::assertStringContainsString('socialSettingsForm', $page);
-        self::assertStringContainsString('saveSocialSettings', $page);
+        self::assertStringContainsString('saveSocialSupportedDomainsSettings', $page);
+        self::assertStringNotContainsString('function saveSocialSettings', $page);
         self::assertStringContainsString('KEY_SOCIAL_SUPPORTED_DOMAINS', $page);
         self::assertStringContainsString('SocialSupportedDomainService', $page);
 
         $view = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-general.blade.php',
         );
-        self::assertStringContainsString('saveSocialSettings', $view);
         self::assertStringContainsString('socialSettingsForm', $view);
         self::assertStringContainsString('section_social_reporting', $view);
+        self::assertStringContainsString('wire:submit="save"', $view);
+        self::assertStringNotContainsString('saveSocialSettings', $view);
     }
 
     public function test_social_supported_domain_service_normalizes_allowlist_entries(): void

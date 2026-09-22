@@ -9,7 +9,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Services\Statistics\DomainStatisticsReadModel;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use App\Models\User;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 
@@ -148,11 +147,11 @@ final class Statistics extends SeoPanelPage
 
         if ($this->tab === 'user') {
             $userData = app(UserStatisticsReadModel::class)->build($month, $this->filterUserId);
-            foreach (($userData['rows'] ?? []) as $row) {
-                $userOptions[(int) $row['user_id']] = (string) $row['name'];
-            }
+            $userOptions = is_array($userData['content_manager_options'] ?? null)
+                ? $userData['content_manager_options']
+                : [];
             if ($userOptions === []) {
-                $userOptions = $this->writerNameOptions();
+                $userOptions = $this->contentManagerNameOptions();
             }
         } else {
             $domainData = app(DomainStatisticsReadModel::class)->build(
@@ -193,21 +192,10 @@ final class Statistics extends SeoPanelPage
     /**
      * @return array<int, string>
      */
-    private function writerNameOptions(): array
+    private function contentManagerNameOptions(): array
     {
-        $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
-        if ($ownerId <= 0) {
-            return [];
-        }
-
-        return app(\App\Core\Permissions\SeoRoleAssignment::class)
-            ->constrainQueryToRoles(
-                User::query()
-                    ->where('parent_id', $ownerId)
-                    ->where('role', User::ROLE_STAFF)
-                    ->orderBy('name'),
-                [SeoAccessControl::ROLE_CONTENT_MANAGER],
-            )
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService::class)
+            ->baseAssignableStaffQuery()
             ->pluck('name', 'id')
             ->mapWithKeys(static fn (mixed $name, mixed $id): array => [(int) $id => (string) $name])
             ->all();

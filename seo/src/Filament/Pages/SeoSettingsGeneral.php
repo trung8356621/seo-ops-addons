@@ -21,7 +21,9 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 
 class SeoSettingsGeneral extends Page implements HasForms
 {
@@ -230,31 +232,59 @@ class SeoSettingsGeneral extends Page implements HasForms
         SeoContentLanguageSettingsService $contentLanguageSettings,
         ContentProjectWriterCapacitySettingsService $writerCapacitySettings,
         SeoAnalyticsScopeSettingsService $analyticsScopeSettings,
+        SeoOverviewSettingsService $overviewSettings,
+        SocialSupportedDomainService $socialSupportedDomains,
     ): void {
-        $data = $this->form->getState();
-        $settings->save([
-            SeoDateTimeSettingsService::KEY_TIMEZONE => (string) ($data[SeoDateTimeSettingsService::KEY_TIMEZONE] ?? ''),
-            SeoDateTimeSettingsService::KEY_PRESET => (string) ($data[SeoDateTimeSettingsService::KEY_PRESET] ?? ''),
-        ]);
+        [$data, $teamChatData, $socialData] = $this->validatedAllFormStates();
 
-        $contentLanguageSettings->save([
-            SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE => (string) (
-                $data[SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE] ?? ''
-            ),
-        ]);
+        DB::transaction(function () use (
+            $data,
+            $teamChatData,
+            $socialData,
+            $settings,
+            $contentLanguageSettings,
+            $writerCapacitySettings,
+            $analyticsScopeSettings,
+            $overviewSettings,
+        ): void {
+            $settings->save([
+                SeoDateTimeSettingsService::KEY_TIMEZONE => (string) ($data[SeoDateTimeSettingsService::KEY_TIMEZONE] ?? ''),
+                SeoDateTimeSettingsService::KEY_PRESET => (string) ($data[SeoDateTimeSettingsService::KEY_PRESET] ?? ''),
+            ]);
 
-        $writerCapacitySettings->save([
-            ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY => (int) (
-                $data[ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY]
-                    ?? ContentProjectWriterCapacitySettingsService::DEFAULT_CAPACITY
-            ),
-        ]);
+            $contentLanguageSettings->save([
+                SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE => (string) (
+                    $data[SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE] ?? ''
+                ),
+            ]);
 
-        $analyticsScopeSettings->save([
-            SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS => (bool) (
-                $data[SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS] ?? true
-            ),
-        ]);
+            $writerCapacitySettings->save([
+                ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY => (int) (
+                    $data[ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY]
+                        ?? ContentProjectWriterCapacitySettingsService::DEFAULT_CAPACITY
+                ),
+            ]);
+
+            $analyticsScopeSettings->save([
+                SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS => (bool) (
+                    $data[SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS] ?? true
+                ),
+            ]);
+
+            $overviewSettings->saveTeamChatSettings([
+                SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => (string) (
+                    $teamChatData[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? ''
+                ),
+                SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $teamChatData[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
+                    ?? $overviewSettings->getTeamChatMaxFileSizeMb(),
+            ]);
+
+            $overviewSettings->saveSocialSupportedDomainsSettings([
+                SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => (string) (
+                    $socialData[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? ''
+                ),
+            ]);
+        });
 
         $this->dateTimeSettingsData = array_merge(
             $settings->getSettings(),
@@ -264,46 +294,53 @@ class SeoSettingsGeneral extends Page implements HasForms
         );
         $this->form->fill($this->dateTimeSettingsData);
 
+        $overview = $overviewSettings->getSettings();
+        $this->teamChatSettingsData = [
+            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overviewSettings->extensionsToTextarea(
+                $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
+            ),
+            SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
+        ];
+        $this->teamChatForm->fill($this->teamChatSettingsData);
+
+        $this->socialSettingsData = [
+            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $socialSupportedDomains->domainsToTextarea(
+                $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
+            ),
+        ];
+        $this->socialSettingsForm->fill($this->socialSettingsData);
+
         $this->dispatch('seo-datetime-settings-updated', config: SystemDateTime::frontendConfig());
 
         Notification::make()
-            ->title(__('seo-content-ai::filament.settings_general.default_content_language_saved'))
+            ->title(__('seo-content-ai::filament.settings_general.settings_saved'))
             ->success()
             ->send();
     }
 
-    public function saveTeamChatSettings(SeoOverviewSettingsService $overviewSettings): void
+    /**
+     * Validate every section form before any persist so failures never leave partial writes.
+     *
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>, 2: array<string, mixed>}
+     */
+    private function validatedAllFormStates(): array
     {
-        $data = $this->teamChatForm->getState();
+        $errors = [];
+        $states = [];
 
-        $overviewSettings->saveTeamChatSettings([
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => (string) (
-                $data[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? ''
-            ),
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $data[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
-                ?? $overviewSettings->getTeamChatMaxFileSizeMb(),
-        ]);
+        foreach (['form', 'teamChatForm', 'socialSettingsForm'] as $formName) {
+            try {
+                $states[] = $this->{$formName}->getState();
+            } catch (ValidationException $exception) {
+                $errors = array_merge($errors, $exception->errors());
+            }
+        }
 
-        Notification::make()
-            ->title(__('seo-content-ai::filament.settings_overview.team_chat_saved'))
-            ->success()
-            ->send();
-    }
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
 
-    public function saveSocialSettings(SeoOverviewSettingsService $overviewSettings): void
-    {
-        $data = $this->socialSettingsForm->getState();
-
-        $overviewSettings->saveSocialSupportedDomainsSettings([
-            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => (string) (
-                $data[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? ''
-            ),
-        ]);
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.settings_general.social_supports_saved'))
-            ->success()
-            ->send();
+        return [$states[0], $states[1], $states[2]];
     }
 
     public static function canAccess(): bool

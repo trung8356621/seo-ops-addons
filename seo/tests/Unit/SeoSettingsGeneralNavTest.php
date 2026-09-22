@@ -51,7 +51,12 @@ final class SeoSettingsGeneralNavTest extends TestCase
         $this->assertStringContainsString("protected static ?string \$slug = 'settings/general'", $page);
         $this->assertStringContainsString('shouldRegisterNavigation = false', $page);
         $this->assertStringNotContainsString('CoreGeneralSettings', $page);
+        $this->assertStringContainsString('validatedAllFormStates', $page);
         $this->assertStringContainsString('saveTeamChatSettings', $page);
+        $this->assertStringContainsString('saveSocialSupportedDomainsSettings', $page);
+        $this->assertStringContainsString('DB::transaction', $page);
+        $this->assertStringNotContainsString('function saveTeamChatSettings', $page);
+        $this->assertStringNotContainsString('function saveSocialSettings', $page);
         $this->assertStringContainsString('SeoDateTimeSettingsService', $page);
         $this->assertStringContainsString('SeoContentLanguageSettingsService', $page);
         $this->assertStringContainsString('SeoOverviewSettingsService', $page);
@@ -69,7 +74,10 @@ final class SeoSettingsGeneralNavTest extends TestCase
         $this->assertStringContainsString("'active' => 'general'", $view);
         $this->assertStringContainsString('section_regional', $view);
         $this->assertStringContainsString('section_workspace', $view);
-        $this->assertStringContainsString('saveTeamChatSettings', $view);
+        $this->assertStringContainsString('wire:submit="save"', $view);
+        $this->assertStringContainsString('seo-settings-global-save', $view);
+        $this->assertStringNotContainsString('saveTeamChatSettings', $view);
+        $this->assertStringNotContainsString('saveSocialSettings', $view);
         $this->assertStringNotContainsString('overview_teaser', $view);
         $this->assertStringNotContainsString('SeoSettingsRecommendations', $view);
 

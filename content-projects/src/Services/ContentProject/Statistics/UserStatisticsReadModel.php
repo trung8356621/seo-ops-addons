@@ -4,35 +4,37 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Statistics;
 
+use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
-use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoAnalyticsArticleScope;
+use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Analytical user/workload Statistics for a Content Project planning month.
+ * Content-manager review Statistics (Theo người dùng).
  *
- * Semantics:
- * - Month = seo_projects.month (ContentProjectMonthContext YYYY-MM).
- * - Assigned = active + archived execution items (capacity cardinality).
- * - Completed = active completed/CM-reviewed + archived items.
- * - Pending = active not completed.
- * - Capacity = ContentProjectWriterCapacitySettingsService.
- * - Page exclusion via {@see SeoAnalyticsArticleScope} on linked article
- *   (META_CONTENT_TYPE), never task.post_type alone.
+ * Measures REVIEW workload only:
+ * - Needs Review (waiting) — completed AI, no CM Save stamp
+ * - In Review — CM Save stamped, not yet approved/scheduled/published
+ * - Completed in month — content_manager_reviewed_at in selected calendar month
+ *   attributed to content_manager_reviewed_by
+ *
+ * Page exclusion via {@see SeoAnalyticsArticleScope} on linked article.
+ * Does NOT use task.post_type, capacity, publish queue ops, or AI run counts.
  */
 final class UserStatisticsReadModel
 {
     public function __construct(
-        private readonly ContentProjectWriterMonthlyCapacityService $writerCapacity,
-        private readonly ContentProjectWriterCapacitySettingsService $capacitySettings,
         private readonly SeoAnalyticsArticleScope $analyticsScope,
+        private readonly ContentProjectStaffAvailabilityService $staff,
     ) {}
 
     /**
@@ -41,229 +43,441 @@ final class UserStatisticsReadModel
     public function build(string $month, ?int $userId = null): array
     {
         $monthKey = ContentProjectMonthContext::normalize($month);
-        $breakdown = $this->itemBreakdownByUser($monthKey);
-        $statusByUser = $this->activeStatusByUser($monthKey);
+        $monthDate = ContentProjectMonthContext::toDateString($monthKey);
+        $monthStart = CarbonImmutable::createFromFormat('Y-m', $monthKey)->startOfMonth();
+        $monthEnd = $monthStart->endOfMonth();
+        $siteIds = SeoAccessControl::accessibleSiteIds();
+        $cmIds = $this->contentManagerIds();
+        $filterUserId = ($userId !== null && $userId > 0 && in_array($userId, $cmIds, true))
+            ? $userId
+            : null;
 
-        $userIds = array_keys($breakdown);
-        if ($userId !== null && $userId > 0) {
-            $userIds = in_array($userId, $userIds, true) ? [$userId] : [];
+        if ($siteIds === [] || $cmIds === []) {
+            return $this->emptyPayload($monthKey, $filterUserId);
         }
 
-        $names = $this->writerCapacity->displayNamesByUserId($userIds);
-        $capacities = $this->writerCapacity->capacityByUserId($userIds);
-        $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
+        $waiting = $this->countWaiting($siteIds, $monthDate, $filterUserId);
+        $inReview = $this->countInReview($siteIds, $monthDate, $filterUserId);
+        $completedByUser = $this->completedByReviewer($siteIds, $monthStart, $monthEnd, $filterUserId);
+        $scoreByUser = $this->avgScoreByReviewer($siteIds, $monthStart, $monthEnd, $filterUserId);
 
-        $rows = [];
-        $workloadMax = 1;
-        foreach ($userIds as $uid) {
-            if ($uid <= 0 || SeoOpsSystemUser::isSystemUserId($uid)) {
+        $names = $this->namesById($cmIds);
+        $completedRows = [];
+        $scoreRows = [];
+        $maxCompleted = 1;
+        $cmsWithWork = [];
+
+        foreach ($completedByUser as $uid => $count) {
+            if ($count <= 0 || ! in_array($uid, $cmIds, true)) {
                 continue;
             }
-            $counts = $breakdown[$uid] ?? ['active' => 0, 'archived' => 0, 'total' => 0];
-            $assigned = (int) ($counts['total'] ?? 0);
-            if ($assigned <= 0) {
-                continue;
-            }
-
-            $status = $statusByUser[$uid] ?? ['completed' => 0, 'pending' => 0];
-            $archived = (int) ($counts['archived'] ?? 0);
-            $completed = (int) ($status['completed'] ?? 0) + $archived;
-            $pending = (int) ($status['pending'] ?? 0);
-            $capacity = (int) ($capacities[$uid] ?? $defaultCapacity);
-            $progress = $assigned > 0 ? (int) round(($completed / $assigned) * 100) : 0;
-            $workloadMax = max($workloadMax, $assigned, $capacity);
-
-            $rows[] = [
+            $cmsWithWork[$uid] = true;
+            $maxCompleted = max($maxCompleted, $count);
+            $completedRows[] = [
                 'user_id' => $uid,
-                'name' => (string) ($names[$uid] ?? ('#'.$uid)),
-                'assigned' => $assigned,
-                'completed' => $completed,
-                'pending' => $pending,
-                'progress' => min(100, max(0, $progress)),
-                'capacity' => $capacity,
-                'remaining' => $capacity - $assigned,
-                'active_count' => (int) ($counts['active'] ?? 0),
-                'archived_count' => $archived,
+                'name' => $names[$uid] ?? ('#'.$uid),
+                'completed' => $count,
             ];
         }
 
         usort(
-            $rows,
-            static fn (array $a, array $b): int => ($b['assigned'] ?? 0) <=> ($a['assigned'] ?? 0),
+            $completedRows,
+            static fn (array $a, array $b): int => ($b['completed'] ?? 0) <=> ($a['completed'] ?? 0),
         );
 
-        $usersWithWork = count($rows);
-        $totalAssigned = array_sum(array_column($rows, 'assigned'));
-        $totalCompleted = array_sum(array_column($rows, 'completed'));
-        $totalPending = array_sum(array_column($rows, 'pending'));
-        $empty = $rows === [] || $totalAssigned === 0;
+        foreach ($scoreByUser as $uid => $avg) {
+            if (! in_array($uid, $cmIds, true) || $avg === null) {
+                continue;
+            }
+            $cmsWithWork[$uid] = true;
+            $scoreRows[] = [
+                'user_id' => $uid,
+                'name' => $names[$uid] ?? ('#'.$uid),
+                'avg_seo_score' => $avg,
+            ];
+        }
+
+        usort(
+            $scoreRows,
+            static function (array $a, array $b): int {
+                $cmp = ($b['avg_seo_score'] ?? 0) <=> ($a['avg_seo_score'] ?? 0);
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+
+                return strcmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
+            },
+        );
+
+        // In-review stamped to a CM also counts as "có việc".
+        foreach ($this->inReviewReviewerIds($siteIds, $monthDate, $filterUserId) as $uid) {
+            if (in_array($uid, $cmIds, true)) {
+                $cmsWithWork[$uid] = true;
+            }
+        }
+
+        $completedTotal = array_sum(array_column($completedRows, 'completed'));
+        $emptyCompleted = $completedRows === [];
+        $emptyScores = $scoreRows === [];
 
         return [
-            'empty' => $empty,
-            'empty_reason' => $empty ? 'no_assignments' : null,
+            'empty' => false,
+            'empty_reason' => null,
             'month' => $monthKey,
             'month_label' => ContentProjectMonthContext::display($monthKey),
-            'user_id' => $userId !== null && $userId > 0 ? $userId : null,
+            'user_id' => $filterUserId,
             'semantics' => [
-                'assigned' => 'active_tasks_plus_archived_items_for_project_month',
-                'completed' => 'active_completed_or_cm_reviewed_plus_archived_items',
-                'pending' => 'active_tasks_not_completed',
-                'capacity' => 'writer_monthly_capacity_settings',
-                'month_field' => 'seo_projects.month',
+                'waiting' => 'needs_review_ai_completed_no_cm_stamp_project_month',
+                'in_review' => 'cm_stamp_present_not_approved_scheduled_published_project_month',
+                'completed' => 'content_manager_reviewed_at_in_calendar_month_by_reviewed_by',
+                'avg_seo_score' => 'avg_profile_score_of_completed_reviews_in_month',
                 'page_exclusion' => 'seo_analytics_article_scope_via_content_type_meta',
             ],
             'kpis' => [
-                'users_with_work' => $usersWithWork,
-                'total_assigned' => $totalAssigned,
-                'total_completed' => $totalCompleted,
-                'total_pending' => $totalPending,
+                'cms_with_work' => count($cmsWithWork),
+                'waiting_review' => $waiting,
+                'reviewed_in_month' => $completedTotal,
+                'in_review' => $inReview,
             ],
-            'default_capacity' => $defaultCapacity,
-            'team_capacity' => 0,
-            'rows' => $rows,
-            'workload_max' => max(1, $workloadMax),
+            'completed_chart' => [
+                'empty' => $emptyCompleted,
+                'max' => max(1, $maxCompleted),
+                'rows' => $completedRows,
+            ],
+            'score_chart' => [
+                'empty' => $emptyScores,
+                'rows' => $scoreRows,
+            ],
+            'content_manager_options' => $names,
         ];
     }
 
     /**
-     * @return array<int, array{active: int, archived: int, total: int}>
+     * @return list<int>
      */
-    private function itemBreakdownByUser(string $monthKey): array
+    private function contentManagerIds(): array
     {
-        /** @var array<int, array{active: int, archived: int, total: int}> $counts */
-        $counts = [];
-        $monthDate = ContentProjectMonthContext::toDateString($monthKey);
-
-        $activeQuery = DB::connection('omi_seo_ai')
-            ->table('seo_project_tasks as t')
-            ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
-            ->where(function ($builder): void {
-                $builder
-                    ->where('p.kind', SeoProject::KIND_MONTHLY)
-                    ->orWhereNull('p.kind');
-            })
-            ->whereDate('p.month', $monthDate)
-            ->whereNull('p.archived_at')
-            ->whereNull('t.archived_at')
-            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
-            ->whereNotNull('p.user_id')
-            ->where('p.user_id', '>', 0);
-
-        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
-            $activeQuery->whereNull('t.deleted_at');
-        }
-        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($activeQuery, 'p');
-        $this->analyticsScope->applyToTaskArticleId($activeQuery, 't.article_id');
-
-        foreach (
-            $activeQuery
-                ->groupBy('p.user_id')
-                ->selectRaw('p.user_id as user_id, COUNT(t.id) as item_count')
-                ->get() as $row
-        ) {
-            $uid = (int) ($row->user_id ?? 0);
-            if ($uid <= 0) {
-                continue;
-            }
-            $counts[$uid] ??= ['active' => 0, 'archived' => 0, 'total' => 0];
-            $counts[$uid]['active'] = max(0, (int) ($row->item_count ?? 0));
-        }
-
-        $archivedQuery = DB::connection('omi_seo_ai')
-            ->table('seo_project_archive_items as ai')
-            ->join('seo_project_archives as a', 'a.id', '=', 'ai.seo_project_archive_id')
-            ->join('seo_projects as p', 'p.id', '=', 'a.project_id')
-            ->whereNull('a.restored_at')
-            ->whereNotNull('p.archived_at')
-            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
-            ->where(function ($builder): void {
-                $builder
-                    ->where('p.kind', SeoProject::KIND_MONTHLY)
-                    ->orWhereNull('p.kind');
-            })
-            ->whereDate('p.month', $monthDate)
-            ->whereNotNull('p.user_id')
-            ->where('p.user_id', '>', 0);
-
-        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($archivedQuery, 'p');
-        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_archive_items', 'article_id')) {
-            $this->analyticsScope->applyToTaskArticleId($archivedQuery, 'ai.article_id');
-        }
-
-        foreach (
-            $archivedQuery
-                ->groupBy('p.user_id')
-                ->selectRaw('p.user_id as user_id, COUNT(ai.id) as item_count')
-                ->get() as $row
-        ) {
-            $uid = (int) ($row->user_id ?? 0);
-            if ($uid <= 0) {
-                continue;
-            }
-            $counts[$uid] ??= ['active' => 0, 'archived' => 0, 'total' => 0];
-            $counts[$uid]['archived'] = max(0, (int) ($row->item_count ?? 0));
-        }
-
-        foreach ($counts as $uid => $row) {
-            $counts[$uid]['total'] = (int) $row['active'] + (int) $row['archived'];
-        }
-
-        return $counts;
+        return $this->staff->baseAssignableStaffQuery()
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0 && ! SeoOpsSystemUser::isSystemUserId($id))
+            ->values()
+            ->all();
     }
 
     /**
-     * @return array<int, array{completed: int, pending: int}>
+     * @param  list<int>  $ids
+     * @return array<int, string>
      */
-    private function activeStatusByUser(string $monthKey): array
+    private function namesById(array $ids): array
     {
-        $monthDate = ContentProjectMonthContext::toDateString($monthKey);
+        if ($ids === []) {
+            return [];
+        }
 
+        return User::query()
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->mapWithKeys(static fn (mixed $name, mixed $id): array => [(int) $id => (string) $name])
+            ->all();
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     */
+    private function countWaiting(array $siteIds, string $monthDate, ?int $filterUserId): int
+    {
+        $query = $this->baseMonthProjectTasks($siteIds, $monthDate);
+        // Waiting has no reviewer stamp — scope to projects owned by selected CM when filtered.
+        if ($filterUserId !== null) {
+            $query->where('p.user_id', $filterUserId);
+        }
+        $this->applyNeedsReviewConstraints($query);
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
+
+        return (int) $query->count();
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     */
+    private function countInReview(array $siteIds, string $monthDate, ?int $filterUserId): int
+    {
+        if (! $this->hasCmReviewedColumn()) {
+            return 0;
+        }
+
+        $query = $this->baseMonthProjectTasks($siteIds, $monthDate);
+        $this->applyInReviewConstraints($query);
+        if ($filterUserId !== null) {
+            $query->where('t.content_manager_reviewed_by', $filterUserId);
+        }
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
+
+        return (int) $query->count();
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     * @return list<int>
+     */
+    private function inReviewReviewerIds(array $siteIds, string $monthDate, ?int $filterUserId): array
+    {
+        if (! $this->hasCmReviewedColumn()) {
+            return [];
+        }
+
+        $query = $this->baseMonthProjectTasks($siteIds, $monthDate);
+        $this->applyInReviewConstraints($query);
+        $query->whereNotNull('t.content_manager_reviewed_by')
+            ->where('t.content_manager_reviewed_by', '>', 0);
+        if ($filterUserId !== null) {
+            $query->where('t.content_manager_reviewed_by', $filterUserId);
+        }
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
+
+        return $query
+            ->distinct()
+            ->pluck('t.content_manager_reviewed_by')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     * @return array<int, int>
+     */
+    private function completedByReviewer(
+        array $siteIds,
+        CarbonImmutable $monthStart,
+        CarbonImmutable $monthEnd,
+        ?int $filterUserId,
+    ): array {
+        if (! $this->hasCmReviewedColumn()) {
+            return [];
+        }
+
+        $query = $this->baseAccessibleTasks($siteIds);
+        $query->whereNotNull('t.content_manager_reviewed_at')
+            ->whereNotNull('t.content_manager_reviewed_by')
+            ->where('t.content_manager_reviewed_by', '>', 0)
+            ->whereBetween('t.content_manager_reviewed_at', [
+                $monthStart->toDateTimeString(),
+                $monthEnd->toDateTimeString(),
+            ]);
+        if ($filterUserId !== null) {
+            $query->where('t.content_manager_reviewed_by', $filterUserId);
+        }
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
+
+        $out = [];
+        foreach (
+            $query
+                ->groupBy('t.content_manager_reviewed_by')
+                ->selectRaw('t.content_manager_reviewed_by as user_id, COUNT(t.id) as aggregate')
+                ->get() as $row
+        ) {
+            $uid = (int) ($row->user_id ?? 0);
+            if ($uid > 0) {
+                $out[$uid] = max(0, (int) ($row->aggregate ?? 0));
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     * @return array<int, float|null>
+     */
+    private function avgScoreByReviewer(
+        array $siteIds,
+        CarbonImmutable $monthStart,
+        CarbonImmutable $monthEnd,
+        ?int $filterUserId,
+    ): array {
+        if (! $this->hasCmReviewedColumn()) {
+            return [];
+        }
+
+        $query = $this->baseAccessibleTasks($siteIds);
+        $query->leftJoin('seo_article_profiles as sap', 'sap.article_id', '=', 't.article_id')
+            ->whereNotNull('t.content_manager_reviewed_at')
+            ->whereNotNull('t.content_manager_reviewed_by')
+            ->where('t.content_manager_reviewed_by', '>', 0)
+            ->whereNotNull('t.article_id')
+            ->whereNotNull('sap.seo_score')
+            ->whereBetween('t.content_manager_reviewed_at', [
+                $monthStart->toDateTimeString(),
+                $monthEnd->toDateTimeString(),
+            ]);
+        if ($filterUserId !== null) {
+            $query->where('t.content_manager_reviewed_by', $filterUserId);
+        }
+        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
+
+        $out = [];
+        foreach (
+            $query
+                ->groupBy('t.content_manager_reviewed_by')
+                ->selectRaw('t.content_manager_reviewed_by as user_id, AVG(sap.seo_score) as avg_score')
+                ->get() as $row
+        ) {
+            $uid = (int) ($row->user_id ?? 0);
+            if ($uid > 0 && $row->avg_score !== null) {
+                $out[$uid] = round((float) $row->avg_score, 1);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function baseMonthProjectTasks(array $siteIds, string $monthDate)
+    {
+        return $this->baseAccessibleTasks($siteIds)
+            ->whereDate('p.month', $monthDate);
+    }
+
+    /**
+     * @param  list<int>  $siteIds
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function baseAccessibleTasks(array $siteIds)
+    {
         $query = DB::connection('omi_seo_ai')
             ->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
-            ->where(function ($builder): void {
-                $builder
-                    ->where('p.kind', SeoProject::KIND_MONTHLY)
-                    ->orWhereNull('p.kind');
-            })
-            ->whereDate('p.month', $monthDate)
             ->whereNull('p.archived_at')
             ->whereNull('t.archived_at')
+            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
             ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
-            ->whereNotNull('p.user_id')
-            ->where('p.user_id', '>', 0);
+            ->whereIn('p.site_id', $siteIds);
 
         if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
             $query->whereNull('t.deleted_at');
         }
         ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
-        $this->analyticsScope->applyToTaskArticleId($query, 't.article_id');
 
-        $rows = $query
-            ->groupBy('p.user_id')
-            ->selectRaw('p.user_id as user_id')
-            ->selectRaw(
-                "SUM(CASE WHEN t.status = '".SeoProjectTask::STATUS_COMPLETED."' OR t.content_manager_reviewed_at IS NOT NULL THEN 1 ELSE 0 END) as completed",
-            )
-            ->selectRaw(
-                "SUM(CASE WHEN t.status != '".SeoProjectTask::STATUS_COMPLETED."' AND t.content_manager_reviewed_at IS NULL THEN 1 ELSE 0 END) as pending",
-            )
-            ->get();
+        return $query;
+    }
 
-        $out = [];
-        foreach ($rows as $row) {
-            $uid = (int) ($row->user_id ?? 0);
-            if ($uid <= 0) {
-                continue;
-            }
-            $out[$uid] = [
-                'completed' => max(0, (int) ($row->completed ?? 0)),
-                'pending' => max(0, (int) ($row->pending ?? 0)),
-            ];
+    /**
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function applyNeedsReviewConstraints($query): void
+    {
+        $query->where('t.status', SeoProjectTask::STATUS_COMPLETED);
+
+        if ($this->hasCmReviewedColumn()) {
+            $query->whereNull('t.content_manager_reviewed_at');
         }
 
-        return $out;
+        $query->whereNull('t.scheduled_publish_at');
+        if ($this->hasPublishPublishedAtColumn()) {
+            $query->whereNull('t.publish_published_at');
+        }
+        if ($this->hasQueueStatusColumn()) {
+            $query->where(function ($inner): void {
+                $inner->whereNull('t.publish_queue_status')
+                    ->orWhereNotIn('t.publish_queue_status', [
+                        ContentProjectPublishQueueStatus::Waiting->value,
+                        ContentProjectPublishQueueStatus::Processing->value,
+                        ContentProjectPublishQueueStatus::Retrying->value,
+                        ContentProjectPublishQueueStatus::Published->value,
+                        ContentProjectPublishQueueStatus::Failed->value,
+                    ]);
+            });
+        }
+
+        $query->where(function ($outer): void {
+            $outer->whereNull('t.article_id')
+                ->orWhereExists(function ($sub): void {
+                    $sub->selectRaw('1')
+                        ->from('articles as a')
+                        ->whereColumn('a.id', 't.article_id')
+                        ->where(function ($status): void {
+                            $status->whereNull('a.review_status')
+                                ->orWhereNotIn('a.review_status', ['approved', 'pending_review', 'archived']);
+                        });
+                });
+        });
+    }
+
+    /**
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function applyInReviewConstraints($query): void
+    {
+        $query->whereNotNull('t.content_manager_reviewed_at');
+        $query->whereNull('t.scheduled_publish_at');
+        if ($this->hasPublishPublishedAtColumn()) {
+            $query->whereNull('t.publish_published_at');
+        }
+
+        $query->where(function ($outer): void {
+            $outer->whereNull('t.article_id')
+                ->orWhereExists(function ($sub): void {
+                    $sub->selectRaw('1')
+                        ->from('articles as a')
+                        ->whereColumn('a.id', 't.article_id')
+                        ->where(function ($status): void {
+                            $status->whereNull('a.review_status')
+                                ->orWhere('a.review_status', '!=', 'approved');
+                        });
+                });
+        });
+    }
+
+    private function hasCmReviewedColumn(): bool
+    {
+        return Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'content_manager_reviewed_at');
+    }
+
+    private function hasPublishPublishedAtColumn(): bool
+    {
+        return Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'publish_published_at');
+    }
+
+    private function hasQueueStatusColumn(): bool
+    {
+        return Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'publish_queue_status');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyPayload(string $monthKey, ?int $filterUserId): array
+    {
+        return [
+            'empty' => true,
+            'empty_reason' => 'no_data',
+            'month' => $monthKey,
+            'month_label' => ContentProjectMonthContext::display($monthKey),
+            'user_id' => $filterUserId,
+            'semantics' => [],
+            'kpis' => [
+                'cms_with_work' => 0,
+                'waiting_review' => 0,
+                'reviewed_in_month' => 0,
+                'in_review' => 0,
+            ],
+            'completed_chart' => [
+                'empty' => true,
+                'max' => 1,
+                'rows' => [],
+            ],
+            'score_chart' => [
+                'empty' => true,
+                'rows' => [],
+            ],
+            'content_manager_options' => [],
+        ];
     }
 }
