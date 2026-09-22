@@ -73,8 +73,20 @@ final class GeneratedTopicMaterializer
             return ['materialized' => [], 'skipped' => count($taskIds), 'mapping' => []];
         }
 
-        // Expand to every temporary article sharing the same candidate_key on this site,
-        // so partial capacity splits still rewrite the whole candidate → one Topic.
+        // Owner scope = site_id + draft/project ids of the seed tasks.
+        // Never expand by candidate_key site-wide (collision across workspaces).
+        $ownerProjectIds = SeoProjectTask::query()
+            ->whereIn('id', $taskIds)
+            ->pluck('project_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+        if ($ownerProjectIds === []) {
+            return ['materialized' => [], 'skipped' => count($taskIds), 'mapping' => []];
+        }
+
         $seedKeys = [];
         foreach ($attrs as $attr) {
             $ref = trim((string) ($attr->cluster_ref ?? ''));
@@ -86,8 +98,18 @@ final class GeneratedTopicMaterializer
         foreach (array_keys($seedKeys) as $key) {
             $expandedRefs[] = AuditNoteDnaNormalizer::generatedRef($key);
         }
+
+        $ownerTaskIds = SeoProjectTask::query()
+            ->whereIn('project_id', $ownerProjectIds)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
         $attrs = SeoContentProjectTaskPlanningAttribution::query()
             ->where('site_id', $siteId)
+            ->whereIn('project_task_id', $ownerTaskIds)
             ->whereIn('cluster_ref', $expandedRefs)
             ->get();
 

@@ -60,15 +60,24 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
         $ok = $parser->parse([
             'topics' => [
                 [
-                    'candidate_key' => 'generated-1',
+                    'candidate_key' => 'ai-should-be-ignored',
                     'name' => 'Balo du lịch cho trẻ em',
                     'target_dna_count' => 10,
                     'dna' => ['độ tuổi', 'dung tích', 'độ tuổi', '  '],
                 ],
+                [
+                    'candidate_key' => 'ai-should-be-ignored',
+                    'name' => 'Topic Second',
+                    'target_dna_count' => 5,
+                    'dna' => ['a'],
+                ],
             ],
         ]);
-        self::assertCount(1, $ok['accepted']);
-        self::assertSame('generated-1', $ok['accepted'][0]['candidate_key']);
+        self::assertCount(2, $ok['accepted']);
+        self::assertNotSame('ai-should-be-ignored', $ok['accepted'][0]['candidate_key']);
+        self::assertMatchesRegularExpression('/^g[a-f0-9]{32}$/', $ok['accepted'][0]['candidate_key']);
+        self::assertMatchesRegularExpression('/^g[a-f0-9]{32}$/', $ok['accepted'][1]['candidate_key']);
+        self::assertNotSame($ok['accepted'][0]['candidate_key'], $ok['accepted'][1]['candidate_key']);
         self::assertSame(10, $ok['accepted'][0]['target_dna_count']);
         self::assertSame(['độ tuổi', 'dung tích'], $ok['accepted'][0]['dna']);
 

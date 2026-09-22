@@ -185,6 +185,8 @@ final class GeneratedTopicsPr4ContractTest extends TestCase
         self::assertStringContainsString('DiscoverNewTopicsDuplicateFilter', $materializer);
         self::assertStringContainsString('TopicPlanningRef::encode', $materializer);
         self::assertStringContainsString('rebuildForTopic', $materializer);
+        self::assertStringContainsString('ownerProjectIds', $materializer);
+        self::assertStringContainsString('whereIn(\'project_id\', $ownerProjectIds)', $materializer);
         self::assertStringContainsString('TopicSource::MANUAL', $materializer);
         self::assertStringNotContainsString('TopicManualCreateService', $materializer);
 

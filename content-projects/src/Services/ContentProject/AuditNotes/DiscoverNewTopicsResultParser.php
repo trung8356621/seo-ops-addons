@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes;
 
+use Illuminate\Support\Str;
+
 /**
  * Parse + validate seo_audit.discover_new_topics structured output.
  */
@@ -37,21 +39,17 @@ final class DiscoverNewTopicsResultParser
         $rejected = [];
         $seenKeys = [];
 
-        foreach ($topics as $index => $row) {
+        foreach ($topics as $row) {
             if (! is_array($row)) {
                 $rejected[] = ['reason' => 'row_not_object', 'raw' => $row];
 
                 continue;
             }
 
-            $key = trim((string) ($row['candidate_key'] ?? ''));
-            if ($key === '') {
-                $key = 'generated-'.($index + 1);
-            }
-            if (isset($seenKeys[$key])) {
-                $rejected[] = ['reason' => 'duplicate_candidate_key', 'raw' => $row];
-
-                continue;
+            // AI candidate_key is never trusted as identity — mint server UUID key.
+            $key = $this->mintCandidateKey();
+            while (isset($seenKeys[$key])) {
+                $key = $this->mintCandidateKey();
             }
 
             $name = AuditNoteDnaNormalizer::displayPhrase((string) ($row['name'] ?? ''));
@@ -87,6 +85,14 @@ final class DiscoverNewTopicsResultParser
         }
 
         return ['accepted' => $accepted, 'rejected' => $rejected];
+    }
+
+    /**
+     * Server-minted temporary identity (immutable after parse).
+     */
+    public function mintCandidateKey(): string
+    {
+        return 'g'.str_replace('-', '', (string) Str::uuid());
     }
 
     /**
