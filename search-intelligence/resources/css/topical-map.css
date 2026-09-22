@@ -1,0 +1,180 @@
+.topical-map-page .topical-map-header__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+}
+
+.topical-map-page .topical-map-header__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.topical-map-page .topical-map-toolbar {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    padding: 0.25rem;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.65rem;
+    background: rgba(248, 250, 252, 0.9);
+}
+
+.topical-map-page .topical-map-toolbar__btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+}
+
+.topical-map-page .topical-map-toolbar__btn:hover {
+    background: rgba(15, 23, 42, 0.06);
+}
+
+.topical-map-page .topical-map-toolbar__btn.is-active {
+    background: #0f172a;
+    color: #fff;
+}
+
+.topical-map-page .topical-map-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 560px;
+}
+
+.topical-map-page .topical-map-chart-shell {
+    position: relative;
+    min-height: 560px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.75rem;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    overflow: hidden;
+}
+
+.topical-map-page .topical-map-chart {
+    width: 100%;
+    height: 560px;
+}
+
+.topical-map-page .topical-map-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 560px;
+    padding: 1.5rem;
+    color: #64748b;
+    font-size: 0.9375rem;
+    text-align: center;
+}
+
+.topical-map-page .topical-map-meta {
+    position: absolute;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    margin: 0;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.4rem;
+    background: rgba(15, 23, 42, 0.78);
+    color: #f8fafc;
+    font-size: 0.75rem;
+    max-width: calc(100% - 1.5rem);
+}
+
+.topical-map-page .topical-map-side {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 640px;
+    overflow: auto;
+}
+
+.topical-map-page .topical-map-side__title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.topical-map-page .topical-map-side__placeholder {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.8125rem;
+}
+
+.topical-map-page .topical-map-side__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.topical-map-page .topical-map-side__row span {
+    color: #64748b;
+}
+
+.topical-map-page .topical-map-side__link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 0.7rem;
+    border-radius: 0.5rem;
+    background: #0f172a;
+    color: #fff !important;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.topical-map-page .topical-map-audit {
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+    padding-top: 0.75rem;
+    font-size: 0.8125rem;
+}
+
+.topical-map-page .topical-map-audit h4 {
+    margin: 0.6rem 0 0.35rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+.topical-map-page .topical-map-audit ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.topical-map-page .topical-map-audit li {
+    margin-bottom: 0.45rem;
+}
+
+.topical-map-page .topical-map-audit--error {
+    color: #b91c1c;
+}
+
+@media (max-width: 960px) {
+    .topical-map-page .topical-map-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .topical-map-page .topical-map-side {
+        max-height: none;
+    }
+}

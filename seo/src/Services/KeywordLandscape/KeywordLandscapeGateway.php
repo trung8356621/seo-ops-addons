@@ -13,8 +13,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadMod
  *
  * Approved consumers only:
  * 1. SEO Audit
- * 2. Prompt Generator (future)
- * 3. Keywords / Topical Map (future)
+ * 2. Prompt Generator
+ * 3. Keywords / Topical Map
  *
  * Also backs capability `domain.keyword_landscape` and monthly snapshot source `keywords`.
  * Not a general-purpose Agent/ACL surface — do not wire unrelated modules here.
@@ -42,5 +42,26 @@ final class KeywordLandscapeGateway
     public function sourceUpdatedAt(int $siteId): ?string
     {
         return $this->readModel->sourceUpdatedAt($siteId);
+    }
+
+    /**
+     * Keywords / Topical Map overview (approved consumer #3).
+     */
+    public function topicalMapOverview(int $siteId): \Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview
+    {
+        return app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapReadModel::class)
+            ->overview($siteId);
+    }
+
+    /**
+     * Lazy Topic → Keyword children for Topical Map drill-down.
+     */
+    public function topicalMapTopicChildren(
+        int $siteId,
+        int $topicId,
+        int $limit = \Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapTopicChildren::MAX_CHILDREN,
+    ): ?\Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapTopicChildren {
+        return app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapReadModel::class)
+            ->topicChildren($siteId, $topicId, $limit);
     }
 }

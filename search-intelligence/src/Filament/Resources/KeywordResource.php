@@ -1634,6 +1634,7 @@ class KeywordResource extends SeoPanelResource
             'index' => Pages\ListKeywords::route('/'),
             'focus' => Pages\ListFocusKeywords::route('/focus'),
             'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
+            'topical-map' => Pages\KeywordTopicalMap::route('/topical-map'),
             'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{topic}'),
             'topic-tags' => Pages\KeywordTopicTags::route('/topic-tags'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),

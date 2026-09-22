@@ -1,0 +1,54 @@
+{
+  "spec_version": "0.1",
+  "key": "seo_keywords.topical_map_audit",
+  "version": "0.1.0",
+  "name": "Topical Map Audit",
+  "description": "Site-level Topical Map audit from Domain + Keyword + GSC MCP context. Observations and opportunities only — never create Topics or articles.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "seo_keywords",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": { "temperature": 0.3 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "mcp_markdown": { "type": "string", "required": true, "max_length": 200000, "label": "Combined MCP markdown (site + keywords + gsc + report)" },
+    "topical_map_json": { "type": "string", "required": true, "max_length": 100000, "label": "Topical Map overview JSON" },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
+    "site_domain": { "type": "string", "required": false, "nullable": true, "max_length": 255, "label": "Site domain" },
+    "period_key": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "MCP period key" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You audit the site Keyword / Topic landscape for SEO planning.\n\nYou do NOT create Topics.\nYou do NOT create articles.\nYou do NOT invent metrics, volume, rankings, or relationship edges that are not in the provided evidence.\nYou do NOT invent an SEO score.\n\nEvidence (use only this):\n1) Combined MCP markdown (Domain + Keywords landscape + GSC when present).\n2) Topical Map overview JSON (topic list with mcp, dna_count, article_count, keyword_count, coverage).\n\nReturn structured observations:\n- coverage gaps and weak Topics\n- over-concentrated areas\n- missing content directions\n- GSC opportunities only if GSC evidence is present\n- internal-link observations only if evidence exists\n- recommended next actions (human-operated; no auto Topic create)\n\nWhen referring to an existing Topic use topic_ref as topic:{id} from topical_map_json.\n\nSite domain: {{site_domain}}\nPrimary language: {{primary_language}}\nPeriod: {{period_key}}\n\nMCP CONTEXT:\n{{mcp_markdown}}\n\nTOPICAL MAP OVERVIEW JSON:\n{{topical_map_json}}\n\nOUTPUT CONTRACT — STRICT\nReturn ONLY valid JSON object:\n{\"summary\":\"...\",\"findings\":[{\"type\":\"coverage_gap\",\"severity\":\"medium\",\"topic_ref\":\"topic:123\",\"title\":\"...\",\"reason\":\"...\"}],\"opportunities\":[{\"topic\":\"...\",\"reason\":\"...\",\"suggested_action\":\"...\"}],\"recommended_actions\":[\"...\"]}\nNo markdown fences, no commentary, no text before/after JSON.\nFirst non-whitespace character MUST be { and last MUST be }."
+  },
+  "presentation": {
+    "description": "Site-level Topical Map audit from MCP foundations (Domain + Keywords + GSC).",
+    "default_instructions": [
+      "Use MCP markdown + Topical Map JSON only.",
+      "Do not invent metrics or Topic ids.",
+      "Do not create Topics or articles.",
+      "Return structured summary, findings, opportunities, recommended_actions."
+    ],
+    "output_format": [
+      "{\"summary\":\"...\",\"findings\":[...],\"opportunities\":[...],\"recommended_actions\":[...]}"
+    ],
+    "notes": [
+      "Approved Keyword MCP type-1 consumer path: Keywords / Topical Map.",
+      "Bridge to New Topics remains optional UX only — never auto-materialize."
+    ]
+  }
+}

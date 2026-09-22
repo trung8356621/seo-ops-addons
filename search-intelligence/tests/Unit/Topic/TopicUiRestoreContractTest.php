@@ -181,14 +181,17 @@ final class TopicUiRestoreContractTest extends TestCase
         }
     }
 
-    public function test_nav_exposes_topics_tab(): void
+    public function test_nav_exposes_topics_and_topical_map_tabs(): void
     {
         $nav = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php');
         self::assertStringContainsString("'key' => 'clusters'", $nav);
         self::assertStringContainsString("getUrl('clusters')", $nav);
+        self::assertStringContainsString("'key' => 'topical-map'", $nav);
+        self::assertStringContainsString("getUrl('topical-map')", $nav);
         $resource = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource.php');
         self::assertStringContainsString("getUrl('clusters')", $resource);
         self::assertStringContainsString('isKeywordsClustersNav', $resource);
+        self::assertStringContainsString("'topical-map' => Pages\\KeywordTopicalMap::route('/topical-map')", $resource);
     }
 
     public function test_index_blade_keeps_golden_shell_dom(): void

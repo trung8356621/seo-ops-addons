@@ -81,4 +81,37 @@ final class TopicMembershipQuery
             ->map(static fn ($id): int => (int) $id)
             ->all();
     }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @return array<int, int> topic_id => keyword_count
+     */
+    public function keywordCountsByTopicIds(int $siteId, array $topicIds): array
+    {
+        if ($siteId <= 0 || $topicIds === []) {
+            return [];
+        }
+
+        $topicIds = array_values(array_unique(array_filter(
+            array_map('intval', $topicIds),
+            static fn (int $id): bool => $id > 0,
+        )));
+        if ($topicIds === []) {
+            return [];
+        }
+
+        $rows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->selectRaw('topic_id, COUNT(*) as keyword_count')
+            ->groupBy('topic_id')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row->topic_id] = (int) $row->keyword_count;
+        }
+
+        return $out;
+    }
 }

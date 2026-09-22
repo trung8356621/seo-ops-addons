@@ -182,6 +182,11 @@ trait HasKeywordWorkspaceNavigation
                 'count' => $counts['topics'],
             ],
             [
+                'key' => 'topical-map',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_topical_map'),
+                'url' => KeywordResource::getUrl('topical-map'),
+            ],
+            [
                 'key' => 'tags',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_tags'),
                 'url' => KeywordResource::getUrl('topic-tags'),
