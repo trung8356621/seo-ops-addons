@@ -38,6 +38,8 @@
                         wire:click="runTopicalMapAudit"
                         wire:loading.attr="disabled"
                         wire:target="runTopicalMapAudit"
+                        @disabled($empty)
+                        title="{{ $empty ? __('seo-content-ai::filament.keyword.topical_map_audit_empty') : '' }}"
                     >
                         <span wire:loading.remove wire:target="runTopicalMapAudit">
                             {{ __('seo-content-ai::filament.keyword.topical_map_audit') }}
@@ -118,16 +120,41 @@
                 @if (is_array($this->auditResult))
                     <div class="topical-map-audit" data-topical-map-audit>
                         <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_summary') }}</h4>
-                        <p>{{ $this->auditResult['summary'] ?? '' }}</p>
+                        <p class="topical-map-audit__summary">{{ $this->auditResult['summary'] ?? '' }}</p>
 
                         @if (! empty($this->auditResult['findings']))
                             <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_findings') }}</h4>
-                            <ul>
+                            <ul class="topical-map-audit__list">
                                 @foreach ($this->auditResult['findings'] as $finding)
-                                    <li>
-                                        <strong>{{ $finding['title'] ?? $finding['type'] ?? '' }}</strong>
-                                        <span>({{ $finding['severity'] ?? 'medium' }})</span>
-                                        <div>{{ $finding['reason'] ?? '' }}</div>
+                                    @php
+                                        $severity = strtolower((string) ($finding['severity'] ?? 'medium'));
+                                        $topicRef = trim((string) ($finding['topic_ref'] ?? ''));
+                                    @endphp
+                                    <li class="topical-map-audit__item">
+                                        <div class="topical-map-audit__item-head">
+                                            <span class="topical-map-audit__badge topical-map-audit__badge--{{ $severity }}">{{ $severity }}</span>
+                                            <span class="topical-map-audit__type">{{ $finding['type'] ?? '' }}</span>
+                                        </div>
+                                        <strong class="topical-map-audit__title">{{ $finding['title'] ?? '' }}</strong>
+                                        @if (! empty($finding['observation']))
+                                            <div class="topical-map-audit__body">{{ $finding['observation'] }}</div>
+                                        @endif
+                                        @if (! empty($finding['evidence']) && is_array($finding['evidence']))
+                                            <ul class="topical-map-audit__evidence">
+                                                @foreach ($finding['evidence'] as $ev)
+                                                    <li>{{ $ev }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+                                        @if ($topicRef !== '')
+                                            <button
+                                                type="button"
+                                                class="topical-map-audit__focus"
+                                                wire:click="focusTopicFromRef('{{ $topicRef }}')"
+                                            >
+                                                {{ $finding['topic_name'] ?? $topicRef }}
+                                            </button>
+                                        @endif
                                     </li>
                                 @endforeach
                             </ul>
@@ -135,12 +162,26 @@
 
                         @if (! empty($this->auditResult['opportunities']))
                             <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_opportunities') }}</h4>
-                            <ul>
+                            <ul class="topical-map-audit__list">
                                 @foreach ($this->auditResult['opportunities'] as $opp)
-                                    <li>
-                                        <strong>{{ $opp['topic'] ?? '' }}</strong>
-                                        <div>{{ $opp['reason'] ?? '' }}</div>
-                                        <div>{{ $opp['suggested_action'] ?? '' }}</div>
+                                    @php $topicRef = trim((string) ($opp['topic_ref'] ?? '')); @endphp
+                                    <li class="topical-map-audit__item">
+                                        <strong class="topical-map-audit__title">{{ $opp['title'] ?? $opp['topic_name'] ?? '' }}</strong>
+                                        @if (! empty($opp['reason']))
+                                            <div class="topical-map-audit__body">{{ $opp['reason'] }}</div>
+                                        @endif
+                                        @if (! empty($opp['suggested_direction']))
+                                            <div class="topical-map-audit__body">{{ $opp['suggested_direction'] }}</div>
+                                        @endif
+                                        @if ($topicRef !== '')
+                                            <button
+                                                type="button"
+                                                class="topical-map-audit__focus"
+                                                wire:click="focusTopicFromRef('{{ $topicRef }}')"
+                                            >
+                                                {{ $opp['topic_name'] ?? $topicRef }}
+                                            </button>
+                                        @endif
                                     </li>
                                 @endforeach
                             </ul>
@@ -148,11 +189,35 @@
 
                         @if (! empty($this->auditResult['recommended_actions']))
                             <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_actions') }}</h4>
-                            <ul>
+                            <ol class="topical-map-audit__list topical-map-audit__list--actions">
                                 @foreach ($this->auditResult['recommended_actions'] as $action)
-                                    <li>{{ is_string($action) ? $action : '' }}</li>
+                                    @php
+                                        $topicRef = is_array($action) ? trim((string) ($action['topic_ref'] ?? '')) : '';
+                                    @endphp
+                                    <li class="topical-map-audit__item">
+                                        @if (is_array($action))
+                                            <div class="topical-map-audit__item-head">
+                                                <span class="topical-map-audit__type">#{{ $action['priority'] ?? '' }} · {{ $action['action_type'] ?? '' }}</span>
+                                            </div>
+                                            <strong class="topical-map-audit__title">{{ $action['title'] ?? '' }}</strong>
+                                            @if (! empty($action['reason']))
+                                                <div class="topical-map-audit__body">{{ $action['reason'] }}</div>
+                                            @endif
+                                            @if ($topicRef !== '')
+                                                <button
+                                                    type="button"
+                                                    class="topical-map-audit__focus"
+                                                    wire:click="focusTopicFromRef('{{ $topicRef }}')"
+                                                >
+                                                    {{ $topicRef }}
+                                                </button>
+                                            @endif
+                                        @else
+                                            {{ $action }}
+                                        @endif
+                                    </li>
                                 @endforeach
-                            </ul>
+                            </ol>
                         @endif
                     </div>
                 @elseif ($this->auditError !== '')

@@ -508,6 +508,26 @@ function onResize() {
     }
 }
 
+function focusTopicFromAudit(topicId) {
+    const id = Number(topicId);
+    if (! Number.isFinite(id) || id <= 0 || ! Array.isArray(overview?.topics)) {
+        return;
+    }
+    const topic = overview.topics.find((row) => Number(row.id) === id);
+    if (! topic) {
+        return;
+    }
+    updateSidePanel({
+        Type: 'Topic',
+        Name: String(topic.name || ''),
+        MCP: `${Number(topic.mcp ?? 0).toFixed(1)}%`,
+        DNA: topic.dna_count ?? 0,
+        Articles: topic.article_count ?? 0,
+        Keywords: topic.keyword_count ?? 0,
+        Coverage: topic.coverage ?? '',
+    });
+}
+
 function boot() {
     mount();
     window.addEventListener('resize', onResize);
@@ -518,11 +538,23 @@ function boot() {
             switchRenderer(String(next));
         }
     });
+    document.addEventListener('topical-map-focus-topic', (event) => {
+        const topicId = event?.detail?.topicId ?? event?.detail?.[0]?.topicId;
+        if (topicId) {
+            focusTopicFromAudit(topicId);
+        }
+    });
     if (window.Livewire) {
         window.Livewire.on('topical-map-renderer-changed', (payload) => {
             const next = payload?.renderer ?? payload?.[0]?.renderer;
             if (next) {
                 switchRenderer(String(next));
+            }
+        });
+        window.Livewire.on('topical-map-focus-topic', (payload) => {
+            const topicId = payload?.topicId ?? payload?.[0]?.topicId;
+            if (topicId) {
+                focusTopicFromAudit(topicId);
             }
         });
     }

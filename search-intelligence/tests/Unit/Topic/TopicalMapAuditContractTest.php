@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
+use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditPromptInstaller;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicalMap;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditContracts;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditResultParser;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService;
 use PHPUnit\Framework\TestCase;
@@ -12,80 +17,221 @@ use ReflectionClass;
 
 final class TopicalMapAuditContractTest extends TestCase
 {
-    public function test_hook_key_and_version_match_installer(): void
+    public function test_hook_key_and_version_match_installer_0_2_0(): void
     {
         self::assertSame('seo_keywords.topical_map_audit', TopicalMapAuditService::HOOK_KEY);
-        self::assertSame('0.1.0', TopicalMapAuditService::HOOK_VERSION);
+        self::assertSame('0.2.0', TopicalMapAuditService::HOOK_VERSION);
         self::assertSame(TopicalMapAuditService::HOOK_KEY, DefaultTopicalMapAuditPromptInstaller::HOOK_KEY);
         self::assertSame(TopicalMapAuditService::HOOK_VERSION, DefaultTopicalMapAuditPromptInstaller::HOOK_VERSION);
     }
 
-    public function test_canonical_hook_json_exists_and_forbids_topic_creation(): void
+    public function test_historical_0_1_0_json_preserved_and_0_2_0_is_current_spec(): void
     {
+        $v01 = dirname((string) (new ReflectionClass(DefaultTopicalMapAuditPromptInstaller::class))->getFileName(), 4)
+            .'/resources/prompt-hooks/v01/seo_keywords.topical_map_audit@0.1.0.json';
+        self::assertFileExists($v01);
+        $old = json_decode((string) file_get_contents($v01), true);
+        self::assertSame('0.1.0', $old['version'] ?? null);
+
         $spec = DefaultTopicalMapAuditPromptInstaller::loadCanonicalSpec();
         self::assertSame('seo_keywords.topical_map_audit', $spec['key'] ?? null);
-        self::assertSame('0.1.0', $spec['version'] ?? null);
+        self::assertSame('0.2.0', $spec['version'] ?? null);
         self::assertArrayHasKey('mcp_markdown', $spec['input_schema'] ?? []);
         self::assertArrayHasKey('topical_map_json', $spec['input_schema'] ?? []);
+        self::assertArrayHasKey('company_short_identity', $spec['input_schema'] ?? []);
+        self::assertArrayHasKey('short_description', $spec['input_schema'] ?? []);
+    }
 
+    public function test_canonical_markdown_encodes_audit_rules_and_output_contract(): void
+    {
         $markdown = DefaultTopicalMapAuditPromptInstaller::canonicalDefaultMarkdown();
         self::assertStringContainsString('do NOT create Topics', $markdown);
         self::assertStringContainsString('do NOT invent an SEO score', $markdown);
+        self::assertStringContainsString('topic_ref', $markdown);
+        self::assertStringContainsString('Company Short Identity', $markdown);
+        self::assertStringContainsString('weak_coverage', $markdown);
+        self::assertStringContainsString('investigate_new_topic', $markdown);
         self::assertStringContainsString('recommended_actions', $markdown);
         self::assertStringContainsString('{{mcp_markdown}}', $markdown);
         self::assertStringContainsString('{{topical_map_json}}', $markdown);
+        self::assertStringContainsString('{{company_short_identity}}', $markdown);
+        self::assertStringNotContainsString('SEO score:', $markdown);
     }
 
-    public function test_audit_service_uses_mcp_context_and_prompt_hooks_not_direct_provider(): void
+    public function test_default_profile_is_reasoning_text_and_override_path_exists(): void
+    {
+        $resolver = new PromptExecutionProfileResolver;
+        self::assertSame(
+            AiExecutionProfile::TextReasoning,
+            $resolver->resolve(null, 'seo_keywords.topical_map_audit'),
+        );
+
+        $src = (string) file_get_contents((string) (new ReflectionClass(PromptExecutionProfileResolver::class))->getFileName());
+        self::assertStringContainsString('routing_profile_key', $src);
+        self::assertStringContainsString('seo_keywords.topical_map_audit', $src);
+    }
+
+    public function test_audit_service_uses_mcp_domain_structural_projection_not_direct_provider(): void
     {
         $src = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditService::class))->getFileName());
         self::assertStringContainsString('McpAiContextBuilder', $src);
+        self::assertStringContainsString('SiteDomainPromptContextService', $src);
+        self::assertStringContainsString('structuralProjection', $src);
+        self::assertStringContainsString('EMPTY_MAP_MESSAGE', $src);
         self::assertStringContainsString('PromptHookCallerBridge', $src);
-        self::assertStringContainsString('PromptRunnerService', $src);
-        self::assertStringContainsString('topicalMap->overview', $src);
+        self::assertStringContainsString('company_short_identity', $src);
         self::assertStringNotContainsString('OpenAI', $src);
         self::assertStringNotContainsString('Anthropic', $src);
         self::assertStringNotContainsString('Http::', $src);
-        self::assertStringNotContainsString('model:', $src);
+        self::assertStringNotContainsString('echarts', strtolower($src));
     }
 
-    public function test_parser_normalizes_structured_payload(): void
+    public function test_structural_projection_adds_topic_ref_and_omits_chart_fields(): void
+    {
+        $overview = new TopicalMapOverview(
+            siteId: 9,
+            topics: [[
+                'id' => 12,
+                'name' => 'School bags',
+                'mcp' => 42.5,
+                'dna_count' => 3,
+                'article_count' => 8,
+                'keyword_count' => 20,
+                'coverage' => 'partial',
+                'status' => 'active',
+                'has_children' => true,
+            ]],
+            topicCount: 1,
+            totalArticles: 8,
+            totalKeywords: 20,
+            sourceUpdatedAt: '2026-09-22',
+        );
+
+        $service = (new ReflectionClass(TopicalMapAuditService::class))->newInstanceWithoutConstructor();
+        $projection = $service->structuralProjection($overview);
+
+        self::assertSame('topic:12', $projection['topics'][0]['topic_ref']);
+        self::assertArrayNotHasKey('has_children', $projection['topics'][0]);
+        self::assertArrayNotHasKey('id', $projection['topics'][0]);
+        self::assertSame('School bags', $projection['topics'][0]['name']);
+    }
+
+    public function test_parser_accepts_valid_structured_result(): void
     {
         $parser = new TopicalMapAuditResultParser;
         $result = $parser->parse(json_encode([
             'summary' => 'Coverage uneven',
             'findings' => [[
-                'type' => 'coverage_gap',
+                'type' => 'weak_coverage',
                 'severity' => 'HIGH',
                 'topic_ref' => 'topic:12',
+                'topic_name' => 'School bags',
                 'title' => 'Weak bags',
-                'reason' => 'Low MCP',
+                'observation' => 'Low MCP with thin DNA',
+                'evidence' => ['MCP 12%', 'DNA 1'],
             ]],
             'opportunities' => [[
-                'topic' => 'School bags',
+                'topic_ref' => 'topic:12',
+                'topic_name' => 'School bags',
+                'title' => 'Expand DNA',
                 'reason' => 'Demand signals',
-                'suggested_action' => 'Expand DNA',
+                'suggested_direction' => 'Add supporting pages',
             ]],
-            'recommended_actions' => ['Review weak Topics', ['action' => 'Open New Topics']],
-        ], JSON_THROW_ON_ERROR));
+            'recommended_actions' => [[
+                'priority' => 1,
+                'action_type' => 'expand_topic',
+                'topic_ref' => 'topic:12',
+                'title' => 'Expand School bags',
+                'reason' => 'Weak coverage',
+            ]],
+        ], JSON_THROW_ON_ERROR), ['topic:12']);
 
         self::assertTrue($result['ok']);
         self::assertSame('Coverage uneven', $result['payload']['summary']);
         self::assertSame('high', $result['payload']['findings'][0]['severity']);
+        self::assertSame('weak_coverage', $result['payload']['findings'][0]['type']);
         self::assertSame('topic:12', $result['payload']['findings'][0]['topic_ref']);
-        self::assertSame('Expand DNA', $result['payload']['opportunities'][0]['suggested_action']);
-        self::assertSame(['Review weak Topics', 'Open New Topics'], $result['payload']['recommended_actions']);
+        self::assertSame(['MCP 12%', 'DNA 1'], $result['payload']['findings'][0]['evidence']);
+        self::assertSame('Add supporting pages', $result['payload']['opportunities'][0]['suggested_direction']);
+        self::assertSame('expand_topic', $result['payload']['recommended_actions'][0]['action_type']);
     }
 
-    public function test_parser_rejects_empty_and_accepts_fenced_json(): void
+    public function test_parser_rejects_invalid_type_severity_action_and_unknown_topic_ref(): void
+    {
+        $parser = new TopicalMapAuditResultParser;
+        $result = $parser->parse([
+            'summary' => 'ok',
+            'findings' => [
+                ['type' => 'made_up_type', 'severity' => 'high', 'title' => 'x', 'observation' => 'y'],
+                ['type' => 'weak_coverage', 'severity' => 'critical', 'topic_ref' => 'topic:999', 'title' => 'A', 'observation' => 'B'],
+                ['type' => 'internal_link_gap', 'severity' => 'low', 'topic_ref' => 'topic:12', 'title' => 'Links', 'observation' => 'No link data used'],
+            ],
+            'opportunities' => [
+                ['topic_ref' => 'topic:999', 'title' => 'Ghost', 'reason' => 'x'],
+            ],
+            'recommended_actions' => [
+                ['priority' => 1, 'action_type' => 'invent_topic', 'topic_ref' => 'topic:12', 'title' => 'Bad type'],
+                ['priority' => 2, 'action_type' => 'review_structure', 'topic_ref' => 'topic:999', 'title' => 'Unknown ref'],
+            ],
+        ], ['topic:12']);
+
+        self::assertTrue($result['ok']);
+        self::assertCount(2, $result['payload']['findings']);
+        self::assertNull($result['payload']['findings'][0]['topic_ref']);
+        self::assertSame('medium', $result['payload']['findings'][0]['severity']);
+        self::assertSame('topic:12', $result['payload']['findings'][1]['topic_ref']);
+        self::assertNull($result['payload']['opportunities'][0]['topic_ref']);
+        self::assertSame('no_action', $result['payload']['recommended_actions'][0]['action_type']);
+        self::assertNull($result['payload']['recommended_actions'][1]['topic_ref']);
+    }
+
+    public function test_parser_handles_malformed_and_fenced_json(): void
     {
         $parser = new TopicalMapAuditResultParser;
         self::assertFalse($parser->parse('{}')['ok']);
         self::assertFalse($parser->parse('not-json')['ok']);
 
-        $fenced = "```json\n{\"summary\":\"ok\",\"findings\":[],\"opportunities\":[],\"recommended_actions\":[\"a\"]}\n```";
+        $fenced = "```json\n{\"summary\":\"ok\",\"findings\":[],\"opportunities\":[],\"recommended_actions\":[{\"priority\":1,\"action_type\":\"no_action\",\"title\":\"a\"}]}\n```";
         $ok = $parser->parse($fenced);
         self::assertTrue($ok['ok']);
         self::assertSame('ok', $ok['payload']['summary']);
+    }
+
+    public function test_contracts_topic_ref_helpers(): void
+    {
+        self::assertSame('topic:5', TopicalMapAuditContracts::topicRef(5));
+        self::assertSame(5, TopicalMapAuditContracts::topicIdFromRef('topic:5'));
+        self::assertNull(TopicalMapAuditContracts::topicIdFromRef('5'));
+        self::assertNull(TopicalMapAuditContracts::topicIdFromRef('topic:abc'));
+        self::assertTrue(TopicalMapAuditContracts::isAllowedFindingType('coverage_gap'));
+        self::assertFalse(TopicalMapAuditContracts::isAllowedFindingType('random'));
+    }
+
+    public function test_ui_page_wires_history_focus_and_empty_guard(): void
+    {
+        $pageSrc = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName());
+        self::assertStringContainsString('TopicalMapAuditHistoryLinker', $pageSrc);
+        self::assertStringContainsString('focusTopicFromRef', $pageSrc);
+        self::assertStringContainsString('topical_map_audit_empty', $pageSrc);
+        self::assertStringContainsString('auditPromptResultId', $pageSrc);
+
+        $blade = dirname((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName(), 6)
+            .'/../seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
+        // Path via monorepo peer: resolve from known workspace layout.
+        $bladeAlt = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
+        $bladePath = is_file($bladeAlt) ? $bladeAlt : $blade;
+        self::assertFileExists($bladePath);
+        $bladeSrc = (string) file_get_contents($bladePath);
+        self::assertStringContainsString('focusTopicFromRef', $bladeSrc);
+        self::assertStringContainsString('topical-map-audit__badge', $bladeSrc);
+        self::assertStringContainsString('@disabled($empty)', $bladeSrc);
+        self::assertStringNotContainsString('json_encode($this->auditResult', $bladeSrc);
+    }
+
+    public function test_finding_and_action_enums_are_closed(): void
+    {
+        self::assertContains('internal_link_gap', TopicalMapAuditContracts::FINDING_TYPES);
+        self::assertContains('investigate_new_topic', TopicalMapAuditContracts::ACTION_TYPES);
+        self::assertSame(['low', 'medium', 'high'], TopicalMapAuditContracts::SEVERITIES);
     }
 }

@@ -20,7 +20,7 @@ final class DefaultTopicalMapAuditPromptInstaller
 {
     public const HOOK_KEY = 'seo_keywords.topical_map_audit';
 
-    public const HOOK_VERSION = '0.1.0';
+    public const HOOK_VERSION = '0.2.0';
 
     public const PROMPT_NAME = 'Topical Map Audit';
 
@@ -79,7 +79,7 @@ final class DefaultTopicalMapAuditPromptInstaller
                 $ownershipRepaired = true;
             }
 
-            if ($restoreCanonical) {
+            if ($restoreCanonical || trim((string) ($existing->hook_version ?? '')) !== self::HOOK_VERSION) {
                 $existing->markdown_content = self::canonicalDefaultMarkdown();
                 $existing->description = self::canonicalDescription();
                 $existing->variables = self::canonicalVariables();
@@ -195,10 +195,12 @@ final class DefaultTopicalMapAuditPromptInstaller
 
         return $rows !== [] ? $rows : [
             ['name' => 'mcp_markdown', 'description' => 'Combined MCP markdown'],
-            ['name' => 'topical_map_json', 'description' => 'Topical Map overview JSON'],
+            ['name' => 'topical_map_json', 'description' => 'Structural Topical Map overview JSON'],
             ['name' => 'primary_language', 'description' => 'Effective primary language'],
             ['name' => 'site_domain', 'description' => 'Site domain'],
             ['name' => 'period_key', 'description' => 'MCP period key'],
+            ['name' => 'company_short_identity', 'description' => 'Company Short Identity'],
+            ['name' => 'short_description', 'description' => 'Short Description'],
         ];
     }
 

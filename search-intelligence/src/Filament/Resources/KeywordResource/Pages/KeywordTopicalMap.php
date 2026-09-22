@@ -7,8 +7,10 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\TopicalMapAuditHistoryLinker;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditContracts;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapReadModel;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -38,6 +40,8 @@ final class KeywordTopicalMap extends Page
     public ?array $auditResult = null;
 
     public string $auditError = '';
+
+    public ?int $auditPromptResultId = null;
 
     public function mount(): void
     {
@@ -71,6 +75,18 @@ final class KeywordTopicalMap extends Page
     public function focusTopic(?int $topicId): void
     {
         $this->focusedTopicId = ($topicId !== null && $topicId > 0) ? $topicId : null;
+    }
+
+    /**
+     * Focus a Topic from an AI Audit finding/opportunity/action topic_ref.
+     */
+    public function focusTopicFromRef(?string $topicRef): void
+    {
+        $id = TopicalMapAuditContracts::topicIdFromRef($topicRef);
+        $this->focusTopic($id);
+        if ($id !== null && $id > 0) {
+            $this->dispatch('topical-map-focus-topic', topicId: $id);
+        }
     }
 
     /**
@@ -150,16 +166,35 @@ final class KeywordTopicalMap extends Page
             return;
         }
 
+        $overview = $this->topicalMapOverview;
+        if ((bool) ($overview['empty'] ?? true)) {
+            Notification::make()
+                ->title((string) __('seo-content-ai::filament.keyword.topical_map_audit_empty'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         $this->auditRunning = true;
         $this->auditError = '';
         $this->auditResult = null;
+        $this->auditPromptResultId = null;
 
         try {
             $actorId = auth()->id();
-            $result = app(TopicalMapAuditService::class)->audit(
-                $siteId,
-                is_numeric($actorId) ? (int) $actorId : null,
-            );
+            $actor = is_numeric($actorId) ? (int) $actorId : null;
+            $result = app(TopicalMapAuditService::class)->audit($siteId, $actor);
+            $this->auditPromptResultId = isset($result['prompt_result_id']) && is_numeric($result['prompt_result_id'])
+                ? (int) $result['prompt_result_id']
+                : null;
+
+            try {
+                app(TopicalMapAuditHistoryLinker::class)->linkFromAuditResult($siteId, $actor, $result);
+            } catch (Throwable $linkError) {
+                report($linkError);
+            }
+
             if (! $result['ok']) {
                 $this->auditError = (string) $result['message'];
                 Notification::make()

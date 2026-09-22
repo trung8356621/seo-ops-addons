@@ -107,6 +107,7 @@ trait InteractsWithDraftAiCalls
             'all' => (string) __('seo-content-ai::filament.article_ai_history.type_all'),
             ContentProjectDraftAiCallHistoryService::TYPE_KEYWORD_DISCOVERY => (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_keyword_discovery'),
             ContentProjectDraftAiCallHistoryService::TYPE_DISCOVER_NEW_TOPICS => (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_discover_new_topics'),
+            ContentProjectDraftAiCallHistoryService::TYPE_TOPICAL_MAP_AUDIT => (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_topical_map_audit'),
         ];
     }
 

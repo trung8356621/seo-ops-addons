@@ -20,6 +20,9 @@ class SeoContentProjectPlannerRun extends Model
     /** SEO Audit — Discover New Topics (PromptResult linkage for Content Plan AI History). */
     public const SOURCE_DISCOVER_NEW_TOPICS = 'discover_new_topics';
 
+    /** Keywords / Topical Map — AI Audit (PromptResult linkage for Content Plan AI History). */
+    public const SOURCE_TOPICAL_MAP_AUDIT = 'topical_map_audit';
+
     public const KIND_EXECUTED = 'executed';
 
     public const KIND_SAVED_CONFIG = 'saved_config';

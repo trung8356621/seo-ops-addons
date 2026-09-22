@@ -25,6 +25,7 @@ final class DraftAiCallHistoryContractTest extends TestCase
 
         self::assertStringContainsString('SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT', $src);
         self::assertStringContainsString('SOURCE_DISCOVER_NEW_TOPICS', $src);
+        self::assertStringContainsString('SOURCE_TOPICAL_MAP_AUDIT', $src);
         self::assertStringContainsString('prompt_result_id', $src);
         self::assertStringContainsString('whereNotNull(\'prompt_result_id\')', $src);
         self::assertStringContainsString('unique()', $src);

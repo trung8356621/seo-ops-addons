@@ -24,11 +24,14 @@ final class ContentProjectDraftAiCallHistoryService
     public const AI_PLANNER_SOURCES = [
         SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
         SeoContentProjectPlannerRun::SOURCE_DISCOVER_NEW_TOPICS,
+        SeoContentProjectPlannerRun::SOURCE_TOPICAL_MAP_AUDIT,
     ];
 
     public const TYPE_DISCOVER_NEW_TOPICS = 'discover_new_topics';
 
     public const TYPE_KEYWORD_DISCOVERY = 'keyword_discovery';
+
+    public const TYPE_TOPICAL_MAP_AUDIT = 'topical_map_audit';
 
     /**
      * Distinct PromptResult IDs linked to this Draft via planner runs.
@@ -335,6 +338,12 @@ final class ContentProjectDraftAiCallHistoryService
             return $hook === 'seo_audit.discover_new_topics'
                 || str_contains($hook, 'discover_new_topics');
         }
+        if ($typeFilter === self::TYPE_TOPICAL_MAP_AUDIT
+            || $typeFilter === 'seo_keywords.topical_map_audit'
+        ) {
+            return $hook === 'seo_keywords.topical_map_audit'
+                || str_contains($hook, 'topical_map_audit');
+        }
 
         return $hook === $typeFilter || str_contains($hook, $typeFilter);
     }
@@ -415,6 +424,9 @@ final class ContentProjectDraftAiCallHistoryService
         }
         if ($hookKey === 'seo_audit.discover_new_topics' || str_contains($hookKey, 'discover_new_topics')) {
             return (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_discover_new_topics');
+        }
+        if ($hookKey === 'seo_keywords.topical_map_audit' || str_contains($hookKey, 'topical_map_audit')) {
+            return (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_topical_map_audit');
         }
         if ($promptName !== '') {
             return $promptName;

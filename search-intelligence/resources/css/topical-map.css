@@ -156,13 +156,105 @@
     color: #64748b;
 }
 
-.topical-map-page .topical-map-audit ul {
+.topical-map-page .topical-map-audit__summary {
     margin: 0;
-    padding-left: 1.1rem;
+    color: #0f172a;
+    line-height: 1.45;
 }
 
-.topical-map-page .topical-map-audit li {
-    margin-bottom: 0.45rem;
+.topical-map-page .topical-map-audit__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.topical-map-page .topical-map-audit__list--actions {
+    list-style: none;
+}
+
+.topical-map-page .topical-map-audit__item {
+    margin-bottom: 0.65rem;
+    padding: 0.5rem 0.55rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 0.5rem;
+    background: #f8fafc;
+}
+
+.topical-map-page .topical-map-audit__item-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+}
+
+.topical-map-page .topical-map-audit__badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.topical-map-page .topical-map-audit__badge--low {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.topical-map-page .topical-map-audit__badge--medium {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.topical-map-page .topical-map-audit__badge--high {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.topical-map-page .topical-map-audit__type {
+    font-size: 0.6875rem;
+    color: #64748b;
+}
+
+.topical-map-page .topical-map-audit__title {
+    display: block;
+    font-size: 0.8125rem;
+    color: #0f172a;
+}
+
+.topical-map-page .topical-map-audit__body {
+    margin-top: 0.25rem;
+    color: #475569;
+    line-height: 1.4;
+}
+
+.topical-map-page .topical-map-audit__evidence {
+    margin: 0.35rem 0 0;
+    padding-left: 1rem;
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+.topical-map-page .topical-map-audit__focus {
+    appearance: none;
+    margin-top: 0.4rem;
+    border: 0;
+    background: transparent;
+    color: #1d4ed8;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.topical-map-page .topical-map-audit__focus:hover {
+    color: #1e3a8a;
 }
 
 .topical-map-page .topical-map-audit--error {

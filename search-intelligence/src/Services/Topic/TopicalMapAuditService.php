@@ -12,20 +12,24 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeResult;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpAiContextBuilder;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpPeriodService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 
 /**
- * AI Topical Map Audit — Prompt registry + MCP bundle (site + keywords + gsc).
- * Does not create Topics or articles.
+ * AI Topical Map Audit — Prompt registry + MCP bundle (site + keywords + gsc)
+ * + structural Topical Map projection. Does not create Topics or articles.
  */
 final class TopicalMapAuditService
 {
     public const HOOK_KEY = DefaultTopicalMapAuditPromptInstaller::HOOK_KEY;
 
     public const HOOK_VERSION = DefaultTopicalMapAuditPromptInstaller::HOOK_VERSION;
+
+    public const EMPTY_MAP_MESSAGE = 'Topical Map has no Topics. Add Topics before running AI Audit.';
 
     public function __construct(
         private readonly TopicalMapReadModel $topicalMap,
@@ -35,6 +39,7 @@ final class TopicalMapAuditService
         private readonly PromptRunnerService $promptRunner,
         private readonly SeoCreateArticleSettingsService $workflowSettings,
         private readonly SitePrimaryLanguageService $primaryLanguage,
+        private readonly SiteDomainPromptContextService $domainPromptContext,
         private readonly TopicalMapAuditResultParser $parser,
     ) {}
 
@@ -57,16 +62,25 @@ final class TopicalMapAuditService
             return $this->fail('Site not found.');
         }
 
-        $period = $this->periods->currentOpenOrLatestFinalized() ?? $this->periods->ensureCurrentMonth();
-        $periodKey = $period->periodKey();
-        $mcpMarkdown = $this->mcpContext->build($siteId, $periodKey);
-        $mapJson = json_encode(
-            $this->topicalMap->overview($siteId)->toArray(),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
-        );
+        $overview = $this->topicalMap->overview($siteId);
+        if ($overview->topicCount <= 0 || $overview->topics === []) {
+            return $this->fail(self::EMPTY_MAP_MESSAGE);
+        }
+
+        $structural = $this->structuralProjection($overview);
+        $allowedTopicRefs = array_values(array_filter(array_map(
+            static fn (array $t): string => (string) ($t['topic_ref'] ?? ''),
+            $structural['topics'],
+        )));
+
+        $mapJson = json_encode($structural, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (! is_string($mapJson) || $mapJson === '') {
             return $this->fail('Failed to encode Topical Map overview.');
         }
+
+        $period = $this->periods->currentOpenOrLatestFinalized() ?? $this->periods->ensureCurrentMonth();
+        $periodKey = $period->periodKey();
+        $mcpMarkdown = $this->mcpContext->build($siteId, $periodKey);
 
         $language = '';
         try {
@@ -75,6 +89,10 @@ final class TopicalMapAuditService
         } catch (\Throwable) {
             $language = '';
         }
+
+        $domainPayload = $this->domainPromptContext->getForSite($siteId);
+        $companyShort = trim((string) ($domainPayload['company_short_identity'] ?? ''));
+        $shortDescription = trim((string) ($domainPayload['short_description'] ?? ''));
 
         try {
             $run = $this->runPrompt(
@@ -85,6 +103,8 @@ final class TopicalMapAuditService
                 primaryLanguage: $language,
                 siteDomain: (string) ($site->domain ?? ''),
                 periodKey: $periodKey,
+                companyShortIdentity: $companyShort,
+                shortDescription: $shortDescription,
             );
         } catch (InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
@@ -92,7 +112,7 @@ final class TopicalMapAuditService
             return $this->fail('Topical Map audit failed: '.$e->getMessage());
         }
 
-        $parsed = $this->parser->parse($run['value']);
+        $parsed = $this->parser->parse($run['value'], $allowedTopicRefs);
         if (! $parsed['ok']) {
             return $this->fail($parsed['message'], $run['prompt_result_id']);
         }
@@ -102,6 +122,60 @@ final class TopicalMapAuditService
             'message' => '',
             'payload' => $parsed['payload'],
             'prompt_result_id' => $run['prompt_result_id'],
+        ];
+    }
+
+    /**
+     * Structural Topical Map projection for the prompt — canonical topic_ref list.
+     * Omits chart/frontend-only fields (lazy children flags, coordinates, chart config).
+     *
+     * @return array{
+     *   site_id: int,
+     *   summary: array{topic_count: int, total_articles: int, total_keywords: int, source_updated_at: string|null},
+     *   topics: list<array{
+     *     topic_ref: string,
+     *     name: string,
+     *     mcp: float|int|string|null,
+     *     dna_count: int,
+     *     article_count: int,
+     *     keyword_count: int,
+     *     coverage: string,
+     *     status: string
+     *   }>
+     * }
+     */
+    public function structuralProjection(TopicalMapOverview $overview): array
+    {
+        $topics = [];
+        foreach ($overview->topics as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $topics[] = [
+                'topic_ref' => TopicalMapAuditContracts::topicRef($id),
+                'name' => trim((string) ($row['name'] ?? '')),
+                'mcp' => $row['mcp'] ?? null,
+                'dna_count' => (int) ($row['dna_count'] ?? 0),
+                'article_count' => (int) ($row['article_count'] ?? 0),
+                'keyword_count' => (int) ($row['keyword_count'] ?? 0),
+                'coverage' => trim((string) ($row['coverage'] ?? '')),
+                'status' => trim((string) ($row['status'] ?? '')),
+            ];
+        }
+
+        return [
+            'site_id' => $overview->siteId,
+            'summary' => [
+                'topic_count' => $overview->topicCount,
+                'total_articles' => $overview->totalArticles,
+                'total_keywords' => $overview->totalKeywords,
+                'source_updated_at' => $overview->sourceUpdatedAt,
+            ],
+            'topics' => $topics,
         ];
     }
 
@@ -116,6 +190,8 @@ final class TopicalMapAuditService
         string $primaryLanguage,
         string $siteDomain,
         string $periodKey,
+        string $companyShortIdentity,
+        string $shortDescription,
     ): array {
         $context = array_filter([
             'site_id' => $siteId,
@@ -124,27 +200,25 @@ final class TopicalMapAuditService
             'site_locale' => $primaryLanguage !== '' ? $primaryLanguage : null,
         ], static fn (mixed $v): bool => $v !== null);
 
-        $envelope = PromptHookExecutionInput::fromArray([
-            'context' => $context,
-            'input' => [
-                'mcp_markdown' => $mcpMarkdown,
-                'topical_map_json' => $topicalMapJson,
-                'primary_language' => $primaryLanguage,
-                'site_domain' => $siteDomain,
-                'period_key' => $periodKey,
-            ],
-            'previous_outputs' => [],
-            'settings' => [],
-        ]);
-
-        $promptResultId = null;
-        $legacyVariables = [
+        $input = [
             'mcp_markdown' => $mcpMarkdown,
             'topical_map_json' => $topicalMapJson,
             'primary_language' => $primaryLanguage,
             'site_domain' => $siteDomain,
             'period_key' => $periodKey,
+            'company_short_identity' => $companyShortIdentity,
+            'short_description' => $shortDescription,
         ];
+
+        $envelope = PromptHookExecutionInput::fromArray([
+            'context' => $context,
+            'input' => $input,
+            'previous_outputs' => [],
+            'settings' => [],
+        ]);
+
+        $promptResultId = null;
+        $legacyVariables = $input;
 
         $value = $this->promptHookBridge->run(
             hookKey: self::HOOK_KEY,
