@@ -26,7 +26,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Conte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectActionDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectGenerationGate;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArchiveService;
-use Omnichannel\Addons\ContentProjects\Services\SeoProjectKeywordAiGeneratorService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectKeywordListParser;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunPreflightService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskMoveService;
@@ -561,32 +560,6 @@ class SeoProjectResource extends SeoPanelResource
                             ])
                             ->action(function (array $data, Get $get, Set $set): void {
                                 static::appendKeywordsToFormState($get, $set, $data['keywords_text'] ?? '');
-                            }),
-
-                        Action::make('ai_generate_keywords')
-                            ->label(__('seo-content-ai::filament.projects.ai_generator'))
-                            ->icon('heroicon-o-sparkles')
-                            ->iconButton()
-                            ->tooltip(__('seo-content-ai::filament.projects.ai_generator_tooltip'))
-                            ->color('primary')
-                            ->modalHeading(__('seo-content-ai::filament.projects.ai_generator_heading'))
-                            ->modalDescription(__('seo-content-ai::filament.projects.ai_generator_description'))
-                            ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.generate_keywords'))
-                            ->form([
-                                Forms\Components\TextInput::make('count')
-                                    ->label(__('seo-content-ai::filament.projects.number_of_keywords'))
-                                    ->numeric()
-                                    ->minValue(1)
-                                    ->maxValue(31)
-                                    ->default(10)
-                                    ->required(),
-                                Forms\Components\Textarea::make('brief')
-                                    ->label(__('seo-content-ai::filament.projects.additional_ai_brief'))
-                                    ->placeholder(__('seo-content-ai::filament.projects.additional_ai_brief_placeholder'))
-                                    ->rows(4),
-                            ])
-                            ->action(function (array $data, Get $get, Set $set): void {
-                                static::generateKeywordsWithAi($get, $set, $data);
                             }),
                     ])
                         ->columnSpanFull(),
@@ -2254,49 +2227,5 @@ class SeoProjectResource extends SeoPanelResource
     public static function addTaskRowTooltip(Get $get, ?SeoProject $record = null): ?string
     {
         return null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public static function generateKeywordsWithAi(Get $get, Set $set, array $data): void
-    {
-        $month = $get('month');
-        if (! $month) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.select_month_first'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $existing = is_array($get('tasks_data')) ? $get('tasks_data') : [];
-        $requested = max(1, (int) ($data['count'] ?? 10));
-
-        try {
-            $keywords = app(SeoProjectKeywordAiGeneratorService::class)->generate(
-                month: $month,
-                count: $requested,
-                brief: (string) ($data['brief'] ?? ''),
-                description: (string) ($get('description') ?? ''),
-            );
-        } catch (\InvalidArgumentException $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.unable_to_generate_keywords'))
-                ->body($exception->getMessage())
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $merged = app(SeoProjectKeywordListParser::class)->appendKeywordsToTasks($existing, $keywords);
-        $set('tasks_data', $merged);
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.projects.ai_added_keywords', ['count' => count($keywords)]))
-            ->success()
-            ->send();
     }
 }

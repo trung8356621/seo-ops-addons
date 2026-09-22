@@ -7,10 +7,14 @@ namespace Omnichannel\Addons\AiPrompt\Services\PromptOwnership;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use RuntimeException;
 
 /**
  * Idempotent default Prompt + Settings binding for seo_audit.discover_new_topics.
+ *
+ * Ownership: PromptResource scopes list by accountSiteOwnerId(). Installer must
+ * assign/repair user_id to that managed owner so the prompt is list-visible.
  */
 final class DefaultDiscoverNewTopicsPromptInstaller
 {
@@ -25,10 +29,19 @@ final class DefaultDiscoverNewTopicsPromptInstaller
     ) {}
 
     /**
-     * @return array{prompt_id: int, created: bool, binding_set: bool, restored: bool}
+     * @return array{
+     *   prompt_id: int,
+     *   created: bool,
+     *   binding_set: bool,
+     *   restored: bool,
+     *   ownership_repaired: bool,
+     *   user_id: int
+     * }
      */
     public function install(bool $restoreCanonical = false): array
     {
+        $ownerUserId = $this->managedPromptOwnerUserId();
+
         $existing = SeoPrompt::query()
             ->where('hook_key', self::HOOK_KEY)
             ->where('name', self::PROMPT_NAME)
@@ -37,6 +50,7 @@ final class DefaultDiscoverNewTopicsPromptInstaller
 
         $created = false;
         $restored = false;
+        $ownershipRepaired = false;
 
         if ($existing === null) {
             $existing = new SeoPrompt;
@@ -50,7 +64,7 @@ final class DefaultDiscoverNewTopicsPromptInstaller
                 'variables' => self::canonicalVariables(),
                 'tools' => 'default',
                 'is_active' => true,
-                'user_id' => $this->systemUserId(),
+                'user_id' => $ownerUserId,
                 'settings' => [
                     'is_system_default' => true,
                     'ownership' => 'settings_binding',
@@ -58,13 +72,23 @@ final class DefaultDiscoverNewTopicsPromptInstaller
             ]);
             $existing->save();
             $created = true;
-        } elseif ($restoreCanonical) {
-            $existing->markdown_content = self::canonicalDefaultMarkdown();
-            $existing->description = self::canonicalDescription();
-            $existing->variables = self::canonicalVariables();
-            $existing->hook_version = self::HOOK_VERSION;
-            $existing->save();
-            $restored = true;
+        } else {
+            if ((int) $existing->user_id !== $ownerUserId && $ownerUserId > 0) {
+                // Keep canonical prompt_id; only repair ownership so PromptResource list can see it.
+                $existing->user_id = $ownerUserId;
+                $existing->save();
+                $ownershipRepaired = true;
+            }
+
+            if ($restoreCanonical) {
+                $existing->markdown_content = self::canonicalDefaultMarkdown();
+                $existing->description = self::canonicalDescription();
+                $existing->variables = self::canonicalVariables();
+                $existing->hook_version = self::HOOK_VERSION;
+                $existing->is_active = true;
+                $existing->save();
+                $restored = true;
+            }
         }
 
         $promptId = (int) $existing->id;
@@ -82,7 +106,51 @@ final class DefaultDiscoverNewTopicsPromptInstaller
             'created' => $created,
             'binding_set' => $bindingSet,
             'restored' => $restored,
+            'ownership_repaired' => $ownershipRepaired,
+            'user_id' => (int) $existing->user_id,
         ];
+    }
+
+    /**
+     * User id that PromptResource list scopes to (account site owner).
+     */
+    public function managedPromptOwnerUserId(): int
+    {
+        try {
+            $owner = (int) SeoAccessControl::accountSiteOwnerId();
+            if ($owner > 0) {
+                return $owner;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        try {
+            $panelOwner = SeoAccessControl::panelOwnerId();
+            if ($panelOwner !== null && $panelOwner > 0) {
+                return $panelOwner;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        try {
+            $dominant = SeoPrompt::query()
+                ->selectRaw('user_id, COUNT(*) as c')
+                ->whereNotNull('user_id')
+                ->where('user_id', '>', 0)
+                ->groupBy('user_id')
+                ->orderByDesc('c')
+                ->orderBy('user_id')
+                ->value('user_id');
+            if ($dominant !== null && (int) $dominant > 0) {
+                return (int) $dominant;
+            }
+        } catch (\Throwable) {
+            // continue
+        }
+
+        return $this->fallbackSystemUserId();
     }
 
     public static function canonicalDefaultMarkdown(): string
@@ -157,7 +225,7 @@ final class DefaultDiscoverNewTopicsPromptInstaller
         return $decoded;
     }
 
-    private function systemUserId(): int
+    private function fallbackSystemUserId(): int
     {
         $authId = auth()->id();
         if ($authId !== null && (int) $authId > 0) {

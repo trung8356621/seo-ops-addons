@@ -22,14 +22,16 @@ final class InstallDefaultDiscoverNewTopicsPromptCommand extends Command
         $result = $installer->install(restoreCanonical: (bool) $this->option('restore'));
 
         $this->info(sprintf(
-            'prompt_id=%d created=%s binding_set=%s restored=%s',
+            'prompt_id=%d created=%s binding_set=%s restored=%s ownership_repaired=%s user_id=%d',
             $result['prompt_id'],
             $result['created'] ? 'yes' : 'no',
             $result['binding_set'] ? 'yes' : 'no',
             $result['restored'] ? 'yes' : 'no',
+            ($result['ownership_repaired'] ?? false) ? 'yes' : 'no',
+            (int) ($result['user_id'] ?? 0),
         ));
 
-        if (! $result['binding_set'] && ! $result['created'] && ! $result['restored']) {
+        if (! $result['binding_set'] && ! $result['created'] && ! $result['restored'] && ! ($result['ownership_repaired'] ?? false)) {
             $this->comment('Binding already present — not overwriting operator markdown/bindings.');
         }
 

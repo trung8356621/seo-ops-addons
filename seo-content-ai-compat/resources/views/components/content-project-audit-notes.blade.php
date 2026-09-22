@@ -29,6 +29,12 @@
     $newSelectedKeys = array_fill_keys(is_array($discover['selected_keys'] ?? null) ? $discover['selected_keys'] : [], true);
     $newGenerating = (bool) ($discover['generating'] ?? false);
     $newError = (string) ($discover['error'] ?? '');
+    $newGenerationState = (string) ($discover['generation_state'] ?? 'not_run');
+    $showNewTab = (bool) ($discover['show_new_tab'] ?? false);
+    $topicsUrl = (string) ($discover['topics_url'] ?? '');
+    if ($newGenerationState !== 'completed' && $auditTab === 'new') {
+        $auditTab = 'existing';
+    }
 @endphp
 
 <div
@@ -36,6 +42,7 @@
     data-audit-notes="1"
     data-ai-topic-workspace="1"
     data-audit-notes-tab="{{ $auditTab }}"
+    data-new-topics-state="{{ $newGenerationState }}"
     wire:key="cp-audit-notes-{{ $siteId }}"
     wire:init="loadAuditNoteSuggestions"
     x-data="cpAuditNotesRoot(@js($selectedItems), {{ (int) $siteId }}, {{ (int) $defaultTarget }}, {{ (int) $maxDna }}, {{ (int) $maxTarget }})"
@@ -50,14 +57,16 @@
             aria-selected="{{ $auditTab === 'existing' ? 'true' : 'false' }}"
             data-audit-notes-tab-btn="existing"
         >{{ __('seo-content-ai::filament.projects.audit_notes_tab_existing') }}</button>
-        <button
-            type="button"
-            role="tab"
-            class="cp-audit-notes__mode-tab {{ $auditTab === 'new' ? 'is-active' : '' }}"
-            wire:click="setAuditNotesTab('new')"
-            aria-selected="{{ $auditTab === 'new' ? 'true' : 'false' }}"
-            data-audit-notes-tab-btn="new"
-        >{{ __('seo-content-ai::filament.projects.audit_notes_tab_new') }}</button>
+        @if ($showNewTab)
+            <button
+                type="button"
+                role="tab"
+                class="cp-audit-notes__mode-tab {{ $auditTab === 'new' ? 'is-active' : '' }}"
+                wire:click="setAuditNotesTab('new')"
+                aria-selected="{{ $auditTab === 'new' ? 'true' : 'false' }}"
+                data-audit-notes-tab-btn="new"
+            >{{ __('seo-content-ai::filament.projects.audit_notes_tab_new') }}</button>
+        @endif
     </div>
 
     @if ($auditTab === 'existing')
@@ -73,6 +82,21 @@
                 <span class="cp-audit-notes__count">{{ $total }}</span>
             </h4>
             <p class="cp-audit-notes__help">{{ __('seo-content-ai::filament.projects.audit_notes_help') }}</p>
+
+            @if ($ready && $siteId > 0 && $total === 0)
+                <div class="cp-audit-notes__alloc-warn" data-audit-notes-no-topics="1" role="status">
+                    <p>{{ __('seo-content-ai::filament.projects.audit_notes_no_topics_warning') }}</p>
+                    @if ($topicsUrl !== '')
+                        <a
+                            class="cp-audit-notes__side-link"
+                            href="{{ $topicsUrl }}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-audit-notes-open-topics="1"
+                        >{{ __('seo-content-ai::filament.projects.audit_notes_open_topics') }}</a>
+                    @endif
+                </div>
+            @endif
 
             <div class="cp-audit-notes__toolbar">
                 <form wire:submit="applyAuditNoteSearch" class="contents">
@@ -91,7 +115,29 @@
                     <option value="no_focus">{{ __('seo-content-ai::filament.projects.audit_notes_filter_no_focus') }}</option>
                     <option value="has_focus">{{ __('seo-content-ai::filament.projects.audit_notes_filter_has_focus') }}</option>
                 </x-select>
+                @if ($newGenerationState !== 'completed')
+                    <button
+                        type="button"
+                        class="fi-btn fi-btn-color-primary fi-size-sm"
+                        wire:click="discoverNewTopics"
+                        wire:loading.attr="disabled"
+                        wire:target="discoverNewTopics"
+                        @disabled(! $canWrite || $newGenerating)
+                        data-discover-new-topics="1"
+                    >
+                        <span wire:loading.remove wire:target="discoverNewTopics">
+                            {{ __('seo-content-ai::filament.projects.new_topics_generate') }}
+                        </span>
+                        <span wire:loading wire:target="discoverNewTopics" class="inline-flex items-center gap-1">
+                            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3"/></svg>
+                            {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
+                        </span>
+                    </button>
+                @endif
             </div>
+            @if ($newGenerationState === 'failed' && $newError !== '')
+                <p class="cp-audit-notes__alloc-warn" data-new-topics-error="1">{{ $newError }}</p>
+            @endif
         </div>
 
         <div class="cp-ai-topic-column__body">
@@ -502,7 +548,28 @@
                         </label>
                     </li>
                 @empty
-                    <li class="cp-audit-notes__empty">{{ __('seo-content-ai::filament.projects.new_topics_empty') }}</li>
+                    <li class="cp-audit-notes__empty" data-new-topics-zero-result="1">
+                        {{ __('seo-content-ai::filament.projects.new_topics_zero_result') }}
+                        <div class="cp-audit-notes__toolbar" style="margin-top:0.75rem">
+                            <button
+                                type="button"
+                                class="fi-btn fi-btn-color-primary fi-size-sm"
+                                wire:click="discoverNewTopics"
+                                wire:loading.attr="disabled"
+                                wire:target="discoverNewTopics"
+                                @disabled(! $canWrite || $newGenerating)
+                                data-discover-new-topics-retry="1"
+                            >
+                                <span wire:loading.remove wire:target="discoverNewTopics">
+                                    {{ __('seo-content-ai::filament.projects.new_topics_retry') }}
+                                </span>
+                                <span wire:loading wire:target="discoverNewTopics" class="inline-flex items-center gap-1">
+                                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3"/></svg>
+                                    {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
+                                </span>
+                            </button>
+                        </div>
+                    </li>
                 @endforelse
             </ul>
         </div>

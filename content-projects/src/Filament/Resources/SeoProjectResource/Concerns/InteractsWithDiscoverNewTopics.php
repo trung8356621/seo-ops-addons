@@ -8,7 +8,9 @@ use Filament\Notifications\Notification;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteTargetAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\DiscoverNewTopicsService;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\DnaPlacement;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Throwable;
 
 /**
@@ -16,6 +18,14 @@ use Throwable;
  */
 trait InteractsWithDiscoverNewTopics
 {
+    public const NEW_TOPICS_STATE_NOT_RUN = 'not_run';
+
+    public const NEW_TOPICS_STATE_LOADING = 'loading';
+
+    public const NEW_TOPICS_STATE_COMPLETED = 'completed';
+
+    public const NEW_TOPICS_STATE_FAILED = 'failed';
+
     /** existing|new */
     public string $auditNotesTab = 'existing';
 
@@ -27,6 +37,9 @@ trait InteractsWithDiscoverNewTopics
 
     public bool $newTopicsGenerating = false;
 
+    /** not_run|loading|completed|failed */
+    public string $newTopicsGenerationState = self::NEW_TOPICS_STATE_NOT_RUN;
+
     public string $newTopicsLastError = '';
 
     public function mountInteractsWithDiscoverNewTopics(): void
@@ -35,12 +48,18 @@ trait InteractsWithDiscoverNewTopics
         $this->newTopicCandidates = [];
         $this->newTopicSelectedItems = [];
         $this->newTopicsGenerating = false;
+        $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_NOT_RUN;
         $this->newTopicsLastError = '';
     }
 
     public function setAuditNotesTab(string $tab): void
     {
         $tab = strtolower(trim($tab));
+        if ($tab === 'new' && $this->newTopicsGenerationState !== self::NEW_TOPICS_STATE_COMPLETED) {
+            $this->auditNotesTab = 'existing';
+
+            return;
+        }
         $this->auditNotesTab = in_array($tab, ['existing', 'new'], true) ? $tab : 'existing';
     }
 
@@ -63,6 +82,7 @@ trait InteractsWithDiscoverNewTopics
         }
 
         $this->newTopicsGenerating = true;
+        $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_LOADING;
         $this->newTopicsLastError = '';
         $previousSelected = $this->newTopicSelectedItems;
 
@@ -74,6 +94,8 @@ trait InteractsWithDiscoverNewTopics
             );
             if (! $result['ok']) {
                 $this->newTopicsLastError = (string) $result['message'];
+                $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_FAILED;
+                $this->auditNotesTab = 'existing';
                 $this->newTopicSelectedItems = $previousSelected;
                 Notification::make()
                     ->title((string) __('seo-content-ai::filament.projects.new_topics_failed'))
@@ -86,6 +108,7 @@ trait InteractsWithDiscoverNewTopics
 
             $this->newTopicCandidates = $result['topics'];
             $this->newTopicSelectedItems = $previousSelected;
+            $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_COMPLETED;
             $this->auditNotesTab = 'new';
 
             Notification::make()
@@ -96,6 +119,8 @@ trait InteractsWithDiscoverNewTopics
                 ->send();
         } catch (Throwable $e) {
             $this->newTopicsLastError = $e->getMessage();
+            $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_FAILED;
+            $this->auditNotesTab = 'existing';
             $this->newTopicSelectedItems = $previousSelected;
             Notification::make()
                 ->title((string) __('seo-content-ai::filament.projects.new_topics_failed'))
@@ -104,7 +129,23 @@ trait InteractsWithDiscoverNewTopics
                 ->send();
         } finally {
             $this->newTopicsGenerating = false;
+            if ($this->newTopicsGenerationState === self::NEW_TOPICS_STATE_LOADING) {
+                $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_FAILED;
+            }
         }
+    }
+
+    public function keywordsTopicsUrlForAuditSite(): string
+    {
+        $siteId = method_exists($this, 'resolveAuditNotesSiteId')
+            ? (int) $this->resolveAuditNotesSiteId()
+            : 0;
+        $url = KeywordResource::getUrl('clusters');
+        if ($siteId <= 0) {
+            return $url;
+        }
+
+        return app(DomainContextResolver::class)->appendSiteToUrl($url, $siteId);
     }
 
     public function removeNewTopicSelected(string $clusterRef): void
@@ -339,10 +380,13 @@ trait InteractsWithDiscoverNewTopics
      * @return array{
      *   tab: string,
      *   generating: bool,
+     *   generation_state: string,
+     *   show_new_tab: bool,
      *   error: string,
      *   candidates: list<array<string, mixed>>,
      *   selected: list<array<string, mixed>>,
-     *   selected_keys: list<string>
+     *   selected_keys: list<string>,
+     *   topics_url: string
      * }
      */
     public function getDiscoverNewTopicsPayloadProperty(): array
@@ -355,13 +399,21 @@ trait InteractsWithDiscoverNewTopics
             }
         }
 
+        $state = $this->newTopicsGenerationState;
+        if ($this->newTopicsGenerating) {
+            $state = self::NEW_TOPICS_STATE_LOADING;
+        }
+
         return [
             'tab' => $this->auditNotesTab,
             'generating' => $this->newTopicsGenerating,
+            'generation_state' => $state,
+            'show_new_tab' => $state === self::NEW_TOPICS_STATE_COMPLETED,
             'error' => $this->newTopicsLastError,
             'candidates' => $this->newTopicCandidates,
             'selected' => $this->newTopicSelectedItems,
             'selected_keys' => $selectedKeys,
+            'topics_url' => $this->keywordsTopicsUrlForAuditSite(),
         ];
     }
 }
