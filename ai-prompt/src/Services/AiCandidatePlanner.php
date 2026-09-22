@@ -11,6 +11,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Support\AiAttemptBudgetPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 
 /**
  * Builds an inspectable RoutingPlan BEFORE provider execution.
@@ -45,7 +46,12 @@ final class AiCandidatePlanner
         ?string $primaryArea = null,
         ?string $secondaryArea = null,
     ): array {
+        $routingPolicy = $context->effectiveRoutingPolicy();
         $mode = $context->routingMode ?? $this->contextResolver->resolveMode($context);
+        if ($routingPolicy === AiRoutingPolicy::FreeOnly) {
+            $mode = AiExecutionRoutingMode::FreeOnly;
+        }
+
         $resolvedPrimaryArea = $primaryArea !== null && $primaryArea !== ''
             ? $primaryArea
             : ($modelArea !== '' ? $modelArea : $profile);
@@ -61,9 +67,32 @@ final class AiCandidatePlanner
             ? null
             : ($firstUsable->isFree ? 'free' : 'paid');
 
+        // quick_free: prefer free lane first (one actual free attempt via budget), then paid.
+        // normal: preserve existing FREE-FIRST lane split when first usable is free.
         $freeFirstSecondaryPaid = $usesLaneSplit
             && $initialRouteCost === 'free'
-            && $mode->allowsPaidRoutes();
+            && $mode->allowsPaidRoutes()
+            && ($routingPolicy === AiRoutingPolicy::Normal || $routingPolicy === AiRoutingPolicy::QuickFree);
+
+        if ($routingPolicy === AiRoutingPolicy::QuickFree && $mode->allowsPaidRoutes()) {
+            // Always open free→paid stream when any free candidate exists (even if first
+            // manual-priority row is paid) — policy selects first eligible free attempt.
+            $hasFree = false;
+            foreach ($candidates as $candidate) {
+                if ($candidate->isFree) {
+                    $hasFree = true;
+                    break;
+                }
+            }
+            if ($hasFree && $usesLaneSplit) {
+                $freeFirstSecondaryPaid = true;
+            }
+        }
+
+        $policyFreeCap = $routingPolicy->freeAttemptCap();
+        if ($policyFreeCap !== null) {
+            $maxFreeAttempts = min($maxFreeAttempts, max(0, $policyFreeCap));
+        }
 
         $routingPath = $freeFirstSecondaryPaid
             ? AiRoutingPlan::PATH_FREE_PRIMARY_THEN_SECONDARY_PAID
@@ -243,6 +272,10 @@ final class AiCandidatePlanner
                 'fallback_area_resolver' => AiFallbackAreaResolver::class,
                 'lane_split_enabled' => $usesLaneSplit,
                 'free_first_secondary_paid' => $freeFirstSecondaryPaid,
+                'routing_policy' => $routingPolicy->value,
+                'routing_policy_requested' => ($context->routingPolicyRequested ?? $context->routingPolicy)?->value,
+                'routing_policy_effective' => $routingPolicy->value,
+                'execution_transport' => $context->executionTransport()->value,
             ],
             primaryFreePhase: $primaryFreePhase,
             secondaryPaidPhase: $secondaryPaidPhase,

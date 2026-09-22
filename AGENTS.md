@@ -45,15 +45,19 @@ Canonical doc: `docs/modules/WEBSITE_TYPE.md`. Do not rename `production` casual
 
 Canonical: `docs/modules/SITE_LINK_POLICY.md`. Topic seeds = curated Domain Link List + all-depth product_cat (not Site Sync catalog).
 
-## Seeding AI vs SEO AI (permanent)
+## Seeding AI vs shared AI stack
 
-Seeding Gen Comment AI is **intentionally and permanently independent** from the SEO AI Prompt/Task/History pipeline.
+Seeding Gen Comment **owns** MCP context, Flexible Seeding UI state, and Seeding debug history.
 
-- Seeding owns its prompt setting, MCP context, generation flow, debug logs, and retention.
-- Do **not** extract/reuse/refactor SEO Prompt/Task/History for Seeding, or design for a future merge.
-- Prefer small Seeding-local duplication over coupling to the stable SEO AI pipeline.
-- Shared only when already generic: queue/HTTP/provider clients/DB/cache + existing Canonical routing via Social comment task shell.
-- Canonical write-up: `docs/modules/SEEDING.md` §8.
+It **must use** the shared ai-prompt Interactive executor + Routing Policy (`quick_free` default) — not a Seeding-local provider/HTTP/routing planner.
+
+Do **not**:
+- call OpenRouter/Gemini/DeepSeek from Seeding
+- duplicate `AiCandidatePlanner` / health / cooldown in Seeding
+- hold DB transactions open during provider calls
+
+Shared Prompt binding (`seeding.comment.generate`) + AI History (Prompt Result / routing attempts) are intentional.
+Seeding-local duplication is preferred only for Seeding domain concerns (MCP, seed batches, reports), not for AI routing.
 
 ## EDITOR WIDGET LOCKS
 

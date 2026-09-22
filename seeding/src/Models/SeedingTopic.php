@@ -24,6 +24,7 @@ class SeedingTopic extends Model
     /** @var list<string> */
     protected $fillable = [
         'installation_id',
+        'share_idempotency_key',
         'created_by',
         'created_by_display_name',
         'title',

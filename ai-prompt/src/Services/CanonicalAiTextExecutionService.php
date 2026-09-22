@@ -78,33 +78,31 @@ final class CanonicalAiTextExecutionService
         );
 
         if ($context->hookKey === null || $context->hookKey === '') {
-            $context = new AiRoutingContext(
-                userId: $context->userId ?? $this->resolveUserId(),
-                legacyConnection: $context->legacyConnection,
-                allowLegacyFallback: $context->allowLegacyFallback,
-                usageModeOverride: $context->usageModeOverride,
-                allowedFamilyKeys: $context->allowedFamilyKeys,
-                costPolicy: $context->costPolicy,
-                preferredModelId: $context->preferredModelId,
-                requirePreferredModel: $context->requirePreferredModel,
-                itemGenerationMode: $context->itemGenerationMode,
-                hookKey: $hookKey,
-                freeOnly: $context->freeOnly,
-                isolationMode: $context->isolationMode,
-                generationStrategy: $context->generationStrategy,
-                canonicalPromptKey: $context->canonicalPromptKey ?? $hookKey,
-                promptTaskType: $context->promptTaskType ?? 'atomic_text',
-                modelArea: $context->modelArea ?? $profile->value,
-                routingMode: $context->routingMode,
-                maxAiAttempts: $context->maxAiAttempts,
-                maxFreeAttempts: $context->maxFreeAttempts,
-                routingDecisionSource: $context->routingDecisionSource,
-                correlationId: $context->correlationId,
-                workflowRunId: $context->workflowRunId,
-                projectItemId: $context->projectItemId,
-                workflowNodeId: $context->workflowNodeId,
-                retryAttempt: $context->retryAttempt,
-            );
+            $context = $context->with([
+                'userId' => $context->userId ?? $this->resolveUserId(),
+                'hookKey' => $hookKey,
+                'canonicalPromptKey' => $context->canonicalPromptKey ?? $hookKey,
+                'promptTaskType' => $context->promptTaskType ?? 'atomic_text',
+                'modelArea' => $context->modelArea ?? $profile->value,
+            ]);
+        }
+
+        $transportRaw = $options['execution_transport'] ?? null;
+        $transport = \Omnichannel\Addons\AiPrompt\Support\AiExecutionTransport::tryFromMixed($transportRaw);
+        if ($transport !== null && $context->executionTransport === null) {
+            $context = $context->with(['executionTransport' => $transport]);
+        }
+
+        $policyRaw = $options['routing_policy'] ?? $options['routing_policy_effective'] ?? null;
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::tryFromMixed($policyRaw);
+        if ($policy !== null && $context->routingPolicy === null) {
+            $context = $context->with([
+                'routingPolicy' => $policy,
+                'routingPolicyRequested' => \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::tryFromMixed(
+                    $options['routing_policy_requested'] ?? $policyRaw,
+                ) ?? $policy,
+                'routingPolicyEffective' => $policy,
+            ]);
         }
 
         try {

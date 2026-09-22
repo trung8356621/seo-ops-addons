@@ -11,6 +11,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
+use Omnichannel\Addons\SearchFoundation\Support\SeoLinkMapExternalUrlNormalizer;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use App\Models\Site;
 use DOMElement;
@@ -212,9 +213,13 @@ final class ArticleLinkContextMapService
         }
 
         $absoluteUrl = $this->resolveAbsoluteExternalUrl($href, $sourceSiteId);
-        $linkType = SeoLinkMapLinkTypeClassifier::forUnresolvedUrl($absoluteUrl !== '' ? $absoluteUrl : $href);
+        $storageUrl = SeoLinkMapExternalUrlNormalizer::forStorage(
+            $absoluteUrl !== '' ? $absoluteUrl : $href,
+        );
+        $resolved = $storageUrl ?? ($absoluteUrl !== '' ? $absoluteUrl : $href);
+        $linkType = SeoLinkMapLinkTypeClassifier::forUnresolvedUrl($resolved);
 
-        return [$linkType, null, $absoluteUrl !== '' ? $absoluteUrl : $href];
+        return [$linkType, null, $resolved !== '' ? $resolved : null];
     }
 
     private function resolveAbsoluteExternalUrl(string $href, int $sourceSiteId): string

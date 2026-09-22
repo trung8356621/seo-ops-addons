@@ -44,6 +44,8 @@ final class SeedingShareTopicController extends Controller
             'source_type' => ['nullable', 'string', 'max:32'],
             'links' => ['nullable', 'array', 'max:50'],
             'links.*.url' => ['nullable', 'string', 'max:2000'],
+            'idempotency_key' => ['nullable', 'string', 'max:128'],
+            'client_request_id' => ['nullable', 'string', 'max:128'],
         ]);
 
         if (
@@ -52,6 +54,11 @@ final class SeedingShareTopicController extends Controller
             && empty($validated['social_url'])
         ) {
             return response()->json(['ok' => false, 'message' => 'Social là bắt buộc'], 422);
+        }
+
+        $idempotencyKey = trim((string) ($validated['idempotency_key'] ?? $validated['client_request_id'] ?? ''));
+        if ($idempotencyKey === '') {
+            $idempotencyKey = null;
         }
 
         try {
@@ -67,6 +74,7 @@ final class SeedingShareTopicController extends Controller
                 'links' => is_array($validated['links'] ?? null) ? $validated['links'] : [],
                 'created_by' => (int) $user->id,
                 'created_by_display_name' => (string) ($user->name ?? ''),
+                'idempotency_key' => $idempotencyKey,
             ]);
         } catch (InvalidArgumentException $e) {
             return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);

@@ -44,6 +44,10 @@ final class SeedingCommentGenerateController
                 'preview_title' => ['nullable', 'string', 'max:1000'],
                 'preview_description' => ['nullable', 'string', 'max:5000'],
                 'domain' => ['nullable', 'string', 'max:255'],
+                'idempotency_key' => ['nullable', 'string', 'max:128'],
+                'client_request_id' => ['nullable', 'string', 'max:128'],
+                'batch_id' => ['nullable', 'string', 'max:128'],
+                'seed_batch_id' => ['nullable', 'string', 'max:128'],
             ]);
         } catch (ValidationException $e) {
             $first = collect($e->errors())->flatten()->first();
@@ -91,6 +95,11 @@ final class SeedingCommentGenerateController
             'preview_title' => $validated['preview_title'] ?? null,
             'preview_description' => $validated['preview_description'] ?? null,
             'domain' => $validated['domain'] ?? null,
+            'idempotency_key' => $validated['idempotency_key']
+                ?? $validated['client_request_id']
+                ?? $validated['batch_id']
+                ?? $validated['seed_batch_id']
+                ?? null,
         ];
 
         try {

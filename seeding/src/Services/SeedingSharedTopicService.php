@@ -71,6 +71,7 @@ final class SeedingSharedTopicService
      *     source_type?: string|null,
      *     created_by: int,
      *     created_by_display_name?: string|null,
+     *     idempotency_key?: string|null,
      * }  $payload
      * @return list<SeedingTopic>
      */
@@ -97,6 +98,24 @@ final class SeedingSharedTopicService
         $sourceType = SeedingTopicSourceType::tryFrom((string) ($payload['source_type'] ?? 'manual'))
             ?? SeedingTopicSourceType::Manual;
         $memberCount = $this->activeMemberCount();
+        $idempotencyKey = trim((string) ($payload['idempotency_key'] ?? ''));
+        if ($idempotencyKey === '') {
+            $idempotencyKey = null;
+        } else {
+            $idempotencyKey = mb_substr($idempotencyKey, 0, 128);
+        }
+
+        if ($idempotencyKey !== null && Schema::connection(SeedingServiceConfig::CONNECTION)->hasColumn('seeding_topics', 'share_idempotency_key')) {
+            $existing = SeedingTopic::query()
+                ->forInstallation($installationId)
+                ->where('share_idempotency_key', $idempotencyKey)
+                ->where('created_by', $createdBy)
+                ->orderBy('id')
+                ->get();
+            if ($existing->isNotEmpty()) {
+                return $existing->all();
+            }
+        }
 
         return DB::connection(SeedingServiceConfig::CONNECTION)->transaction(function () use (
             $payload,
@@ -108,6 +127,7 @@ final class SeedingSharedTopicService
             $links,
             $sourceType,
             $memberCount,
+            $idempotencyKey,
         ): array {
             $created = [];
             foreach ($executions as $execution) {
@@ -115,7 +135,7 @@ final class SeedingSharedTopicService
                 $target = $execution['target'];
                 $requiredPerUser = max(1, (int) ceil($target / max(1, $memberCount)));
 
-                $topic = new SeedingTopic([
+                $attributes = [
                     'installation_id' => $installationId,
                     'created_by' => $createdBy,
                     'created_by_display_name' => $this->nullableString($payload['created_by_display_name'] ?? null),
@@ -132,7 +152,13 @@ final class SeedingSharedTopicService
                     'required_comments_per_user' => $requiredPerUser,
                     'completed_comments' => 0,
                     'shared_at' => Carbon::now(),
-                ]);
+                ];
+                if ($idempotencyKey !== null
+                    && Schema::connection(SeedingServiceConfig::CONNECTION)->hasColumn('seeding_topics', 'share_idempotency_key')) {
+                    $attributes['share_idempotency_key'] = $idempotencyKey;
+                }
+
+                $topic = new SeedingTopic($attributes);
                 $topic->save();
                 $created[] = $topic->fresh() ?? $topic;
             }

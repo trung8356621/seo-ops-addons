@@ -13,11 +13,17 @@ final class SystemLegacyAdapterContractTest extends TestCase
         $path = dirname(__DIR__, 3).'/src/System/LegacyCanonicalAiTextExecutionPort.php';
         self::assertFileExists($path);
         $source = (string) file_get_contents($path);
-        self::assertStringContainsString('CanonicalAiTextExecutionService', $source);
+        // Interactive facade → CanonicalAiTextExecutionService (shared routing).
+        self::assertStringContainsString('InteractivePromptExecutor', $source);
         self::assertStringContainsString('AiTextExecutionPort', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
         self::assertStringNotContainsString('Omnichannel\\Addons\\Seo\\', $source);
         self::assertStringNotContainsString('Omnichannel\\Addons\\ContentProjects\\', $source);
+
+        $interactive = (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Services/InteractivePromptExecutor.php',
+        );
+        self::assertStringContainsString('CanonicalAiTextExecutionService', $interactive);
     }
 
     public function test_legacy_workflow_port_delegates_to_canonical_runner_without_deferred_stub(): void

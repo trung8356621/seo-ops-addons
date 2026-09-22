@@ -359,6 +359,7 @@ export default function SeedingWorkspace({
                 social_url: String(composer.social_url || '').trim(),
                 social_targets: socialTargets,
                 links,
+                idempotency_key: `create:${String(composer.localId || composer.id || Date.now())}`,
             });
             const createdCount = Array.isArray(data?.topics) ? data.topics.length : 1;
             notifySuccess(createdCount > 1
@@ -432,14 +433,11 @@ export default function SeedingWorkspace({
         if (!canShareDraftTopic(topic, userId, canMutate, manager)) return;
         const key = topicKeyOf(topic);
         const draftSnapshot = { ...topic };
-        const draftIndex = topicsRef.current.findIndex((t) => topicKeyOf(t) === key);
 
         setSharingTopicKey(key);
-        const optimistic = removeDraftTopic(topicsRef.current, key);
-        applyDoc({ topics: optimistic }, false);
-        writer.current.flush(() => persistNow({ topics: optimistic }));
-
+        // Keep local draft until server confirms success (no optimistic remove).
         try {
+            const idempotencyKey = `share:${key}`;
             await shareTopicApi({
                 title: topic.title || '',
                 full_text: topic.full_text || '',
@@ -449,13 +447,21 @@ export default function SeedingWorkspace({
                 target_comments: topic.target_comments || undefined,
                 social_targets: topic.social_targets || undefined,
                 links: topic.links || [],
+                idempotency_key: idempotencyKey,
             });
+            const optimistic = removeDraftTopic(topicsRef.current, key);
+            applyDoc({ topics: optimistic }, false);
+            writer.current.flush(() => persistNow({ topics: optimistic }));
             notifySuccess('Đã chia sẻ chủ đề');
             await refreshFeed();
         } catch (e) {
-            const rolled = restoreDraftTopic(topicsRef.current, draftSnapshot, draftIndex < 0 ? 0 : draftIndex);
-            applyDoc({ topics: rolled }, false);
-            writer.current.flush(() => persistNow({ topics: rolled }));
+            // Failure: draft remains / is restored for the creating user.
+            const stillThere = topicsRef.current.some((t) => topicKeyOf(t) === key);
+            if (!stillThere) {
+                const rolled = restoreDraftTopic(topicsRef.current, draftSnapshot, 0);
+                applyDoc({ topics: rolled }, false);
+                writer.current.flush(() => persistNow({ topics: rolled }));
+            }
             notifyError(e?.message || 'Chia sẻ thất bại');
         } finally {
             setSharingTopicKey(null);
@@ -504,6 +510,7 @@ export default function SeedingWorkspace({
 
     const runGenerate = async (quantity) => {
         if (!genTopic || !canSeedTopic(genTopic, { hasWorkspaceAccess, userId })) return;
+        if (generating) return;
         setGenerating(true);
         try {
             const { batch, outputs } = await generateSeedBatch({

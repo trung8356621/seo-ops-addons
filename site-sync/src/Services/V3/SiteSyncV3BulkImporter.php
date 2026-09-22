@@ -12,6 +12,7 @@ use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
+use Omnichannel\Addons\SearchFoundation\Support\SeoLinkMapExternalUrlNormalizer;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
@@ -332,7 +333,12 @@ final class SiteSyncV3BulkImporter
 
             $seenHref = [];
             foreach ($job['links'] as $link) {
-                $href = trim((string) ($link['href'] ?? $link['url'] ?? $link['href_raw'] ?? ''));
+                $rawHref = trim((string) ($link['href'] ?? $link['url'] ?? $link['href_raw'] ?? ''));
+                if ($rawHref === '') {
+                    continue;
+                }
+
+                $href = SeoLinkMapExternalUrlNormalizer::forStorage($rawHref) ?? $rawHref;
                 if ($href === '') {
                     continue;
                 }

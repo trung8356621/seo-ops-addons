@@ -54,6 +54,9 @@ final class AiPromptServiceProvider extends ServiceProvider
             \Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver::class,
             \Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class,
         );
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\InteractivePromptExecutor::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\EffectiveAiRoutingPolicyResolver::class);
         $this->app->bind(
             \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver::class,
             static fn ($app) => new \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver(

@@ -50,6 +50,8 @@ class CreatePrompt extends SeoCreateRecord
             $data['routing_profile_key'] = $override;
             $data['routing_mode'] = 'override';
         }
+        $policy = trim((string) ($data['routing_policy'] ?? ''));
+        $data['routing_policy'] = $policy !== '' ? $policy : null;
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         // Do not seed obsolete prompt-level routing keys.

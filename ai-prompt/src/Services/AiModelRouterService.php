@@ -474,6 +474,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 &$laneTransitionReason,
                 $secondaryLaneEntered,
                 $candidate,
+                $enrichedContext,
             ): array {
                 return array_filter([
                     'primary_area' => $routingPlan->primaryArea,
@@ -482,8 +483,13 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'initial_route_cost' => $routingPlan->initialRouteCost,
                     'phase' => $routePhase,
                     'is_free' => $candidate->isFree,
+                    'cost_class' => $candidate->isFree ? 'free' : 'paid',
                     'candidate_manual_position' => $candidate->priority,
                     'lane_transition_reason' => $secondaryLaneEntered ? $laneTransitionReason : null,
+                    'routing_policy' => $enrichedContext->effectiveRoutingPolicy()->value,
+                    'routing_policy_requested' => ($enrichedContext->routingPolicyRequested ?? $enrichedContext->routingPolicy)?->value,
+                    'routing_policy_effective' => $enrichedContext->effectiveRoutingPolicy()->value,
+                    'execution_transport' => $enrichedContext->executionTransport()->value,
                 ], static fn (mixed $v): bool => $v !== null && $v !== '');
             };
             $budgetMeta = static function () use (

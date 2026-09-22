@@ -95,6 +95,8 @@ class EditPrompt extends SeoEditRecord
         );
         $override = trim((string) ($data['routing_profile_key'] ?? ''));
         $data['routing_profile_key'] = $override !== '' ? $override : null;
+        $policy = trim((string) ($data['routing_policy'] ?? ''));
+        $data['routing_policy'] = $policy !== '' ? $policy : null;
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         $data['settings'] = PromptPostProcessing::mergeIntoSettings(
@@ -162,6 +164,8 @@ class EditPrompt extends SeoEditRecord
             $data['routing_profile_key'] = $override;
             $data['routing_mode'] = 'override';
         }
+        $policy = trim((string) ($data['routing_policy'] ?? ''));
+        $data['routing_policy'] = $policy !== '' ? $policy : null;
 
         $existingSettings = is_array($this->record->settings ?? null) ? $this->record->settings : [];
         $formSettings = is_array($data['settings'] ?? null) ? $data['settings'] : [];

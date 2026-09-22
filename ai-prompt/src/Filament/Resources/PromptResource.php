@@ -199,6 +199,29 @@ class PromptResource extends SeoPanelResource
                                                         $set('routing_profile_key', null);
                                                     })
                                             ),
+                                        Forms\Components\Select::make('routing_policy')
+                                            ->label(__('seo-content-ai::filament.prompt.routing_policy'))
+                                            ->options(fn (): array => app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
+                                                ->selectablePolicyOptions())
+                                            ->placeholder(fn (Get $get): string => self::routingPolicyHookDefaultLabel(
+                                                (string) ($get('hook_key') ?? ''),
+                                            ))
+                                            ->helperText(fn (Get $get): string => self::routingPolicyHelperText(
+                                                (string) ($get('hook_key') ?? ''),
+                                                (string) ($get('routing_policy') ?? ''),
+                                            ))
+                                            ->nullable()
+                                            ->live()
+                                            ->searchable(false)
+                                            ->native(false)
+                                            ->hintAction(
+                                                Forms\Components\Actions\Action::make('reset_routing_policy')
+                                                    ->label(__('seo-content-ai::filament.prompt.routing_policy_use_hook_default'))
+                                                    ->link()
+                                                    ->action(function (Forms\Set $set): void {
+                                                        $set('routing_policy', null);
+                                                    })
+                                            ),
                                         Forms\Components\Placeholder::make('execution_profile_ai_center')
                                             ->label('')
                                             ->content(fn (): HtmlString => self::executionProfileAiCenterLinkHtml()),
@@ -482,6 +505,29 @@ class PromptResource extends SeoPanelResource
         return (string) __('seo-content-ai::filament.prompt.execution_profile_hook_default_option', [
             'profile' => $profile->displayName(),
         ]);
+    }
+
+    public static function routingPolicyHookDefaultLabel(string $hookKey): string
+    {
+        $policy = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
+            ->hookDefault($hookKey !== '' ? $hookKey : null);
+
+        return (string) __('seo-content-ai::filament.prompt.routing_policy_hook_default_option', [
+            'policy' => $policy->displayName(),
+        ]);
+    }
+
+    public static function routingPolicyHelperText(string $hookKey, string $selected): string
+    {
+        $resolver = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class);
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::tryFromMixed($selected)
+            ?? $resolver->hookDefault($hookKey !== '' ? $hookKey : null);
+
+        $hint = (string) __('seo-content-ai::filament.prompt.routing_policy_override_hint', [
+            'default' => self::routingPolicyHookDefaultLabel($hookKey),
+        ]);
+
+        return $hint.' '.$policy->description();
     }
 
     /**

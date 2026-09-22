@@ -330,8 +330,8 @@ final class AiRoutingTargetService
                 priority: $this->priorities->areaPriority($model, $area, $connection),
                 options: [],
                 seoAiModelId: (int) $model->id,
-                isFree: OpenRouterModelEconomics::modelIsFree($model)
-                    || OpenRouterModelEconomics::isFree([], $modelKey),
+                isFree: \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromModel($model)->isFree()
+                    || \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromCapabilities([], $modelKey)->isFree(),
             );
         }
         usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
@@ -579,8 +579,8 @@ final class AiRoutingTargetService
                 priority: $this->priorities->areaPriority($model, $area, $connection),
                 options: [],
                 seoAiModelId: (int) $model->id,
-                isFree: OpenRouterModelEconomics::modelIsFree($model)
-                    || OpenRouterModelEconomics::isFree([], $modelKey),
+                isFree: \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromModel($model)->isFree()
+                    || \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromCapabilities([], $modelKey)->isFree(),
             );
         }
         $this->lastEligibilityDiagnostics = array_merge($this->lastEligibilityDiagnostics, [

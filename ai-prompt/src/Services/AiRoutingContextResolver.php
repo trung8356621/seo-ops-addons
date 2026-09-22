@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleModelOrderAuthority;
+use Omnichannel\Addons\AiPrompt\Support\InteractiveAiAttemptBudget;
 
 /**
  * Resolves explicit routing context BEFORE the physical-route loop.
@@ -29,7 +31,10 @@ final class AiRoutingContextResolver
      */
     public function resolveMode(AiRoutingContext $context): AiExecutionRoutingMode
     {
-        if ($context->freeOnly || $context->costPolicy()->isFreeOnly()) {
+        $policy = $context->effectiveRoutingPolicy();
+        if ($policy === AiRoutingPolicy::FreeOnly
+            || $context->freeOnly
+            || $context->costPolicy()->isFreeOnly()) {
             return AiExecutionRoutingMode::FreeOnly;
         }
 
@@ -48,18 +53,54 @@ final class AiRoutingContextResolver
             return AiExecutionRoutingMode::PaidPreferred;
         }
 
-        // Default/Economy budget mode (legacy enum name). Order stays AI Center sortable.
+        // QuickFree / Normal default economy budget mode (legacy enum name).
         return AiExecutionRoutingMode::FreeFirstWithPaidFallback;
     }
 
     /**
-     * Enrich context with resolved mode, budgets, and decision source metadata.
+     * Enrich context with resolved mode, budgets, routing policy, and decision source metadata.
      * Budgets remain as configured caps; AttemptBudgetPolicy applies them at plan time.
      */
     public function enrich(AiRoutingContext $context, ?int $maxAiAttempts = null, ?int $maxFreeAttempts = null): AiRoutingContext
     {
+        $policyResolution = (new EffectiveAiRoutingPolicyResolver())->resolve(
+            prompt: null,
+            hookKey: $context->hookKey ?? $context->canonicalPromptKey,
+            explicit: $context->routingPolicy ?? $context->routingPolicyRequested,
+            context: $context,
+        );
+        $effectivePolicy = $policyResolution['effective'];
+        $requestedPolicy = $policyResolution['requested'];
+
+        $context = $context->with([
+            'routingPolicy' => $effectivePolicy,
+            'routingPolicyRequested' => $requestedPolicy,
+            'routingPolicyEffective' => $effectivePolicy,
+            'freeOnly' => $effectivePolicy === AiRoutingPolicy::FreeOnly ? true : $context->freeOnly,
+            'costPolicy' => $effectivePolicy === AiRoutingPolicy::FreeOnly
+                ? AiCostPolicy::FreeOnly
+                : $context->costPolicy,
+        ]);
+
+        if ($context->executionTransport()->isInteractive()) {
+            $interactiveBudget = (new InteractiveAiAttemptBudget())->resolve($effectivePolicy);
+            $maxAiAttempts = min(
+                $maxAiAttempts ?? $interactiveBudget['max_ai_attempts'],
+                $interactiveBudget['max_ai_attempts'],
+            );
+            $maxFreeAttempts = min(
+                $maxFreeAttempts ?? $interactiveBudget['max_free_attempts'],
+                $interactiveBudget['max_free_attempts'],
+            );
+        }
+
+        $policyCap = $effectivePolicy->freeAttemptCap();
+        if ($policyCap !== null) {
+            $maxFreeAttempts = min($maxFreeAttempts ?? $policyCap, $policyCap);
+        }
+
         $mode = $this->resolveMode($context);
-        $source = $this->decisionSource($context, $mode);
+        $source = $this->decisionSource($context, $mode, $effectivePolicy);
 
         return $context->withRoutingDecision(
             routingMode: $mode,
@@ -69,13 +110,20 @@ final class AiRoutingContextResolver
         );
     }
 
-    private function decisionSource(AiRoutingContext $context, AiExecutionRoutingMode $mode): string
-    {
-        if ($context->freeOnly) {
-            return 'context.free_only_flag';
+    private function decisionSource(
+        AiRoutingContext $context,
+        AiExecutionRoutingMode $mode,
+        ?AiRoutingPolicy $policy = null,
+    ): string {
+        if (($policy ?? $context->effectiveRoutingPolicy()) === AiRoutingPolicy::FreeOnly
+            || $context->freeOnly) {
+            return 'routing_policy.free_only';
         }
         if ($context->costPolicy()->isFreeOnly()) {
             return 'cost_policy.free_only';
+        }
+        if (($policy ?? $context->effectiveRoutingPolicy()) === AiRoutingPolicy::QuickFree) {
+            return 'routing_policy.quick_free';
         }
         if ($context->preferredModelId !== null && $context->preferredModelId > 0) {
             return $context->requirePreferredModel

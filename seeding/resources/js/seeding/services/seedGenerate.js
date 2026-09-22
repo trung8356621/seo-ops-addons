@@ -46,6 +46,7 @@ export async function generateSeedBatch(opts) {
     const topic = opts.topic;
     const topicId = String(topic.id ?? topic.localId);
     const now = new Date().toISOString();
+    const batchId = makeId('sbatch');
 
     const fullText = String(topic.full_text || topic.content || '').trim();
     const socialUrl = String(topic.social_url || topic.url || '').trim();
@@ -68,13 +69,16 @@ export async function generateSeedBatch(opts) {
         social_url: socialUrl,
         count: requested,
         platform: platform || null,
+        // Client batch id = backend idempotency key for interactive Gen Comment.
+        batch_id: batchId,
+        seed_batch_id: batchId,
+        idempotency_key: batchId,
     });
 
     const texts = Array.isArray(data?.comments)
         ? data.comments.map((t) => String(t || '').trim()).filter(Boolean)
         : [];
 
-    const batchId = makeId('sbatch');
     const batch = {
         id: batchId,
         topic_id: topicId,

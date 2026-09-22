@@ -59,6 +59,8 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertStringContainsString('array_key_exists(\'links\'', $src);
         self::assertStringContainsString('SeoLinkMap', $src);
         self::assertStringContainsString('LINK_SYNC_MARKER', $src);
+        self::assertStringContainsString('SeoLinkMapExternalUrlNormalizer', $src);
+        self::assertStringContainsString('forStorage', $src);
     }
 
     public function test_v3_orchestrator_does_not_replay_batches_or_keyword_step(): void
