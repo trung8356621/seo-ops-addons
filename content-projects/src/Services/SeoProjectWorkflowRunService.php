@@ -822,6 +822,49 @@ final class SeoProjectWorkflowRunService
             $stepStats = $this->summarizeStepStats($steps);
             $ranAt = now();
 
+            if (\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isPausedResult($result)) {
+                $articleId = (int) ($result['article_id'] ?? 0);
+                if ($articleId <= 0) {
+                    $articleId = (int) ($task->article_id ?? 0);
+                }
+                if ($articleId > 0) {
+                    $this->runItemService->bindArticleAfterExternal(
+                        $task,
+                        $runItem,
+                        $articleId,
+                        (int) $run->id,
+                        created: false,
+                    );
+                    $task->refresh();
+                }
+
+                $message = (string) ($result['message'] ?? 'Waiting for review');
+                $this->runItemService->markPaused(
+                    $runItem,
+                    $message,
+                    $articleId > 0 ? $articleId : null,
+                    [
+                        ...$this->buildWorkflowOutputSnapshot($steps),
+                        'pause_reason' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::PAUSE_REASON,
+                        'awaiting_review' => true,
+                        'outline_checkpoint_hash' => $result['outline_checkpoint_hash'] ?? null,
+                    ],
+                );
+
+                // Ensure pause fields survive even if CreateArticles path lacked a project task id.
+                \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::markWaitingReview($task);
+
+                $this->runItemService->syncMirrorAndCounters($run, false);
+                $freshItem = $runItem->fresh() ?? $runItem;
+
+                return app(\Omnichannel\Addons\ContentProjects\Support\ProjectRunItemLegacyJsonPresenter::class)
+                    ->present($freshItem, $task->fresh() ?? $task, [
+                        'step_stats' => $stepStats,
+                        'awaiting_review' => true,
+                        'pause_reason' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::PAUSE_REASON,
+                    ]);
+            }
+
             if ($result['success']) {
                 $persistStatus = strtolower(trim((string) ($result['persist_status'] ?? '')));
                 // AI Writing persist bumps articles.updated_at. Comparing the pre-dispatch

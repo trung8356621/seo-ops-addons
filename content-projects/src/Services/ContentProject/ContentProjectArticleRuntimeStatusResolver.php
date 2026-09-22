@@ -87,6 +87,16 @@ final class ContentProjectArticleRuntimeStatusResolver
                 $lengthWarning,
             );
         }
+        if ($execStatus === 'paused') {
+            return $this->terminal(
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW,
+                'Waiting for review',
+                'info',
+                $attempt,
+                $maxAttempts,
+                'Review checkpoint',
+            );
+        }
         if (in_array($execStatus, self::TERMINAL_EXEC_STATUSES, true)) {
             return $this->terminal(
                 ContentProjectArticleRuntimeStatus::STATE_FAILED,

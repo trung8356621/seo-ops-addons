@@ -630,6 +630,53 @@ final class SeoProjectRunItemService
     }
 
     /**
+     * Intentional pause (outline review checkpoint). Terminal attempt, not a failure.
+     *
+     * @param  array<string, mixed>|null  $outputSnapshot
+     */
+    public function markPaused(
+        SeoProjectRunItem $runItem,
+        string $message,
+        ?int $articleId = null,
+        ?array $outputSnapshot = null,
+        string $pauseReason = 'review_checkpoint',
+        bool $lock = true,
+    ): SeoProjectRunItem {
+        $apply = function () use ($runItem, $message, $articleId, $outputSnapshot, $pauseReason, $lock): SeoProjectRunItem {
+            $item = $lock
+                ? SeoProjectRunItem::query()->whereKey((int) $runItem->id)->lockForUpdate()->first()
+                : $runItem;
+
+            if (! $item instanceof SeoProjectRunItem) {
+                return $runItem;
+            }
+
+            $snapshot = is_array($outputSnapshot) ? $outputSnapshot : [];
+            $snapshot['pause_reason'] = $pauseReason;
+            $snapshot['awaiting_review'] = true;
+
+            $item->fill([
+                'status' => SeoProjectRunItemStatus::Paused->value,
+                'message' => $message,
+                'error_code' => null,
+                'error_message' => null,
+                'output_snapshot' => $snapshot,
+                'article_id' => $articleId !== null && $articleId > 0 ? $articleId : $item->article_id,
+                'finished_at' => now(),
+            ]);
+            $item->error_code = null;
+            $item->error_message = null;
+            $item->save();
+
+            return $item->fresh() ?? $item;
+        };
+
+        return $lock
+            ? DB::connection('omi_seo_ai')->transaction($apply)
+            : $apply();
+    }
+
+    /**
      * Attach article_id to task + run item after external create. Detect conflicts.
      *
      * @return array{ok: bool, error_code: string|null, message: string|null, article_id: int|null}

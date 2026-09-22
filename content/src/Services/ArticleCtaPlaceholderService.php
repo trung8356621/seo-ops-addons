@@ -9,11 +9,20 @@ use App\Models\Site;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 /**
- * Placeholder [phone], [website], … trong nội dung bài — AI dùng thay vì tự đặt tên random.
+ * Placeholder [[cta:zalo]] / legacy [zalo] trong nội dung bài — AI chọn loại/vị trí; app resolve URL/HTML.
  */
 final class ArticleCtaPlaceholderService
 {
     public const BLANK_PLACEHOLDER_CLASS = 'seo-cta-blank-placeholder';
+
+    /** Soft target for prompt guidance only — not a hard insert quota. */
+    public const CTA_LINK_TARGET = 4;
+
+    /** Hard maximum resolved CTA hyperlinks per article body. */
+    public const CTA_LINK_HARD_MAX = 6;
+
+    /** Max linked occurrences of the same CTA type/destination. */
+    public const CTA_LINK_MAX_PER_TYPE = 2;
 
     /** @var array<string, string> */
     public const PLACEHOLDER_TYPES = [
@@ -27,18 +36,38 @@ final class ArticleCtaPlaceholderService
         'working_hours' => 'Giờ làm việc',
     ];
 
+    /** @var array<string, string> */
+    public const SEMANTIC_ANCHOR_LABELS = [
+        'zalo' => 'Zalo',
+        'facebook' => 'Facebook',
+        'phone' => '',
+        'hotline' => '',
+        'email' => '',
+        'website' => '',
+        'address' => '',
+        'working_hours' => '',
+    ];
+
     public function __construct(
         private readonly SiteDomainPromptContextService $promptContext,
     ) {}
 
     public function placeholderGuideForPrompt(): string
     {
-        $lines = [];
+        $lines = ['Available CTA placeholders:'];
         foreach (array_keys(self::PLACEHOLDER_TYPES) as $type) {
-            $lines[] = "[{$type}]";
+            $lines[] = '[[cta:'.$type.']]';
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Canonical AI token for a CTA type.
+     */
+    public static function ctaToken(string $type): string
+    {
+        return '[[cta:'.mb_strtolower(trim($type)).']]';
     }
 
     /**
@@ -148,7 +177,7 @@ final class ArticleCtaPlaceholderService
     }
 
     /**
-     * Tìm các placeholder CTA ([phone], [address], …) đang được dùng trong nội dung.
+     * Tìm các placeholder CTA ([[cta:phone]], [phone], …) đang được dùng trong nội dung.
      *
      * @return list<string>
      */
@@ -166,13 +195,31 @@ final class ArticleCtaPlaceholderService
                     continue;
                 }
 
-                if (preg_match('/\['.preg_quote($type, '/').'\]/iu', $content) === 1) {
+                if ($this->contentHasToken($content, $type)) {
                     $found[$type] = true;
                 }
             }
         }
 
         return array_keys($found);
+    }
+
+    private function contentHasToken(string $content, string $type): bool
+    {
+        $quoted = preg_quote($type, '/');
+
+        return preg_match('/\[\[\s*cta\s*:\s*'.$quoted.'\s*\]\]/iu', $content) === 1
+            || preg_match('/\['.$quoted.'\]/iu', $content) === 1;
+    }
+
+    /**
+     * Match [[cta:type]] first, then legacy [type].
+     */
+    private function tokenPattern(string $tokenType): string
+    {
+        $quoted = preg_quote($tokenType, '/');
+
+        return '/(?:\[\[\s*cta\s*:\s*'.$quoted.'\s*\]\]|\['.$quoted.'\])/iu';
     }
 
     /**
@@ -287,7 +334,7 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $pattern = '/\['.preg_quote($type, '/').'\]/iu';
+            $pattern = $this->tokenPattern($type);
             $replacement = sprintf(
                 '<span class="%s" data-cta-type="%s">[%s]</span>',
                 self::BLANK_PLACEHOLDER_CLASS,
@@ -312,7 +359,7 @@ final class ArticleCtaPlaceholderService
 
         return (string) preg_replace(
             '/<span\s+class="'.preg_quote(self::BLANK_PLACEHOLDER_CLASS, '/')
-            .'"[^>]*data-cta-type="([a-z_]+)"[^>]*>\[\1\]<\/span>/iu',
+            .'"[^>]*data-cta-type="([a-z_]+)"[^>]*>.*?<\/span>/iu',
             '[$1]',
             $html,
         );
@@ -351,23 +398,30 @@ final class ArticleCtaPlaceholderService
             return $html;
         }
 
-        $values = $this->resolveValuesForSite($site);
+        $siteModel = $site instanceof Site ? $site : Site::query()->find((int) $site);
+        if ($siteModel === null) {
+            return $html;
+        }
+
+        $values = $this->resolveValuesForSite($siteModel);
         $phonePool = $values['_phone_pool'] ?? [];
         $emailPool = $values['_email_pool'] ?? [];
         unset($values['_phone_pool'], $values['_email_pool']);
+
+        $budget = $this->newBudgetState($html);
 
         if (is_array($phonePool) && $phonePool !== []) {
             /** @var list<string> $phonePool */
             $html = $this->replaceTokenWithBoundary($html, 'phone', function () use ($phonePool): string {
                 return (string) $phonePool[array_rand($phonePool)];
-            });
+            }, null, $budget, $siteModel);
         }
 
         if (is_array($emailPool) && $emailPool !== []) {
             /** @var list<string> $emailPool */
             $html = $this->replaceTokenWithBoundary($html, 'email', function () use ($emailPool): string {
                 return (string) $emailPool[array_rand($emailPool)];
-            });
+            }, null, $budget, $siteModel);
         }
 
         foreach (array_keys(self::PLACEHOLDER_TYPES) as $type) {
@@ -380,7 +434,14 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $html = $this->replaceTokenWithBoundary($html, $type, static fn (): string => $value);
+            $html = $this->replaceTokenWithBoundary(
+                $html,
+                $type,
+                static fn (): string => $value,
+                null,
+                $budget,
+                $siteModel,
+            );
         }
 
         foreach (SiteDomainPromptContextService::PHONE_SLOT_TYPES as $slot) {
@@ -389,7 +450,14 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $html = $this->replaceTokenWithBoundary($html, $slot, static fn (): string => $value, 'phone');
+            $html = $this->replaceTokenWithBoundary(
+                $html,
+                $slot,
+                static fn (): string => $value,
+                'phone',
+                $budget,
+                $siteModel,
+            );
         }
 
         foreach (SiteDomainPromptContextService::EMAIL_SLOT_TYPES as $slot) {
@@ -398,25 +466,90 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $html = $this->replaceTokenWithBoundary($html, $slot, static fn (): string => $value, 'email');
+            $html = $this->replaceTokenWithBoundary(
+                $html,
+                $slot,
+                static fn (): string => $value,
+                'email',
+                $budget,
+                $siteModel,
+            );
         }
 
         return $html;
     }
 
     /**
-     * Expand [token] while preserving/repairing lexical spacing at the token boundary only.
-     * Replacement values are atomic — never mutated internally.
+     * @return array{total: int, by_type: array<string, int>}
+     */
+    private function newBudgetState(string $html): array
+    {
+        $existing = $this->countExistingCtaHyperlinks($html);
+
+        return [
+            'total' => $existing['total'],
+            'by_type' => $existing['by_type'],
+        ];
+    }
+
+    /**
+     * @return array{total: int, by_type: array<string, int>}
+     */
+    public function countExistingCtaHyperlinks(string $html): array
+    {
+        $byType = [];
+        $total = 0;
+        if ($html === '' || ! preg_match_all('/<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>.*?<\/a>/isu', $html, $matches, PREG_SET_ORDER)) {
+            return ['total' => 0, 'by_type' => []];
+        }
+
+        foreach ($matches as $match) {
+            $href = trim((string) ($match[1] ?? ''));
+            $type = $this->classifyCtaHref($href);
+            if ($type === null) {
+                continue;
+            }
+            $total++;
+            $byType[$type] = ($byType[$type] ?? 0) + 1;
+        }
+
+        return ['total' => $total, 'by_type' => $byType];
+    }
+
+    private function classifyCtaHref(string $href): ?string
+    {
+        $lower = mb_strtolower($href);
+        if (str_starts_with($lower, 'tel:')) {
+            return 'phone';
+        }
+        if (str_starts_with($lower, 'mailto:')) {
+            return 'email';
+        }
+        if (str_contains($lower, 'zalo.me') || str_contains($lower, 'zalo.')) {
+            return 'zalo';
+        }
+        if (str_contains($lower, 'facebook.com') || str_contains($lower, 'fb.com')) {
+            return 'facebook';
+        }
+
+        return null;
+    }
+
+    /**
+     * Expand [[cta:token]] / [token] with lexical spacing + CTA link budget.
      *
      * @param  callable(): string  $pickValue
+     * @param  array{total: int, by_type: array<string, int>}|null  $budget
      */
     private function replaceTokenWithBoundary(
         string $html,
         string $tokenType,
         callable $pickValue,
         ?string $linkType = null,
+        ?array &$budget = null,
+        ?Site $site = null,
     ): string {
-        $pattern = '/\['.preg_quote($tokenType, '/').'\]/iu';
+        $pattern = $this->tokenPattern($tokenType);
         $offset = 0;
         $out = '';
 
@@ -434,14 +567,64 @@ final class ArticleCtaPlaceholderService
             }
 
             $renderType = $linkType ?? $tokenType;
-            $replacement = $this->buildReplacement($renderType, $value);
+            $allowLink = $this->shouldRenderAsLink($renderType)
+                && $this->budgetAllowsLink($budget, $renderType);
+            $replacement = $this->buildReplacement($renderType, $value, $site, $allowLink);
+            if ($allowLink && is_array($budget)) {
+                $budget['total']++;
+                $budget['by_type'][$renderType] = ($budget['by_type'][$renderType] ?? 0) + 1;
+            }
             $left = $this->charBefore($html, $start);
             $right = $this->charAfter($html, $start + strlen($matched));
-            $out .= $this->withLexicalBoundary($left, $replacement, $value, $right);
+            $visible = $this->semanticAnchorText($renderType, $value, $site);
+            $out .= $this->withLexicalBoundary($left, $replacement, $visible, $right);
             $offset = $start + strlen($matched);
         }
 
         return $out.substr($html, $offset);
+    }
+
+    /**
+     * @param  array{total: int, by_type: array<string, int>}|null  $budget
+     */
+    private function budgetAllowsLink(?array $budget, string $type): bool
+    {
+        if ($budget === null) {
+            return true;
+        }
+
+        if ($budget['total'] >= self::CTA_LINK_HARD_MAX) {
+            return false;
+        }
+
+        return ((int) ($budget['by_type'][$type] ?? 0)) < self::CTA_LINK_MAX_PER_TYPE;
+    }
+
+    private function semanticAnchorText(string $type, string $value, ?Site $site): string
+    {
+        $type = mb_strtolower(trim($type));
+
+        return match ($type) {
+            'zalo' => 'Zalo',
+            'facebook' => 'Facebook',
+            'website' => $this->websiteAnchorLabel($value, $site),
+            default => $value,
+        };
+    }
+
+    private function websiteAnchorLabel(string $value, ?Site $site): string
+    {
+        if ($site !== null) {
+            $payload = $this->promptContext->getForSite($site);
+            $identity = trim((string) ($payload['company_short_identity'] ?? ''));
+            if ($identity !== '') {
+                return 'website '.$identity;
+            }
+        }
+
+        $domain = trim((string) (preg_replace('~^https?://~i', '', $value) ?? $value), '/');
+
+        return $domain !== '' ? $domain : 'website';
     }
 
     private function withLexicalBoundary(string $left, string $replacement, string $value, string $right): string
@@ -522,21 +705,24 @@ final class ArticleCtaPlaceholderService
         return $faqs;
     }
 
-    private function buildReplacement(string $type, string $value): string
+    private function buildReplacement(string $type, string $value, ?Site $site = null, bool $asLink = true): string
     {
-        if (! $this->shouldRenderAsLink($type)) {
-            return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $label = $this->semanticAnchorText($type, $value, $site);
+        $safeLabel = htmlspecialchars($label, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        if (! $asLink || ! $this->shouldRenderAsLink($type)) {
+            return $safeLabel;
         }
 
         $href = CtaLinkFormatter::format($type, $value);
         if ($href === '') {
-            return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            return $safeLabel;
         }
 
         return sprintf(
             '<a href="%s">%s</a>',
             htmlspecialchars($href, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
-            htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            $safeLabel,
         );
     }
 

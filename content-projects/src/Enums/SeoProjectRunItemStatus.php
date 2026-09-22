@@ -15,6 +15,8 @@ enum SeoProjectRunItemStatus: string
     case Failed = 'failed';
     case Skipped = 'skipped';
     case Manual = 'manual';
+    /** Intentional pause (e.g. outline review checkpoint) — not a failure. */
+    case Paused = 'paused';
 
     /**
      * @return list<string>
@@ -32,6 +34,7 @@ enum SeoProjectRunItemStatus: string
             'manual' => self::Manual,
             'processing' => self::Processing,
             'skipped' => self::Skipped,
+            'paused' => self::Paused,
             default => self::Pending,
         };
     }
@@ -44,6 +47,8 @@ enum SeoProjectRunItemStatus: string
         return match ($this) {
             self::Processing => self::Pending->value,
             self::Skipped => self::Success->value,
+            // Keep paused visible — never map to failed/success.
+            self::Paused => self::Paused->value,
             default => $this->value,
         };
     }

@@ -201,8 +201,7 @@ class PromptResource extends SeoPanelResource
                                             ),
                                         Forms\Components\Select::make('routing_policy')
                                             ->label(__('seo-content-ai::filament.prompt.routing_policy'))
-                                            ->options(fn (): array => app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
-                                                ->selectablePolicyOptions())
+                                            ->options(fn (): array => self::routingPolicySelectOptions())
                                             ->placeholder(fn (Get $get): string => self::routingPolicyHookDefaultLabel(
                                                 (string) ($get('hook_key') ?? ''),
                                             ))
@@ -211,9 +210,10 @@ class PromptResource extends SeoPanelResource
                                                 (string) ($get('routing_policy') ?? ''),
                                             ))
                                             ->nullable()
-                                            ->live()
+                                            // Use native <select> for this static field to avoid Choices.js
+                                            // "Loading..." stuck state when a sibling Livewire update fails.
+                                            ->native()
                                             ->searchable(false)
-                                            ->native(false)
                                             ->hintAction(
                                                 Forms\Components\Actions\Action::make('reset_routing_policy')
                                                     ->label(__('seo-content-ai::filament.prompt.routing_policy_use_hook_default'))
@@ -222,6 +222,9 @@ class PromptResource extends SeoPanelResource
                                                         $set('routing_policy', null);
                                                     })
                                             ),
+                                        Forms\Components\Placeholder::make('routing_policy_descriptions')
+                                            ->label('')
+                                            ->content(fn (): \Illuminate\Support\HtmlString => self::routingPolicyDescriptionsHtml()),
                                         Forms\Components\Placeholder::make('execution_profile_ai_center')
                                             ->label('')
                                             ->content(fn (): HtmlString => self::executionProfileAiCenterLinkHtml()),
@@ -509,25 +512,66 @@ class PromptResource extends SeoPanelResource
 
     public static function routingPolicyHookDefaultLabel(string $hookKey): string
     {
-        $policy = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
-            ->hookDefault($hookKey !== '' ? $hookKey : null);
+        try {
+            $policy = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
+                ->hookDefault($hookKey !== '' ? $hookKey : null);
 
-        return (string) __('seo-content-ai::filament.prompt.routing_policy_hook_default_option', [
-            'policy' => $policy->displayName(),
-        ]);
+            return (string) __('seo-content-ai::filament.prompt.routing_policy_hook_default_option', [
+                'policy' => $policy->displayName(),
+            ]);
+        } catch (\Throwable) {
+            return (string) __('seo-content-ai::filament.prompt.routing_policy_hook_default_option', [
+                'policy' => 'Normal',
+            ]);
+        }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function routingPolicySelectOptions(): array
+    {
+        try {
+            return app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class)
+                ->selectablePolicyOptions();
+        } catch (\Throwable) {
+            return [
+                \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::Normal->value => 'Normal',
+                \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::QuickFree->value => 'Quick Free',
+                \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::FreeOnly->value => 'Free Only',
+            ];
+        }
     }
 
     public static function routingPolicyHelperText(string $hookKey, string $selected): string
     {
-        $resolver = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class);
-        $policy = \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::tryFromMixed($selected)
-            ?? $resolver->hookDefault($hookKey !== '' ? $hookKey : null);
+        try {
+            $resolver = app(\Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver::class);
+            $hookDefault = $resolver->hookDefault($hookKey !== '' ? $hookKey : null);
 
-        $hint = (string) __('seo-content-ai::filament.prompt.routing_policy_override_hint', [
-            'default' => self::routingPolicyHookDefaultLabel($hookKey),
-        ]);
+            return (string) __('seo-content-ai::filament.prompt.routing_policy_override_hint', [
+                'default' => $hookDefault->displayName(),
+            ]);
+        } catch (\Throwable) {
+            return (string) __('seo-content-ai::filament.prompt.routing_policy_override_hint', [
+                'default' => 'Normal',
+            ]);
+        }
+    }
 
-        return $hint.' '.$policy->description();
+    public static function routingPolicyDescriptionsHtml(): HtmlString
+    {
+        $lines = [];
+        foreach (\Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::cases() as $policy) {
+            $lines[] = '<li><span class="font-medium">'.e($policy->displayName()).':</span> '
+                .e($policy->description()).'</li>';
+        }
+
+        return new HtmlString(
+            '<ul class="list-disc pl-5 text-sm text-gray-600 dark:text-gray-300 space-y-1">'
+            .implode('', $lines)
+            .'</ul>'
+        );
     }
 
     /**

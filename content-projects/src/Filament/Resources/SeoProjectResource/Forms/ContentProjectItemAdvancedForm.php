@@ -28,6 +28,7 @@ final class ContentProjectItemAdvancedForm
         'tone_override',
         'generation_mode_override',
         'model_override_id',
+        'review_checkpoint_enabled',
     ];
 
     /**
@@ -77,6 +78,13 @@ final class ContentProjectItemAdvancedForm
                             ->default(true)
                             ->inline(false)
                             ->visible(fn (Get $get): bool => self::intState($get, 'model_override_id') > 0),
+
+                        Forms\Components\Toggle::make('review_checkpoint_enabled')
+                            ->label(__('seo-content-ai::filament.projects.item_review_checkpoint'))
+                            ->helperText(__('seo-content-ai::filament.projects.item_review_checkpoint_hint'))
+                            ->default(false)
+                            ->inline(false)
+                            ->live(),
                     ]),
                 ]),
         ];
@@ -87,6 +95,13 @@ final class ContentProjectItemAdvancedForm
         $count = 0;
 
         foreach (self::OVERRIDE_FIELDS as $field) {
+            if ($field === 'review_checkpoint_enabled') {
+                if ((bool) $get($field)) {
+                    $count++;
+                }
+
+                continue;
+            }
             if (self::stringState($get, $field) !== '') {
                 $count++;
             }

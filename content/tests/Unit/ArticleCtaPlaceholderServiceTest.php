@@ -16,27 +16,36 @@ final class ArticleCtaPlaceholderServiceTest extends TestCase
             ->placeholderGuideForPrompt();
 
         foreach (array_keys(ArticleCtaPlaceholderService::PLACEHOLDER_TYPES) as $type) {
-            $this->assertStringContainsString("[{$type}]", $guide);
+            $this->assertStringContainsString('[[cta:'.$type.']]', $guide);
         }
 
         $this->assertStringNotContainsString('—', $guide);
         $this->assertStringNotContainsString('[Website/Hotline]', $guide);
     }
 
-    public function test_format_cta_for_prompt_uses_resolved_contacts_not_placeholder_guide(): void
+    public function test_format_cta_for_prompt_uses_placeholder_guide_not_resolved_contacts(): void
     {
         $service = new SiteDomainPromptContextService;
 
         $text = $service->formatCtaForPrompt(
-            [['type' => 'phone_1', 'value' => '090'], ['type' => 'email_1', 'value' => 'a@b.c']],
+            [
+                ['type' => 'zalo', 'value' => 'https://zalo.me/1'],
+                ['type' => 'facebook', 'value' => 'https://facebook.com/x'],
+                ['type' => 'phone_1', 'value' => '090'],
+                ['type' => 'email_1', 'value' => 'a@b.c'],
+            ],
             'Nhắc liên hệ tự nhiên.',
+            new \App\Models\Site(['domain' => 'example.com']),
         );
 
-        $this->assertStringContainsString('Resolved Contact Context', $text);
-        $this->assertStringContainsString('phone: 090', $text);
-        $this->assertStringContainsString('email: a@b.c', $text);
-        $this->assertStringNotContainsString('[phone]', $text);
-        $this->assertStringNotContainsString('[website]', $text);
+        $this->assertStringContainsString('Available CTA placeholders', $text);
+        $this->assertStringContainsString('[[cta:zalo]]', $text);
+        $this->assertStringContainsString('[[cta:facebook]]', $text);
+        $this->assertStringContainsString('[[cta:website]]', $text);
+        $this->assertStringNotContainsString('Resolved Contact Context', $text);
+        $this->assertStringNotContainsString('https://zalo.me/1', $text);
+        $this->assertStringNotContainsString('https://facebook.com/x', $text);
+        $this->assertStringNotContainsString('website: example.com', $text);
     }
 
     public function test_replace_without_site_leaves_placeholders(): void
@@ -275,17 +284,53 @@ final class ArticleCtaPlaceholderServiceTest extends TestCase
         $this->assertSame('12 Nguyễn Thị Minh Khai để nhận tư vấn.', $this->visible($html));
     }
 
-    public function test_url_value_remains_atomic(): void
+    public function test_url_value_remains_atomic_in_href_with_semantic_anchor(): void
     {
         $url = 'https://example.com/a,b?q=x.y';
         $html = $this->replaceWithCta(
-            'Xem [facebook] ngay',
+            'Xem [[cta:facebook]] ngay',
             [['type' => 'facebook', 'value' => $url]],
         );
 
-        $this->assertSame('Xem '.$url.' ngay', $this->visible($html));
+        $this->assertSame('Xem Facebook ngay', $this->visible($html));
         $this->assertStringContainsString('href="'.htmlspecialchars($url, ENT_QUOTES | ENT_HTML5, 'UTF-8').'"', $html);
+        $this->assertStringNotContainsString($url, $this->visible($html));
         $this->assertStringNotContainsString('a, b', $this->visible($html));
+    }
+
+    public function test_double_bracket_zalo_resolves_to_semantic_anchor(): void
+    {
+        $html = $this->replaceWithCta(
+            'Liên hệ qua [[cta:zalo]] để được tư vấn.',
+            [['type' => 'zalo', 'value' => 'https://zalo.me/0901234567']],
+        );
+
+        $this->assertSame('Liên hệ qua Zalo để được tư vấn.', $this->visible($html));
+        $this->assertStringContainsString('href="https://zalo.me/0901234567"', $html);
+        $this->assertStringNotContainsString('https://zalo.me/0901234567', $this->visible($html));
+    }
+
+    public function test_cta_hard_max_and_per_type_budget_degrades_to_plain_text(): void
+    {
+        $tokens = implode(' ', array_fill(0, 8, '[[cta:zalo]]'));
+        $html = $this->replaceWithCta(
+            $tokens,
+            [['type' => 'zalo', 'value' => 'https://zalo.me/1']],
+        );
+
+        $linkCount = preg_match_all('/<a\s/i', $html) ?: 0;
+        $this->assertLessThanOrEqual(ArticleCtaPlaceholderService::CTA_LINK_HARD_MAX, $linkCount);
+        $this->assertLessThanOrEqual(ArticleCtaPlaceholderService::CTA_LINK_MAX_PER_TYPE, $linkCount);
+        $this->assertStringNotContainsString('https://zalo.me/1', $this->visible($html));
+        $this->assertStringContainsString('Zalo', $this->visible($html));
+        $this->assertStringNotContainsString('[[cta:zalo]]', $html);
+    }
+
+    public function test_content_without_placeholders_unchanged(): void
+    {
+        $original = '<p>Bài viết không có CTA.</p>';
+        $html = $this->replaceWithCta($original, [['type' => 'zalo', 'value' => 'https://zalo.me/1']]);
+        $this->assertSame($original, $html);
     }
 
     public function test_email_value_remains_atomic(): void

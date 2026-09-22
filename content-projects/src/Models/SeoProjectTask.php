@@ -98,9 +98,21 @@ class SeoProjectTask extends Model
         'publishing_queued_by' => 'integer',
         'generation_blocked_at' => 'datetime',
         'generation_blocked_by' => 'integer',
+        'review_checkpoint_enabled' => 'boolean',
+        'generation_paused_at' => 'datetime',
         'archived_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    public function isReviewCheckpointEnabled(): bool
+    {
+        return (bool) ($this->review_checkpoint_enabled ?? false);
+    }
+
+    public function isWaitingOutlineReview(): bool
+    {
+        return \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isWaitingReview($this);
+    }
 
     /**
      * Active = chưa archive. SoftDeletes tự loại deleted_at.

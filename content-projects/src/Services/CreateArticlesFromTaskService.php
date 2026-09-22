@@ -33,6 +33,7 @@ use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionS
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint;
 use Omnichannel\Addons\SearchFoundation\Services\DomainLinkListKeywordSyncService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
@@ -219,6 +220,11 @@ class CreateArticlesFromTaskService
             // Explicit step rerun must call AI — never short-circuit on existing body.
             $context = $this->withForcedAiRegenerate($context, $fromStep->value);
 
+            $projectTask = ContentProjectOutlineReviewCheckpoint::resolveProjectTask($context);
+            if ($projectTask instanceof SeoProjectTask) {
+                ContentProjectOutlineReviewCheckpoint::clearPause($projectTask);
+            }
+
             return $this->runArticleWritingForContext(
                 $context,
                 $task,
@@ -269,7 +275,7 @@ class CreateArticlesFromTaskService
 
         $steps = $this->runOutlineVocabularyViaSystemWorkflow($task, $context, $outlineNodeId);
 
-        return $this->finalizeWorkflowGraphRun(
+        $result = $this->finalizeWorkflowGraphRun(
             $context,
             $task,
             $resolvedSiteId,
@@ -280,6 +286,24 @@ class CreateArticlesFromTaskService
             $steps,
             requireContent: false,
         );
+
+        // Outline-only + Review checkpoint: stay waiting for review (do not auto-start Content).
+        if (
+            ($result['success'] ?? false) === true
+            && ContentProjectOutlineReviewCheckpoint::isEnabledForContext($context)
+        ) {
+            $projectTask = ContentProjectOutlineReviewCheckpoint::resolveProjectTask($context);
+            if ($projectTask instanceof SeoProjectTask) {
+                ContentProjectOutlineReviewCheckpoint::markWaitingReview($projectTask);
+            }
+
+            return ContentProjectOutlineReviewCheckpoint::pausedResult(
+                (int) ($result['article_id'] ?? $context->article?->id ?? 0),
+                is_array($result['steps'] ?? null) ? $result['steps'] : $steps,
+            );
+        }
+
+        return $result;
     }
 
     public function runPublishWorkflowForContext(TaskTestContext $context, int $siteId): array
@@ -370,7 +394,11 @@ class CreateArticlesFromTaskService
         }
 
         try {
-            if ((string) ($context->variables['rerun_scope'] ?? '') === 'full') {
+            // Review checkpoint forces two-phase so we can pause after Outline.
+            if (
+                ContentProjectOutlineReviewCheckpoint::isEnabledForContext($context)
+                || (string) ($context->variables['rerun_scope'] ?? '') === 'full'
+            ) {
                 return $this->runOutlineThenArticleForContext(
                     $this->withForcedAiRegenerate($context, 'outline'),
                     $resolvedSiteId,
@@ -544,6 +572,21 @@ class CreateArticlesFromTaskService
             'outline_artifact_hash' => $artifactHash,
             'force_ai_regenerate' => '1',
         ]));
+
+        // Optional Review checkpoint: persist outline, then intentional pause before Content.
+        // Re-read preference here so enabling mid-Outline still blocks Content dispatch.
+        if (ContentProjectOutlineReviewCheckpoint::isEnabledForContext($context)) {
+            $projectTask = ContentProjectOutlineReviewCheckpoint::resolveProjectTask($context);
+            if ($projectTask instanceof SeoProjectTask) {
+                ContentProjectOutlineReviewCheckpoint::markWaitingReview($projectTask);
+            }
+
+            return ContentProjectOutlineReviewCheckpoint::pausedResult(
+                (int) $fresh->id,
+                $phase1Steps,
+                $artifactHash,
+            );
+        }
 
         // ── PHASE 2: Explicit Writing (graph-independent) ──
         $writing = $this->runArticleWritingForContext(

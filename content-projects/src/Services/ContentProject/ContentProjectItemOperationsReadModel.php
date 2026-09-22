@@ -760,6 +760,8 @@ final class ContentProjectItemOperationsReadModel
             'in_publishing_queue' => $task->publishing_queued_at !== null,
             'generation_blocked' => $task->isGenerationBlocked(),
             'generation_blocked_at' => $task->generation_blocked_at?->toIso8601String(),
+            'review_checkpoint_enabled' => (bool) ($task->review_checkpoint_enabled ?? false),
+            'waiting_outline_review' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isWaitingReview($task),
             'generation_block_reason' => $task->generation_block_reason !== null
                 ? (string) $task->generation_block_reason
                 : null,
@@ -895,6 +897,8 @@ final class ContentProjectItemOperationsReadModel
             'generation_blocked' => (bool) ($rowBase['generation_blocked'] ?? false),
             'generation_blocked_at' => $rowBase['generation_blocked_at'] ?? null,
             'generation_block_reason' => $rowBase['generation_block_reason'] ?? null,
+            'review_checkpoint_enabled' => (bool) ($rowBase['review_checkpoint_enabled'] ?? false),
+            'waiting_outline_review' => (bool) ($rowBase['waiting_outline_review'] ?? false),
             'generation_badge' => $genBadge,
             'lifecycle_badge' => $workflowBadge,
             'workflow_badge' => $workflowBadge,

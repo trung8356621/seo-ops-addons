@@ -24,10 +24,11 @@ final class SiteDomainPromptContextServiceTest extends TestCase
             new \App\Models\Site(['domain' => 'example.com']),
         );
         $this->assertStringContainsString('Hướng dẫn CTA', $merged);
-        $this->assertStringContainsString('Resolved Contact Context', $merged);
-        $this->assertStringContainsString('phone: 090', $merged);
-        $this->assertStringContainsString('website: example.com', $merged);
-        $this->assertStringNotContainsString('[phone]', $merged);
+        $this->assertStringContainsString('Available CTA placeholders', $merged);
+        $this->assertStringContainsString('[[cta:phone]]', $merged);
+        $this->assertStringContainsString('[[cta:website]]', $merged);
+        $this->assertStringNotContainsString('Resolved Contact Context', $merged);
+        $this->assertStringNotContainsString('phone: 090', $merged);
         $this->assertStringNotContainsString('Giá trị đã cấu hình trên domain', $merged);
         $this->assertStringContainsString(
             'báo giá → https://example.com/bao-gia',
@@ -61,7 +62,7 @@ final class SiteDomainPromptContextServiceTest extends TestCase
         $this->assertStringNotContainsString('Featured Snippet', $siteCta);
     }
 
-    public function test_b_legitimate_resolved_contact_context_remains(): void
+    public function test_b_legitimate_cta_placeholder_guide_without_raw_urls(): void
     {
         $service = new SiteDomainPromptContextService;
 
@@ -76,12 +77,15 @@ final class SiteDomainPromptContextServiceTest extends TestCase
             new \App\Models\Site(['domain' => 'example.com']),
         );
 
-        $this->assertStringContainsString('Resolved Contact Context', $siteCta);
-        $this->assertStringContainsString('zalo: https://zalo.me/1', $siteCta);
-        $this->assertStringContainsString('facebook: https://facebook.com/x', $siteCta);
-        $this->assertStringContainsString('email: a@b.c', $siteCta);
-        $this->assertStringContainsString('address: 1 Street', $siteCta);
-        $this->assertStringContainsString('website: example.com', $siteCta);
+        $this->assertStringContainsString('Available CTA placeholders', $siteCta);
+        $this->assertStringContainsString('[[cta:zalo]]', $siteCta);
+        $this->assertStringContainsString('[[cta:facebook]]', $siteCta);
+        $this->assertStringContainsString('[[cta:email]]', $siteCta);
+        $this->assertStringContainsString('[[cta:address]]', $siteCta);
+        $this->assertStringContainsString('[[cta:website]]', $siteCta);
+        $this->assertStringNotContainsString('Resolved Contact Context', $siteCta);
+        $this->assertStringNotContainsString('https://zalo.me/1', $siteCta);
+        $this->assertStringNotContainsString('https://facebook.com/x', $siteCta);
         $this->assertStringContainsString('Kêu gọi hành động (CTA)', $siteCta);
     }
 
@@ -112,8 +116,9 @@ final class SiteDomainPromptContextServiceTest extends TestCase
         // Changing FS instruction constant ownership must not mutate CTA contacts.
         $this->assertSame($fs, $fsBefore['featured_snippet_instruction']);
         $this->assertStringNotContainsString($fs, $ctaBefore);
-        $this->assertStringContainsString('Resolved Contact Context', $ctaBefore);
-        $this->assertStringContainsString('zalo: https://zalo.me/1', $ctaBefore);
+        $this->assertStringContainsString('Available CTA placeholders', $ctaBefore);
+        $this->assertStringContainsString('[[cta:zalo]]', $ctaBefore);
+        $this->assertStringNotContainsString('https://zalo.me/1', $ctaBefore);
 
         // Changing CTA/domain contact must not mutate FS instruction.
         $ctaAfter = $service->formatCtaForPrompt(
@@ -124,8 +129,9 @@ final class SiteDomainPromptContextServiceTest extends TestCase
         $fsAfter = $service->featuredSnippetVariables();
 
         $this->assertSame($fsBefore, $fsAfter);
-        $this->assertStringContainsString('email: new@x.com', $ctaAfter);
-        $this->assertStringNotContainsString('zalo:', $ctaAfter);
+        $this->assertStringContainsString('[[cta:email]]', $ctaAfter);
+        $this->assertStringNotContainsString('[[cta:zalo]]', $ctaAfter);
+        $this->assertStringNotContainsString('new@x.com', $ctaAfter);
         $this->assertStringNotContainsString($fs, $ctaAfter);
     }
 
@@ -145,7 +151,8 @@ final class SiteDomainPromptContextServiceTest extends TestCase
             new \App\Models\Site(['domain' => 'mayhopphat.com']),
         );
         $this->assertStringNotContainsString('Tạo một bảng so sánh hoặc danh sách liệt kê', $siteCta);
-        $this->assertStringContainsString('Resolved Contact Context', $siteCta);
+        $this->assertStringContainsString('Available CTA placeholders', $siteCta);
+        $this->assertStringNotContainsString('https://zalo.me/1', $siteCta);
     }
 
     public function test_writing_section_compile_does_not_label_fs_as_cta_context(): void
@@ -186,7 +193,8 @@ final class SiteDomainPromptContextServiceTest extends TestCase
 
         $this->assertStringNotContainsString('CTA Context: `'.$fs, $compiled);
         $this->assertStringNotContainsString('Tạo một bảng so sánh hoặc danh sách liệt kê', $compiled);
-        $this->assertStringContainsString('Resolved Contact Context', $compiled);
+        $this->assertStringContainsString('Available CTA placeholders', $compiled);
+        $this->assertStringNotContainsString('https://zalo.me/1', $compiled);
     }
 
     public function test_merge_global_cta_into_rows(): void

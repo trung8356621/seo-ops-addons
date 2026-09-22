@@ -141,6 +141,22 @@ final class ContentProjectGenerationCapabilityResolver
             );
         }
 
+        if (\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isWaitingReview($task)) {
+            $evidence[] = 'outline_review_checkpoint';
+
+            return new ContentProjectGenerationRecoveryDecision(
+                taskId: $taskId,
+                action: ContentProjectGenerationRecoveryDecision::ACTION_RESUME,
+                reason: 'Resume Content after outline review checkpoint.',
+                resumableFromStep: ContentProjectRerunFromStep::Article->value,
+                existingArticleId: $existingArticleId,
+                repairable: true,
+                repaired: $articleResult->persisted,
+                staleRecovered: $staleRecovered,
+                evidence: $evidence,
+            );
+        }
+
         $resumePlan = $this->resumeResolver->resolve($task);
         $missingArticlePreflight = $this->isMissingArticlePreflightFailure($task);
         if (

@@ -32,6 +32,9 @@ final class ContentProjectArticleRuntimeStatus
 
     public const STATE_NO_ACTIVE_EXECUTION = 'no_active_execution';
 
+    /** Intentional Outline → Content review gate (not a failure). */
+    public const STATE_WAITING_OUTLINE_REVIEW = 'waiting_outline_review';
+
     /** Unvisited membership in a live/recoverable current bulk run. */
     public const STATE_BATCH_WAITING = 'batch_waiting';
 

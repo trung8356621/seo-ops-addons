@@ -67,7 +67,7 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
      * CTA writing guidance only — never Featured Snippet formatting instructions.
      * Featured Snippet ownership: {@see DEFAULT_FEATURED_SNIPPET_INSTRUCTION}.
      */
-    public const DEFAULT_CTA_INTRO = 'Kêu gọi hành động (CTA) ở mỗi heading — chỉ dùng thông tin liên hệ đã resolve bên dưới, không bịa số điện thoại / email / mạng xã hội.';
+    public const DEFAULT_CTA_INTRO = 'Kêu gọi hành động (CTA) ở mỗi heading khi phù hợp. Chỉ dùng đúng các placeholder CTA có trong danh sách Available CTA placeholders (ví dụ [[cta:zalo]]). Không viết URL thô, không bịa số điện thoại / email / mạng xã hội. CTA là tùy chọn — dùng khi câu văn tự nhiên cần liên hệ; không spam. Mục tiêu khoảng 4 CTA link, tối đa 6, tối đa 2 lần cùng một loại.';
 
     /**
      * Featured Snippet formatting instruction — article.featured_snippet.generate only.
@@ -912,30 +912,109 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
     }
 
     /**
-     * Final CTA context for AI — resolved contacts only, never raw [phone]/[email] placeholders.
+     * Final CTA context for AI — placeholder guide only (never raw contact destinations).
      *
      * @param  list<array{type: string, value: string}>  $items
      */
     public function formatCtaForPrompt(array $items, string $intro = '', Site|int|null $site = null): string
     {
         $intro = $this->stripFeaturedSnippetFromCtaIntro(trim($intro));
-        // Writing guidance must not leak unresolved placeholders into AI prompts.
+        // Writing guidance must not leak unresolved legacy [phone] tokens into AI prompts.
         $intro = $this->stripCtaPlaceholders($intro);
-        $resolved = $this->resolveContactContextForPrompt($items, $site);
+        $guide = $this->availableCtaPlaceholdersForPrompt($items, $site);
 
         $parts = [];
         if ($intro !== '') {
             $parts[] = $intro;
         }
-        if ($resolved !== '') {
-            $parts[] = "Resolved Contact Context:\n".$resolved;
+        if ($guide !== '') {
+            $parts[] = $guide;
         }
 
         $text = trim(implode("\n\n", $parts));
+        // Guide uses [[cta:type]] tokens — assert still blocks legacy [phone]-style leaks in intro.
         app(\Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpContextAssembler::class)
             ->assertNoUnresolvedPlaceholders($text);
 
         return $text;
+    }
+
+    /**
+     * Semantic placeholder list for article.content.generate — no raw URLs/destinations.
+     *
+     * @param  list<array{type?: string, value?: string}>  $items
+     */
+    public function availableCtaPlaceholdersForPrompt(array $items, Site|int|null $site = null): string
+    {
+        $labels = [
+            'zalo' => 'contact via Zalo',
+            'facebook' => 'contact via Facebook',
+            'website' => 'official website',
+            'email' => 'contact via email',
+            'address' => 'business address',
+            'phone' => 'contact via phone',
+            'hotline' => 'contact via hotline',
+            'working_hours' => 'business working hours',
+        ];
+
+        $available = [];
+        $hasPhone = false;
+        $hasEmail = false;
+
+        foreach ($items as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = mb_strtolower(trim((string) ($row['type'] ?? '')));
+            $value = trim((string) ($row['value'] ?? ''));
+            if ($type === '' || $value === '') {
+                continue;
+            }
+            if (in_array($type, self::PHONE_SLOT_TYPES, true) || $type === 'phone' || $type === 'hotline') {
+                $hasPhone = true;
+
+                continue;
+            }
+            if (in_array($type, self::EMAIL_SLOT_TYPES, true) || $type === 'email') {
+                $hasEmail = true;
+
+                continue;
+            }
+            if ($type === 'website') {
+                continue;
+            }
+            if (isset($labels[$type])) {
+                $available[$type] = $labels[$type];
+            }
+        }
+
+        if ($hasPhone) {
+            $available['phone'] = $labels['phone'];
+        }
+        if ($hasEmail) {
+            $available['email'] = $labels['email'];
+        }
+
+        if ($site !== null) {
+            $siteModel = $site instanceof Site ? $site : Site::query()->find((int) $site);
+            $domain = trim((string) ($siteModel?->domain ?? ''));
+            if ($domain !== '') {
+                $available['website'] = $labels['website'];
+            }
+        }
+
+        if ($available === []) {
+            return '';
+        }
+
+        $lines = ['Available CTA placeholders:'];
+        foreach ($available as $type => $description) {
+            $lines[] = '[[cta:'.$type.']]  - '.$description;
+        }
+        $lines[] = '';
+        $lines[] = 'Rules: Never output raw URLs or destination data. Use only exact supported CTA placeholders. Do not rename or mutate placeholder tokens.';
+
+        return implode("\n", $lines);
     }
 
     public function stripCtaPlaceholders(string $text): string

@@ -78,6 +78,15 @@
             </svg>
         </button>
     @elseif (! empty($a['resume_generation']))
+        @php
+            $resumeIsOutlineReview = ! empty($row['waiting_outline_review']);
+            $resumeLabel = $resumeIsOutlineReview
+                ? __('seo-content-ai::filament.projects.item_action_resume_outline_review')
+                : __('seo-content-ai::filament.projects.item_action_resume_failed_step');
+            $resumeHint = $resumeIsOutlineReview
+                ? __('seo-content-ai::filament.projects.item_action_resume_outline_review_hint')
+                : __('seo-content-ai::filament.projects.item_action_resume_failed_step_hint');
+        @endphp
         <button
             type="button"
             wire:click="resumeFromFailedStep({{ $tid }})"
@@ -85,8 +94,8 @@
             wire:loading.attr="disabled"
             @click="$dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-primary-600 ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-primary-400 dark:ring-gray-700 dark:hover:bg-gray-800"
-            aria-label="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}"
-            title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }} — {{ __('seo-content-ai::filament.projects.item_action_resume_failed_step_hint') }}"
+            aria-label="{{ $resumeLabel }}"
+            title="{{ $resumeLabel }} — {{ $resumeHint }}"
         >
             <x-filament::icon wire:loading.remove wire:target="resumeFromFailedStep({{ $tid }})" icon="heroicon-o-arrow-uturn-left" class="h-4 w-4" />
             <svg wire:loading wire:target="resumeFromFailedStep({{ $tid }})" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
@@ -240,9 +249,17 @@
                 @endif
                 <p class="cp-ops-menu__heading">Retry / Recovery</p>
                 @if ($a['resume_generation'])
-                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step_hint') }}">
+                    @php
+                        $menuResumeLabel = ! empty($row['waiting_outline_review'])
+                            ? __('seo-content-ai::filament.projects.item_action_resume_outline_review')
+                            : __('seo-content-ai::filament.projects.item_action_resume_failed_step');
+                        $menuResumeHint = ! empty($row['waiting_outline_review'])
+                            ? __('seo-content-ai::filament.projects.item_action_resume_outline_review_hint')
+                            : __('seo-content-ai::filament.projects.item_action_resume_failed_step_hint');
+                    @endphp
+                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ $menuResumeHint }}">
                         <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}</span>
+                        <span class="cp-ops-menu__label">{{ $menuResumeLabel }}</span>
                     </button>
                 @endif
                 @if (! empty($a['create_or_rerun']))

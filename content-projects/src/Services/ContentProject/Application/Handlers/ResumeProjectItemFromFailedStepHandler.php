@@ -102,6 +102,25 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
                     );
                 }
 
+                if (\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isWaitingReview($task)) {
+                    \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::clearPause($task);
+                    $plans[(int) $itemId] = [
+                        'ok' => true,
+                        'from_step' => \Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep::Article,
+                        'include_downstream' => false,
+                        'resumed_from_step' => 'article',
+                        'reused_steps' => ['outline'],
+                        'invalidated_steps' => ['article'],
+                        'failed_step_key' => null,
+                        'run_item_id' => null,
+                        'attempt' => null,
+                        'message' => 'Resume Content after outline review checkpoint.',
+                        'split_progress' => null,
+                    ];
+
+                    continue;
+                }
+
                 $plan = $this->resumeResolver->resolve($task);
                 if (! ($plan['ok'] ?? false) || $plan['from_step'] === null) {
                     return ContentProjectActionResult::fail(
