@@ -1,0 +1,74 @@
+{
+  "spec_version": "0.1",
+  "key": "seo_audit.discover_new_topics",
+  "version": "0.2.0",
+  "name": "Discover New Topics",
+  "description": "Propose entirely new Topic candidates with Target DNA using company context, Keyword Landscape, optional discovery guidance, and avoid_topics. Temporary planning candidates only — no Topic DB write, no article generation.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "seo_audit",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": { "temperature": 0.35 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "landscape_json": { "type": "string", "required": true, "max_length": 100000, "label": "Keyword Landscape JSON" },
+    "count": { "type": "integer", "required": false, "default": 8, "label": "Requested new topic count" },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
+    "site_domain": { "type": "string", "required": false, "nullable": true, "max_length": 255, "label": "Site domain" },
+    "company_short_identity": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Company Short Identity" },
+    "short_description": { "type": "string", "required": false, "nullable": true, "max_length": 4000, "label": "Short Description" },
+    "discovery_guidance": { "type": "string", "required": false, "nullable": true, "max_length": 2000, "label": "Discovery Guidance" },
+    "avoid_topics": { "type": "string", "required": false, "nullable": true, "max_length": 8000, "label": "Avoid Topics (JSON array of names)" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You propose NEW Topic candidates for SEO Audit planning.\n\nYou do NOT write articles.\nYou do NOT invent Topic database ids.\nYou do NOT copy or lightly rename existing Topics or avoid_topics.\n\nUse ALL of the following context together:\n1. Company Short Identity — what the business/company is.\n2. Short Description — core products/services/capabilities.\n3. Keyword Landscape JSON — Topics that already exist (names, MCP share, DNA coverage).\n4. Discovery Guidance — optional user steering for this generation (may be empty).\n5. avoid_topics — temporary Topic names from a previous generated batch that must not be repeated (may be empty JSON array).\n\nCore goal: find materially NEW Topic directions that fit the business but are not already represented as existing Topics in the landscape, and are not near-equivalents of avoid_topics.\n\nDo NOT merely produce:\n- existing product + adjective\n- existing Topic + small modifier\n- existing Topic + audience variant\nunless it is genuinely a distinct content cluster.\n\nDo not invent business capabilities that contradict company_short_identity or short_description.\nDo not repeat, lightly rename, or create near-equivalent versions of names listed in avoid_topics.\n\nFor each NEW Topic return:\n- candidate_key: unique string within this response (e.g. generated-1). NEVER a DB id.\n- name: non-empty Topic name in the requested primary language when provided.\n- target_dna_count: integer >= 1 (suggested DNA slot count for planning).\n- dna: array of distinct short DNA phrases (normalized strings). Prefer target_dna_count phrases when reasonable; never duplicate DNA inside one Topic.\n\nAvoid:\n- Topics that match existing landscape names (case/whitespace insensitive).\n- Mere expansions of an existing Topic already listed.\n- Article titles, keyword dumps, prose explanations.\n\nSite domain: {{site_domain}}\nPrimary language: {{primary_language}}\nCompany Short Identity: {{company_short_identity}}\nShort Description: {{short_description}}\nDiscovery Guidance: {{discovery_guidance}}\nAvoid Topics JSON: {{avoid_topics}}\nRequested count: {{count}}\n\nKeyword Landscape JSON:\n{{landscape_json}}\n\nOUTPUT CONTRACT — STRICT\nReturn ONLY valid JSON object:\n{\"topics\":[{\"candidate_key\":\"generated-1\",\"name\":\"...\",\"target_dna_count\":10,\"dna\":[\"...\",\"...\"]}]}\nNo markdown fences, no commentary, no text before/after JSON.\nFirst non-whitespace character MUST be { and last MUST be }."
+  },
+  "presentation": {
+    "description": "Propose entirely new Topic candidates with Target DNA using company context, Keyword Landscape, optional discovery guidance, and avoid_topics (temporary SEO Audit candidates).",
+    "default_instructions": [
+      "Use company identity + short description to understand the business.",
+      "Read Keyword Landscape for existing Topics / MCP / DNA coverage.",
+      "Honor optional discovery_guidance as business-direction steering.",
+      "Do not repeat avoid_topics or near-equivalents.",
+      "Return candidate_key, name, target_dna_count, and dna[] only.",
+      "No articles, no DB Topic ids, no prose outside JSON."
+    ],
+    "output_format": [
+      "{\"topics\":[{\"candidate_key\":\"generated-1\",\"name\":\"...\",\"target_dna_count\":10,\"dna\":[\"...\"]}]}"
+    ],
+    "notes": [
+      "PR3: temporary UI/session candidates only — callers must not materialize Topic rows or articles.",
+      "Landscape must come from KeywordLandscapeGateway / approved MCP boundary.",
+      "Company Short Identity / Short Description come from Domain prompt context (seo_domain_prompt_context)."
+    ],
+    "variables": [
+      { "key": "landscape_json", "required": true },
+      { "key": "count", "required": false },
+      { "key": "primary_language", "required": false },
+      { "key": "site_domain", "required": false },
+      { "key": "company_short_identity", "required": false },
+      { "key": "short_description", "required": false },
+      { "key": "discovery_guidance", "required": false },
+      { "key": "avoid_topics", "required": false }
+    ]
+  },
+  "retry": { "max": 1 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

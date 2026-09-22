@@ -12,6 +12,7 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeResult;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultDiscoverNewTopicsPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
@@ -41,6 +42,8 @@ final class DiscoverNewTopicsService
 
     public const OPERATION = 'discover_new_topics';
 
+    public const DISCOVERY_GUIDANCE_MAX = 2000;
+
     public function __construct(
         private readonly KeywordLandscapeGateway $landscape,
         private readonly DiscoverNewTopicsResultParser $parser,
@@ -50,9 +53,11 @@ final class DiscoverNewTopicsService
         private readonly SeoCreateArticleSettingsService $workflowSettings,
         private readonly SitePrimaryLanguageService $primaryLanguage,
         private readonly ContentProjectPlannerRunService $plannerRuns,
+        private readonly SiteDomainPromptContextService $domainPromptContext,
     ) {}
 
     /**
+     * @param  list<string>  $avoidTopics  Temporary generated Topic names (not DB Topics).
      * @return array{
      *   ok: bool,
      *   message: string,
@@ -66,6 +71,8 @@ final class DiscoverNewTopicsService
         ?int $actorId = null,
         int $count = self::DEFAULT_COUNT,
         ?SeoProject $project = null,
+        string $discoveryGuidance = '',
+        array $avoidTopics = [],
     ): array {
         if ($siteId <= 0) {
             return $this->fail('Site is required.');
@@ -84,6 +91,11 @@ final class DiscoverNewTopicsService
 
         $landscapeJson = $this->encodeLandscape($landscape);
         $language = $this->resolvePrimaryLanguage($site);
+        $domainPayload = $this->domainPromptContext->getForSite($siteId);
+        $companyShort = trim((string) ($domainPayload['company_short_identity'] ?? ''));
+        $shortDescription = trim((string) ($domainPayload['short_description'] ?? ''));
+        $guidance = self::normalizeDiscoveryGuidance($discoveryGuidance);
+        $avoidJson = self::encodeAvoidTopics($avoidTopics);
 
         try {
             $run = $this->runPrompt(
@@ -93,6 +105,10 @@ final class DiscoverNewTopicsService
                 count: $count,
                 primaryLanguage: $language,
                 siteDomain: (string) ($site->domain ?? ''),
+                companyShortIdentity: $companyShort,
+                shortDescription: $shortDescription,
+                discoveryGuidance: $guidance,
+                avoidTopicsJson: $avoidJson,
             );
         } catch (InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
@@ -120,6 +136,42 @@ final class DiscoverNewTopicsService
         );
 
         return $result;
+    }
+
+    public static function normalizeDiscoveryGuidance(string $guidance): string
+    {
+        $guidance = trim(preg_replace("/\r\n?/", "\n", $guidance) ?? $guidance);
+        if ($guidance === '') {
+            return '';
+        }
+        if (mb_strlen($guidance) > self::DISCOVERY_GUIDANCE_MAX) {
+            return mb_substr($guidance, 0, self::DISCOVERY_GUIDANCE_MAX);
+        }
+
+        return $guidance;
+    }
+
+    /**
+     * @param  list<mixed>  $avoidTopics
+     */
+    public static function encodeAvoidTopics(array $avoidTopics): string
+    {
+        $names = [];
+        $seen = [];
+        foreach ($avoidTopics as $row) {
+            $name = trim((string) $row);
+            if ($name === '') {
+                continue;
+            }
+            $key = mb_strtolower($name);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $names[] = $name;
+        }
+
+        return json_encode($names, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     /**
@@ -247,6 +299,10 @@ final class DiscoverNewTopicsService
         int $count,
         string $primaryLanguage,
         string $siteDomain,
+        string $companyShortIdentity,
+        string $shortDescription,
+        string $discoveryGuidance,
+        string $avoidTopicsJson,
     ): array {
         $context = array_filter([
             'site_id' => $siteId,
@@ -255,25 +311,26 @@ final class DiscoverNewTopicsService
             'site_locale' => $primaryLanguage !== '' ? $primaryLanguage : null,
         ], static fn (mixed $v): bool => $v !== null);
 
+        $input = [
+            'landscape_json' => $landscapeJson,
+            'count' => $count,
+            'primary_language' => $primaryLanguage,
+            'site_domain' => $siteDomain,
+            'company_short_identity' => $companyShortIdentity,
+            'short_description' => $shortDescription,
+            'discovery_guidance' => $discoveryGuidance,
+            'avoid_topics' => $avoidTopicsJson,
+        ];
+
         $envelope = PromptHookExecutionInput::fromArray([
             'context' => $context,
-            'input' => [
-                'landscape_json' => $landscapeJson,
-                'count' => $count,
-                'primary_language' => $primaryLanguage,
-                'site_domain' => $siteDomain,
-            ],
+            'input' => $input,
             'previous_outputs' => [],
             'settings' => [],
         ]);
 
         $promptResultId = null;
-        $legacyVariables = [
-            'landscape_json' => $landscapeJson,
-            'count' => $count,
-            'primary_language' => $primaryLanguage,
-            'site_domain' => $siteDomain,
-        ];
+        $legacyVariables = $input;
 
         $value = $this->promptHookBridge->run(
             hookKey: self::HOOK_KEY,

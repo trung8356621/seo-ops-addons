@@ -2247,6 +2247,25 @@
             border-right: none;
             border-radius: 0 0 0.75rem 0.75rem;
         }
+        .cp-new-topics-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.75rem;
+            padding: 0.25rem 0.15rem 0.75rem;
+        }
+        @media (min-width: 1024px) {
+            .cp-new-topics-grid {
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            }
+        }
+        .cp-new-topics-card {
+            min-width: 0;
+            height: 100%;
+        }
+        .cp-ops-dialog--discover {
+            width: min(32rem, calc(100vw - 1.5rem));
+            max-height: min(36rem, calc(100vh - 2rem));
+        }
         .cp-audit-notes__mode-tab {
             border: 1px solid rgb(209 213 219);
             background: #fff;

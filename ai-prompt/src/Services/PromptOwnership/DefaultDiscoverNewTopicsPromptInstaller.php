@@ -20,7 +20,7 @@ final class DefaultDiscoverNewTopicsPromptInstaller
 {
     public const HOOK_KEY = 'seo_audit.discover_new_topics';
 
-    public const HOOK_VERSION = '0.1.0';
+    public const HOOK_VERSION = '0.2.0';
 
     public const PROMPT_NAME = 'Discover New Topics';
 
@@ -80,7 +80,7 @@ final class DefaultDiscoverNewTopicsPromptInstaller
                 $ownershipRepaired = true;
             }
 
-            if ($restoreCanonical) {
+            if ($restoreCanonical || trim((string) ($existing->hook_version ?? '')) !== self::HOOK_VERSION) {
                 $existing->markdown_content = self::canonicalDefaultMarkdown();
                 $existing->description = self::canonicalDescription();
                 $existing->variables = self::canonicalVariables();

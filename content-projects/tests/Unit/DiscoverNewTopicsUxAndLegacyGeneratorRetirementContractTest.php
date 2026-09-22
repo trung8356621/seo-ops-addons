@@ -74,11 +74,14 @@ final class DiscoverNewTopicsUxAndLegacyGeneratorRetirementContractTest extends 
         self::assertStringContainsString('cp-audit-notes__ai-action', $blade);
         self::assertStringContainsString('cp-ai-topic-workspace--new-only', $blade);
         self::assertStringContainsString('data-new-topics-selected="1"', $blade);
+        self::assertStringContainsString('data-discover-new-topics-modal="1"', $blade);
+        self::assertStringContainsString('data-discover-guidance="1"', $blade);
+        self::assertStringContainsString('cp-new-topics-grid', $blade);
         self::assertStringNotContainsString('data-new-topics-candidates="1"', $blade);
         self::assertStringNotContainsString('toggleNewTopicCandidate', $blade);
         self::assertStringContainsString('cpNewTopicsStorage', $blade);
-        self::assertStringContainsString('wire:confirm', $blade);
         self::assertStringContainsString('new_topics_regenerate_confirm', $blade);
+        self::assertStringContainsString('window.confirm', $blade);
         // New tab button only when showNewTab
         self::assertMatchesRegularExpression('/@if\s*\(\s*\$showNewTab\s*\)[\s\S]*new_topics_tab_count/', $blade);
     }

@@ -55,6 +55,9 @@ trait InteractsWithDiscoverNewTopics
 
     public string $newTopicsLastError = '';
 
+    /** Optional temporary steering for the next Discover call (LocalStorage only). */
+    public string $discoveryGuidance = '';
+
     public function mountInteractsWithDiscoverNewTopics(): void
     {
         $this->auditNotesTab = 'existing';
@@ -63,6 +66,7 @@ trait InteractsWithDiscoverNewTopics
         $this->newTopicsGenerating = false;
         $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_NOT_RUN;
         $this->newTopicsLastError = '';
+        $this->discoveryGuidance = '';
     }
 
     public function setAuditNotesTab(string $tab): void
@@ -76,7 +80,7 @@ trait InteractsWithDiscoverNewTopics
         $this->auditNotesTab = in_array($tab, ['existing', 'new'], true) ? $tab : 'existing';
     }
 
-    public function discoverNewTopics(): void
+    public function discoverNewTopics(?string $guidance = null): void
     {
         if ($this->newTopicsGenerating) {
             return;
@@ -114,6 +118,10 @@ trait InteractsWithDiscoverNewTopics
             return;
         }
 
+        if ($guidance !== null) {
+            $this->discoveryGuidance = DiscoverNewTopicsService::normalizeDiscoveryGuidance($guidance);
+        }
+
         $previousItems = $this->newTopicSelectedItems;
         $previousCandidates = $this->newTopicCandidates;
         $hadCompletedBatch = $this->newTopicsGenerationState === self::NEW_TOPICS_STATE_COMPLETED
@@ -134,6 +142,8 @@ trait InteractsWithDiscoverNewTopics
                 is_numeric($actorId) ? (int) $actorId : null,
                 DiscoverNewTopicsService::DEFAULT_COUNT,
                 $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject ? $project : null,
+                $this->discoveryGuidance,
+                $this->currentAvoidTopicNames(),
             );
             if (! $result['ok']) {
                 $this->newTopicsLastError = (string) $result['message'];
@@ -145,6 +155,7 @@ trait InteractsWithDiscoverNewTopics
                 if (! $hadCompletedBatch) {
                     $this->auditNotesTab = 'existing';
                 }
+                $this->dispatchNewTopicsPersist();
                 Notification::make()
                     ->title((string) __('seo-content-ai::filament.projects.new_topics_failed'))
                     ->body($this->newTopicsLastError)
@@ -187,6 +198,17 @@ trait InteractsWithDiscoverNewTopics
                     ? self::NEW_TOPICS_STATE_COMPLETED
                     : self::NEW_TOPICS_STATE_FAILED;
             }
+        }
+    }
+
+    public function updatedDiscoveryGuidance(string $value): void
+    {
+        $this->discoveryGuidance = DiscoverNewTopicsService::normalizeDiscoveryGuidance($value);
+        if ($this->newTopicsGenerationState === self::NEW_TOPICS_STATE_COMPLETED
+            || $this->newTopicSelectedItems !== []
+            || $this->discoveryGuidance !== ''
+        ) {
+            $this->dispatchNewTopicsPersist();
         }
     }
 
@@ -247,6 +269,9 @@ trait InteractsWithDiscoverNewTopics
         $this->newTopicCandidates = $this->candidatesFromSelectedItems($items);
         $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_COMPLETED;
         $this->newTopicsLastError = '';
+        $this->discoveryGuidance = DiscoverNewTopicsService::normalizeDiscoveryGuidance(
+            (string) ($payload['discovery_guidance'] ?? ''),
+        );
         if ($items !== [] || $state === self::NEW_TOPICS_STATE_COMPLETED) {
             $this->auditNotesTab = $items === [] ? 'new' : $this->auditNotesTab;
             if ($this->auditNotesTab !== 'new' && $items !== []) {
@@ -526,7 +551,9 @@ trait InteractsWithDiscoverNewTopics
      *   topics_url: string,
      *   site_id: int,
      *   project_id: int,
-     *   storage_schema: int
+     *   storage_schema: int,
+     *   discovery_guidance: string,
+     *   site_domain: string
      * }
      */
     public function getDiscoverNewTopicsPayloadProperty(): array
@@ -548,6 +575,15 @@ trait InteractsWithDiscoverNewTopics
             ? (int) $this->resolveAuditNotesSiteId()
             : 0;
 
+        $siteDomain = '';
+        if ($siteId > 0) {
+            try {
+                $siteDomain = trim((string) (\App\Models\Site::query()->whereKey($siteId)->value('domain') ?? ''));
+            } catch (\Throwable) {
+                $siteDomain = '';
+            }
+        }
+
         return [
             'tab' => $this->auditNotesTab,
             'generating' => $this->newTopicsGenerating,
@@ -561,6 +597,8 @@ trait InteractsWithDiscoverNewTopics
             'site_id' => $siteId,
             'project_id' => $this->resolveDiscoverProjectId(),
             'storage_schema' => self::NEW_TOPICS_STORAGE_SCHEMA,
+            'discovery_guidance' => $this->discoveryGuidance,
+            'site_domain' => $siteDomain,
         ];
     }
 
@@ -703,17 +741,60 @@ trait InteractsWithDiscoverNewTopics
 
         $payload = [
             'schema_version' => self::NEW_TOPICS_STORAGE_SCHEMA,
-            'generation_state' => $this->newTopicsGenerationState,
+            'generation_state' => $this->newTopicsGenerationState === self::NEW_TOPICS_STATE_LOADING
+                ? self::NEW_TOPICS_STATE_COMPLETED
+                : $this->newTopicsGenerationState,
             'updated_at' => now()->toIso8601String(),
             'site_id' => $siteId,
             'project_id' => $this->resolveDiscoverProjectId(),
+            'discovery_guidance' => $this->discoveryGuidance,
             'items' => $items,
         ];
+
+        // Skip writing partial loading-only payloads with no prior completed workspace.
+        if ($payload['generation_state'] === self::NEW_TOPICS_STATE_NOT_RUN
+            && $items === []
+            && $this->discoveryGuidance === ''
+        ) {
+            return;
+        }
+        if ($payload['generation_state'] === self::NEW_TOPICS_STATE_FAILED && $items === []) {
+            // Keep failed empty — still persist guidance for modal restore.
+        }
+        if ($payload['generation_state'] === self::NEW_TOPICS_STATE_NOT_RUN) {
+            // Guidance typed before first completed run — store as completed empty workspace.
+            $payload['generation_state'] = self::NEW_TOPICS_STATE_COMPLETED;
+        }
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if (! is_string($json)) {
             return;
         }
         $this->js('window.cpNewTopicsStorage && window.cpNewTopicsStorage.write('.$json.')');
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function currentAvoidTopicNames(): array
+    {
+        $names = [];
+        foreach ($this->newTopicSelectedItems as $item) {
+            $name = trim((string) ($item['cluster_name_snapshot'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+        if ($names !== []) {
+            return $names;
+        }
+        foreach ($this->newTopicCandidates as $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
     }
 }

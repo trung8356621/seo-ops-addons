@@ -34,6 +34,8 @@
     $topicsUrl = (string) ($discover['topics_url'] ?? '');
     $newProjectId = (int) ($discover['project_id'] ?? 0);
     $newStorageSchema = (int) ($discover['storage_schema'] ?? 1);
+    $discoveryGuidance = (string) ($discover['discovery_guidance'] ?? ($this->discoveryGuidance ?? ''));
+    $siteDomain = (string) ($discover['site_domain'] ?? '');
     if ($newGenerationState !== 'completed' && $auditTab === 'new') {
         $auditTab = 'existing';
     }
@@ -54,6 +56,9 @@
     $discoverActionLabel = $newGenerationState === 'completed'
         ? (string) __('seo-content-ai::filament.projects.new_topics_retry')
         : (string) __('seo-content-ai::filament.projects.new_topics_generate');
+    $discoverSubmitLabel = $newGenerationState === 'completed'
+        ? (string) __('seo-content-ai::filament.projects.new_topics_retry')
+        : (string) __('seo-content-ai::filament.projects.new_topics_modal_submit');
     $discoverNeedsConfirm = $newGenerationState === 'completed' && $newSelected !== [];
     $workspaceMod = $auditTab === 'new' ? ' cp-ai-topic-workspace--new-only' : '';
 @endphp
@@ -72,7 +77,16 @@
     x-init="window.cpNewTopicsStorage && window.cpNewTopicsStorage.hydrate($wire, {{ (int) $siteId }}, {{ (int) $newProjectId }})"
     @cp-audit-notes-selected.window="mergeServerSelected(($event.detail && $event.detail.items) ? $event.detail.items : [])"
 >
-    <div class="cp-audit-notes__mode-toolbar" data-audit-notes-mode-toolbar="1">
+    <div
+        class="cp-audit-notes__mode-toolbar"
+        data-audit-notes-mode-toolbar="1"
+        x-data="cpDiscoverNewTopicsModal({
+            initialGuidance: @js($discoveryGuidance),
+            canRun: @js($discoverCanRun),
+            needsConfirm: @js($discoverNeedsConfirm),
+            confirmMessage: @js(__('seo-content-ai::filament.projects.new_topics_regenerate_confirm')),
+        })"
+    >
         <div class="cp-audit-notes__mode-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.audit_notes_mode_tabs') }}">
             <button
                 type="button"
@@ -97,26 +111,88 @@
             <button
                 type="button"
                 class="cp-audit-notes__ai-action{{ $discoverCanRun ? '' : ' is-disabled' }}"
-                wire:click="discoverNewTopics"
-                wire:loading.attr="disabled"
-                wire:target="discoverNewTopics"
-                @if ($discoverNeedsConfirm)
-                    wire:confirm="{{ __('seo-content-ai::filament.projects.new_topics_regenerate_confirm') }}"
-                @endif
+                @click="openModal()"
                 @disabled(! $discoverCanRun)
                 title="{{ $discoverDisabledReason }}"
                 aria-disabled="{{ $discoverCanRun ? 'false' : 'true' }}"
                 data-discover-new-topics="1"
                 data-discover-enabled="{{ $discoverCanRun ? '1' : '0' }}"
+                data-discover-open-modal="1"
             >
                 <span class="cp-audit-notes__ai-action-icon" aria-hidden="true">✦</span>
-                <span wire:loading.remove wire:target="discoverNewTopics">{{ $discoverActionLabel }}</span>
-                <span wire:loading wire:target="discoverNewTopics" class="inline-flex items-center gap-1">
-                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3"/></svg>
-                    {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
-                </span>
+                <span>{{ $discoverActionLabel }}</span>
             </button>
         </div>
+
+        <template x-teleport="body">
+            <div
+                class="cp-ops-dialog-overlay"
+                x-show="open"
+                x-cloak
+                x-transition.opacity
+                @keydown.escape.window="if (open) closeModal()"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cp-discover-new-topics-title"
+                data-discover-new-topics-modal="1"
+                @click.self="closeModal()"
+            >
+                <div class="cp-ops-dialog cp-ops-dialog--discover" @click.stop wire:ignore.self>
+                    <div class="cp-ops-dialog__header border-b border-gray-100 dark:border-white/10">
+                        <h3 id="cp-discover-new-topics-title" class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                            <span aria-hidden="true">✦</span>
+                            {{ __('seo-content-ai::filament.projects.new_topics_modal_title') }}
+                        </h3>
+                        <button type="button" class="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" @click="closeModal()" data-discover-modal-cancel="1">
+                            {{ __('seo-content-ai::filament.projects.planner_close') }}
+                        </button>
+                    </div>
+                    <div class="cp-ops-dialog__scroll space-y-3 p-4">
+                        <p class="text-sm text-gray-600 dark:text-gray-300" data-discover-modal-description="1">
+                            {{ __('seo-content-ai::filament.projects.new_topics_modal_description', ['domain' => $siteDomain !== '' ? $siteDomain : '—']) }}
+                        </p>
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200" for="cp-discover-guidance">
+                                {{ __('seo-content-ai::filament.projects.new_topics_guidance_label') }}
+                            </label>
+                            <textarea
+                                id="cp-discover-guidance"
+                                class="w-full rounded-md border border-gray-200 bg-white px-2.5 py-2 text-sm dark:border-white/10 dark:bg-gray-950"
+                                rows="4"
+                                x-model="draftGuidance"
+                                placeholder="{{ __('seo-content-ai::filament.projects.new_topics_guidance_placeholder') }}"
+                                data-discover-guidance="1"
+                                @disabled($newGenerating)
+                            ></textarea>
+                        </div>
+                        @if ($newGenerationState === 'failed' && $newError !== '')
+                            <p class="cp-audit-notes__alloc-warn" data-discover-modal-error="1">{{ $newError }}</p>
+                        @endif
+                    </div>
+                    <div class="cp-ops-dialog__footer flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 p-3 dark:border-white/10">
+                        <button type="button" class="rounded-md px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5" @click="closeModal()" data-discover-modal-cancel="1">
+                            {{ __('seo-content-ai::filament.projects.new_topics_modal_cancel') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="cp-audit-notes__ai-action"
+                            wire:loading.attr="disabled"
+                            wire:target="discoverNewTopics"
+                            @click.prevent="submitDiscover()"
+                            @disabled(! $discoverCanRun || $newGenerating)
+                            data-discover-modal-submit="1"
+                        >
+                            <span class="cp-audit-notes__ai-action-icon" aria-hidden="true">✦</span>
+                            <span wire:loading.remove wire:target="discoverNewTopics">{{ $discoverSubmitLabel }}</span>
+                            <span wire:loading wire:target="discoverNewTopics" class="inline-flex items-center gap-1">
+                                <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3"/></svg>
+                                {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
     </div>
     @if ($discoverDisabledReason !== '' && $siteId > 0 && $total === 0 && $landscapeReady)
         <p class="cp-audit-notes__help cp-audit-notes__mode-hint" data-discover-disabled-hint="1">
@@ -522,7 +598,7 @@
         </div>
     </section>
     @else
-    {{-- NEW TOPICS TAB — single editable column (no checkbox select stage) --}}
+    {{-- NEW TOPICS TAB — 2-column editable grid (no checkbox select stage) --}}
     <section
         class="cp-ai-topic-column cp-ai-topic-column--selected cp-ai-topic-column--new-full"
         data-ai-topic-column="selected"
@@ -544,59 +620,63 @@
             <p class="cp-audit-notes__help">{{ __('seo-content-ai::filament.projects.new_topics_help') }}</p>
         </div>
         <div class="cp-ai-topic-column__body">
-            @forelse ($newSelected as $item)
-                @php
-                    $ref = (string) ($item['cluster_ref'] ?? '');
-                    $dnaRows = is_array($item['dna'] ?? null) ? $item['dna'] : [];
-                @endphp
-                <div class="cp-audit-notes__item" data-cluster-ref="{{ $ref }}" data-source-type="generated" data-candidate-key="{{ $item['candidate_key'] ?? '' }}">
-                    <div class="cp-audit-notes__item-head">
-                        <div>
-                            <input
-                                type="text"
-                                class="cp-audit-notes__dna-input"
-                                value="{{ $item['cluster_name_snapshot'] ?? '' }}"
-                                wire:change="updateNewTopicName(@js($ref), $event.target.value)"
-                                @disabled(! $canWrite)
-                            >
-                            <div class="cp-audit-notes__meta">
-                                <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.new_topics_badge') }}</span>
-                            </div>
-                        </div>
-                        <button type="button" class="cp-audit-notes__remove" wire:click="removeNewTopicSelected(@js($ref))" @disabled(! $canWrite) title="{{ __('seo-content-ai::filament.projects.audit_notes_remove_topic') }}">×</button>
-                    </div>
-                    <div class="cp-audit-notes__target-row">
-                        <label class="cp-audit-notes__field-label">
-                            {{ __('seo-content-ai::filament.projects.audit_notes_target_dna') }}
-                            <input
-                                type="number"
-                                min="1"
-                                max="{{ $maxTarget }}"
-                                class="cp-audit-notes__dna-weight-input"
-                                value="{{ (int) ($item['target_dna_count'] ?? $defaultTarget) }}"
-                                wire:change="updateNewTopicTargetDna(@js($ref), Number($event.target.value || 0))"
-                                @disabled(! $canWrite)
-                            >
-                        </label>
-                    </div>
-                    <ul class="cp-audit-notes__dna">
-                        @foreach ($dnaRows as $di => $dna)
-                            <li class="cp-audit-notes__dna-row">
-                                <span class="cp-audit-notes__dna-phrase">{{ $dna['phrase'] ?? '' }}</span>
-                                <button type="button" class="cp-audit-notes__dna-remove" wire:click="removeNewTopicDna(@js($ref), {{ (int) $di }})" @disabled(! $canWrite)>×</button>
-                            </li>
-                        @endforeach
-                    </ul>
-                    <form class="cp-audit-notes__dna-form" x-data="{ phrase: '' }" @submit.prevent="if (phrase.trim()) { $wire.addNewTopicDna(@js($ref), phrase.trim()); phrase = ''; }">
-                        <input type="text" class="cp-audit-notes__dna-input" x-model="phrase" placeholder="{{ __('seo-content-ai::filament.projects.audit_notes_dna_phrase') }}" @disabled(! $canWrite)>
-                        <button type="submit" class="fi-btn fi-btn-color-primary fi-size-sm" @disabled(! $canWrite)>{{ __('seo-content-ai::filament.projects.audit_notes_add_dna_confirm') }}</button>
-                    </form>
-                </div>
-            @empty
+            @if ($newSelected === [])
                 <p class="cp-audit-notes__selected-empty" data-new-topics-zero-result="1">
                     {{ __('seo-content-ai::filament.projects.new_topics_zero_result') }}
                 </p>
-            @endforelse
+            @else
+                <div class="cp-new-topics-grid" data-new-topics-grid="1">
+                    @foreach ($newSelected as $item)
+                        @php
+                            $ref = (string) ($item['cluster_ref'] ?? '');
+                            $dnaRows = is_array($item['dna'] ?? null) ? $item['dna'] : [];
+                        @endphp
+                        <div class="cp-audit-notes__item cp-new-topics-card" data-cluster-ref="{{ $ref }}" data-source-type="generated" data-candidate-key="{{ $item['candidate_key'] ?? '' }}">
+                            <div class="cp-audit-notes__item-head">
+                                <div>
+                                    <input
+                                        type="text"
+                                        class="cp-audit-notes__dna-input"
+                                        value="{{ $item['cluster_name_snapshot'] ?? '' }}"
+                                        wire:change="updateNewTopicName(@js($ref), $event.target.value)"
+                                        @disabled(! $canWrite)
+                                    >
+                                    <div class="cp-audit-notes__meta">
+                                        <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.new_topics_badge') }}</span>
+                                    </div>
+                                </div>
+                                <button type="button" class="cp-audit-notes__remove" wire:click="removeNewTopicSelected(@js($ref))" @disabled(! $canWrite) title="{{ __('seo-content-ai::filament.projects.audit_notes_remove_topic') }}">×</button>
+                            </div>
+                            <div class="cp-audit-notes__target-row">
+                                <label class="cp-audit-notes__field-label">
+                                    {{ __('seo-content-ai::filament.projects.audit_notes_target_dna') }}
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="{{ $maxTarget }}"
+                                        class="cp-audit-notes__dna-weight-input"
+                                        value="{{ (int) ($item['target_dna_count'] ?? $defaultTarget) }}"
+                                        wire:change="updateNewTopicTargetDna(@js($ref), Number($event.target.value || 0))"
+                                        @disabled(! $canWrite)
+                                    >
+                                </label>
+                            </div>
+                            <ul class="cp-audit-notes__dna">
+                                @foreach ($dnaRows as $di => $dna)
+                                    <li class="cp-audit-notes__dna-row">
+                                        <span class="cp-audit-notes__dna-phrase">{{ $dna['phrase'] ?? '' }}</span>
+                                        <button type="button" class="cp-audit-notes__dna-remove" wire:click="removeNewTopicDna(@js($ref), {{ (int) $di }})" @disabled(! $canWrite)>×</button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                            <form class="cp-audit-notes__dna-form" x-data="{ phrase: '' }" @submit.prevent="if (phrase.trim()) { $wire.addNewTopicDna(@js($ref), phrase.trim()); phrase = ''; }">
+                                <input type="text" class="cp-audit-notes__dna-input" x-model="phrase" placeholder="{{ __('seo-content-ai::filament.projects.audit_notes_dna_phrase') }}" @disabled(! $canWrite)>
+                                <button type="submit" class="fi-btn fi-btn-color-primary fi-size-sm" @disabled(! $canWrite)>{{ __('seo-content-ai::filament.projects.audit_notes_add_dna_confirm') }}</button>
+                            </form>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
         </div>
     </section>
     @endif
@@ -639,6 +719,7 @@
                         updated_at: String(payload.updated_at || new Date().toISOString()),
                         site_id: siteId,
                         project_id: projectId,
+                        discovery_guidance: String(payload.discovery_guidance || ''),
                         items: Array.isArray(payload.items) ? payload.items : [],
                     }));
                 } catch (e) {
@@ -659,6 +740,41 @@
                     wire.restoreDiscoverNewTopicsFromStorage(data);
                 } catch (e) {}
             },
+        };
+
+        const registerDiscoverModal = () => {
+            if (window.__cpDiscoverNewTopicsModalRegistered || !window.Alpine) {
+                return;
+            }
+            window.__cpDiscoverNewTopicsModalRegistered = true;
+            Alpine.data('cpDiscoverNewTopicsModal', (cfg) => ({
+                open: false,
+                draftGuidance: String(cfg?.initialGuidance || ''),
+                canRun: !!cfg?.canRun,
+                needsConfirm: !!cfg?.needsConfirm,
+                confirmMessage: String(cfg?.confirmMessage || ''),
+                openModal() {
+                    if (!this.canRun) return;
+                    this.draftGuidance = String(this.$wire?.discoveryGuidance ?? this.draftGuidance ?? '');
+                    this.open = true;
+                },
+                closeModal() {
+                    this.open = false;
+                },
+                submitDiscover() {
+                    if (!this.canRun) return;
+                    if (this.needsConfirm && this.confirmMessage) {
+                        if (!window.confirm(this.confirmMessage)) {
+                            return;
+                        }
+                    }
+                    const guidance = String(this.draftGuidance || '').trim();
+                    this.open = false;
+                    if (this.$wire && typeof this.$wire.discoverNewTopics === 'function') {
+                        this.$wire.discoverNewTopics(guidance);
+                    }
+                },
+            }));
         };
 
         const STORAGE_PREFIX = 'seoOps:content-planner:audit-notes:v2:site:';
@@ -1301,7 +1417,11 @@
         };
 
         document.addEventListener('alpine:init', register);
-        if (window.Alpine) register();
+        document.addEventListener('alpine:init', registerDiscoverModal);
+        if (window.Alpine) {
+            register();
+            registerDiscoverModal();
+        }
     })();
 </script>
 @endonce

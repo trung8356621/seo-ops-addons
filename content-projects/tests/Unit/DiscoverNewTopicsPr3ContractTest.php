@@ -138,15 +138,23 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
     public function test_prompt_installer_and_hook_json_registered(): void
     {
         self::assertSame('seo_audit.discover_new_topics', DefaultDiscoverNewTopicsPromptInstaller::HOOK_KEY);
-        self::assertSame('0.1.0', DefaultDiscoverNewTopicsPromptInstaller::HOOK_VERSION);
-        $path = ProjectRoot::addonsPath().'/ai-prompt/resources/prompt-hooks/v01/seo_audit.discover_new_topics@0.1.0.json';
+        self::assertSame('0.2.0', DefaultDiscoverNewTopicsPromptInstaller::HOOK_VERSION);
+        $path = ProjectRoot::addonsPath().'/ai-prompt/resources/prompt-hooks/v01/seo_audit.discover_new_topics@0.2.0.json';
         self::assertFileExists($path);
         $spec = json_decode((string) file_get_contents($path), true);
         self::assertIsArray($spec);
         self::assertSame('seo_audit.discover_new_topics', $spec['key']);
+        self::assertSame('0.2.0', $spec['version']);
         self::assertArrayHasKey('landscape_json', $spec['input_schema']);
+        self::assertArrayHasKey('company_short_identity', $spec['input_schema']);
+        self::assertArrayHasKey('discovery_guidance', $spec['input_schema']);
+        self::assertArrayHasKey('avoid_topics', $spec['input_schema']);
         self::assertStringContainsString('landscape_json', (string) $spec['canonical_default']['markdown']);
         self::assertStringContainsString('candidate_key', (string) $spec['canonical_default']['markdown']);
+        self::assertStringContainsString('Company Short Identity', (string) $spec['canonical_default']['markdown']);
+        self::assertFileExists(
+            ProjectRoot::addonsPath().'/ai-prompt/resources/prompt-hooks/v01/seo_audit.discover_new_topics@0.1.0.json',
+        );
 
         $provider = (string) file_get_contents(LegacyAddonPath::resolve('SeoContentAiServiceProvider.php'));
         self::assertStringContainsString('InstallDefaultDiscoverNewTopicsPromptCommand::class', $provider);

@@ -28,7 +28,7 @@ final class DiscoverNewTopicsPromptListVisibilityContractTest extends TestCase
         self::assertStringContainsString('Keep canonical prompt_id', $src);
         self::assertSame('seo_audit.discover_new_topics', DefaultDiscoverNewTopicsPromptInstaller::HOOK_KEY);
         self::assertSame('Discover New Topics', DefaultDiscoverNewTopicsPromptInstaller::PROMPT_NAME);
-        self::assertSame('0.1.0', DefaultDiscoverNewTopicsPromptInstaller::HOOK_VERSION);
+        self::assertSame('0.2.0', DefaultDiscoverNewTopicsPromptInstaller::HOOK_VERSION);
     }
 
     public function test_prompt_resource_scopes_by_account_owner_user_id(): void
@@ -46,9 +46,12 @@ final class DiscoverNewTopicsPromptListVisibilityContractTest extends TestCase
         $src = (string) file_get_contents($path);
         self::assertStringContainsString('DefaultDiscoverNewTopicsPromptInstaller', $src);
         self::assertStringContainsString('->install()', $src);
+        $upgrade = ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_09_22_170000_upgrade_discover_new_topics_prompt_to_0_2_0.php';
+        self::assertFileExists($upgrade);
+        self::assertStringContainsString('restoreCanonical: true', (string) file_get_contents($upgrade));
     }
 
-    public function test_hook_is_settings_visible_and_resolves_longform_profile(): void
+    public function test_hook_is_settings_visible_and_resolves_reasoning_profile(): void
     {
         $loader = new PromptHookDefinitionLoader(
             PromptHookDefinitionLoader::defaultV01Directory(),
@@ -56,7 +59,9 @@ final class DiscoverNewTopicsPromptListVisibilityContractTest extends TestCase
         );
         $loader->clearCache();
         $registry = new PromptHookRuntimeRegistry($loader);
-        $definition = $registry->get('seo_audit.discover_new_topics', '0.1.0');
+        self::assertTrue($registry->has('seo_audit.discover_new_topics', '0.1.0'));
+        self::assertTrue($registry->has('seo_audit.discover_new_topics', '0.2.0'));
+        $definition = $registry->get('seo_audit.discover_new_topics', '0.2.0');
         self::assertTrue($definition->settingsVisible);
 
         $catalog = new PromptHookEditorCatalog($registry);
