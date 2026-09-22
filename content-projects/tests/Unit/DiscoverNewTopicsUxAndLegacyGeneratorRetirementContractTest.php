@@ -65,6 +65,9 @@ final class DiscoverNewTopicsUxAndLegacyGeneratorRetirementContractTest extends 
         self::assertStringContainsString('data-discover-new-topics="1"', $blade);
         self::assertStringContainsString('new_topics_zero_result', $blade);
         self::assertStringContainsString('data-discover-new-topics-retry', $blade);
+        self::assertStringContainsString('discoverCanRun', $blade);
+        self::assertStringContainsString('data-discover-enabled', $blade);
+        self::assertStringContainsString('new_topics_requires_topics', $blade);
         // New tab button only when showNewTab
         self::assertMatchesRegularExpression('/@if\s*\(\s*\$showNewTab\s*\)[\s\S]*audit_notes_tab_new/', $blade);
     }

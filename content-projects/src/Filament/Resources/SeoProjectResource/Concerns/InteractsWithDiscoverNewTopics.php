@@ -81,6 +81,27 @@ trait InteractsWithDiscoverNewTopics
             return;
         }
 
+        // Landscape readiness from Existing Topics list (same SSOT total as Keyword Landscape).
+        if (property_exists($this, 'auditNoteSuggestionsReady')
+            && property_exists($this, 'auditNoteSuggestionTotal')
+            && (bool) $this->auditNoteSuggestionsReady
+            && (int) $this->auditNoteSuggestionTotal <= 0
+        ) {
+            Notification::make()
+                ->title((string) __('seo-content-ai::filament.projects.new_topics_requires_topics'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if (property_exists($this, 'auditNoteSuggestionsReady')
+            && property_exists($this, 'auditNoteSuggestionsLoading')
+            && (! (bool) $this->auditNoteSuggestionsReady || (bool) $this->auditNoteSuggestionsLoading)
+        ) {
+            return;
+        }
+
         $this->newTopicsGenerating = true;
         $this->newTopicsGenerationState = self::NEW_TOPICS_STATE_LOADING;
         $this->newTopicsLastError = '';

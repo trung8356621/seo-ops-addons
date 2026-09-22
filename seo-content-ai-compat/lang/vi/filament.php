@@ -4127,6 +4127,8 @@ return [
         'new_topics_generate' => 'Gợi ý Topic mới',
         'new_topics_generating' => 'Đang tạo…',
         'new_topics_retry' => 'Gợi ý lại',
+        'new_topics_requires_topics' => 'Cần có ít nhất một Topic để AI phân tích Keyword Landscape và gợi ý chủ đề mới.',
+        'new_topics_waiting_landscape' => 'Đang tải Keyword Landscape…',
         'new_topics_empty' => 'Chưa có gợi ý. Bấm Gợi ý Topic mới.',
         'new_topics_zero_result' => 'Không tìm thấy Topic mới phù hợp với landscape hiện tại.',
         'new_topics_selected_empty' => 'Chưa chọn Topic mới.',

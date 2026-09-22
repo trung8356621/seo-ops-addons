@@ -44,6 +44,8 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
         self::assertStringContainsString('PromptHookCallerBridge', $src);
         self::assertStringContainsString('DefaultDiscoverNewTopicsPromptInstaller::HOOK_KEY', $src);
         self::assertStringContainsString('landscape->forSite', $src);
+        self::assertStringContainsString('landscapeAllowsDiscovery', $src);
+        self::assertStringContainsString('emptyLandscapeUserMessage', $src);
         self::assertStringNotContainsString('TopicListQuery', $src);
         self::assertStringNotContainsString('SeoTopic::query()', $src);
         self::assertStringNotContainsString('Keyword::query()', $src);

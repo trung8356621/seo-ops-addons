@@ -64,6 +64,10 @@ final class DiscoverNewTopicsService
 
         $count = max(1, min(self::MAX_COUNT, $count));
         $landscape = $this->landscape->forSite($siteId, true);
+        if (! self::landscapeAllowsDiscovery($landscape)) {
+            return $this->fail(self::emptyLandscapeUserMessage());
+        }
+
         $landscapeJson = $this->encodeLandscape($landscape);
         $language = $this->resolvePrimaryLanguage($site);
 
@@ -93,6 +97,19 @@ final class DiscoverNewTopicsService
             'rejected_count' => $rejectedCount,
             'prompt_result_id' => $run['prompt_result_id'],
         ];
+    }
+
+    /**
+     * Discover requires a non-empty Keyword Landscape baseline (existing Topics).
+     */
+    public static function landscapeAllowsDiscovery(KeywordLandscape $landscape): bool
+    {
+        return $landscape->topicCount() > 0;
+    }
+
+    public static function emptyLandscapeUserMessage(): string
+    {
+        return (string) __('seo-content-ai::filament.projects.new_topics_requires_topics');
     }
 
     /**

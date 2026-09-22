@@ -35,6 +35,20 @@
     if ($newGenerationState !== 'completed' && $auditTab === 'new') {
         $auditTab = 'existing';
     }
+    $landscapeReady = $ready && ! $loading;
+    $discoverCanRun = $canWrite
+        && $landscapeReady
+        && $siteId > 0
+        && $total > 0
+        && ! $newGenerating;
+    $discoverDisabledReason = '';
+    if (! $discoverCanRun && $newGenerationState !== 'completed') {
+        if ($loading || ! $ready) {
+            $discoverDisabledReason = (string) __('seo-content-ai::filament.projects.new_topics_waiting_landscape');
+        } elseif ($siteId > 0 && $total === 0) {
+            $discoverDisabledReason = (string) __('seo-content-ai::filament.projects.new_topics_requires_topics');
+        }
+    }
 @endphp
 
 <div
@@ -118,12 +132,15 @@
                 @if ($newGenerationState !== 'completed')
                     <button
                         type="button"
-                        class="fi-btn fi-btn-color-primary fi-size-sm"
+                        class="fi-btn fi-btn-color-primary fi-size-sm{{ $discoverCanRun ? '' : ' is-disabled opacity-50' }}"
                         wire:click="discoverNewTopics"
                         wire:loading.attr="disabled"
                         wire:target="discoverNewTopics"
-                        @disabled(! $canWrite || $newGenerating)
+                        @disabled(! $discoverCanRun)
+                        title="{{ $discoverDisabledReason }}"
+                        aria-disabled="{{ $discoverCanRun ? 'false' : 'true' }}"
                         data-discover-new-topics="1"
+                        data-discover-enabled="{{ $discoverCanRun ? '1' : '0' }}"
                     >
                         <span wire:loading.remove wire:target="discoverNewTopics">
                             {{ __('seo-content-ai::filament.projects.new_topics_generate') }}
@@ -133,6 +150,9 @@
                             {{ __('seo-content-ai::filament.projects.new_topics_generating') }}
                         </span>
                     </button>
+                @endif
+                @if ($discoverDisabledReason !== '' && $siteId > 0 && $total === 0 && $landscapeReady)
+                    <p class="cp-audit-notes__help" data-discover-disabled-hint="1">{{ $discoverDisabledReason }}</p>
                 @endif
             </div>
             @if ($newGenerationState === 'failed' && $newError !== '')

@@ -4152,6 +4152,8 @@ return [
         'new_topics_generate' => 'Suggest new topics',
         'new_topics_generating' => 'Generating…',
         'new_topics_retry' => 'Suggest again',
+        'new_topics_requires_topics' => 'At least one Topic is required so AI can analyze the Keyword Landscape and suggest new topics.',
+        'new_topics_waiting_landscape' => 'Loading Keyword Landscape…',
         'new_topics_empty' => 'No AI suggestions yet. Click Suggest new topics.',
         'new_topics_zero_result' => 'No suitable new Topics found for the current landscape.',
         'new_topics_selected_empty' => 'No new topics selected.',
