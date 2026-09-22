@@ -109,9 +109,14 @@ trait InteractsWithDiscoverNewTopics
 
         try {
             $actorId = auth()->id();
+            $project = method_exists($this, 'resolveNewContentProject')
+                ? $this->resolveNewContentProject()
+                : null;
             $result = app(DiscoverNewTopicsService::class)->discover(
                 $siteId,
                 is_numeric($actorId) ? (int) $actorId : null,
+                DiscoverNewTopicsService::DEFAULT_COUNT,
+                $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject ? $project : null,
             );
             if (! $result['ok']) {
                 $this->newTopicsLastError = (string) $result['message'];

@@ -12,6 +12,9 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeResult;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultDiscoverNewTopicsPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
+use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -21,6 +24,7 @@ use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
  * SEO Audit — Discover New Topics (temporary candidates only).
  *
  * Landscape via KeywordLandscapeGateway only. No Topic DB writes. No articles.
+ * PromptResult is linked to Content Plan AI History via planner run (discover_new_topics).
  */
 final class DiscoverNewTopicsService
 {
@@ -32,6 +36,8 @@ final class DiscoverNewTopicsService
 
     public const MAX_COUNT = 20;
 
+    public const OPERATION = 'discover_new_topics';
+
     public function __construct(
         private readonly KeywordLandscapeGateway $landscape,
         private readonly DiscoverNewTopicsResultParser $parser,
@@ -40,6 +46,7 @@ final class DiscoverNewTopicsService
         private readonly PromptRunnerService $promptRunner,
         private readonly SeoCreateArticleSettingsService $workflowSettings,
         private readonly SitePrimaryLanguageService $primaryLanguage,
+        private readonly ContentProjectPlannerRunService $plannerRuns,
     ) {}
 
     /**
@@ -51,8 +58,12 @@ final class DiscoverNewTopicsService
      *   prompt_result_id: int|null
      * }
      */
-    public function discover(int $siteId, ?int $actorId = null, int $count = self::DEFAULT_COUNT): array
-    {
+    public function discover(
+        int $siteId,
+        ?int $actorId = null,
+        int $count = self::DEFAULT_COUNT,
+        ?SeoProject $project = null,
+    ): array {
         if ($siteId <= 0) {
             return $this->fail('Site is required.');
         }
@@ -90,13 +101,22 @@ final class DiscoverNewTopicsService
         $novelty = $this->duplicateFilter->filter($siteId, $parsed['accepted']);
         $rejectedCount = count($parsed['rejected']) + count($novelty['rejected']);
 
-        return [
+        $result = [
             'ok' => true,
             'message' => '',
             'topics' => $novelty['accepted'],
             'rejected_count' => $rejectedCount,
             'prompt_result_id' => $run['prompt_result_id'],
         ];
+        $this->linkPromptResultToContentPlanHistory(
+            $project,
+            $siteId,
+            $actorId,
+            $count,
+            $result,
+        );
+
+        return $result;
     }
 
     /**
@@ -110,6 +130,61 @@ final class DiscoverNewTopicsService
     public static function emptyLandscapeUserMessage(): string
     {
         return (string) __('seo-content-ai::filament.projects.new_topics_requires_topics');
+    }
+
+    /**
+     * One PromptResult → one planner-run linkage for Content Plan AI History.
+     * Does not create a second prompt_result or re-run AI.
+     *
+     * @param  array{
+     *   ok: bool,
+     *   message: string,
+     *   topics: list<array<string, mixed>>,
+     *   rejected_count: int,
+     *   prompt_result_id: int|null
+     * }  $result
+     */
+    public function linkPromptResultToContentPlanHistory(
+        ?SeoProject $project,
+        int $siteId,
+        ?int $actorId,
+        int $requestedCount,
+        array $result,
+    ): void {
+        if (! $project instanceof SeoProject) {
+            return;
+        }
+
+        $promptResultId = (int) ($result['prompt_result_id'] ?? 0);
+        if ($promptResultId <= 0) {
+            return;
+        }
+
+        $ok = (bool) ($result['ok'] ?? false);
+        $topics = is_array($result['topics'] ?? null) ? $result['topics'] : [];
+        $this->plannerRuns->recordExecuted(
+            project: $project,
+            sourceType: SeoContentProjectPlannerRun::SOURCE_DISCOVER_NEW_TOPICS,
+            requestedQuantity: max(0, $requestedCount),
+            configurationSnapshot: [
+                'operation' => self::OPERATION,
+                'hook_key' => self::HOOK_KEY,
+                'hook_version' => self::HOOK_VERSION,
+                'site_id' => $siteId,
+            ],
+            resultSummary: [
+                'status' => $ok
+                    ? SeoContentProjectPlannerRun::STATUS_COMPLETED
+                    : SeoContentProjectPlannerRun::STATUS_FAILED,
+                'requested' => max(0, $requestedCount),
+                'added' => count($topics),
+                'rejected_count' => (int) ($result['rejected_count'] ?? 0),
+                'operation' => self::OPERATION,
+                'message' => (string) ($result['message'] ?? ''),
+            ],
+            actorId: $actorId,
+            promptResultId: $promptResultId,
+        );
     }
 
     /**

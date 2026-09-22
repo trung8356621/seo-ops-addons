@@ -64,6 +64,6 @@ final class DiscoverNewTopicsPromptListVisibilityContractTest extends TestCase
         self::assertContains('seo_audit.discover_new_topics', $keys);
 
         $profile = (new PromptExecutionProfileResolver)->resolve(null, 'seo_audit.discover_new_topics');
-        self::assertSame(AiExecutionProfile::TextLongform, $profile);
+        self::assertSame(AiExecutionProfile::TextReasoning, $profile);
     }
 }

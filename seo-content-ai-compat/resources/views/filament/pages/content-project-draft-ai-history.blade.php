@@ -16,10 +16,11 @@
         :total="$payload['total']"
         :has-more="$payload['has_more']"
         :page="$payload['page']"
-        filter-type-property="draftAiCallFilterType"
-        filter-status-property="draftAiCallFilterStatus"
-        clear-filters-method="clearDraftAiCallFilters"
-        load-more-method="loadMoreDraftAiCalls"
+        :type-options="$payload['type_options'] ?? null"
+        filter-type-wire="draftAiCallFilterType"
+        filter-status-wire="draftAiCallFilterStatus"
+        clear-filters-wire="clearDraftAiCallFilters"
+        load-more-wire="loadMoreDraftAiCalls"
         load-detail-method="loadDraftRawAiCallDetail"
     />
 </x-filament-panels::page>

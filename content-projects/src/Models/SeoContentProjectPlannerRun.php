@@ -17,6 +17,9 @@ class SeoContentProjectPlannerRun extends Model
 
     public const SOURCE_AI_NEW_CONTENT = 'ai_new_content';
 
+    /** SEO Audit — Discover New Topics (PromptResult linkage for Content Plan AI History). */
+    public const SOURCE_DISCOVER_NEW_TOPICS = 'discover_new_topics';
+
     public const KIND_EXECUTED = 'executed';
 
     public const KIND_SAVED_CONFIG = 'saved_config';

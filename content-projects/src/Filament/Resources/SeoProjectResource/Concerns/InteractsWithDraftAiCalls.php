@@ -70,6 +70,7 @@ trait InteractsWithDraftAiCalls
             'per_page' => ContentProjectDraftAiCallHistoryService::DEFAULT_PAGE_SIZE,
             'has_more' => false,
             'context' => $this->draftAiCallsContext($project),
+            'type_options' => $this->draftAiCallTypeOptions(),
         ];
 
         if (! $project instanceof SeoProject) {
@@ -93,6 +94,19 @@ trait InteractsWithDraftAiCalls
             'per_page' => $listed['per_page'],
             'has_more' => $listed['has_more'],
             'context' => $this->draftAiCallsContext($project),
+            'type_options' => $this->draftAiCallTypeOptions(),
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function draftAiCallTypeOptions(): array
+    {
+        return [
+            'all' => (string) __('seo-content-ai::filament.article_ai_history.type_all'),
+            ContentProjectDraftAiCallHistoryService::TYPE_KEYWORD_DISCOVERY => (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_keyword_discovery'),
+            ContentProjectDraftAiCallHistoryService::TYPE_DISCOVER_NEW_TOPICS => (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_discover_new_topics'),
         ];
     }
 

@@ -46,6 +46,8 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
         self::assertStringContainsString('landscape->forSite', $src);
         self::assertStringContainsString('landscapeAllowsDiscovery', $src);
         self::assertStringContainsString('emptyLandscapeUserMessage', $src);
+        self::assertStringContainsString('linkPromptResultToContentPlanHistory', $src);
+        self::assertStringContainsString('SOURCE_DISCOVER_NEW_TOPICS', $src);
         self::assertStringNotContainsString('TopicListQuery', $src);
         self::assertStringNotContainsString('SeoTopic::query()', $src);
         self::assertStringNotContainsString('Keyword::query()', $src);

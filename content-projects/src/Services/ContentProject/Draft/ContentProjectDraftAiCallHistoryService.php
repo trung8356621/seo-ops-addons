@@ -23,7 +23,12 @@ final class ContentProjectDraftAiCallHistoryService
     /** @var list<string> */
     public const AI_PLANNER_SOURCES = [
         SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
+        SeoContentProjectPlannerRun::SOURCE_DISCOVER_NEW_TOPICS,
     ];
+
+    public const TYPE_DISCOVER_NEW_TOPICS = 'discover_new_topics';
+
+    public const TYPE_KEYWORD_DISCOVERY = 'keyword_discovery';
 
     /**
      * Distinct PromptResult IDs linked to this Draft via planner runs.
@@ -321,8 +326,14 @@ final class ContentProjectDraftAiCallHistoryService
         }
 
         $hook = strtolower((string) ($item['hook_key'] ?? ''));
-        if ($typeFilter === 'keyword_discovery' || $typeFilter === 'keyword.discovery.structured') {
+        if ($typeFilter === self::TYPE_KEYWORD_DISCOVERY || $typeFilter === 'keyword.discovery.structured') {
             return str_contains($hook, 'keyword.discovery');
+        }
+        if ($typeFilter === self::TYPE_DISCOVER_NEW_TOPICS
+            || $typeFilter === 'seo_audit.discover_new_topics'
+        ) {
+            return $hook === 'seo_audit.discover_new_topics'
+                || str_contains($hook, 'discover_new_topics');
         }
 
         return $hook === $typeFilter || str_contains($hook, $typeFilter);
@@ -353,6 +364,11 @@ final class ContentProjectDraftAiCallHistoryService
         $hook = trim((string) ($snapshot['hook_key'] ?? $snapshot['variables']['hook_key'] ?? ''));
         if ($hook !== '') {
             return $hook;
+        }
+
+        $fromPrompt = trim((string) ($result->prompt?->hook_key ?? ''));
+        if ($fromPrompt !== '') {
+            return $fromPrompt;
         }
 
         // Content Planning Assistant is bound to keyword.discovery.structured.
@@ -395,7 +411,10 @@ final class ContentProjectDraftAiCallHistoryService
     private function typeLabelForHook(string $hookKey, string $promptName): string
     {
         if (str_contains($hookKey, 'keyword.discovery')) {
-            return 'Keyword Discovery';
+            return (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_keyword_discovery');
+        }
+        if ($hookKey === 'seo_audit.discover_new_topics' || str_contains($hookKey, 'discover_new_topics')) {
+            return (string) __('seo-content-ai::filament.projects.draft_ai_calls_type_discover_new_topics');
         }
         if ($promptName !== '') {
             return $promptName;
