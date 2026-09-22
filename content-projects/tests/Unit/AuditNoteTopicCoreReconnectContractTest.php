@@ -25,13 +25,14 @@ final class AuditNoteTopicCoreReconnectContractTest extends TestCase
             (string) (new ReflectionClass(AuditNoteClusterSuggestionQuery::class))->getFileName(),
         );
 
-        self::assertStringContainsString('KeywordLandscapeReadModel', $src);
+        self::assertStringContainsString('KeywordLandscapeGateway', $src);
         self::assertStringContainsString('TopicPlanningRef', $src);
         self::assertStringContainsString('TopicHistoryReadModel', $src);
         self::assertStringContainsString('seo_topic_keyword_dna', $src);
         self::assertStringContainsString('SeoTopicKeywordDna', $src);
         self::assertStringContainsString('planned_history_count', $src);
 
+        self::assertStringNotContainsString('KeywordLandscapeReadModel', $src);
         self::assertStringNotContainsString('TopicListQuery', $src);
         self::assertStringNotContainsString('TopicDetailQuery', $src);
         self::assertStringNotContainsString('topical_share', $src);

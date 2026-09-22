@@ -67,6 +67,60 @@ final class MonthlyMcpReportBuilderTest extends TestCase
         self::assertSame('healthy', $built['ai_context']['site']['health']);
     }
 
+    public function test_keywords_mcp_v2_snapshot_does_not_throw_or_corrupt_report(): void
+    {
+        $period = new SeoMcpPeriod(['year' => 2026, 'month' => 9]);
+        $site = $this->snapshot(McpSourceKey::Site, ['health' => 'healthy', 'article_total' => 12], []);
+        $kw = $this->snapshot(
+            McpSourceKey::Keywords,
+            ['topic_count' => 2],
+            [],
+            [
+                'topics' => [
+                    [
+                        'id' => 10,
+                        'name' => 'Balo cho bé',
+                        'mcp' => 0.1,
+                        'dna_count' => 1,
+                        'article_count' => 0,
+                        'coverage' => 'weak',
+                        'dna' => [['phrase' => 'balo', 'weight' => 2]],
+                    ],
+                    [
+                        'id' => 11,
+                        'name' => 'Túi xách',
+                        'mcp' => 12.5,
+                        'dna_count' => 0,
+                        'article_count' => 3,
+                        'coverage' => 'strong',
+                        'dna' => [],
+                    ],
+                ],
+            ],
+        );
+        $kw->schema_version = 'v2';
+
+        self::assertSame('keywords', (string) $kw->source);
+        self::assertSame('v2', (string) $kw->schema_version);
+        self::assertNotSame('keywords.mcp.v2', (string) $kw->source);
+
+        $built = (new MonthlyMcpReportBuilder)->build($period, 9, 'example.com', $site, $kw);
+
+        self::assertSame('ready', $built['status']);
+        self::assertTrue($built['overview']['sources']['keywords']);
+        // Legacy metrics absent on v2 → remain zero (acceptable in this PR).
+        self::assertSame(0, $built['overview']['keyword_total']);
+        self::assertSame(0, $built['overview']['clusters']);
+        self::assertIsArray($built['ai_context']['keyword_intelligence']);
+        self::assertSame(['topic_count' => 2], $built['ai_context']['keyword_intelligence']['metrics']);
+        self::assertSame([], $built['ai_context']['keyword_intelligence']['weak_clusters']);
+        self::assertSame('mcp.monthly.v1', $built['ai_context']['schema']);
+        self::assertIsArray($built['highlights']);
+        self::assertIsArray($built['risks']);
+        self::assertIsArray($built['opportunities']);
+        self::assertIsArray($built['recommended_actions']);
+    }
+
     public function test_content_hash_stable_for_same_payload(): void
     {
         $a = MonthlyMcpSourcePayload::make(McpSourceKey::Keywords, ['total' => 1], ['x' => 1], ['y' => 2], '2026-08-15T00:00:00+00:00');

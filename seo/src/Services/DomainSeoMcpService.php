@@ -8,7 +8,7 @@ use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordGenerationContextBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
@@ -42,7 +42,7 @@ final class DomainSeoMcpService
         private readonly KeywordTagResolver $keywordTags,
         private readonly KeywordTagQuery $keywordTagQuery,
         private readonly \Omnichannel\Addons\Seo\Services\MonthlyMcp\DomainMonthlyIntelligenceService $monthlyIntelligence,
-        private readonly KeywordLandscapeReadModel $landscapeReadModel,
+        private readonly KeywordLandscapeGateway $landscapeGateway,
     ) {}
 
     /**
@@ -360,7 +360,7 @@ final class DomainSeoMcpService
      */
     private function keywordLandscape(Site $site, array $freshness): array
     {
-        $landscape = $this->landscapeReadModel->forSite((int) $site->id, true);
+        $landscape = $this->landscapeGateway->forSite((int) $site->id, true);
         $core = [];
         $weak = [];
         $missing = [];

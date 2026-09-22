@@ -10,27 +10,29 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\TopicHistoryReadModel;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicPlanningRef;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 
 /**
- * SEO Audit Notes suggestions — Topic Core adapter via Keyword Landscape SSOT.
+ * SEO Audit Notes suggestions — Topic Core adapter via Keyword Landscape gateway.
  *
  * Public API keeps legacy field names (`cluster_ref`, `mcp_share`) as transport
  * compatibility. Live identity is always topic:{seo_topics.id}.
  *
- * Business landscape truth comes from KeywordLandscapeReadModel only.
+ * Dependency: SEO Audit → KeywordLandscapeGateway → ReadModel SSOT.
+ * Does not inject/call the ReadModel class directly. No HTTP loopback.
+ *
  * This class owns Audit Notes presentation: filter / search / pagination / planned history.
  */
 final class AuditNoteClusterSuggestionQuery
 {
     public const PER_PAGE = 25;
 
-    public const DNA_LIMIT = 30;
+    public const DNA_LIMIT = KeywordLandscapeGateway::DNA_LIMIT;
 
     public function __construct(
-        private readonly KeywordLandscapeReadModel $landscape,
+        private readonly KeywordLandscapeGateway $landscape,
         private readonly TopicHistoryReadModel $topicHistory = new TopicHistoryReadModel,
     ) {}
 
