@@ -122,4 +122,23 @@ final class SeoAccessControlDomainPickerTest extends TestCase
         $this->assertTrue(\Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isLandingDashboard());
         $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
     }
+
+    public function test_landing_dashboard_detection_survives_livewire_update_via_referer(): void
+    {
+        $request = Request::create('/livewire/update', 'POST');
+        $request->headers->set('referer', 'https://seo-ops.test/seo?site_id=7');
+        $this->app->instance('request', $request);
+
+        $this->assertTrue(\Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isLandingDashboard());
+        $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
+    }
+
+    public function test_global_seo_bar_caches_landing_hide_flag_on_mount(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\Seo\Livewire\GlobalSeoBar::class))->getFileName(),
+        );
+        $this->assertStringContainsString('hideDomainPickerOnLanding', $src);
+        $this->assertStringContainsString('isLandingDashboard()', $src);
+    }
 }

@@ -322,7 +322,23 @@ final class SeoPanelRoutes
         $path = trim((string) request()->path(), '/');
 
         // /seo or /seo/{connection_hash} — Filament home Dashboard only.
-        return (bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?$#', $path);
+        if ((bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?$#', $path)) {
+            return true;
+        }
+
+        // Livewire POSTs hit /livewire/update — resolve from Referer when available.
+        if ($path === 'livewire/update' || str_starts_with($path, 'livewire/')) {
+            $referer = (string) request()->headers->get('referer', '');
+            if ($referer === '') {
+                return false;
+            }
+
+            $refererPath = trim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
+
+            return (bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?$#', $refererPath);
+        }
+
+        return false;
     }
 
     /**

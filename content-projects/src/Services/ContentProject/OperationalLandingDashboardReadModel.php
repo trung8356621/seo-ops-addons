@@ -11,6 +11,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\ContentProjectAuditSearchService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\ContentProjectOpsDashboardService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalLandingDashboardActivityPresenter;
 use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
@@ -104,6 +105,7 @@ final class OperationalLandingDashboardReadModel
             ),
             'month_progress' => $monthTotals,
             'month_label' => now()->format('m/Y'),
+            'month_has_projects' => (bool) ($monthTotals['has_month_projects'] ?? false),
             'view_all_pending_url' => $this->safeUrl(static fn (): string => SeoProjectResource::getUrl('index')),
             'view_all_reviewed_url' => $this->safeUrl(static fn (): string => SeoProjectResource::getUrl('index')),
             'statistics_available' => false,
@@ -143,6 +145,8 @@ final class OperationalLandingDashboardReadModel
 
         $activity = $this->todayActivity();
 
+        $monthProgress = $this->monthProgressCounts($projectIds, $siteIds, $monthStart);
+
         return [
             'subtitle_key' => 'dashboard.ops_manager_subtitle',
             'today_label' => now()->format('d/m/Y'),
@@ -153,10 +157,12 @@ final class OperationalLandingDashboardReadModel
                 'publish_errors' => $publishErrors,
                 'ai_running' => $aiRunning,
             ],
+            'kpi_scope_hint' => __('seo-content-ai::filament.dashboard.ops_kpi_scope_hint'),
             'attention' => $attention,
             'activity' => $activity,
-            'month_progress' => $this->monthProgressCounts($projectIds, $siteIds, $monthStart),
+            'month_progress' => $monthProgress,
             'month_label' => now()->format('m/Y'),
+            'month_has_projects' => (bool) ($monthProgress['has_month_projects'] ?? false),
             'publish_queue' => $this->publishQueuePreview($projectIds, $siteIds),
             'publish_queue_url' => $this->safeUrl(static fn (): string => PublishingQueueHub::getUrl()),
             'view_all_projects_url' => $this->safeUrl(static fn (): string => SeoProjectResource::getUrl('index')),
@@ -338,25 +344,28 @@ final class OperationalLandingDashboardReadModel
      *     reviewed: int,
      *     approved: int,
      *     published: int,
-     *     written: int
+     *     written: int,
+     *     has_month_projects: bool,
+     *     rows: list<array{key: string, label: string, value: int, total: int, pct: int, tone: string}>
      * }
      */
     private function monthProgressCounts(array $projectIds, ?array $siteIds, string $monthStart): array
     {
-        $monthProjectIds = SeoProject::query()
+        $month = Carbon::parse($monthStart)->startOfMonth();
+        $monthProjectQuery = SeoProject::query()
             ->whereNull('archived_at')
-            ->whereDate('month', $monthStart)
-            ->when(
-                $projectIds !== [],
-                static fn (Builder $q) => $q->whereIn('id', $projectIds),
-                static function (Builder $q) use ($siteIds): void {
-                    if (is_array($siteIds) && $siteIds !== []) {
-                        $q->whereIn('site_id', $siteIds);
-                    } else {
-                        $q->whereRaw('0 = 1');
-                    }
-                },
-            )
+            ->whereYear('month', (int) $month->year)
+            ->whereMonth('month', (int) $month->month);
+
+        if ($projectIds !== []) {
+            $monthProjectQuery->whereIn('id', $projectIds);
+        } elseif (is_array($siteIds) && $siteIds !== []) {
+            $monthProjectQuery->whereIn('site_id', $siteIds);
+        } else {
+            $monthProjectQuery->whereRaw('0 = 1');
+        }
+
+        $monthProjectIds = $monthProjectQuery
             ->pluck('id')
             ->map(static fn (mixed $id): int => (int) $id)
             ->all();
@@ -369,20 +378,27 @@ final class OperationalLandingDashboardReadModel
                 'approved' => 0,
                 'published' => 0,
                 'written' => 0,
+                'has_month_projects' => false,
+                'rows' => [],
             ];
         }
 
         $base = SeoProjectTask::query()->active()->whereIn('project_id', $monthProjectIds);
         $total = (int) (clone $base)->count();
-        $written = (int) (clone $base)->whereIn('status', [
-            SeoProjectTask::STATUS_COMPLETED,
-            SeoProjectTask::STATUS_REVIEWING,
-        ])->count();
+        $written = (int) SeoProjectTask::query()
+            ->active()
+            ->whereIn('project_id', $monthProjectIds)
+            ->whereIn('status', [
+                SeoProjectTask::STATUS_COMPLETED,
+                SeoProjectTask::STATUS_REVIEWING,
+            ])
+            ->count();
+
         $pending = (int) $this->pendingReviewBaseQuery($monthProjectIds, null)->count();
         $reviewed = (int) $this->inReviewBaseQuery($monthProjectIds, null)->count();
         $approved = (int) $this->approvedBaseQuery($monthProjectIds, null)->count();
 
-        $publishedQuery = (clone $base);
+        $publishedQuery = SeoProjectTask::query()->active()->whereIn('project_id', $monthProjectIds);
         if ($this->hasPublishPublishedAtColumn()) {
             $publishedQuery->where(static function (Builder $inner): void {
                 $inner->whereNotNull('publish_published_at');
@@ -397,6 +413,20 @@ final class OperationalLandingDashboardReadModel
         }
         $published = (int) $publishedQuery->count();
 
+        $denom = max(0, $total);
+        $row = static function (string $key, string $label, int $value, string $tone) use ($denom): array {
+            $pct = $denom > 0 ? (int) min(100, max(0, round(($value / $denom) * 100))) : 0;
+
+            return [
+                'key' => $key,
+                'label' => $label,
+                'value' => $value,
+                'total' => $denom,
+                'pct' => $pct,
+                'tone' => $tone,
+            ];
+        };
+
         return [
             'total' => $total,
             'pending_review' => $pending,
@@ -404,6 +434,13 @@ final class OperationalLandingDashboardReadModel
             'approved' => $approved,
             'published' => $published,
             'written' => $written,
+            'has_month_projects' => true,
+            'rows' => [
+                $row('written', (string) __('seo-content-ai::filament.dashboard.ops_progress_written'), $written, 'green'),
+                $row('pending_review', (string) __('seo-content-ai::filament.dashboard.ops_kpi_pending_review'), $pending, 'amber'),
+                $row('approved', (string) __('seo-content-ai::filament.dashboard.ops_kpi_approved'), $approved, 'blue'),
+                $row('published', (string) __('seo-content-ai::filament.dashboard.ops_progress_published'), $published, 'purple'),
+            ],
         ];
     }
 
@@ -479,7 +516,14 @@ final class OperationalLandingDashboardReadModel
     }
 
     /**
-     * @return list<array{tone: string, message: string, url: ?string, age: string}>
+     * @return list<array{
+     *     tone: string,
+     *     icon: string,
+     *     title: string,
+     *     detail: string|null,
+     *     age: string|null,
+     *     url: string|null
+     * }>
      */
     private function buildAttentionItems(int $publishErrors, int $stalePending, int $aiFailed): array
     {
@@ -487,61 +531,64 @@ final class OperationalLandingDashboardReadModel
         if ($publishErrors > 0) {
             $items[] = [
                 'tone' => 'danger',
-                'message' => __('seo-content-ai::filament.dashboard.ops_attention_publish_errors', ['count' => $publishErrors]),
+                'icon' => 'heroicon-o-exclamation-triangle',
+                'title' => (string) __('seo-content-ai::filament.dashboard.ops_attention_publish_errors', ['count' => $publishErrors]),
+                'detail' => (string) __('seo-content-ai::filament.dashboard.ops_attention_publish_errors_detail'),
+                'age' => null,
                 'url' => $this->safeUrl(static fn (): string => PublishingQueueHub::getUrl()),
-                'age' => '',
             ];
         }
         if ($stalePending > 0) {
             $items[] = [
                 'tone' => 'warning',
-                'message' => __('seo-content-ai::filament.dashboard.ops_attention_stale_review', ['count' => $stalePending]),
+                'icon' => 'heroicon-o-clock',
+                'title' => (string) __('seo-content-ai::filament.dashboard.ops_attention_stale_review', ['count' => $stalePending]),
+                'detail' => (string) __('seo-content-ai::filament.dashboard.ops_attention_stale_review_detail'),
+                'age' => null,
                 'url' => $this->safeUrl(static fn (): string => SeoProjectResource::getUrl('index')),
-                'age' => '',
             ];
         }
         if ($aiFailed > 0) {
             $items[] = [
                 'tone' => 'danger',
-                'message' => __('seo-content-ai::filament.dashboard.ops_attention_ai_failed', ['count' => $aiFailed]),
+                'icon' => 'heroicon-o-cpu-chip',
+                'title' => (string) __('seo-content-ai::filament.dashboard.ops_attention_ai_failed', ['count' => $aiFailed]),
+                'detail' => (string) __('seo-content-ai::filament.dashboard.ops_attention_ai_failed_detail'),
+                'age' => null,
                 'url' => $this->safeUrl(static fn (): string => SeoProjectResource::getUrl('index')),
-                'age' => '',
             ];
         }
 
-        return array_slice($items, 0, 4);
+        return array_slice($items, 0, 5);
     }
 
     /**
-     * @return list<array{time: string, message: string}>
+     * @return list<array{time: string, message: string, context: string|null, tone: string}>
      */
     private function todayActivity(): array
     {
-        $from = now()->startOfDay()->toDateTimeString();
-        $to = now()->endOfDay()->toDateTimeString();
         $rows = $this->auditSearch->search([
-            'from' => $from,
-            'to' => $to,
+            'from' => now()->startOfDay()->toDateTimeString(),
+            'to' => now()->endOfDay()->toDateTimeString(),
             'limit' => self::ACTIVITY_LIMIT,
         ]);
 
         $out = [];
         foreach ($rows as $row) {
-            $occurred = (string) ($row['occurred_at'] ?? '');
-            $time = '—';
-            try {
-                if ($occurred !== '') {
-                    $time = Carbon::parse($occurred)->format('H:i');
-                }
-            } catch (\Throwable) {
-                $time = '—';
+            $presented = OperationalLandingDashboardActivityPresenter::present($row);
+            // Guard: never leak raw action keys.
+            if (
+                str_contains($presented['message'], 'content_project.')
+                || str_contains($presented['message'], 'content_projects.')
+                || str_contains($presented['message'], ' · success')
+                || str_contains($presented['message'], ' · failed')
+            ) {
+                $presented['message'] = OperationalLandingDashboardActivityPresenter::labelFor(
+                    (string) ($row['action'] ?? ''),
+                    strtolower((string) ($row['result'] ?? '')) === 'failed',
+                );
             }
-            $action = (string) ($row['action'] ?? '');
-            $result = (string) ($row['result'] ?? '');
-            $out[] = [
-                'time' => $time,
-                'message' => trim($action.($result !== '' ? ' · '.$result : '')),
-            ];
+            $out[] = $presented;
         }
 
         return $out;

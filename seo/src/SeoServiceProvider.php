@@ -62,6 +62,36 @@ final class SeoServiceProvider extends ServiceProvider
         }
 
         $this->registerWorkspaceDestination();
+        $this->registerOperationalLandingDashboardStyles();
+    }
+
+    private function registerOperationalLandingDashboardStyles(): void
+    {
+        if (! class_exists(\Filament\Support\Facades\FilamentView::class)
+            || ! class_exists(\Filament\View\PanelsRenderHook::class)
+        ) {
+            return;
+        }
+
+        // Load CSS in panel <head> — never via @vite inside Livewire widget Blade
+        // (that breaks the Livewire DOM tree and blanks the Dashboard).
+        \Filament\Support\Facades\FilamentView::registerRenderHook(
+            \Filament\View\PanelsRenderHook::STYLES_AFTER,
+            static function (): string {
+                try {
+                    $panelId = \Filament\Facades\Filament::getCurrentPanel()?->getId();
+                    if (! in_array($panelId, ['seo', 'seo-main'], true)) {
+                        return '';
+                    }
+
+                    return (string) app(\Illuminate\Foundation\Vite::class)([
+                        'addons/seo/resources/css/operational-landing-dashboard.css',
+                    ]);
+                } catch (\Throwable) {
+                    return '';
+                }
+            },
+        );
     }
 
     private function registerWorkspaceDestination(): void

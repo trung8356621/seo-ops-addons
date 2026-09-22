@@ -11,6 +11,8 @@ Dashboard **không** phải trang analytics SEO. Không đưa lại domain-wide 
 
 **Landing Dashboard = tổng quan account-wide.** Không hiện Global domain selectbox trên trang này; data luôn aggregate theo accessible sites (không phụ thuộc sticky domain filter).
 
+Visual CSS ổn định: `seo/resources/css/operational-landing-dashboard.css` (Vite entry), class prefix `.ops-landing*`. Không dùng inline layout CSS.
+
 ## Design Principles
 
 - Clean, professional, operational, calm, structured, fast.

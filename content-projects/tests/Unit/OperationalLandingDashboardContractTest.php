@@ -92,7 +92,7 @@ final class OperationalLandingDashboardContractTest extends TestCase
         self::assertStringNotContainsString('globalSiteId', $src);
     }
 
-    public function test_widget_layout_uses_css_grid_not_purged_tailwind_cols(): void
+    public function test_widget_layout_uses_stable_css_classes(): void
     {
         $blade = dirname(__DIR__, 3)
             .DIRECTORY_SEPARATOR.'seo-content-ai-compat'
@@ -103,10 +103,54 @@ final class OperationalLandingDashboardContractTest extends TestCase
             .DIRECTORY_SEPARATOR.'operational-landing-dashboard.blade.php';
 
         $bladeSrc = (string) file_get_contents($blade);
-        self::assertStringContainsString('grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))', $bladeSrc);
-        self::assertStringContainsString('ops_activity_title', $bladeSrc);
-        self::assertStringContainsString('ops_queue_title', $bladeSrc);
-        self::assertStringContainsString('ops_month_progress_manager', $bladeSrc);
+        self::assertStringContainsString('ops-landing__kpi-grid--5', $bladeSrc);
+        self::assertStringContainsString('ops-landing-attention', $bladeSrc);
+        self::assertStringContainsString('ops-landing-timeline', $bladeSrc);
+        self::assertStringContainsString('ops-dashboard-progress-card', $bladeSrc);
+        self::assertStringNotContainsString('@vite(', $bladeSrc);
+        self::assertStringNotContainsString('grid-template-columns:repeat(auto-fit', $bladeSrc);
+        self::assertStringNotContainsString('content_project.', $bladeSrc);
+
+        $provider = (string) file_get_contents(dirname(__DIR__, 3)
+            .DIRECTORY_SEPARATOR.'seo'
+            .DIRECTORY_SEPARATOR.'src'
+            .DIRECTORY_SEPARATOR.'SeoServiceProvider.php');
+        self::assertStringContainsString('operational-landing-dashboard.css', $provider);
+        self::assertStringContainsString('STYLES_AFTER', $provider);
+
+        $progressCard = dirname(__DIR__, 3)
+            .DIRECTORY_SEPARATOR.'seo-content-ai-compat'
+            .DIRECTORY_SEPARATOR.'resources'
+            .DIRECTORY_SEPARATOR.'views'
+            .DIRECTORY_SEPARATOR.'filament'
+            .DIRECTORY_SEPARATOR.'widgets'
+            .DIRECTORY_SEPARATOR.'partials'
+            .DIRECTORY_SEPARATOR.'ops-dashboard-progress-card.blade.php';
+        self::assertFileExists($progressCard);
+        self::assertStringContainsString('ops-landing-progress', (string) file_get_contents($progressCard));
+    }
+
+    public function test_activity_uses_presentation_mapper(): void
+    {
+        $src = $this->methodSource(OperationalLandingDashboardReadModel::class, 'todayActivity');
+        self::assertStringContainsString('OperationalLandingDashboardActivityPresenter', $src);
+        self::assertStringNotContainsString("trim(\$action.(\$result !== '' ? ' · '.\$result : ''))", $src);
+    }
+
+    public function test_month_progress_exposes_coherent_rows_contract(): void
+    {
+        $src = $this->methodSource(OperationalLandingDashboardReadModel::class, 'monthProgressCounts');
+        self::assertStringContainsString("'has_month_projects'", $src);
+        self::assertStringContainsString("'rows'", $src);
+        self::assertStringContainsString('whereYear', $src);
+        self::assertStringContainsString('whereMonth', $src);
+    }
+
+    public function test_queue_preview_is_bounded(): void
+    {
+        $src = $this->methodSource(OperationalLandingDashboardReadModel::class, 'publishQueuePreview');
+        self::assertStringContainsString('QUEUE_LIMIT', $src);
+        self::assertStringContainsString('limit(self::QUEUE_LIMIT)', $src);
     }
 
     public function test_widget_view_and_access_gate(): void

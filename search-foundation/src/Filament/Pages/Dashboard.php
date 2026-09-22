@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchFoundation\Filament\Pages;
 
 use Omnichannel\Addons\ContentProjects\Filament\Widgets\OperationalLandingDashboardWidget;
 use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoConnectionRoutes;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Support\ImageDriverResolver;
 use Filament\Notifications\Notification;
 use Filament\Pages\Dashboard as BaseDashboard;
@@ -66,11 +65,16 @@ class Dashboard extends BaseDashboard
         return 'Dashboard';
     }
 
+    public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
+    {
+        // Visible title/subtitle live in the operational widget (mockup composition).
+        // Keep a screen-reader heading so Filament/Livewire page chrome stays valid.
+        return new \Illuminate\Support\HtmlString('<span class="sr-only">Dashboard</span>');
+    }
+
     public function getSubheading(): ?string
     {
-        return SeoAccessControl::isContentManager()
-            ? (string) __('seo-content-ai::filament.dashboard.ops_cm_subtitle')
-            : (string) __('seo-content-ai::filament.dashboard.ops_manager_subtitle');
+        return null;
     }
 
     /**

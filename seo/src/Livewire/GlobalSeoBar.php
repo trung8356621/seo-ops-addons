@@ -35,12 +35,19 @@ class GlobalSeoBar extends Component
      */
     public bool $showPlannerActiveMonth = false;
 
+    /**
+     * Stable landing-Dashboard flag — set once on full-page mount.
+     * Must NOT re-resolve from Livewire /livewire/update path.
+     */
+    public bool $hideDomainPickerOnLanding = false;
+
     public function mount(): void
     {
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
 
         // Capture planner context from the full-page GET only (route + path). Persists across Livewire updates.
         $this->showPlannerActiveMonth = SeoAccessControl::isProjectPlannerSeoAuditPage();
+        $this->hideDomainPickerOnLanding = SeoPanelRoutes::isLandingDashboard();
 
         $resolver = app(DomainContextResolver::class);
         if ($this->shouldPreferFirstAccessibleDomain() || $this->showPlannerActiveMonth) {
@@ -164,9 +171,11 @@ class GlobalSeoBar extends Component
                 ->mapWithKeys(fn (Site $site): array => [(int) $site->getKey() => $resolver->domainKeyForSite($site)])
                 ->all(),
             'roleOptions' => $roleOptions,
-            'showDomainPicker' => SeoAccessControl::shouldShowGlobalSitePicker(),
+            'showDomainPicker' => ! $this->hideDomainPickerOnLanding && SeoAccessControl::shouldShowGlobalSitePicker(),
             'hideAllDomainsOption' => SeoAccessControl::shouldRequireConcreteGlobalDomain(),
-            'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
+            'showContentProjectPicker' => $showContentProjectPicker
+                && ! $this->hideDomainPickerOnLanding
+                && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'showPlannerActiveMonth' => $this->showPlannerActiveMonth,
             'plannerMonthOptions' => $this->showPlannerActiveMonth
