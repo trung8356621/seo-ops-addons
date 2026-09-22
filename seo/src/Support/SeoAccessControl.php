@@ -249,6 +249,11 @@ final class SeoAccessControl
             return true;
         }
 
+        // Landing Dashboard = account-wide operational overview — no domain filter.
+        if (SeoPanelRoutes::isLandingDashboard()) {
+            return false;
+        }
+
         if (SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')) {
             return false;
         }

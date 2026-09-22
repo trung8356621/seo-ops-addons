@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Models;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
 use App\Models\Site;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -272,6 +273,11 @@ class SeoProjectTask extends Model
     public function article(): BelongsTo
     {
         return $this->belongsTo(SeoArticle::class, 'article_id');
+    }
+
+    public function contentManagerReviewer(): BelongsTo
+    {
+        return $this->belongsToOnDefaultConnection(User::class, 'content_manager_reviewed_by');
     }
 
     public function itemOrigin(): \Illuminate\Database\Eloquent\Relations\HasOne

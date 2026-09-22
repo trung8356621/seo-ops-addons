@@ -95,4 +95,31 @@ final class SeoAccessControlDomainPickerTest extends TestCase
 
         $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
     }
+
+    public function test_hides_domain_picker_on_landing_dashboard(): void
+    {
+        Route::get('/seo', fn () => 'ok')->name('filament.seo-main.pages.dashboard');
+
+        $request = Request::create('/seo', 'GET');
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(static fn () => $route);
+        $this->app->instance('request', $request);
+
+        $this->assertTrue(\Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isLandingDashboard());
+        $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
+    }
+
+    public function test_hides_domain_picker_on_hashed_landing_dashboard_path(): void
+    {
+        $hash = str_repeat('a', 32);
+        Route::get('/seo/{hash}', fn () => 'ok')->name('filament.seo.pages.dashboard');
+
+        $request = Request::create('/seo/'.$hash, 'GET');
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(static fn () => $route);
+        $this->app->instance('request', $request);
+
+        $this->assertTrue(\Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isLandingDashboard());
+        $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
+    }
 }

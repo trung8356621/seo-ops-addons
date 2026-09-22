@@ -309,6 +309,22 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.pages.product-gallery-canary');
     }
 
+    public static function isLandingDashboard(?string $route = null): bool
+    {
+        if (self::check($route, 'filament.seo.pages.dashboard')) {
+            return true;
+        }
+
+        if (! app()->bound('request')) {
+            return false;
+        }
+
+        $path = trim((string) request()->path(), '/');
+
+        // /seo or /seo/{connection_hash} — Filament home Dashboard only.
+        return (bool) preg_match('#^seo(?:/[a-zA-Z0-9]{32,64})?$#', $path);
+    }
+
     /**
      * @param  array<string, mixed>  $parameters
      */

@@ -4,22 +4,19 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Filament\Pages;
 
-use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoAllDomainsDashboard;
+use Omnichannel\Addons\ContentProjects\Filament\Widgets\OperationalLandingDashboardWidget;
 use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoConnectionRoutes;
-use Omnichannel\Addons\Seo\Filament\Widgets\AllDomainsListWidget;
-use Omnichannel\Addons\ContentProjects\Filament\Widgets\DashboardDomainArticlesChartWidget;
-use Omnichannel\Addons\ContentProjects\Filament\Widgets\DashboardWriterArticlesChartWidget;
-use Omnichannel\Addons\Seo\Filament\Widgets\KeywordOverviewWidget;
-use Omnichannel\Addons\Seo\Filament\Widgets\SeoScoreChart;
-use Omnichannel\Addons\WordPress\Filament\Widgets\WpPluginReleaseWidget;
-use Omnichannel\Addons\WordPress\Filament\Widgets\WpSyncStatusTable;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Support\ImageDriverResolver;
 use Filament\Notifications\Notification;
 use Filament\Pages\Dashboard as BaseDashboard;
 
+/**
+ * /seo landing Dashboard — operational, role-aware, lightweight.
+ * Heavy SEO analytics belong in future Statistics (see design.md).
+ */
 class Dashboard extends BaseDashboard
 {
-    use InteractsWithSeoAllDomainsDashboard;
     use InteractsWithSeoConnectionRoutes;
 
     protected static ?string $navigationIcon = 'heroicon-o-home';
@@ -66,7 +63,14 @@ class Dashboard extends BaseDashboard
 
     public function getTitle(): string
     {
-        return __('seo-content-ai::filament.dashboard.title');
+        return 'Dashboard';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return SeoAccessControl::isContentManager()
+            ? (string) __('seo-content-ai::filament.dashboard.ops_cm_subtitle')
+            : (string) __('seo-content-ai::filament.dashboard.ops_manager_subtitle');
     }
 
     /**
@@ -74,11 +78,7 @@ class Dashboard extends BaseDashboard
      */
     public function getColumns(): int|string|array
     {
-        return [
-            'default' => 1,
-            'md' => 12,
-            'xl' => 12,
-        ];
+        return 1;
     }
 
     /**
@@ -86,19 +86,8 @@ class Dashboard extends BaseDashboard
      */
     public function getWidgets(): array
     {
-        if ($this->isAllDomainsDashboard()) {
-            return [
-                DashboardDomainArticlesChartWidget::class,
-                DashboardWriterArticlesChartWidget::class,
-                AllDomainsListWidget::class,
-                WpPluginReleaseWidget::class,
-            ];
-        }
-
         return [
-            KeywordOverviewWidget::class,
-            SeoScoreChart::class,
-            WpSyncStatusTable::class,
+            OperationalLandingDashboardWidget::class,
         ];
     }
 }
