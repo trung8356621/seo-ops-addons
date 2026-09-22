@@ -9,10 +9,10 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 
 /**
- * SSOT for modern Prompt Hook → execution profile.
+ * SSOT for Prompt Hook default execution profile + optional prompt-level override.
  *
- * Prompt DB fields (routing_mode, routing_profile_key) must NOT override this map.
- * Model order / fallback live in AI Center via AiModelRouterService.
+ * Effective: prompt.routing_profile_key (when set) ?? hook map ?? tool default.
+ * Model order / fallback still live in AI Center via AiModelRouterService.
  */
 final class PromptExecutionProfileResolver
 {
@@ -40,6 +40,11 @@ final class PromptExecutionProfileResolver
 
     public function resolve(?SeoPrompt $prompt, ?string $hookKey = null, ?string $toolType = null): AiExecutionProfile
     {
+        $override = $this->overrideFromPrompt($prompt);
+        if ($override !== null) {
+            return $override;
+        }
+
         $hook = trim($hookKey ?? (string) ($prompt?->hook_key ?? ''));
         if ($hook !== '' && isset(self::HOOK_MAP[$hook])) {
             return self::HOOK_MAP[$hook];
@@ -53,6 +58,43 @@ final class PromptExecutionProfileResolver
             ImageToolType::Video => AiExecutionProfile::VideoGeneral,
             ImageToolType::Default => AiExecutionProfile::TextFast,
         };
+    }
+
+    /**
+     * Hook default only (ignores prompt override). Used by Prompt Admin reset UI.
+     */
+    public function hookDefault(?string $hookKey, ?string $toolType = 'default'): AiExecutionProfile
+    {
+        return $this->resolve(null, $hookKey, $toolType);
+    }
+
+    public function overrideFromPrompt(?SeoPrompt $prompt): ?AiExecutionProfile
+    {
+        if ($prompt === null) {
+            return null;
+        }
+
+        $key = trim((string) ($prompt->routing_profile_key ?? ''));
+        if ($key === '') {
+            return null;
+        }
+
+        return AiExecutionProfile::tryFrom($key);
+    }
+
+    /**
+     * @return array<string, string> value => display name
+     */
+    public function selectableProfileOptions(?string $hookKey = null, ?string $toolType = 'default'): array
+    {
+        $hookDefault = $this->hookDefault($hookKey, $toolType);
+        $group = $hookDefault->group();
+        $options = [];
+        foreach (AiExecutionProfile::inGroup($group) as $profile) {
+            $options[$profile->value] = $profile->displayName();
+        }
+
+        return $options;
     }
 
     /**

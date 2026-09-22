@@ -24,7 +24,7 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
     {
         $blade = LegacyAddonPath::read('resources/views/components/content-project-audit-notes.blade.php');
         self::assertStringContainsString('audit_notes_tab_existing', $blade);
-        self::assertStringContainsString('audit_notes_tab_new', $blade);
+        self::assertStringContainsString('new_topics_tab_count', $blade);
         self::assertStringContainsString("setAuditNotesTab('existing')", $blade);
         self::assertStringContainsString("setAuditNotesTab('new')", $blade);
         self::assertStringContainsString('data-discover-new-topics', $blade);
@@ -126,7 +126,8 @@ final class DiscoverNewTopicsPr3ContractTest extends TestCase
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(InteractsWithDiscoverNewTopics::class))->getFileName(),
         );
-        self::assertStringContainsString('previousSelected', $src);
+        self::assertStringContainsString('previousItems', $src);
+        self::assertStringContainsString('hadCompletedBatch', $src);
         self::assertStringContainsString('DiscoverNewTopicsService', $src);
         self::assertStringContainsString('newTopicSelectedItems', $src);
         self::assertStringNotContainsString('SeoTopic::', $src);

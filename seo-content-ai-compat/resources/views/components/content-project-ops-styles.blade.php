@@ -2182,10 +2182,70 @@
             gap: 0.75rem;
             min-height: 0;
         }
+        .cp-audit-notes__mode-toolbar {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            padding: 0.65rem 0.75rem 0;
+        }
         .cp-audit-notes__mode-tabs {
             display: flex;
             gap: 0.35rem;
             flex-wrap: wrap;
+            padding: 0;
+        }
+        .cp-audit-notes__mode-actions {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .cp-audit-notes__mode-hint {
+            grid-column: 1 / -1;
+            padding: 0 0.75rem;
+            margin: 0;
+        }
+        .cp-audit-notes__ai-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            border: 1px solid color-mix(in srgb, #7c3aed 45%, white);
+            background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+            color: #fff;
+            border-radius: 0.55rem;
+            padding: 0.4rem 0.85rem;
+            font-size: 0.8125rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgb(124 58 237 / 0.25);
+        }
+        .cp-audit-notes__ai-action:hover:not(:disabled):not(.is-disabled) {
+            filter: brightness(1.05);
+        }
+        .cp-audit-notes__ai-action:disabled,
+        .cp-audit-notes__ai-action.is-disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            filter: none;
+        }
+        .cp-audit-notes__ai-action-icon {
+            font-size: 0.9rem;
+            line-height: 1;
+        }
+        .dark .cp-audit-notes__ai-action {
+            border-color: #a78bfa;
+            background: linear-gradient(180deg, #7c3aed 0%, #6d28d9 100%);
+        }
+        .cp-ai-topic-workspace--new-only {
+            grid-template-columns: minmax(0, 1fr) !important;
+        }
+        .cp-ai-topic-workspace--new-only .cp-ai-topic-column--new-full {
+            grid-column: 1 / -1;
+            border-right: none;
+            border-radius: 0 0 0.75rem 0.75rem;
         }
         .cp-audit-notes__mode-tab {
             border: 1px solid rgb(209 213 219);
@@ -2226,8 +2286,8 @@
             height: 100%;
         }
         .cp-audit-notes__mode-tabs {
-            grid-column: 1 / -1;
-            padding: 0.65rem 0.75rem 0;
+            grid-column: auto;
+            padding: 0;
         }
         .dark .cp-audit-notes {
             background: rgb(17 24 39 / 0.6);

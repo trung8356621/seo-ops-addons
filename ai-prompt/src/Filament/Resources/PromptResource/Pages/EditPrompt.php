@@ -87,13 +87,14 @@ class EditPrompt extends SeoEditRecord
             $this->record->variables ?? [],
         );
 
-        // Field model_category / routing overrides đã gỡ khỏi form — không đẩy vào state.
+        // Keep routing_profile_key (prompt-level execution profile override). Strip dead routing columns.
         unset(
             $data['model_category'],
             $data['routing_mode'],
-            $data['routing_profile_key'],
             $data['ai_connection_id'],
         );
+        $override = trim((string) ($data['routing_profile_key'] ?? ''));
+        $data['routing_profile_key'] = $override !== '' ? $override : null;
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         $data['settings'] = PromptPostProcessing::mergeIntoSettings(
@@ -148,13 +149,19 @@ class EditPrompt extends SeoEditRecord
             $data['variables'] ?? [],
         );
 
-        // Legacy routing columns kept in DB — never mutate from modern Prompt form.
+        // Prompt-level execution profile override (routing_profile_key). Model/provider stay in AI Center.
         unset(
             $data['model_category'],
-            $data['routing_mode'],
-            $data['routing_profile_key'],
             $data['ai_connection_id'],
         );
+        $override = trim((string) ($data['routing_profile_key'] ?? ''));
+        if ($override === '') {
+            $data['routing_profile_key'] = null;
+            $data['routing_mode'] = 'auto';
+        } else {
+            $data['routing_profile_key'] = $override;
+            $data['routing_mode'] = 'override';
+        }
 
         $existingSettings = is_array($this->record->settings ?? null) ? $this->record->settings : [];
         $formSettings = is_array($data['settings'] ?? null) ? $data['settings'] : [];

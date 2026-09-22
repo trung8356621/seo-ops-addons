@@ -14,11 +14,14 @@ use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultDiscoverNewTopic
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
+use Illuminate\Support\Facades\Log;
 
 /**
  * SEO Audit — Discover New Topics (temporary candidates only).
@@ -109,7 +112,7 @@ final class DiscoverNewTopicsService
             'prompt_result_id' => $run['prompt_result_id'],
         ];
         $this->linkPromptResultToContentPlanHistory(
-            $project,
+            $this->resolvePlanningProject($project, $siteId, $actorId),
             $siteId,
             $actorId,
             $count,
@@ -152,11 +155,21 @@ final class DiscoverNewTopicsService
         array $result,
     ): void {
         if (! $project instanceof SeoProject) {
+            Log::warning('discover_new_topics.history_link_skipped_no_project', [
+                'site_id' => $siteId,
+                'prompt_result_id' => (int) ($result['prompt_result_id'] ?? 0),
+            ]);
+
             return;
         }
 
         $promptResultId = (int) ($result['prompt_result_id'] ?? 0);
         if ($promptResultId <= 0) {
+            Log::warning('discover_new_topics.history_link_skipped_no_prompt_result', [
+                'site_id' => $siteId,
+                'project_id' => (int) $project->getKey(),
+            ]);
+
             return;
         }
 
@@ -185,6 +198,43 @@ final class DiscoverNewTopicsService
             actorId: $actorId,
             promptResultId: $promptResultId,
         );
+    }
+
+    /**
+     * Content Plan AI History is draft-scoped. Prefer the Livewire project; fall back to
+     * canonical Shared Draft so Discover never silently orphans PromptResults.
+     */
+    public function resolvePlanningProject(
+        ?SeoProject $project,
+        int $siteId,
+        ?int $actorId = null,
+    ): ?SeoProject {
+        if ($project instanceof SeoProject) {
+            return $project;
+        }
+
+        $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+        if ($draft instanceof SeoProject) {
+            return $draft;
+        }
+
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        try {
+            return app(PlanningDraftIntakeService::class)->ensureSharedDraft(
+                $actorId !== null && $actorId > 0 ? $actorId : null,
+                $siteId,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('discover_new_topics.ensure_shared_draft_failed', [
+                'site_id' => $siteId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     /**

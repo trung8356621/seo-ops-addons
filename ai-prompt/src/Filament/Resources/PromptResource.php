@@ -168,12 +168,40 @@ class PromptResource extends SeoPanelResource
                                     ]),
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.execution_profile_section'))
                                     ->schema([
-                                        Forms\Components\Placeholder::make('execution_profile_display')
+                                        Forms\Components\Select::make('routing_profile_key')
                                             ->label(__('seo-content-ai::filament.prompt.execution_profile'))
-                                            ->content(fn (Get $get): HtmlString => self::executionProfileDisplayHtml(
+                                            ->options(function (Get $get): array {
+                                                return app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
+                                                    ->selectableProfileOptions(
+                                                        (string) ($get('hook_key') ?? ''),
+                                                        (string) ($get('tools') ?? 'default'),
+                                                    );
+                                            })
+                                            ->placeholder(fn (Get $get): string => self::executionProfileHookDefaultLabel(
                                                 (string) ($get('hook_key') ?? ''),
                                                 (string) ($get('tools') ?? 'default'),
-                                            )),
+                                            ))
+                                            ->helperText(fn (Get $get): string => (string) __('seo-content-ai::filament.prompt.execution_profile_override_hint', [
+                                                'default' => self::executionProfileHookDefaultLabel(
+                                                    (string) ($get('hook_key') ?? ''),
+                                                    (string) ($get('tools') ?? 'default'),
+                                                ),
+                                            ]))
+                                            ->nullable()
+                                            ->live()
+                                            ->searchable(false)
+                                            ->native(false)
+                                            ->hintAction(
+                                                Forms\Components\Actions\Action::make('reset_execution_profile')
+                                                    ->label(__('seo-content-ai::filament.prompt.execution_profile_use_hook_default'))
+                                                    ->link()
+                                                    ->action(function (Forms\Set $set): void {
+                                                        $set('routing_profile_key', null);
+                                                    })
+                                            ),
+                                        Forms\Components\Placeholder::make('execution_profile_ai_center')
+                                            ->label('')
+                                            ->content(fn (): HtmlString => self::executionProfileAiCenterLinkHtml()),
                                     ]),
                                 ...PromptHookFormSchema::section(),
                             ])
@@ -446,17 +474,23 @@ class PromptResource extends SeoPanelResource
         ];
     }
 
+    public static function executionProfileHookDefaultLabel(string $hookKey, string $toolType = 'default'): string
+    {
+        $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
+            ->hookDefault($hookKey !== '' ? $hookKey : null, $toolType);
+
+        return (string) __('seo-content-ai::filament.prompt.execution_profile_hook_default_option', [
+            'profile' => $profile->displayName(),
+        ]);
+    }
+
+    /**
+     * @deprecated Read-only display kept for older contract tests / callers.
+     */
     public static function executionProfileDisplayHtml(string $hookKey, string $toolType = 'default'): HtmlString
     {
         $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
-            ->resolve(null, $hookKey !== '' ? $hookKey : null, $toolType);
-
-        $aiCenterUrl = '';
-        try {
-            $aiCenterUrl = (string) \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl(panel: 'admin');
-        } catch (\Throwable) {
-            $aiCenterUrl = '';
-        }
+            ->hookDefault($hookKey !== '' ? $hookKey : null, $toolType);
 
         $html = '<div class="space-y-2">'
             .'<span class="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2.5 py-1 text-sm font-medium text-gray-800 dark:text-gray-100">'
@@ -464,19 +498,32 @@ class PromptResource extends SeoPanelResource
             .'</span>'
             .'<p class="text-sm text-gray-600 dark:text-gray-300">'
             .e((string) __('seo-content-ai::filament.prompt.execution_profile_hint'))
-            .'</p>';
-
-        if ($aiCenterUrl !== '') {
-            $html .= '<p class="text-sm">'
-                .'<a href="'.e($aiCenterUrl).'" class="text-primary-600 dark:text-primary-400 hover:underline font-medium">'
-                .e((string) __('seo-content-ai::filament.prompt.open_ai_center'))
-                .'</a>'
-                .'</p>';
-        }
-
-        $html .= '</div>';
+            .'</p>'
+            .'</div>';
 
         return new HtmlString($html);
+    }
+
+    public static function executionProfileAiCenterLinkHtml(): HtmlString
+    {
+        $aiCenterUrl = '';
+        try {
+            $aiCenterUrl = (string) \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl(panel: 'admin');
+        } catch (\Throwable) {
+            $aiCenterUrl = '';
+        }
+
+        if ($aiCenterUrl === '') {
+            return new HtmlString('');
+        }
+
+        return new HtmlString(
+            '<p class="text-sm">'
+            .'<a href="'.e($aiCenterUrl).'" class="text-primary-600 dark:text-primary-400 hover:underline font-medium">'
+            .e((string) __('seo-content-ai::filament.prompt.open_ai_center'))
+            .'</a>'
+            .'</p>'
+        );
     }
 
     public static function markdownFromParts(Collection $parts): string

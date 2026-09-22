@@ -53,6 +53,9 @@ final class DiscoverNewTopicsHistoryAndProfileContractTest extends TestCase
         );
         self::assertStringContainsString('resolveNewContentProject', $trait);
         self::assertStringContainsString('DiscoverNewTopicsService::DEFAULT_COUNT', $trait);
+        self::assertStringContainsString('applyGeneratedTopicBatch', $trait);
+        self::assertStringContainsString('resolvePlanningProject', $src);
+        self::assertStringContainsString('PlanningDraftResolver', $src);
     }
 
     public function test_draft_ai_history_includes_discover_source_and_type_filter(): void

@@ -38,13 +38,18 @@ class CreatePrompt extends SeoCreateRecord
             $data['variables'] ?? [],
         );
 
-        // Legacy routing columns are not collected on modern create form.
         unset(
             $data['model_category'],
-            $data['routing_mode'],
-            $data['routing_profile_key'],
             $data['ai_connection_id'],
         );
+        $override = trim((string) ($data['routing_profile_key'] ?? ''));
+        if ($override === '') {
+            $data['routing_profile_key'] = null;
+            $data['routing_mode'] = 'auto';
+        } else {
+            $data['routing_profile_key'] = $override;
+            $data['routing_mode'] = 'override';
+        }
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         // Do not seed obsolete prompt-level routing keys.

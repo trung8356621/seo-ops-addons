@@ -52,6 +52,9 @@ final class DiscoverNewTopicsUxAndLegacyGeneratorRetirementContractTest extends 
         self::assertStringContainsString('keywordsTopicsUrlForAuditSite', $src);
         self::assertStringContainsString("getUrl('clusters')", $src);
         self::assertStringContainsString('appendSiteToUrl', $src);
+        self::assertStringContainsString('applyGeneratedTopicBatch', $src);
+        self::assertStringContainsString('hydrateDiscoverNewTopicsFromStorage', $src);
+        self::assertStringContainsString('window.cpNewTopicsStorage', $src);
 
         $blade = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/components/content-project-audit-notes.blade.php'
@@ -64,11 +67,19 @@ final class DiscoverNewTopicsUxAndLegacyGeneratorRetirementContractTest extends 
         self::assertStringContainsString('data-audit-notes-open-topics', $blade);
         self::assertStringContainsString('data-discover-new-topics="1"', $blade);
         self::assertStringContainsString('new_topics_zero_result', $blade);
-        self::assertStringContainsString('data-discover-new-topics-retry', $blade);
         self::assertStringContainsString('discoverCanRun', $blade);
         self::assertStringContainsString('data-discover-enabled', $blade);
         self::assertStringContainsString('new_topics_requires_topics', $blade);
+        self::assertStringContainsString('cp-audit-notes__mode-toolbar', $blade);
+        self::assertStringContainsString('cp-audit-notes__ai-action', $blade);
+        self::assertStringContainsString('cp-ai-topic-workspace--new-only', $blade);
+        self::assertStringContainsString('data-new-topics-selected="1"', $blade);
+        self::assertStringNotContainsString('data-new-topics-candidates="1"', $blade);
+        self::assertStringNotContainsString('toggleNewTopicCandidate', $blade);
+        self::assertStringContainsString('cpNewTopicsStorage', $blade);
+        self::assertStringContainsString('wire:confirm', $blade);
+        self::assertStringContainsString('new_topics_regenerate_confirm', $blade);
         // New tab button only when showNewTab
-        self::assertMatchesRegularExpression('/@if\s*\(\s*\$showNewTab\s*\)[\s\S]*audit_notes_tab_new/', $blade);
+        self::assertMatchesRegularExpression('/@if\s*\(\s*\$showNewTab\s*\)[\s\S]*new_topics_tab_count/', $blade);
     }
 }

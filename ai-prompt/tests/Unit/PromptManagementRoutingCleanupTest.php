@@ -13,18 +13,31 @@ use Tests\TestCase;
 
 final class PromptManagementRoutingCleanupTest extends TestCase
 {
-    public function test_core_resolver_ignores_stale_routing_profile_override(): void
+    public function test_prompt_level_override_wins_over_hook_default(): void
     {
         $prompt = new SeoPrompt;
-        $prompt->hook_key = 'keyword.discovery.structured';
+        $prompt->hook_key = 'seo_audit.discover_new_topics';
         $prompt->routing_mode = 'override';
         $prompt->routing_profile_key = AiExecutionProfile::TextLongform->value;
         $prompt->tools = 'default';
 
         $resolved = (new PromptExecutionProfileResolver)->resolve($prompt);
 
-        // Hook map wins over DB override; KD canonical profile is TextLongform.
         $this->assertSame(AiExecutionProfile::TextLongform, $resolved);
+    }
+
+    public function test_empty_override_falls_back_to_hook_default(): void
+    {
+        $prompt = new SeoPrompt;
+        $prompt->hook_key = 'seo_audit.discover_new_topics';
+        $prompt->routing_mode = 'auto';
+        $prompt->routing_profile_key = null;
+        $prompt->tools = 'default';
+
+        $this->assertSame(
+            AiExecutionProfile::TextReasoning,
+            (new PromptExecutionProfileResolver)->resolve($prompt),
+        );
     }
 
     public function test_core_resolver_maps_registered_hooks_read_only(): void
@@ -43,9 +56,13 @@ final class PromptManagementRoutingCleanupTest extends TestCase
             AiExecutionProfile::TextLongform,
             $resolver->resolve(null, 'article.content.generate'),
         );
+        $this->assertSame(
+            AiExecutionProfile::TextReasoning,
+            $resolver->resolve(null, 'seo_audit.discover_new_topics'),
+        );
     }
 
-    public function test_unbound_prompt_uses_tool_default_without_inventing_selector(): void
+    public function test_unbound_prompt_honors_explicit_override_when_set(): void
     {
         $prompt = new SeoPrompt;
         $prompt->hook_key = null;
@@ -54,22 +71,22 @@ final class PromptManagementRoutingCleanupTest extends TestCase
         $prompt->routing_profile_key = AiExecutionProfile::TextLongform->value;
 
         $this->assertSame(
-            AiExecutionProfile::TextFast,
+            AiExecutionProfile::TextLongform,
             (new PromptExecutionProfileResolver)->resolve($prompt),
         );
     }
 
-    public function test_prompt_form_excludes_legacy_routing_controls(): void
+    public function test_prompt_form_exposes_profile_selector_without_model_provider_controls(): void
     {
         $source = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
 
         $this->assertStringNotContainsString("Select::make('settings.routing_family_key')", $source);
         $this->assertStringNotContainsString("Radio::make('settings.usage_mode')", $source);
         $this->assertStringNotContainsString("Radio::make('routing_mode')", $source);
-        $this->assertStringNotContainsString("Select::make('routing_profile_key')", $source);
+        $this->assertStringContainsString("Select::make('routing_profile_key')", $source);
+        $this->assertStringContainsString('execution_profile_use_hook_default', $source);
         $this->assertStringNotContainsString("Select::make('ai_connection_id')", $source);
         $this->assertStringNotContainsString('resolvedRoutingSummary', $source);
-        $this->assertStringContainsString('execution_profile_display', $source);
         $this->assertStringContainsString('currentVersion.version_label', $source);
         $this->assertStringContainsString("label(__('seo-content-ai::filament.prompt.version'))", $source);
         $this->assertStringNotContainsString("TextColumn::make('updated_at')", $source);
@@ -78,12 +95,11 @@ final class PromptManagementRoutingCleanupTest extends TestCase
         $this->assertNotFalse($posVersion);
         $this->assertNotFalse($posName);
         $this->assertLessThan($posName, $posVersion);
-        $this->assertStringContainsString('executionProfileDisplayHtml', $source);
         $this->assertStringContainsString('PromptExecutionProfileResolver', $source);
-        $this->assertStringContainsString('SeoSettingsAiCenter::getUrl()', $source);
+        $this->assertStringContainsString('SeoSettingsAiCenter::getUrl', $source);
     }
 
-    public function test_execution_profile_display_uses_resolver_not_db_override(): void
+    public function test_execution_profile_display_uses_hook_default(): void
     {
         $html = (string) PromptResource::executionProfileDisplayHtml(
             'keyword.discovery.structured',
@@ -93,7 +109,7 @@ final class PromptManagementRoutingCleanupTest extends TestCase
         $this->assertStringContainsString(AiExecutionProfile::TextLongform->displayName(), $html);
         $this->assertStringNotContainsString(AiExecutionProfile::TextReasoning->displayName(), $html);
         $this->assertTrue(
-            str_contains($html, 'AI Center') || str_contains($html, 'Prompt Hook'),
+            str_contains($html, 'AI Center') || str_contains($html, 'Prompt Hook') || str_contains($html, 'Hook'),
             'Expected execution profile helper copy in display HTML.',
         );
         $this->assertStringNotContainsString('1. ', $html);
