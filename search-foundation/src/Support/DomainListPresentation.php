@@ -6,8 +6,8 @@ namespace Omnichannel\Addons\SearchFoundation\Support;
 
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
+use Omnichannel\Addons\SiteSync\Services\Heartbeat\WordPressHeartbeatPollService;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
-use Omnichannel\Addons\WordPress\Services\WordPressPluginUpdateService;
 use Omnichannel\Addons\WordPress\Services\WordPressSiteInfoService;
 use App\Models\Site;
 
@@ -61,6 +61,25 @@ final class DomainListPresentation
     }
 
     /**
+     * Observed installed Bridge version (not Laravel updater capability).
+     *
+     * Priority: heartbeat plugin_version → stored site-info bridge_version → null.
+     */
+    public static function observedBridgeVersion(Site $site): ?string
+    {
+        $heartbeat = self::jsonMeta($site, WordPressHeartbeatPollService::META_KEY);
+        $fromHeartbeat = trim((string) ($heartbeat['plugin_version'] ?? ''));
+        if ($fromHeartbeat !== '') {
+            return $fromHeartbeat;
+        }
+
+        $info = self::jsonMeta($site, WordPressSiteInfoService::META_PLUGIN_INFO);
+        $fromInfo = trim((string) ($info['bridge_version'] ?? ''));
+
+        return $fromInfo !== '' ? $fromInfo : null;
+    }
+
+    /**
      * @return array{line: string, detail: ?string, title: ?string}
      */
     public static function bridgeVersion(Site $site): array
@@ -70,37 +89,9 @@ final class DomainListPresentation
             return ['line' => '—', 'detail' => null, 'title' => null];
         }
 
-        $status = app(WordPressPluginUpdateService::class)->status($site);
-        if ((bool) ($status['unsupported'] ?? false)) {
-            return ['line' => 'Unsupported', 'detail' => null, 'title' => 'Bridge update unsupported'];
-        }
-
-        $installed = trim((string) ($status['installed_version'] ?? ''));
-        if ($installed === '') {
-            $info = app(WordPressSiteInfoService::class)->getStoredSiteInfo($site) ?? [];
-            $installed = trim((string) ($info['bridge_version'] ?? ''));
-        }
-        $latest = trim((string) ($status['latest_version'] ?? ''));
-        $updateAvailable = (bool) ($status['update_available'] ?? false);
-
-        if ($installed === '') {
+        $installed = self::observedBridgeVersion($site);
+        if ($installed === null) {
             return ['line' => '—', 'detail' => null, 'title' => null];
-        }
-
-        if ($latest !== '' && $updateAvailable) {
-            return [
-                'line' => $installed,
-                'detail' => 'Update → '.$latest,
-                'title' => $installed.' → '.$latest,
-            ];
-        }
-
-        if ($latest !== '' && ! $updateAvailable) {
-            return [
-                'line' => $installed,
-                'detail' => 'Latest',
-                'title' => $installed.' · Latest',
-            ];
         }
 
         return ['line' => $installed, 'detail' => null, 'title' => $installed];
@@ -175,5 +166,22 @@ final class DomainListPresentation
             'last_label' => $relative ?? 'Never',
             'last_title' => $absolute,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function jsonMeta(Site $site, string $key): array
+    {
+        $raw = $site->getMeta($key);
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (! is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 }

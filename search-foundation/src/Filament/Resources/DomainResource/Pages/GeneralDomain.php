@@ -31,7 +31,6 @@ use Omnichannel\Addons\SiteSync\Services\Preflight\SiteSyncPreflightService;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncSourceLabelPresenter;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
-use Omnichannel\Addons\WordPress\Services\WordPressPluginUpdateService;
 use Omnichannel\Addons\SearchFoundation\Support\IncrementalDomainSyncCache;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordDomainResyncCache;
 use Omnichannel\Addons\SearchFoundation\Support\MetadataDomainSyncCache;
@@ -175,12 +174,6 @@ class GeneralDomain extends Page
     public bool $siteSyncPreflightOpen = false;
 
     public bool $siteSyncPreflightLoading = false;
-
-    public string $wpPluginPhase = 'idle';
-
-    public ?string $wpPluginFlash = null;
-
-    public bool $wpPluginConfirmOpen = false;
 
     public function mount(int|string $record): void
     {
@@ -870,49 +863,6 @@ class GeneralDomain extends Page
             (int) $this->getRecord()->getKey(),
             $keywordId,
         );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function getWpPluginBridgeStatus(): array
-    {
-        return app(WordPressPluginUpdateService::class)->status($this->getSite());
-    }
-
-    public function checkWpPluginVersion(): void
-    {
-        $this->wpPluginPhase = 'checking';
-        $this->wpPluginFlash = null;
-        $result = app(WordPressPluginUpdateService::class)->check($this->getSite());
-        $this->wpPluginPhase = 'idle';
-        $this->wpPluginFlash = (string) ($result['message'] ?? '');
-        if (($result['ok'] ?? false) !== true) {
-            Notification::make()
-                ->title($this->wpPluginFlash !== '' ? $this->wpPluginFlash : 'Không thể kiểm tra phiên bản mới.')
-                ->danger()
-                ->send();
-        }
-        $this->getSite()->unsetRelation('metas');
-        $this->getSite()->load('metas');
-    }
-
-    public function installWpPlugin(): void
-    {
-        $this->wpPluginConfirmOpen = false;
-        $this->wpPluginPhase = 'updating';
-        $this->wpPluginFlash = 'Đang cập nhật plugin...';
-        $result = app(WordPressPluginUpdateService::class)->update($this->getSite());
-        $this->wpPluginPhase = 'idle';
-        $this->wpPluginFlash = (string) ($result['message'] ?? '');
-        if (($result['ok'] ?? false) !== true) {
-            Notification::make()
-                ->title($this->wpPluginFlash !== '' ? $this->wpPluginFlash : 'Cập nhật plugin thất bại.')
-                ->danger()
-                ->send();
-        }
-        $this->getSite()->unsetRelation('metas');
-        $this->getSite()->load('metas');
     }
 
     /**

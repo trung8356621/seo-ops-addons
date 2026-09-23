@@ -116,7 +116,14 @@ final class SiteSyncProgressUiReadabilityTest extends TestCase
         $bridgeSrc = (string) file_get_contents($bridge);
         self::assertStringContainsString('seo-connection-summary', $bridgeSrc);
         self::assertStringContainsString('Check status', $bridgeSrc);
-        self::assertStringContainsString('Check version', $bridgeSrc);
-        self::assertStringContainsString('Update Bridge', $bridgeSrc);
+        self::assertStringContainsString('reconcileSiteWordPressState', $bridgeSrc);
+        self::assertStringNotContainsString('Check version', $bridgeSrc);
+        self::assertStringNotContainsString('Update Bridge', $bridgeSrc);
+        self::assertStringNotContainsString('checkWpPluginVersion', $bridgeSrc);
+        self::assertStringNotContainsString('installWpPlugin', $bridgeSrc);
+        self::assertStringNotContainsString('Unsupported', $bridgeSrc);
+        self::assertStringNotContainsString('Plugin hiện tại chưa hỗ trợ cập nhật từ Laravel', $bridgeSrc);
+        self::assertStringNotContainsString('Update available', $bridgeSrc);
+        self::assertStringNotContainsString('· Latest', $bridgeSrc);
     }
 }

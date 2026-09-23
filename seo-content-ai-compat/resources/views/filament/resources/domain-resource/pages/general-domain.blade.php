@@ -14,7 +14,6 @@
     $editDomainUrl = DomainResource::getUrl('edit', ['record' => $site]);
     $keywordsTabUrl = $this->getInternalLinkTabUrl('keywords');
     $linksTabUrl = $this->getInternalLinkTabUrl('links');
-    $wpPluginStatus = $this->getWpPluginBridgeStatus();
 
     $scoreSegments = collect($distribution['segments'] ?? [])
         ->map(function (array $segment): array {
@@ -139,7 +138,6 @@
                 <x-slot name="heading">Connection</x-slot>
                 <x-slot name="description">Platform, bridge version, and connection health.</x-slot>
                 @include('seo-content-ai::filament.resources.domain-resource.pages.partials.wp-plugin-bridge-status', [
-                    'status' => $wpPluginStatus,
                     'site' => $site,
                 ])
             </x-filament::section>
