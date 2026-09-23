@@ -34,6 +34,7 @@ final class SiteSyncPreflightService
         private readonly WordPressSiteSyncClient $client,
         private readonly WordPressSiteSyncV3Client $v3Client,
         private readonly SiteSyncFeatureFlags $flags,
+        private readonly SiteSyncPreflightContentComparison $comparison = new SiteSyncPreflightContentComparison(),
     ) {}
 
     /**
@@ -54,13 +55,14 @@ final class SiteSyncPreflightService
     public function evaluate(Site $site): array
     {
         $siteId = (int) $site->id;
+        // Data health = broad SEO inventory (may include local-only). Separate from comparison.
         $dataHealth = $this->auditor->audit($siteId);
-        $local = $dataHealth['by_content_type'];
-        $localTotal = (int) $dataHealth['total'];
+        // WP↔local membership comparison = WP-backed comparable content only (no terms / local-only).
+        $local = $this->comparison->countLocal($siteId);
         $remote = $this->fetchRemoteCounts($site);
 
         $delta = [
-            'total' => (int) $remote['total'] - $localTotal,
+            'total' => (int) $remote['total'] - (int) $local['total'],
             'post' => (int) $remote['post'] - (int) $local['post'],
             'page' => (int) $remote['page'] - (int) $local['page'],
             'product' => (int) $remote['product'] - (int) $local['product'],
@@ -74,7 +76,7 @@ final class SiteSyncPreflightService
             'site_id' => $siteId,
             'wordpress' => $remote,
             'seo_ops' => [
-                'total' => $localTotal,
+                'total' => (int) $local['total'],
                 'post' => (int) $local['post'],
                 'page' => (int) $local['page'],
                 'product' => (int) $local['product'],
@@ -350,27 +352,14 @@ final class SiteSyncPreflightService
         }
 
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
-        $byType = ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
-        $raw = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
-        foreach ($raw as $type => $count) {
-            $key = strtolower(trim((string) $type));
-            if (! isset($byType[$key])) {
-                $key = 'other';
-            }
-            $byType[$key] += (int) $count;
-        }
-
-        $total = (int) ($discover['total'] ?? 0);
-        if ($total <= 0) {
-            $total = array_sum($byType);
-        }
+        $normalized = $this->comparison->normalizeRemoteDiscover($discover);
 
         return [
-            'total' => $total,
-            'post' => $byType['post'],
-            'page' => $byType['page'],
-            'product' => $byType['product'],
-            'other' => $byType['other'],
+            'total' => $normalized['total'],
+            'post' => $normalized['post'],
+            'page' => $normalized['page'],
+            'product' => $normalized['product'],
+            'other' => $normalized['other'],
             'available' => true,
             'message' => '',
         ];
@@ -412,17 +401,15 @@ final class SiteSyncPreflightService
             }
         }
 
-        $total = (int) ($manifest['totals']['entries'] ?? 0);
-        if ($total <= 0) {
-            $total = array_sum($byType);
-        }
+        // V2 fallback: total = sum of type rows only (never inflate with non-content).
+        $normalized = $this->comparison->fromContentTypeCounts($byType);
 
         return [
-            'total' => $total,
-            'post' => $byType['post'],
-            'page' => $byType['page'],
-            'product' => $byType['product'],
-            'other' => $byType['other'],
+            'total' => $normalized['total'],
+            'post' => $normalized['post'],
+            'page' => $normalized['page'],
+            'product' => $normalized['product'],
+            'other' => $normalized['other'],
             'available' => true,
             'message' => '',
         ];

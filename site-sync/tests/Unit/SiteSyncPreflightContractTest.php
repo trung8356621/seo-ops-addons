@@ -25,6 +25,9 @@ final class SiteSyncPreflightContractTest extends TestCase
         self::assertStringContainsString('fetchRemoteCountsViaV3', $src);
         self::assertStringContainsString('summary', $src);
         self::assertStringContainsString('ArticleRequiredDataHealthAuditor', $src);
+        self::assertStringContainsString('SiteSyncPreflightContentComparison', $src);
+        self::assertStringContainsString('normalizeRemoteDiscover', $src);
+        self::assertStringContainsString('countLocal', $src);
         self::assertStringNotContainsString('ForceFullSiteSyncCommand', $src);
         self::assertStringNotContainsString('RunSiteSyncOrchestrator', $src);
     }
