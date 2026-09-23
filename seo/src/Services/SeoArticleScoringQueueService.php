@@ -105,9 +105,9 @@ final class SeoArticleScoringQueueService
      *   remaining: int
      * }
      */
-    public function domainWpBackedProgress(int $siteId): array
+    public function domainWpBackedProgress(int $siteId, ?string $language = null): array
     {
-        return $this->progressForQuery($this->wpBackedEligibleArticlesQuery($siteId));
+        return $this->progressForQuery($this->wpBackedEligibleArticlesQuery($siteId, $language));
     }
 
     /**
@@ -178,12 +178,16 @@ final class SeoArticleScoringQueueService
      * Site Sync website lifecycle: queue missing/stale for WP-backed comparable only.
      * Does not enqueue local-only Workspace inventory.
      *
-     * @param  array{run_id?: int|null, operation_id?: string|null, step_id?: int|null}  $context
+     * @param  array{run_id?: int|null, operation_id?: string|null, step_id?: int|null, language?: string|null}  $context
      * @return array{queued: int, skipped: int, stale_queued: int, missing_queued: int}
      */
     public function queueMissingOrStaleWpBackedForSite(int $siteId, array $context = []): array
     {
-        $base = $this->wpBackedEligibleArticlesQuery($siteId);
+        $language = isset($context['language']) ? trim((string) $context['language']) : null;
+        if ($language === '') {
+            $language = null;
+        }
+        $base = $this->wpBackedEligibleArticlesQuery($siteId, $language);
 
         return $this->queueMissingOrStaleForQuery(
             $base,
@@ -348,11 +352,17 @@ final class SeoArticleScoringQueueService
      *
      * @return Builder<SeoArticle>
      */
-    private function wpBackedEligibleArticlesQuery(int $siteId): Builder
+    private function wpBackedEligibleArticlesQuery(int $siteId, ?string $language = null): Builder
     {
-        return WpBackedComparableInventory::scopeArticles(
+        $query = WpBackedComparableInventory::scopeArticles(
             $this->eligibleArticlesQuery($siteId),
         );
+        $language = $language !== null ? trim($language) : '';
+        if ($language !== '') {
+            $query->where('articles.language', $language);
+        }
+
+        return $query;
     }
 
     /**

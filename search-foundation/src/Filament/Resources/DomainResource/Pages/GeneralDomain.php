@@ -175,6 +175,9 @@ class GeneralDomain extends Page
 
     public bool $siteSyncPreflightLoading = false;
 
+    /** Domain Overview language panel: overview|lang-code */
+    public string $overviewLanguageTab = 'overview';
+
     public function mount(int|string $record): void
     {
         $this->record = $this->resolveRecord($record);
@@ -194,6 +197,95 @@ class GeneralDomain extends Page
         $this->restoreMetadataSyncProgressFromCache();
         $this->refreshKeywordResyncProgress();
         $this->refreshSiteSyncV2Progress();
+    }
+
+    public function setOverviewLanguageTab(string $tab): void
+    {
+        $tab = trim($tab);
+        $this->overviewLanguageTab = $tab !== '' ? $tab : 'overview';
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getSiteSyncLanguageCoverage(): array
+    {
+        return app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3SecondaryGateService::class)
+            ->translationCoverageSummary($this->getRecord());
+    }
+
+    public function isOverviewMultilingual(): bool
+    {
+        return app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope::class)
+            ->isMultilingual($this->getRecord());
+    }
+
+    public function runScopedSiteSyncAction(string $language, bool $forceFull = false): void
+    {
+        @set_time_limit(120);
+        $siteId = (int) $this->getRecord()->getKey();
+        $language = trim($language);
+
+        try {
+            $flags = app(SiteSyncFeatureFlags::class);
+            if (! $flags->orchestratorEnabled() || ! $flags->uiEnabled()) {
+                Notification::make()->title('Site Sync đang tắt')->warning()->send();
+
+                return;
+            }
+
+            /** @var Site $site */
+            $site = $this->getRecord();
+            $scope = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope::class)
+                ->resolveForStart($site, ['language' => $language]);
+
+            if (($scope['language_role'] ?? '') === \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY) {
+                $gate = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3SecondaryGateService::class)
+                    ->evaluateSecondarySync($site, (string) ($scope['language_scope'] ?? $language));
+                if (! ($gate['allowed'] ?? false)) {
+                    $this->notifySiteSyncResult(
+                        'Chưa thể đồng bộ',
+                        (string) ($gate['message'] ?? 'Hoàn tất ngôn ngữ chính trước.'),
+                        false,
+                    );
+
+                    return;
+                }
+            }
+
+            if ($forceFull) {
+                $operationId = 'ff_'.bin2hex(random_bytes(8));
+                $result = $this->dispatchSiteSyncBus(new ForceFullSiteSyncCommand(
+                    siteId: $siteId,
+                    supersedeActive: true,
+                    idempotencyKey: $operationId,
+                    operationId: $operationId,
+                    language: (string) ($scope['language_scope'] ?? $language),
+                    languageRole: (string) ($scope['language_role'] ?? ''),
+                ));
+            } else {
+                $result = $this->dispatchSiteSyncBus(new RunSiteSyncCommand(
+                    siteId: $siteId,
+                    mode: 'delta',
+                    language: (string) ($scope['language_scope'] ?? $language),
+                    languageRole: (string) ($scope['language_role'] ?? ''),
+                ));
+            }
+
+            $this->refreshSiteSyncV2Progress();
+            $this->notifySiteSyncResult(
+                $result->success ? 'Đã xếp hàng đồng bộ' : 'Không chạy được sync',
+                $result->message,
+                $result->success,
+            );
+        } catch (\Throwable $e) {
+            \App\Support\RuntimeLogger::report($e, [
+                'endpoint' => 'domain.run_scoped_site_sync',
+                'site_id' => $siteId,
+                'language' => $language,
+            ]);
+            $this->notifySiteSyncResult('Site Sync lỗi', $e->getMessage(), false);
+        }
     }
 
     public function refreshKeywordResyncProgress(): void

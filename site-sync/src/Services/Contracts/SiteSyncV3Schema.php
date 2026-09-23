@@ -27,11 +27,28 @@ final class SiteSyncV3Schema
     /**
      * Site meta: ISO8601 lower bound for the next V3 delta /records `since`.
      * Advanced only after catch-up + verify succeed. Never move on fail/cancel.
+     * Legacy single-language / unscoped alias — prefer language-scoped map below.
      */
     public const META_DELTA_CHECKPOINT_AT = 'seo_site_sync_v3_delta_checkpoint_at';
 
+    /**
+     * Site meta JSON map of per-language V3 checkpoints:
+     * { "vi": { baseline_completed_at, baseline_generation, delta_checkpoint_at, site_revision }, ... }
+     */
+    public const META_LANGUAGE_CHECKPOINTS = 'seo_site_sync_v3_language_checkpoints';
+
     /** Run meta: frozen delta `since` for this run (content+terms+continuations). */
     public const META_IMPORT_SINCE = 'import_since';
+
+    /** Run meta: canonical Polylang language for this scoped run (empty = unscoped / single-language). */
+    public const META_LANGUAGE_SCOPE = 'language_scope';
+
+    /** Run meta: primary|secondary */
+    public const META_LANGUAGE_ROLE = 'language_role';
+
+    public const LANGUAGE_ROLE_PRIMARY = 'primary';
+
+    public const LANGUAGE_ROLE_SECONDARY = 'secondary';
 
     public const MODE_FORCE_FULL = 'force_full';
 

@@ -17,6 +17,8 @@ final class ForceFullSiteSyncCommand implements ContentProjectCommand
         public readonly bool $supersedeActive = true,
         public readonly ?string $idempotencyKey = null,
         public readonly ?string $operationId = null,
+        public readonly ?string $language = null,
+        public readonly ?string $languageRole = null,
     ) {}
 
     public function name(): string

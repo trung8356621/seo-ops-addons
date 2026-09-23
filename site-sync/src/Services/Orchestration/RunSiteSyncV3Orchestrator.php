@@ -19,10 +19,14 @@ use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncV3Client;
 use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3BulkImporter;
+use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3CheckpointStore;
 use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3ContentTypeDriftRepair;
-use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
+use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope;
+use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3SecondaryGateService;
 use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
+use Omnichannel\Addons\WordPress\Services\SitePolylangService;
+use ReflectionMethod;
 use Throwable;
 
 /**
@@ -41,6 +45,9 @@ final class RunSiteSyncV3Orchestrator
         private readonly WordPressSiteSyncV3Client $client,
         private readonly SiteSyncV3BulkImporter $importer,
         private readonly SiteCapabilityResolver $capabilities,
+        private readonly SiteSyncV3LanguageScope $languageScope = new SiteSyncV3LanguageScope(),
+        private readonly SiteSyncV3CheckpointStore $checkpointStore = new SiteSyncV3CheckpointStore(),
+        private readonly SiteSyncV3SecondaryGateService $secondaryGate = new SiteSyncV3SecondaryGateService(),
     ) {}
 
     /**
@@ -60,14 +67,40 @@ final class RunSiteSyncV3Orchestrator
             || (string) ($options['mode'] ?? '') === SiteSyncV3Schema::MODE_FORCE_FULL
             || (string) ($options['mode'] ?? '') === SiteSyncSchema::MODE_FORCE_FULL;
 
+        $scope = $this->languageScope->resolveForStart($site, $options);
+        $languageScope = (string) ($scope['language_scope'] ?? '');
+        $languageRole = (string) ($scope['language_role'] ?? SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY);
+
+        if ($languageRole === SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY) {
+            $gate = $this->secondaryGate->evaluateSecondarySync($site, $languageScope);
+            if (! ($gate['allowed'] ?? false)) {
+                return [
+                    'success' => false,
+                    'message' => (string) ($gate['message'] ?? 'Secondary sync not allowed.'),
+                    'protocol' => SiteSyncV3Schema::PROTOCOL,
+                    'error_code' => (string) ($gate['code'] ?? 'secondary_blocked'),
+                ];
+            }
+        }
+
         // First successful V3 baseline must be force-full — no silent delta acceptance.
-        if (! $forceFull && ! self::hasSuccessfulBaseline($site)) {
-            return [
-                'success' => false,
-                'message' => 'Chưa có V3 force-full baseline — chạy Force Full trước khi dùng delta.',
-                'protocol' => SiteSyncV3Schema::PROTOCOL,
-                'error_code' => 'v3_baseline_required',
-            ];
+        // Scoped languages use per-language checkpoints; empty scope keeps legacy global keys.
+        $hasBaseline = $languageScope !== ''
+            ? $this->checkpointStore->hasSuccessfulBaseline($site, $languageScope)
+            : self::hasSuccessfulBaseline($site);
+        if (! $forceFull && ! $hasBaseline) {
+            if ($languageScope !== '') {
+                // First scoped run for this language (primary Domain sync or optional secondary):
+                // auto-promote to force_full instead of failing the UI with a baseline error.
+                $forceFull = true;
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'Chưa có V3 force-full baseline — chạy Force Full trước khi dùng delta.',
+                    'protocol' => SiteSyncV3Schema::PROTOCOL,
+                    'error_code' => 'v3_baseline_required',
+                ];
+            }
         }
 
         $mode = $forceFull ? SiteSyncV3Schema::MODE_FORCE_FULL : SiteSyncV3Schema::MODE_DELTA;
@@ -120,9 +153,13 @@ final class RunSiteSyncV3Orchestrator
             ],
             is_array($options['meta'] ?? null) ? $options['meta'] : [],
         );
+        $runMeta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] = $languageScope;
+        $runMeta[SiteSyncV3Schema::META_LANGUAGE_ROLE] = $languageRole;
 
         if (! $forceFull) {
-            $importSince = self::resolvePersistentDeltaCheckpoint($site);
+            $importSince = $languageScope !== ''
+                ? $this->checkpointStore->resolveDeltaCheckpoint($site, $languageScope)
+                : self::resolvePersistentDeltaCheckpoint($site);
             if ($importSince === null || $importSince === '') {
                 return [
                     'success' => false,
@@ -163,14 +200,13 @@ final class RunSiteSyncV3Orchestrator
         ]);
 
         $sync = (bool) ($options['sync'] ?? false);
+        $successMessage = $this->startSuccessMessage($site, $languageScope, $languageRole, $forceFull, $sync);
         if ($sync) {
             $this->handle((int) $run->id);
 
             return [
                 'success' => true,
-                'message' => $forceFull
-                    ? 'Force full site sync V3 completed (sync mode).'
-                    : 'Site sync V3 completed (sync mode).',
+                'message' => $successMessage,
                 'run_id' => (int) $run->id,
                 'public_ref' => (string) $run->public_ref,
                 'protocol' => SiteSyncV3Schema::PROTOCOL,
@@ -184,9 +220,7 @@ final class RunSiteSyncV3Orchestrator
 
         return [
             'success' => true,
-            'message' => $forceFull
-                ? 'Đã xếp hàng Đồng bộ lại toàn bộ website (V3).'
-                : 'Đã xếp hàng Đồng bộ & kiểm tra website (V3).',
+            'message' => $successMessage,
             'run_id' => (int) $run->id,
             'public_ref' => (string) $run->public_ref,
             'protocol' => SiteSyncV3Schema::PROTOCOL,
@@ -366,7 +400,11 @@ final class RunSiteSyncV3Orchestrator
             return $this->failRun($run, 'site_missing', 'Site not found.');
         }
 
-        $result = $this->client->discover($site);
+        $languageScope = $this->runLanguageScope($run);
+        $result = $this->client->discover(
+            $site,
+            $languageScope !== '' ? ['language' => $languageScope] : [],
+        );
         if (! ($result['success'] ?? false)) {
             return $this->failRun(
                 $run,
@@ -378,6 +416,12 @@ final class RunSiteSyncV3Orchestrator
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
         $meta = is_array($run->meta) ? $run->meta : [];
         $meta['discover'] = $discover;
+        if (array_key_exists('multilingual', $discover)) {
+            $meta['multilingual'] = $discover['multilingual'];
+        }
+        if (array_key_exists('by_language', $discover)) {
+            $meta['by_language'] = $discover['by_language'];
+        }
         $meta['sync_generation'] = (int) ($discover['sync_generation'] ?? $discover['generation'] ?? $run->id);
         // WP authoritative snapshot clock.
         $meta['snapshot_at'] = (string) ($discover['snapshot_at'] ?? $discover['generated_at'] ?? now()->toIso8601String());
@@ -442,6 +486,10 @@ final class RunSiteSyncV3Orchestrator
             'sync_generation' => $generation,
             // Keyset only — never send offset.
         ];
+        $languageScope = $this->runLanguageScope($run);
+        if ($languageScope !== '') {
+            $body['language'] = $languageScope;
+        }
         if ($recordsMode === 'full') {
             $body['snapshot_at'] = (string) ($meta['snapshot_at'] ?? '');
             $bounds = is_array($meta['snapshot_bounds'] ?? null) ? $meta['snapshot_bounds'] : [
@@ -600,6 +648,7 @@ final class RunSiteSyncV3Orchestrator
 
         $generation = (int) ($meta['sync_generation'] ?? $run->id);
         $staleMarked = 0;
+        $languageScope = $this->runLanguageScope($run);
 
         if (Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')
             && Schema::connection('omi_seo_ai')->hasColumn('wordpress_article_links', 'last_seen_sync_generation')
@@ -630,6 +679,12 @@ final class RunSiteSyncV3Orchestrator
                     ->where('meta_value', '1')
                     ->exists();
                 if ($isTerm) {
+                    continue;
+                }
+                // Language-scoped force-full: never soft-delete other languages.
+                if ($languageScope !== ''
+                    && trim((string) ($article->language ?? '')) !== $languageScope
+                ) {
                     continue;
                 }
                 $article->delete();
@@ -690,6 +745,7 @@ final class RunSiteSyncV3Orchestrator
         $budget = SiteSyncV3Schema::RECORDS_PER_JOB * 2;
         $jobNumber = (int) ($meta['job_number'] ?? 0);
         $counters = is_array($run->counters) ? $run->counters : [];
+        $languageScope = $this->runLanguageScope($run);
 
         $totalFetched = 0;
         $deferred = false;
@@ -716,6 +772,9 @@ final class RunSiteSyncV3Orchestrator
                             ?? (is_array($meta['snapshot_bounds'] ?? null) ? ($meta['snapshot_bounds']['term_max_id'] ?? 0) : 0)),
                     ],
                 ];
+                if ($languageScope !== '') {
+                    $body['language'] = $languageScope;
+                }
 
                 $started = now();
                 $tickStarted = hrtime(true);
@@ -884,7 +943,11 @@ final class RunSiteSyncV3Orchestrator
         }
 
         // Fresh discover before verify (CATCH-UP → FRESH DISCOVER → VERIFY).
-        $result = $this->client->discover($site);
+        $languageScope = $this->runLanguageScope($run);
+        $result = $this->client->discover(
+            $site,
+            $languageScope !== '' ? ['language' => $languageScope] : [],
+        );
         if (! ($result['success'] ?? false)) {
             return $this->failRun(
                 $run,
@@ -901,7 +964,7 @@ final class RunSiteSyncV3Orchestrator
             $contentExpected += (int) ($expectedByType[$key] ?? 0);
         }
 
-        $wpInventory = $this->enumerateWpContentInventory($site, $discover);
+        $wpInventory = $this->enumerateWpContentInventory($site, $discover, $languageScope);
         if ($wpInventory === null) {
             return $this->failRun(
                 $run,
@@ -915,11 +978,11 @@ final class RunSiteSyncV3Orchestrator
         $wpIdSet = array_fill_keys(array_keys($wpIdsByType), true);
 
         // Soft-delete local WP-backed non-term rows absent from fresh WP inventory.
-        $extraRemoved = $this->softDeleteExtraLocalContent($site, $wpIdSet);
+        $extraRemoved = $this->softDeleteExtraLocalContent($site, $wpIdSet, $languageScope);
 
-        $localByType = $this->countWpBackedByContentType((int) $site->id);
+        $localByType = $this->countWpBackedByContentType((int) $site->id, $languageScope);
         $localTotal = array_sum($localByType);
-        $localIdsByType = $this->localWpContentIdsByType((int) $site->id);
+        $localIdsByType = $this->localWpContentIdsByType((int) $site->id, $languageScope);
 
         $missingIds = [];
         $extraIds = [];
@@ -955,8 +1018,8 @@ final class RunSiteSyncV3Orchestrator
             $typeDrift = app(SiteSyncV3ContentTypeDriftRepair::class)
                 ->repairFromInventory((int) $site->id, $typeMismatch);
             // Re-read local map after repair so membership check uses fresh subtypes.
-            $localIdsByType = $this->localWpContentIdsByType((int) $site->id);
-            $localByType = $this->countWpBackedByContentType((int) $site->id);
+            $localIdsByType = $this->localWpContentIdsByType((int) $site->id, $languageScope);
+            $localByType = $this->countWpBackedByContentType((int) $site->id, $languageScope);
             $localTotal = array_sum($localByType);
             $typeMismatch = [];
             foreach ($wpIdsByType as $wpId => $wpType) {
@@ -1059,10 +1122,15 @@ final class RunSiteSyncV3Orchestrator
         $execution = app(SiteSyncRunExecution::class);
 
         if (empty($meta['scoring_dispatched_at'])) {
-            $result = $scoring->queueMissingOrStaleWpBackedForSite((int) $site->id, [
+            $queueContext = [
                 'run_id' => (int) $run->id,
                 'operation_id' => (string) ($meta['operation_id'] ?? $run->public_ref),
-            ]);
+            ];
+            $languageScope = $this->runLanguageScope($run);
+            if ($languageScope !== '') {
+                $queueContext['language'] = $languageScope;
+            }
+            $result = $scoring->queueMissingOrStaleWpBackedForSite((int) $site->id, $queueContext);
             $meta['scoring_dispatched_at'] = now()->toIso8601String();
             $meta['scoring_queued'] = (int) ($result['queued'] ?? 0);
             $meta['scoring_stale_queued'] = (int) ($result['stale_queued'] ?? 0);
@@ -1076,7 +1144,12 @@ final class RunSiteSyncV3Orchestrator
             $counters['scoring_missing_queued'] = (int) ($result['missing_queued'] ?? 0);
         }
 
-        $progress = $scoring->domainWpBackedProgress((int) $site->id);
+        $languageScope = $this->runLanguageScope($run);
+        $langArg = $languageScope !== '' ? $languageScope : null;
+        $progressMethod = new ReflectionMethod($scoring, 'domainWpBackedProgress');
+        $progress = $progressMethod->getNumberOfParameters() >= 2
+            ? $scoring->domainWpBackedProgress((int) $site->id, $langArg)
+            : $scoring->domainWpBackedProgress((int) $site->id);
         $total = (int) ($progress['total'] ?? 0);
         $completed = (int) ($progress['completed'] ?? 0);
         $pending = (int) ($progress['pending'] ?? 0);
@@ -1192,41 +1265,50 @@ final class RunSiteSyncV3Orchestrator
             && ($verify['sample_extra_wp_ids'] ?? null) === []
             && ($verify['type_mismatch'] ?? null) === []
             && (int) ($verify['wp_content_enumerated'] ?? 0) > 0;
+        $languageScope = $this->runLanguageScope($run);
+        $isPrimary = $this->languageScope->isPrimaryRun($run);
 
-        if ($forceFull && $cleanVerify) {
-            $site = Site::query()->find((int) $run->site_id);
-            if ($site !== null) {
-                $generation = (int) ($meta['sync_generation'] ?? $run->id);
-                SiteSyncSiteMeta::put(
-                    $site,
-                    SiteSyncV3Schema::META_BASELINE_COMPLETED_AT,
-                    now()->toIso8601String(),
-                );
-                SiteSyncSiteMeta::put(
-                    $site,
-                    SiteSyncV3Schema::META_BASELINE_GENERATION,
-                    (string) $generation,
-                );
-                $meta['v3_baseline_completed_at'] = now()->toIso8601String();
-                $meta['v3_baseline_generation'] = $generation;
-            }
-        }
-
-        // Advance persistent delta checkpoint only after catch-up + verify succeed.
-        // Prefer catch_up_boundary_at (stamped after the stable empty delta round);
-        // WP DELTA_OVERLAP_SECONDS covers the query/finish race. Never use finished_at alone.
         if ($cleanVerify) {
             $site = Site::query()->find((int) $run->site_id);
             if ($site !== null) {
+                $patch = [];
+                if ($forceFull) {
+                    $generation = (int) ($meta['sync_generation'] ?? $run->id);
+                    $completedAt = now()->toIso8601String();
+                    $patch['baseline_completed_at'] = $completedAt;
+                    $patch['baseline_generation'] = $generation;
+                    $meta['v3_baseline_completed_at'] = $completedAt;
+                    $meta['v3_baseline_generation'] = $generation;
+                }
+
+                // Advance persistent delta checkpoint only after catch-up + verify succeed.
+                // Prefer catch_up_boundary_at (stamped after the stable empty delta round);
+                // WP DELTA_OVERLAP_SECONDS covers the query/finish race. Never use finished_at alone.
                 $nextCheckpoint = $this->resolveTerminalDeltaCheckpoint($meta);
                 if ($nextCheckpoint !== null && $nextCheckpoint !== '') {
-                    SiteSyncSiteMeta::put(
-                        $site,
-                        SiteSyncV3Schema::META_DELTA_CHECKPOINT_AT,
-                        $nextCheckpoint,
-                    );
+                    $patch['delta_checkpoint_at'] = $nextCheckpoint;
                     $meta['v3_delta_checkpoint_at'] = $nextCheckpoint;
                     $meta['v3_delta_checkpoint_advanced'] = true;
+                }
+
+                $siteRevision = trim((string) (
+                    $meta['final_site_revision']
+                    ?? $meta['site_revision']
+                    ?? ''
+                ));
+                if ($siteRevision !== '') {
+                    $patch['site_revision'] = $siteRevision;
+                }
+
+                if ($patch !== []) {
+                    // Language-safe store; primary/unscoped also mirrors META_BASELINE_COMPLETED_AT,
+                    // META_BASELINE_GENERATION, and META_DELTA_CHECKPOINT_AT for legacy readers.
+                    $this->checkpointStore->put(
+                        $site,
+                        $languageScope,
+                        $patch,
+                        isPrimary: $isPrimary,
+                    );
                 }
             }
         }
@@ -1247,8 +1329,12 @@ final class RunSiteSyncV3Orchestrator
         return false;
     }
 
-    public static function hasSuccessfulBaseline(Site $site): bool
+    public static function hasSuccessfulBaseline(Site $site, string $languageScope = ''): bool
     {
+        if ($languageScope !== '') {
+            return (new SiteSyncV3CheckpointStore())->hasSuccessfulBaseline($site, $languageScope);
+        }
+
         $at = trim((string) ($site->getMeta(SiteSyncV3Schema::META_BASELINE_COMPLETED_AT) ?? ''));
 
         return $at !== '';
@@ -1262,9 +1348,14 @@ final class RunSiteSyncV3Orchestrator
     /**
      * Resolve the persistent lower bound for the next V3 delta import.
      * Never returns `now()`. Empty means baseline_required.
+     * Non-empty $languageScope uses per-language checkpoints; empty keeps legacy global keys.
      */
-    public static function resolvePersistentDeltaCheckpoint(Site $site): ?string
+    public static function resolvePersistentDeltaCheckpoint(Site $site, string $languageScope = ''): ?string
     {
+        if ($languageScope !== '') {
+            return (new SiteSyncV3CheckpointStore())->resolveDeltaCheckpoint($site, $languageScope);
+        }
+
         $explicit = trim((string) ($site->getMeta(SiteSyncV3Schema::META_DELTA_CHECKPOINT_AT) ?? ''));
         if ($explicit !== '') {
             return $explicit;
@@ -1293,7 +1384,7 @@ final class RunSiteSyncV3Orchestrator
             return $existing;
         }
 
-        return self::resolvePersistentDeltaCheckpoint($site);
+        return self::resolvePersistentDeltaCheckpoint($site, $this->runLanguageScope($run));
     }
 
     /**
@@ -1471,7 +1562,7 @@ final class RunSiteSyncV3Orchestrator
      * @param  array<string, mixed>  $discover
      * @return array{by_id: array<int, string>}|null
      */
-    private function enumerateWpContentInventory(Site $site, array $discover): ?array
+    private function enumerateWpContentInventory(Site $site, array $discover, string $languageScope = ''): ?array
     {
         $snapshotAt = (string) ($discover['snapshot_at'] ?? $discover['generated_at'] ?? '');
         $bounds = is_array($discover['snapshot_bounds'] ?? null) ? $discover['snapshot_bounds'] : [];
@@ -1482,7 +1573,7 @@ final class RunSiteSyncV3Orchestrator
         $byId = [];
         $cursor = null;
         for ($page = 0; $page < 200; $page++) {
-            $fetched = $this->client->records($site, [
+            $body = [
                 'schema' => SiteSyncV3Schema::VERSION,
                 'resource' => SiteSyncV3Schema::RESOURCE_CONTENT,
                 'mode' => 'full',
@@ -1494,7 +1585,11 @@ final class RunSiteSyncV3Orchestrator
                     'term_max_id' => (int) ($bounds['term_max_id'] ?? 0),
                 ],
                 'sync_generation' => 0,
-            ]);
+            ];
+            if ($languageScope !== '') {
+                $body['language'] = $languageScope;
+            }
+            $fetched = $this->client->records($site, $body);
             if (! ($fetched['success'] ?? false)) {
                 return null;
             }
@@ -1529,10 +1624,10 @@ final class RunSiteSyncV3Orchestrator
     /**
      * @param  array<int, true>  $wpIdSet
      */
-    private function softDeleteExtraLocalContent(Site $site, array $wpIdSet): int
+    private function softDeleteExtraLocalContent(Site $site, array $wpIdSet, string $languageScope = ''): int
     {
         $removed = 0;
-        $local = $this->localWpContentIdsByType((int) $site->id);
+        $local = $this->localWpContentIdsByType((int) $site->id, $languageScope);
         foreach ($local as $wpId => $_type) {
             if (isset($wpIdSet[$wpId])) {
                 continue;
@@ -1540,6 +1635,11 @@ final class RunSiteSyncV3Orchestrator
             // Content namespace only — never soft-delete a term that shares the numeric id.
             $article = SiteSyncWpIdentity::findContent((int) $site->id, $wpId);
             if ($article === null || $article->trashed()) {
+                continue;
+            }
+            if ($languageScope !== ''
+                && trim((string) ($article->language ?? '')) !== $languageScope
+            ) {
                 continue;
             }
             $article->delete();
@@ -1554,11 +1654,15 @@ final class RunSiteSyncV3Orchestrator
      *
      * @return array<int, string> wp_post_id => content_type
      */
-    private function localWpContentIdsByType(int $siteId): array
+    private function localWpContentIdsByType(int $siteId, string $languageScope = ''): array
     {
-        $articles = ArticleContentClassification::scopeNonTerm(
+        $query = ArticleContentClassification::scopeNonTerm(
             SeoArticle::query()->where('site_id', $siteId)->hasWpPostId()
-        )->with(['wordpressLink', 'articleMetas'])->get();
+        );
+        if ($languageScope !== '') {
+            $query->where('language', $languageScope);
+        }
+        $articles = $query->with(['wordpressLink', 'articleMetas'])->get();
 
         $out = [];
         foreach ($articles as $article) {
@@ -1579,11 +1683,14 @@ final class RunSiteSyncV3Orchestrator
     /**
      * @return array{post: int, page: int, product: int, other: int}
      */
-    private function countWpBackedByContentType(int $siteId): array
+    private function countWpBackedByContentType(int $siteId, string $languageScope = ''): array
     {
         $base = SeoArticle::query()
             ->where('site_id', $siteId)
             ->hasWpPostId();
+        if ($languageScope !== '') {
+            $base->where('language', $languageScope);
+        }
 
         $post = ArticleContentClassification::scopeNonTerm(
             ArticleContentClassification::scopeContentType(clone $base, ContentType::Post),
@@ -1602,5 +1709,42 @@ final class RunSiteSyncV3Orchestrator
             'product' => $product,
             'other' => max(0, $total - $post - $page - $product),
         ];
+    }
+
+    private function runLanguageScope(SeoSiteSyncRun $run): string
+    {
+        $meta = is_array($run->meta) ? $run->meta : [];
+
+        return trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] ?? ''));
+    }
+
+    private function startSuccessMessage(
+        Site $site,
+        string $languageScope,
+        string $languageRole,
+        bool $forceFull,
+        bool $sync,
+    ): string {
+        if ($languageScope !== '') {
+            $label = app(SitePolylangService::class)->languageLabel($languageScope, $site);
+            if ($label === '') {
+                $label = $languageScope;
+            }
+            if ($languageRole === SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY) {
+                return "Đồng bộ {$label}";
+            }
+
+            return "Đồng bộ & kiểm tra {$label}";
+        }
+
+        if ($sync) {
+            return $forceFull
+                ? 'Force full site sync V3 completed (sync mode).'
+                : 'Site sync V3 completed (sync mode).';
+        }
+
+        return $forceFull
+            ? 'Đã xếp hàng Đồng bộ lại toàn bộ website (V3).'
+            : 'Đã xếp hàng Đồng bộ & kiểm tra website (V3).';
     }
 }

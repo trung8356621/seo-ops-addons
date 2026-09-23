@@ -25,6 +25,7 @@ use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteLinkCatalogReconcile
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteSyncKeywordCandidateEvaluator;
 use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
+use Omnichannel\Addons\WordPress\Services\ArticlePolylangSyncService;
 use Omnichannel\Addons\WordPress\Services\WordpressArticleLinkWriter;
 use Throwable;
 
@@ -44,6 +45,7 @@ final class SiteSyncV3BulkImporter
         private readonly WordpressArticleLinkWriter $linkWriter,
         private readonly ArticleLastSavedTimestampService $lastSaved,
         private readonly CanonicalKeywordReconciler $canonicalKeywords = new CanonicalKeywordReconciler(),
+        private readonly ArticlePolylangSyncService $polylang = new ArticlePolylangSyncService(),
     ) {}
 
     /**
@@ -111,6 +113,11 @@ final class SiteSyncV3BulkImporter
                 if ($article === null) {
                     $failed++;
                     continue;
+                }
+                if (! $isTermResource) {
+                    // Persist current_lang + translation WP IDs; never auto-create secondary rows.
+                    $this->polylang->applyFromSyncItem($article, $site, $item);
+                    $article = $article->fresh(['articleMetas', 'wordpressLink']) ?? $article;
                 }
                 $upserted++;
                 $byWpId[$wpId] = $article;

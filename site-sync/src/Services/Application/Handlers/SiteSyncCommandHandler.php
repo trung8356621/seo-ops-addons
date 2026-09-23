@@ -293,17 +293,19 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
 
     private function forceFull(ForceFullSiteSyncCommand $command, ActorContext $actor): ContentProjectActionResult
     {
-        return $this->run($command->siteId, [
+        return $this->run($command->siteId, array_filter([
             'mode' => SiteSyncSchema::MODE_FORCE_FULL,
             'force_full' => true,
             'supersede_active' => $command->supersedeActive,
             'trigger_source' => 'ui',
             'triggered_by' => $actor->actorId,
+            'language' => $command->language,
+            'language_role' => $command->languageRole,
             'meta' => array_filter([
                 'operation_id' => $command->operationId,
                 'idempotency_key' => $command->idempotencyKey,
             ], static fn (mixed $v): bool => $v !== null && $v !== ''),
-        ]);
+        ], static fn (mixed $v): bool => $v !== null && $v !== ''));
     }
 
     private function queueMissingScores(QueueMissingSeoScoresCommand $command): ContentProjectActionResult
@@ -385,7 +387,7 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
         // Priority: force_full → bootstrap (never synced) → incremental.
         // Agent default mode is delta — never auto-promote to force_full.
         if ($command->mode === SiteSyncSchema::MODE_FORCE_FULL) {
-            return $this->run($command->siteId, [
+            return $this->run($command->siteId, array_filter([
                 'mode' => SiteSyncSchema::MODE_FORCE_FULL,
                 'force_full' => true,
                 'supersede_active' => true,
@@ -393,7 +395,9 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
                 'steps' => $command->steps,
                 'trigger_source' => 'agent_explicit_force_full',
                 'triggered_by' => $actor->actorId,
-            ]);
+                'language' => $command->language,
+                'language_role' => $command->languageRole,
+            ], static fn (mixed $v): bool => $v !== null && $v !== ''));
         }
 
         if ($this->bootstrap()->needsBootstrap($site)) {
@@ -401,16 +405,20 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
                 'trigger_source' => 'agent_auto_bootstrap',
                 'triggered_by' => $actor->actorId,
                 'force' => $command->forceSnapshot,
+                'language' => $command->language,
+                'language_role' => $command->languageRole,
             ]));
         }
 
-        return $this->run($command->siteId, [
+        return $this->run($command->siteId, array_filter([
             'mode' => $command->mode,
             'force_snapshot' => $command->forceSnapshot,
             'steps' => $command->steps,
             'trigger_source' => 'agent',
             'triggered_by' => $actor->actorId,
-        ]);
+            'language' => $command->language,
+            'language_role' => $command->languageRole,
+        ], static fn (mixed $v): bool => $v !== null && $v !== ''));
     }
 
     /**

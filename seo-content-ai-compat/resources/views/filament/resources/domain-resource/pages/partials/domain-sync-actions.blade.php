@@ -7,9 +7,17 @@
     $legacyVisible = method_exists($this, 'siteSyncV2LegacyVisible') ? $this->siteSyncV2LegacyVisible() : false;
     $syncDisabled = $incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false);
     $useResume = ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
+    $langCoverage = method_exists($this, 'getSiteSyncLanguageCoverage') ? $this->getSiteSyncLanguageCoverage() : [];
+    $primaryRow = collect($langCoverage)->firstWhere('role', 'primary');
+    $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? 'ngôn ngữ chính') : null;
+    $primarySyncLabel = $primaryLabel
+        ? 'Đồng bộ & kiểm tra '.$primaryLabel
+        : 'Đồng bộ & kiểm tra website';
 @endphp
 
 <div class="seo-sync-actions">
+    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-language-tabs')
+
     @if ($v2Ui)
         <div class="seo-sync-actions__primary space-y-3">
             <div class="flex flex-wrap items-center gap-2">
@@ -28,7 +36,7 @@
                         @elseif ($useResume)
                             Tiếp tục đồng bộ & kiểm tra
                         @else
-                            Đồng bộ & kiểm tra website
+                            {{ $primarySyncLabel }}
                         @endif
                     </span>
                     <span wire:loading wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">

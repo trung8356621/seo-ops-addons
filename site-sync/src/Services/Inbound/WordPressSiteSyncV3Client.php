@@ -17,9 +17,10 @@ use Throwable;
 final class WordPressSiteSyncV3Client
 {
     /**
+     * @param  array<string, mixed>  $query  Optional: language
      * @return array{success: bool, message: string, discover?: array<string, mixed>}
      */
-    public function discover(Site $site): array
+    public function discover(Site $site, array $query = []): array
     {
         $auth = $this->authContext($site);
         if ($auth['error'] !== null) {
@@ -27,10 +28,16 @@ final class WordPressSiteSyncV3Client
         }
 
         try {
+            $language = trim((string) ($query['language'] ?? $query['lang'] ?? ''));
+            $route = '/omi-seo-ai/v1/sync/v3/discover';
+            if ($language !== '') {
+                $route .= '?language='.rawurlencode($language);
+            }
+
             $response = $this->getWpRest(
                 $auth['base'],
                 $auth['token'],
-                '/omi-seo-ai/v1/sync/v3/discover',
+                $route,
                 30,
             );
 

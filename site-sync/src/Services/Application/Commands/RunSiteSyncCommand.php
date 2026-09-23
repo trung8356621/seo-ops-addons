@@ -17,6 +17,8 @@ final class RunSiteSyncCommand implements ContentProjectCommand
         public readonly bool $forceSnapshot = false,
         public readonly ?array $steps = null,
         public readonly ?string $idempotencyKey = null,
+        public readonly ?string $language = null,
+        public readonly ?string $languageRole = null,
     ) {}
 
     public function name(): string
