@@ -111,8 +111,14 @@
 
             <div class="site-sync-preflight__body px-4 py-3 sm:px-5">
             <div class="mb-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
-                <p class="mb-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">WordPress vs SEO Ops</p>
+                <p class="mb-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">WordPress vs SEO Ops (WP-backed)</p>
+                <p class="mb-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    So sánh content đã gắn WordPress (<code class="text-[10px]">wordpress_article_links.wp_post_id &gt; 0</code>),
+                    loại trừ term và system CPT. Tổng này có thể khác mục Data health bên dưới.
+                </p>
                 @if (! ($wp['available'] ?? false) && filled($wp['message'] ?? null))
+                    <p class="mb-2 text-[12px] text-amber-700 dark:text-amber-300">{{ $wp['message'] }}</p>
+                @elseif (($wp['available'] ?? false) && ! ($wp['authoritative'] ?? true) && filled($wp['message'] ?? null))
                     <p class="mb-2 text-[12px] text-amber-700 dark:text-amber-300">{{ $wp['message'] }}</p>
                 @endif
 
@@ -213,6 +219,9 @@
 
             <div class="mb-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                 <p class="mb-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">SEO Ops data health</p>
+                <p class="mb-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    Tổng inventory SEO (có thể gồm bài local-only / predicate rộng hơn). Không phải cùng vũ trụ với bảng WP-backed ở trên.
+                </p>
 
                 <div class="hidden sm:block overflow-x-auto">
                     <table class="w-full min-w-[28rem] border-collapse text-[12px] tabular-nums text-gray-700 dark:text-gray-200">

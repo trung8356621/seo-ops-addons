@@ -52,7 +52,10 @@ final class SiteSyncPreflightContractTest extends TestCase
         self::assertStringContainsString('openSiteSyncPreflight', $actionsSrc);
         self::assertStringContainsString('site-sync-preflight-modal', $actionsSrc);
         self::assertStringContainsString('SEO Ops data health', $modalSrc);
-        self::assertStringContainsString('WordPress vs SEO Ops', $modalSrc);
+        self::assertStringContainsString('WordPress vs SEO Ops (WP-backed)', $modalSrc);
+        self::assertStringContainsString('wordpress_article_links.wp_post_id', $modalSrc);
+        self::assertStringContainsString('local-only', $modalSrc);
+        self::assertStringContainsString('authoritative', $modalSrc);
         self::assertStringContainsString('Difference', $modalSrc);
         self::assertStringContainsString('Đồng bộ thay đổi', $modalSrc);
         self::assertStringContainsString('Đồng bộ toàn bộ', $modalSrc);

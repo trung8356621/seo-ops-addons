@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SiteSync\Services\Preflight;
 use App\Models\Site;
 use Omnichannel\Addons\Content\Services\Health\ArticleRequiredDataHealthAuditor;
 use Omnichannel\Addons\Content\Support\ArticleRequiredDataRegistry;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteCapability;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
@@ -40,9 +41,13 @@ final class SiteSyncPreflightService
     /**
      * @return array{
      *   site_id: int,
-     *   wordpress: array{total: int, post: int, page: int, product: int, other: int, available: bool, message: string},
+     *   wordpress: array{
+     *     total: int, post: int, page: int, product: int, other: int,
+     *     available: bool, message: string, authoritative: bool, source: string
+     *   },
      *   seo_ops: array{total: int, post: int, page: int, product: int, other: int},
      *   count_delta: array{total: int, post: int, page: int, product: int},
+     *   count_comparison_authoritative: bool,
      *   data_health: array<string, mixed>,
      *   recommendation: string,
      *   recommendation_label: string,
@@ -60,6 +65,7 @@ final class SiteSyncPreflightService
         // WP↔local membership comparison = WP-backed comparable content only (no terms / local-only).
         $local = $this->comparison->countLocal($siteId);
         $remote = $this->fetchRemoteCounts($site);
+        $countAuthoritative = (bool) ($remote['authoritative'] ?? false);
 
         $delta = [
             'total' => (int) $remote['total'] - (int) $local['total'],
@@ -70,7 +76,7 @@ final class SiteSyncPreflightService
 
         $maxMissing = (int) ($dataHealth['max_missing'] ?? 0);
         $severity = (string) ($dataHealth['worst_severity'] ?? ArticleRequiredDataRegistry::SEVERITY_GREEN);
-        $recommendation = $this->resolveRecommendation($maxMissing, $delta, $severity);
+        $recommendation = $this->resolveRecommendation($maxMissing, $delta, $severity, $countAuthoritative);
 
         return [
             'site_id' => $siteId,
@@ -83,6 +89,7 @@ final class SiteSyncPreflightService
                 'other' => (int) $local['other'],
             ],
             'count_delta' => $delta,
+            'count_comparison_authoritative' => $countAuthoritative,
             'data_health' => $dataHealth,
             'recommendation' => $recommendation['recommendation'],
             'recommendation_label' => $recommendation['label'],
@@ -116,7 +123,8 @@ final class SiteSyncPreflightService
         $maxMissing = (int) ($dataHealth['max_missing'] ?? 0);
         $severity = (string) ($dataHealth['worst_severity'] ?? ArticleRequiredDataRegistry::SEVERITY_GREEN);
         $delta = ['total' => 0, 'post' => 0, 'page' => 0, 'product' => 0];
-        $recommendation = $this->resolveRecommendation($maxMissing, $delta, $severity);
+        // Local-only: no WP count comparison — treat count side as non-authoritative.
+        $recommendation = $this->resolveRecommendation($maxMissing, $delta, $severity, false);
 
         return [
             'site_id' => $siteId,
@@ -141,8 +149,12 @@ final class SiteSyncPreflightService
      * @param  array{total: int, post: int, page: int, product: int}  $delta
      * @return array{recommendation: string, label: string, message: string}
      */
-    private function resolveRecommendation(int $maxMissing, array $delta, string $severity): array
-    {
+    private function resolveRecommendation(
+        int $maxMissing,
+        array $delta,
+        string $severity,
+        bool $countAuthoritative,
+    ): array {
         $hasCountSkew = collect($delta)->contains(fn (int $n): bool => $n !== 0);
 
         if ($maxMissing > ArticleRequiredDataRegistry::MISSING_YELLOW_MAX) {
@@ -153,7 +165,10 @@ final class SiteSyncPreflightService
             ];
         }
 
-        if ($hasCountSkew && abs((int) $delta['total']) > 0) {
+        // Only authoritative native-post-type comparison may drive full_sync from count delta.
+        // Old-plugin by_content_type fallback is approximate (system CPT / aggregate skew) —
+        // never treat that mismatch as a real "sync required" signal.
+        if ($countAuthoritative && $hasCountSkew && abs((int) $delta['total']) > 0) {
             $missingTypes = [];
             foreach (['post' => 'Post', 'page' => 'Page', 'product' => 'Product'] as $key => $label) {
                 if ((int) ($delta[$key] ?? 0) !== 0) {
@@ -179,10 +194,16 @@ final class SiteSyncPreflightService
             ];
         }
 
+        $syncedMessage = 'Không cần full sync.';
+        if (! $countAuthoritative && $hasCountSkew && abs((int) $delta['total']) > 0) {
+            $syncedMessage = 'So sánh số lượng WordPress chưa authoritative (plugin thiếu by_native_post_type). '
+                .'Không khuyến nghị full sync chỉ vì lệch đếm ước lượng — nâng cấp bridge để Preflight chính xác.';
+        }
+
         return [
             'recommendation' => self::RECOMMEND_SYNCED,
             'label' => 'Dữ liệu đang đồng bộ',
-            'message' => 'Không cần full sync.',
+            'message' => $syncedMessage,
         ];
     }
 
@@ -305,6 +326,8 @@ final class SiteSyncPreflightService
             'other' => 0,
             'available' => false,
             'message' => '',
+            'authoritative' => false,
+            'source' => '',
         ];
 
         if ($this->flags->protocolV3Enabled()) {
@@ -318,9 +341,12 @@ final class SiteSyncPreflightService
     }
 
     /**
-     * Prefer V3 discover by_content_type when protocol V3 is enabled.
+     * Prefer V3 discover; authoritative only when by_native_post_type is present.
      *
-     * @return array{total: int, post: int, page: int, product: int, other: int, available: bool, message: string}
+     * @return array{
+     *   total: int, post: int, page: int, product: int, other: int,
+     *   available: bool, message: string, authoritative: bool, source: string
+     * }
      */
     private function fetchRemoteCountsViaV3(Site $site): array
     {
@@ -332,6 +358,8 @@ final class SiteSyncPreflightService
             'other' => 0,
             'available' => false,
             'message' => '',
+            'authoritative' => false,
+            'source' => '',
         ];
 
         try {
@@ -352,7 +380,17 @@ final class SiteSyncPreflightService
         }
 
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
-        $normalized = $this->comparison->normalizeRemoteDiscover($discover);
+        $siteMap = NativeContentTypeMapper::siteMap($site);
+        $normalized = $this->comparison->normalizeRemoteDiscover(
+            $discover,
+            $siteMap !== [] ? $siteMap : null,
+        );
+
+        $message = '';
+        if (! $normalized['authoritative']) {
+            $message = 'Plugin WordPress chưa gửi by_native_post_type — so sánh số lượng không authoritative. '
+                .'Nâng cấp bridge để Preflight đếm đối xứng (không khuyến nghị sync chỉ vì lệch ước lượng).';
+        }
 
         return [
             'total' => $normalized['total'],
@@ -361,15 +399,23 @@ final class SiteSyncPreflightService
             'product' => $normalized['product'],
             'other' => $normalized['other'],
             'available' => true,
-            'message' => '',
+            'message' => $message,
+            'authoritative' => (bool) $normalized['authoritative'],
+            'source' => (string) $normalized['source'],
         ];
     }
 
     /**
-     * Fallback: V2 lightweight manifest.
+     * Fallback: V2 lightweight manifest (always non-authoritative for count comparison).
      *
-     * @param  array{total: int, post: int, page: int, product: int, other: int, available: bool, message: string}  $empty
-     * @return array{total: int, post: int, page: int, product: int, other: int, available: bool, message: string}
+     * @param  array{
+     *   total: int, post: int, page: int, product: int, other: int,
+     *   available: bool, message: string, authoritative: bool, source: string
+     * }  $empty
+     * @return array{
+     *   total: int, post: int, page: int, product: int, other: int,
+     *   available: bool, message: string, authoritative: bool, source: string
+     * }
      */
     private function fetchRemoteCountsViaV2Manifest(Site $site, array $empty): array
     {
@@ -402,6 +448,7 @@ final class SiteSyncPreflightService
         }
 
         // V2 fallback: total = sum of type rows only (never inflate with non-content).
+        // Not authoritative — same rolling-deploy rule as old V3 without by_native_post_type.
         $normalized = $this->comparison->fromContentTypeCounts($byType);
 
         return [
@@ -411,7 +458,9 @@ final class SiteSyncPreflightService
             'product' => $normalized['product'],
             'other' => $normalized['other'],
             'available' => true,
-            'message' => '',
+            'message' => 'Manifest V2 không có by_native_post_type — so sánh số lượng không authoritative.',
+            'authoritative' => false,
+            'source' => SiteSyncPreflightContentComparison::SOURCE_CONTENT_TYPE_FALLBACK,
         ];
     }
 }

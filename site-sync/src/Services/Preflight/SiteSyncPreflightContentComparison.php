@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SiteSync\Services\Preflight;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 
 /**
  * Site Sync Preflight WP↔local CONTENT comparison universe.
@@ -14,16 +15,27 @@ use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
  * Distinct from {@see \Omnichannel\Addons\Content\Services\Health\ArticleRequiredDataHealthAuditor}
  * (SEO data health may include local-only rows).
  *
- * Comparable content row:
+ * Comparable content row (WP-backed identity SSOT):
  * - site-scoped, not soft-deleted
- * - WP-backed (wordpress_article_links.wp_post_id > 0)
+ * - INNER JOIN `wordpress_article_links` with `wal.wp_post_id > 0`
+ *   (same predicate as {@see ArticleSeoInventoryPolicy::isWpBacked}; link table is SoT —
+ *   `articles.wp_post_id` is retired / projection-only and must not define membership)
  * - not a taxonomy term (wp_is_term ≠ 1)
  * - not a system/structural WP post type ({@see ArticleSeoInventoryPolicy})
  *
  * Terms are out of this table entirely (sync may still import them).
+ *
+ * Remote discover:
+ * - Authoritative when `by_native_post_type` is present (new plugin).
+ * - Fallback `sum(by_content_type)` is intentionally non-authoritative (old plugin /
+ *   V2 manifest) — must not drive "sync required" recommendations.
  */
 final class SiteSyncPreflightContentComparison
 {
+    public const SOURCE_NATIVE = 'by_native_post_type';
+
+    public const SOURCE_CONTENT_TYPE_FALLBACK = 'by_content_type_fallback';
+
     /**
      * Local WP-backed comparable counts by canonical content_type.
      *
@@ -33,6 +45,10 @@ final class SiteSyncPreflightContentComparison
     {
         $empty = ['total' => 0, 'post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
         if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('articles')) {
+            return $empty;
+        }
+
+        if (! Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
             return $empty;
         }
 
@@ -84,32 +100,54 @@ final class SiteSyncPreflightContentComparison
     /**
      * Normalize V3 discover into comparable content counts (no terms).
      *
-     * Prefers discover.by_native_post_type filtered by {@see ArticleSeoInventoryPolicy}.
+     * Prefers discover.by_native_post_type filtered by {@see ArticleSeoInventoryPolicy}
+     * and mapped via {@see NativeContentTypeMapper} (same SSOT as Site Sync import).
      * Falls back to discover.by_content_type with total = sum(types) — never discover.total.
+     * Fallback is marked non-authoritative.
      *
      * @param  array<string, mixed>  $discover
-     * @return array{total: int, post: int, page: int, product: int, other: int}
+     * @param  array<string, string>|null  $siteContentTypeMap  native => post|page|product
+     * @return array{
+     *   total: int,
+     *   post: int,
+     *   page: int,
+     *   product: int,
+     *   other: int,
+     *   authoritative: bool,
+     *   source: string
+     * }
      */
-    public function normalizeRemoteDiscover(array $discover): array
+    public function normalizeRemoteDiscover(array $discover, ?array $siteContentTypeMap = null): array
     {
         $native = is_array($discover['by_native_post_type'] ?? null)
             ? $discover['by_native_post_type']
             : null;
 
         if ($native !== null && $native !== []) {
-            return $this->fromNativePostTypeCounts($native);
+            $counts = $this->fromNativePostTypeCounts($native, $siteContentTypeMap);
+
+            return array_merge($counts, [
+                'authoritative' => true,
+                'source' => self::SOURCE_NATIVE,
+            ]);
         }
 
-        return $this->fromContentTypeCounts(
+        $counts = $this->fromContentTypeCounts(
             is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [],
         );
+
+        return array_merge($counts, [
+            'authoritative' => false,
+            'source' => self::SOURCE_CONTENT_TYPE_FALLBACK,
+        ]);
     }
 
     /**
      * @param  array<string, mixed>  $nativeCounts  post_type => count
+     * @param  array<string, string>|null  $siteContentTypeMap
      * @return array{total: int, post: int, page: int, product: int, other: int}
      */
-    public function fromNativePostTypeCounts(array $nativeCounts): array
+    public function fromNativePostTypeCounts(array $nativeCounts, ?array $siteContentTypeMap = null): array
     {
         $by = ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
         foreach ($nativeCounts as $native => $count) {
@@ -121,7 +159,7 @@ final class SiteSyncPreflightContentComparison
             if ($n <= 0) {
                 continue;
             }
-            $bucket = $this->contentTypeBucketForNative($slug);
+            $bucket = $this->contentTypeBucketForNative($slug, $siteContentTypeMap);
             $by[$bucket] += $n;
         }
 
@@ -158,13 +196,16 @@ final class SiteSyncPreflightContentComparison
         ];
     }
 
-    private function contentTypeBucketForNative(string $native): string
+    /**
+     * @param  array<string, string>|null  $siteContentTypeMap
+     */
+    private function contentTypeBucketForNative(string $native, ?array $siteContentTypeMap = null): string
     {
-        return match ($native) {
-            'page' => 'page',
-            'product' => 'product',
-            'post' => 'post',
-            default => 'post',
-        };
+        $mapped = NativeContentTypeMapper::map($native, $siteContentTypeMap)->value;
+        if (in_array($mapped, ['post', 'page', 'product'], true)) {
+            return $mapped;
+        }
+
+        return 'other';
     }
 }
