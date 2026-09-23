@@ -158,10 +158,64 @@ final class SiteSyncV3DeltaSinceCheckpointTest extends TestCase
             (string) (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
         );
         $method = $this->methodBody($src, 'resolveTerminalDeltaCheckpoint');
+        $code = $this->stripPhpComments($method);
 
-        self::assertStringContainsString('catch_up_boundary_at', $method);
-        self::assertStringContainsString('catch_up_since', $method);
-        self::assertStringNotContainsString('finished_at', $method);
+        self::assertStringContainsString('catch_up_boundary_at', $code);
+        self::assertStringContainsString('catch_up_since', $code);
+        self::assertStringNotContainsString('finished_at', $code);
+        self::assertStringNotContainsString('final_manifest_at', $code);
+
+        $catchUpPos = strpos($code, 'catch_up_boundary_at');
+        $importPos = strpos($code, 'META_IMPORT_SINCE');
+        self::assertNotFalse($catchUpPos);
+        self::assertNotFalse($importPos);
+        self::assertLessThan($importPos, $catchUpPos);
+    }
+
+    public function test_checkpoint_from_latest_run_never_uses_finished_at(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
+        );
+        $method = $this->methodBody($src, 'checkpointFromLatestSuccessfulV3Run');
+        $code = $this->stripPhpComments($method);
+
+        self::assertStringNotContainsString('finished_at', $code);
+        self::assertStringNotContainsString('toIso8601String()', $code);
+        self::assertStringNotContainsString('final_manifest_at', $code);
+        self::assertStringNotContainsString('now()', $code);
+
+        self::assertStringContainsString('v3_delta_checkpoint_at', $code);
+        self::assertStringContainsString('catch_up_boundary_at', $code);
+        self::assertStringContainsString('catch_up_since', $code);
+        self::assertStringContainsString('META_IMPORT_SINCE', $code);
+        self::assertStringContainsString('snapshot_at', $code);
+
+        // Exhausted safe meta → null (caller falls through to META_BASELINE_COMPLETED_AT).
+        self::assertMatchesRegularExpression('/return null;\s*\}\s*$/s', trim($code));
+    }
+
+    public function test_persistent_checkpoint_falls_to_baseline_when_run_meta_unsafe(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
+        );
+        $persistent = $this->methodBody($src, 'resolvePersistentDeltaCheckpoint');
+        $fromRun = $this->stripPhpComments($this->methodBody($src, 'checkpointFromLatestSuccessfulV3Run'));
+
+        // Latest successful run without safe meta returns null — not finished_at.
+        self::assertStringNotContainsString('finished_at', $fromRun);
+
+        // resolvePersistent then reads META_BASELINE_COMPLETED_AT.
+        $fromRunCall = strpos($persistent, 'checkpointFromLatestSuccessfulV3Run');
+        $baseline = strpos($persistent, 'META_BASELINE_COMPLETED_AT');
+        self::assertNotFalse($fromRunCall);
+        self::assertNotFalse($baseline);
+        self::assertLessThan($baseline, $fromRunCall);
+
+        $afterFromRun = substr($persistent, $fromRunCall);
+        self::assertStringContainsString('META_BASELINE_COMPLETED_AT', $afterFromRun);
+        self::assertStringContainsString("if (\$fromRun !== null && \$fromRun !== '')", $persistent);
     }
 
     public function test_content_and_terms_share_same_import_since_key(): void
@@ -184,6 +238,13 @@ final class SiteSyncV3DeltaSinceCheckpointTest extends TestCase
         $lines = explode("\n", $src);
 
         return implode("\n", array_slice($lines, $start - 1, $end - $start + 1));
+    }
+
+    private function stripPhpComments(string $src): string
+    {
+        $stripped = preg_replace('!/\*.*?\*/!s', '', $src) ?? $src;
+
+        return (string) preg_replace('![ \t]*//.*$!m', '', $stripped);
     }
 
     private function sliceBetween(string $haystack, string $startNeedle, string $endNeedle): string

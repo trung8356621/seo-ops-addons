@@ -1156,11 +1156,12 @@ final class RunSiteSyncV3Orchestrator
      */
     private function resolveTerminalDeltaCheckpoint(array $meta): ?string
     {
+        // Prefer catch_up_boundary_at (stamped after stable empty delta round).
+        // Never use finished_at / final_manifest_at — those are not WP delta-query bounds.
         foreach ([
             'catch_up_boundary_at',
             'catch_up_since',
             SiteSyncV3Schema::META_IMPORT_SINCE,
-            'final_manifest_at',
             'snapshot_at',
         ] as $key) {
             $value = trim((string) ($meta[$key] ?? ''));
@@ -1189,24 +1190,20 @@ final class RunSiteSyncV3Orchestrator
             return null;
         }
 
+        // Only proven WP/query lower bounds. Never finished_at (Laravel wall clock after
+        // the last delta query) or final_manifest_at (verify-time discover, not import since).
         $meta = is_array($run->meta) ? $run->meta : [];
         foreach ([
             'v3_delta_checkpoint_at',
             'catch_up_boundary_at',
             'catch_up_since',
             SiteSyncV3Schema::META_IMPORT_SINCE,
-            'final_manifest_at',
             'snapshot_at',
         ] as $key) {
             $value = trim((string) ($meta[$key] ?? ''));
             if ($value !== '') {
                 return $value;
             }
-        }
-
-        $finished = $run->finished_at;
-        if ($finished !== null) {
-            return $finished->toIso8601String();
         }
 
         return null;
