@@ -32,6 +32,15 @@ final class SiteSyncV3Schema
 
     public const RESOURCE_TERMS = 'terms';
 
+    /**
+     * Object namespaces for WP identity (independent ID spaces).
+     * Content subtypes: post|page|product. Term subtypes: category|tag|product_cat|…
+     * Stored locally as article_meta.wp_is_term (0|1) — not a shared wp_post_id keyspace.
+     */
+    public const OBJECT_NAMESPACE_CONTENT = 'content';
+
+    public const OBJECT_NAMESPACE_TERM = 'term';
+
     public const PHASE_DISCOVER = 'discover';
 
     public const PHASE_IMPORT = 'import';
@@ -45,6 +54,9 @@ final class SiteSyncV3Schema
     public const PHASE_COMPLETE = 'complete';
 
     public const PHASE_NEEDS_ATTENTION = 'needs_attention';
+
+    /** Meta key: phase to restore when operator resumes from needs_attention. */
+    public const META_ATTENTION_RESUME_PHASE = 'attention_resume_phase';
 
     /** @var list<string> */
     public const PHASES = [

@@ -229,6 +229,7 @@ final class ContentProjectOpsStateClassifier
             ContentProjectArticleRuntimeStatus::STATE_QUEUED => 'queued',
             ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING => 'batch_waiting',
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => 'waiting_ai',
+            ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW => 'waiting_outline_review',
             ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => 'stale',
             ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST => 'stopped_after_request',

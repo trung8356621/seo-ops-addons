@@ -120,6 +120,9 @@ final class ContentProjectItemOpsEvidencePresenter
             'waiting_ai' => ContentProjectStatusBadgePresenter::runtime(
                 ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
             ),
+            'waiting_outline_review' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW,
+            ),
             'stale' => ContentProjectStatusBadgePresenter::runtime(
                 ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ),

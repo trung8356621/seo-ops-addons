@@ -19,7 +19,9 @@ use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncV3Client;
 use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3BulkImporter;
+use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3ContentTypeDriftRepair;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
+use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
 use Throwable;
 
@@ -250,11 +252,28 @@ final class RunSiteSyncV3Orchestrator
             return ['success' => false, 'message' => 'Run finished — cannot resume.'];
         }
 
-        $run->forceFill([
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $step = trim((string) ($run->current_step ?? ''));
+        $status = (string) $run->status;
+        $patch = [
             'status' => 'running',
             'resumable' => true,
             'error_message' => null,
-        ])->save();
+            'finished_at' => null,
+        ];
+
+        // failRun parks current_step=needs_attention; handle() no-ops that phase.
+        // Restore the pre-attention phase so dispatched jobs actually continue.
+        if ($step === SiteSyncV3Schema::PHASE_NEEDS_ATTENTION
+            || in_array($status, ['needs_attention', 'failed'], true)
+        ) {
+            $resumePhase = $this->resolveAttentionResumePhase($run);
+            $patch['current_step'] = $resumePhase;
+            unset($meta['error_code']);
+            $patch['meta'] = $meta;
+        }
+
+        $run->forceFill($patch)->save();
 
         ProcessSiteSyncV3Job::dispatch($runId, app(SiteSyncRunExecution::class)->readGeneration($run));
 
@@ -264,6 +283,7 @@ final class RunSiteSyncV3Orchestrator
             'run_id' => $runId,
             'public_ref' => (string) $run->public_ref,
             'protocol' => SiteSyncV3Schema::PROTOCOL,
+            'current_step' => (string) $run->fresh()?->current_step,
         ];
     }
 
@@ -851,6 +871,35 @@ final class RunSiteSyncV3Orchestrator
             }
         }
 
+        // Content subtype drift (post↔page↔product) is repaired from WP inventory.
+        // Content id N and term id N are independent — never treat as collision.
+        $typeDrift = ['repaired' => [], 'unresolved' => []];
+        if ($typeMismatch !== []) {
+            $typeDrift = app(SiteSyncV3ContentTypeDriftRepair::class)
+                ->repairFromInventory((int) $site->id, $typeMismatch);
+            // Re-read local map after repair so membership check uses fresh subtypes.
+            $localIdsByType = $this->localWpContentIdsByType((int) $site->id);
+            $localByType = $this->countWpBackedByContentType((int) $site->id);
+            $localTotal = array_sum($localByType);
+            $typeMismatch = [];
+            foreach ($wpIdsByType as $wpId => $wpType) {
+                if (! isset($localIdsByType[$wpId])) {
+                    continue;
+                }
+                $localType = $localIdsByType[$wpId];
+                if (in_array($wpType, ['post', 'page', 'product'], true)
+                    && in_array($localType, ['post', 'page', 'product'], true)
+                    && $wpType !== $localType
+                ) {
+                    $typeMismatch[] = [
+                        'wp_id' => $wpId,
+                        'wp_type' => $wpType,
+                        'local_type' => $localType,
+                    ];
+                }
+            }
+        }
+
         $missing = [];
         $extra = [];
         foreach (['post', 'page', 'product'] as $type) {
@@ -878,6 +927,8 @@ final class RunSiteSyncV3Orchestrator
             'missing' => $missing,
             'extra' => $extra,
             'type_mismatch' => $typeMismatch,
+            'type_drift_repaired' => $typeDrift['repaired'],
+            'type_drift_unresolved' => $typeDrift['unresolved'],
             'sample_missing_wp_ids' => array_slice($missingIds, 0, 20),
             'sample_extra_wp_ids' => array_slice($extraIds, 0, 20),
             'extra_removed' => $extraRemoved,
@@ -885,8 +936,12 @@ final class RunSiteSyncV3Orchestrator
         ];
         $meta['continuation'] = ((int) ($meta['continuation'] ?? 0)) + 1;
 
-        $hasMismatch = $missingIds !== [] || $extraIds !== [] || $typeMismatch !== [];
-        // Count deltas are diagnostic only when membership lists are empty (discover timing skew).
+        // Fail only on identity membership gaps. Type drift must be repaired above;
+        // count deltas remain diagnostic when membership lists are empty.
+        $hasMismatch = $missingIds !== []
+            || $extraIds !== []
+            || $typeMismatch !== []
+            || ($typeDrift['unresolved'] ?? []) !== [];
         if ($hasMismatch) {
             $run->forceFill(['meta' => $meta])->save();
 
@@ -967,6 +1022,13 @@ final class RunSiteSyncV3Orchestrator
     private function failRun(SeoSiteSyncRun $run, string $code, string $message): bool
     {
         $meta = is_array($run->meta) ? $run->meta : [];
+        $previousPhase = trim((string) ($run->current_step ?? ''));
+        if ($previousPhase !== ''
+            && $previousPhase !== SiteSyncV3Schema::PHASE_NEEDS_ATTENTION
+            && in_array($previousPhase, SiteSyncV3Schema::PHASES, true)
+        ) {
+            $meta[SiteSyncV3Schema::META_ATTENTION_RESUME_PHASE] = $previousPhase;
+        }
         $meta['error_code'] = $code;
 
         $run->forceFill([
@@ -983,9 +1045,53 @@ final class RunSiteSyncV3Orchestrator
             'site_id' => (int) $run->site_id,
             'error_code' => $code,
             'message' => $message,
+            'resume_phase' => $meta[SiteSyncV3Schema::META_ATTENTION_RESUME_PHASE] ?? null,
         ]);
 
         return false;
+    }
+
+    /**
+     * Phase to continue after operator resume from needs_attention / failed.
+     * Prefers meta attention_resume_phase; falls back to progress markers for
+     * runs that failed before that key existed.
+     */
+    private function resolveAttentionResumePhase(SeoSiteSyncRun $run): string
+    {
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $saved = trim((string) ($meta[SiteSyncV3Schema::META_ATTENTION_RESUME_PHASE] ?? ''));
+        $resumablePhases = [
+            SiteSyncV3Schema::PHASE_DISCOVER,
+            SiteSyncV3Schema::PHASE_IMPORT,
+            SiteSyncV3Schema::PHASE_RECONCILE_STALE,
+            SiteSyncV3Schema::PHASE_CATCH_UP,
+            SiteSyncV3Schema::PHASE_VERIFY,
+            SiteSyncV3Schema::PHASE_COMPLETE,
+        ];
+        if (in_array($saved, $resumablePhases, true)) {
+            return $saved;
+        }
+
+        if (is_array($meta['verify'] ?? null)) {
+            return SiteSyncV3Schema::PHASE_VERIFY;
+        }
+        if (! empty($meta['catch_up_stable'])) {
+            return SiteSyncV3Schema::PHASE_VERIFY;
+        }
+        if (isset($meta['catch_up_round']) || isset($meta['catch_up_since'])) {
+            return SiteSyncV3Schema::PHASE_CATCH_UP;
+        }
+        if (isset($meta['import_resource'])
+            || isset($meta['job_number'])
+            || (is_array($meta['cursor'] ?? null) && $meta['cursor'] !== [])
+        ) {
+            return SiteSyncV3Schema::PHASE_IMPORT;
+        }
+        if (isset($meta['discover']) || isset($meta['initial_expected_total'])) {
+            return SiteSyncV3Schema::PHASE_DISCOVER;
+        }
+
+        return SiteSyncV3Schema::PHASE_DISCOVER;
     }
 
     /**
@@ -1089,10 +1195,8 @@ final class RunSiteSyncV3Orchestrator
             if (isset($wpIdSet[$wpId])) {
                 continue;
             }
-            $article = SeoArticle::query()
-                ->where('site_id', (int) $site->id)
-                ->whereWpPostId($wpId)
-                ->first();
+            // Content namespace only — never soft-delete a term that shares the numeric id.
+            $article = SiteSyncWpIdentity::findContent((int) $site->id, $wpId);
             if ($article === null || $article->trashed()) {
                 continue;
             }

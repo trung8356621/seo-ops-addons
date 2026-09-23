@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SiteSync\Services\Reconciliation;
 
-use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SiteSync\Models\SeoArticleScoreSource;
+use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use App\Models\Site;
 
 final class ArticleScoreSourceReconciler
@@ -28,10 +28,14 @@ final class ArticleScoreSourceReconciler
                 continue;
             }
 
-            $articleId = SeoArticle::query()
-                ->where('site_id', $siteId)
-                ->whereWpPostId($wpId)
-                ->value('id');
+            $articleId = null;
+            $isTerm = array_key_exists('wp_is_term', $row)
+                ? (bool) $row['wp_is_term']
+                : false;
+            $article = SiteSyncWpIdentity::find($siteId, $wpId, $isTerm);
+            if ($article !== null) {
+                $articleId = (int) $article->id;
+            }
 
             SeoArticleScoreSource::query()->updateOrCreate(
                 [
@@ -40,7 +44,7 @@ final class ArticleScoreSourceReconciler
                     'source' => $source,
                 ],
                 [
-                    'article_id' => $articleId !== null ? (int) $articleId : null,
+                    'article_id' => $articleId,
                     'score' => isset($row['score']) && is_numeric($row['score']) ? (float) $row['score'] : null,
                     'raw' => is_array($row['raw'] ?? null) ? $row['raw'] : $row,
                 ],

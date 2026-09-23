@@ -23,6 +23,7 @@ use Omnichannel\Addons\SiteSync\Services\Reconciliation\CanonicalKeywordReconcil
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\ProviderKeywordReconciler;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteLinkCatalogReconciler;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteSyncKeywordCandidateEvaluator;
+use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
 use Omnichannel\Addons\WordPress\Services\WordpressArticleLinkWriter;
 use Throwable;
@@ -87,7 +88,8 @@ final class SiteSyncV3BulkImporter
         }
 
         $generation = $this->syncGeneration($run);
-        $byWpId = $this->preloadByWpPostIds($site, $sanitized);
+        // Identity map is namespace-scoped: content IDs ≠ term IDs even when numeric equal.
+        $byWpId = $this->preloadByWpPostIds($site, $sanitized, $isTermResource);
 
         foreach ($sanitized as $item) {
             $op = strtolower(trim((string) ($item['op'] ?? $item['action'] ?? 'upsert')));
@@ -99,7 +101,7 @@ final class SiteSyncV3BulkImporter
 
             try {
                 if ($op === 'delete') {
-                    if ($this->deleteWpBackedOnly($site, $wpId, $byWpId)) {
+                    if ($this->deleteWpBackedOnly($site, $wpId, $byWpId, $isTermResource)) {
                         $deleted++;
                     }
                     continue;
@@ -134,6 +136,8 @@ final class SiteSyncV3BulkImporter
                         'status' => $this->normalizeStatus((string) ($item['status'] ?? 'publish')),
                         'type' => $rawType,
                         'wp_post_type' => $rawType,
+                        'wp_is_term' => $isTermResource,
+                        'object_namespace' => SiteSyncWpIdentity::namespaceFromIsTerm($isTermResource),
                         'content_hash' => isset($item['content_hash']) ? (string) $item['content_hash'] : null,
                         'updated_at' => $item['updated_at'] ?? $item['modified_at'] ?? null,
                         'meta' => is_array($item['meta'] ?? null) ? $item['meta'] : null,
@@ -152,6 +156,7 @@ final class SiteSyncV3BulkImporter
                         'phrase' => $focusScalar,
                         'source' => SiteSyncSchema::SOURCE_PROVIDER,
                         'wordpress_id' => $wpId,
+                        'wp_is_term' => $isTermResource,
                     ];
                 }
 
@@ -165,6 +170,7 @@ final class SiteSyncV3BulkImporter
                                 'source' => SiteSyncSchema::SOURCE_PROVIDER,
                                 'provider' => (string) ($seo['provider'] ?? ''),
                                 'wordpress_id' => $wpId,
+                                'wp_is_term' => $isTermResource,
                             ];
                         }
                         continue;
@@ -181,6 +187,7 @@ final class SiteSyncV3BulkImporter
                         'source' => SiteSyncSchema::SOURCE_PROVIDER,
                         'provider' => (string) ($kw['provider'] ?? $seo['provider'] ?? ''),
                         'wordpress_id' => $wpId,
+                        'wp_is_term' => $isTermResource,
                     ];
                 }
 
@@ -189,7 +196,10 @@ final class SiteSyncV3BulkImporter
                     if (! is_array($kw)) {
                         continue;
                     }
-                    $keywordRows[] = array_merge($kw, ['wordpress_id' => $wpId]);
+                    $keywordRows[] = array_merge($kw, [
+                        'wordpress_id' => $wpId,
+                        'wp_is_term' => $isTermResource,
+                    ]);
                 }
 
                 $scores = is_array($item['scores'] ?? null) ? $item['scores'] : [];
@@ -199,13 +209,17 @@ final class SiteSyncV3BulkImporter
                         'source' => (string) ($item['seo_score_source'] ?? 'wordpress'),
                         'score' => $item['seo_score'],
                         'raw' => $item,
+                        'wp_is_term' => $isTermResource,
                     ];
                 }
                 foreach ($scores as $score) {
                     if (! is_array($score)) {
                         continue;
                     }
-                    $scoreRows[] = array_merge(['wordpress_id' => $wpId], $score);
+                    $scoreRows[] = array_merge([
+                        'wordpress_id' => $wpId,
+                        'wp_is_term' => $isTermResource,
+                    ], $score);
                 }
 
                 $providerScore = $seo['provider_score'] ?? null;
@@ -217,6 +231,7 @@ final class SiteSyncV3BulkImporter
                             'source' => $source,
                             'score' => $providerScore['score'] ?? null,
                             'raw' => $providerScore,
+                            'wp_is_term' => $isTermResource,
                         ];
                     }
                 } elseif (is_numeric($providerScore)) {
@@ -227,6 +242,7 @@ final class SiteSyncV3BulkImporter
                             'source' => $source,
                             'score' => $providerScore,
                             'raw' => ['provider_score' => $providerScore, 'provider' => $source],
+                            'wp_is_term' => $isTermResource,
                         ];
                     }
                 }
@@ -301,16 +317,14 @@ final class SiteSyncV3BulkImporter
 
         $targetArticleByWpId = [];
         if ($targetWpIds !== []) {
-            $targets = SeoArticle::query()
-                ->where('site_id', (int) $site->id)
-                ->whereWpPostIdIn(array_values($targetWpIds))
-                ->with('wordpressLink')
-                ->get();
-            foreach ($targets as $target) {
-                $linkWpId = (int) ($target->wordpressLink?->wp_post_id ?? 0);
-                if ($linkWpId > 0) {
-                    $targetArticleByWpId[$linkWpId] = (int) $target->id;
-                }
+            // Internal link targets are content posts/pages/products — never term IDs.
+            $targets = SiteSyncWpIdentity::preloadMap(
+                (int) $site->id,
+                array_values($targetWpIds),
+                false,
+            );
+            foreach ($targets as $linkWpId => $target) {
+                $targetArticleByWpId[(int) $linkWpId] = (int) $target->id;
             }
         }
 
@@ -456,7 +470,7 @@ final class SiteSyncV3BulkImporter
      * @param  list<array<string, mixed>>  $items
      * @return array<int, SeoArticle>
      */
-    private function preloadByWpPostIds(Site $site, array $items): array
+    private function preloadByWpPostIds(Site $site, array $items, bool $isTermResource): array
     {
         $wpIds = [];
         foreach ($items as $item) {
@@ -466,25 +480,7 @@ final class SiteSyncV3BulkImporter
             }
         }
 
-        if ($wpIds === []) {
-            return [];
-        }
-
-        $map = [];
-        $articles = SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->whereWpPostIdIn(array_values($wpIds))
-            ->with(['articleMetas', 'wordpressLink'])
-            ->get();
-
-        foreach ($articles as $article) {
-            $linkWpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
-            if ($linkWpId > 0) {
-                $map[$linkWpId] = $article;
-            }
-        }
-
-        return $map;
+        return SiteSyncWpIdentity::preloadMap((int) $site->id, array_values($wpIds), $isTermResource);
     }
 
     /**
@@ -507,10 +503,8 @@ final class SiteSyncV3BulkImporter
         $existing = $byWpId[$wpId] ?? null;
 
         if ($existing === null) {
-            $existing = SeoArticle::query()
-                ->where('site_id', (int) $site->id)
-                ->whereWpPostId($wpId)
-                ->first();
+            // Never resolve across namespaces (content id 5 ≠ term id 5).
+            $existing = SiteSyncWpIdentity::find((int) $site->id, $wpId, $isTermResource);
         }
 
         $title = trim((string) ($item['title'] ?? $item['post_title'] ?? ''));
@@ -596,12 +590,9 @@ final class SiteSyncV3BulkImporter
     /**
      * @param  array<int, SeoArticle>  $byWpId
      */
-    private function deleteWpBackedOnly(Site $site, int $wpId, array &$byWpId): bool
+    private function deleteWpBackedOnly(Site $site, int $wpId, array &$byWpId, bool $isTermResource): bool
     {
-        $article = $byWpId[$wpId] ?? SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->whereWpPostId($wpId)
-            ->first();
+        $article = $byWpId[$wpId] ?? SiteSyncWpIdentity::find((int) $site->id, $wpId, $isTermResource);
 
         if (! $article instanceof SeoArticle) {
             return false;

@@ -567,6 +567,7 @@ final class ContentProjectItemOperationsReadModel
             $currentMembership,
             $runtimeContext + [
                 'legacy_fresh_execution' => (bool) ($staleEval['has_fresh_active_execution'] ?? false),
+                'waiting_outline_review' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOutlineReviewCheckpoint::isWaitingReview($task),
             ],
             $isStaleGeneration,
             $this->runtimeStatus,

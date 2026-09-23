@@ -225,6 +225,18 @@ class CreateArticlesFromTaskService
                 ContentProjectOutlineReviewCheckpoint::clearPause($projectTask);
             }
 
+            // Resume / Writing-only: drop any stale outline seed so Content reads the
+            // latest persisted Outline (including manual edits saved before Resume).
+            $resumeVars = $context->variables;
+            unset(
+                $resumeVars['article_writing_raw_input'],
+                $resumeVars['article_writing_formatted'],
+                $resumeVars['direct_publish_outline_markdown'],
+                $resumeVars['outline_artifact_hash'],
+                $resumeVars['input'],
+            );
+            $context = $context->withVariables($resumeVars);
+
             return $this->runArticleWritingForContext(
                 $context,
                 $task,
@@ -394,9 +406,13 @@ class CreateArticlesFromTaskService
         }
 
         try {
-            // Review checkpoint forces two-phase so we can pause after Outline.
+            // CREATE (and checkpoint / full rerun) always uses two-phase Outline→Content
+            // so the Content-dispatch seam can re-read review_checkpoint_enabled after
+            // Outline persist — including when the flag is toggled ON mid-Outline.
+            // Do not use PublishGraph here: it has no post-Outline pause seam.
             if (
-                ContentProjectOutlineReviewCheckpoint::isEnabledForContext($context)
+                $projectType === SeoProjectTask::TYPE_CREATE
+                || ContentProjectOutlineReviewCheckpoint::isEnabledForContext($context)
                 || (string) ($context->variables['rerun_scope'] ?? '') === 'full'
             ) {
                 return $this->runOutlineThenArticleForContext(
@@ -417,7 +433,7 @@ class CreateArticlesFromTaskService
                 );
             }
 
-            // First-run / CREATE: Publish graph đầy đủ.
+            // Fallback non-CREATE/REWRITE: keep Publish graph for legacy callers.
             return $this->runArticleWritingForContext(
                 $context,
                 $task,

@@ -4439,6 +4439,7 @@ return [
         'badge_generating_active' => 'Generating',
         'badge_queued_worker' => 'Waiting for worker',
         'badge_waiting_ai' => 'Waiting for AI',
+        'badge_waiting_outline_review' => 'Waiting for review',
         'badge_possibly_stuck' => 'Possibly stuck',
         'badge_retrying' => 'Retrying',
         'badge_failed' => 'Failed',

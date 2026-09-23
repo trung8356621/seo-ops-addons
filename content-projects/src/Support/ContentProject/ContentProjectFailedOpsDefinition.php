@@ -46,12 +46,17 @@ final class ContentProjectFailedOpsDefinition
         $runtimeState = strtolower(trim((string) ($row['runtime_status']['state'] ?? '')));
 
         // Live claimed/queued/batch-waiting runtime suppresses Failed overlay — membership pending does not.
+        // Outline review checkpoint pause is intentional — never paint as Failed.
         if (in_array($runtimeState, [
             ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_QUEUED,
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
+            ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW,
             ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING,
         ], true)) {
+            return false;
+        }
+        if ($exec === 'paused') {
             return false;
         }
         if ($runtimeState === ContentProjectArticleRuntimeStatus::STATE_FAILED) {

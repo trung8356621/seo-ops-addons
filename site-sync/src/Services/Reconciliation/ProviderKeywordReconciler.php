@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SiteSync\Services\Reconciliation;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
+use Omnichannel\Addons\SiteSync\Support\SiteSyncWpIdentity;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use App\Models\Site;
 
@@ -81,10 +81,10 @@ final class ProviderKeywordReconciler
 
             $wpId = (int) ($row['wordpress_id'] ?? 0);
             if ($wpId > 0 && class_exists(KeywordFocusAttach::class)) {
-                $article = SeoArticle::query()
-                    ->where('site_id', (int) $site->id)
-                    ->whereWpPostId($wpId)
-                    ->first();
+                $isTerm = array_key_exists('wp_is_term', $row)
+                    ? (bool) $row['wp_is_term']
+                    : false;
+                $article = SiteSyncWpIdentity::find((int) $site->id, $wpId, $isTerm);
                 if ($article !== null) {
                     KeywordFocusAttach::syncMainKeyword($article, (int) $site->id, $userId, $phrase);
                 }

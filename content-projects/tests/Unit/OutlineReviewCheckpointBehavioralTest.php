@@ -128,10 +128,37 @@ final class OutlineReviewCheckpointBehavioralTest extends TestCase
 
         $articlePos = strpos($src, 'ContentProjectRerunFromStep::Article');
         self::assertNotFalse($articlePos);
-        $articleBranch = substr($src, $articlePos, 1800);
+        $articleBranch = substr($src, $articlePos, 2800);
         self::assertStringContainsString('ContentProjectOutlineReviewCheckpoint::clearPause', $articleBranch);
         self::assertStringContainsString('ArticleWritingExecutionMode::ContentNode', $articleBranch);
         self::assertStringContainsString('runArticleWritingForContext', $articleBranch);
+        // Must drop stale outline seeds so Content uses latest persisted Outline.
+        self::assertStringContainsString("\$resumeVars['article_writing_raw_input']", $articleBranch);
+        self::assertStringContainsString("\$resumeVars['direct_publish_outline_markdown']", $articleBranch);
+        self::assertStringContainsString('unset(', $articleBranch);
+    }
+
+    public function test_create_first_run_always_uses_two_phase_seam_not_publish_graph(): void
+    {
+        $src = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Services/CreateArticlesFromTaskService.php',
+        );
+        $methodPos = strpos($src, 'public function runPublishWorkflowForContext');
+        self::assertNotFalse($methodPos);
+        $method = substr($src, $methodPos, 5500);
+
+        self::assertStringContainsString('TYPE_CREATE', $method);
+        self::assertStringContainsString('runOutlineThenArticleForContext', $method);
+        // CREATE must hit two-phase before any PublishGraph fallback.
+        $createPos = strpos($method, 'TYPE_CREATE');
+        $twoPhasePos = strpos($method, 'runOutlineThenArticleForContext');
+        $publishGraphPos = strpos($method, 'ArticleWritingExecutionMode::PublishGraph');
+        self::assertNotFalse($createPos);
+        self::assertNotFalse($twoPhasePos);
+        self::assertTrue($createPos < $twoPhasePos);
+        if ($publishGraphPos !== false) {
+            self::assertTrue($twoPhasePos < $publishGraphPos);
+        }
     }
 
     public function test_checkpoint_seam_is_after_outline_persist_before_writing(): void

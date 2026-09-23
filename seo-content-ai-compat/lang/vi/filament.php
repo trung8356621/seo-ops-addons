@@ -4414,6 +4414,7 @@ return [
         'badge_generating_active' => 'Đang tạo',
         'badge_queued_worker' => 'Đang chờ worker',
         'badge_waiting_ai' => 'Chờ AI',
+        'badge_waiting_outline_review' => 'Chờ review Outline',
         'badge_possibly_stuck' => 'Có thể bị kẹt',
         'badge_retrying' => 'Đang thử lại',
         'badge_failed' => 'Lỗi',

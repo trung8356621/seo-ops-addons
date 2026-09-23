@@ -87,7 +87,7 @@ final class ContentProjectArticleRuntimeStatusResolver
                 $lengthWarning,
             );
         }
-        if ($execStatus === 'paused') {
+        if ($execStatus === 'paused' || $this->isOutlineReviewPause($item, $context)) {
             return $this->terminal(
                 ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW,
                 'Waiting for review',
@@ -369,6 +369,17 @@ final class ContentProjectArticleRuntimeStatusResolver
      */
     private function resolveWithoutExecution(array $context, ?int $attempt, int $maxAttempts): ContentProjectArticleRuntimeStatus
     {
+        if ($this->isOutlineReviewPause(is_array($context['run_item'] ?? null) ? $context['run_item'] : null, $context)) {
+            return $this->terminal(
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_OUTLINE_REVIEW,
+                'Waiting for review',
+                'info',
+                $attempt,
+                $maxAttempts,
+                'Review checkpoint',
+            );
+        }
+
         $taskStatus = strtolower(trim((string) ($context['task_status'] ?? '')));
 
         if (in_array($taskStatus, ['completed', 'reviewing'], true)) {
@@ -404,6 +415,26 @@ final class ContentProjectArticleRuntimeStatusResolver
             attempt: $attempt,
             maxAttempts: $maxAttempts,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $item
+     * @param  array<string, mixed>  $context
+     */
+    private function isOutlineReviewPause(?array $item, array $context): bool
+    {
+        if (! empty($context['waiting_outline_review'])) {
+            return true;
+        }
+
+        $snapshot = is_array($item['output_snapshot'] ?? null) ? $item['output_snapshot'] : [];
+        if (($snapshot['awaiting_review'] ?? false) === true
+            && (string) ($snapshot['pause_reason'] ?? '') === 'review_checkpoint'
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function active(

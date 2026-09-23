@@ -56,6 +56,44 @@ final class SiteSyncV3AcceptanceHardeningTest extends TestCase
         self::assertStringContainsString('never flip status back to running', $method);
     }
 
+    public function test_fail_run_stores_attention_resume_phase(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
+        );
+        $method = $this->methodBody($src, 'failRun');
+
+        self::assertStringContainsString('META_ATTENTION_RESUME_PHASE', $method);
+        self::assertStringContainsString('PHASE_NEEDS_ATTENTION', $method);
+    }
+
+    public function test_resume_restores_phase_from_needs_attention(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
+        );
+        $method = $this->methodBody($src, 'resume');
+
+        self::assertStringContainsString('resolveAttentionResumePhase', $method);
+        self::assertStringContainsString('PHASE_NEEDS_ATTENTION', $method);
+        self::assertStringContainsString("'current_step'", $method);
+        self::assertStringContainsString("'finished_at' => null", $method);
+        self::assertStringContainsString("unset(\$meta['error_code'])", $method);
+    }
+
+    public function test_resolve_attention_resume_phase_infers_import(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(RunSiteSyncV3Orchestrator::class))->getFileName()
+        );
+        $method = $this->methodBody($src, 'resolveAttentionResumePhase');
+
+        self::assertStringContainsString('META_ATTENTION_RESUME_PHASE', $method);
+        self::assertStringContainsString('import_resource', $method);
+        self::assertStringContainsString('PHASE_IMPORT', $method);
+        self::assertStringContainsString('catch_up_stable', $method);
+    }
+
     public function test_verify_uses_membership_not_counts_only(): void
     {
         $src = (string) file_get_contents(
@@ -67,6 +105,8 @@ final class SiteSyncV3AcceptanceHardeningTest extends TestCase
         self::assertStringContainsString('sample_missing_wp_ids', $method);
         self::assertStringContainsString('softDeleteExtraLocalContent', $method);
         self::assertStringContainsString('final_expected_total', $method);
+        self::assertStringContainsString('SiteSyncV3ContentTypeDriftRepair', $method);
+        self::assertStringContainsString('type_drift_repaired', $method);
     }
 
     public function test_presenter_caps_progress_to_full_denominator(): void
