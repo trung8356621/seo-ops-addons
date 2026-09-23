@@ -26,36 +26,7 @@ final class FocusKeywordCoverageQuery
      */
     public function applySeoInventoryScope(Builder $query): Builder
     {
-        $systemTypes = array_map(
-            static fn (string $type): string => strtolower($type),
-            ArticleSeoInventoryPolicy::SYSTEM_WP_POST_TYPES,
-        );
-
-        return $query
-            ->whereDoesntHave('articleMetas', static function (Builder $meta): void {
-                $meta->where('meta_key', 'wp_is_term')
-                    ->whereRaw("LOWER(TRIM(meta_value)) IN ('1', 'true', 'yes')");
-            })
-            ->where(function (Builder $typeScope) use ($systemTypes): void {
-                $typeScope
-                    ->whereDoesntHave('articleMetas', static function (Builder $meta): void {
-                        $meta->where('meta_key', 'wp_post_type')
-                            ->whereNotNull('meta_value')
-                            ->whereRaw("TRIM(meta_value) <> ''");
-                    })
-                    ->orWhereHas('articleMetas', static function (Builder $meta) use ($systemTypes): void {
-                        $meta->where('meta_key', 'wp_post_type')
-                            ->whereNotNull('meta_value')
-                            ->whereRaw("TRIM(meta_value) <> ''")
-                            ->whereRaw('LOWER(TRIM(meta_value)) NOT LIKE ?', ['wp\\_%']);
-                        if ($systemTypes !== []) {
-                            $meta->whereRaw(
-                                'LOWER(TRIM(meta_value)) NOT IN ('.implode(',', array_fill(0, count($systemTypes), '?')).')',
-                                $systemTypes,
-                            );
-                        }
-                    });
-            });
+        return ArticleSeoInventoryPolicy::scopeCandidates($query);
     }
 
     /**

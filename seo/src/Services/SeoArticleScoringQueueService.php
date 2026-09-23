@@ -8,7 +8,7 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Content\Jobs\AnalyzeArticleSeoJob;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
 use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
 use App\Support\RuntimeLogger;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,7 +23,7 @@ final class SeoArticleScoringQueueService
 
     public function dispatchForArticle(SeoArticle $article, bool $force = false): bool
     {
-        if (! $article->countsTowardSeoScore()) {
+        if (! $article->isEligibleForWorkspaceSeoScoring()) {
             return false;
         }
 
@@ -52,7 +52,7 @@ final class SeoArticleScoringQueueService
         array $syncItem,
         ?SeoArticle $existingBeforeSave = null,
     ): bool {
-        if (! $article->countsTowardSeoScore()) {
+        if (! $article->isEligibleForWorkspaceSeoScoring()) {
             return false;
         }
 
@@ -255,8 +255,8 @@ final class SeoArticleScoringQueueService
             ->countsTowardSeoScore()
             ->where('articles.status', '!=', 'trash');
 
-        // Taxonomy terms are not scored.
-        return ArticleContentClassification::scopeNonTerm($query);
+        // Same SEO-content universe as Data Health / Focus Keyword coverage.
+        return ArticleSeoInventoryPolicy::scopeCandidates($query);
     }
 
     /**

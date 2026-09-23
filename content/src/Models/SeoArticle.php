@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Models;
 
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
+use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
@@ -134,6 +135,19 @@ class SeoArticle extends Model
             : $this->seoProfile()->value('skip_seo_score');
 
         return ! (bool) ($skip ?? false);
+    }
+
+    /**
+     * Workspace SEO scoring eligibility: skip_seo_score + SEO inventory policy.
+     * Structural WP types (blocks, wp_*, …) are technical inventory only.
+     */
+    public function isEligibleForWorkspaceSeoScoring(): bool
+    {
+        if (! $this->countsTowardSeoScore()) {
+            return false;
+        }
+
+        return ArticleSeoInventoryPolicy::isSeoInventoryCandidateArticle($this);
     }
 
     /**

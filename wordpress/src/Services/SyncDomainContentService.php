@@ -1574,7 +1574,7 @@ class SyncDomainContentService
      */
     private function scoreSyncedItemWithPhp(SeoArticle $article, array $item): void
     {
-        if (! $article->countsTowardSeoScore()) {
+        if (! $article->isEligibleForWorkspaceSeoScoring()) {
             return;
         }
 

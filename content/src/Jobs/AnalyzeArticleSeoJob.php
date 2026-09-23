@@ -55,7 +55,7 @@ final class AnalyzeArticleSeoJob implements ShouldBeUnique, ShouldQueue
             $article = SeoArticle::query()->find($this->articleId);
         }
 
-        if (! $article instanceof SeoArticle || ! $article->countsTowardSeoScore()) {
+        if (! $article instanceof SeoArticle || ! $article->isEligibleForWorkspaceSeoScoring()) {
             return;
         }
 
