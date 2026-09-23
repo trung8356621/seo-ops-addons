@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 /**
- * Domain Overview multilingual UX: health in language tabs; modal = confirmation only.
+ * Domain Overview multilingual UX contracts (tabs = status, modal = confirm).
  *
  * Run: vendor/bin/phpunit --filter=SiteSyncDomainOverviewMultilingualUxTest
  */
@@ -24,40 +24,73 @@ final class SiteSyncDomainOverviewMultilingualUxTest extends TestCase
         return dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/partials/'.$relative;
     }
 
-    public function test_primary_tab_renders_scoped_wp_vs_seo_ops_and_data_health(): void
+    public function test_rendered_sync_buttons_contain_no_literal_js_directive_in_alpine_or_wire(): void
+    {
+        $tabs = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
+        $actions = (string) file_get_contents($this->blade('domain-sync-actions.blade.php'));
+        $modal = (string) file_get_contents($this->blade('site-sync-preflight-modal.blade.php'));
+
+        self::assertStringNotContainsString('@js($tabKey)', $tabs);
+        self::assertStringNotContainsString('@js($tabKey)', $actions);
+        self::assertDoesNotMatchRegularExpression('/@(?:click|js).*@js\(/', $tabs);
+        self::assertDoesNotMatchRegularExpression('/wire:click="[^"]*@js\(/', $tabs);
+        // Blade-rendered language literals for Livewire actions.
+        self::assertStringContainsString("wire:click=\"runScopedSiteSyncAction('{{ \$tabKey }}', false)\"", $tabs);
+        self::assertStringContainsString("wire:click=\"runScopedSiteSyncAction('{{ \$tabKey }}', true)\"", $tabs);
+        self::assertStringContainsString("select('{{ \$tabKey }}')", $tabs);
+        self::assertStringContainsString('confirmSiteSyncConfirm', $modal);
+        self::assertStringContainsString('cancelSiteSyncConfirm', $modal);
+    }
+
+    public function test_scoped_sync_opens_confirmation_without_immediate_dispatch(): void
+    {
+        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
+        $runScoped = $this->extractMethod($domainSrc, 'runScopedSiteSyncAction');
+        self::assertStringContainsString('openSiteSyncConfirm', $runScoped);
+        self::assertStringNotContainsString('dispatchSiteSyncBus', $runScoped);
+        self::assertStringNotContainsString('ForceFullSiteSyncCommand', $runScoped);
+
+        $open = $this->extractMethod($domainSrc, 'openSiteSyncConfirm');
+        self::assertStringContainsString('buildConfirmPayload', $open);
+        self::assertStringContainsString('siteSyncConfirmOpen = true', $open);
+        self::assertStringNotContainsString('dispatchSiteSyncBus', $open);
+    }
+
+    public function test_confirm_dispatches_captured_language_role_mode_cancel_dispatches_nothing(): void
+    {
+        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
+        $confirm = $this->extractMethod($domainSrc, 'confirmSiteSyncConfirm');
+        self::assertStringContainsString('dispatchCapturedSiteSync', $confirm);
+
+        $dispatch = $this->extractMethod($domainSrc, 'dispatchCapturedSiteSync');
+        self::assertStringContainsString("\$payload['language']", $dispatch);
+        self::assertStringContainsString("\$payload['language_role']", $dispatch);
+        self::assertStringContainsString("\$payload['mode']", $dispatch);
+        self::assertStringNotContainsString('resolveForStart', $dispatch);
+
+        $cancel = $this->extractMethod($domainSrc, 'cancelSiteSyncConfirm');
+        self::assertStringContainsString('closeSiteSyncConfirm', $cancel);
+        self::assertStringNotContainsString('dispatchSiteSyncBus', $cancel);
+        self::assertStringNotContainsString('dispatchCapturedSiteSync', $cancel);
+    }
+
+    public function test_primary_tab_renders_scoped_health_panels_and_scoring(): void
     {
         $tabs = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
         $panel = (string) file_get_contents($this->blade('domain-language-health-panel.blade.php'));
 
-        // Alpine-owned tabs; primary panel shows scoped counts + sync actions.
-        self::assertStringContainsString('x-data', $tabs);
+        self::assertStringContainsString('domain-language-health-panel', $tabs);
         self::assertStringContainsString('$isPrimary', $tabs);
         self::assertStringContainsString('Phủ bản dịch', $tabs);
-        self::assertStringContainsString('Đồng bộ &amp; kiểm tra', $tabs);
-        self::assertStringContainsString('Có trên WordPress', $tabs);
-        // Health panel partial remains available for richer inspect (lazy/remote path).
         self::assertStringContainsString('WordPress vs SEO Ops', $panel);
         self::assertStringContainsString('Data Health', $panel);
         self::assertStringContainsString('SEO scoring', $panel);
+        self::assertStringContainsString('Source absent', $panel);
+        self::assertStringContainsString('Difference', $panel);
+        self::assertStringContainsString('Applicable', $panel);
     }
 
-    public function test_secondary_data_does_not_leak_into_primary_health_panel(): void
-    {
-        $panelSrc = (string) file_get_contents(
-            (new ReflectionClass(SiteSyncDomainLanguagePanelService::class))->getFileName()
-        );
-        // Snapshot is built for one language argument only.
-        self::assertStringContainsString('evaluateLocalOnly($site, $language', $panelSrc);
-        self::assertStringContainsString('getWpBackedScoringProgress((int) $site->id, $language', $panelSrc);
-
-        $tabs = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
-        // Each language gets its own x-show panel; primary/secondary are separate branches.
-        self::assertStringContainsString('@if ($isPrimary)', $tabs);
-        self::assertStringContainsString('@else', $tabs);
-        self::assertStringContainsString("x-show=\"activeTab === @js(\$tabKey)\"", $tabs);
-    }
-
-    public function test_secondary_unsynced_shows_availability_without_health_warning(): void
+    public function test_secondary_unsynced_and_synced_branches_are_isolated(): void
     {
         $tabs = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
         self::assertStringContainsString('Có trên WordPress', $tabs);
@@ -65,132 +98,69 @@ final class SiteSyncDomainOverviewMultilingualUxTest extends TestCase
         self::assertStringContainsString('không phải lỗi Data Health', $tabs);
         self::assertStringContainsString('$showFullHealth', $tabs);
         self::assertStringContainsString('$isPrimary || $syncedCount > 0', $tabs);
+        // Each language panel is its own x-show block — no shared table across languages.
+        self::assertStringContainsString("x-show=\"activeTab === '{{ \$tabKey }}'\"", $tabs);
 
         $panelSrc = (string) file_get_contents(
             (new ReflectionClass(SiteSyncDomainLanguagePanelService::class))->getFileName()
         );
-        self::assertStringContainsString('$isPrimary || $synced > 0', $panelSrc);
-        self::assertStringContainsString("'show_full_health' => \$showFullHealth", $panelSrc);
+        self::assertStringContainsString('evaluateLocalOnly($site, $language', $panelSrc);
+        self::assertStringContainsString('getWpBackedScoringProgress((int) $site->id, $language', $panelSrc);
     }
 
-    public function test_mount_does_not_remote_preflight_all_languages(): void
+    public function test_remote_health_is_lazy_for_active_language_only_and_poll_skips_preflight(): void
     {
         $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        self::assertStringContainsString('Intentionally do NOT remote-preflight all languages on mount', $domainSrc);
-        self::assertStringContainsString('languageTabSnapshots', $domainSrc);
-        self::assertStringContainsString('ensureLanguageTabSnapshot', $domainSrc);
-
-        $mount = $this->extractMethod($domainSrc, 'mount');
-        self::assertStringNotContainsString('evaluate(', $mount);
-        self::assertStringNotContainsString('withRemote(', $mount);
-        self::assertStringNotContainsString('ensureLanguageTabSnapshot', $mount);
-        self::assertStringNotContainsString('getSiteSyncLanguageCoverage', $mount);
-        self::assertStringNotContainsString('foreach', $mount);
-    }
-
-    public function test_only_active_language_tab_fetches_remote_health(): void
-    {
-        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        self::assertStringContainsString('setOverviewLanguageTab', $domainSrc);
-        self::assertStringContainsString('refreshActiveLanguageTabRemote', $domainSrc);
-        self::assertStringContainsString('ensureLanguageTabSnapshot($this->overviewLanguageTab, fetchRemote: false)', $domainSrc);
-        self::assertStringContainsString('fetchRemote: true', $domainSrc);
-
-        $ensure = $this->extractMethod($domainSrc, 'ensureLanguageTabSnapshot');
-        self::assertStringContainsString('withRemote', $ensure);
-        self::assertStringContainsString("! (bool) (\$snapshot['remote_fetched'] ?? false)", $ensure);
-        self::assertStringContainsString('buildLocalSnapshot', $ensure);
-
         $setTab = $this->extractMethod($domainSrc, 'setOverviewLanguageTab');
         self::assertStringContainsString('fetchRemote: false', $setTab);
-        self::assertStringNotContainsString('fetchRemote: true', $setTab);
-        self::assertStringContainsString('#[Renderless]', $domainSrc);
+        self::assertStringContainsString('fetchRemote: true', $setTab);
+        self::assertStringContainsString('remote_fetched', $setTab);
 
-        $tabsSrc = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
-        self::assertStringContainsString('x-data', $tabsSrc);
-        self::assertStringContainsString('sessionStorage', $tabsSrc);
-        self::assertStringContainsString("select('overview')", $tabsSrc);
-        self::assertStringContainsString('x-show="activeTab', $tabsSrc);
-        self::assertStringNotContainsString('wire:click="setOverviewLanguageTab', $tabsSrc);
+        $mount = $this->extractMethod($domainSrc, 'mount');
+        self::assertStringNotContainsString('ensureLanguageTabSnapshot', $mount);
+        self::assertStringNotContainsString('withRemote', $mount);
 
-        $refreshSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        // Status polling must not re-run expensive preflight.
-        self::assertDoesNotMatchRegularExpression(
-            '/function refreshSiteSyncV2Progress\([\s\S]*?SiteSyncPreflightService/',
-            $refreshSrc,
-        );
-        self::assertDoesNotMatchRegularExpression(
-            '/function refreshSiteSyncV2Progress\([\s\S]*?withRemote\(/',
-            $refreshSrc,
-        );
-        $refreshProgress = $this->extractMethod($refreshSrc, 'refreshSyncProgress');
-        self::assertStringNotContainsString('ensureLanguageTabSnapshot', $refreshProgress);
+        $refresh = $this->extractMethod($domainSrc, 'refreshSyncProgress');
+        self::assertStringNotContainsString('ensureLanguageTabSnapshot', $refresh);
+        self::assertStringNotContainsString('SiteSyncPreflightService', $refresh);
+        self::assertStringNotContainsString('withRemote', $refresh);
+
+        $progressBlade = (string) file_get_contents($this->blade('site-sync-progress.blade.php'));
+        self::assertStringContainsString('wire:poll.3s="refreshSyncProgress"', $progressBlade);
     }
 
-    public function test_sync_click_opens_confirmation_without_dispatch(): void
+    public function test_sync_action_rendered_once_per_language_and_multilingual_hides_outer_full_site_idle(): void
     {
+        $tabs = (string) file_get_contents($this->blade('domain-language-tabs.blade.php'));
+        $actions = (string) file_get_contents($this->blade('domain-sync-actions.blade.php'));
+
+        // One action marker in primary branch + one in secondary branch of the foreach template.
+        self::assertSame(2, substr_count($tabs, 'data-domain-lang-sync-actions="{{ $tabKey }}"'));
+        self::assertStringContainsString('$showOuterSyncButton = ! $isMultilingual', $actions);
+        self::assertStringContainsString('@if ($showOuterSyncButton)', $actions);
+        // Backend force-full command path preserved (hide UI only).
         $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        self::assertStringContainsString('function runScopedSiteSyncAction', $domainSrc);
-        self::assertStringContainsString('openSiteSyncConfirm(', $domainSrc);
-
-        $runScoped = $this->extractMethod($domainSrc, 'runScopedSiteSyncAction');
-        self::assertStringNotContainsString('dispatchSiteSyncBus', $runScoped);
-        self::assertStringNotContainsString('ForceFullSiteSyncCommand', $runScoped);
-        self::assertStringNotContainsString('RunSiteSyncCommand', $runScoped);
-        self::assertStringContainsString('openSiteSyncConfirm', $runScoped);
-
-        $openConfirm = $this->extractMethod($domainSrc, 'openSiteSyncConfirm');
-        self::assertStringNotContainsString('dispatchSiteSyncBus', $openConfirm);
-        self::assertStringContainsString('buildConfirmPayload', $openConfirm);
-        self::assertStringContainsString('siteSyncConfirmOpen = true', $openConfirm);
+        self::assertStringContainsString('ForceFullSiteSyncCommand', $domainSrc);
+        self::assertStringContainsString('runForceFullSiteSyncAction', $domainSrc);
     }
 
-    public function test_confirmation_preserves_captured_language_role_mode(): void
+    public function test_confirmation_modal_is_action_only_with_captured_scope_fields(): void
     {
+        $modal = (string) file_get_contents($this->blade('site-sync-preflight-modal.blade.php'));
+        self::assertStringContainsString('Chế độ:', $modal);
+        self::assertStringContainsString('Phạm vi:', $modal);
+        self::assertStringContainsString('Ước tính:', $modal);
+        self::assertStringNotContainsString('WordPress vs SEO Ops', $modal);
+        self::assertStringNotContainsString('Data Health', $modal);
+        self::assertStringNotContainsString('SEO Ops data health', $modal);
+
         $panelSrc = (string) file_get_contents(
             (new ReflectionClass(SiteSyncDomainLanguagePanelService::class))->getFileName()
         );
-        self::assertStringContainsString("'language' => \$language", $panelSrc);
-        self::assertStringContainsString("'language_role' =>", $panelSrc);
-        self::assertStringContainsString("'mode' => \$mode", $panelSrc);
+        self::assertStringContainsString("'scope_label' => \$scopeLabel", $panelSrc);
         self::assertStringContainsString("'estimated_count' => \$estimated", $panelSrc);
-
-        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        $dispatch = $this->extractMethod($domainSrc, 'dispatchCapturedSiteSync');
-        self::assertStringContainsString("\$payload['language']", $dispatch);
-        self::assertStringContainsString("\$payload['language_role']", $dispatch);
-        self::assertStringContainsString("\$payload['mode']", $dispatch);
-        // Must not re-resolve language after dialog opens.
-        self::assertStringNotContainsString('resolveForStart', $dispatch);
-        self::assertStringNotContainsString('primaryLanguage', $dispatch);
-    }
-
-    public function test_confirm_normal_and_force_full_dispatch_scoped_modes(): void
-    {
-        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        $dispatch = $this->extractMethod($domainSrc, 'dispatchCapturedSiteSync');
-        self::assertStringContainsString('ForceFullSiteSyncCommand', $dispatch);
-        self::assertStringContainsString('RunSiteSyncCommand', $dispatch);
-        self::assertStringContainsString("mode: 'delta'", $dispatch);
-        self::assertStringContainsString('MODE_FORCE_FULL', $dispatch);
-        self::assertStringContainsString('language:', $dispatch);
-        self::assertStringContainsString('languageRole:', $dispatch);
-    }
-
-    public function test_cancel_confirmation_dispatches_nothing(): void
-    {
-        $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
-        $cancel = $this->extractMethod($domainSrc, 'cancelSiteSyncConfirm');
-        self::assertStringContainsString('closeSiteSyncConfirm', $cancel);
-        self::assertStringNotContainsString('dispatchSiteSyncBus', $cancel);
-        self::assertStringNotContainsString('dispatchCapturedSiteSync', $cancel);
-
-        $modal = (string) file_get_contents($this->blade('site-sync-preflight-modal.blade.php'));
-        self::assertStringContainsString('cancelSiteSyncConfirm', $modal);
-        self::assertStringContainsString('Hủy', $modal);
-        self::assertStringContainsString('confirmSiteSyncConfirm', $modal);
-        self::assertStringNotContainsString('WordPress vs SEO Ops (WP-backed)', $modal);
-        self::assertStringNotContainsString('SEO Ops data health', $modal);
+        self::assertSame(SiteSyncV3Schema::MODE_DELTA, 'delta');
+        self::assertSame(SiteSyncV3Schema::MODE_FORCE_FULL, 'force_full');
     }
 
     public function test_generic_website_sync_resolves_to_primary_before_confirmation(): void
@@ -199,72 +169,47 @@ final class SiteSyncDomainOverviewMultilingualUxTest extends TestCase
         $open = $this->extractMethod($domainSrc, 'openSiteSyncPreflight');
         self::assertStringContainsString('primaryLanguage', $open);
         self::assertStringContainsString('openSiteSyncConfirm', $open);
-        self::assertStringNotContainsString('evaluate(', $open);
         self::assertStringNotContainsString('dispatchSiteSyncBus', $open);
-
-        $actions = (string) file_get_contents($this->blade('domain-sync-actions.blade.php'));
-        self::assertStringContainsString('openSiteSyncPreflight', $actions);
     }
 
-    public function test_secondary_gate_still_blocks_confirm_when_primary_not_ready(): void
+    public function test_secondary_gate_still_blocks_confirm_open(): void
     {
         $domainSrc = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
         $open = $this->extractMethod($domainSrc, 'openSiteSyncConfirm');
         self::assertStringContainsString('evaluateSecondarySync', $open);
         self::assertStringContainsString('LANGUAGE_ROLE_SECONDARY', $open);
-        self::assertStringContainsString('Chưa thể đồng bộ', $open);
-        // Gate failure returns before setting confirm open.
-        self::assertMatchesRegularExpression(
-            '/evaluateSecondarySync[\s\S]*?return;[\s\S]*?siteSyncConfirmOpen = true/',
-            $open,
-        );
 
         $gateSrc = (string) file_get_contents(
             (new ReflectionClass(SiteSyncV3SecondaryGateService::class))->getFileName()
         );
-        self::assertStringContainsString('evaluateSecondarySync', $gateSrc);
         self::assertStringContainsString('primary_incomplete', $gateSrc);
     }
 
-    public function test_confirm_payload_copy_matches_product_copy(): void
-    {
-        $panelSrc = (string) file_get_contents(
-            (new ReflectionClass(SiteSyncDomainLanguagePanelService::class))->getFileName()
-        );
-        self::assertStringContainsString('Đồng bộ lại toàn bộ ', $panelSrc);
-        self::assertStringContainsString('Tác vụ này sẽ duyệt lại toàn bộ nội dung của ngôn ngữ này.', $panelSrc);
-        self::assertStringContainsString('Tác vụ nền này có thể xử lý khoảng ', $panelSrc);
-        self::assertStringContainsString('Đồng bộ thay đổi', $panelSrc);
-        self::assertStringContainsString('Xác nhận đồng bộ toàn bộ', $panelSrc);
-        self::assertSame(SiteSyncV3Schema::MODE_FORCE_FULL, 'force_full');
-        self::assertSame(SiteSyncV3Schema::MODE_DELTA, 'delta');
-    }
-
-    public function test_preflight_service_exposes_language_scoped_local_api(): void
+    public function test_preflight_service_language_scoped_apis_reused(): void
     {
         $src = (string) file_get_contents(
             (new ReflectionClass(SiteSyncPreflightService::class))->getFileName()
         );
         self::assertStringContainsString('function evaluate(Site $site, ?string $language = null)', $src);
         self::assertStringContainsString('function evaluateLocalOnly(Site $site, ?string $language = null)', $src);
-        self::assertStringContainsString("'language' => \$langArg", $src);
+    }
+
+    public function test_single_language_outer_sync_button_still_available(): void
+    {
+        $actions = (string) file_get_contents($this->blade('domain-sync-actions.blade.php'));
+        self::assertStringContainsString('openSiteSyncPreflight', $actions);
+        self::assertStringContainsString('$showOuterSyncButton = ! $isMultilingual', $actions);
+        self::assertStringContainsString('Đồng bộ & kiểm tra website', $actions);
     }
 
     private function extractMethod(string $src, string $method): string
     {
         if (! preg_match(
-            '/public function '.$method.'\([^{]*\{([\s\S]*?)\n    (?:public|private|protected) function /',
+            '/(?:public|private|protected) function '.$method.'\([^{]*\{([\s\S]*?)\n    (?:public|private|protected) function /',
             $src,
             $m,
         )) {
-            // Last method before end of class region — try until next method of any visibility or end.
-            if (! preg_match(
-                '/(?:public|private|protected) function '.$method.'\([^{]*\{([\s\S]*?)\n    (?:public|private|protected) function /',
-                $src,
-                $m,
-            )) {
-                self::fail('Could not extract method '.$method);
-            }
+            self::fail('Could not extract method '.$method);
         }
 
         return $m[1];

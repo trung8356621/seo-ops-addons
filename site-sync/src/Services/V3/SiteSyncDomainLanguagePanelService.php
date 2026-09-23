@@ -132,6 +132,8 @@ final class SiteSyncDomainLanguagePanelService
         }
 
         $isFull = $mode === SiteSyncV3Schema::MODE_FORCE_FULL;
+        $roleLabel = $role === SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY ? 'Phụ' : 'Chính';
+        $scopeLabel = $label.' · '.$roleLabel;
         $countHint = $estimated > 0
             ? number_format($estimated)
             : 'nhiều';
@@ -143,10 +145,12 @@ final class SiteSyncDomainLanguagePanelService
                 : SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY,
             'mode' => $mode,
             'label' => $label,
+            'role_label' => $roleLabel,
+            'scope_label' => $scopeLabel,
             'estimated_count' => $estimated,
             'title' => $isFull
-                ? 'Đồng bộ lại toàn bộ '.$label
-                : 'Đồng bộ '.$label,
+                ? 'Đồng bộ lại toàn bộ '.$scopeLabel
+                : 'Đồng bộ '.$scopeLabel,
             'body' => $isFull
                 ? 'Tác vụ này sẽ duyệt lại toàn bộ nội dung của ngôn ngữ này.'
                 : 'Tác vụ nền này có thể xử lý khoảng '.$countHint.' nội dung.',

@@ -9,14 +9,13 @@
     $useResume = ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
     $langCoverage = method_exists($this, 'getSiteSyncLanguageCoverage') ? $this->getSiteSyncLanguageCoverage() : [];
     $isMultilingual = method_exists($this, 'isOverviewMultilingual') && $this->isOverviewMultilingual();
-    $activeTab = $this->overviewLanguageTab ?? 'overview';
-    $onLanguageTab = $isMultilingual && $activeTab !== 'overview' && $activeTab !== '';
     $primaryRow = collect($langCoverage)->firstWhere('role', 'primary');
     $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? 'ngôn ngữ chính') : null;
-    // Overview / non-multilingual: generic sync resolves to primary then confirmation.
+    // Single-language: generic sync → primary confirm. Multilingual idle: actions only in language tabs (hide all-language UI).
     $primarySyncLabel = $primaryLabel
         ? 'Đồng bộ & kiểm tra '.$primaryLabel
         : 'Đồng bộ & kiểm tra website';
+    $showOuterSyncButton = ! $isMultilingual || $useResume || ($siteSyncV2Running ?? false);
 @endphp
 
 <div class="seo-sync-actions">
@@ -24,7 +23,7 @@
 
     @if ($v2Ui)
         <div class="seo-sync-actions__primary space-y-3">
-            @if (! $onLanguageTab || $useResume || ($siteSyncV2Running ?? false))
+            @if ($showOuterSyncButton)
             <div class="flex flex-wrap items-center gap-2">
                 <x-filament::button
                     type="button"

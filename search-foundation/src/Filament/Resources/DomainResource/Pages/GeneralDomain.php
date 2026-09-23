@@ -44,7 +44,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use Livewire\Attributes\Renderless;
 
 class GeneralDomain extends Page
 {
@@ -222,7 +221,6 @@ class GeneralDomain extends Page
         // Intentionally do NOT remote-preflight all languages on mount.
     }
 
-    #[Renderless]
     public function setOverviewLanguageTab(string $tab): void
     {
         $tab = trim($tab);
@@ -231,10 +229,19 @@ class GeneralDomain extends Page
             return;
         }
 
-        // Tab visibility is Alpine + sessionStorage (survives wire:poll remorph).
-        // Only warm a cheap local snapshot — never WP HTTP here.
+        // Tab chrome is Alpine+sessionStorage (survives poll). This method warms
+        // local health then lazily fetches remote once for the active language only.
         try {
             $this->ensureLanguageTabSnapshot($this->overviewLanguageTab, fetchRemote: false);
+            $snap = is_array($this->languageTabSnapshots[$this->overviewLanguageTab] ?? null)
+                ? $this->languageTabSnapshots[$this->overviewLanguageTab]
+                : null;
+            if (is_array($snap)
+                && (bool) ($snap['show_full_health'] ?? false)
+                && ! (bool) ($snap['remote_fetched'] ?? false)
+            ) {
+                $this->ensureLanguageTabSnapshot($this->overviewLanguageTab, fetchRemote: true);
+            }
         } catch (\Throwable $e) {
             \App\Support\RuntimeLogger::report($e, [
                 'endpoint' => 'domain.set_overview_language_tab',

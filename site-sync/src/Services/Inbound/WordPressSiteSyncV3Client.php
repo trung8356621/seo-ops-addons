@@ -10,29 +10,33 @@ use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Throwable;
 
-/**
- * Pulls site_sync.v3 discover/records from WordPress bridge.
- * Auth pattern mirrors WordPressSiteSyncClient (read token + domain base).
- */
-final class WordPressSiteSyncV3Client
-{
     /**
-     * @param  array<string, mixed>  $query  Optional: language
-     * @return array{success: bool, message: string, discover?: array<string, mixed>}
+     * Pulls site_sync.v3 discover/records from WordPress bridge.
+     * Auth pattern mirrors WordPressSiteSyncClient (read token + domain base).
+     *
+     * Language contract: when a run is language-scoped, every content traversal
+     * request (discover + records full/delta/catch-up/verify) must carry the same
+     * language. Discover uses ?language=; records uses JSON body language.
      */
-    public function discover(Site $site, array $query = []): array
+    final class WordPressSiteSyncV3Client
     {
-        $auth = $this->authContext($site);
-        if ($auth['error'] !== null) {
-            return ['success' => false, 'message' => $auth['error']];
-        }
-
-        try {
-            $language = trim((string) ($query['language'] ?? $query['lang'] ?? ''));
-            $route = '/omi-seo-ai/v1/sync/v3/discover';
-            if ($language !== '') {
-                $route .= '?language='.rawurlencode($language);
+        /**
+         * @param  array<string, mixed>  $query  Optional: language
+         * @return array{success: bool, message: string, discover?: array<string, mixed>}
+         */
+        public function discover(Site $site, array $query = []): array
+        {
+            $auth = $this->authContext($site);
+            if ($auth['error'] !== null) {
+                return ['success' => false, 'message' => $auth['error']];
             }
+
+            try {
+                $language = trim((string) ($query['language'] ?? $query['lang'] ?? ''));
+                $route = '/omi-seo-ai/v1/sync/v3/discover';
+                if ($language !== '') {
+                    $route .= '?language='.rawurlencode($language);
+                }
 
             $response = $this->getWpRest(
                 $auth['base'],
@@ -76,10 +80,13 @@ final class WordPressSiteSyncV3Client
     /**
      * Keyset cursor pagination — body must use cursor object, never offset.
      *
+     * When $requiredLanguage is non-empty, it is force-merged into the POST body
+     * (never omit language for scoped content/terms traversal).
+     *
      * @param  array<string, mixed>  $body
      * @return array{success: bool, message: string, records?: array<string, mixed>, timings?: array<string, int>}
      */
-    public function records(Site $site, array $body): array
+    public function records(Site $site, array $body, string $requiredLanguage = ''): array
     {
         $auth = $this->authContext($site);
         if ($auth['error'] !== null) {
@@ -88,6 +95,23 @@ final class WordPressSiteSyncV3Client
 
         if (array_key_exists('offset', $body)) {
             unset($body['offset']);
+        }
+
+        $requiredLanguage = trim($requiredLanguage);
+        if ($requiredLanguage !== '') {
+            $body['language'] = $requiredLanguage;
+        }
+
+        $resource = (string) ($body['resource'] ?? '');
+        // Hard invariant: scoped content requests must never leave language empty.
+        if ($requiredLanguage !== ''
+            && $resource === SiteSyncV3Schema::RESOURCE_CONTENT
+            && trim((string) ($body['language'] ?? '')) === ''
+        ) {
+            return [
+                'success' => false,
+                'message' => 'language_scope_missing_on_records: scoped run lost language on content records request',
+            ];
         }
 
         try {

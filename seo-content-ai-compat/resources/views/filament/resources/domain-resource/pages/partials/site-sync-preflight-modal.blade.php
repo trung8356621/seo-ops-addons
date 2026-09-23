@@ -66,11 +66,30 @@
                 <p class="mt-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-300">
                     {{ $confirm['body'] ?? '' }}
                 </p>
-                @if (filled($confirm['mode_label'] ?? null))
-                    <p class="mt-2 text-[12px] text-gray-500 dark:text-gray-400">
-                        Mode: <span class="font-medium text-gray-800 dark:text-gray-100">{{ $confirm['mode_label'] }}</span>
-                    </p>
-                @endif
+                <dl class="mt-3 space-y-1 text-[12px] text-gray-600 dark:text-gray-300">
+                    @if (filled($confirm['mode_label'] ?? null))
+                        <div class="flex gap-2">
+                            <dt class="shrink-0 text-gray-500">Chế độ:</dt>
+                            <dd class="font-medium text-gray-800 dark:text-gray-100">{{ $confirm['mode_label'] }}</dd>
+                        </div>
+                    @endif
+                    @if (filled($confirm['scope_label'] ?? $confirm['label'] ?? null))
+                        <div class="flex gap-2">
+                            <dt class="shrink-0 text-gray-500">Phạm vi:</dt>
+                            <dd class="font-medium text-gray-800 dark:text-gray-100">{{ $confirm['scope_label'] ?? $confirm['label'] }}</dd>
+                        </div>
+                    @endif
+                    <div class="flex gap-2">
+                        <dt class="shrink-0 text-gray-500">Ước tính:</dt>
+                        <dd class="font-medium text-gray-800 dark:text-gray-100">
+                            @if ((int) ($confirm['estimated_count'] ?? 0) > 0)
+                                {{ number_format((int) $confirm['estimated_count']) }} nội dung
+                            @else
+                                nhiều nội dung
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
             </div>
 
             <div class="site-sync-confirm__footer border-t border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">

@@ -155,6 +155,8 @@ final class RunSiteSyncV3Orchestrator
         );
         $runMeta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] = $languageScope;
         $runMeta[SiteSyncV3Schema::META_LANGUAGE_ROLE] = $languageRole;
+        // Sticky flag: empty language_scope mid-run must fail-fast, never fall back to all languages.
+        $runMeta['language_scoped'] = $languageScope !== '';
 
         if (! $forceFull) {
             $importSince = $languageScope !== ''
@@ -403,6 +405,13 @@ final class RunSiteSyncV3Orchestrator
         }
 
         $languageScope = $this->runLanguageScope($run);
+        if ($this->runRequiresLanguageScope($run) && $languageScope === '') {
+            return $this->failRun(
+                $run,
+                'language_scope_lost',
+                'Scoped V3 run is missing persisted language_scope — refusing all-language discover.',
+            );
+        }
         $result = $this->client->discover(
             $site,
             $languageScope !== '' ? ['language' => $languageScope] : [],
@@ -416,6 +425,10 @@ final class RunSiteSyncV3Orchestrator
         }
 
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
+        $scopeGate = $this->assertDiscoverHonorsLanguageScope($discover, $languageScope);
+        if ($scopeGate !== null) {
+            return $this->failRun($run, $scopeGate['code'], $scopeGate['message']);
+        }
         $meta = is_array($run->meta) ? $run->meta : [];
         $meta['discover'] = $discover;
         if (array_key_exists('multilingual', $discover)) {
@@ -437,7 +450,7 @@ final class RunSiteSyncV3Orchestrator
         $byType = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
         // User-facing progress denom = language-scoped CONTENT only.
         // discover.total includes unscoped terms and must not inflate the Domain Overview bar.
-        $contentExpected = $this->contentExpectedFromDiscover($discover, $byType);
+        $contentExpected = $this->contentExpectedFromDiscover($discover, $byType, $languageScope);
         $termsExpected = (int) ($discover['resources']['terms']['total'] ?? max(0, (int) ($discover['total'] ?? 0) - $contentExpected));
         $meta['initial_expected_total'] = $contentExpected;
         $meta['initial_expected_content_total'] = $contentExpected;
@@ -498,6 +511,12 @@ final class RunSiteSyncV3Orchestrator
         $languageScope = $this->runLanguageScope($run);
         if ($languageScope !== '') {
             $body['language'] = $languageScope;
+        } elseif ($this->runRequiresLanguageScope($run)) {
+            return $this->failRun(
+                $run,
+                'language_scope_lost',
+                'Scoped V3 run lost language_scope before IMPORT — refusing unscoped records.',
+            );
         }
         if ($recordsMode === 'full') {
             $body['snapshot_at'] = (string) ($meta['snapshot_at'] ?? '');
@@ -524,7 +543,7 @@ final class RunSiteSyncV3Orchestrator
 
         $started = now();
         $tickStarted = hrtime(true);
-        $fetched = $this->client->records($site, $body);
+        $fetched = $this->client->records($site, $body, $languageScope);
         if (! ($fetched['success'] ?? false)) {
             $retry = (int) ($meta['retry_count'] ?? 0) + 1;
             $meta['retry_count'] = $retry;
@@ -541,6 +560,21 @@ final class RunSiteSyncV3Orchestrator
             ? $records['items']
             : (is_array($records['records'] ?? null) ? $records['records'] : []);
         $items = array_values(array_filter($items, static fn (mixed $row): bool => is_array($row)));
+        if ($resource === SiteSyncV3Schema::RESOURCE_CONTENT && $languageScope !== '') {
+            $filtered = $this->rejectOffScopeContentItems($items, $languageScope);
+            if ($filtered['rejected'] > 0) {
+                return $this->failRun(
+                    $run,
+                    'language_scope_violation_on_import',
+                    sprintf(
+                        'IMPORT received %d content row(s) outside language_scope=%s — WP filter likely ignored language.',
+                        $filtered['rejected'],
+                        $languageScope,
+                    ),
+                );
+            }
+            $items = $filtered['items'];
+        }
 
         $dbStarted = hrtime(true);
         $counts = $resource === SiteSyncV3Schema::RESOURCE_TERMS
@@ -788,11 +822,17 @@ final class RunSiteSyncV3Orchestrator
                 ];
                 if ($languageScope !== '') {
                     $body['language'] = $languageScope;
+                } elseif ($this->runRequiresLanguageScope($run)) {
+                    return $this->failRun(
+                        $run,
+                        'language_scope_lost',
+                        'Scoped V3 run lost language_scope before CATCH_UP — refusing unscoped records.',
+                    );
                 }
 
                 $started = now();
                 $tickStarted = hrtime(true);
-                $fetched = $this->client->records($site, $body);
+                $fetched = $this->client->records($site, $body, $languageScope);
                 if (! ($fetched['success'] ?? false)) {
                     $retry = (int) ($meta['retry_count'] ?? 0) + 1;
                     $meta['retry_count'] = $retry;
@@ -813,6 +853,21 @@ final class RunSiteSyncV3Orchestrator
                     ? $records['items']
                     : (is_array($records['records'] ?? null) ? $records['records'] : []);
                 $items = array_values(array_filter($items, static fn (mixed $row): bool => is_array($row)));
+                if ($resource === SiteSyncV3Schema::RESOURCE_CONTENT && $languageScope !== '') {
+                    $filtered = $this->rejectOffScopeContentItems($items, $languageScope);
+                    if ($filtered['rejected'] > 0) {
+                        return $this->failRun(
+                            $run,
+                            'language_scope_violation_on_catch_up',
+                            sprintf(
+                                'CATCH_UP received %d content row(s) outside language_scope=%s.',
+                                $filtered['rejected'],
+                                $languageScope,
+                            ),
+                        );
+                    }
+                    $items = $filtered['items'];
+                }
 
                 $dbStarted = hrtime(true);
                 $counts = $resource === SiteSyncV3Schema::RESOURCE_TERMS
@@ -958,6 +1013,13 @@ final class RunSiteSyncV3Orchestrator
 
         // Fresh discover before verify (CATCH-UP → FRESH DISCOVER → VERIFY).
         $languageScope = $this->runLanguageScope($run);
+        if ($this->runRequiresLanguageScope($run) && $languageScope === '') {
+            return $this->failRun(
+                $run,
+                'language_scope_lost',
+                'Scoped V3 run lost language_scope before VERIFY — refusing all-language inventory.',
+            );
+        }
         $result = $this->client->discover(
             $site,
             $languageScope !== '' ? ['language' => $languageScope] : [],
@@ -971,8 +1033,12 @@ final class RunSiteSyncV3Orchestrator
         }
 
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
+        $scopeGate = $this->assertDiscoverHonorsLanguageScope($discover, $languageScope);
+        if ($scopeGate !== null) {
+            return $this->failRun($run, $scopeGate['code'], $scopeGate['message']);
+        }
         $expectedByType = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
-        $contentExpected = $this->contentExpectedFromDiscover($discover, $expectedByType);
+        $contentExpected = $this->contentExpectedFromDiscover($discover, $expectedByType, $languageScope);
         // Keep discover.total available for diagnostics; verify membership uses content only.
         $expectedTotal = $contentExpected;
 
@@ -1602,7 +1668,7 @@ final class RunSiteSyncV3Orchestrator
             if ($languageScope !== '') {
                 $body['language'] = $languageScope;
             }
-            $fetched = $this->client->records($site, $body);
+            $fetched = $this->client->records($site, $body, $languageScope);
             if (! ($fetched['success'] ?? false)) {
                 return null;
             }
@@ -1726,13 +1792,26 @@ final class RunSiteSyncV3Orchestrator
 
     /**
      * User-facing content inventory from discover — never discover.total (content+terms).
+     * Scoped runs prefer by_language[scope] when resources.content looks unscoped.
      *
      * @param  array<string, mixed>  $discover
      * @param  array<string, mixed>  $byType
      */
-    private function contentExpectedFromDiscover(array $discover, array $byType = []): int
+    private function contentExpectedFromDiscover(array $discover, array $byType = [], string $languageScope = ''): int
     {
         $fromResources = (int) ($discover['resources']['content']['total'] ?? 0);
+        $byLanguage = is_array($discover['by_language'] ?? null) ? $discover['by_language'] : [];
+        $scopedRef = $languageScope !== '' ? (int) ($byLanguage[$languageScope] ?? 0) : 0;
+
+        if ($languageScope !== '' && $scopedRef > 0) {
+            // Prefer WP scoped content total when it agrees with by_language; otherwise by_language wins.
+            if ($fromResources > 0 && $fromResources <= (int) round($scopedRef * 1.2) + 25) {
+                return $fromResources;
+            }
+
+            return $scopedRef;
+        }
+
         if ($fromResources > 0) {
             return $fromResources;
         }
@@ -1747,6 +1826,75 @@ final class RunSiteSyncV3Orchestrator
 
         // Last resort only when WP did not split resources (legacy payloads).
         return (int) ($discover['total'] ?? 0);
+    }
+
+    /**
+     * Fail-fast when a language-scoped discover returns an all-language content universe.
+     *
+     * @param  array<string, mixed>  $discover
+     * @return array{code: string, message: string}|null
+     */
+    private function assertDiscoverHonorsLanguageScope(array $discover, string $languageScope): ?array
+    {
+        if ($languageScope === '') {
+            return null;
+        }
+
+        $echoed = trim((string) ($discover['language'] ?? ''));
+        if ($echoed !== '' && $echoed !== $languageScope) {
+            return [
+                'code' => 'language_scope_mismatch_on_discover',
+                'message' => "Discover echoed language={$echoed} but run language_scope={$languageScope}.",
+            ];
+        }
+
+        $byLanguage = is_array($discover['by_language'] ?? null) ? $discover['by_language'] : [];
+        $scopedRef = (int) ($byLanguage[$languageScope] ?? 0);
+        $fromResources = (int) ($discover['resources']['content']['total'] ?? 0);
+        if ($scopedRef > 0 && $fromResources > (int) round($scopedRef * 1.2) + 25) {
+            return [
+                'code' => 'language_scope_not_applied_on_discover',
+                'message' => sprintf(
+                    'Scoped discover content total=%d but by_language[%s]=%d — refusing silent all-language sync.',
+                    $fromResources,
+                    $languageScope,
+                    $scopedRef,
+                ),
+            ];
+        }
+
+        return null;
+    }
+
+    private function runRequiresLanguageScope(SeoSiteSyncRun $run): bool
+    {
+        $meta = is_array($run->meta) ? $run->meta : [];
+
+        return (bool) ($meta['language_scoped'] ?? false);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return array{items: list<array<string, mixed>>, rejected: int}
+     */
+    private function rejectOffScopeContentItems(array $items, string $languageScope): array
+    {
+        $kept = [];
+        $rejected = 0;
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $multilingual = is_array($item['multilingual'] ?? null) ? $item['multilingual'] : [];
+            $itemLang = trim((string) ($multilingual['current_lang'] ?? $item['language'] ?? ''));
+            if ($itemLang !== '' && $itemLang !== $languageScope) {
+                $rejected++;
+                continue;
+            }
+            $kept[] = $item;
+        }
+
+        return ['items' => $kept, 'rejected' => $rejected];
     }
 
     private function runLanguageScope(SeoSiteSyncRun $run): string
