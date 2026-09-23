@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Support\WpBackedComparableInventory;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
@@ -64,7 +65,9 @@ final class DomainOverviewService
     }
 
     /**
-     * Phân bố điểm SEO theo nhóm (cho biểu đồ tròn).
+     * Score distribution for Domain Overview donut (WP-backed comparable membership).
+     *
+     * Not the Workspace scoring queue universe — local-only rows are excluded here.
      *
      * @return array{
      *     total: int,
@@ -74,9 +77,10 @@ final class DomainOverviewService
      */
     public function getScoreDistribution(int $siteId): array
     {
-        $base = SeoArticle::query()->where('site_id', $siteId)->countsTowardSeoScore();
+        $base = $this->wpBackedScoringArticlesQuery($siteId);
         $total = (clone $base)->count();
-        $scored = (clone $base)->whereNotNull('seo_score')->count();
+        $scoreCol = $this->seoScoreColumn();
+        $scored = (clone $base)->whereNotNull($scoreCol)->count();
 
         if ($scored === 0) {
             return [
@@ -87,13 +91,13 @@ final class DomainOverviewService
         }
 
         $row = (clone $base)
-            ->whereNotNull('seo_score')
-            ->select(DB::raw('
-                SUM(CASE WHEN seo_score < 50 THEN 1 ELSE 0 END) as poor,
-                SUM(CASE WHEN seo_score >= 50 AND seo_score < 70 THEN 1 ELSE 0 END) as fair,
-                SUM(CASE WHEN seo_score >= 70 AND seo_score < 90 THEN 1 ELSE 0 END) as good,
-                SUM(CASE WHEN seo_score >= 90 THEN 1 ELSE 0 END) as excellent
-            '))
+            ->whereNotNull($scoreCol)
+            ->select(DB::raw("
+                SUM(CASE WHEN {$scoreCol} < 50 THEN 1 ELSE 0 END) as poor,
+                SUM(CASE WHEN {$scoreCol} >= 50 AND {$scoreCol} < 70 THEN 1 ELSE 0 END) as fair,
+                SUM(CASE WHEN {$scoreCol} >= 70 AND {$scoreCol} < 90 THEN 1 ELSE 0 END) as good,
+                SUM(CASE WHEN {$scoreCol} >= 90 THEN 1 ELSE 0 END) as excellent
+            "))
             ->first();
 
         $segments = [
@@ -198,14 +202,15 @@ final class DomainOverviewService
     }
 
     /**
+     * Scoring stats for Domain Overview donut (WP-backed comparable membership).
+     *
      * @return array{scored: int, avg_score: float|null, min_score: float|null, max_score: float|null}
      */
     public function getScoringStatistics(int $siteId): array
     {
-        $base = SeoArticle::query()
-            ->where('site_id', $siteId)
-            ->countsTowardSeoScore()
-            ->whereNotNull('seo_score');
+        $scoreCol = $this->seoScoreColumn();
+        $base = $this->wpBackedScoringArticlesQuery($siteId)
+            ->whereNotNull($scoreCol);
         $scored = (clone $base)->count();
 
         if ($scored === 0) {
@@ -219,10 +224,56 @@ final class DomainOverviewService
 
         return [
             'scored' => $scored,
-            'avg_score' => round((float) (clone $base)->avg('seo_score'), 1),
-            'min_score' => round((float) (clone $base)->min('seo_score'), 1),
-            'max_score' => round((float) (clone $base)->max('seo_score'), 1),
+            'avg_score' => round((float) (clone $base)->avg($scoreCol), 1),
+            'min_score' => round((float) (clone $base)->min($scoreCol), 1),
+            'max_score' => round((float) (clone $base)->max($scoreCol), 1),
         ];
+    }
+
+    /**
+     * Website/WP-backed SEO scoring progress for Domain Overview sync panel.
+     *
+     * @return array{
+     *   total: int,
+     *   completed: int,
+     *   pending: int,
+     *   processing: int,
+     *   failed: int,
+     *   remaining: int
+     * }
+     */
+    public function getWpBackedScoringProgress(int $siteId): array
+    {
+        return app(SeoArticleScoringQueueService::class)->domainWpBackedProgress($siteId);
+    }
+
+    /**
+     * Domain Overview scoring presentation universe:
+     * WP-backed comparable ∩ skip_seo_score ∩ non-trash.
+     *
+     * @return EloquentBuilder<SeoArticle>
+     */
+    private function wpBackedScoringArticlesQuery(int $siteId): EloquentBuilder
+    {
+        $query = SeoArticle::query()
+            ->where('articles.site_id', $siteId)
+            ->countsTowardSeoScore()
+            ->where('articles.status', '!=', 'trash');
+
+        return WpBackedComparableInventory::scopeArticles($query);
+    }
+
+    private function seoScoreColumn(): string
+    {
+        try {
+            if (\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasColumn('articles', 'seo_score')) {
+                return 'articles.seo_score';
+            }
+        } catch (\Throwable) {
+            // Fall through to profile column after countsTowardSeoScore join.
+        }
+
+        return 'sap_skip.seo_score';
     }
 
     /**
@@ -299,26 +350,15 @@ final class DomainOverviewService
     }
 
     /**
-     * Count articles by raw WordPress post type from article_meta.
+     * WP-backed comparable counts by native wp_post_type (same membership as Preflight).
+     *
+     * @see WpBackedComparableInventory::countByWpPostType()
      *
      * @return array<string, int>  e.g. ['post' => 122, 'page' => 5, 'product' => 79, 'portfolio' => 12]
      */
     public function getWpPostTypeCounts(int $siteId): array
     {
-        if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('article_meta')) {
-            return [];
-        }
-
-        return \Omnichannel\Addons\Content\Models\ArticleMeta::query()
-            ->join('articles', 'articles.id', '=', 'article_meta.article_id')
-            ->where('articles.site_id', $siteId)
-            ->where('article_meta.meta_key', 'wp_post_type')
-            ->whereNotNull('article_meta.meta_value')
-            ->where('article_meta.meta_value', '!=', '')
-            ->groupBy('article_meta.meta_value')
-            ->pluck(\Illuminate\Support\Facades\DB::raw('COUNT(*)'), 'article_meta.meta_value')
-            ->map(static fn (mixed $v): int => (int) $v)
-            ->all();
+        return WpBackedComparableInventory::countByWpPostType($siteId);
     }
 
     /**

@@ -174,19 +174,29 @@ final class SiteSyncPreflightContentComparisonTest extends TestCase
         self::assertFalse(ArticleSeoInventoryPolicy::isWpBacked(0));
         self::assertFalse(ArticleSeoInventoryPolicy::isWpBacked(null));
 
-        $src = (string) file_get_contents(
+        $preflightSrc = (string) file_get_contents(
             (new ReflectionClass(SiteSyncPreflightContentComparison::class))->getFileName()
         );
-        $method = $this->methodBody($src, 'countLocal');
+        $countLocal = $this->methodBody($preflightSrc, 'countLocal');
+        self::assertStringContainsString('WpBackedComparableInventory::countByContentType', $countLocal);
+
+        $inventorySrc = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Content\Support\WpBackedComparableInventory::class))->getFileName()
+        );
+        $rows = $this->methodBodyForClass(
+            $inventorySrc,
+            \Omnichannel\Addons\Content\Support\WpBackedComparableInventory::class,
+            'rows',
+        );
 
         // INNER JOIN link table + wal.wp_post_id > 0 — same predicate as isWpBacked on link SoT.
-        self::assertStringContainsString('wordpress_article_links as wal', $method);
-        self::assertStringContainsString("->join('wordpress_article_links as wal'", $method);
-        self::assertStringContainsString("wal.wp_post_id", $method);
-        self::assertStringContainsString("'>', 0", $method);
+        self::assertStringContainsString('wordpress_article_links as wal', $rows);
+        self::assertStringContainsString("->join('wordpress_article_links as wal'", $rows);
+        self::assertStringContainsString('wal.wp_post_id', $rows);
+        self::assertStringContainsString("'>', 0", $rows);
         // Must not use retired articles.wp_post_id as membership SSOT.
-        self::assertStringNotContainsString('a.wp_post_id', $method);
-        self::assertStringContainsString('isSeoInventoryCandidate', $method);
+        self::assertStringNotContainsString('a.wp_post_id', $rows);
+        self::assertStringContainsString('isSeoInventoryCandidate', $rows);
     }
 
     public function test_total_equals_sum_of_type_rows(): void
@@ -223,15 +233,26 @@ final class SiteSyncPreflightContentComparisonTest extends TestCase
 
     public function test_local_count_sql_requires_wp_backed_and_inventory_policy(): void
     {
-        $src = (string) file_get_contents(
+        $preflightSrc = (string) file_get_contents(
             (new ReflectionClass(SiteSyncPreflightContentComparison::class))->getFileName()
         );
-        $method = $this->methodBody($src, 'countLocal');
+        $countLocal = $this->methodBody($preflightSrc, 'countLocal');
+        self::assertStringContainsString('WpBackedComparableInventory::countByContentType', $countLocal);
 
-        self::assertStringContainsString('wal.wp_post_id', $method);
-        self::assertStringContainsString("'>', 0", $method);
-        self::assertStringContainsString('isSeoInventoryCandidate', $method);
-        self::assertStringContainsString('wp_is_term', $method);
+        $inventorySrc = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Content\Support\WpBackedComparableInventory::class))->getFileName()
+        );
+        $rows = $this->methodBodyForClass(
+            $inventorySrc,
+            \Omnichannel\Addons\Content\Support\WpBackedComparableInventory::class,
+            'rows',
+        );
+
+        self::assertStringContainsString('wal.wp_post_id', $rows);
+        self::assertStringContainsString("'>', 0", $rows);
+        self::assertStringContainsString('isSeoInventoryCandidate', $rows);
+        self::assertStringContainsString('wp_is_term', $rows);
+        self::assertStringContainsString('deleted_at', $rows);
     }
 
     private function methodBody(string $src, string $method): string
@@ -241,6 +262,12 @@ final class SiteSyncPreflightContentComparisonTest extends TestCase
             'countLocal' => SiteSyncPreflightContentComparison::class,
             default => SiteSyncPreflightContentComparison::class,
         };
+
+        return $this->methodBodyForClass($src, $class, $method);
+    }
+
+    private function methodBodyForClass(string $src, string $class, string $method): string
+    {
         $ref = new ReflectionMethod($class, $method);
         $start = $ref->getStartLine();
         $end = $ref->getEndLine();

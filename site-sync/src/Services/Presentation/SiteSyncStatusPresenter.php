@@ -293,7 +293,10 @@ final class SiteSyncStatusPresenter
         $retryCount = (int) ($meta['retry_count'] ?? 0);
 
         $phaseLabel = SiteSyncStepCatalog::v3Label($currentStep);
-        if ($jobNumber > 0 && in_array($runStatus, ['pending', 'running'], true)) {
+        if ($jobNumber > 0
+            && in_array($runStatus, ['pending', 'running'], true)
+            && $currentStep !== SiteSyncV3Schema::PHASE_SCORE
+        ) {
             $phaseLabel .= ' · Đợt '.$jobNumber;
         }
         if (in_array($currentStep, [SiteSyncV3Schema::PHASE_CATCH_UP, SiteSyncV3Schema::PHASE_VERIFY], true)
@@ -319,7 +322,7 @@ final class SiteSyncStatusPresenter
 
         $stepTimeline = SiteSyncStepCatalog::v3Timeline($currentStep, $runStatus);
         $progressDenom = $expectedTotal;
-        if (in_array($currentStep, [SiteSyncV3Schema::PHASE_VERIFY, SiteSyncV3Schema::PHASE_COMPLETE], true)
+        if (in_array($currentStep, [SiteSyncV3Schema::PHASE_VERIFY, SiteSyncV3Schema::PHASE_SCORE, SiteSyncV3Schema::PHASE_COMPLETE], true)
             && $finalExpected > 0
         ) {
             // After fresh discover, show inventory-oriented total when available.
@@ -332,6 +335,26 @@ final class SiteSyncStatusPresenter
             : null;
 
         $scoringProgress = $this->safeScoringProgress((int) $site->id);
+
+        if ($currentStep === SiteSyncV3Schema::PHASE_SCORE && in_array($runStatus, ['pending', 'running'], true)) {
+            $scoreCompleted = (int) ($counters['workspace_scores_generated'] ?? $scoringProgress['completed'] ?? 0);
+            $scoreTotal = (int) ($counters['scoring_total'] ?? $scoringProgress['total'] ?? 0);
+            if ($scoreTotal <= 0) {
+                $scoreTotal = (int) ($scoringProgress['total'] ?? 0);
+            }
+            if ($scoreTotal > 0) {
+                $phaseLabel = sprintf(
+                    'Chấm điểm SEO · %s / %s',
+                    number_format($scoreCompleted),
+                    number_format($scoreTotal),
+                );
+                $progress = $scoreCompleted;
+                $progressDenom = $scoreTotal;
+                $progressTotal = $scoreTotal;
+                $percentage = (int) min(100, max(0, (int) round(($scoreCompleted / $scoreTotal) * 100)));
+            }
+        }
+
         $scoringContext = $this->scoringContextMessage(
             $runStatus,
             $currentStep,
@@ -386,7 +409,7 @@ final class SiteSyncStatusPresenter
             ],
             // V3 phase timeline only — never the frozen 7 V2 steps.
             'steps' => $stepTimeline,
-            // Presentation-only: 3 user macro steps (orchestrator stays 6 phases).
+            // Presentation-only: 3 user macro steps (orchestrator stays 7 phases).
             'macro_steps' => SiteSyncStepCatalog::v3MacroTimeline($currentStep, $runStatus),
             'substeps' => [],
             'counters' => array_merge($counters, [
@@ -583,8 +606,9 @@ final class SiteSyncStatusPresenter
     private function safeScoringProgress(int $siteId): array
     {
         try {
+            // Website sync/status UI — WP-backed membership (not Workspace local-only).
             return app(\Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService::class)
-                ->domainProgress($siteId);
+                ->domainWpBackedProgress($siteId);
         } catch (Throwable) {
             return [
                 'total' => 0,
@@ -626,11 +650,25 @@ final class SiteSyncStatusPresenter
             );
         }
 
-        if (in_array($runStatus, ['pending', 'running'], true) && $currentStep !== 'score_missing_articles' && $currentStep !== 'finalize') {
+        if (in_array($runStatus, ['pending', 'running'], true)
+            && $currentStep !== 'score_missing_articles'
+            && $currentStep !== SiteSyncV3Schema::PHASE_SCORE
+            && $currentStep !== 'finalize'
+        ) {
             return 'Chờ hoàn tất đồng bộ dữ liệu';
         }
 
-        if ($currentStep === 'score_missing_articles' || ($pending + $processing) > 0) {
+        if ($currentStep === 'score_missing_articles'
+            || $currentStep === SiteSyncV3Schema::PHASE_SCORE
+            || ($pending + $processing) > 0
+        ) {
+            if ($currentStep === SiteSyncV3Schema::PHASE_SCORE) {
+                return sprintf(
+                    'Chấm điểm SEO · %s / %s',
+                    number_format($completed),
+                    number_format($total),
+                );
+            }
             if ($processing > 0) {
                 return sprintf(
                     'Đang chấm SEO: %s bài · Còn lại: %s bài · Thất bại: %s',
@@ -654,7 +692,7 @@ final class SiteSyncStatusPresenter
             }
 
             // Step còn mở nhưng queue đã drain — chờ finalize/terminal của orchestrator.
-            if ($currentStep === 'score_missing_articles') {
+            if ($currentStep === 'score_missing_articles' || $currentStep === SiteSyncV3Schema::PHASE_SCORE) {
                 return sprintf(
                     'SEO scoring: %s / %s · đang hoàn tất chấm điểm SEO',
                     number_format($completed),

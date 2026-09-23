@@ -163,7 +163,7 @@
                 <x-filament::section class="seo-domain-overview__section">
                     <x-slot name="heading">{{ __('Chấm điểm SEO') }}</x-slot>
                     <x-slot name="description">
-                        {{ __('Phân bố điểm sau đồng bộ (Rank Math / Yoast + rule nội bộ).') }}
+                        {{ __('Điểm SEO hiệu lực từ plugin (Rank Math / Yoast) — khác tiến độ chấm Workspace analyzer.') }}
                     </x-slot>
 
                     @if($scoring['scored'] === 0)

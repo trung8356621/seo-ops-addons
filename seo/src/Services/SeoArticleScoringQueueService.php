@@ -9,6 +9,7 @@ use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Content\Jobs\AnalyzeArticleSeoJob;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
+use Omnichannel\Addons\Content\Support\WpBackedComparableInventory;
 use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
 use App\Support\RuntimeLogger;
 use Illuminate\Database\Eloquent\Builder;
@@ -69,6 +70,11 @@ final class SeoArticleScoringQueueService
     }
 
     /**
+     * Workspace scoring progress (includes local-only SEO inventory).
+     *
+     * For Domain Overview / Site Sync website presentation use
+     * {@see domainWpBackedProgress()} instead — same counters, WP-backed membership.
+     *
      * @return array{
      *   total: int,
      *   completed: int,
@@ -80,7 +86,43 @@ final class SeoArticleScoringQueueService
      */
     public function domainProgress(int $siteId): array
     {
-        $base = $this->eligibleArticlesQuery($siteId);
+        return $this->progressForQuery($this->eligibleArticlesQuery($siteId));
+    }
+
+    /**
+     * Website/WP-backed scoring progress for Domain Overview + Site Sync status UI.
+     *
+     * Membership = Workspace eligibility ∩ WP-backed comparable inventory
+     * ({@see WpBackedComparableInventory}). Local-only rows stay eligible for the
+     * scoring engine via {@see domainProgress()} / queue methods — not this view.
+     *
+     * @return array{
+     *   total: int,
+     *   completed: int,
+     *   pending: int,
+     *   processing: int,
+     *   failed: int,
+     *   remaining: int
+     * }
+     */
+    public function domainWpBackedProgress(int $siteId): array
+    {
+        return $this->progressForQuery($this->wpBackedEligibleArticlesQuery($siteId));
+    }
+
+    /**
+     * @param  Builder<SeoArticle>  $base
+     * @return array{
+     *   total: int,
+     *   completed: int,
+     *   pending: int,
+     *   processing: int,
+     *   failed: int,
+     *   remaining: int
+     * }
+     */
+    private function progressForQuery(Builder $base): array
+    {
         $total = (clone $base)->count();
 
         $completed = (clone $base)->where(function (Builder $query): void {
@@ -123,10 +165,52 @@ final class SeoArticleScoringQueueService
      */
     public function queueMissingOrStaleForSite(int $siteId, array $context = []): array
     {
-        $missing = $this->queueMissingForSite($siteId);
+        return $this->queueMissingOrStaleForQuery(
+            $this->eligibleArticlesQuery($siteId),
+            $this->missingArticlesQuery($siteId),
+            $siteId,
+            $context,
+            'seo.scoring.queue_missing_or_stale',
+        );
+    }
+
+    /**
+     * Site Sync website lifecycle: queue missing/stale for WP-backed comparable only.
+     * Does not enqueue local-only Workspace inventory.
+     *
+     * @param  array{run_id?: int|null, operation_id?: string|null, step_id?: int|null}  $context
+     * @return array{queued: int, skipped: int, stale_queued: int, missing_queued: int}
+     */
+    public function queueMissingOrStaleWpBackedForSite(int $siteId, array $context = []): array
+    {
+        $base = $this->wpBackedEligibleArticlesQuery($siteId);
+
+        return $this->queueMissingOrStaleForQuery(
+            $base,
+            $this->missingArticlesQueryFromBase(clone $base),
+            $siteId,
+            $context,
+            'seo.scoring.queue_missing_or_stale_wp_backed',
+        );
+    }
+
+    /**
+     * @param  Builder<SeoArticle>  $eligibleBase
+     * @param  Builder<SeoArticle>  $missingQuery
+     * @param  array{run_id?: int|null, operation_id?: string|null, step_id?: int|null}  $context
+     * @return array{queued: int, skipped: int, stale_queued: int, missing_queued: int}
+     */
+    private function queueMissingOrStaleForQuery(
+        Builder $eligibleBase,
+        Builder $missingQuery,
+        int $siteId,
+        array $context,
+        string $logEvent,
+    ): array {
+        $missing = $this->queueArticles($missingQuery);
         $staleQueued = 0;
 
-        $this->eligibleArticlesQuery($siteId)
+        (clone $eligibleBase)
             ->with('articleMetas')
             ->orderBy('articles.id')
             ->chunkById(100, function ($articles) use (&$staleQueued): void {
@@ -153,7 +237,7 @@ final class SeoArticleScoringQueueService
             }, 'articles.id', 'id');
 
         if ($context !== []) {
-            RuntimeLogger::warning('seo.scoring.queue_missing_or_stale', array_merge($context, [
+            RuntimeLogger::warning($logEvent, array_merge($context, [
                 'site_id' => $siteId,
                 'missing_queued' => $missing['queued'],
                 'stale_queued' => $staleQueued,
@@ -260,12 +344,31 @@ final class SeoArticleScoringQueueService
     }
 
     /**
+     * Website presentation denominator: Workspace eligibility ∩ WP-backed comparable.
+     *
+     * @return Builder<SeoArticle>
+     */
+    private function wpBackedEligibleArticlesQuery(int $siteId): Builder
+    {
+        return WpBackedComparableInventory::scopeArticles(
+            $this->eligibleArticlesQuery($siteId),
+        );
+    }
+
+    /**
      * @return Builder<SeoArticle>
      */
     private function missingArticlesQuery(int $siteId): Builder
     {
-        $query = $this->eligibleArticlesQuery($siteId);
+        return $this->missingArticlesQueryFromBase($this->eligibleArticlesQuery($siteId));
+    }
 
+    /**
+     * @param  Builder<SeoArticle>  $query
+     * @return Builder<SeoArticle>
+     */
+    private function missingArticlesQueryFromBase(Builder $query): Builder
+    {
         $query->where(function (Builder $sub): void {
             $sub->whereDoesntHave('articleMetas', static function (Builder $meta): void {
                 $meta->where('meta_key', \Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry::META_KEY_VIOLATIONS);

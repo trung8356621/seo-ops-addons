@@ -26,6 +26,7 @@ final class SiteSyncV3ContractTest extends TestCase
             'reconcile_stale',
             'catch_up',
             'verify',
+            'score',
             'complete',
             'needs_attention',
         ], SiteSyncV3Schema::PHASES);
@@ -85,9 +86,12 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertTrue($ref->hasMethod('phaseReconcileStale'));
         self::assertTrue($ref->hasMethod('phaseCatchUp'));
         self::assertTrue($ref->hasMethod('phaseVerify'));
+        self::assertTrue($ref->hasMethod('phaseScore'));
         self::assertStringContainsString('phaseReconcileStale', $src);
         self::assertStringContainsString('phaseCatchUp', $src);
         self::assertStringContainsString('phaseVerify', $src);
+        self::assertStringContainsString('phaseScore', $src);
+        self::assertStringContainsString('PHASE_SCORE', $src);
         self::assertStringNotContainsString('phaseStub', $src);
         self::assertStringNotContainsString('Phase C stub', $src);
         self::assertStringNotContainsString('catch-up/verify not implemented yet', $src);
@@ -149,9 +153,10 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertSame('Đang đối soát dữ liệu cũ', SiteSyncStepCatalog::v3Label('reconcile_stale'));
         self::assertSame('Đang kiểm tra thay đổi mới', SiteSyncStepCatalog::v3Label('catch_up'));
         self::assertSame('Đang xác minh dữ liệu', SiteSyncStepCatalog::v3Label('verify'));
+        self::assertSame('Chấm điểm SEO', SiteSyncStepCatalog::v3Label('score'));
         self::assertSame('Hoàn tất', SiteSyncStepCatalog::v3Label('complete'));
-        self::assertSame(6, SiteSyncStepCatalog::v3TotalSteps());
-        self::assertSame(6, count(SiteSyncStepCatalog::v3Keys()));
+        self::assertSame(7, SiteSyncStepCatalog::v3TotalSteps());
+        self::assertSame(7, count(SiteSyncStepCatalog::v3Keys()));
     }
 
     public function test_v3_user_macro_progress_is_exactly_three_groups(): void
@@ -161,7 +166,7 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertCount(3, $groups);
         self::assertSame(['discover'], $groups[0]['phases']);
         self::assertSame(['import', 'reconcile_stale', 'catch_up'], $groups[1]['phases']);
-        self::assertSame(['verify', 'complete'], $groups[2]['phases']);
+        self::assertSame(['verify', 'score', 'complete'], $groups[2]['phases']);
 
         $timeline = SiteSyncStepCatalog::v3MacroTimeline('reconcile_stale', 'needs_attention');
         self::assertCount(3, $timeline);
@@ -170,7 +175,7 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertSame('pending', $timeline[2]['status']);
 
         $technical = SiteSyncStepCatalog::v3Timeline('reconcile_stale', 'needs_attention');
-        self::assertCount(6, $technical);
+        self::assertCount(7, $technical);
         self::assertSame('failed', $technical[2]['status']); // reconcile_stale
     }
 

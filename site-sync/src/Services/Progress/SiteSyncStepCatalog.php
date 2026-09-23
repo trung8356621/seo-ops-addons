@@ -32,6 +32,7 @@ final class SiteSyncStepCatalog
             SiteSyncV3Schema::PHASE_RECONCILE_STALE,
             SiteSyncV3Schema::PHASE_CATCH_UP,
             SiteSyncV3Schema::PHASE_VERIFY,
+            SiteSyncV3Schema::PHASE_SCORE,
             SiteSyncV3Schema::PHASE_COMPLETE,
         ];
     }
@@ -78,6 +79,7 @@ final class SiteSyncStepCatalog
             SiteSyncV3Schema::PHASE_RECONCILE_STALE => 'Đang đối soát dữ liệu cũ',
             SiteSyncV3Schema::PHASE_CATCH_UP => 'Đang kiểm tra thay đổi mới',
             SiteSyncV3Schema::PHASE_VERIFY => 'Đang xác minh dữ liệu',
+            SiteSyncV3Schema::PHASE_SCORE => 'Chấm điểm SEO',
             SiteSyncV3Schema::PHASE_COMPLETE => 'Hoàn tất',
             SiteSyncV3Schema::PHASE_NEEDS_ATTENTION => 'Cần xử lý',
             default => $stepKey !== '' ? $stepKey : '—',
@@ -90,7 +92,7 @@ final class SiteSyncStepCatalog
     }
 
     /**
-     * User-facing V3 macro groups (presentation only — orchestrator stays 6 phases).
+     * User-facing V3 macro groups (presentation only — orchestrator stays 7 phases).
      *
      * @return list<array{key: string, label: string, phases: list<string>}>
      */
@@ -116,6 +118,7 @@ final class SiteSyncStepCatalog
                 'label' => 'Xác minh & hoàn tất',
                 'phases' => [
                     SiteSyncV3Schema::PHASE_VERIFY,
+                    SiteSyncV3Schema::PHASE_SCORE,
                     SiteSyncV3Schema::PHASE_COMPLETE,
                 ],
             ],

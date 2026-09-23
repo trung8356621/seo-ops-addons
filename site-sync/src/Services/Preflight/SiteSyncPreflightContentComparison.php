@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SiteSync\Services\Preflight;
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\ArticleSeoInventoryPolicy;
 use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
+use Omnichannel\Addons\Content\Support\WpBackedComparableInventory;
 
 /**
  * Site Sync Preflight WP↔local CONTENT comparison universe.
+ *
+ * Local membership SSOT: {@see WpBackedComparableInventory}
+ * (shared with Domain Overview — Content-owned; no SEO → SiteSync dependency).
  *
  * Distinct from {@see \Omnichannel\Addons\Content\Services\Health\ArticleRequiredDataHealthAuditor}
  * (SEO data health may include local-only rows).
@@ -39,62 +41,14 @@ final class SiteSyncPreflightContentComparison
     /**
      * Local WP-backed comparable counts by canonical content_type.
      *
+     * Delegates to Content-owned {@see WpBackedComparableInventory} so Domain Overview
+     * and Preflight share one membership universe (no SEO → SiteSync dependency).
+     *
      * @return array{total: int, post: int, page: int, product: int, other: int}
      */
     public function countLocal(int $siteId): array
     {
-        $empty = ['total' => 0, 'post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
-        if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('articles')) {
-            return $empty;
-        }
-
-        if (! Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
-            return $empty;
-        }
-
-        $q = DB::connection('omi_seo_ai')
-            ->table('articles as a')
-            ->join('wordpress_article_links as wal', 'wal.article_id', '=', 'a.id')
-            ->leftJoin('article_meta as am_ct', function ($j): void {
-                $j->on('am_ct.article_id', '=', 'a.id')->where('am_ct.meta_key', '=', 'content_type');
-            })
-            ->leftJoin('article_meta as am_pt', function ($j): void {
-                $j->on('am_pt.article_id', '=', 'a.id')->where('am_pt.meta_key', '=', 'wp_post_type');
-            })
-            ->leftJoin('article_meta as am_term', function ($j): void {
-                $j->on('am_term.article_id', '=', 'a.id')->where('am_term.meta_key', '=', 'wp_is_term');
-            })
-            ->where('a.site_id', $siteId)
-            ->whereNull('a.deleted_at')
-            ->where('wal.wp_post_id', '>', 0)
-            ->select([
-                'a.id as article_id',
-                'am_ct.meta_value as content_type',
-                'am_pt.meta_value as wp_post_type',
-                'am_term.meta_value as wp_is_term',
-            ]);
-
-        $by = ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
-        foreach ($q->get() as $row) {
-            $wpPostType = $row->wp_post_type !== null ? (string) $row->wp_post_type : null;
-            $wpIsTerm = $row->wp_is_term !== null ? (string) $row->wp_is_term : null;
-            if (! ArticleSeoInventoryPolicy::isSeoInventoryCandidate($wpPostType, $wpIsTerm)) {
-                continue;
-            }
-            $ct = strtolower(trim((string) ($row->content_type ?? '')));
-            if (! isset($by[$ct])) {
-                $ct = 'other';
-            }
-            $by[$ct]++;
-        }
-
-        return [
-            'total' => array_sum($by),
-            'post' => $by['post'],
-            'page' => $by['page'],
-            'product' => $by['product'],
-            'other' => $by['other'],
-        ];
+        return WpBackedComparableInventory::countByContentType($siteId);
     }
 
     /**

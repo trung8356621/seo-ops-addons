@@ -60,6 +60,8 @@ final class SiteSyncV3Schema
 
     public const PHASE_VERIFY = 'verify';
 
+    public const PHASE_SCORE = 'score';
+
     public const PHASE_COMPLETE = 'complete';
 
     public const PHASE_NEEDS_ATTENTION = 'needs_attention';
@@ -74,6 +76,7 @@ final class SiteSyncV3Schema
         self::PHASE_RECONCILE_STALE,
         self::PHASE_CATCH_UP,
         self::PHASE_VERIFY,
+        self::PHASE_SCORE,
         self::PHASE_COMPLETE,
         self::PHASE_NEEDS_ATTENTION,
     ];

@@ -33,6 +33,9 @@ final class RunSiteSyncV3Orchestrator
 {
     private const CATCH_UP_MAX_ROUNDS = 3;
 
+    /** Align with Site Sync stuck / stale reclaim (~10 minutes). */
+    private const SCORE_STALE_MINUTES = 10;
+
     public function __construct(
         private readonly SiteSyncFeatureFlags $flags,
         private readonly WordPressSiteSyncV3Client $client,
@@ -223,6 +226,7 @@ final class RunSiteSyncV3Orchestrator
                 SiteSyncV3Schema::PHASE_RECONCILE_STALE => $this->phaseReconcileStale($run),
                 SiteSyncV3Schema::PHASE_CATCH_UP => $this->phaseCatchUp($run),
                 SiteSyncV3Schema::PHASE_VERIFY => $this->phaseVerify($run),
+                SiteSyncV3Schema::PHASE_SCORE => $this->phaseScore($run),
                 SiteSyncV3Schema::PHASE_COMPLETE => $this->phaseComplete($run),
                 SiteSyncV3Schema::PHASE_NEEDS_ATTENTION => false,
                 default => $this->failRun($run, 'unknown_phase', 'Unknown V3 phase: '.$phase),
@@ -1031,11 +1035,151 @@ final class RunSiteSyncV3Orchestrator
 
         $run->forceFill([
             'meta' => $meta,
-            'current_step' => SiteSyncV3Schema::PHASE_COMPLETE,
+            'current_step' => SiteSyncV3Schema::PHASE_SCORE,
             'status' => 'running',
         ])->save();
 
         return true;
+    }
+
+    /**
+     * WP-backed Workspace SEO scoring after verify — async poll with progress watchdog.
+     * Does not queue local-only inventory; does not false-complete after N polls.
+     */
+    private function phaseScore(SeoSiteSyncRun $run): bool
+    {
+        $site = Site::query()->find((int) $run->site_id);
+        if ($site === null) {
+            return $this->failRun($run, 'site_missing', 'Site not found.');
+        }
+
+        $scoring = app(\Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService::class);
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $counters = is_array($run->counters) ? $run->counters : [];
+        $execution = app(SiteSyncRunExecution::class);
+
+        if (empty($meta['scoring_dispatched_at'])) {
+            $result = $scoring->queueMissingOrStaleWpBackedForSite((int) $site->id, [
+                'run_id' => (int) $run->id,
+                'operation_id' => (string) ($meta['operation_id'] ?? $run->public_ref),
+            ]);
+            $meta['scoring_dispatched_at'] = now()->toIso8601String();
+            $meta['scoring_queued'] = (int) ($result['queued'] ?? 0);
+            $meta['scoring_stale_queued'] = (int) ($result['stale_queued'] ?? 0);
+            $meta['scoring_missing_queued'] = (int) ($result['missing_queued'] ?? 0);
+            $meta['scoring_polls'] = 0;
+            $meta['scoring_last_progress_at'] = now()->toIso8601String();
+            $meta['last_progress_at'] = now()->toIso8601String();
+            $meta['scoring_progress_signature'] = null;
+            $counters['workspace_scores_queued'] = (int) ($result['queued'] ?? 0);
+            $counters['scoring_stale_queued'] = (int) ($result['stale_queued'] ?? 0);
+            $counters['scoring_missing_queued'] = (int) ($result['missing_queued'] ?? 0);
+        }
+
+        $progress = $scoring->domainWpBackedProgress((int) $site->id);
+        $total = (int) ($progress['total'] ?? 0);
+        $completed = (int) ($progress['completed'] ?? 0);
+        $pending = (int) ($progress['pending'] ?? 0);
+        $processing = (int) ($progress['processing'] ?? 0);
+        $failed = (int) ($progress['failed'] ?? 0);
+        // remaining includes failed + never-queued; unresolved = silent gaps only.
+        $remaining = (int) ($progress['remaining'] ?? 0);
+        $unresolved = max(0, $remaining - $failed);
+        $inFlight = $pending + $processing;
+        $polls = (int) ($meta['scoring_polls'] ?? 0) + 1;
+
+        $signature = implode(':', [$total, $completed, $pending, $processing, $failed, $unresolved]);
+        $previousSignature = isset($meta['scoring_progress_signature'])
+            ? (string) $meta['scoring_progress_signature']
+            : null;
+        $meaningfulProgress = $previousSignature === null || $previousSignature !== $signature;
+        if ($meaningfulProgress) {
+            $meta['scoring_last_progress_at'] = now()->toIso8601String();
+            $meta['last_progress_at'] = now()->toIso8601String();
+            $meta['scoring_progress_signature'] = $signature;
+        }
+
+        $meta['scoring_polls'] = $polls;
+        $meta['scoring'] = [
+            'total' => $total,
+            'completed' => $completed,
+            'pending' => $pending,
+            'processing' => $processing,
+            'failed' => $failed,
+            'unresolved' => $unresolved,
+            'at' => now()->toIso8601String(),
+        ];
+        $counters['workspace_scores_generated'] = $completed;
+        $counters['scoring_failed'] = $failed;
+        $counters['scoring_pending'] = $pending;
+        $counters['scoring_processing'] = $processing;
+        $counters['scoring_total'] = $total;
+
+        // All WP-backed eligible rows reached a terminal state (completed or failed).
+        if ($inFlight === 0 && $unresolved === 0) {
+            $meta['scoring_deferred'] = false;
+            $meta['scoring_failed'] = $failed;
+            $warnings = is_array($run->warnings) ? $run->warnings : [];
+            if ($failed > 0) {
+                $warnings[] = "{$failed} bài chấm SEO thất bại — sync hoàn tất với cảnh báo.";
+            }
+            $run->forceFill([
+                'meta' => $meta,
+                'counters' => $counters,
+                'warnings' => array_values(array_unique($warnings)),
+                'current_step' => SiteSyncV3Schema::PHASE_COMPLETE,
+                'status' => 'running',
+            ])->save();
+
+            return true;
+        }
+
+        // Progress-aware watchdog — never false-complete after a fixed poll count.
+        $lastProgressAt = trim((string) ($meta['scoring_last_progress_at'] ?? ''));
+        if ($lastProgressAt !== '') {
+            try {
+                $last = \Illuminate\Support\Carbon::parse($lastProgressAt);
+                if ($last->lessThanOrEqualTo(now()->subMinutes(self::SCORE_STALE_MINUTES))) {
+                    $run->forceFill(['meta' => $meta, 'counters' => $counters])->save();
+
+                    return $this->failRun(
+                        $run,
+                        'scoring_stale',
+                        sprintf(
+                            'Chấm SEO không tiến triển trong %d phút (%d/%d hoàn tất, %d chờ, %d xử lý, %d thất bại, %d chưa xếp hàng).',
+                            self::SCORE_STALE_MINUTES,
+                            $completed,
+                            $total,
+                            $pending,
+                            $processing,
+                            $failed,
+                            $unresolved,
+                        ),
+                    );
+                }
+            } catch (Throwable) {
+                // Keep polling if timestamp unparsable.
+            }
+        }
+
+        $meta['scoring_deferred'] = true;
+        $waitingWorker = $pending > 0 && $processing === 0;
+        $deferSeconds = $waitingWorker ? 30 : 15;
+        $run->forceFill([
+            'meta' => $meta,
+            'counters' => $counters,
+            'current_step' => SiteSyncV3Schema::PHASE_SCORE,
+            'status' => 'running',
+        ])->save();
+
+        $generation = $execution->readGeneration($run);
+        if ($execution->canDispatchContinuation((int) $run->id, $generation)) {
+            ProcessSiteSyncV3Job::dispatch((int) $run->id, $generation)
+                ->delay(now()->addSeconds($deferSeconds));
+        }
+
+        // false → handle() must not immediately re-dispatch (we already delayed).
+        return false;
     }
 
     private function phaseComplete(SeoSiteSyncRun $run): bool
@@ -1087,8 +1231,12 @@ final class RunSiteSyncV3Orchestrator
             }
         }
 
+        $scoringFailed = (int) ($meta['scoring_failed'] ?? 0);
+        $terminalStatus = $scoringFailed > 0 ? 'completed_with_warnings' : 'completed';
+        $meta['scoring_deferred'] = false;
+
         $run->forceFill([
-            'status' => 'completed',
+            'status' => $terminalStatus,
             'current_step' => SiteSyncV3Schema::PHASE_COMPLETE,
             'finished_at' => now(),
             'resumable' => false,
@@ -1256,12 +1404,16 @@ final class RunSiteSyncV3Orchestrator
             SiteSyncV3Schema::PHASE_RECONCILE_STALE,
             SiteSyncV3Schema::PHASE_CATCH_UP,
             SiteSyncV3Schema::PHASE_VERIFY,
+            SiteSyncV3Schema::PHASE_SCORE,
             SiteSyncV3Schema::PHASE_COMPLETE,
         ];
         if (in_array($saved, $resumablePhases, true)) {
             return $saved;
         }
 
+        if (! empty($meta['scoring_dispatched_at']) || is_array($meta['scoring'] ?? null)) {
+            return SiteSyncV3Schema::PHASE_SCORE;
+        }
         if (is_array($meta['verify'] ?? null)) {
             return SiteSyncV3Schema::PHASE_VERIFY;
         }

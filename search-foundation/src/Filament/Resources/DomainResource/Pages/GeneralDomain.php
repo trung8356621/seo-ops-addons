@@ -1333,8 +1333,9 @@ class GeneralDomain extends Page
 
     public function getSeoScoringProgress(): array
     {
-        return app(\Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService::class)
-            ->domainProgress((int) $this->getRecord()->getKey());
+        // Website/WP-backed presentation — not Workspace eligibility (local-only).
+        return app(\Omnichannel\Addons\Seo\Services\DomainOverviewService::class)
+            ->getWpBackedScoringProgress((int) $this->getRecord()->getKey());
     }
 
     public function runQueueMissingSeoScoringAction(): void
@@ -1405,7 +1406,9 @@ class GeneralDomain extends Page
         }
 
         try {
-            $preview = $this->getSeoScoringProgress();
+            // Queue preview = Workspace eligibility (may include local-only).
+            $preview = app(\Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService::class)
+                ->domainProgress($siteId);
             $result = $this->dispatchSiteSyncBus(new RequeueAllSeoScoresCommand(
                 siteId: $siteId,
                 confirmed: true,
