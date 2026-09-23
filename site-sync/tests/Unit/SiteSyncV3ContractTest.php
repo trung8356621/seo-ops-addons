@@ -222,6 +222,11 @@ final class SiteSyncV3ContractTest extends TestCase
             'seo_site_sync_v3_baseline_generation',
             SiteSyncV3Schema::META_BASELINE_GENERATION
         );
+        self::assertSame(
+            'seo_site_sync_v3_delta_checkpoint_at',
+            SiteSyncV3Schema::META_DELTA_CHECKPOINT_AT
+        );
+        self::assertSame('import_since', SiteSyncV3Schema::META_IMPORT_SINCE);
     }
 
     public function test_v3_orchestrator_requires_force_full_before_baseline(): void
@@ -234,5 +239,7 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertStringContainsString('hasSuccessfulBaseline', $src);
         self::assertStringContainsString('META_BASELINE_COMPLETED_AT', $src);
         self::assertStringContainsString('META_BASELINE_GENERATION', $src);
+        self::assertStringContainsString('META_DELTA_CHECKPOINT_AT', $src);
+        self::assertStringContainsString('resolvePersistentDeltaCheckpoint', $src);
     }
 }

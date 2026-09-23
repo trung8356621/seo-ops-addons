@@ -118,6 +118,19 @@ final class RunSiteSyncV3Orchestrator
             is_array($options['meta'] ?? null) ? $options['meta'] : [],
         );
 
+        if (! $forceFull) {
+            $importSince = self::resolvePersistentDeltaCheckpoint($site);
+            if ($importSince === null || $importSince === '') {
+                return [
+                    'success' => false,
+                    'message' => 'Chưa có V3 force-full baseline — chạy Force Full trước khi dùng delta.',
+                    'protocol' => SiteSyncV3Schema::PROTOCOL,
+                    'error_code' => 'v3_baseline_required',
+                ];
+            }
+            $runMeta[SiteSyncV3Schema::META_IMPORT_SINCE] = $importSince;
+        }
+
         $run = SeoSiteSyncRun::query()->create([
             'site_id' => (int) $site->id,
             'public_ref' => 'ssr3_'.Str::lower(Str::random(16)),
@@ -255,6 +268,7 @@ final class RunSiteSyncV3Orchestrator
         $meta = is_array($run->meta) ? $run->meta : [];
         $step = trim((string) ($run->current_step ?? ''));
         $status = (string) $run->status;
+        $execution = app(SiteSyncRunExecution::class);
         $patch = [
             'status' => 'running',
             'resumable' => true,
@@ -270,13 +284,36 @@ final class RunSiteSyncV3Orchestrator
             $resumePhase = $this->resolveAttentionResumePhase($run);
             $patch['current_step'] = $resumePhase;
             unset($meta['error_code']);
+            // Exhausted retries from the previous failure must not immediately re-fail.
+            $meta['retry_count'] = 0;
             $patch['meta'] = $meta;
         }
 
+        // Pre-fix delta runs may lack frozen import_since — resolve once from checkpoint.
+        if ((string) $run->mode === SiteSyncV3Schema::MODE_DELTA) {
+            $site = Site::query()->find((int) $run->site_id);
+            if ($site !== null) {
+                $frozen = $this->ensureImportSinceFrozen($run, $site, $meta);
+                if ($frozen === null || $frozen === '') {
+                    return [
+                        'success' => false,
+                        'message' => 'Cannot resume delta — no safe V3 delta checkpoint (force-full baseline required).',
+                        'error_code' => 'v3_baseline_required',
+                    ];
+                }
+                $meta[SiteSyncV3Schema::META_IMPORT_SINCE] = $frozen;
+                $patch['meta'] = $meta;
+            }
+        }
+
+        // Bump generation so stale queued ticks from the failed attempt are skipped.
+        $nextGeneration = $execution->readGeneration($run) + 1;
+        $meta[SiteSyncRunExecution::META_GENERATION] = $nextGeneration;
+        $patch['meta'] = $meta;
+
         $run->forceFill($patch)->save();
 
-        ProcessSiteSyncV3Job::dispatch($runId, app(SiteSyncRunExecution::class)->readGeneration($run));
-
+        ProcessSiteSyncV3Job::dispatch($runId, $nextGeneration);
         return [
             'success' => true,
             'message' => 'Resuming site sync V3.',
@@ -355,6 +392,19 @@ final class RunSiteSyncV3Orchestrator
         $meta['cursor'] = null;
         $meta['continuation'] = ((int) ($meta['continuation'] ?? 0)) + 1;
 
+        // Freeze delta since once per run (never recompute to discover snapshot_at).
+        if ((string) $run->mode === SiteSyncV3Schema::MODE_DELTA) {
+            $importSince = $this->ensureImportSinceFrozen($run, $site, $meta);
+            if ($importSince === null || $importSince === '') {
+                return $this->failRun(
+                    $run,
+                    'v3_baseline_required',
+                    'Delta import requires a persisted V3 checkpoint (complete a force-full baseline first).',
+                );
+            }
+            $meta[SiteSyncV3Schema::META_IMPORT_SINCE] = $importSince;
+        }
+
         $run->forceFill([
             'meta' => $meta,
             'current_step' => SiteSyncV3Schema::PHASE_IMPORT,
@@ -398,6 +448,17 @@ final class RunSiteSyncV3Orchestrator
                 'content_max_id' => (int) ($bounds['content_max_id'] ?? 0),
                 'term_max_id' => (int) ($bounds['term_max_id'] ?? 0),
             ];
+        } else {
+            $importSince = $this->ensureImportSinceFrozen($run, $site, $meta);
+            if ($importSince === null || $importSince === '') {
+                return $this->failRun(
+                    $run,
+                    'delta_since_missing',
+                    'since is required for delta mode (no frozen import_since / checkpoint).',
+                );
+            }
+            $meta[SiteSyncV3Schema::META_IMPORT_SINCE] = $importSince;
+            $body['since'] = $importSince;
         }
 
         $started = now();
@@ -602,10 +663,22 @@ final class RunSiteSyncV3Orchestrator
         $meta = is_array($run->meta) ? $run->meta : [];
         $round = (int) ($meta['catch_up_round'] ?? 0);
         // Freeze round lower bound: never advance `since` mid-round to "now".
-        $since = (string) ($meta['catch_up_since']
+        // Delta import_since is the authoritative previous checkpoint; never use
+        // current discover snapshot_at as the first catch-up lower bound.
+        $since = trim((string) ($meta['catch_up_since']
+            ?? $meta[SiteSyncV3Schema::META_IMPORT_SINCE]
             ?? $meta['catch_up_boundary_at']
-            ?? $meta['snapshot_at']
-            ?? now()->toIso8601String());
+            ?? ''));
+        if ($since === '' && ((string) $run->mode === SiteSyncV3Schema::MODE_FORCE_FULL || (bool) ($meta['force_full'] ?? false))) {
+            $since = trim((string) ($meta['snapshot_at'] ?? ''));
+        }
+        if ($since === '') {
+            return $this->failRun(
+                $run,
+                'delta_since_missing',
+                'Catch-up requires a frozen since (import_since / catch_up_since).',
+            );
+        }
         if (! isset($meta['catch_up_since'])) {
             $meta['catch_up_since'] = $since;
         }
@@ -995,6 +1068,25 @@ final class RunSiteSyncV3Orchestrator
             }
         }
 
+        // Advance persistent delta checkpoint only after catch-up + verify succeed.
+        // Prefer catch_up_boundary_at (stamped after the stable empty delta round);
+        // WP DELTA_OVERLAP_SECONDS covers the query/finish race. Never use finished_at alone.
+        if ($cleanVerify) {
+            $site = Site::query()->find((int) $run->site_id);
+            if ($site !== null) {
+                $nextCheckpoint = $this->resolveTerminalDeltaCheckpoint($meta);
+                if ($nextCheckpoint !== null && $nextCheckpoint !== '') {
+                    SiteSyncSiteMeta::put(
+                        $site,
+                        SiteSyncV3Schema::META_DELTA_CHECKPOINT_AT,
+                        $nextCheckpoint,
+                    );
+                    $meta['v3_delta_checkpoint_at'] = $nextCheckpoint;
+                    $meta['v3_delta_checkpoint_advanced'] = true;
+                }
+            }
+        }
+
         $run->forceFill([
             'status' => 'completed',
             'current_step' => SiteSyncV3Schema::PHASE_COMPLETE,
@@ -1017,6 +1109,107 @@ final class RunSiteSyncV3Orchestrator
     public static function baselineGeneration(Site $site): int
     {
         return (int) ($site->getMeta(SiteSyncV3Schema::META_BASELINE_GENERATION) ?? 0);
+    }
+
+    /**
+     * Resolve the persistent lower bound for the next V3 delta import.
+     * Never returns `now()`. Empty means baseline_required.
+     */
+    public static function resolvePersistentDeltaCheckpoint(Site $site): ?string
+    {
+        $explicit = trim((string) ($site->getMeta(SiteSyncV3Schema::META_DELTA_CHECKPOINT_AT) ?? ''));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $fromRun = self::checkpointFromLatestSuccessfulV3Run((int) $site->id);
+        if ($fromRun !== null && $fromRun !== '') {
+            return $fromRun;
+        }
+
+        $baseline = trim((string) ($site->getMeta(SiteSyncV3Schema::META_BASELINE_COMPLETED_AT) ?? ''));
+        if ($baseline !== '') {
+            return $baseline;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function ensureImportSinceFrozen(SeoSiteSyncRun $run, Site $site, array $meta): ?string
+    {
+        $existing = trim((string) ($meta[SiteSyncV3Schema::META_IMPORT_SINCE] ?? ''));
+        if ($existing !== '') {
+            return $existing;
+        }
+
+        return self::resolvePersistentDeltaCheckpoint($site);
+    }
+
+    /**
+     * Safe terminal checkpoint after verified sync.
+     * Prefer catch_up_boundary_at (after stable empty round); WP applies overlap.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function resolveTerminalDeltaCheckpoint(array $meta): ?string
+    {
+        foreach ([
+            'catch_up_boundary_at',
+            'catch_up_since',
+            SiteSyncV3Schema::META_IMPORT_SINCE,
+            'final_manifest_at',
+            'snapshot_at',
+        ] as $key) {
+            $value = trim((string) ($meta[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private static function checkpointFromLatestSuccessfulV3Run(int $siteId): ?string
+    {
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        $run = SeoSiteSyncRun::query()
+            ->where('site_id', $siteId)
+            ->where('protocol_version', (string) SiteSyncV3Schema::PROTOCOL)
+            ->whereIn('status', ['completed', 'completed_with_warnings'])
+            ->orderByDesc('id')
+            ->first();
+
+        if ($run === null) {
+            return null;
+        }
+
+        $meta = is_array($run->meta) ? $run->meta : [];
+        foreach ([
+            'v3_delta_checkpoint_at',
+            'catch_up_boundary_at',
+            'catch_up_since',
+            SiteSyncV3Schema::META_IMPORT_SINCE,
+            'final_manifest_at',
+            'snapshot_at',
+        ] as $key) {
+            $value = trim((string) ($meta[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $finished = $run->finished_at;
+        if ($finished !== null) {
+            return $finished->toIso8601String();
+        }
+
+        return null;
     }
 
     private function failRun(SeoSiteSyncRun $run, string $code, string $message): bool

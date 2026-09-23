@@ -24,6 +24,15 @@ final class SiteSyncV3Schema
     /** Site meta: sync generation / run id of that baseline. */
     public const META_BASELINE_GENERATION = 'seo_site_sync_v3_baseline_generation';
 
+    /**
+     * Site meta: ISO8601 lower bound for the next V3 delta /records `since`.
+     * Advanced only after catch-up + verify succeed. Never move on fail/cancel.
+     */
+    public const META_DELTA_CHECKPOINT_AT = 'seo_site_sync_v3_delta_checkpoint_at';
+
+    /** Run meta: frozen delta `since` for this run (content+terms+continuations). */
+    public const META_IMPORT_SINCE = 'import_since';
+
     public const MODE_FORCE_FULL = 'force_full';
 
     public const MODE_DELTA = 'delta';
