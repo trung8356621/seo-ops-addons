@@ -39,8 +39,10 @@ final class SiteSyncPreflightService
     ) {}
 
     /**
+     * @param  string|null  $language  Canonical Polylang language scope (null/'' = unscoped)
      * @return array{
      *   site_id: int,
+     *   language: string|null,
      *   wordpress: array{
      *     total: int, post: int, page: int, product: int, other: int,
      *     available: bool, message: string, authoritative: bool, source: string
@@ -57,14 +59,16 @@ final class SiteSyncPreflightService
      *   last_sync: array{last_success_label: string|null, last_check_label: string|null}
      * }
      */
-    public function evaluate(Site $site): array
+    public function evaluate(Site $site, ?string $language = null): array
     {
         $siteId = (int) $site->id;
+        $language = $language !== null ? trim($language) : '';
+        $langArg = $language !== '' ? $language : null;
         // Data health = broad SEO inventory (may include local-only). Separate from comparison.
-        $dataHealth = $this->auditor->audit($siteId);
+        $dataHealth = $this->auditor->audit($siteId, $langArg);
         // WP↔local membership comparison = WP-backed comparable content only (no terms / local-only).
-        $local = $this->comparison->countLocal($siteId);
-        $remote = $this->fetchRemoteCounts($site);
+        $local = $this->comparison->countLocal($siteId, $langArg);
+        $remote = $this->fetchRemoteCounts($site, $langArg);
         $countAuthoritative = (bool) ($remote['authoritative'] ?? false);
 
         $delta = [
@@ -80,6 +84,7 @@ final class SiteSyncPreflightService
 
         return [
             'site_id' => $siteId,
+            'language' => $langArg,
             'wordpress' => $remote,
             'seo_ops' => [
                 'total' => (int) $local['total'],
@@ -96,15 +101,16 @@ final class SiteSyncPreflightService
             'recommendation_message' => $recommendation['message'],
             'severity' => $severity,
             'technical' => $this->technicalDetails($site),
-            'last_sync' => $this->lastSyncSummary($site),
+            'last_sync' => $this->lastSyncSummary($site, $langArg),
         ];
     }
 
     /**
-     * Local-only (no WP HTTP) — for Site Health card.
+     * Local-only (no WP HTTP) — for Site Health card / language tab snapshots.
      *
      * @return array{
      *   site_id: int,
+     *   language: string|null,
      *   seo_ops: array{total: int, post: int, page: int, product: int, other: int},
      *   data_health: array<string, mixed>,
      *   recommendation: string,
@@ -112,14 +118,27 @@ final class SiteSyncPreflightService
      *   recommendation_message: string,
      *   severity: string,
      *   technical: array<string, scalar|null>,
-     *   last_sync: array{last_success_label: string|null, last_check_label: string|null}
+     *   last_sync: array{last_success_label: string|null, last_check_label: string|null},
+     *   remote_fetched: false
      * }
      */
-    public function evaluateLocalOnly(Site $site): array
+    public function evaluateLocalOnly(Site $site, ?string $language = null): array
     {
         $siteId = (int) $site->id;
-        $dataHealth = $this->auditor->audit($siteId);
-        $local = $dataHealth['by_content_type'];
+        $language = $language !== null ? trim($language) : '';
+        $langArg = $language !== '' ? $language : null;
+        $dataHealth = $this->auditor->audit($siteId, $langArg);
+        // Language-scoped panels use WP-backed comparable membership.
+        // Unscoped Site Health card keeps SEO inventory totals (may include local-only).
+        $local = $langArg !== null
+            ? $this->comparison->countLocal($siteId, $langArg)
+            : [
+                'total' => (int) ($dataHealth['total'] ?? 0),
+                'post' => (int) ($dataHealth['by_content_type']['post'] ?? 0),
+                'page' => (int) ($dataHealth['by_content_type']['page'] ?? 0),
+                'product' => (int) ($dataHealth['by_content_type']['product'] ?? 0),
+                'other' => (int) ($dataHealth['by_content_type']['other'] ?? 0),
+            ];
         $maxMissing = (int) ($dataHealth['max_missing'] ?? 0);
         $severity = (string) ($dataHealth['worst_severity'] ?? ArticleRequiredDataRegistry::SEVERITY_GREEN);
         $delta = ['total' => 0, 'post' => 0, 'page' => 0, 'product' => 0];
@@ -128,8 +147,9 @@ final class SiteSyncPreflightService
 
         return [
             'site_id' => $siteId,
+            'language' => $langArg,
             'seo_ops' => [
-                'total' => (int) $dataHealth['total'],
+                'total' => (int) $local['total'],
                 'post' => (int) $local['post'],
                 'page' => (int) $local['page'],
                 'product' => (int) $local['product'],
@@ -141,7 +161,8 @@ final class SiteSyncPreflightService
             'recommendation_message' => $recommendation['message'],
             'severity' => $severity,
             'technical' => $this->technicalDetails($site),
-            'last_sync' => $this->lastSyncSummary($site),
+            'last_sync' => $this->lastSyncSummary($site, $langArg),
+            'remote_fetched' => false,
         ];
     }
 
@@ -275,25 +296,40 @@ final class SiteSyncPreflightService
     /**
      * @return array{last_success_label: string|null, last_check_label: string|null}
      */
-    private function lastSyncSummary(Site $site): array
+    private function lastSyncSummary(Site $site, ?string $language = null): array
     {
         $empty = ['last_success_label' => null, 'last_check_label' => null];
+        $language = $language !== null ? trim($language) : '';
 
         try {
             if (! SiteSyncInfrastructure::tablesReady()) {
                 return $empty;
             }
 
-            $success = SeoSiteSyncRun::query()
+            $successQuery = SeoSiteSyncRun::query()
                 ->where('site_id', (int) $site->id)
                 ->whereIn('status', ['completed', 'completed_with_warnings'])
-                ->orderByDesc('id')
-                ->first();
-
-            $latest = SeoSiteSyncRun::query()
+                ->orderByDesc('id');
+            $latestQuery = SeoSiteSyncRun::query()
                 ->where('site_id', (int) $site->id)
-                ->orderByDesc('id')
-                ->first();
+                ->orderByDesc('id');
+
+            $success = null;
+            $latest = null;
+            foreach ($successQuery->limit(40)->get() as $run) {
+                if ($language !== '' && ! $this->runMatchesLanguage($run, $language)) {
+                    continue;
+                }
+                $success = $run;
+                break;
+            }
+            foreach ($latestQuery->limit(40)->get() as $run) {
+                if ($language !== '' && ! $this->runMatchesLanguage($run, $language)) {
+                    continue;
+                }
+                $latest = $run;
+                break;
+            }
 
             return [
                 'last_success_label' => $success !== null
@@ -313,10 +349,22 @@ final class SiteSyncPreflightService
         }
     }
 
+    private function runMatchesLanguage(SeoSiteSyncRun $run, string $language): bool
+    {
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $runLang = trim((string) ($meta['language_scope'] ?? ''));
+        if ($runLang === '') {
+            // Legacy unscoped runs count for primary/unscoped readers only when no scoped runs exist.
+            return true;
+        }
+
+        return $runLang === $language;
+    }
+
     /**
      * @return array{total: int, post: int, page: int, product: int, other: int, available: bool, message: string}
      */
-    private function fetchRemoteCounts(Site $site): array
+    private function fetchRemoteCounts(Site $site, ?string $language = null): array
     {
         $empty = [
             'total' => 0,
@@ -331,7 +379,7 @@ final class SiteSyncPreflightService
         ];
 
         if ($this->flags->protocolV3Enabled()) {
-            $v3 = $this->fetchRemoteCountsViaV3($site);
+            $v3 = $this->fetchRemoteCountsViaV3($site, $language);
             if ($v3['available']) {
                 return $v3;
             }
@@ -348,7 +396,7 @@ final class SiteSyncPreflightService
      *   available: bool, message: string, authoritative: bool, source: string
      * }
      */
-    private function fetchRemoteCountsViaV3(Site $site): array
+    private function fetchRemoteCountsViaV3(Site $site, ?string $language = null): array
     {
         $empty = [
             'total' => 0,
@@ -363,7 +411,12 @@ final class SiteSyncPreflightService
         ];
 
         try {
-            $result = $this->v3Client->discover($site);
+            $query = [];
+            $language = $language !== null ? trim($language) : '';
+            if ($language !== '') {
+                $query['language'] = $language;
+            }
+            $result = $this->v3Client->discover($site, $query);
         } catch (Throwable $e) {
             RuntimeLogger::report($e, [
                 'endpoint' => 'site_sync.preflight_v3_discover',

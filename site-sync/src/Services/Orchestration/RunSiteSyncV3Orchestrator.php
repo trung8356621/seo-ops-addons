@@ -186,6 +186,8 @@ final class RunSiteSyncV3Orchestrator
             'counters' => [
                 'fetched' => 0,
                 'full_fetched' => 0,
+                'content_fetched' => 0,
+                'terms_fetched' => 0,
                 'catch_up_fetched' => 0,
                 'upserted' => 0,
                 'deleted' => 0,
@@ -433,7 +435,14 @@ final class RunSiteSyncV3Orchestrator
         $meta['snapshot_content_max_id'] = (int) $meta['snapshot_bounds']['content_max_id'];
         $meta['snapshot_term_max_id'] = (int) $meta['snapshot_bounds']['term_max_id'];
         $byType = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
-        $meta['initial_expected_total'] = (int) ($discover['total'] ?? array_sum(array_map('intval', $byType)));
+        // User-facing progress denom = language-scoped CONTENT only.
+        // discover.total includes unscoped terms and must not inflate the Domain Overview bar.
+        $contentExpected = $this->contentExpectedFromDiscover($discover, $byType);
+        $termsExpected = (int) ($discover['resources']['terms']['total'] ?? max(0, (int) ($discover['total'] ?? 0) - $contentExpected));
+        $meta['initial_expected_total'] = $contentExpected;
+        $meta['initial_expected_content_total'] = $contentExpected;
+        $meta['initial_expected_terms_total'] = $termsExpected;
+        $meta['initial_expected_records_total'] = (int) ($discover['total'] ?? ($contentExpected + $termsExpected));
         $meta['initial_expected_by_type'] = $byType;
         $meta['site_revision'] = isset($discover['site_revision']) ? (string) $discover['site_revision'] : null;
         $meta['import_resource'] = SiteSyncV3Schema::RESOURCE_CONTENT;
@@ -579,6 +588,11 @@ final class RunSiteSyncV3Orchestrator
         $itemCount = count($items);
         $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + $itemCount;
         $counters['full_fetched'] = (int) ($counters['full_fetched'] ?? 0) + $itemCount;
+        if ($resource === SiteSyncV3Schema::RESOURCE_CONTENT) {
+            $counters['content_fetched'] = (int) ($counters['content_fetched'] ?? 0) + $itemCount;
+        } else {
+            $counters['terms_fetched'] = (int) ($counters['terms_fetched'] ?? 0) + $itemCount;
+        }
         $counters['upserted'] = (int) ($counters['upserted'] ?? 0) + (int) ($counts['upsert_count'] ?? 0);
         $counters['deleted'] = (int) ($counters['deleted'] ?? 0) + (int) ($counts['delete_count'] ?? 0);
         $counters['failed'] = (int) ($counters['failed'] ?? 0) + (int) ($counts['failed'] ?? 0);
@@ -958,11 +972,9 @@ final class RunSiteSyncV3Orchestrator
 
         $discover = is_array($result['discover'] ?? null) ? $result['discover'] : [];
         $expectedByType = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
-        $expectedTotal = (int) ($discover['total'] ?? 0);
-        $contentExpected = 0;
-        foreach (['post', 'page', 'product'] as $key) {
-            $contentExpected += (int) ($expectedByType[$key] ?? 0);
-        }
+        $contentExpected = $this->contentExpectedFromDiscover($discover, $expectedByType);
+        // Keep discover.total available for diagnostics; verify membership uses content only.
+        $expectedTotal = $contentExpected;
 
         $wpInventory = $this->enumerateWpContentInventory($site, $discover, $languageScope);
         if ($wpInventory === null) {
@@ -1054,6 +1066,7 @@ final class RunSiteSyncV3Orchestrator
 
         $meta = is_array($run->meta) ? $run->meta : [];
         $meta['final_expected_total'] = $expectedTotal;
+        $meta['final_expected_content_total'] = $contentExpected;
         $meta['final_expected_by_type'] = $expectedByType;
         $meta['final_site_revision'] = isset($discover['site_revision'])
             ? (string) $discover['site_revision']
@@ -1709,6 +1722,31 @@ final class RunSiteSyncV3Orchestrator
             'product' => $product,
             'other' => max(0, $total - $post - $page - $product),
         ];
+    }
+
+    /**
+     * User-facing content inventory from discover — never discover.total (content+terms).
+     *
+     * @param  array<string, mixed>  $discover
+     * @param  array<string, mixed>  $byType
+     */
+    private function contentExpectedFromDiscover(array $discover, array $byType = []): int
+    {
+        $fromResources = (int) ($discover['resources']['content']['total'] ?? 0);
+        if ($fromResources > 0) {
+            return $fromResources;
+        }
+
+        $sum = 0;
+        foreach (['post', 'page', 'product'] as $key) {
+            $sum += (int) ($byType[$key] ?? $discover['by_content_type'][$key] ?? 0);
+        }
+        if ($sum > 0) {
+            return $sum;
+        }
+
+        // Last resort only when WP did not split resources (legacy payloads).
+        return (int) ($discover['total'] ?? 0);
     }
 
     private function runLanguageScope(SeoSiteSyncRun $run): string

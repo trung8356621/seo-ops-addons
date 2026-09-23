@@ -154,12 +154,19 @@ final class SiteSyncV2ForceFullFreezeTest extends TestCase
         self::assertStringNotContainsString('wire:model.live="siteSyncForceFull"', $src);
         self::assertStringNotContainsString('Đồng bộ lại toàn bộ website', $src);
         self::assertStringContainsString('openSiteSyncPreflight', $src);
-        self::assertStringContainsString('Đồng bộ & kiểm tra website', $src);
+        self::assertStringContainsString('Đồng bộ & kiểm tra', $src);
 
         $modal = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/site-sync-preflight-modal.blade.php');
         $modalSrc = (string) file_get_contents($modal);
-        self::assertStringContainsString('confirmSiteSyncPreflightFull', $modalSrc);
-        self::assertStringContainsString('Đồng bộ toàn bộ', $modalSrc);
+        // Confirmation modal — force-full is a captured mode, not a second inspect button.
+        self::assertStringContainsString('confirmSiteSyncConfirm', $modalSrc);
+        self::assertStringContainsString('Xác nhận đồng bộ', $modalSrc);
+
+        $domainSrc = (string) file_get_contents(
+            (new ReflectionClass(GeneralDomain::class))->getFileName()
+        );
+        self::assertStringContainsString('MODE_FORCE_FULL', $domainSrc);
+        self::assertStringContainsString('runScopedSiteSyncAction', $domainSrc);
     }
 
     public function test_domain_ui_dispatches_force_full_via_command_bus(): void

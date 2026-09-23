@@ -49,9 +49,9 @@ final class ArticleRequiredDataHealthAuditor
      *   max_missing: int
      * }
      */
-    public function audit(int $siteId): array
+    public function audit(int $siteId, ?string $language = null): array
     {
-        $rows = $this->loadCandidateRows($siteId);
+        $rows = $this->loadCandidateRows($siteId, $language);
         $seoInventoryTotal = count($rows);
         $byType = $this->countByContentTypeFromRows($rows);
         $fields = [];
@@ -146,11 +146,13 @@ final class ArticleRequiredDataHealthAuditor
      *   wp_permalink: ?string
      * }>
      */
-    private function loadCandidateRows(int $siteId): array
+    private function loadCandidateRows(int $siteId, ?string $language = null): array
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('articles')) {
             return [];
         }
+
+        $language = $language !== null ? trim($language) : '';
 
         $q = DB::connection('omi_seo_ai')
             ->table('articles as a')
@@ -174,12 +176,17 @@ final class ArticleRequiredDataHealthAuditor
                 'a.title',
                 'a.slug',
                 'a.status',
+                'a.language',
                 'wal.wp_post_id',
                 'am_ct.meta_value as content_type',
                 'am_pt.meta_value as wp_post_type',
                 'am_term.meta_value as wp_is_term',
                 'am_perm.meta_value as wp_permalink',
             ]);
+
+        if ($language !== '') {
+            $q->where('a.language', $language);
+        }
 
         $out = [];
         foreach ($q->get() as $row) {

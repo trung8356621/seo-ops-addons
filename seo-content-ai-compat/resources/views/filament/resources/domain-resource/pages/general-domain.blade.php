@@ -48,8 +48,9 @@
     $overviewCss = base_path('addons/content/resources/css/domain-overview.css');
 @endphp
 
-{{-- Livewire 3 yêu cầu MỘT phần tử gốc - bọc toàn bộ view trong div này. --}}
-<div @if($incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)) wire:poll.3s="refreshSyncProgress" @endif>
+{{-- Livewire 3 yêu cầu MỘT phần tử gốc - bọc toàn bộ view trong div này.
+     Poll chỉ gắn trên progress (site-sync-progress) để giảm remorph toàn trang khi sync. --}}
+<div>
     @if(is_readable($overviewCss))
         <style>{!! file_get_contents($overviewCss) !!}</style>
     @endif

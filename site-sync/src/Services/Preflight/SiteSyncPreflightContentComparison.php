@@ -41,14 +41,11 @@ final class SiteSyncPreflightContentComparison
     /**
      * Local WP-backed comparable counts by canonical content_type.
      *
-     * Delegates to Content-owned {@see WpBackedComparableInventory} so Domain Overview
-     * and Preflight share one membership universe (no SEO → SiteSync dependency).
-     *
      * @return array{total: int, post: int, page: int, product: int, other: int}
      */
-    public function countLocal(int $siteId): array
+    public function countLocal(int $siteId, ?string $language = null): array
     {
-        return WpBackedComparableInventory::countByContentType($siteId);
+        return WpBackedComparableInventory::countByContentType($siteId, $language);
     }
 
     /**

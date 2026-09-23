@@ -56,10 +56,11 @@ final class WpBackedComparableInventory
      *   article_id: int|string,
      *   content_type: mixed,
      *   wp_post_type: mixed,
-     *   wp_is_term: mixed
+     *   wp_is_term: mixed,
+     *   language?: mixed
      * }>
      */
-    public static function rows(int $siteId): array
+    public static function rows(int $siteId, ?string $language = null): array
     {
         if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('articles')) {
             return [];
@@ -68,6 +69,8 @@ final class WpBackedComparableInventory
         if (! Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
             return [];
         }
+
+        $language = $language !== null ? trim($language) : '';
 
         $q = DB::connection('omi_seo_ai')
             ->table('articles as a')
@@ -86,10 +89,15 @@ final class WpBackedComparableInventory
             ->where('wal.wp_post_id', '>', 0)
             ->select([
                 'a.id as article_id',
+                'a.language as language',
                 'am_ct.meta_value as content_type',
                 'am_pt.meta_value as wp_post_type',
                 'am_term.meta_value as wp_is_term',
             ]);
+
+        if ($language !== '') {
+            $q->where('a.language', $language);
+        }
 
         $out = [];
         foreach ($q->get() as $row) {
@@ -128,10 +136,10 @@ final class WpBackedComparableInventory
      *
      * @return array{total: int, post: int, page: int, product: int, other: int}
      */
-    public static function countByContentType(int $siteId): array
+    public static function countByContentType(int $siteId, ?string $language = null): array
     {
         $by = ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
-        foreach (self::rows($siteId) as $row) {
+        foreach (self::rows($siteId, $language) as $row) {
             $ct = strtolower(trim((string) ($row->content_type ?? '')));
             if (! isset($by[$ct])) {
                 $ct = 'other';

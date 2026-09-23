@@ -27,7 +27,6 @@ use Omnichannel\Addons\SiteSync\Services\Application\Commands\RetryFailedSeoScor
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand;
 use Omnichannel\Addons\SiteSync\Services\Bootstrap\SiteSyncBootstrapService;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
-use Omnichannel\Addons\SiteSync\Services\Preflight\SiteSyncPreflightService;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncSourceLabelPresenter;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
@@ -45,6 +44,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Renderless;
 
 class GeneralDomain extends Page
 {
@@ -163,6 +163,13 @@ class GeneralDomain extends Page
 
     public ?string $siteSyncV2RetryLabel = null;
 
+    /** Active run language — from run meta, independent of UI tab. */
+    public ?string $siteSyncLanguageScope = null;
+
+    public ?string $siteSyncLanguageRole = null;
+
+    public ?string $siteSyncScopeLabel = null;
+
     /** @var array<string, mixed>|null */
     public ?array $siteSyncBootstrapPreview = null;
 
@@ -177,6 +184,21 @@ class GeneralDomain extends Page
 
     /** Domain Overview language panel: overview|lang-code */
     public string $overviewLanguageTab = 'overview';
+
+    /**
+     * Cached language-tab snapshots (local and optional remote).
+     * Keyed by language code. Never populated for all languages on mount.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    public array $languageTabSnapshots = [];
+
+    /** @var array<string, mixed>|null Captured sync confirmation (language/role/mode frozen). */
+    public ?array $siteSyncConfirm = null;
+
+    public bool $siteSyncConfirmOpen = false;
+
+    public bool $languageTabRemoteLoading = false;
 
     public function mount(int|string $record): void
     {
@@ -197,12 +219,52 @@ class GeneralDomain extends Page
         $this->restoreMetadataSyncProgressFromCache();
         $this->refreshKeywordResyncProgress();
         $this->refreshSiteSyncV2Progress();
+        // Intentionally do NOT remote-preflight all languages on mount.
     }
 
+    #[Renderless]
     public function setOverviewLanguageTab(string $tab): void
     {
         $tab = trim($tab);
         $this->overviewLanguageTab = $tab !== '' ? $tab : 'overview';
+        if ($this->overviewLanguageTab === 'overview') {
+            return;
+        }
+
+        // Tab visibility is Alpine + sessionStorage (survives wire:poll remorph).
+        // Only warm a cheap local snapshot — never WP HTTP here.
+        try {
+            $this->ensureLanguageTabSnapshot($this->overviewLanguageTab, fetchRemote: false);
+        } catch (\Throwable $e) {
+            \App\Support\RuntimeLogger::report($e, [
+                'endpoint' => 'domain.set_overview_language_tab',
+                'site_id' => (int) $this->getRecord()->getKey(),
+                'language' => $this->overviewLanguageTab,
+            ]);
+        }
+    }
+
+    /**
+     * Lazy remote health for the active language tab only (one discover).
+     * Safe to call while a sync runs — failures must not reset the tab.
+     */
+    public function refreshActiveLanguageTabRemote(): void
+    {
+        $tab = trim($this->overviewLanguageTab);
+        if ($tab === '' || $tab === 'overview') {
+            return;
+        }
+
+        try {
+            $this->ensureLanguageTabSnapshot($tab, fetchRemote: true);
+        } catch (\Throwable $e) {
+            \App\Support\RuntimeLogger::report($e, [
+                'endpoint' => 'domain.refresh_active_language_tab_remote',
+                'site_id' => (int) $this->getRecord()->getKey(),
+                'language' => $tab,
+            ]);
+            $this->languageTabRemoteLoading = false;
+        }
     }
 
     /**
@@ -220,11 +282,210 @@ class GeneralDomain extends Page
             ->isMultilingual($this->getRecord());
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getActiveLanguageTabSnapshot(): ?array
+    {
+        $tab = $this->overviewLanguageTab;
+        if ($tab === '' || $tab === 'overview') {
+            return null;
+        }
+
+        return is_array($this->languageTabSnapshots[$tab] ?? null)
+            ? $this->languageTabSnapshots[$tab]
+            : null;
+    }
+
+    /**
+     * Build/refresh local snapshot; optionally one remote discover for the active language only.
+     */
+    public function ensureLanguageTabSnapshot(string $language, bool $fetchRemote = false): void
+    {
+        $language = trim($language);
+        if ($language === '' || $language === 'overview') {
+            return;
+        }
+
+        /** @var Site $site */
+        $site = $this->getRecord();
+        $coverage = collect($this->getSiteSyncLanguageCoverage())
+            ->firstWhere('language', $language);
+        $role = is_array($coverage) && ($coverage['role'] ?? '') === 'secondary'
+            ? \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY
+            : \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY;
+
+        $panel = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncDomainLanguagePanelService::class);
+        $existing = is_array($this->languageTabSnapshots[$language] ?? null)
+            ? $this->languageTabSnapshots[$language]
+            : null;
+        $hadRemote = (bool) ($existing['remote_fetched'] ?? false);
+        $remotePreflight = $hadRemote && is_array($existing['preflight'] ?? null)
+            ? $existing['preflight']
+            : null;
+
+        // Local snapshot is cheap (DB) — refresh on every ensure. Remote stays cached.
+        $snapshot = $panel->buildLocalSnapshot(
+            $site,
+            $language,
+            $role,
+            is_array($coverage) ? $coverage : null,
+        );
+        if ($hadRemote && is_array($remotePreflight)) {
+            $snapshot['preflight'] = $remotePreflight;
+            $snapshot['remote_fetched'] = true;
+        }
+        $this->languageTabSnapshots[$language] = $snapshot;
+
+        if ($fetchRemote
+            && (bool) ($snapshot['show_full_health'] ?? false)
+            && ! (bool) ($snapshot['remote_fetched'] ?? false)
+        ) {
+            $this->languageTabRemoteLoading = true;
+            try {
+                $this->languageTabSnapshots[$language] = $panel->withRemote($site, $snapshot);
+            } catch (\Throwable $e) {
+                \App\Support\RuntimeLogger::report($e, [
+                    'endpoint' => 'domain.ensure_language_tab_snapshot.remote',
+                    'site_id' => (int) $site->getKey(),
+                    'language' => $language,
+                ]);
+                // Keep local snapshot — tab UI stays usable.
+            } finally {
+                $this->languageTabRemoteLoading = false;
+            }
+        }
+    }
+
+    /**
+     * Open ACTION confirmation only — does not start sync; does not run full preflight inspect.
+     */
+    public function openSiteSyncConfirm(string $language = '', string $mode = 'delta'): void
+    {
+        /** @var Site $site */
+        $site = $this->getRecord();
+        $scope = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope::class)
+            ->resolveForStart($site, ['language' => $language]);
+        $resolvedLang = (string) ($scope['language_scope'] ?? '');
+        $role = (string) ($scope['language_role'] ?? \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY);
+
+        if ($role === \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY) {
+            $gate = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3SecondaryGateService::class)
+                ->evaluateSecondarySync($site, $resolvedLang);
+            if (! ($gate['allowed'] ?? false)) {
+                $this->notifySiteSyncResult(
+                    'Chưa thể đồng bộ',
+                    (string) ($gate['message'] ?? 'Hoàn tất ngôn ngữ chính trước.'),
+                    false,
+                );
+
+                return;
+            }
+        }
+
+        if ($resolvedLang !== '') {
+            $this->ensureLanguageTabSnapshot($resolvedLang, fetchRemote: false);
+        }
+
+        $coverage = $resolvedLang !== ''
+            ? collect($this->getSiteSyncLanguageCoverage())->firstWhere('language', $resolvedLang)
+            : null;
+        $snapshot = $resolvedLang !== '' && is_array($this->languageTabSnapshots[$resolvedLang] ?? null)
+            ? $this->languageTabSnapshots[$resolvedLang]
+            : null;
+
+        $this->siteSyncConfirm = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncDomainLanguagePanelService::class)
+            ->buildConfirmPayload(
+                $site,
+                $resolvedLang,
+                $role,
+                $mode,
+                is_array($coverage) ? $coverage : null,
+                $snapshot,
+            );
+        $this->siteSyncConfirmOpen = true;
+        // Legacy flag kept so older blade includes still gate on open state.
+        $this->siteSyncPreflightOpen = true;
+        $this->siteSyncPreflight = null;
+    }
+
+    public function closeSiteSyncConfirm(): void
+    {
+        $this->siteSyncConfirmOpen = false;
+        $this->siteSyncPreflightOpen = false;
+        $this->siteSyncConfirm = null;
+    }
+
+    public function cancelSiteSyncConfirm(): void
+    {
+        $this->closeSiteSyncConfirm();
+    }
+
+    public function confirmSiteSyncConfirm(): void
+    {
+        $payload = is_array($this->siteSyncConfirm) ? $this->siteSyncConfirm : null;
+        $this->closeSiteSyncConfirm();
+        if ($payload === null) {
+            return;
+        }
+
+        $this->dispatchCapturedSiteSync($payload);
+    }
+
+    /**
+     * Generic website sync → primary language, then confirmation (never immediate run).
+     */
+    public function openSiteSyncPreflight(): void
+    {
+        /** @var Site $site */
+        $site = $this->getRecord();
+        $primary = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope::class)
+            ->primaryLanguage($site) ?? '';
+        $this->openSiteSyncConfirm((string) $primary, 'delta');
+    }
+
+    public function closeSiteSyncPreflight(): void
+    {
+        $this->closeSiteSyncConfirm();
+    }
+
+    public function confirmSiteSyncPreflightNormal(): void
+    {
+        // Legacy alias — uses captured confirmation payload (mode already frozen).
+        $this->confirmSiteSyncConfirm();
+    }
+
+    public function confirmSiteSyncPreflightFull(): void
+    {
+        // Legacy alias — uses captured confirmation payload (mode already frozen).
+        $this->confirmSiteSyncConfirm();
+    }
+
+    /**
+     * Opens confirmation for a language — does NOT dispatch a run.
+     */
     public function runScopedSiteSyncAction(string $language, bool $forceFull = false): void
+    {
+        $this->openSiteSyncConfirm(
+            $language,
+            $forceFull
+                ? \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::MODE_FORCE_FULL
+                : 'delta',
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function dispatchCapturedSiteSync(array $payload): void
     {
         @set_time_limit(120);
         $siteId = (int) $this->getRecord()->getKey();
-        $language = trim($language);
+        $language = (string) ($payload['language'] ?? '');
+        $role = (string) ($payload['language_role'] ?? '');
+        $mode = (string) ($payload['mode'] ?? 'delta');
+        $forceFull = $mode === \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::MODE_FORCE_FULL
+            || $mode === 'force_full';
 
         try {
             $flags = app(SiteSyncFeatureFlags::class);
@@ -234,25 +495,6 @@ class GeneralDomain extends Page
                 return;
             }
 
-            /** @var Site $site */
-            $site = $this->getRecord();
-            $scope = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3LanguageScope::class)
-                ->resolveForStart($site, ['language' => $language]);
-
-            if (($scope['language_role'] ?? '') === \Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY) {
-                $gate = app(\Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3SecondaryGateService::class)
-                    ->evaluateSecondarySync($site, (string) ($scope['language_scope'] ?? $language));
-                if (! ($gate['allowed'] ?? false)) {
-                    $this->notifySiteSyncResult(
-                        'Chưa thể đồng bộ',
-                        (string) ($gate['message'] ?? 'Hoàn tất ngôn ngữ chính trước.'),
-                        false,
-                    );
-
-                    return;
-                }
-            }
-
             if ($forceFull) {
                 $operationId = 'ff_'.bin2hex(random_bytes(8));
                 $result = $this->dispatchSiteSyncBus(new ForceFullSiteSyncCommand(
@@ -260,15 +502,15 @@ class GeneralDomain extends Page
                     supersedeActive: true,
                     idempotencyKey: $operationId,
                     operationId: $operationId,
-                    language: (string) ($scope['language_scope'] ?? $language),
-                    languageRole: (string) ($scope['language_role'] ?? ''),
+                    language: $language !== '' ? $language : null,
+                    languageRole: $role !== '' ? $role : null,
                 ));
             } else {
                 $result = $this->dispatchSiteSyncBus(new RunSiteSyncCommand(
                     siteId: $siteId,
                     mode: 'delta',
-                    language: (string) ($scope['language_scope'] ?? $language),
-                    languageRole: (string) ($scope['language_role'] ?? ''),
+                    language: $language !== '' ? $language : null,
+                    languageRole: $role !== '' ? $role : null,
                 ));
             }
 
@@ -280,7 +522,7 @@ class GeneralDomain extends Page
             );
         } catch (\Throwable $e) {
             \App\Support\RuntimeLogger::report($e, [
-                'endpoint' => 'domain.run_scoped_site_sync',
+                'endpoint' => 'domain.dispatch_captured_site_sync',
                 'site_id' => $siteId,
                 'language' => $language,
             ]);
@@ -384,6 +626,15 @@ class GeneralDomain extends Page
             $this->siteSyncV2ElapsedLabel = isset($status['elapsed_label']) ? (string) $status['elapsed_label'] : null;
             $this->siteSyncV2LastActivityLabel = isset($status['last_activity_label']) ? (string) $status['last_activity_label'] : null;
             $this->siteSyncV2RetryLabel = isset($status['retry_label']) ? (string) $status['retry_label'] : null;
+            $this->siteSyncLanguageScope = isset($status['language_scope']) && $status['language_scope'] !== null
+                ? (string) $status['language_scope']
+                : null;
+            $this->siteSyncLanguageRole = isset($status['language_role']) && $status['language_role'] !== null
+                ? (string) $status['language_role']
+                : null;
+            $this->siteSyncScopeLabel = isset($status['scope_label']) && $status['scope_label'] !== null
+                ? (string) $status['scope_label']
+                : null;
 
             if ($wasRunning && ! $this->siteSyncV2Running && $this->siteSyncV2Status === 'completed') {
                 $this->dispatch('domain-sync-completed');
@@ -400,47 +651,10 @@ class GeneralDomain extends Page
             $this->siteSyncV2StatusMessage = 'Site Sync V2 lỗi: '.$e->getMessage();
             $this->siteSyncV2Warnings = ['status_refresh_failed'];
             $this->siteSyncV3MacroSteps = [];
+            $this->siteSyncLanguageScope = null;
+            $this->siteSyncLanguageRole = null;
+            $this->siteSyncScopeLabel = null;
         }
-    }
-
-    public function openSiteSyncPreflight(): void
-    {
-        @set_time_limit(60);
-        $this->siteSyncPreflightLoading = true;
-        $this->siteSyncPreflight = null;
-
-        try {
-            $this->siteSyncPreflight = app(SiteSyncPreflightService::class)
-                ->evaluate($this->getRecord());
-            $this->siteSyncPreflightOpen = true;
-        } catch (\Throwable $e) {
-            \App\Support\RuntimeLogger::report($e, [
-                'endpoint' => 'domain.site_sync_preflight',
-                'site_id' => (int) $this->getRecord()->getKey(),
-            ]);
-            $this->notifySiteSyncResult('Site Health / Sync preflight lỗi', $e->getMessage(), false);
-        } finally {
-            $this->siteSyncPreflightLoading = false;
-        }
-    }
-
-    public function closeSiteSyncPreflight(): void
-    {
-        $this->siteSyncPreflightOpen = false;
-    }
-
-    public function confirmSiteSyncPreflightNormal(): void
-    {
-        $this->siteSyncForceFull = false;
-        $this->siteSyncPreflightOpen = false;
-        $this->runSiteSyncV2Action();
-    }
-
-    public function confirmSiteSyncPreflightFull(): void
-    {
-        $this->siteSyncForceFull = true;
-        $this->siteSyncPreflightOpen = false;
-        $this->runForceFullSiteSyncAction();
     }
 
     public function runSiteSyncV2Action(): void

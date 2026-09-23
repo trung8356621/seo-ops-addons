@@ -40,6 +40,8 @@
         $failed => __('seo-content-ai::filament.domain.site_sync_failed_title'),
         $completed => __('seo-content-ai::filament.domain.site_sync_completed_title'),
         $canceled => __('seo-content-ai::filament.domain.site_sync_canceled_title'),
+        // Active run identity comes from run meta (scope_label), never the selected language tab.
+        $running && filled($siteSyncScopeLabel ?? null) => 'Đang đồng bộ '.$siteSyncScopeLabel,
         $running && filled($activeUserLabel) => $activeUserLabel,
         $running => __('seo-content-ai::filament.domain.site_sync_running_title'),
         default => null,
@@ -49,6 +51,9 @@
 <div
     class="site-sync-progress space-y-3 text-gray-800 dark:text-gray-200"
     wire:key="site-sync-progress-{{ $siteSyncV2RunId ?? 'idle' }}"
+    @if ($running || $stuck || $retrying || ($incrementalSyncRunning ?? false) || ($metadataSyncRunning ?? false) || ($keywordResyncRunning ?? false))
+        wire:poll.3s="refreshSyncProgress"
+    @endif
 >
     @if (! $showPanel)
         <p class="text-sm leading-relaxed text-gray-600 dark:text-gray-300">{{ $idleHint }}</p>

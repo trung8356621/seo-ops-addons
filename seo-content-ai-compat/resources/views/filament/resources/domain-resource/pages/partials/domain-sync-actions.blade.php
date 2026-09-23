@@ -8,8 +8,12 @@
     $syncDisabled = $incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false);
     $useResume = ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
     $langCoverage = method_exists($this, 'getSiteSyncLanguageCoverage') ? $this->getSiteSyncLanguageCoverage() : [];
+    $isMultilingual = method_exists($this, 'isOverviewMultilingual') && $this->isOverviewMultilingual();
+    $activeTab = $this->overviewLanguageTab ?? 'overview';
+    $onLanguageTab = $isMultilingual && $activeTab !== 'overview' && $activeTab !== '';
     $primaryRow = collect($langCoverage)->firstWhere('role', 'primary');
     $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? 'ngôn ngữ chính') : null;
+    // Overview / non-multilingual: generic sync resolves to primary then confirmation.
     $primarySyncLabel = $primaryLabel
         ? 'Đồng bộ & kiểm tra '.$primaryLabel
         : 'Đồng bộ & kiểm tra website';
@@ -20,6 +24,7 @@
 
     @if ($v2Ui)
         <div class="seo-sync-actions__primary space-y-3">
+            @if (! $onLanguageTab || $useResume || ($siteSyncV2Running ?? false))
             <div class="flex flex-wrap items-center gap-2">
                 <x-filament::button
                     type="button"
@@ -27,21 +32,25 @@
                     icon="heroicon-o-arrow-path"
                     wire:click="{{ $useResume ? 'resumeSiteSyncV2Action' : 'openSiteSyncPreflight' }}"
                     wire:loading.attr="disabled"
-                    wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
+                    wire:target="openSiteSyncPreflight,openSiteSyncConfirm,runScopedSiteSyncAction,confirmSiteSyncConfirm,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
                     :disabled="$syncDisabled && ! $useResume"
                 >
-                    <span wire:loading.remove wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action">
+                    <span wire:loading.remove wire:target="openSiteSyncPreflight,openSiteSyncConfirm,runScopedSiteSyncAction,resumeSiteSyncV2Action">
                         @if ($siteSyncV2Running ?? false)
-                            {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
+                            @if (filled($siteSyncScopeLabel ?? null))
+                                Đang đồng bộ {{ $siteSyncScopeLabel }}
+                            @else
+                                {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
+                            @endif
                         @elseif ($useResume)
                             Tiếp tục đồng bộ & kiểm tra
                         @else
                             {{ $primarySyncLabel }}
                         @endif
                     </span>
-                    <span wire:loading wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
+                    <span wire:loading wire:target="openSiteSyncPreflight,openSiteSyncConfirm,runScopedSiteSyncAction,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
                         <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                        Đang kiểm tra…
+                        Đang mở xác nhận…
                     </span>
                 </x-filament::button>
 
@@ -61,6 +70,7 @@
                     </x-filament::button>
                 @endif
             </div>
+            @endif
 
             @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-preflight-modal')
             @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-progress')

@@ -242,9 +242,9 @@ final class DomainOverviewService
      *   remaining: int
      * }
      */
-    public function getWpBackedScoringProgress(int $siteId): array
+    public function getWpBackedScoringProgress(int $siteId, ?string $language = null): array
     {
-        return app(SeoArticleScoringQueueService::class)->domainWpBackedProgress($siteId);
+        return app(SeoArticleScoringQueueService::class)->domainWpBackedProgress($siteId, $language);
     }
 
     /**

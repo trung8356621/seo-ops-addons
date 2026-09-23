@@ -117,11 +117,13 @@ final class SiteSyncV3AcceptanceHardeningTest extends TestCase
         $method = $this->methodBody($src, 'buildForV3Run');
 
         self::assertStringContainsString('full_fetched', $method);
+        self::assertStringContainsString('content_fetched', $method);
         self::assertStringContainsString('catch_up_fetched', $method);
-        self::assertStringContainsString('min($fullFetched', $method);
+        self::assertStringContainsString('min($contentFetched, $progressDenom)', $method);
         self::assertStringContainsString("'needs_attention'", $method);
-        self::assertStringContainsString("'checked' => \$fullFetched", $method);
+        self::assertStringContainsString("'checked' => \$progress", $method);
         self::assertStringNotContainsString("'checked' => \$fetched", $method);
+        self::assertStringContainsString('resolveContentExpectedTotal', $method);
     }
 
     public function test_cursors_equal_helper_exists(): void

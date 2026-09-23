@@ -284,13 +284,34 @@ final class SiteSyncStatusPresenter
             || (bool) ($meta['force_full'] ?? false);
         $errorMessage = trim((string) ($run->error_message ?? ''));
         $lastProgressAt = (string) ($meta['last_progress_at'] ?? optional($run->updated_at)?->toIso8601String() ?? '');
-        // FULL progress numerator — never mix catch-up replay into this bar.
+        // User-facing content progress — never mix terms into the Domain Overview bar.
         $fullFetched = (int) ($counters['full_fetched'] ?? $counters['fetched'] ?? 0);
+        $contentFetched = (int) ($counters['content_fetched'] ?? 0);
+        if ($contentFetched <= 0 && $fullFetched > 0) {
+            // Legacy runs before content_fetched: while still importing content, full≈content.
+            $contentFetched = $fullFetched;
+        }
         $catchUpFetched = (int) ($counters['catch_up_fetched'] ?? 0);
-        $expectedTotal = (int) ($meta['initial_expected_total'] ?? 0);
-        $finalExpected = (int) ($meta['final_expected_total'] ?? 0);
+        $expectedTotal = $this->resolveContentExpectedTotal($meta);
+        $finalExpected = (int) ($meta['final_expected_content_total'] ?? 0);
+        if ($finalExpected <= 0) {
+            $finalExpected = (int) ($meta['final_expected_total'] ?? 0);
+            // Prefer content split if final_expected_total was still discover.total+terms.
+            $finalDiscover = is_array($meta['discover'] ?? null) ? $meta['discover'] : [];
+            $finalContent = $this->contentTotalFromDiscoverPayload($finalDiscover);
+            if ($finalContent > 0 && $finalExpected > $finalContent) {
+                $finalExpected = $finalContent;
+            }
+        }
         $jobNumber = (int) ($meta['job_number'] ?? 0);
         $retryCount = (int) ($meta['retry_count'] ?? 0);
+
+        $languageScope = trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] ?? ''));
+        $languageRole = strtolower(trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_ROLE] ?? '')));
+        if ($languageRole === '') {
+            $languageRole = SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY;
+        }
+        $scopeLabel = $this->buildRunScopeLabel($site, $languageScope, $languageRole);
 
         $phaseLabel = SiteSyncStepCatalog::v3Label($currentStep);
         if ($jobNumber > 0
@@ -325,16 +346,20 @@ final class SiteSyncStatusPresenter
         if (in_array($currentStep, [SiteSyncV3Schema::PHASE_VERIFY, SiteSyncV3Schema::PHASE_SCORE, SiteSyncV3Schema::PHASE_COMPLETE], true)
             && $finalExpected > 0
         ) {
-            // After fresh discover, show inventory-oriented total when available.
             $progressDenom = $finalExpected;
         }
-        $progress = min($fullFetched, max(0, $progressDenom > 0 ? $progressDenom : $fullFetched));
+        // Cap content numerator to content denom (terms must not inflate the bar).
+        $progressNumerator = $contentFetched;
+        if ($progressDenom > 0) {
+            $progressNumerator = min($contentFetched, $progressDenom);
+        }
+        $progress = min($progressNumerator, max(0, $progressDenom > 0 ? $progressDenom : $progressNumerator));
         $progressTotal = $progressDenom > 0 ? $progressDenom : max(1, SiteSyncStepCatalog::v3TotalSteps());
         $percentage = $progressDenom > 0
             ? (int) min(100, max(0, (int) round(($progress / $progressDenom) * 100)))
             : null;
 
-        $scoringProgress = $this->safeScoringProgress((int) $site->id);
+        $scoringProgress = $this->safeScoringProgress((int) $site->id, $languageScope !== '' ? $languageScope : null);
 
         if ($currentStep === SiteSyncV3Schema::PHASE_SCORE && in_array($runStatus, ['pending', 'running'], true)) {
             $scoreCompleted = (int) ($counters['workspace_scores_generated'] ?? $scoringProgress['completed'] ?? 0);
@@ -365,7 +390,19 @@ final class SiteSyncStatusPresenter
 
         $headline = $stuck
             ? 'Tác vụ có vẻ không có tiến triển'
-            : $this->buildV3Message($runStatus, $phaseLabel, $progress, $progressDenom, $errorMessage, $elapsedLabel, $warnings);
+            : $this->buildV3Message(
+                $runStatus,
+                $phaseLabel,
+                $progress,
+                $progressDenom,
+                $errorMessage,
+                $elapsedLabel,
+                $warnings,
+                $scopeLabel,
+            );
+
+        $recordsTotal = (int) ($meta['initial_expected_records_total'] ?? 0);
+        $termsExpected = (int) ($meta['initial_expected_terms_total'] ?? 0);
 
         return [
             'running' => $isActive && ! $stuck,
@@ -377,7 +414,12 @@ final class SiteSyncStatusPresenter
             'status' => $stuck ? 'stuck' : $runStatus,
             'protocol_version' => SiteSyncV3Schema::PROTOCOL,
             'mode' => (string) $run->mode,
-            'mode_label' => $forceFull ? 'Đồng bộ lại toàn bộ website' : null,
+            'mode_label' => $forceFull
+                ? ($scopeLabel !== null ? 'Đồng bộ lại toàn bộ '.$scopeLabel : 'Đồng bộ lại toàn bộ website')
+                : null,
+            'language_scope' => $languageScope !== '' ? $languageScope : null,
+            'language_role' => $languageScope !== '' ? $languageRole : null,
+            'scope_label' => $scopeLabel,
             'error_message' => $errorMessage !== '' ? $errorMessage : null,
             'message' => $headline,
             'scoring_context' => $scoringContext,
@@ -401,21 +443,22 @@ final class SiteSyncStatusPresenter
                 'current' => $progress,
                 'total' => $progressDenom > 0 ? $progressDenom : null,
                 'full_fetched' => $fullFetched,
+                'content_fetched' => $contentFetched,
                 'catch_up_fetched' => $catchUpFetched,
                 'phase' => $currentStep,
                 'step' => SiteSyncStepCatalog::v3Order($currentStep),
                 'total_steps' => SiteSyncStepCatalog::v3TotalSteps(),
                 'status' => $runStatus,
             ],
-            // V3 phase timeline only — never the frozen 7 V2 steps.
             'steps' => $stepTimeline,
-            // Presentation-only: 3 user macro steps (orchestrator stays 7 phases).
             'macro_steps' => SiteSyncStepCatalog::v3MacroTimeline($currentStep, $runStatus),
             'substeps' => [],
             'counters' => array_merge($counters, [
-                // Presentation alias only — FULL unique progress, never catch-up replay.
-                'checked' => $fullFetched,
-                'total_to_check' => $expectedTotal,
+                'checked' => $progress,
+                'total_to_check' => $progressDenom > 0 ? $progressDenom : $expectedTotal,
+                'content_fetched' => $contentFetched,
+                'terms_expected' => $termsExpected,
+                'records_total' => $recordsTotal,
                 'job_number' => $jobNumber,
             ]),
             'warnings' => array_values(array_unique($warnings)),
@@ -432,6 +475,69 @@ final class SiteSyncStatusPresenter
     }
 
     /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function resolveContentExpectedTotal(array $meta): int
+    {
+        $explicit = (int) ($meta['initial_expected_content_total'] ?? 0);
+        if ($explicit > 0) {
+            return $explicit;
+        }
+
+        $discover = is_array($meta['discover'] ?? null) ? $meta['discover'] : [];
+        $fromDiscover = $this->contentTotalFromDiscoverPayload($discover);
+        if ($fromDiscover > 0) {
+            return $fromDiscover;
+        }
+
+        $byType = is_array($meta['initial_expected_by_type'] ?? null) ? $meta['initial_expected_by_type'] : [];
+        $sum = 0;
+        foreach (['post', 'page', 'product'] as $key) {
+            $sum += (int) ($byType[$key] ?? 0);
+        }
+        if ($sum > 0) {
+            return $sum;
+        }
+
+        return (int) ($meta['initial_expected_total'] ?? 0);
+    }
+
+    /**
+     * @param  array<string, mixed>  $discover
+     */
+    private function contentTotalFromDiscoverPayload(array $discover): int
+    {
+        $fromResources = (int) ($discover['resources']['content']['total'] ?? 0);
+        if ($fromResources > 0) {
+            return $fromResources;
+        }
+
+        $byType = is_array($discover['by_content_type'] ?? null) ? $discover['by_content_type'] : [];
+        $sum = 0;
+        foreach (['post', 'page', 'product'] as $key) {
+            $sum += (int) ($byType[$key] ?? 0);
+        }
+
+        return $sum;
+    }
+
+    private function buildRunScopeLabel(Site $site, string $languageScope, string $languageRole): ?string
+    {
+        if ($languageScope === '') {
+            return null;
+        }
+
+        $label = app(\Omnichannel\Addons\WordPress\Services\SitePolylangService::class)
+            ->languageLabel($languageScope, $site);
+        if ($label === '') {
+            $label = $languageScope;
+        }
+        $roleLabel = $languageRole === SiteSyncV3Schema::LANGUAGE_ROLE_SECONDARY ? 'Phụ' : 'Chính';
+
+        return $label.' · '.$roleLabel;
+    }
+
+    /**
      * @param  list<string>  $warnings
      */
     private function buildV3Message(
@@ -442,7 +548,12 @@ final class SiteSyncStatusPresenter
         string $errorMessage,
         ?string $elapsedLabel,
         array $warnings,
+        ?string $scopeLabel = null,
     ): string {
+        $subject = $scopeLabel !== null && $scopeLabel !== ''
+            ? $scopeLabel
+            : 'website';
+
         if ($status === 'needs_attention' || $status === 'failed') {
             $detail = $errorMessage !== '' ? $errorMessage : 'Cần xử lý.';
 
@@ -454,7 +565,7 @@ final class SiteSyncStatusPresenter
                 ? number_format($fetched).' / '.number_format($expectedTotal)
                 : ($fetched > 0 ? number_format($fetched).' bản ghi' : '');
 
-            return trim('Đang đồng bộ website · '.$phaseLabel.($counts !== '' ? ' · '.$counts : ''));
+            return trim('Đang đồng bộ '.$subject.' · '.$phaseLabel.($counts !== '' ? ' · '.$counts : ''));
         }
 
         if ($status === 'canceled' || $status === 'cancelled') {
@@ -464,6 +575,10 @@ final class SiteSyncStatusPresenter
         $msg = $status === 'completed_with_warnings'
             ? 'Đồng bộ hoàn tất (có cảnh báo).'
             : 'Đồng bộ hoàn tất.';
+        if ($scopeLabel !== null && $scopeLabel !== '') {
+            $msg = 'Đồng bộ '.$scopeLabel.' hoàn tất'
+                .($status === 'completed_with_warnings' ? ' (có cảnh báo).' : '.');
+        }
         if ($fetched > 0) {
             $msg .= ' · Đã tải: '.number_format($fetched);
         }
@@ -603,12 +718,12 @@ final class SiteSyncStatusPresenter
     /**
      * @return array{total: int, completed: int, pending: int, processing: int, failed: int, remaining: int}
      */
-    private function safeScoringProgress(int $siteId): array
+    private function safeScoringProgress(int $siteId, ?string $language = null): array
     {
         try {
             // Website sync/status UI — WP-backed membership (not Workspace local-only).
             return app(\Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService::class)
-                ->domainWpBackedProgress($siteId);
+                ->domainWpBackedProgress($siteId, $language);
         } catch (Throwable) {
             return [
                 'total' => 0,
