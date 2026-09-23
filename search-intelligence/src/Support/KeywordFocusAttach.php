@@ -82,8 +82,27 @@ final class KeywordFocusAttach
         $keywordId = (int) $keyword->id;
         $persistence->mergeSuffixTruncatedKeywords($keyword, $siteId);
 
-        self::clearMainArticleMetaForArticle($articleId, exceptKeywordId: $keywordId, exceptSiteId: $siteId);
+        // Merge may delete absorbed siblings; re-resolve canonical before writing meta.
+        $keyword = Keyword::query()->find($keywordId);
+        if ($keyword === null) {
+            $keyword = $persistence->upsert(
+                $phrase,
+                Keyword::TYPE_NORMAL,
+                $siteId,
+                null,
+                targetArticleId: $articleId,
+            );
+            if ($keyword === null) {
+                return null;
+            }
+            $keywordId = (int) $keyword->id;
+        }
 
+        // Persist site-scoped focus BEFORE clearing other main_article_id rows.
+        // clearMainArticleMetaForArticle may delete legacy `main_article_id` on this
+        // same keyword (keep-key is site-scoped only). TYPE_NORMAL upsert often leaves
+        // zero other metas, so orphan cleanup would delete the keyword and the later
+        // setMainArticleIdForSite insert hits keyword_meta FK 1452.
         $ok = $metaRepository->setMainArticleIdForSite($keywordId, $siteId, $articleId);
         if (! $ok) {
             Log::warning('seo.cross_site_relation_rejected', [
@@ -100,6 +119,8 @@ final class KeywordFocusAttach
 
             return null;
         }
+
+        self::clearMainArticleMetaForArticle($articleId, exceptKeywordId: $keywordId, exceptSiteId: $siteId);
 
         // Drop stale duplicate target_url so it cannot shadow WordPress permalinks.
         $metaRepository->setSiteTargetUrl($keywordId, $siteId, null);
@@ -209,9 +230,16 @@ final class KeywordFocusAttach
 
                 if ($exceptKeywordId !== null && $exceptKeywordId > 0 && $exceptSiteId !== null && $exceptSiteId > 0) {
                     $keepKey = KeywordMetaKey::siteMainArticleId($exceptSiteId);
-                    $query->where(function ($q) use ($exceptKeywordId, $keepKey): void {
+                    $legacyKey = KeywordMetaKey::MainArticleId->value;
+                    // Keep site-scoped SoT and legacy global on the keyword we are attaching.
+                    // Deleting only the legacy row still listed this keyword as "stale" and
+                    // orphan-cleanup could remove it before the next meta write.
+                    $query->where(function ($q) use ($exceptKeywordId, $keepKey, $legacyKey): void {
                         $q->where('keyword_id', '!=', $exceptKeywordId)
-                            ->orWhere('meta_key', '!=', $keepKey);
+                            ->orWhere(function ($inner) use ($keepKey, $legacyKey): void {
+                                $inner->where('meta_key', '!=', $keepKey)
+                                    ->where('meta_key', '!=', $legacyKey);
+                            });
                     });
                 } elseif ($exceptKeywordId !== null && $exceptKeywordId > 0) {
                     $query->where('keyword_id', '!=', $exceptKeywordId);
@@ -230,6 +258,13 @@ final class KeywordFocusAttach
                 }
                 usleep(50_000 * $attempts);
             }
+        }
+
+        if ($exceptKeywordId !== null && $exceptKeywordId > 0) {
+            $staleKeywordIds = array_values(array_filter(
+                $staleKeywordIds,
+                static fn (int $id): bool => $id !== $exceptKeywordId,
+            ));
         }
 
         if ($staleKeywordIds !== []) {

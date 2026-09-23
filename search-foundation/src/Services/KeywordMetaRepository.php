@@ -37,6 +37,11 @@ final class KeywordMetaRepository
             return;
         }
 
+        // Never insert orphan keyword_meta rows (FK keyword_meta_keyword_id_foreign).
+        if (! Keyword::query()->whereKey($keywordId)->exists()) {
+            return;
+        }
+
         KeywordMeta::query()->updateOrCreate(
             [
                 'keyword_id' => $keywordId,
@@ -233,6 +238,11 @@ final class KeywordMetaRepository
     public function setMainArticleIdForSite(int $keywordId, int $siteId, ?int $articleId): bool
     {
         if ($keywordId <= 0 || $siteId <= 0) {
+            return false;
+        }
+
+        // Preserve keyword_meta FK: never insert meta for a deleted/missing keyword.
+        if (! Keyword::query()->whereKey($keywordId)->exists()) {
             return false;
         }
 

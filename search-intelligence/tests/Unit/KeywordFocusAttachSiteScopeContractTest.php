@@ -34,6 +34,15 @@ final class KeywordFocusAttachSiteScopeContractTest extends TestCase
         self::assertStringContainsString('setSiteTargetUrl($keywordId, $siteId, null)', $attachSrc);
         self::assertStringContainsString('seo.cross_site_relation_rejected', $attachSrc);
         self::assertStringContainsString('keyword_site_article_site_mismatch', $attachSrc);
+
+        // Write site-scoped focus before clear+orphan so legacy-only keywords are not deleted first.
+        $setPos = strpos($attachSrc, 'setMainArticleIdForSite($keywordId, $siteId, $articleId)');
+        $clearPos = strpos($attachSrc, 'clearMainArticleMetaForArticle($articleId, exceptKeywordId: $keywordId');
+        self::assertNotFalse($setPos);
+        self::assertNotFalse($clearPos);
+        self::assertLessThan($clearPos, $setPos);
+        self::assertStringContainsString('mergeSuffixTruncatedKeywords($keyword, $siteId)', $attachSrc);
+        self::assertStringContainsString('Keyword::query()->find($keywordId)', $attachSrc);
         self::assertStringContainsString('function getMainArticleIdForSite', $repoSrc);
         self::assertStringContainsString('function setMainArticleIdForSite', $repoSrc);
         self::assertStringContainsString('siteMainArticleId', $repoSrc);

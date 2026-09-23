@@ -45,9 +45,7 @@ final class KeywordPersistenceService
             throw new \InvalidArgumentException('Keyword site_id is required.');
         }
 
-        $keyword = Keyword::query()
-            ->whereRaw('phrase COLLATE utf8mb4_unicode_ci = ?', [$phrase])
-            ->first();
+        $keyword = $this->findByPhrase($phrase);
 
         if ($keyword === null) {
             $keyword = Keyword::query()->create([
@@ -152,6 +150,19 @@ final class KeywordPersistenceService
         $targetUrl = trim((string) ($targetUrl ?? ''));
 
         return $targetUrl !== '' ? $targetUrl : null;
+    }
+
+    private function findByPhrase(string $phrase): ?Keyword
+    {
+        $query = Keyword::query();
+        // MySQL CI collation; SQLite (phpunit :memory:) has no utf8mb4_unicode_ci.
+        if ($query->getConnection()->getDriverName() === 'sqlite') {
+            return $query->where('phrase', $phrase)->first();
+        }
+
+        return $query
+            ->whereRaw('phrase COLLATE utf8mb4_unicode_ci = ?', [$phrase])
+            ->first();
     }
 
     /**
