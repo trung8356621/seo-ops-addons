@@ -55,6 +55,7 @@ final class KeywordFocusAttachSiteScopeContractTest extends TestCase
         );
 
         self::assertStringContainsString('mainArticlesForSite', $presenter);
+        self::assertStringContainsString('buildFocusArticle(Keyword $keyword, ?int $siteId', $presenter);
         self::assertStringContainsString('buildLinkedSourceArticles(Keyword $keyword, ?int $siteId', $presenter);
         self::assertStringContainsString('$sourceSiteId !== $siteId', $presenter);
     }

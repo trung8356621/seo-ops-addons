@@ -114,6 +114,48 @@ final class KeywordLinkDetailPanelPresenter
     }
 
     /**
+     * Canonical Focus Article for the current view site.
+     *
+     * @return array{
+     *     id: int,
+     *     title: string,
+     *     wp_url: string|null,
+     *     edit_url: string|null,
+     *     site_id: int,
+     *     is_focus: bool,
+     *     can_assign_content_project: bool,
+     *     in_draft: bool,
+     *     content_project_url: string|null
+     * }|null
+     */
+    public function buildFocusArticle(Keyword $keyword, ?int $siteId = null): ?array
+    {
+        $siteId = $this->resolveViewSiteId($keyword, $siteId);
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        $focusArticle = $keyword->mainArticlesForSite($siteId)->first();
+        if (! $focusArticle instanceof SeoArticle) {
+            return null;
+        }
+
+        $articleId = (int) $focusArticle->id;
+        $title = trim((string) ($focusArticle->title ?? ''))
+            ?: KeywordResource::resolveLinkMapSourceLabel($focusArticle);
+
+        return $this->presentLinkedSourceArticle(
+            $focusArticle,
+            $articleId,
+            $title,
+            app(KeywordLinkTargetResolver::class),
+            true,
+        );
+    }
+
+    /**
+     * Source articles from valid linkMaps only (excludes Focus Article to avoid duplicate display).
+     *
      * @return list<array{
      *     id: int,
      *     title: string,
@@ -137,18 +179,11 @@ final class KeywordLinkDetailPanelPresenter
                 ])
                 ->get();
 
-        $focusArticles = $siteId > 0
-            ? $keyword->mainArticlesForSite($siteId)
-            : ($keyword->relationLoaded('mainArticles')
-                ? $keyword->mainArticles
-                : collect($keyword->mainArticleId() !== null
-                    ? SeoArticle::query()->whereKey($keyword->mainArticleId())->get()
-                    : []));
-
-        $focusArticleIds = $focusArticles
-            ->map(static fn (mixed $row): int => $row instanceof SeoArticle ? (int) $row->id : 0)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->values();
+        $focusArticleId = 0;
+        if ($siteId > 0) {
+            $focusArticle = $keyword->mainArticlesForSite($siteId)->first();
+            $focusArticleId = $focusArticle instanceof SeoArticle ? (int) $focusArticle->id : 0;
+        }
 
         $items = [];
         $seen = [];
@@ -168,6 +203,10 @@ final class KeywordLinkDetailPanelPresenter
             }
 
             $articleId = (int) $sourceArticle->id;
+            if ($focusArticleId > 0 && $articleId === $focusArticleId) {
+                continue;
+            }
+
             if (isset($seen[$articleId])) {
                 continue;
             }
@@ -181,34 +220,7 @@ final class KeywordLinkDetailPanelPresenter
                 $articleId,
                 $title,
                 $resolver,
-                $focusArticleIds->contains($articleId),
-            );
-        }
-
-        foreach ($focusArticles as $focusArticle) {
-            if (! $focusArticle instanceof SeoArticle) {
-                continue;
-            }
-
-            if ($siteId > 0 && (int) ($focusArticle->site_id ?? 0) !== $siteId) {
-                continue;
-            }
-
-            $articleId = (int) $focusArticle->id;
-            if (isset($seen[$articleId])) {
-                continue;
-            }
-
-            $seen[$articleId] = true;
-            $title = trim((string) ($focusArticle->title ?? ''))
-                ?: KeywordResource::resolveLinkMapSourceLabel($focusArticle);
-
-            $items[] = $this->presentLinkedSourceArticle(
-                $focusArticle,
-                $articleId,
-                $title,
-                $resolver,
-                true,
+                false,
             );
         }
 

@@ -7,8 +7,10 @@
     $presenter = app(KeywordLinkDetailPanelPresenter::class);
     $resolver = app(KeywordTagResolver::class);
     $viewSiteId = (int) (KeywordResource::resolveKeywordSiteId($record) ?? 0);
-    $linkItems = $presenter->buildItems($record, $viewSiteId > 0 ? $viewSiteId : null);
-    $linkedArticles = collect($presenter->buildLinkedSourceArticles($record, $viewSiteId > 0 ? $viewSiteId : null));
+    $siteArg = $viewSiteId > 0 ? $viewSiteId : null;
+    $linkItems = $presenter->buildItems($record, $siteArg);
+    $focusArticle = $presenter->buildFocusArticle($record, $siteArg);
+    $linkedArticles = collect($presenter->buildLinkedSourceArticles($record, $siteArg));
     $internalLinks = collect($linkItems)
         ->filter(static fn (array $item): bool => ($item['link_type'] ?? '') === 'internal')
         ->values();
@@ -56,6 +58,67 @@
     <section class="keyword-dictionary-drawer__section">
         <div class="keyword-dictionary-drawer__section-head">
             <h3 class="keyword-dictionary-drawer__section-title">
+                {{ __('seo-content-ai::filament.keyword.drawer_focus_article_heading') }}
+            </h3>
+        </div>
+        @if ($focusArticle === null)
+            <p class="keyword-dictionary-drawer__empty">—</p>
+        @else
+            <ul class="keyword-dictionary-drawer__list">
+                <li class="keyword-dictionary-drawer__list-item">
+                    <div class="keyword-dictionary-drawer__list-body">
+                        @if (! empty($focusArticle['wp_url']))
+                            <a
+                                href="{{ $focusArticle['wp_url'] }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="keyword-dictionary-drawer__list-title text-indigo-600 hover:text-indigo-500 dark:text-indigo-300"
+                            >
+                                {{ $focusArticle['title'] }}
+                            </a>
+                        @else
+                            <p class="keyword-dictionary-drawer__list-title">{{ $focusArticle['title'] }}</p>
+                        @endif
+                    </div>
+                    <div class="keyword-dictionary-drawer__list-aside">
+                        <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--info ws-badge--status">
+                            {{ __('seo-content-ai::filament.keyword.focus_short') }}
+                        </span>
+
+                        <div class="keyword-dictionary-drawer__card-actions">
+                            @if (! empty($focusArticle['edit_url']))
+                                <a
+                                    href="{{ $focusArticle['edit_url'] }}"
+                                    class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--edit"
+                                    title="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                    aria-label="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                >
+                                    <x-filament::icon icon="heroicon-m-pencil-square" class="h-4 w-4" />
+                                </a>
+                            @endif
+
+                            @if ($focusArticle['can_assign_content_project'] ?? false)
+                                <button
+                                    type="button"
+                                    data-assign-article="{{ (int) ($focusArticle['id'] ?? 0) }}"
+                                    data-article-site-id="{{ (int) ($focusArticle['site_id'] ?? 0) }}"
+                                    class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--assign"
+                                    title="{{ ! empty($focusArticle['in_draft']) ? __('seo-content-ai::filament.article_list.already_in_draft') : __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                    aria-label="{{ __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                >
+                                    <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4" />
+                                </button>
+                            @endif
+                        </div>
+                    </div>
+                </li>
+            </ul>
+        @endif
+    </section>
+
+    <section class="keyword-dictionary-drawer__section">
+        <div class="keyword-dictionary-drawer__section-head">
+            <h3 class="keyword-dictionary-drawer__section-title">
                 {{ __('seo-content-ai::filament.keyword.drawer_linked_articles_heading') }}
             </h3>
         </div>
@@ -80,16 +143,10 @@
                             @endif
                         </div>
                         <div class="keyword-dictionary-drawer__list-aside">
-                            @if (! empty($article['is_focus']))
-                                <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--info ws-badge--status">
-                                    {{ __('seo-content-ai::filament.keyword.focus_short') }}
-                                </span>
-                            @else
-                                <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--success ws-badge--status">
-                                    <x-filament::icon icon="heroicon-m-check-circle" class="h-3 w-3" />
-                                    {{ __('seo-content-ai::filament.keyword.stat_active') }}
-                                </span>
-                            @endif
+                            <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--success ws-badge--status">
+                                <x-filament::icon icon="heroicon-m-check-circle" class="h-3 w-3" />
+                                {{ __('seo-content-ai::filament.keyword.stat_active') }}
+                            </span>
 
                             <div class="keyword-dictionary-drawer__card-actions">
                                 @if (! empty($article['edit_url']))

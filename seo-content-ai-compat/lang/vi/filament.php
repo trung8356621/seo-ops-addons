@@ -558,6 +558,7 @@ return [
         'link_status_active' => 'Active',
         'drawer_edit_article' => 'Sửa bài viết',
         'drawer_analyze_content' => 'Phân tích Content',
+        'drawer_focus_article_heading' => 'Bài viết Focus',
         'drawer_linked_articles_heading' => 'Danh sách bài viết liên kết',
         'drawer_internal_links_heading' => 'Danh sách internal link',
         'workspace_nav_anchor_audit' => 'Sửa Link Chết',

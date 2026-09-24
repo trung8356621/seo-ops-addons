@@ -558,6 +558,7 @@ return [
         'link_status_active' => 'Active',
         'drawer_edit_article' => 'Edit article',
         'drawer_analyze_content' => 'Analyze content',
+        'drawer_focus_article_heading' => 'Focus article',
         'drawer_linked_articles_heading' => 'Linked articles',
         'drawer_internal_links_heading' => 'Internal links',
         'workspace_nav_anchor_audit' => 'Link Triage',
