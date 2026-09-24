@@ -52,6 +52,7 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
         self::assertFileExists($blade);
         $bladeSrc = (string) file_get_contents($blade);
         self::assertStringContainsString('keyword-relationship-chart.js', $bladeSrc);
+        self::assertStringContainsString("@vite(['addons/search-intelligence/resources/js/keyword-relationship-chart.js'])", $bladeSrc);
         self::assertStringContainsString('data-keyword-relationship-root', $bladeSrc);
         self::assertStringContainsString('data-keyword-relationship-side', $bladeSrc);
         self::assertStringContainsString('toggleCategory', $bladeSrc);
@@ -63,6 +64,31 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
         self::assertStringContainsString('GraphChart', $jsSrc);
         self::assertStringNotContainsString('cytoscape', $jsSrc);
         self::assertStringNotContainsString('d3', strtolower($jsSrc));
+    }
+
+    public function test_client_vite_config_registers_relationship_entry(): void
+    {
+        $candidates = [
+            dirname(__DIR__, 5).'/omnichannel-client/vite.config.js',
+            dirname(__DIR__, 4).'/../omnichannel-client/vite.config.js',
+            'D:/work/omnichannel-client/vite.config.js',
+        ];
+        $vite = null;
+        foreach ($candidates as $path) {
+            if (is_readable($path)) {
+                $vite = $path;
+                break;
+            }
+        }
+        if ($vite === null) {
+            self::markTestSkipped('omnichannel-client vite.config.js not reachable from addon test tree.');
+        }
+
+        $src = (string) file_get_contents($vite);
+        self::assertStringContainsString(
+            "addons/search-intelligence/resources/js/keyword-relationship-chart.js",
+            $src,
+        );
     }
 
     public function test_site_topical_map_unchanged_as_separate_page(): void

@@ -115,6 +115,37 @@ final class KeywordRelationshipMcpBoundaryContractTest extends TestCase
         self::assertStringNotContainsString('mappingtype::near', $gscBody);
     }
 
+    public function test_lock_axes_are_explicit_and_not_conflated(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(KeywordRelationshipReadModel::class))->getFileName(),
+        );
+        $coreBody = $this->methodBody($src, 'buildKeywordCore');
+        self::assertStringContainsString("'source_locked'", $coreBody);
+        self::assertStringContainsString('source_locked', $coreBody);
+        self::assertStringContainsString("'membership_locked'", $coreBody);
+        self::assertStringContainsString('is_locked', $coreBody);
+        self::assertStringNotContainsString("'locked'", $coreBody);
+        self::assertStringContainsString('loadTopicMembership', $src);
+    }
+
+    public function test_internal_links_are_focus_article_neighborhood_only(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(KeywordRelationshipReadModel::class))->getFileName(),
+        );
+        $body = $this->methodBody($src, 'loadInternalLinks');
+        self::assertStringContainsString('SeoLinkMapType::Internal', $body);
+        self::assertStringContainsString("target_article_id', \$focusId", $body);
+        self::assertStringContainsString("source_article_id', \$focusId", $body);
+        self::assertStringContainsString('whereHas(\'sourceArticle\'', $body);
+        self::assertStringContainsString('whereHas(\'targetArticle\'', $body);
+        self::assertStringNotContainsString("where('keyword_id'", $body);
+        self::assertStringNotContainsString('target_external_url', $body);
+        self::assertStringNotContainsString('WikiTrust', $body);
+        self::assertStringNotContainsString('External', $body);
+    }
+
     public function test_gateway_documents_no_snapshot_and_two_consumers(): void
     {
         $src = (string) file_get_contents(
@@ -181,6 +212,84 @@ final class KeywordRelationshipMcpBoundaryContractTest extends TestCase
         self::assertContains('has_dna', $edgeLabels);
         self::assertContains('same_topic', $edgeLabels);
         self::assertNotContains('semantic_neighbor', $edgeLabels);
+    }
+
+    public function test_graph_presenter_internal_link_edges_are_focus_article_centric(): void
+    {
+        $dto = new KeywordRelationship(
+            siteId: 1,
+            keyword: ['ref' => 'keyword:1', 'id' => 1, 'phrase' => 'alpha'],
+            topics: [],
+            focusArticles: [['article_id' => 10, 'title' => 'Focus', 'article_ref' => 'article:10']],
+            dna: ['topic_dna' => []],
+            relatedKeywords: RelationshipListSlice::fromAll([], 50),
+            internalLinks: [
+                'available' => true,
+                'inbound' => RelationshipListSlice::fromAll([
+                    [
+                        'link_map_id' => 101,
+                        'source_article_id' => 20,
+                        'target_article_id' => 10,
+                        'anchor_text' => 'in',
+                        'link_type' => 'internal',
+                        'direction' => 'inbound',
+                    ],
+                ], 50)->toArray(),
+                'outbound' => RelationshipListSlice::fromAll([
+                    [
+                        'link_map_id' => 102,
+                        'source_article_id' => 10,
+                        'target_article_id' => 30,
+                        'anchor_text' => 'out',
+                        'link_type' => 'internal',
+                        'direction' => 'outbound',
+                    ],
+                    [
+                        'link_map_id' => 999,
+                        'link_type' => 'external',
+                        'anchor_text' => 'skip-me',
+                        'direction' => 'outbound',
+                    ],
+                ], 50)->toArray(),
+            ],
+            gsc: [
+                'available' => false,
+                'query_mappings' => RelationshipListSlice::fromAll([], 50)->toArray(),
+            ],
+            planning: [
+                'available' => false,
+                'items' => RelationshipListSlice::fromAll([], 20)->toArray(),
+            ],
+            relationIssues: [],
+            availableSections: ['core', 'focus_articles', 'internal_links'],
+            generatedAt: '2026-01-01T00:00:00+00:00',
+            sourceUpdatedAt: null,
+        );
+
+        $graph = (new KeywordRelationshipGraphPresenter)->present($dto, [
+            'topic' => false,
+            'article' => true,
+            'dna' => false,
+            'related_keyword' => false,
+            'gsc' => false,
+            'internal_link' => true,
+            'planning' => false,
+        ]);
+
+        $nodeIds = array_column($graph['nodes'], 'id');
+        self::assertContains('article:10', $nodeIds);
+        self::assertContains('link:101', $nodeIds);
+        self::assertContains('link:102', $nodeIds);
+        self::assertNotContains('link:999', $nodeIds);
+
+        $byFormatter = [];
+        foreach ($graph['edges'] as $edge) {
+            $byFormatter[(string) ($edge['label']['formatter'] ?? '')] = $edge;
+        }
+        self::assertSame('link:101', $byFormatter['internal_link_inbound']['source'] ?? null);
+        self::assertSame('article:10', $byFormatter['internal_link_inbound']['target'] ?? null);
+        self::assertSame('article:10', $byFormatter['internal_link_outbound']['source'] ?? null);
+        self::assertSame('link:102', $byFormatter['internal_link_outbound']['target'] ?? null);
     }
 
     public function test_dto_to_array_exposes_meta_limits_and_issues(): void

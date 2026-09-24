@@ -170,29 +170,67 @@ final class KeywordRelationshipGraphPresenter
         }
 
         if ($filters['internal_link'] && ($payload['internal_links']['available'] ?? false) === true) {
-            foreach (['inbound', 'outbound'] as $dir) {
-                $items = is_array($payload['internal_links'][$dir]['items'] ?? null)
-                    ? $payload['internal_links'][$dir]['items']
-                    : [];
-                foreach ($items as $link) {
-                    if (! is_array($link)) {
-                        continue;
+            $focusId = (int) (($payload['focus_articles'][0]['article_id'] ?? 0));
+            if ($focusId > 0) {
+                $focusNodeId = 'article:'.$focusId;
+                $hasFocusNode = false;
+                foreach ($nodes as $existing) {
+                    if (($existing['id'] ?? '') === $focusNodeId) {
+                        $hasFocusNode = true;
+                        break;
                     }
-                    $lid = 'link:'.(int) ($link['link_map_id'] ?? 0);
-                    $label = (string) ($link['anchor_text'] ?: ('Link #'.(int) ($link['link_map_id'] ?? 0)));
+                }
+                if (! $hasFocusNode) {
+                    $focusMeta = is_array($payload['focus_articles'][0] ?? null)
+                        ? $payload['focus_articles'][0]
+                        : [];
                     $nodes[] = [
-                        'id' => $lid,
-                        'name' => $label,
-                        'category' => $ensureCat('Internal Link'),
-                        'symbolSize' => 18,
-                        'kind' => 'internal_link',
+                        'id' => $focusNodeId,
+                        'name' => (string) ($focusMeta['title'] ?? 'Article'),
+                        'category' => $ensureCat('Focus Article'),
+                        'symbolSize' => 36,
+                        'kind' => 'article',
                     ];
-                    $edges[] = [
-                        'source' => $kwNodeId,
-                        'target' => $lid,
-                        'label' => ['show' => true, 'formatter' => 'internal_link_'.$dir],
-                    ];
-                    $sidePanels[$lid] = $link;
+                    $sidePanels[$focusNodeId] = $focusMeta;
+                }
+
+                foreach (['inbound', 'outbound'] as $dir) {
+                    $items = is_array($payload['internal_links'][$dir]['items'] ?? null)
+                        ? $payload['internal_links'][$dir]['items']
+                        : [];
+                    foreach ($items as $link) {
+                        if (! is_array($link)) {
+                            continue;
+                        }
+                        // Neighborhood is Focus-Article-centric — skip non-internal leftovers defensively.
+                        $linkType = (string) ($link['link_type'] ?? '');
+                        if ($linkType !== '' && $linkType !== 'internal') {
+                            continue;
+                        }
+                        $lid = 'link:'.(int) ($link['link_map_id'] ?? 0);
+                        $label = (string) ($link['anchor_text'] ?: ('Link #'.(int) ($link['link_map_id'] ?? 0)));
+                        $nodes[] = [
+                            'id' => $lid,
+                            'name' => $label,
+                            'category' => $ensureCat('Internal Link'),
+                            'symbolSize' => 18,
+                            'kind' => 'internal_link',
+                        ];
+                        if ($dir === 'inbound') {
+                            $edges[] = [
+                                'source' => $lid,
+                                'target' => $focusNodeId,
+                                'label' => ['show' => true, 'formatter' => 'internal_link_inbound'],
+                            ];
+                        } else {
+                            $edges[] = [
+                                'source' => $focusNodeId,
+                                'target' => $lid,
+                                'label' => ['show' => true, 'formatter' => 'internal_link_outbound'],
+                            ];
+                        }
+                        $sidePanels[$lid] = $link;
+                    }
                 }
             }
         }

@@ -17,6 +17,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordRelationship;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\RelationshipListSlice;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 
 /**
@@ -56,7 +57,8 @@ final class KeywordRelationshipReadModel
         }
 
         $siteClass = $this->loadSiteClassification($siteId, $keywordId);
-        $core = $this->buildKeywordCore($keyword, $siteClass);
+        $membershipRow = $this->loadTopicMembership($siteId, $keywordId);
+        $core = $this->buildKeywordCore($keyword, $siteClass, $membershipRow);
         $topic = $this->membership->topicForKeyword($siteId, $keywordId);
         $topics = [];
         $sourceUpdatedAt = null;
@@ -78,7 +80,7 @@ final class KeywordRelationshipReadModel
         $focusArticles = $this->loadFocusArticles($siteId, $keywordId);
         $dna = $this->loadTopicDna($siteId, $topic !== null ? (int) $topic->id : 0);
         $related = $this->loadRelatedKeywords($siteId, $keywordId, $topic !== null ? (int) $topic->id : 0);
-        $links = $this->loadInternalLinks($siteId, $keywordId, $focusArticles);
+        $links = $this->loadInternalLinks($siteId, $focusArticles);
         $gsc = $this->loadGsc($siteId, $keywordId);
         $planning = $this->loadPlanning($siteId, (string) $keyword->phrase);
         $issues = $this->detectRelationIssues($topics, $focusArticles);
@@ -156,11 +158,25 @@ final class KeywordRelationshipReadModel
         return $row instanceof SeoSiteKeyword ? $row->toArray() : null;
     }
 
+    private function loadTopicMembership(int $siteId, int $keywordId): ?SeoTopicKeyword
+    {
+        if (! $this->tableReady('seo_topic_keywords')) {
+            return null;
+        }
+
+        $row = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('keyword_id', $keywordId)
+            ->first();
+
+        return $row instanceof SeoTopicKeyword ? $row : null;
+    }
+
     /**
      * @param  array<string, mixed>|null  $siteClass
      * @return array<string, mixed>
      */
-    private function buildKeywordCore(Keyword $keyword, ?array $siteClass): array
+    private function buildKeywordCore(Keyword $keyword, ?array $siteClass, ?SeoTopicKeyword $membership): array
     {
         $id = (int) $keyword->id;
 
@@ -186,8 +202,11 @@ final class KeywordRelationshipReadModel
             'keyword_score' => isset($siteClass['keyword_score']) ? (float) $siteClass['keyword_score'] : null,
             'review_band' => isset($siteClass['review_state']) ? (string) $siteClass['review_state'] : null,
             'review_status' => $keyword->review_status !== null ? (string) $keyword->review_status : null,
-            'locked' => (bool) ($keyword->source_locked ?? false),
-            'membership_locked' => null,
+            // Distinct lock axes — never conflate Keyword.source_locked with membership is_locked.
+            'source_locked' => (bool) ($keyword->source_locked ?? false),
+            'membership_locked' => $membership instanceof SeoTopicKeyword
+                ? (bool) ($membership->is_locked ?? false)
+                : null,
         ];
     }
 
@@ -299,61 +318,82 @@ final class KeywordRelationshipReadModel
     }
 
     /**
+     * Focus-article internal-link neighborhood (synced seo_link_maps only).
+     *
+     * inbound:  link_type=internal AND target_article_id = focus
+     * outbound: link_type=internal AND source_article_id = focus
+     * Both directions site-scoped. No WP crawl. No fabricated edges without focus.
+     *
      * @param  list<array<string, mixed>>  $focusArticles
      * @return array{available: bool, inbound: array<string, mixed>, outbound: array<string, mixed>}
      */
-    private function loadInternalLinks(int $siteId, int $keywordId, array $focusArticles): array
+    private function loadInternalLinks(int $siteId, array $focusArticles): array
     {
+        $emptySlice = RelationshipListSlice::fromAll([], KeywordRelationship::LINK_LIMIT)->toArray();
+
         if (! $this->tableReady('seo_link_maps')) {
             return [
                 'available' => false,
-                'inbound' => RelationshipListSlice::fromAll([], KeywordRelationship::LINK_LIMIT)->toArray(),
-                'outbound' => RelationshipListSlice::fromAll([], KeywordRelationship::LINK_LIMIT)->toArray(),
+                'inbound' => $emptySlice,
+                'outbound' => $emptySlice,
             ];
         }
 
         $focusId = (int) ($focusArticles[0]['article_id'] ?? 0);
+        if ($focusId <= 0) {
+            return [
+                'available' => true,
+                'inbound' => $emptySlice,
+                'outbound' => $emptySlice,
+            ];
+        }
+
+        $siteScoped = static function ($q) use ($siteId): void {
+            $q->where('site_id', $siteId);
+        };
+
+        $inboundRows = SeoLinkMap::query()
+            ->where('link_type', SeoLinkMapType::Internal->value)
+            ->where('target_article_id', $focusId)
+            ->whereHas('sourceArticle', $siteScoped)
+            ->whereHas('targetArticle', $siteScoped)
+            ->orderBy('id')
+            ->get(['id', 'keyword_id', 'source_article_id', 'target_article_id', 'anchor_text', 'link_type', 'status']);
+
+        $inbound = [];
+        foreach ($inboundRows as $row) {
+            $inbound[] = [
+                'link_map_id' => (int) $row->id,
+                'keyword_id' => (int) ($row->keyword_id ?? 0) ?: null,
+                'source_article_id' => (int) ($row->source_article_id ?? 0) ?: null,
+                'target_article_id' => (int) ($row->target_article_id ?? 0) ?: null,
+                'anchor_text' => $row->anchor_text !== null ? (string) $row->anchor_text : null,
+                'link_type' => $row->link_type instanceof \BackedEnum ? $row->link_type->value : (string) ($row->link_type ?? ''),
+                'status' => $row->status instanceof \BackedEnum ? $row->status->value : (string) ($row->status ?? ''),
+                'direction' => 'inbound',
+            ];
+        }
 
         $outboundRows = SeoLinkMap::query()
-            ->where('keyword_id', $keywordId)
-            ->whereHas('sourceArticle', static fn ($q) => $q->where('site_id', $siteId))
+            ->where('link_type', SeoLinkMapType::Internal->value)
+            ->where('source_article_id', $focusId)
+            ->whereHas('sourceArticle', $siteScoped)
+            ->whereHas('targetArticle', $siteScoped)
             ->orderBy('id')
-            ->get(['id', 'source_article_id', 'target_article_id', 'target_external_url', 'anchor_text', 'link_type', 'status']);
+            ->get(['id', 'keyword_id', 'source_article_id', 'target_article_id', 'anchor_text', 'link_type', 'status']);
 
         $outbound = [];
         foreach ($outboundRows as $row) {
             $outbound[] = [
                 'link_map_id' => (int) $row->id,
+                'keyword_id' => (int) ($row->keyword_id ?? 0) ?: null,
                 'source_article_id' => (int) ($row->source_article_id ?? 0) ?: null,
                 'target_article_id' => (int) ($row->target_article_id ?? 0) ?: null,
-                'target_external_url' => $row->target_external_url !== null ? (string) $row->target_external_url : null,
                 'anchor_text' => $row->anchor_text !== null ? (string) $row->anchor_text : null,
                 'link_type' => $row->link_type instanceof \BackedEnum ? $row->link_type->value : (string) ($row->link_type ?? ''),
                 'status' => $row->status instanceof \BackedEnum ? $row->status->value : (string) ($row->status ?? ''),
                 'direction' => 'outbound',
             ];
-        }
-
-        $inbound = [];
-        if ($focusId > 0) {
-            $inboundRows = SeoLinkMap::query()
-                ->where('target_article_id', $focusId)
-                ->whereHas('sourceArticle', static fn ($q) => $q->where('site_id', $siteId))
-                ->orderBy('id')
-                ->get(['id', 'keyword_id', 'source_article_id', 'target_article_id', 'anchor_text', 'link_type', 'status']);
-
-            foreach ($inboundRows as $row) {
-                $inbound[] = [
-                    'link_map_id' => (int) $row->id,
-                    'keyword_id' => (int) ($row->keyword_id ?? 0) ?: null,
-                    'source_article_id' => (int) ($row->source_article_id ?? 0) ?: null,
-                    'target_article_id' => (int) ($row->target_article_id ?? 0) ?: null,
-                    'anchor_text' => $row->anchor_text !== null ? (string) $row->anchor_text : null,
-                    'link_type' => $row->link_type instanceof \BackedEnum ? $row->link_type->value : (string) ($row->link_type ?? ''),
-                    'status' => $row->status instanceof \BackedEnum ? $row->status->value : (string) ($row->status ?? ''),
-                    'direction' => 'inbound',
-                ];
-            }
         }
 
         return [
