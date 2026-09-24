@@ -7,6 +7,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto;
 /**
  * One site-level Keyword Landscape topic row (Topic Core identity).
  *
+ * article_count = DISTINCT Focus Articles of MCP-eligible member Keywords
+ * (not linkMap rows, not linked source articles, not internal edges).
+ *
  * @phpstan-type DnaRow array{phrase: string, weight: int}
  */
 final class KeywordLandscapeTopic

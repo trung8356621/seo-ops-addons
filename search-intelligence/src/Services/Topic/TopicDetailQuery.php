@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchFoundation\Support\KeywordLinkDetailPanelPresenter;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
@@ -22,6 +23,7 @@ final class TopicDetailQuery
 {
     public function __construct(
         private readonly TopicLinkedArticleCounter $articleCounter,
+        private readonly TopicInternalLinkCounter $internalLinkCounter = new TopicInternalLinkCounter,
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
     ) {}
 
@@ -50,6 +52,7 @@ final class TopicDetailQuery
         $keywordCount = $memberships->count();
         $lockedMemberCount = $memberships->where('is_locked', true)->count();
         $articleCount = $this->articleCounter->countForTopic($siteId, $topicId);
+        $internalLinkCount = $this->internalLinkCounter->countForTopic($siteId, $topicId);
         $tags = $this->tagMetrics->forTopics($siteId, [$topicId], [$topicId => $articleCount])[$topicId] ?? [
             'intent' => '',
             'coverage' => 'unknown',
@@ -68,8 +71,8 @@ final class TopicDetailQuery
             'locked_member_count' => $lockedMemberCount,
             'keyword_count' => $keywordCount,
             'article_count' => $articleCount,
-            'internal_link_count' => $articleCount,
-            'internal_links' => $articleCount,
+            'internal_link_count' => $internalLinkCount,
+            'internal_links' => $internalLinkCount,
             'intent' => (string) ($tags['intent'] ?? ''),
             'coverage' => (string) ($tags['coverage'] ?? 'unknown'),
             'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
@@ -163,13 +166,31 @@ final class TopicDetailQuery
             ? collect()
             : Keyword::query()
                 ->whereIn('id', $keywordIds)
-                ->with(KeywordTagResolver::tableEagerLoad())
+                ->with(array_merge(KeywordTagResolver::tableEagerLoad(), [
+                    'linkMaps' => static function ($linkQuery) use ($siteId): void {
+                        $linkQuery->orderBy('seo_link_maps.id')
+                            ->where('status', '!=', SeoLinkMapStatus::Ignored->value)
+                            ->whereHas(
+                                'sourceArticle',
+                                static fn ($articleQuery) => $articleQuery
+                                    ->where('site_id', $siteId)
+                                    ->whereNull('deleted_at'),
+                            )
+                            ->with([
+                                'sourceArticle' => static fn ($articleQuery): mixed => $articleQuery
+                                    ->withTrashed()
+                                    ->select('id', 'site_id', 'title', 'slug'),
+                            ]);
+                    },
+                ]))
                 ->withCount([
                     'mainArticles as main_articles_count' => static function ($query) use ($siteId): void {
                         $query->where('site_id', $siteId)->whereNull('deleted_at');
                     },
                     'linkMaps as linked_articles_count' => static function ($query) use ($siteId): void {
-                        $query->whereNotNull('source_article_id')
+                        $query->selectRaw('count(distinct seo_link_maps.source_article_id)')
+                            ->whereNotNull('source_article_id')
+                            ->where('status', '!=', SeoLinkMapStatus::Ignored->value)
                             ->whereHas(
                                 'sourceArticle',
                                 static fn ($articleQuery) => $articleQuery
@@ -179,24 +200,25 @@ final class TopicDetailQuery
                     },
                     'linkMaps as site_links_count' => static function ($query) use ($siteId): void {
                         $query->where('status', '!=', SeoLinkMapStatus::Ignored->value)
-                            ->where(static function ($scope) use ($siteId): void {
-                                $scope->whereHas(
-                                    'sourceArticle',
-                                    static fn ($articleQuery) => $articleQuery->where('site_id', $siteId),
-                                )->orWhereHas(
-                                    'targetArticle',
-                                    static fn ($articleQuery) => $articleQuery->where('site_id', $siteId),
-                                );
-                            });
+                            ->where('link_type', 'internal')
+                            ->whereHas(
+                                'sourceArticle',
+                                static fn ($articleQuery) => $articleQuery->where('site_id', $siteId),
+                            );
                     },
                 ])
                 ->get()
                 ->keyBy('id');
 
+        $panel = app(KeywordLinkDetailPanelPresenter::class);
         $ordered = [];
         foreach ($paginator->items() as $row) {
             $keyword = $keywords->get((int) $row->keyword_id);
             if ($keyword instanceof Keyword) {
+                $keyword->setAttribute(
+                    'linked_article_count',
+                    $panel->linkedArticleCount($keyword, $siteId),
+                );
                 $ordered[] = $keyword;
             }
         }

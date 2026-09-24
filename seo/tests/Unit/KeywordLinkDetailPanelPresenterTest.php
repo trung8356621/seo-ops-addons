@@ -152,11 +152,34 @@ final class KeywordLinkDetailPanelPresenterTest extends TestCase
         $this->assertStringContainsString('focus_short', $focusSection);
     }
 
-    public function test_mini_stat_linked_articles_count_unchanged_from_record(): void
+    public function test_mini_stat_counts_come_from_presenter_collections(): void
     {
         $blade = $this->drawerBladeSource();
-        $this->assertStringContainsString('linked_articles_count', $blade);
-        $this->assertStringNotContainsString('focus_articles_count', $blade);
+        $source = $this->presenterSource();
+
+        $this->assertStringContainsString('$linkedArticleCount = $linkedArticles->count()', $blade);
+        $this->assertStringContainsString('$internalLinkCount = $internalLinks->count()', $blade);
+        $this->assertStringNotContainsString('linked_articles_count', $blade);
+        $this->assertStringNotContainsString('site_links_count', $blade);
+        $this->assertStringContainsString('function counts(Keyword $keyword, ?int $siteId = null): array', $source);
+        $this->assertStringContainsString("'linked_article_count'", $source);
+        $this->assertStringContainsString("'internal_link_count'", $source);
+        $this->assertStringContainsString("'focus_article_count'", $source);
+    }
+
+    public function test_linked_source_articles_are_distinct_by_source_article_id(): void
+    {
+        $linkedBody = $this->methodBody($this->presenterSource(), 'buildLinkedSourceArticles');
+        $this->assertStringContainsString('isset($seen[$articleId])', $linkedBody);
+        $this->assertStringContainsString('$seen[$articleId] = true', $linkedBody);
+    }
+
+    public function test_internal_link_count_filters_link_type_internal_only(): void
+    {
+        $countsBody = $this->methodBody($this->presenterSource(), 'counts');
+        $this->assertStringContainsString('SeoLinkMapType::Internal->value', $countsBody);
+        $this->assertStringContainsString('buildItems(', $countsBody);
+        $this->assertStringContainsString('buildLinkedSourceArticles(', $countsBody);
     }
 
     public function test_lang_keys_exist_for_focus_heading(): void

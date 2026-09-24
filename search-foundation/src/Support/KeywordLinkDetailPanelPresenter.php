@@ -154,7 +154,58 @@ final class KeywordLinkDetailPanelPresenter
     }
 
     /**
+     * Presentation counts — SSOT for Keyword Detail sidebar mini-stats and row labels.
+     *
+     * - focus_article_count: 0|1 for current site Focus Article
+     * - linked_article_count: DISTINCT non-focus source articles (valid linkMaps)
+     * - internal_link_count: actual internal edges rendered by buildItems()
+     *
+     * @return array{
+     *     focus_article_count: int,
+     *     linked_article_count: int,
+     *     internal_link_count: int
+     * }
+     */
+    public function counts(Keyword $keyword, ?int $siteId = null): array
+    {
+        $siteId = $this->resolveViewSiteId($keyword, $siteId);
+        $focus = $this->buildFocusArticle($keyword, $siteId > 0 ? $siteId : null);
+        $linked = $this->buildLinkedSourceArticles($keyword, $siteId > 0 ? $siteId : null);
+        $items = $this->buildItems($keyword, $siteId > 0 ? $siteId : null);
+
+        return [
+            'focus_article_count' => $focus !== null ? 1 : 0,
+            'linked_article_count' => count($linked),
+            'internal_link_count' => count(array_filter(
+                $items,
+                static fn (array $item): bool => ($item['link_type'] ?? '') === SeoLinkMapType::Internal->value,
+            )),
+        ];
+    }
+
+    public function focusArticleCount(Keyword $keyword, ?int $siteId = null): int
+    {
+        return $this->buildFocusArticle($keyword, $siteId) !== null ? 1 : 0;
+    }
+
+    public function linkedArticleCount(Keyword $keyword, ?int $siteId = null): int
+    {
+        return count($this->buildLinkedSourceArticles($keyword, $siteId));
+    }
+
+    public function internalLinkCount(Keyword $keyword, ?int $siteId = null): int
+    {
+        $items = $this->buildItems($keyword, $siteId);
+
+        return count(array_filter(
+            $items,
+            static fn (array $item): bool => ($item['link_type'] ?? '') === SeoLinkMapType::Internal->value,
+        ));
+    }
+
+    /**
      * Source articles from valid linkMaps only (excludes Focus Article to avoid duplicate display).
+     * Distinct by source_article_id — multiple edges from the same source count as one article.
      *
      * @return list<array{
      *     id: int,

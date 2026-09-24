@@ -88,13 +88,16 @@ final class TopicUiRestoreContractTest extends TestCase
         self::assertStringContainsString("'is_locked' => \$isTopicLocked", $listQ);
     }
 
-    public function test_article_counter_never_aggregates_by_keyword_ids_alone(): void
+    public function test_article_counter_counts_distinct_focus_articles_not_link_maps(): void
     {
         $path = dirname(__DIR__, 3).'/src/Services/Topic/TopicLinkedArticleCounter.php';
         $src = (string) file_get_contents($path);
         self::assertStringContainsString("where('site_id', \$siteId)", $src);
-        self::assertStringContainsString('sourceArticle', $src);
+        self::assertStringContainsString('keyword_meta', $src);
         self::assertStringContainsString('NEVER aggregate by keyword_id alone', $src);
+        self::assertStringContainsString('DISTINCT Focus Articles', $src);
+        self::assertStringNotContainsString('SeoLinkMap::query()', $src);
+        self::assertStringNotContainsString('source_article_id', $src);
     }
 
     public function test_recluster_wires_to_topic_core_job_not_legacy(): void

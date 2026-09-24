@@ -125,7 +125,8 @@ final class TopicCoreArchitectureTest extends TestCase
         $path = dirname(__DIR__, 3).'/src/Services/Topic/TopicLinkedArticleCounter.php';
         $src = (string) file_get_contents($path);
         self::assertStringContainsString("where('site_id', \$siteId)", $src);
-        self::assertStringContainsString('sourceArticle', $src);
+        self::assertStringContainsString('keyword_meta', $src);
+        self::assertStringContainsString('Focus Article', $src);
     }
 
     public function test_dissolve_preserves_site_keywords_table(): void

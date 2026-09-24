@@ -206,6 +206,14 @@ class Keyword extends Model
     }
 
     /**
+     * withCount helpers for Keyword list rows.
+     *
+     * linked_articles_count ≈ DISTINCT source_article_id (non-ignored, non-deleted source).
+     * Does NOT exclude Focus Article (site-scoped) — KeywordItemPresenter / panel presenter
+     * apply Focus exclusion for presentation. Prefer linked_article_count when set.
+     *
+     * site_links_count = non-ignored link edges (any type) for HAS_LINK / destinations.
+     *
      * @return array<string, \Closure(Builder): Builder>
      */
     public static function linkMapCountRelations(): array
@@ -213,7 +221,9 @@ class Keyword extends Model
         return [
             'linkMaps as linked_articles_count' => static function (Builder $query): Builder {
                 return $query
+                    ->selectRaw('count(distinct seo_link_maps.source_article_id)')
                     ->whereNotNull('source_article_id')
+                    ->where('status', '!=', SeoLinkMapStatus::Ignored->value)
                     ->whereHas(
                         'sourceArticle',
                         static fn (Builder $articleQuery): Builder => $articleQuery->whereNull('deleted_at'),

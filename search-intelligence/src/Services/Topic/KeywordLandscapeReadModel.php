@@ -18,6 +18,9 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTop
  * SSOT for: Keyword MCP snapshots, domain.keyword_landscape, SEO Audit cluster suggestions.
  * Does not change MCP/DNA algorithms — only consolidates Topic Core reads.
  *
+ * article_count per Topic = DISTINCT Focus Articles of MCP-eligible member Keywords
+ * (via TopicLinkedArticleCounter) — not linkMap rows / linked sources / edges.
+ *
  * Eligibility = Topic NOT mcp_excluded AND Keyword NOT mcp_keyword_excluded.
  * Excluded Topics are omitted entirely (no empty 0%/0-keyword shells).
  */

@@ -14,6 +14,9 @@
     $internalLinks = collect($linkItems)
         ->filter(static fn (array $item): bool => ($item['link_type'] ?? '') === 'internal')
         ->values();
+    // Mini-stats MUST match rendered lists (presenter SSOT) — never raw withCount edge rows.
+    $linkedArticleCount = $linkedArticles->count();
+    $internalLinkCount = $internalLinks->count();
     $siteDomainOption = $viewSiteId > 0 ? (KeywordResource::siteSelectOptions()[$viewSiteId] ?? null) : null;
     $siteDomain = is_string($siteDomainOption) && $siteDomainOption !== ''
         ? $siteDomainOption
@@ -43,11 +46,11 @@
     <div class="keyword-dictionary-drawer__mini-stats">
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.linked_articles') }}</span>
-            <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format((int) ($record->linked_articles_count ?? 0)) }}</span>
+            <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format($linkedArticleCount) }}</span>
         </div>
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.internal_links_short') }}</span>
-            <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format((int) ($record->site_links_count ?? 0)) }}</span>
+            <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format($internalLinkCount) }}</span>
         </div>
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.legacy_type') }}</span>

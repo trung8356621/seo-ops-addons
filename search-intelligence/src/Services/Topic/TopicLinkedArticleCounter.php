@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
-use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
+use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 
 /**
- * Site-scoped linked-article counts for Topic detail.
+ * Site-scoped DISTINCT Focus Article counts for Topic / Keyword Landscape.
+ *
+ * Canonical Topic/Topical Map `article_count` =
+ * DISTINCT Focus Articles of eligible member Keywords (not linkMap sources, not edges).
  *
  * NEVER aggregate by keyword_id alone — always require site_id.
  */
 final class TopicLinkedArticleCounter
 {
     /**
-     * Distinct source articles on this site that link any Topic member keyword.
+     * Distinct Focus Articles for member keywords of one Topic on this site.
      *
      * @param  array<int, true>|list<int>|null  $excludeKeywordIds  MCP-quarantined (or other) keyword ids to omit
      */
@@ -54,15 +58,7 @@ final class TopicLinkedArticleCounter
             return 0;
         }
 
-        return (int) SeoLinkMap::query()
-            ->whereIn('keyword_id', $keywordIds)
-            ->whereNotNull('source_article_id')
-            ->whereHas(
-                'sourceArticle',
-                static fn ($q) => $q->where('site_id', $siteId)->whereNull('deleted_at'),
-            )
-            ->distinct()
-            ->count('source_article_id');
+        return count($this->focusArticleIdsByKeyword($siteId, $keywordIds));
     }
 
     /**
@@ -70,7 +66,7 @@ final class TopicLinkedArticleCounter
      *
      * @param  list<int>  $topicIds
      * @param  array<int, true>|list<int>|null  $excludeKeywordIds
-     * @return array<int, int> topic_id => count
+     * @return array<int, int> topic_id => distinct focus article count
      */
     public function countForTopics(int $siteId, array $topicIds, array|null $excludeKeywordIds = null): array
     {
@@ -108,30 +104,105 @@ final class TopicLinkedArticleCounter
             return $out;
         }
 
-        $maps = SeoLinkMap::query()
-            ->whereIn('keyword_id', $allKeywordIds)
-            ->whereNotNull('source_article_id')
-            ->whereHas(
-                'sourceArticle',
-                static fn ($q) => $q->where('site_id', $siteId)->whereNull('deleted_at'),
-            )
-            ->get(['keyword_id', 'source_article_id']);
-
-        /** @var array<int, array<int, true>> $articlesByKeyword */
-        $articlesByKeyword = [];
-        foreach ($maps as $map) {
-            $articlesByKeyword[(int) $map->keyword_id][(int) $map->source_article_id] = true;
-        }
+        $focusByKeyword = $this->focusArticleIdMap($siteId, $allKeywordIds);
 
         foreach ($byTopic as $topicId => $keywordIds) {
             /** @var array<int, true> $articles */
             $articles = [];
             foreach ($keywordIds as $keywordId) {
-                foreach ($articlesByKeyword[$keywordId] ?? [] as $articleId => $_) {
+                $articleId = $focusByKeyword[$keywordId] ?? null;
+                if ($articleId !== null && $articleId > 0) {
                     $articles[$articleId] = true;
                 }
             }
             $out[$topicId] = count($articles);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<int>  $keywordIds
+     * @return list<int> distinct focus article ids
+     */
+    private function focusArticleIdsByKeyword(int $siteId, array $keywordIds): array
+    {
+        $map = $this->focusArticleIdMap($siteId, $keywordIds);
+
+        return array_values(array_unique(array_filter(
+            array_values($map),
+            static fn (int $id): bool => $id > 0,
+        )));
+    }
+
+    /**
+     * Resolve Focus Article id per keyword (site-scoped meta preferred; legacy global only if same site).
+     *
+     * @param  list<int>  $keywordIds
+     * @return array<int, int> keyword_id => article_id
+     */
+    private function focusArticleIdMap(int $siteId, array $keywordIds): array
+    {
+        if ($siteId <= 0 || $keywordIds === []) {
+            return [];
+        }
+
+        $siteKey = KeywordMetaKey::siteMainArticleId($siteId);
+        $legacyKey = KeywordMetaKey::MainArticleId->value;
+
+        $rows = DB::connection('omi_seo_ai')
+            ->table('keyword_meta')
+            ->whereIn('keyword_id', $keywordIds)
+            ->whereIn('meta_key', [$siteKey, $legacyKey])
+            ->get(['keyword_id', 'meta_key', 'meta_value']);
+
+        /** @var array<int, int> $scoped */
+        $scoped = [];
+        /** @var array<int, int> $legacy */
+        $legacy = [];
+        foreach ($rows as $row) {
+            $keywordId = (int) ($row->keyword_id ?? 0);
+            $articleId = (int) ($row->meta_value ?? 0);
+            if ($keywordId <= 0 || $articleId <= 0) {
+                continue;
+            }
+            $metaKey = (string) ($row->meta_key ?? '');
+            if ($metaKey === $siteKey) {
+                $scoped[$keywordId] = $articleId;
+            } elseif ($metaKey === $legacyKey) {
+                $legacy[$keywordId] = $articleId;
+            }
+        }
+
+        /** @var array<int, int> $candidateByKeyword */
+        $candidateByKeyword = [];
+        foreach ($keywordIds as $keywordId) {
+            if (isset($scoped[$keywordId])) {
+                $candidateByKeyword[$keywordId] = $scoped[$keywordId];
+            } elseif (isset($legacy[$keywordId])) {
+                $candidateByKeyword[$keywordId] = $legacy[$keywordId];
+            }
+        }
+
+        if ($candidateByKeyword === []) {
+            return [];
+        }
+
+        $validArticleIds = DB::connection('omi_seo_ai')
+            ->table('articles')
+            ->where('site_id', $siteId)
+            ->whereNull('deleted_at')
+            ->whereIn('id', array_values(array_unique($candidateByKeyword)))
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+        $validSet = array_fill_keys($validArticleIds, true);
+
+        $out = [];
+        foreach ($candidateByKeyword as $keywordId => $articleId) {
+            if (isset($validSet[$articleId])) {
+                $out[$keywordId] = $articleId;
+            }
         }
 
         return $out;

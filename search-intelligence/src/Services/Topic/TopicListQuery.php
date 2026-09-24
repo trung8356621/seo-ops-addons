@@ -22,6 +22,7 @@ final class TopicListQuery
 {
     public function __construct(
         private readonly TopicLinkedArticleCounter $articleCounter,
+        private readonly TopicInternalLinkCounter $internalLinkCounter = new TopicInternalLinkCounter,
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
         private readonly ?TopicUserTagService $userTags = null,
         private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
@@ -140,7 +141,9 @@ final class TopicListQuery
         $mcpArticleCounts = $this->articleCounter->countForTopics($siteId, $mcpEligibleTopicIds, $excludedKeywordIds);
         $shares = (new TopicTopicalShareCalculator)->percentages($mcpArticleCounts);
         // Raw inventory counts for management rows (includes excluded Topic / Keyword links).
+        // article_count = DISTINCT Focus Articles; internal_link_count = actual internal edges.
         $rawArticleCounts = $this->articleCounter->countForTopics($siteId, $topicIds);
+        $rawInternalLinkCounts = $this->internalLinkCounter->countForTopics($siteId, $topicIds);
 
         $memberCounts = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -160,6 +163,7 @@ final class TopicListQuery
             $keywordCount = (int) ($counts->member_count ?? 0);
             $lockedMemberCount = (int) ($counts->locked_member_count ?? 0);
             $articleCount = (int) ($rawArticleCounts[$topicId] ?? 0);
+            $internalLinkCount = (int) ($rawInternalLinkCounts[$topicId] ?? 0);
             $isTopicLocked = (bool) $topic->is_locked;
             $isMcpExcluded = isset($excludedTopics[$topicId]);
             $tags = $tagMetrics[$topicId] ?? [
@@ -193,8 +197,8 @@ final class TopicListQuery
                 'locked_member_count' => $lockedMemberCount,
                 'keyword_count' => $keywordCount,
                 'article_count' => $articleCount,
-                'internal_link_count' => $articleCount,
-                'internal_links' => $articleCount,
+                'internal_link_count' => $internalLinkCount,
+                'internal_links' => $internalLinkCount,
                 'intent' => $isMcpExcluded ? '' : (string) ($tags['intent'] ?? ''),
                 'coverage' => $isMcpExcluded ? 'unknown' : (string) ($tags['coverage'] ?? 'unknown'),
                 'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
