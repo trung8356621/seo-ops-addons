@@ -27,9 +27,6 @@ final class SeedingTopicsPage extends Page
 
     protected static string $view = 'seeding::filament.pages.seeding-topics-page';
 
-    /** Bare shell — no Filament sidebar / topbar chrome. */
-    protected static string $layout = 'seeding::layouts.bare';
-
     protected static bool $shouldRegisterNavigation = false;
 
     /**

@@ -22,22 +22,25 @@ final class SeedingV2StructureContractTest extends TestCase
         self::assertStringContainsString('Feed Seeding', $workspace);
         self::assertStringContainsString('Bài từ Website', $workspace);
         self::assertStringContainsString('Quản lý / Tổng kết', $workspace);
-        self::assertStringContainsString('mainTab === \'manage\' && manager', $workspace);
+        self::assertStringContainsString("mainTab === 'manage' && manager", $workspace);
         self::assertStringContainsString('ManagerPanel', $workspace);
         self::assertStringContainsString('WebsiteShareFeed', $workspace);
+        self::assertStringContainsString('isSeederQuickFeed', $workspace);
+        self::assertStringContainsString('!isSeederQuickFeed', $workspace);
     }
 
-    public function test_feed_is_single_column(): void
+    public function test_default_feed_is_single_column_seeder_opt_in_two(): void
     {
         $css = (string) file_get_contents($this->addonRoot().'/resources/css/seeding-workspace.css');
         self::assertMatchesRegularExpression(
-            '/\.seeding-ws__feed-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s',
+            '/(?:^|\n)\.seeding-ws__feed-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s',
             $css
         );
-        self::assertDoesNotMatchRegularExpression(
-            '/\.seeding-ws__feed-grid\s*\{[^}]*repeat\(\s*[23]/s',
+        self::assertMatchesRegularExpression(
+            '/\.seeding-ws__feed-host\.is-seeder-quick-feed\s+\.seeding-ws__feed-grid\s*\{[^}]*repeat\(\s*2/s',
             $css
         );
+        self::assertStringContainsString('grid-column: 1 / -1', $css);
         self::assertStringNotContainsString('@container seeding-feed', $css);
     }
 

@@ -43,7 +43,6 @@ final class SeedingPanelProvider extends PanelProvider
             ])
             ->maxContentWidth(MaxWidth::Full)
             ->navigation(false)
-            ->topbar(false)
             ->sidebarCollapsibleOnDesktop(false)
             ->pages([
                 SeedingTopicsPage::class,

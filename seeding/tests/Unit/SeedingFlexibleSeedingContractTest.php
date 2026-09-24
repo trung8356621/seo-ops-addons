@@ -133,7 +133,7 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
 
     public function test_personal_stats_not_fake_team(): void
     {
-        $sidebar = $this->js('components/TeamStatsSidebar.jsx');
+        $sidebar = $this->js('components/SeedingSidebar.jsx');
         $selectors = $this->js('features/workspace/selectors.js');
         self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
         self::assertStringContainsString('Seeding hôm nay', $sidebar);

@@ -99,5 +99,7 @@ HTML;
         self::assertStringContainsString('SeedingLinkPreviewController', $provider);
         self::assertStringContainsString('SeedingLinkPreviewService', $provider);
         self::assertStringContainsString('SeedingOutboundUrlPolicy', $provider);
+        self::assertStringContainsString('SeedingLinkPreviewImageController', $provider);
+        self::assertStringContainsString('link-preview/image/{hash}', $provider);
     }
 }

@@ -66,7 +66,43 @@ final class SeedingWorkspaceContractTest extends TestCase
         );
         self::assertStringNotContainsString('$siteId', $source);
         self::assertStringNotContainsString('domain-context-changed', $source);
-        self::assertStringContainsString('seeding::layouts.bare', $source);
+        self::assertStringNotContainsString('seeding::layouts.bare', $source);
+        self::assertStringNotContainsString("\$layout = 'seeding::layouts.bare'", $source);
+    }
+
+    public function test_panel_uses_shared_topbar_without_sidebar(): void
+    {
+        $source = (string) file_get_contents(
+            (new ReflectionClass(SeedingPanelProvider::class))->getFileName()
+        );
+        self::assertStringContainsString("->path('seeding')", $source);
+        self::assertStringContainsString('->navigation(false)', $source);
+        self::assertStringNotContainsString('->topbar(false)', $source);
+    }
+
+    public function test_workspace_blade_has_no_standalone_app_chrome(): void
+    {
+        $blade = (string) file_get_contents(
+            $this->addonRoot().'/resources/views/filament/pages/seeding-topics-page.blade.php'
+        );
+        self::assertStringContainsString('id="seeding-workspace-root"', $blade);
+        self::assertStringContainsString('data-seeding-shell="workspace"', $blade);
+        self::assertStringContainsString('SeedingVite', $blade);
+
+        self::assertStringNotContainsString('seeding-standalone__chrome', $blade);
+        self::assertStringNotContainsString('seeding-standalone__brand', $blade);
+        self::assertStringNotContainsString('seeding-standalone__logo', $blade);
+        self::assertStringNotContainsString('seeding-standalone__product', $blade);
+        self::assertStringNotContainsString('seeding-standalone__user', $blade);
+        self::assertStringNotContainsString("url('/admin')", $blade);
+
+        // Sidebar may still be suppressed for full-width; topbar must not be hidden.
+        self::assertStringContainsString('.fi-sidebar', $blade);
+        self::assertDoesNotMatchRegularExpression(
+            '/\.fi-topbar[^{]*\{[^}]*display:\s*none/s',
+            $blade
+        );
+        self::assertFileDoesNotExist($this->addonRoot().'/resources/views/layouts/bare.blade.php');
     }
 
     public function test_panel_is_standalone(): void
@@ -117,7 +153,7 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString('activeGenTopicId', $workspace);
         self::assertStringContainsString('outputsForTopic', $workspace);
         self::assertStringContainsString('LinkPoolPanel', $workspace);
-        self::assertStringContainsString('TeamStatsSidebar', $workspace);
+        self::assertStringContainsString('SeedingSidebar', $workspace);
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);
         self::assertStringContainsString('shareTopicApi', $workspace);
@@ -145,6 +181,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             'TopicCard.jsx',
             'TopicComposer.jsx',
             'TopicDetail.jsx',
+            'SeedingSidebar.jsx',
             'TeamStatsSidebar.jsx',
             'LinkPoolPanel.jsx',
             'ShareGeneratePanel.jsx',

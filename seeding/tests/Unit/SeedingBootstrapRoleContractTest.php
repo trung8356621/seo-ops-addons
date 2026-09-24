@@ -9,7 +9,6 @@ use Omnichannel\Addons\Seeding\Support\SeedingRoleAssignment;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceHealth;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
-use ReflectionMethod;
 
 /**
  * Bootstrap must project real seeding.* roles — not flatten every non-manager to seeder.
@@ -52,17 +51,9 @@ final class SeedingBootstrapRoleContractTest extends TestCase
 
     public function test_normalize_accepts_all_three_roles(): void
     {
-        $assignment = new SeedingRoleAssignment(
-            new class
-            {
-                public function permissionTablesReady(): bool
-                {
-                    return false;
-                }
-
-                public function ensureSynced(): void {}
-            }
-        );
+        $ref = new ReflectionClass(SeedingRoleAssignment::class);
+        /** @var SeedingRoleAssignment $assignment */
+        $assignment = $ref->newInstanceWithoutConstructor();
 
         self::assertSame(SeedingAccess::ROLE_MANAGER, $assignment->normalize('seeding.manager'));
         self::assertSame(SeedingAccess::ROLE_TOPIC_CREATOR, $assignment->normalize('seeding.topic_creator'));
