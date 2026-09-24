@@ -105,11 +105,21 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('mcpMax', $app);
         self::assertStringContainsString('showUntagged', $app);
         self::assertStringContainsString('AppChrome', $app);
-        self::assertStringContainsString('focusNetworkTopic', $app);
-        self::assertStringContainsString('returnToNetworkOverview', $app);
-        self::assertStringContainsString('networkCacheRef', $app);
+        self::assertStringContainsString('filteredNetworkNeighborhood', $app);
+        self::assertStringContainsString('pruneNeighborhoodByAllowedTopics', $app);
+        self::assertStringContainsString('rawFocusedNeighborhood', $app);
+        self::assertStringContainsString('allowedTopicIds', $app);
         self::assertStringContainsString('buildOverviewNeighborhood', $app);
+        self::assertStringContainsString('neighborhood={filteredNetworkNeighborhood}', $app);
+        self::assertStringContainsString('TagFilterControl', $chrome);
         self::assertStringContainsString('ZoomControls', $chrome);
+
+        $tagControl = (string) file_get_contents($root.'/components/TagFilterControl.jsx');
+        self::assertStringContainsString('tm-tags__popover', $tagControl);
+        self::assertStringContainsString('CHIP_LIMIT', $tagControl);
+        self::assertStringContainsString('tm-chip--more', $tagControl);
+        self::assertStringContainsString('All tags', $tagControl);
+        self::assertStringNotContainsString('tagFacets.map', $chrome);
         self::assertStringContainsString('passive: false', $canvas);
         self::assertStringContainsString('ResizeObserver', $canvas);
         self::assertStringContainsString('zoomIn', $canvas);
@@ -117,6 +127,7 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringNotContainsString('window.location.href', $canvas);
         self::assertStringContainsString('normalizeMcpRange', $filters);
         self::assertStringContainsString('selected.includes', $filters);
+        self::assertStringContainsString('pruneNeighborhoodByAllowedTopics', $filters);
         self::assertStringContainsString('mcpToSymbolSize', $options);
         self::assertStringContainsString('buildOverviewNeighborhood', $options);
         self::assertStringContainsString('Back to all Topics', $options);

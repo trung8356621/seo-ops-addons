@@ -174,6 +174,128 @@
     margin-right: 0.15rem;
 }
 
+.tm-tags {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+
+.tm-tags__trigger {
+    flex: 0 0 auto;
+}
+
+.tm-tags__caret {
+    margin-left: 0.2rem;
+    opacity: 0.7;
+}
+
+.tm-tags__chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.tm-tags__all-hint {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.tm-chip--selected {
+    background: #0f172a;
+    border-color: #0f172a;
+    color: #fff;
+}
+
+.tm-chip__x {
+    font-weight: 700;
+    opacity: 0.85;
+}
+
+.tm-chip--more {
+    background: #e2e8f0;
+    border-color: transparent;
+}
+
+.tm-tags__popover {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    z-index: 30;
+    width: min(20rem, calc(100vw - 2rem));
+    max-height: min(22rem, 55dvh);
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.6rem;
+    box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16);
+    overflow: hidden;
+}
+
+.tm-tags__popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.tm-tags__popover-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.tm-tags__search {
+    margin: 0.45rem 0.7rem 0;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    border-radius: 0.4rem;
+    font-size: 0.78rem;
+}
+
+.tm-tags__list {
+    overflow: auto;
+    padding: 0.35rem 0.4rem 0.55rem;
+    min-height: 0;
+}
+
+.tm-tags__row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.28rem 0.35rem;
+    border-radius: 0.35rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.tm-tags__row:hover {
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.tm-tags__row-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tm-tags__row-count {
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
 .tm-mcp-filter {
     display: flex;
     align-items: center;

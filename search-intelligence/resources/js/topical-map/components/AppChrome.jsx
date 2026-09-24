@@ -1,4 +1,5 @@
 import ZoomControls from './ZoomControls';
+import TagFilterControl from './TagFilterControl';
 
 function filterSummary({ tagFilterAll, selectedTagIds, showUntagged, tagFacets, mcpMin, mcpMax }) {
     const parts = [];
@@ -113,39 +114,17 @@ export default function AppChrome({
             </div>
 
             <div className="tm-chrome__row tm-chrome__row--controls">
-                <div className="tm-tag-filters" role="group" aria-label={labels.tags}>
-                    <span className="tm-tag-filters__label">{labels.tags}</span>
-                    <button
-                        type="button"
-                        className={`tm-chip ${tagFilterAll ? 'is-active' : ''}`}
-                        onClick={onToggleAll}
-                    >
-                        {labels.tagsAll}
-                    </button>
-                    {(tagFacets || []).map((facet) => {
-                        const id = Number(facet.id);
-                        const active = !tagFilterAll && selectedTagIds.includes(id);
-                        return (
-                            <button
-                                key={id}
-                                type="button"
-                                className={`tm-chip ${active ? 'is-active' : ''}`}
-                                onClick={() => onToggleTag(id)}
-                            >
-                                {facet.name}
-                                <span className="tm-chip__count">{Number(facet.topic_count || 0)}</span>
-                            </button>
-                        );
-                    })}
-                    <button
-                        type="button"
-                        className={`tm-chip ${(!tagFilterAll && showUntagged) ? 'is-active' : ''}`}
-                        onClick={onToggleUntagged}
-                    >
-                        {labels.untagged}
-                        <span className="tm-chip__count">{Number(untaggedCount || 0)}</span>
-                    </button>
-                </div>
+                <TagFilterControl
+                    labels={labels}
+                    tagFacets={tagFacets}
+                    untaggedCount={untaggedCount}
+                    selectedTagIds={selectedTagIds}
+                    showUntagged={showUntagged}
+                    tagFilterAll={tagFilterAll}
+                    onToggleAll={onToggleAll}
+                    onToggleUntagged={onToggleUntagged}
+                    onToggleTag={onToggleTag}
+                />
 
                 <div className="tm-chrome__tools">
                     <div className="tm-mcp-filter" aria-label="MCP %">

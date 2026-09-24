@@ -331,6 +331,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                 if (d.nodeType === 'topic') {
                     const mcpLine = d.mcp != null ? `<br/>MCP: ${clampMcp(d.mcp).toFixed(1)}%` : '';
                     return `<strong>${escapeHtml(d.name || '')}</strong>${mcpLine}`
+                        + '<br/><em>Click to topic detail</em>'
                         + '<br/><em>Double-click to open Topic</em>';
                 }
                 return `<strong>${escapeHtml(d.name || '')}</strong><br/>${escapeHtml(d.category || '')}`;

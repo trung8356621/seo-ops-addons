@@ -3,6 +3,7 @@ import { createApi } from './api/client';
 import {
     filterTopics,
     normalizeMcpRange,
+    pruneNeighborhoodByAllowedTopics,
     readFilterQuery,
     writeFilterQuery,
 } from './state/filters';
@@ -41,7 +42,8 @@ export default function App({ config }) {
     const [networkPendingTopicId, setNetworkPendingTopicId] = useState(null);
     const [networkSpinner, setNetworkSpinner] = useState(false);
     const [networkError, setNetworkError] = useState('');
-    const [neighborhood, setNeighborhood] = useState(null);
+    /** Raw focused neighborhood from API/cache — never mutated by Tag/MCP filters. */
+    const [rawFocusedNeighborhood, setRawFocusedNeighborhood] = useState(null);
     const networkCacheRef = useRef(new Map());
     const networkReqRef = useRef(0);
     const spinnerTimerRef = useRef(null);
@@ -124,10 +126,28 @@ export default function App({ config }) {
         };
     }, [overviewRaw, filteredTopics]);
 
-    const overviewNeighborhood = useMemo(
-        () => buildOverviewNeighborhood(siteId, filteredTopics),
-        [siteId, filteredTopics],
+    const allowedTopicIds = useMemo(
+        () => new Set(filteredTopics.map((t) => Number(t.id)).filter((id) => id > 0)),
+        [filteredTopics],
     );
+
+    /** Unfiltered Network overview (all Topics from overview payload). */
+    const rawOverviewNeighborhood = useMemo(
+        () => buildOverviewNeighborhood(siteId, overviewRaw?.topics || []),
+        [siteId, overviewRaw],
+    );
+
+    const filteredNetworkNeighborhood = useMemo(() => {
+        const source = (networkFocusedTopicId != null && rawFocusedNeighborhood)
+            ? rawFocusedNeighborhood
+            : rawOverviewNeighborhood;
+        return pruneNeighborhoodByAllowedTopics(source, allowedTopicIds);
+    }, [
+        networkFocusedTopicId,
+        rawFocusedNeighborhood,
+        rawOverviewNeighborhood,
+        allowedTopicIds,
+    ]);
 
     const returnToNetworkOverview = useCallback((nextMeta = '') => {
         clearSpinnerTimer();
@@ -135,49 +155,46 @@ export default function App({ config }) {
         setNetworkPendingTopicId(null);
         setNetworkSpinner(false);
         setNetworkFocusedTopicId(null);
+        setRawFocusedNeighborhood(null);
         setNetworkError('');
-        setNeighborhood(overviewNeighborhood);
         setMeta(nextMeta || (filteredTopics.length
             ? `Network overview · ${filteredTopics.length} Topics`
             : ''));
-    }, [clearSpinnerTimer, overviewNeighborhood, filteredTopics.length]);
+    }, [clearSpinnerTimer, filteredTopics.length]);
 
-    // Sync Network graph when entering Network or filters change.
+    // Focused Topic drops out of Tag/MCP filter → back to overview.
     useEffect(() => {
-        if (renderer !== 'network' || !filteredOverview) {
+        if (renderer !== 'network') {
             return;
         }
+        if (networkFocusedTopicId == null) {
+            return;
+        }
+        if (!allowedTopicIds.has(Number(networkFocusedTopicId))) {
+            returnToNetworkOverview('Focused Topic left current filters — back to overview');
+        }
+    }, [renderer, networkFocusedTopicId, allowedTopicIds, returnToNetworkOverview]);
 
+    useEffect(() => {
+        if (renderer !== 'network') {
+            return;
+        }
         if (networkFocusedTopicId != null) {
-            const stillVisible = filteredTopics.some(
-                (t) => Number(t.id) === Number(networkFocusedTopicId),
-            );
-            if (!stillVisible) {
-                returnToNetworkOverview('Focused Topic left current filters — back to overview');
-                return;
-            }
-            // Stay on focused neighborhood while filters still include it.
             return;
         }
-
-        setNeighborhood(overviewNeighborhood);
         setMeta(filteredTopics.length
             ? `Network overview · ${filteredTopics.length} Topics`
             : '');
-    }, [
-        renderer,
-        filteredOverview,
-        filteredTopics,
-        overviewNeighborhood,
-        networkFocusedTopicId,
-        returnToNetworkOverview,
-    ]);
+    }, [renderer, networkFocusedTopicId, filteredTopics.length]);
 
     useEffect(() => () => clearSpinnerTimer(), [clearSpinnerTimer]);
 
     const focusNetworkTopic = useCallback(async (topicId) => {
         const id = Number(topicId);
         if (!Number.isFinite(id) || id <= 0) {
+            return;
+        }
+        if (!allowedTopicIds.has(id)) {
             return;
         }
         if (networkPendingTopicId === id) {
@@ -203,7 +220,7 @@ export default function App({ config }) {
                 return;
             }
             clearSpinnerTimer();
-            setNeighborhood(n);
+            setRawFocusedNeighborhood(n);
             setNetworkFocusedTopicId(id);
             setNetworkPendingTopicId(null);
             setNetworkSpinner(false);
@@ -235,11 +252,11 @@ export default function App({ config }) {
             setNetworkPendingTopicId(null);
             setNetworkSpinner(false);
             setNetworkError(err.message || 'Failed to load Topic neighborhood');
-            // Keep current graph (overview or prior focus) intact.
             setMeta(err.message || 'Network load failed');
         }
     }, [
         api,
+        allowedTopicIds,
         networkPendingTopicId,
         networkFocusedTopicId,
         clearSpinnerTimer,
@@ -375,6 +392,7 @@ export default function App({ config }) {
             setNetworkPendingTopicId(null);
             setNetworkSpinner(false);
             setNetworkFocusedTopicId(null);
+            setRawFocusedNeighborhood(null);
             setNetworkError('');
         }
     };
@@ -437,7 +455,7 @@ export default function App({ config }) {
                         ref={chartRef}
                         overview={filteredOverview}
                         renderer={renderer}
-                        neighborhood={neighborhood}
+                        neighborhood={filteredNetworkNeighborhood}
                         childrenCache={childrenCacheRef.current}
                         childrenCacheVersion={childrenCacheVersion}
                         topicDetailUrlTemplate={config.topicDetailUrlTemplate}

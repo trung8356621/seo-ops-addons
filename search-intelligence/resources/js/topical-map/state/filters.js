@@ -54,6 +54,76 @@ export function filterTopics(topics, filters) {
     });
 }
 
+/**
+ * Client-side Network prune against allowed Topic ids.
+ * Keeps Site; Topics in allow-set; Keywords linked to a kept Topic; edges with both ends kept.
+ *
+ * @param {object|null|undefined} neighborhood
+ * @param {Iterable<number>|Set<number>} allowedTopicIds
+ */
+export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) {
+    const allowed = allowedTopicIds instanceof Set
+        ? allowedTopicIds
+        : new Set(Array.from(allowedTopicIds || []).map(Number).filter((n) => n > 0));
+
+    const nodes = Array.isArray(neighborhood?.nodes) ? neighborhood.nodes : [];
+    const links = Array.isArray(neighborhood?.links) ? neighborhood.links : [];
+
+    if (nodes.length === 0) {
+        return {
+            nodes: [],
+            links: [],
+            truncated: Boolean(neighborhood?.truncated),
+            showing_topics: 0,
+            total_topics: Number(neighborhood?.total_topics ?? 0),
+        };
+    }
+
+    const keep = new Set();
+    for (const node of nodes) {
+        const id = String(node.id ?? '');
+        const category = String(node.category || node.nodeType || '');
+        if (category === 'site' || id.startsWith('site:')) {
+            keep.add(id);
+            continue;
+        }
+        if (category === 'topic' || id.startsWith('topic:')) {
+            const tid = Number(id.replace(/^topic:/, ''));
+            if (allowed.has(tid)) {
+                keep.add(id);
+            }
+        }
+    }
+
+    for (const link of links) {
+        const source = String(link.source ?? '');
+        const target = String(link.target ?? '');
+        if (keep.has(source) && target.startsWith('keyword:')) {
+            keep.add(target);
+        }
+        if (keep.has(target) && source.startsWith('keyword:')) {
+            keep.add(source);
+        }
+    }
+
+    const filteredNodes = nodes.filter((n) => keep.has(String(n.id)));
+    const filteredLinks = links.filter(
+        (l) => keep.has(String(l.source)) && keep.has(String(l.target)),
+    );
+    const showingTopics = filteredNodes.filter((n) => {
+        const id = String(n.id ?? '');
+        return String(n.category || '') === 'topic' || id.startsWith('topic:');
+    }).length;
+
+    return {
+        ...neighborhood,
+        nodes: filteredNodes,
+        links: filteredLinks,
+        showing_topics: showingTopics,
+        total_topics: Number(neighborhood?.total_topics ?? showingTopics),
+    };
+}
+
 export function readFilterQuery(search = window.location.search) {
     const params = new URLSearchParams(search);
     const tagsRaw = params.get('tags') || '';
@@ -115,7 +185,6 @@ export function writeFilterQuery(filters) {
         params.set('view', filters.renderer);
     }
 
-    // Preserve site=
     const qs = params.toString();
     const next = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash || ''}`;
     window.history.replaceState(null, '', next);
