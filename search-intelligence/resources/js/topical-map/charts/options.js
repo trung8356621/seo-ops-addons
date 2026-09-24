@@ -48,6 +48,114 @@ export function treemapLayoutValue(articleCount) {
     return Math.max(TREEMAP_MIN_DISPLAY_WEIGHT, real);
 }
 
+/**
+ * Relative-area label tiers (presentation only — not business filtering).
+ * Used when ECharts label formatter does not expose tile geometry.
+ *
+ * @param {object[]} topics
+ * @returns {Map<number, 'large'|'medium'|'small'>}
+ */
+export function assignTreemapLabelTiers(topics) {
+    const list = Array.isArray(topics) ? topics : [];
+    const rows = list.map((topic) => ({
+        id: Number(topic.id),
+        value: treemapLayoutValue(topic.article_count),
+    })).filter((row) => Number.isFinite(row.id) && row.id > 0);
+
+    const tiers = new Map();
+    if (rows.length === 0) {
+        return tiers;
+    }
+
+    const sorted = [...rows].sort((a, b) => b.value - a.value);
+    const maxV = sorted[0].value || 1;
+    const total = sorted.reduce((sum, row) => sum + row.value, 0) || 1;
+
+    for (const row of sorted) {
+        const rel = row.value / maxV;
+        const share = row.value / total;
+        // Prefer share of canvas + relative to largest tile.
+        if (share >= 0.04 || rel >= 0.28) {
+            tiers.set(row.id, 'large');
+        } else if (share >= 0.012 || rel >= 0.1) {
+            tiers.set(row.id, 'medium');
+        } else {
+            tiers.set(row.id, 'small');
+        }
+    }
+
+    // Guarantee the biggest tiles always get text even on flat distributions.
+    const ensureLarge = Math.min(6, sorted.length);
+    for (let i = 0; i < ensureLarge; i += 1) {
+        const id = sorted[i].id;
+        if (tiers.get(id) === 'small') {
+            tiers.set(id, 'medium');
+        }
+        if (i < Math.min(3, sorted.length)) {
+            tiers.set(id, 'large');
+        }
+    }
+
+    return tiers;
+}
+
+/** Ink color with readable contrast on Topic tile fills. */
+export function treemapLabelInk(hex, opacity = 1) {
+    const raw = String(hex || '#64748b').replace('#', '');
+    if (raw.length !== 6) {
+        return '#0f172a';
+    }
+    const r = parseInt(raw.slice(0, 2), 16);
+    const g = parseInt(raw.slice(2, 4), 16);
+    const b = parseInt(raw.slice(4, 6), 16);
+    const a = Math.max(0, Math.min(1, Number(opacity) || 1));
+    // Composite over near-white canvas so opacity is accounted for.
+    const mix = (c) => Math.round(c * a + 255 * (1 - a));
+    const R = mix(r);
+    const G = mix(g);
+    const B = mix(b);
+    // Relative luminance (sRGB approx).
+    const lum = (0.2126 * R + 0.7152 * G + 0.0722 * B) / 255;
+    return lum > 0.55 ? '#0f172a' : '#ffffff';
+}
+
+/**
+ * Progressive Treemap label density.
+ * Geometry (when available) wins; otherwise precomputed relative-area tier.
+ *
+ * @param {object} d topic node data
+ * @param {object} [params] ECharts formatter params
+ * @returns {string}
+ */
+export function formatTreemapTopicLabel(d, params) {
+    const name = String(d?.name || '').trim() || 'Topic';
+    let tier = d?.labelTier || 'medium';
+
+    const rect = params?.rect || params?.labelRect || null;
+    const w = Number(rect?.width ?? 0);
+    const h = Number(rect?.height ?? 0);
+    if (w > 0 && h > 0) {
+        if (w < 56 || h < 34) {
+            tier = 'small';
+        } else if (w < 120 || h < 58) {
+            tier = 'medium';
+        } else {
+            tier = 'large';
+        }
+    }
+
+    if (tier === 'small') {
+        return '';
+    }
+    if (tier === 'medium') {
+        return name;
+    }
+
+    const focus = Number(d?.article_count ?? 0);
+    const mcp = clampMcp(d?.mcp).toFixed(1);
+    return `${name}\n${focus} Focus · MCP ${mcp}%`;
+}
+
 /** @deprecated use topicTreeLabel — kept for greps/tests that import topicLabel */
 export function topicLabel(topic) {
     return topicTreeLabel(topic);
@@ -246,6 +354,7 @@ export function buildTreeOption(data, childrenCache) {
 export function buildTreemapOption(data) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
     const siteId = Number(data?.site_id ?? 0);
+    const labelTiers = assignTreemapLabelTiers(topics);
 
     const children = topics.map((topic) => {
         const topicId = Number(topic.id);
@@ -255,6 +364,8 @@ export function buildTreemapOption(data) {
         const opacity = 0.62 + 0.38 * (mcp / 100);
         const articleCount = Math.max(0, Number(topic.article_count ?? 0));
         const name = String(topic.name || 'Topic');
+        const tier = labelTiers.get(topicId) || 'medium';
+        const ink = treemapLabelInk(color, opacity);
 
         return {
             name,
@@ -268,6 +379,7 @@ export function buildTreemapOption(data) {
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
             tags: topic.tags,
+            labelTier: tier,
             itemStyle: {
                 color,
                 opacity,
@@ -275,8 +387,12 @@ export function buildTreemapOption(data) {
                 borderWidth: 1,
             },
             label: {
-                color: '#0f172a',
-                fontWeight: 600,
+                // Small tiles: hide entirely (tooltip still works).
+                show: tier !== 'small',
+                color: ink,
+                textShadowColor: ink === '#ffffff' ? 'rgba(15,23,42,0.35)' : 'rgba(255,255,255,0.35)',
+                textShadowBlur: 2,
+                textShadowOffsetY: 1,
             },
         };
     });
@@ -330,30 +446,23 @@ export function buildTreemapOption(data) {
                 squareRatio: 0.75 * (1 + Math.sqrt(5)),
                 label: {
                     show: true,
+                    position: 'insideTopLeft',
+                    distance: 0,
+                    // ~8px inner padding so text does not touch edges.
+                    padding: [8, 8, 8, 8],
+                    fontSize: 12,
+                    fontWeight: 600,
+                    lineHeight: 17,
+                    overflow: 'truncate',
+                    ellipsis: '…',
                     formatter(params) {
                         const d = params?.data || {};
                         if (d.nodeType !== 'topic') {
-                            return params?.name || '';
-                        }
-                        const w = Number(params?.rect?.width ?? 0);
-                        const h = Number(params?.rect?.height ?? 0);
-                        const name = String(d.name || '');
-                        // Hide cramped labels to avoid overlap.
-                        if (w < 48 || h < 28) {
+                            // One-level Topic distribution — no root title strip.
                             return '';
                         }
-                        if (w < 96 || h < 52) {
-                            return name;
-                        }
-                        const focus = Number(d.article_count ?? 0);
-                        const mcp = clampMcp(d.mcp).toFixed(0);
-                        return `${name}\n${focus} Focus\nMCP ${mcp}%`;
+                        return formatTreemapTopicLabel(d, params);
                     },
-                    color: '#0f172a',
-                    fontSize: 11,
-                    lineHeight: 15,
-                    overflow: 'truncate',
-                    ellipsis: '…',
                 },
                 upperLabel: { show: false },
                 itemStyle: {
@@ -375,6 +484,7 @@ export function buildTreemapOption(data) {
                             borderWidth: 0,
                             gapWidth: 2,
                         },
+                        label: { show: false },
                         upperLabel: { show: false },
                     },
                     {
@@ -383,6 +493,14 @@ export function buildTreemapOption(data) {
                             borderWidth: 1,
                             gapWidth: 1,
                         },
+                        label: {
+                            show: true,
+                            position: 'insideTopLeft',
+                            padding: [8, 8, 8, 8],
+                            overflow: 'truncate',
+                            ellipsis: '…',
+                        },
+                        upperLabel: { show: false },
                     },
                 ],
                 data: [
@@ -390,6 +508,7 @@ export function buildTreemapOption(data) {
                         name: siteId ? 'Site' : 'Site',
                         nodeType: 'site',
                         topicId: undefined,
+                        label: { show: false },
                         children,
                     },
                 ],

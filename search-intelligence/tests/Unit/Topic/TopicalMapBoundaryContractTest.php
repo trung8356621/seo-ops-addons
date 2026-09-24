@@ -77,7 +77,7 @@ final class TopicalMapBoundaryContractTest extends TestCase
         self::assertStringContainsString('TopicalMapAppPage::appUrl', $pageSrc);
         self::assertStringContainsString('redirect', $pageSrc);
 
-        $app = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/App.jsx');
+        $app = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/pages/SiteTopicalMapPage.jsx');
         self::assertStringContainsString("readFilterQuery()", $app);
         self::assertStringContainsString("'tree', 'network', 'treemap'", (string) file_get_contents(
             dirname(__DIR__, 3).'/resources/js/topical-map/components/AppChrome.jsx',
@@ -89,6 +89,11 @@ final class TopicalMapBoundaryContractTest extends TestCase
         self::assertStringContainsString("type: 'treemap'", $options);
         self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
         self::assertStringContainsString('treemapLayoutValue', $options);
+        self::assertStringContainsString('formatTreemapTopicLabel', $options);
+        self::assertStringContainsString('assignTreemapLabelTiers', $options);
+        self::assertStringContainsString('Focus · MCP', $options);
+        self::assertStringContainsString("overflow: 'truncate'", $options);
+        self::assertStringContainsString('padding: [8, 8, 8, 8]', $options);
         self::assertStringContainsString('Focus Articles:', $options);
         self::assertStringNotContainsString("type: 'sunburst'", $options);
         self::assertStringNotContainsString('buildSunburstOption', $options);

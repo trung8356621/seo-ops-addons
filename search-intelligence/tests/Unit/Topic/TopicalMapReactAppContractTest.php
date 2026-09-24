@@ -87,7 +87,7 @@ final class TopicalMapReactAppContractTest extends TestCase
     public function test_react_app_owns_viewport_filters_and_dblclick(): void
     {
         $root = dirname(__DIR__, 3).'/resources/js/topical-map';
-        $app = (string) file_get_contents($root.'/App.jsx');
+        $app = (string) file_get_contents($root.'/pages/SiteTopicalMapPage.jsx');
         $css = (string) file_get_contents($root.'/styles/topical-map-app.css');
         $canvas = (string) file_get_contents($root.'/components/ChartCanvas.jsx');
         $filters = (string) file_get_contents($root.'/state/filters.js');
@@ -132,6 +132,10 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('buildOverviewNeighborhood', $options);
         self::assertStringContainsString('buildTreemapOption', $options);
         self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
+        self::assertStringContainsString('formatTreemapTopicLabel', $options);
+        self::assertStringContainsString('assignTreemapLabelTiers', $options);
+        self::assertStringContainsString('Focus · MCP', $options);
+        self::assertStringContainsString("overflow: 'truncate'", $options);
         self::assertStringContainsString('Back to all Topics', $options);
         self::assertStringContainsString('siteNavigable', $options);
         self::assertStringContainsString('TreemapChart', $canvas);
