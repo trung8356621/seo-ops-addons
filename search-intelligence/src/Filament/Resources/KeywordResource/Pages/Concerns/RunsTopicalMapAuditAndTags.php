@@ -9,6 +9,7 @@ use Filament\Notifications\Notification;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\TopicalMapAuditHistoryLinker;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditStatusService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapLatestAuditReadModel;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Throwable;
 
@@ -23,6 +24,9 @@ trait RunsTopicalMapAuditAndTags
 
     /** @var array<string, mixed>|null */
     public ?array $aiAuditSnapshot = null;
+
+    /** @var array<string, mixed>|null Cached latest audit presentation for Topics UI. */
+    public ?array $latestAiAuditPresentation = null;
 
     public function canRunAiAuditAndTags(): bool
     {
@@ -66,6 +70,7 @@ trait RunsTopicalMapAuditAndTags
                 'source_updated_at' => null,
                 'last_ai_run_at' => null,
                 'last_prompt_result_id' => null,
+                'ai_history_url' => null,
             ];
         }
 
@@ -87,7 +92,86 @@ trait RunsTopicalMapAuditAndTags
     public function refreshAiAuditSnapshot(): void
     {
         $this->aiAuditSnapshot = null;
+        $this->latestAiAuditPresentation = null;
         $this->aiAuditStatusSnapshot();
+        $this->latestAiAudit();
+    }
+
+    /**
+     * Latest successful topical_map_audit presentation (read-only, no AI).
+     *
+     * @return array<string, mixed>
+     */
+    public function latestAiAudit(): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0) {
+            return app(TopicalMapLatestAuditReadModel::class)->forSite(0);
+        }
+
+        if (
+            is_array($this->latestAiAuditPresentation)
+            && (int) ($this->latestAiAuditPresentation['site_id'] ?? 0) === $siteId
+        ) {
+            return $this->latestAiAuditPresentation;
+        }
+
+        $presentation = app(TopicalMapLatestAuditReadModel::class)->forSite($siteId);
+        $presentation['site_id'] = $siteId;
+        $this->latestAiAuditPresentation = $presentation;
+
+        return $presentation;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function aiFindingsForTopic(int $topicId): array
+    {
+        if ($topicId <= 0) {
+            return [];
+        }
+        $map = $this->latestAiAudit()['findings_by_topic'] ?? [];
+        if (! is_array($map)) {
+            return [];
+        }
+        $rows = $map[$topicId] ?? $map[(string) $topicId] ?? null;
+        if (! is_array($rows)) {
+            return [];
+        }
+
+        return array_values($rows);
+    }
+
+    public function aiSeverityForTopic(int $topicId): ?string
+    {
+        return app(TopicalMapLatestAuditReadModel::class)->highestSeverity(
+            $this->aiFindingsForTopic($topicId),
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function aiSiteWideFindings(): array
+    {
+        $rows = $this->latestAiAudit()['site_wide_findings'] ?? [];
+
+        return is_array($rows) ? array_values($rows) : [];
+    }
+
+    public function aiHistoryUrl(): ?string
+    {
+        $url = $this->latestAiAudit()['ai_history_url'] ?? null;
+        if (! is_string($url) || trim($url) === '') {
+            // Prefer status snapshot URL (also no-create) as fallback.
+            $snap = $this->aiAuditStatusSnapshot();
+            $fallback = $snap['ai_history_url'] ?? null;
+
+            return is_string($fallback) && trim($fallback) !== '' ? $fallback : null;
+        }
+
+        return $url;
     }
 
     public function aiAuditButtonLabel(): string

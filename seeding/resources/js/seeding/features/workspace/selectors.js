@@ -208,10 +208,9 @@ export function topicCardTitle(topic) {
 }
 
 /**
- * Flat assigned-link rows for a Topic work item (card-local, not sidebar).
- * Progress = Seeder local daily count; target = DB target_per_day.
+ * Flat rows for shared assignment progress (FLOW B — not Topic.links).
  *
- * @param {Record<string, unknown>|null|undefined} topic
+ * @param {Array<Record<string, unknown>>} assignments
  * @param {Record<string, number>} [dailyProgressMap] today bucket only
  * @param {Record<string, Record<string, unknown>>} [linkPreviewCache]
  * @returns {Array<{
@@ -224,16 +223,15 @@ export function topicCardTitle(topic) {
  *   targetPerDay: number,
  * }>}
  */
-export function deriveTopicAssignedLinks(topic, dailyProgressMap = {}, linkPreviewCache = {}) {
-    if (!topic || typeof topic !== 'object') return [];
-
+export function deriveSharedAssignmentRows(assignments, dailyProgressMap = {}, linkPreviewCache = {}) {
     /** @type {Array<Record<string, unknown>>} */
-    const rawLinks = Array.isArray(topic.links) ? topic.links : [];
+    const rawLinks = Array.isArray(assignments) ? assignments : [];
     const rows = [];
     const seen = new Set();
 
     for (const link of rawLinks) {
         if (!link || typeof link !== 'object') continue;
+        if (link.is_active === false) continue;
         const href = String(link.url || link.normalized_url || link.preview_url || '').trim();
         if (!href) continue;
         const id = String(link.id || '').trim();
@@ -273,6 +271,22 @@ export function deriveTopicAssignedLinks(topic, dailyProgressMap = {}, linkPrevi
     }
 
     return rows;
+}
+
+/**
+ * @deprecated Topic.links is legacy snapshot — use deriveSharedAssignmentRows(sharedAssignments).
+ * Kept so historical callers do not crash; do not use for current Seeder UI.
+ *
+ * @param {Record<string, unknown>|null|undefined} topic
+ * @param {Record<string, number>} [dailyProgressMap]
+ * @param {Record<string, Record<string, unknown>>} [linkPreviewCache]
+ */
+export function deriveTopicAssignedLinks(topic, dailyProgressMap = {}, linkPreviewCache = {}) {
+    // Explicitly empty for current workflow — never surface stale Topic snapshot as shared assignments.
+    void topic;
+    void dailyProgressMap;
+    void linkPreviewCache;
+    return [];
 }
 
 /**

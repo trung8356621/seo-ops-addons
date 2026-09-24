@@ -1,6 +1,6 @@
 /**
- * Seeder-local daily progress for Topic-assigned links.
- * Ownership: DB assignment (id, url, title, target_per_day) vs local counts only.
+ * Seeder-local daily progress for shared link assignments (FLOW B).
+ * Ownership: DB SeedingLinkAssignment (id, url, title, target_per_day) vs local counts only.
  *
  * Shape: daily_link_progress[YYYY-MM-DD][assignment_id] = count
  */
@@ -90,15 +90,17 @@ export function bumpAssignmentProgress(progress, assignmentId, delta = 1, day = 
 }
 
 /**
- * Map Topic-assigned links into the selectable shape used by linkSelector / copyComment.
+ * Map shared assignments (FLOW B) into the selectable shape used by linkSelector / copyComment.
+ * Do NOT pass topic.links here — that is legacy Topic snapshot data.
  *
- * @param {Array<Record<string, unknown>>} topicLinks
+ * @param {Array<Record<string, unknown>>} assignments
  * @returns {Array<Record<string, unknown>>}
  */
-export function topicAssignedLinksAsSelectable(topicLinks) {
-    return (topicLinks || [])
+export function sharedAssignmentsAsSelectable(assignments) {
+    return (assignments || [])
         .map((link) => {
             if (!link || typeof link !== 'object') return null;
+            if (link.is_active === false) return null;
             const url = String(link.url || link.normalized_url || '').trim();
             const id = String(link.id || '').trim();
             if (!url || !id) return null;
@@ -112,4 +114,13 @@ export function topicAssignedLinksAsSelectable(topicLinks) {
             };
         })
         .filter(Boolean);
+}
+
+/**
+ * @deprecated Use sharedAssignmentsAsSelectable — Topic.links is not the current shared assignment SSOT.
+ * @param {Array<Record<string, unknown>>} topicLinks
+ * @returns {Array<Record<string, unknown>>}
+ */
+export function topicAssignedLinksAsSelectable(topicLinks) {
+    return sharedAssignmentsAsSelectable(topicLinks);
 }

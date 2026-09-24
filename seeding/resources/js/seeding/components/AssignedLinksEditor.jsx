@@ -4,15 +4,9 @@ import { fetchLinkAssignments } from '../api';
 import { normalizeLink } from '../services/storage';
 
 /**
- * Topic Composer: pick DB-backed Creator assignments → snapshot into topic.links.
- * Does not invent random ids; preserves assign:{dbId} for Seeder progress keys.
- *
- * @param {{
- *   links: Array<Record<string, unknown>>,
- *   canMutate?: boolean,
- *   availableAssignments?: Array<Record<string, unknown>>,
- *   onChange: (links: Array<Record<string, unknown>>) => void,
- * }} props
+ * @deprecated Legacy Topic Composer picker (snapshot into topic.links).
+ * Current FLOW B manages assignments via LinkPoolPanel → SeedingLinkAssignment only.
+ * Kept on disk for historical reference; not mounted in TopicComposer.
  */
 export default function AssignedLinksEditor({
     links = [],

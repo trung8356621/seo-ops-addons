@@ -47,6 +47,7 @@ final class TopicalMapAuditHistoryContractTest extends TestCase
         $src = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditHistoryLinker::class))->getFileName());
         self::assertStringContainsString('findExistingPlanningProject', $src);
         self::assertStringContainsString('resolveAiHistoryUrl', $src);
+        self::assertStringContainsString('latestAuditPromptResultId', $src);
         self::assertStringContainsString('ContentProjectDraftAiHistory::urlForProject', $src);
         self::assertStringContainsString('findCanonicalSharedDraft', $src);
 
@@ -58,6 +59,9 @@ final class TopicalMapAuditHistoryContractTest extends TestCase
         $findExisting = $this->methodBody($src, 'findExistingPlanningProject');
         self::assertStringContainsString('findCanonicalSharedDraft', $findExisting);
         self::assertStringNotContainsString('ensureSharedDraft', $findExisting);
+
+        $latestId = $this->methodBody($src, 'latestAuditPromptResultId');
+        self::assertStringNotContainsString('ensureSharedDraft', $latestId);
 
         $resolvePlanning = $this->methodBody($src, 'resolvePlanningProject');
         self::assertStringContainsString('findExistingPlanningProject', $resolvePlanning);

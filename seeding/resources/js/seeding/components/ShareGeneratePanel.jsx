@@ -4,7 +4,7 @@ import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import { linkPoolCapacity } from '../services/linkPool';
 import {
     todayProgressMap,
-    topicAssignedLinksAsSelectable,
+    sharedAssignmentsAsSelectable,
 } from '../services/dailyLinkProgress';
 import { DEFAULT_SEED_QUANTITY } from '../services/seedGenerate';
 import { buildCopyPayload, writeClipboard } from '../services/copyComment';
@@ -13,14 +13,14 @@ import { notifyError, notifySuccess, notifyWarning } from '../services/toast';
 
 /**
  * Gen comment panel for shared topics (not draft share).
- * Append-link uses Topic-assigned links + Seeder local daily progress.
+ * Append-link uses workspace sharedAssignments (FLOW B) + Seeder local daily progress.
+ * Gen itself does not require assignments.
  *
  * @param {{
  *   open: boolean,
  *   inline?: boolean,
  *   topic: Record<string, unknown>|null,
- *   seedLinks?: Array<Record<string, unknown>>,
- *   linkUsageToday?: Record<string, number>,
+ *   sharedAssignments?: Array<Record<string, unknown>>,
  *   dailyLinkProgress?: Record<string, Record<string, number>>,
  *   topicOutputs: Array<Record<string, unknown>>,
  *   linkPreviewCache?: Record<string, Record<string, unknown>>,
@@ -39,6 +39,7 @@ export default function ShareGeneratePanel({
     open,
     inline = false,
     topic,
+    sharedAssignments = [],
     dailyLinkProgress = {},
     topicOutputs,
     linkPreviewCache = {},
@@ -58,8 +59,8 @@ export default function ShareGeneratePanel({
     const [appendLink, setAppendLink] = useState(true);
 
     const assignedLinks = useMemo(
-        () => topicAssignedLinksAsSelectable(topic?.links || []),
-        [topic],
+        () => sharedAssignmentsAsSelectable(sharedAssignments),
+        [sharedAssignments],
     );
 
     const usageToday = useMemo(
@@ -181,7 +182,7 @@ export default function ShareGeneratePanel({
             </dl>
 
             {emptyAssigned ? (
-                <div className="seeding-ws__hint">Topic này chưa được giao link seeding.</div>
+                <div className="seeding-ws__hint">Chưa có link shared assignment — Copy vẫn được (không append link).</div>
             ) : null}
             {allAtLimit ? (
                 <div className="seeding-ws__hint">Các link assigned hôm nay đã đạt ngưỡng.</div>

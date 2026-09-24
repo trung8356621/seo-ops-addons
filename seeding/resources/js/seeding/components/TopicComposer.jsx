@@ -1,6 +1,5 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
-import AssignedLinksEditor from './AssignedLinksEditor';
 
 const SOCIAL_OPTIONS = [
     { value: 'facebook', label: 'Facebook' },
@@ -12,13 +11,13 @@ const SOCIAL_OPTIONS = [
 ];
 
 /**
- * Manager create/edit topic — social required; multi-social → nhiều execution.
+ * Manager/Topic Creator create/edit topic (FLOW A).
+ * Shared link assignments (FLOW B) are managed separately — not attached to Topic.
  */
 export default function TopicComposer({
     topic,
     canMutate,
     mode = 'create',
-    availableAssignments = null,
     onChange,
     onPasteContent,
     onCancel,
@@ -144,13 +143,6 @@ export default function TopicComposer({
                     ) : null}
                 </div>
             </section>
-
-            <AssignedLinksEditor
-                links={topic.links || []}
-                canMutate={canMutate}
-                availableAssignments={availableAssignments}
-                onChange={(links) => onChange({ links })}
-            />
 
             <footer className="seeding-ws__composer-footer">
                 <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={onCancel}>

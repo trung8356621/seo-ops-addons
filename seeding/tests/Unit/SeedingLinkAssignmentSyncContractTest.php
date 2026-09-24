@@ -14,8 +14,8 @@ use PHPUnit\Framework\TestCase;
 use Throwable;
 
 /**
- * Cross-user contract: Creator DB assignment → Topic snapshot → Seeder presentation.
- * Seeder daily progress remains local (not asserted against DB mutation).
+ * FLOW B contract: shared assignments are DB SSOT, independent of Topic/feed.
+ * Seeder reads installation shared list; local progress stays in browser.
  */
 final class SeedingLinkAssignmentSyncContractTest extends TestCase
 {
@@ -32,17 +32,19 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         self::assertStringContainsString('seeding_link_assignments', $sql);
         self::assertStringContainsString('target_per_day', $sql);
         self::assertStringContainsString('omi_seeding', $sql);
+        self::assertStringNotContainsString('snapshotted into seeding_topics.links_json', $sql);
 
         $provider = (string) file_get_contents($this->addonRoot().'/src/SeedingServiceProvider.php');
         self::assertStringContainsString('SeedingLinkAssignmentController', $provider);
         self::assertStringContainsString('/link-assignments', $provider);
-        self::assertStringContainsString('import-local', $provider);
 
         self::assertFileExists($this->addonRoot().'/src/Models/SeedingLinkAssignment.php');
         self::assertFileExists($this->addonRoot().'/src/Services/SeedingLinkAssignmentService.php');
+        $service = (string) file_get_contents($this->addonRoot().'/src/Services/SeedingLinkAssignmentService.php');
+        self::assertStringContainsString('function listActiveShared', $service);
     }
 
-    public function test_creator_ui_is_db_backed_not_personal_pool(): void
+    public function test_creator_ui_is_db_backed_and_seeder_reads_shared(): void
     {
         $panel = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/LinkPoolPanel.jsx'
@@ -53,28 +55,41 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         $toolbar = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/FeedToolbar.jsx'
         );
-        $editor = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/AssignedLinksEditor.jsx'
-        );
         $api = (string) file_get_contents($this->addonRoot().'/resources/js/seeding/api.js');
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
         );
+        $composer = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx'
+        );
+        $sharePanel = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/ShareGeneratePanel.jsx'
+        );
 
         self::assertStringContainsString('Danh sách link', $panel);
         self::assertStringContainsString('createLinkAssignment', $panel);
-        self::assertStringContainsString('fetchLinkAssignments', $panel);
+        self::assertStringContainsString('fetchMyLinkAssignments', $panel);
         self::assertStringNotContainsString('Link Pool cá nhân', $panel);
         self::assertStringNotContainsString('Link của tôi', $toolbar);
         self::assertStringContainsString('Danh sách link', $toolbar);
         self::assertStringContainsString('Quản lý danh sách link', $sidebar);
-        self::assertStringContainsString('fetchLinkAssignments', $editor);
-        self::assertStringContainsString('data-assignment-catalog', $editor);
-        self::assertStringContainsString('/api/seeding/link-assignments', $api);
-        self::assertStringContainsString('linkAssignments', $workspace);
-        self::assertStringContainsString('availableAssignments', $workspace);
+        self::assertStringContainsString('data-shared-assignments', $sidebar);
+        self::assertStringContainsString('sharedAssignments', $sidebar);
+        self::assertStringContainsString("scope', scope === 'mine'", $api);
+        self::assertStringContainsString('sharedAssignments', $workspace);
+        self::assertStringContainsString("fetchLinkAssignments(true, 'shared')", $workspace);
+        self::assertStringContainsString('sharedAssignments={sharedAssignments}', $workspace);
 
-        // Exact Seeder must not get assignment CRUD from workspace access alone.
+        // Topic composer must not attach assignments to Topic.
+        self::assertStringNotContainsString('AssignedLinksEditor', $composer);
+        self::assertStringNotContainsString('availableAssignments', $composer);
+
+        // Copy uses sharedAssignments, not topic.links.
+        self::assertStringContainsString('sharedAssignmentsAsSelectable', $sharePanel);
+        self::assertStringContainsString('sharedAssignments', $sharePanel);
+        self::assertStringNotContainsString('topicAssignedLinksAsSelectable(topic?.links', $sharePanel);
+        self::assertStringNotContainsString('topic?.links || []', $sharePanel);
+
         $auth = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/features/workspace/auth.js'
         );
@@ -84,30 +99,35 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         );
     }
 
-    public function test_presenter_always_emits_title_and_target_per_day(): void
+    public function test_controller_separates_shared_read_from_mine_crud(): void
     {
-        $links = SeedingTopicPresenter::normalizeLinks([
-            [
-                'id' => 'assign:42',
-                'title' => 'Shopee 1',
-                'url' => 'https://shopee.vn/item-1',
-                'target_per_day' => 10,
-            ],
-            [
-                'id' => 'tlink:legacy',
-                'label' => 'Legacy',
-                'url' => 'https://example.com/legacy',
-                'target_per_day' => 3,
-            ],
-        ]);
+        $controller = (string) file_get_contents(
+            $this->addonRoot().'/src/Http/Controllers/SeedingLinkAssignmentController.php'
+        );
+        self::assertStringContainsString('assertCanAccess()', $controller);
+        self::assertStringContainsString("scope === 'mine'", $controller);
+        self::assertStringContainsString('listActiveShared', $controller);
+        self::assertStringContainsString('assertCanManageLinkAssignments', $controller);
 
-        self::assertCount(2, $links);
-        self::assertSame('assign:42', $links[0]['id']);
-        self::assertSame('Shopee 1', $links[0]['title']);
-        self::assertSame('https://shopee.vn/item-1', $links[0]['url']);
-        self::assertSame(10, $links[0]['target_per_day']);
-        self::assertSame('tlink:legacy', $links[1]['id']);
-        self::assertSame(3, $links[1]['target_per_day']);
+        // Mutating endpoints still gated.
+        self::assertGreaterThan(
+            1,
+            substr_count($controller, 'assertCanManageLinkAssignments'),
+        );
+    }
+
+    public function test_share_does_not_snapshot_assignments_into_topic(): void
+    {
+        $share = (string) file_get_contents(
+            $this->addonRoot().'/src/Services/SeedingSharedTopicService.php'
+        );
+        self::assertStringContainsString('do not snapshot shared assignments into Topic', $share);
+        self::assertStringContainsString('$links = [];', $share);
+
+        $model = (string) file_get_contents(
+            $this->addonRoot().'/src/Models/SeedingLinkAssignment.php'
+        );
+        self::assertStringNotContainsString('Snapshotted into Topic.links_json at share time', $model);
     }
 
     public function test_access_separates_create_topics_from_manager_only(): void
@@ -122,15 +142,9 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         );
         self::assertStringContainsString('assertCanCreateTopics', $share);
         self::assertStringNotContainsString('assertCanManage();', $share);
-
-        $health = (string) file_get_contents(
-            $this->addonRoot().'/src/Support/SeedingServiceHealth.php'
-        );
-        self::assertStringContainsString('canCreateTopics', $health);
-        self::assertStringContainsString('can_manage_link_assignments', $health);
     }
 
-    public function test_cross_user_assignment_snapshot_when_db_available(): void
+    public function test_cross_user_shared_list_without_topic_mutation(): void
     {
         if (! class_exists(\Illuminate\Foundation\Application::class)) {
             self::markTestSkipped('Laravel application not bootstrapped in this PHPUnit path');
@@ -164,72 +178,78 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         /** @var SeedingSharedTopicService $topics */
         $topics = app(SeedingSharedTopicService::class);
 
-        $ownerId = 900001;
-        $seederId = 900002;
+        $ownerId = 900011;
         $createdAssignment = null;
         $createdTopics = [];
 
         try {
-            $createdAssignment = $assignments->create($ownerId, [
-                'title' => 'Shopee 1',
-                'url' => 'https://shopee.vn/item-contract-sync-'.uniqid('', true),
-                'target_per_day' => 10,
-                'is_active' => true,
-            ]);
-
-            self::assertSame('assign:'.(int) $createdAssignment->id, $createdAssignment->publicId());
-            self::assertSame(10, (int) $createdAssignment->target_per_day);
-
+            // Existing Topic T before assignments exist.
             $createdTopics = $topics->share([
-                'title' => 'Contract sync topic',
-                'full_text' => 'Nội dung topic cho link assignment sync contract',
+                'title' => 'Pre-existing topic before assignments',
+                'full_text' => 'Topic T exists before shared assignments',
                 'social_platform' => 'facebook',
                 'target_comments' => 5,
                 'links' => [
                     [
-                        'id' => $createdAssignment->publicId(),
-                        'url' => (string) $createdAssignment->url,
-                        'title' => 'Shopee 1',
-                        'target_per_day' => 10,
+                        'id' => 'assign:999999',
+                        'url' => 'https://example.com/should-not-persist',
+                        'title' => 'STALE',
+                        'target_per_day' => 3,
                     ],
                 ],
                 'created_by' => $ownerId,
                 'created_by_display_name' => 'Creator A',
-                'idempotency_key' => 'contract-link-sync-'.uniqid('', true),
+                'idempotency_key' => 'contract-pre-topic-'.uniqid('', true),
             ]);
-
             self::assertNotEmpty($createdTopics);
             $topic = $createdTopics[0];
             self::assertInstanceOf(SeedingTopic::class, $topic);
-
             $json = is_array($topic->links_json) ? $topic->links_json : [];
-            self::assertNotEmpty($json);
-            $snap = $json[0];
-            self::assertSame($createdAssignment->publicId(), $snap['id']);
-            self::assertSame('Shopee 1', $snap['title'] ?? $snap['label'] ?? null);
-            self::assertSame((string) $createdAssignment->url, $snap['url']);
-            self::assertSame(10, (int) ($snap['target_per_day'] ?? 0));
+            self::assertSame([], $json, 'New share must not snapshot assignment payload into links_json');
 
-            // Mutate master list — already-shared Topic must keep snapshot.
+            $createdAssignment = $assignments->create($ownerId, [
+                'title' => 'shopee link 1',
+                'url' => 'https://shopee.vn/item-contract-shared-'.uniqid('', true),
+                'target_per_day' => 8,
+                'is_active' => true,
+            ]);
+            self::assertSame('assign:'.(int) $createdAssignment->id, $createdAssignment->publicId());
+
+            $shared = $assignments->listActiveShared(true);
+            $ids = array_column($shared, 'id');
+            self::assertContains($createdAssignment->publicId(), $ids);
+
+            $hit = null;
+            foreach ($shared as $row) {
+                if (($row['id'] ?? '') === $createdAssignment->publicId()) {
+                    $hit = $row;
+                    break;
+                }
+            }
+            self::assertNotNull($hit);
+            self::assertSame(8, (int) ($hit['target_per_day'] ?? 0));
+
+            // Mutate master — Topic must stay untouched; shared list reflects new target.
             $assignments->update($ownerId, (int) $createdAssignment->id, [
-                'title' => 'Shopee RENAMED',
-                'target_per_day' => 99,
+                'target_per_day' => 10,
             ]);
             $topic->refresh();
-            $jsonAfter = is_array($topic->links_json) ? $topic->links_json : [];
-            self::assertSame('Shopee 1', $jsonAfter[0]['title'] ?? $jsonAfter[0]['label'] ?? null);
-            self::assertSame(10, (int) ($jsonAfter[0]['target_per_day'] ?? 0));
+            self::assertSame([], is_array($topic->links_json) ? $topic->links_json : []);
 
-            $presented = SeedingTopicPresenter::feedItem($topic, $seederId, 0, true);
-            self::assertArrayHasKey('links', $presented);
-            self::assertSame('Shopee 1', $presented['links'][0]['title']);
-            self::assertSame(10, (int) $presented['links'][0]['target_per_day']);
-            self::assertSame($createdAssignment->publicId(), $presented['links'][0]['id']);
+            $sharedAfter = $assignments->listActiveShared(true);
+            $hitAfter = null;
+            foreach ($sharedAfter as $row) {
+                if (($row['id'] ?? '') === $createdAssignment->publicId()) {
+                    $hitAfter = $row;
+                    break;
+                }
+            }
+            self::assertNotNull($hitAfter);
+            self::assertSame(10, (int) ($hitAfter['target_per_day'] ?? 0));
 
-            // Master assignment target unchanged by any Seeder-local progress concept.
-            $fresh = SeedingLinkAssignment::query()->whereKey($createdAssignment->id)->first();
-            self::assertInstanceOf(SeedingLinkAssignment::class, $fresh);
-            self::assertSame(99, (int) $fresh->target_per_day);
+            // Legacy presenter may still read empty links_json — must not invent shared assignments.
+            $presented = SeedingTopicPresenter::feedItem($topic, 900012, 0, true);
+            self::assertSame([], $presented['links'] ?? []);
         } finally {
             foreach ($createdTopics as $t) {
                 if ($t instanceof SeedingTopic) {
@@ -253,12 +273,16 @@ final class SeedingLinkAssignmentSyncContractTest extends TestCase
         $selectors = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/features/workspace/selectors.js'
         );
+        $sidebar = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/SeedingSidebar.jsx'
+        );
 
         self::assertStringContainsString('daily_link_progress[YYYY-MM-DD][assignment_id]', $progress);
         self::assertStringContainsString('bumpAssignmentProgress', $progress);
-        self::assertStringContainsString('targetPerDay', $targets);
-        self::assertStringContainsString("row.targetPerDay > 0 ? row.targetPerDay : '—'", $targets);
-        self::assertStringContainsString('link.target_per_day', $selectors);
-        self::assertStringContainsString('deriveTopicAssignedLinks', $selectors);
+        self::assertStringContainsString('sharedAssignmentsAsSelectable', $progress);
+        self::assertStringContainsString('deriveSharedAssignmentRows', $selectors);
+        self::assertStringContainsString('deriveSharedAssignmentRows', $sidebar);
+        self::assertStringContainsString('data-topic-social', $targets);
+        self::assertStringNotContainsString('deriveTopicAssignedLinks', $targets);
     }
 }

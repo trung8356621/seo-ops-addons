@@ -95,10 +95,9 @@ final class SeedingSharedTopicService
 
         $installationId = $this->resolver->installationNamespace();
         $socialUrl = $this->normalizeOptionalUrl($payload['social_url'] ?? null);
-        $links = $this->snapshotLinks(
-            is_array($payload['links'] ?? null) ? $payload['links'] : [],
-            $createdBy,
-        );
+        // FLOW A independent of FLOW B: do not snapshot shared assignments into Topic.
+        // links_json kept empty for new shares (legacy rows may still have historical data).
+        $links = [];
         $sourceType = SeedingTopicSourceType::tryFrom((string) ($payload['source_type'] ?? 'manual'))
             ?? SeedingTopicSourceType::Manual;
         $memberCount = $this->activeMemberCount();
@@ -492,8 +491,8 @@ final class SeedingSharedTopicService
     }
 
     /**
-     * Snapshot assignment fields into Topic.links_json.
-     * Prefer DB-backed assignments when ids resolve; preserve legacy tlink:* payloads.
+     * @deprecated Current share path does not write assignment snapshots into Topic.
+     * Legacy helper retained for historical tooling only.
      *
      * @param  list<mixed>  $links
      * @return list<array<string, mixed>>
@@ -506,7 +505,7 @@ final class SeedingSharedTopicService
     }
 
     /**
-     * @deprecated Prefer snapshotLinks — kept for any residual callers.
+     * @deprecated Prefer empty links_json on share — kept for any residual callers.
      *
      * @param  list<mixed>  $links
      * @return list<array<string, mixed>>

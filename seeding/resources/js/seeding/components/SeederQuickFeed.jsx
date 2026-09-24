@@ -51,6 +51,7 @@ export default function SeederQuickFeed({
     sharingTopicKey = null,
     activeGenTopicId = null,
     dailyLinkProgress = {},
+    sharedAssignments = [],
     generating = false,
     outputsForTopic,
     canSeedTopicFn,
@@ -264,6 +265,7 @@ export default function SeederQuickFeed({
                                     open
                                     inline
                                     topic={topic}
+                                    sharedAssignments={sharedAssignments}
                                     dailyLinkProgress={dailyLinkProgress}
                                     topicOutputs={topicOutputs}
                                     linkPreviewCache={linkPreviewCache}

@@ -12,7 +12,8 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
 
 /**
- * DB-backed Creator link assignments — master list snapshotted into Topics at share.
+ * DB-backed shared link assignments (FLOW B SoT).
+ * Independent of Topic share/feed. Creator CRUD is owner-scoped; Seeder reads installation active list.
  */
 final class SeedingLinkAssignmentService
 {
@@ -27,6 +28,8 @@ final class SeedingLinkAssignmentService
     }
 
     /**
+     * Creator/Manager manage catalog (own rows).
+     *
      * @return list<array<string, mixed>>
      */
     public function listForOwner(int $ownerUserId, bool $activeOnly = false): array
@@ -38,6 +41,31 @@ final class SeedingLinkAssignmentService
         $query = SeedingLinkAssignment::query()
             ->forInstallation($this->resolver->installationNamespace())
             ->ownedBy($ownerUserId)
+            ->orderByDesc('id');
+
+        if ($activeOnly) {
+            $query->active();
+        }
+
+        return $query->get()
+            ->map(static fn (SeedingLinkAssignment $row): array => $row->toApiArray())
+            ->all();
+    }
+
+    /**
+     * Current shared assignment list for workspace (Seeder + Copy).
+     * Installation-scoped; not filtered by Topic.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listActiveShared(bool $activeOnly = true): array
+    {
+        if (! $this->tableReady()) {
+            return [];
+        }
+
+        $query = SeedingLinkAssignment::query()
+            ->forInstallation($this->resolver->installationNamespace())
             ->orderByDesc('id');
 
         if ($activeOnly) {
@@ -110,8 +138,8 @@ final class SeedingLinkAssignmentService
     }
 
     /**
-     * Resolve public ids (assign:N) / numeric ids into Topic snapshot rows.
-     * Prefer DB values when the assignment still exists; otherwise keep payload fields.
+     * @deprecated Legacy Topic.links_json writer — current FLOW B does not snapshot into Topics.
+     * Kept for historical tooling only; do not call from share/create/edit.
      *
      * @param  list<mixed>  $links
      * @return list<array<string, mixed>>

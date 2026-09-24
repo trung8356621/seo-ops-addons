@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 
 /**
- * Creator-owned master seeding link assignment on omi_seeding.
- * Snapshotted into Topic.links_json at share time; Seeder progress is local-only.
+ * Installation-scoped shared seeding link assignment (FLOW B SoT).
+ * Independent of Topic/feed (FLOW A). Seeder daily progress is localStorage-only.
  */
 class SeedingLinkAssignment extends Model
 {
@@ -35,7 +35,7 @@ class SeedingLinkAssignment extends Model
     ];
 
     /**
-     * Stable public id used in Topic snapshots + Seeder local progress keys.
+     * Stable public id used as Seeder local progress key (daily_link_progress).
      */
     public function publicId(): string
     {
@@ -64,9 +64,9 @@ class SeedingLinkAssignment extends Model
     }
 
     /**
-     * Snapshot fields for seeding_topics.links_json (immutable for shared Topic until Creator re-saves).
+     * @deprecated Legacy Topic.links_json snapshot shape only — not used by current shared assignment flow.
      *
-     * @return array{id: string, title: string, label: string, url: string, target_per_day: int}
+     * @return array{id: string, title: ?string, label: ?string, url: string, target_per_day: int}
      */
     public function toTopicSnapshot(): array
     {

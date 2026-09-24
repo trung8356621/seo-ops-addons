@@ -1,12 +1,13 @@
 import React, { useMemo } from 'react';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { derivePersonalSeedingStats } from '../features/workspace/selectors';
+import { derivePersonalSeedingStats, deriveSharedAssignmentRows } from '../features/workspace/selectors';
 import LinkPoolPanel from './LinkPoolPanel';
 
 /**
- * Right sidebar — GLOBAL/PERSONAL Seeder stats only.
+ * Right sidebar — GLOBAL/PERSONAL Seeder stats + FLOW B shared assignments.
  * Does NOT bind to active/selected Topic.
- * Creator may open DB-backed assignment list (LinkPoolPanel).
+ * Creator may open DB-backed assignment CRUD (LinkPoolPanel).
+ * Exact Seeder sees read-only shared list with local done / target.
  *
  * @param {{
  *   open?: boolean,
@@ -15,14 +16,15 @@ import LinkPoolPanel from './LinkPoolPanel';
  *   seedBatches: Array<Record<string, unknown>>,
  *   seedOutputs: Array<Record<string, unknown>>,
  *   seedLinks?: Array<Record<string, unknown>>,
- *   linkAssignments?: Array<Record<string, unknown>>,
+ *   sharedAssignments?: Array<Record<string, unknown>>,
+ *   dailyProgressMap?: Record<string, number>,
  *   userId: number|string,
  *   linkPoolOpen?: boolean,
  *   canManageLinkPool?: boolean,
  *   onToggleCollapse: () => void,
  *   onOpenLinkPool?: () => void,
  *   onCloseLinkPool?: () => void,
- *   onAssignmentsChange?: (rows: Array<Record<string, unknown>>) => void,
+ *   onAssignmentsChange?: (rows?: Array<Record<string, unknown>>) => void,
  * }} props
  */
 export default function SeedingSidebar({
@@ -32,7 +34,8 @@ export default function SeedingSidebar({
     seedBatches,
     seedOutputs,
     seedLinks = [],
-    linkAssignments = [],
+    sharedAssignments = [],
+    dailyProgressMap = {},
     userId,
     linkPoolOpen = false,
     canManageLinkPool = false,
@@ -46,10 +49,15 @@ export default function SeedingSidebar({
             topics,
             batches: seedBatches,
             outputs: seedOutputs,
-            seedLinks: linkAssignments.length > 0 ? linkAssignments : seedLinks,
+            seedLinks: sharedAssignments.length > 0 ? sharedAssignments : seedLinks,
             userId,
         }),
-        [topics, seedBatches, seedOutputs, seedLinks, linkAssignments, userId],
+        [topics, seedBatches, seedOutputs, seedLinks, sharedAssignments, userId],
+    );
+
+    const assignmentRows = useMemo(
+        () => deriveSharedAssignmentRows(sharedAssignments, dailyProgressMap),
+        [sharedAssignments, dailyProgressMap],
     );
 
     if (!open) return null;
@@ -100,6 +108,27 @@ export default function SeedingSidebar({
                         </div>
                     </dl>
                 </section>
+
+                {assignmentRows.length > 0 ? (
+                    <section className="seeding-ws__section" data-shared-assignments data-readonly={!canManageLinkPool ? '1' : '0'}>
+                        <div className="seeding-ws__section-title">Link shared</div>
+                        <ul className="seeding-ws__topic-work-list">
+                            {assignmentRows.map((row) => (
+                                <li key={row.key} className="seeding-ws__topic-work-row" data-assignment-id={row.id}>
+                                    <div className="seeding-ws__topic-work-main">
+                                        <span className="seeding-ws__topic-work-title">{row.title}</span>
+                                        <span className="seeding-ws__topic-work-url" title={row.url}>{row.urlShort}</span>
+                                    </div>
+                                    <span className="seeding-ws__topic-work-count" title="local hôm nay / target/ngày">
+                                        {row.localDone}
+                                        {' / '}
+                                        {row.targetPerDay > 0 ? row.targetPerDay : '—'}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                ) : null}
 
                 {canManageLinkPool ? (
                     <section className="seeding-ws__section" data-stats="links">

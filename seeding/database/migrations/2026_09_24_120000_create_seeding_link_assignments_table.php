@@ -7,9 +7,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Creator-owned seeding link assignments (DB SoT).
- * Topic share snapshots id/title/url/target_per_day into seeding_topics.links_json.
- * Seeder daily progress stays in browser localStorage — never stored here.
+ * Creator-owned seeding link assignments (DB SoT for FLOW B).
+ * Independent of Topic/feed. Seeder daily progress stays in browser localStorage.
  */
 return new class extends Migration
 {

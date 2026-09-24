@@ -143,11 +143,7 @@ function TopicCard({
             />
 
             {!isDraft ? (
-                <TopicWorkTargets
-                    topic={topic}
-                    dailyProgressMap={dailyProgressMap}
-                    linkPreviewCache={linkPreviewCache}
-                />
+                <TopicWorkTargets topic={topic} />
             ) : null}
 
             <div className="seeding-ws__vcard-foot">

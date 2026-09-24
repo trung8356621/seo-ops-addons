@@ -293,6 +293,7 @@ final class KeywordTopicClusters extends Page
         $this->clearKeywordWorkspaceTabCountsCache();
         $this->resetPage();
         $this->syncReclusterStateFromCache();
+        $this->refreshAiAuditSnapshot();
     }
 
     private function redirectToFirstAccessibleDomainIfNeeded(): bool

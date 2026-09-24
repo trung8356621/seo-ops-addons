@@ -4,14 +4,14 @@ import {
     assignmentNumericId,
     createLinkAssignment,
     deleteLinkAssignment,
-    fetchLinkAssignments,
+    fetchMyLinkAssignments,
     importLocalLinkAssignments,
     updateLinkAssignment,
 } from '../api';
 import { DEFAULT_DAILY_LIMIT, MIN_DAILY_LIMIT } from '../services/linkPool';
 
 /**
- * Creator DB-backed link assignment list (not personal localStorage pool).
+ * Creator DB-backed link assignment list (FLOW B manage).
  * Seeder must never receive canManage=true.
  */
 export default function LinkPoolPanel({
@@ -36,7 +36,7 @@ export default function LinkPoolPanel({
         if (!canManage) return;
         setLoading(true);
         try {
-            const data = await fetchLinkAssignments(false);
+            const data = await fetchMyLinkAssignments(false);
             const rows = Array.isArray(data?.assignments) ? data.assignments : [];
             setAssignments(rows);
             if (typeof onAssignmentsChange === 'function') {

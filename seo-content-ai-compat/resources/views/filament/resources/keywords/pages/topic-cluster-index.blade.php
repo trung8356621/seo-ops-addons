@@ -142,6 +142,19 @@
                                 <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                     {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                                 </x-filament::button>
+                                @php $aiHistoryUrlDirty = $this->aiHistoryUrl(); @endphp
+                                @if (is_string($aiHistoryUrlDirty) && $aiHistoryUrlDirty !== '')
+                                    <x-filament::button
+                                        tag="a"
+                                        size="sm"
+                                        color="gray"
+                                        :href="$aiHistoryUrlDirty"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {{ __('seo-content-ai::filament.keyword.topic_ai_history_link') }}
+                                    </x-filament::button>
+                                @endif
                                 <x-filament::button
                                     type="button"
                                     size="sm"
@@ -195,7 +208,20 @@
                             @php
                                 $aiAuditCan = $this->canRunAiAuditAndTags();
                                 $aiAuditLabel = $this->aiAuditButtonLabel();
+                                $aiHistoryUrl = $this->aiHistoryUrl();
                             @endphp
+                            @if (is_string($aiHistoryUrl) && $aiHistoryUrl !== '')
+                                <x-filament::button
+                                    tag="a"
+                                    size="sm"
+                                    color="gray"
+                                    :href="$aiHistoryUrl"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    {{ __('seo-content-ai::filament.keyword.topic_ai_history_link') }}
+                                </x-filament::button>
+                            @endif
                             <x-filament::button
                                 type="button"
                                 size="sm"
@@ -276,6 +302,110 @@
                         </x-filament::button>
                     </div>
                 </div>
+            </div>
+        @endif
+
+        @php
+            $latestAi = $this->latestAiAudit();
+            $aiStatus = (string) ($latestAi['status'] ?? 'never_run');
+            $aiSummaryText = trim((string) ($latestAi['summary'] ?? ''));
+            $aiSiteNotes = $this->aiSiteWideFindings();
+            $aiHistoryLink = $this->aiHistoryUrl();
+            $hasAiAuditUi = $aiStatus !== 'never_run'
+                || $aiSummaryText !== ''
+                || ($latestAi['findings_count'] ?? 0) > 0
+                || $aiSiteNotes !== [];
+        @endphp
+
+        @if ($hasAiAuditUi)
+            <details
+                class="topic-ai-audit-summary"
+                wire:key="topic-ai-audit-summary-{{ $this->clusterDataEpoch }}-{{ (int) ($latestAi['last_prompt_result_id'] ?? 0) }}"
+            >
+                <summary class="topic-ai-audit-summary__header">
+                    <span class="topic-ai-audit-summary__title">
+                        {{ __('seo-content-ai::filament.keyword.topic_ai_audit_summary_title') }}
+                        <span aria-hidden="true">·</span>
+                        @if ($aiStatus === 'current')
+                            {{ __('seo-content-ai::filament.keyword.topic_ai_audit_status_current') }}
+                        @elseif ($aiStatus === 'stale')
+                            {{ __('seo-content-ai::filament.keyword.topic_ai_audit_status_stale') }}
+                        @else
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_status_never') }}
+                        @endif
+                        @if (! empty($latestAi['last_run_at']))
+                            <span aria-hidden="true">·</span>
+                            {{ \Illuminate\Support\Carbon::parse($latestAi['last_run_at'])->timezone(config('app.timezone'))->format('d/m/Y') }}
+                        @endif
+                    </span>
+                    @if ($aiStatus === 'stale')
+                        <span class="topic-ai-audit-summary__stale-pill">
+                            {{ __('seo-content-ai::filament.keyword.topic_ai_audit_stale_badge') }}
+                        </span>
+                    @endif
+                </summary>
+                <div class="topic-ai-audit-summary__body">
+                    @if ($aiSummaryText !== '')
+                        <p class="topic-ai-audit-summary__quote">“{{ $aiSummaryText }}”</p>
+                    @endif
+                    <p class="topic-ai-audit-summary__counts">
+                        {{ __('seo-content-ai::filament.keyword.topic_ai_audit_counts', [
+                            'findings' => (int) ($latestAi['findings_count'] ?? 0),
+                            'opportunities' => (int) ($latestAi['opportunities_count'] ?? 0),
+                            'actions' => (int) ($latestAi['actions_count'] ?? 0),
+                        ]) }}
+                    </p>
+                    @if (is_string($aiHistoryLink) && $aiHistoryLink !== '')
+                        <a
+                            href="{{ $aiHistoryLink }}"
+                            class="topic-ai-audit-summary__history"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            {{ __('seo-content-ai::filament.keyword.topic_ai_history_link') }}
+                        </a>
+                    @endif
+                </div>
+            </details>
+        @endif
+
+        @if ($aiSiteNotes !== [])
+            <div
+                class="topic-ai-site-notes"
+                wire:key="topic-ai-site-notes-{{ $this->clusterDataEpoch }}"
+                x-data="{ open: false, limit: 3 }"
+            >
+                <div class="topic-ai-site-notes__title">
+                    {{ __('seo-content-ai::filament.keyword.topic_ai_site_notes_title') }}
+                </div>
+                <ul class="topic-ai-site-notes__list">
+                    @foreach ($aiSiteNotes as $noteIdx => $siteFinding)
+                        @php
+                            $noteText = trim((string) ($siteFinding['observation'] ?? ''));
+                            if ($noteText === '') {
+                                $noteText = trim((string) ($siteFinding['title'] ?? ''));
+                            }
+                        @endphp
+                        <li
+                            class="topic-ai-site-notes__item"
+                            x-show="open || {{ $noteIdx }} < limit"
+                            @if ($noteIdx >= 3) x-cloak @endif
+                        >
+                            <span aria-hidden="true">⚠</span>
+                            {{ $noteText }}
+                        </li>
+                    @endforeach
+                </ul>
+                @if (count($aiSiteNotes) > 3)
+                    <button
+                        type="button"
+                        class="topic-ai-site-notes__more"
+                        x-show="!open"
+                        @click="open = true"
+                    >
+                        {{ __('seo-content-ai::filament.keyword.topic_ai_site_notes_more') }}
+                    </button>
+                @endif
             </div>
         @endif
 
@@ -489,10 +619,32 @@
                         $hasMembershipLocks = (bool) ($row['has_membership_locks'] ?? false);
                         $isMcpExcluded = (bool) ($row['mcp_excluded'] ?? false);
                         $rowCanEdit = $canEditCanonical && ! $isTopicLocked;
+                        $topicAiFindings = $this->aiFindingsForTopic($topicId);
+                        $topicAiSeverity = $this->aiSeverityForTopic($topicId);
+                        $topicAiPrimary = $topicAiFindings[0] ?? null;
+                        $topicAiExtra = max(0, count($topicAiFindings) - 1);
+                        $topicAiObservation = is_array($topicAiPrimary)
+                            ? trim((string) ($topicAiPrimary['observation'] ?? ''))
+                            : '';
+                        if ($topicAiObservation === '' && is_array($topicAiPrimary)) {
+                            $topicAiObservation = trim((string) ($topicAiPrimary['title'] ?? ''));
+                        }
+                        $topicAiTitle = is_array($topicAiPrimary)
+                            ? trim((string) ($topicAiPrimary['title'] ?? ''))
+                            : '';
+                        $rowAiClass = $topicAiSeverity !== null
+                            ? ' cluster-index-row--ai-'.$topicAiSeverity
+                            : '';
+                        $rowAiTitle = $topicAiSeverity !== null
+                            ? __('seo-content-ai::filament.keyword.topic_ai_severity_title', [
+                                'level' => ucfirst($topicAiSeverity),
+                            ])
+                            : null;
                     @endphp
                     <div
-                        class="cluster-index-row"
+                        class="cluster-index-row{{ $rowAiClass }}"
                         data-topic-id="{{ $topicId }}"
+                        @if ($rowAiTitle) title="{{ $rowAiTitle }}" @endif
                         wire:key="cluster-row-{{ $topicId }}-{{ $this->clusterDataEpoch }}"
                         @if ($rowCanEdit)
                             x-data="{
@@ -813,6 +965,54 @@
                                     </span>
                                 @endif
                             </div>
+
+                            @if ($topicAiFindings !== [] && $topicAiObservation !== '')
+                                <div
+                                    class="cluster-index-row__ai-note"
+                                    x-data="{ open: false }"
+                                >
+                                    @if ($rowAiTitle)
+                                        <span class="sr-only">{{ $rowAiTitle }}</span>
+                                    @endif
+                                    <div class="cluster-index-row__ai-note-label">
+                                        {{ __('seo-content-ai::filament.keyword.topic_ai_note_label') }}
+                                    </div>
+                                    @if ($topicAiTitle !== '' && $topicAiTitle !== $topicAiObservation)
+                                        <div class="cluster-index-row__ai-note-title">{{ $topicAiTitle }}</div>
+                                    @endif
+                                    <div class="cluster-index-row__ai-note-text">{{ $topicAiObservation }}</div>
+                                    @if ($topicAiExtra > 0)
+                                        <button
+                                            type="button"
+                                            class="cluster-index-row__ai-note-more"
+                                            x-show="!open"
+                                            @click.stop="open = true"
+                                        >
+                                            {{ __('seo-content-ai::filament.keyword.topic_ai_note_more', ['count' => $topicAiExtra]) }}
+                                        </button>
+                                        <ul class="cluster-index-row__ai-note-extra" x-show="open" x-cloak>
+                                            @foreach (array_slice($topicAiFindings, 1) as $extraFinding)
+                                                @php
+                                                    $extraSev = strtoupper((string) ($extraFinding['severity'] ?? ''));
+                                                    $extraTitle = trim((string) ($extraFinding['title'] ?? ''));
+                                                    $extraObs = trim((string) ($extraFinding['observation'] ?? ''));
+                                                @endphp
+                                                <li>
+                                                    @if ($extraSev !== '')
+                                                        <span class="cluster-index-row__ai-note-sev">[{{ $extraSev }}]</span>
+                                                    @endif
+                                                    @if ($extraTitle !== '')
+                                                        <strong>{{ $extraTitle }}</strong>
+                                                    @endif
+                                                    @if ($extraObs !== '')
+                                                        <span>{{ $extraObs }}</span>
+                                                    @endif
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </div>
+                            @endif
                         </div>
 
                         <div

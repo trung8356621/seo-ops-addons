@@ -221,10 +221,21 @@ export async function fetchLinkPreview(url) {
     }
 }
 
-/** Creator: DB-backed link assignment master list */
-export async function fetchLinkAssignments(activeOnly = false) {
-    const qs = activeOnly ? '?active_only=1' : '';
-    return seedingApiFetch(`/api/seeding/link-assignments${qs}`, { method: 'GET' });
+/** Shared assignment list (FLOW B) — any workspace user; default scope=shared */
+export async function fetchLinkAssignments(activeOnly = true, scope = 'shared') {
+    const params = new URLSearchParams();
+    params.set('scope', scope === 'mine' ? 'mine' : 'shared');
+    if (activeOnly) {
+        params.set('active_only', '1');
+    } else {
+        params.set('active_only', '0');
+    }
+    return seedingApiFetch(`/api/seeding/link-assignments?${params.toString()}`, { method: 'GET' });
+}
+
+/** Creator manage catalog (own rows) */
+export async function fetchMyLinkAssignments(activeOnly = false) {
+    return fetchLinkAssignments(activeOnly, 'mine');
 }
 
 /**

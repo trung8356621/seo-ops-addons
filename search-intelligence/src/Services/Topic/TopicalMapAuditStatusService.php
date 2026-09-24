@@ -140,37 +140,103 @@ final class TopicalMapAuditStatusService
                 ->map(static fn ($id): int => (int) $id)
                 ->all();
 
-            $query = SeoPromptResult::query()
+            // 1) Canonical: PromptResult.site_id matches current site.
+            $row = $this->querySuccessfulHookResults($hook, $promptIds)
                 ->where('site_id', $siteId)
-                ->whereIn('status', ['completed', 'success', 'succeeded']);
-
-            $query->where(function ($q) use ($hook, $promptIds): void {
-                $q->where('canonical_prompt_key', $hook);
-                if ($promptIds !== []) {
-                    $q->orWhereIn('prompt_id', $promptIds);
-                }
-            });
-
-            $row = $query
                 ->orderByDesc('finished_at')
                 ->orderByDesc('id')
                 ->first(['id', 'finished_at', 'created_at']);
 
-            if ($row === null) {
-                return ['finished_at' => null, 'prompt_result_id' => null];
+            if ($row !== null) {
+                return $this->formatAuditPointer($row);
             }
 
-            $finished = $row->finished_at ?? $row->created_at;
-            $iso = $finished !== null
-                ? (is_string($finished) ? $finished : $finished->toIso8601String())
-                : null;
+            // 2) History linker / planner run (site_id on PromptResult may be 0 from legacy PromptRunner).
+            $linkedId = $this->historyLinker->latestAuditPromptResultId($siteId);
+            if ($linkedId !== null && $linkedId > 0) {
+                $linked = SeoPromptResult::query()
+                    ->whereKey($linkedId)
+                    ->whereIn('status', ['completed', 'success', 'succeeded'])
+                    ->first(['id', 'finished_at', 'created_at']);
+                if ($linked !== null) {
+                    return $this->formatAuditPointer($linked);
+                }
+            }
 
-            return [
-                'finished_at' => $iso,
-                'prompt_result_id' => (int) $row->id,
-            ];
+            // 3) Legacy PromptRunner rows: site_id=0 but variables.site_domain matches.
+            $domain = $this->resolveSiteDomain($siteId);
+            if ($domain !== '') {
+                $candidates = $this->querySuccessfulHookResults($hook, $promptIds)
+                    ->where(function ($q): void {
+                        $q->where('site_id', 0)->orWhereNull('site_id');
+                    })
+                    ->orderByDesc('finished_at')
+                    ->orderByDesc('id')
+                    ->limit(25)
+                    ->get(['id', 'finished_at', 'created_at', 'input_snapshot']);
+
+                foreach ($candidates as $candidate) {
+                    $snap = is_array($candidate->input_snapshot ?? null) ? $candidate->input_snapshot : [];
+                    $variables = is_array($snap['variables'] ?? null) ? $snap['variables'] : [];
+                    $snapDomain = trim((string) ($variables['site_domain'] ?? $snap['site_domain'] ?? ''));
+                    if ($snapDomain !== '' && strcasecmp($snapDomain, $domain) === 0) {
+                        return $this->formatAuditPointer($candidate);
+                    }
+                }
+            }
+
+            return ['finished_at' => null, 'prompt_result_id' => null];
         } catch (Throwable) {
             return ['finished_at' => null, 'prompt_result_id' => null];
+        }
+    }
+
+    /**
+     * @param  list<int>  $promptIds
+     */
+    private function querySuccessfulHookResults(string $hook, array $promptIds)
+    {
+        $query = SeoPromptResult::query()
+            ->whereIn('status', ['completed', 'success', 'succeeded']);
+
+        $query->where(function ($q) use ($hook, $promptIds): void {
+            $q->where('canonical_prompt_key', $hook);
+            if ($promptIds !== []) {
+                $q->orWhereIn('prompt_id', $promptIds);
+            }
+        });
+
+        return $query;
+    }
+
+    /**
+     * @param  object{id: mixed, finished_at?: mixed, created_at?: mixed}  $row
+     * @return array{finished_at: string|null, prompt_result_id: int|null}
+     */
+    private function formatAuditPointer(object $row): array
+    {
+        $finished = $row->finished_at ?? $row->created_at ?? null;
+        $iso = $finished !== null
+            ? (is_string($finished) ? $finished : $finished->toIso8601String())
+            : null;
+
+        return [
+            'finished_at' => $iso,
+            'prompt_result_id' => (int) $row->id,
+        ];
+    }
+
+    private function resolveSiteDomain(int $siteId): string
+    {
+        try {
+            $site = \App\Models\Site::query()->find($siteId);
+            if ($site === null) {
+                return '';
+            }
+
+            return trim((string) ($site->domain ?? ''));
+        } catch (Throwable) {
+            return '';
         }
     }
 }

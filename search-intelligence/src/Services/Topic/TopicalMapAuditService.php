@@ -8,6 +8,7 @@ use App\Models\Site;
 use InvalidArgumentException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Models\SeoPromptResult;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeResult;
@@ -280,7 +281,7 @@ final class TopicalMapAuditService
             hookKey: self::HOOK_KEY,
             version: self::HOOK_VERSION,
             envelope: $envelope,
-            legacyExecute: function () use ($legacyVariables, &$promptResultId): mixed {
+            legacyExecute: function () use ($legacyVariables, &$promptResultId, $siteId): mixed {
                 $promptId = $this->workflowSettings->getBoundPromptId(self::HOOK_KEY);
                 if ($promptId === null) {
                     throw new InvalidArgumentException(
@@ -294,23 +295,49 @@ final class TopicalMapAuditService
 
                 $result = $this->promptRunner->run($prompt, $legacyVariables);
                 $promptResultId = $result->id !== null ? (int) $result->id : null;
+                $this->bindPromptResultSite($promptResultId, $siteId);
 
                 return (string) ($result->output_text ?? '');
             },
-            mapHookResult: function (PromptHookRuntimeResult $runtimeResult) use (&$promptResultId): mixed {
+            mapHookResult: function (PromptHookRuntimeResult $runtimeResult) use (&$promptResultId, $siteId): mixed {
                 $metaId = $runtimeResult->meta['prompt_result_id'] ?? null;
                 if (is_numeric($metaId) && (int) $metaId > 0) {
                     $promptResultId = (int) $metaId;
                 }
+                $this->bindPromptResultSite($promptResultId, $siteId);
 
                 return $runtimeResult->output['value'] ?? null;
             },
         );
 
+        $this->bindPromptResultSite($promptResultId, $siteId);
+
         return [
             'value' => $value,
             'prompt_result_id' => ($promptResultId !== null && $promptResultId > 0) ? $promptResultId : null,
         ];
+    }
+
+    /**
+     * PromptRunner historically persists site_id=0. Bind the real site after run so
+     * Topics latest-audit reads can scope by site_id without planner-run fallback.
+     */
+    private function bindPromptResultSite(?int $promptResultId, int $siteId): void
+    {
+        if ($promptResultId === null || $promptResultId <= 0 || $siteId <= 0) {
+            return;
+        }
+
+        try {
+            SeoPromptResult::query()
+                ->whereKey($promptResultId)
+                ->where(function ($q): void {
+                    $q->where('site_id', 0)->orWhereNull('site_id');
+                })
+                ->update(['site_id' => $siteId]);
+        } catch (Throwable) {
+            // Non-fatal: read path still has planner / domain fallbacks.
+        }
     }
 
     /**

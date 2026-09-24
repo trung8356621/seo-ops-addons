@@ -14,7 +14,9 @@ use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Throwable;
 
 /**
- * Creator/Manager CRUD for DB-backed seeding link assignments.
+ * Shared link assignments API (FLOW B).
+ * - GET scope=shared: any Seeding workspace user (active installation list)
+ * - GET scope=mine + POST/PUT/DELETE: Creator/Manager CRUD only
  * Exact Seeder must never mutate assignment definitions.
  */
 final class SeedingLinkAssignmentController extends Controller
@@ -26,15 +28,28 @@ final class SeedingLinkAssignmentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $this->access->assertCanManageLinkAssignments();
+        $this->access->assertCanAccess();
         $user = $request->user();
         abort_unless($user instanceof User, 401);
 
-        $activeOnly = filter_var($request->query('active_only', false), FILTER_VALIDATE_BOOLEAN);
+        $scope = strtolower(trim((string) $request->query('scope', 'shared')));
+        $activeOnly = filter_var($request->query('active_only', $scope === 'shared'), FILTER_VALIDATE_BOOLEAN);
 
+        if ($scope === 'mine') {
+            $this->access->assertCanManageLinkAssignments();
+
+            return response()->json([
+                'ok' => true,
+                'scope' => 'mine',
+                'assignments' => $this->assignments->listForOwner((int) $user->id, $activeOnly),
+            ]);
+        }
+
+        // Default: installation shared list (Seeder + Copy SSOT).
         return response()->json([
             'ok' => true,
-            'assignments' => $this->assignments->listForOwner((int) $user->id, $activeOnly),
+            'scope' => 'shared',
+            'assignments' => $this->assignments->listActiveShared($activeOnly),
         ]);
     }
 
@@ -143,6 +158,7 @@ final class SeedingLinkAssignmentController extends Controller
             'ok' => true,
             'created' => $created,
             'assignments' => $this->assignments->listForOwner((int) $user->id),
+            'scope' => 'mine',
             'message' => count($created) > 0
                 ? 'Đã import '.count($created).' link vào DB'
                 : 'Không có link mới để import',

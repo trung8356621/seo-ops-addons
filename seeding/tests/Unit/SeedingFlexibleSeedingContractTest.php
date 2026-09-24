@@ -118,8 +118,8 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('data-section="seed-outputs"', $panel);
         self::assertStringContainsString('Link assigned khả dụng', $panel);
         self::assertStringContainsString('Còn ngưỡng hôm nay', $panel);
-        self::assertStringContainsString('Topic này chưa được giao link seeding.', $panel);
-        self::assertStringContainsString('topicAssignedLinksAsSelectable', $panel);
+        self::assertStringContainsString('Chưa có link shared assignment', $panel);
+        self::assertStringContainsString('sharedAssignmentsAsSelectable', $panel);
         self::assertStringContainsString('Báo cáo', $panel);
         self::assertStringContainsString('Copy', $panel);
         self::assertStringNotContainsString('Bạn chưa có link trong Link Pool.', $panel);

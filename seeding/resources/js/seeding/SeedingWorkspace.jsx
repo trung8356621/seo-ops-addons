@@ -113,7 +113,8 @@ export default function SeedingWorkspace({
     const [topics, setTopics] = useState([]);
     const [reports, setReports] = useState([]);
     const [seedLinks, setSeedLinks] = useState([]);
-    const [linkAssignments, setLinkAssignments] = useState([]);
+    /** FLOW B — installation shared assignments (not Topic.links) */
+    const [sharedAssignments, setSharedAssignments] = useState([]);
     const [seedBatches, setSeedBatches] = useState([]);
     const [seedOutputs, setSeedOutputs] = useState([]);
     const [linkPreviews, setLinkPreviews] = useState({});
@@ -224,6 +225,15 @@ export default function SeedingWorkspace({
         if (persist) schedulePersist();
     }, [schedulePersist]);
 
+    const refreshSharedAssignments = useCallback(async () => {
+        try {
+            const data = await fetchLinkAssignments(true, 'shared');
+            setSharedAssignments(Array.isArray(data?.assignments) ? data.assignments : []);
+        } catch {
+            setSharedAssignments([]);
+        }
+    }, []);
+
     const refreshFeed = useCallback(async () => {
         if (feedAbortRef.current) feedAbortRef.current.abort();
         const controller = new AbortController();
@@ -237,11 +247,12 @@ export default function SeedingWorkspace({
             const merged = mergeSharedFeed(topicsRef.current, feedTopics, userId);
             applyDoc({ topics: merged, link_usage_today: usage }, false);
             writer.current.flush(() => persistNow({ topics: merged, link_usage_today: usage }));
+            await refreshSharedAssignments();
         } catch (e) {
             if (e?.name === 'AbortError') return;
             // Soft fail — local drafts still usable
         }
-    }, [applyDoc, persistNow, userId]);
+    }, [applyDoc, persistNow, userId, refreshSharedAssignments]);
 
     useEffect(() => {
         const doc = readDocument(scope);
@@ -277,26 +288,17 @@ export default function SeedingWorkspace({
     }, [scope, userId, userDisplayName, refreshFeed]);
 
     useEffect(() => {
-        const canLoad = canManageOwnSeedLinks(hasWorkspaceAccess, {
-            seedingRole,
-            isManager: manager,
-            isTopicCreator: isTopicCreatorRole,
-        });
-        if (!canLoad) {
-            setLinkAssignments([]);
-            return undefined;
-        }
         let cancelled = false;
-        fetchLinkAssignments(false)
+        fetchLinkAssignments(true, 'shared')
             .then((data) => {
                 if (cancelled) return;
-                setLinkAssignments(Array.isArray(data?.assignments) ? data.assignments : []);
+                setSharedAssignments(Array.isArray(data?.assignments) ? data.assignments : []);
             })
             .catch(() => {
-                if (!cancelled) setLinkAssignments([]);
+                if (!cancelled) setSharedAssignments([]);
             });
         return () => { cancelled = true; };
-    }, [seedingRole, manager, isTopicCreatorRole, hasWorkspaceAccess]);
+    }, [hasWorkspaceAccess]);
 
     useEffect(() => () => {
         writer.current.cancel();
@@ -404,9 +406,6 @@ export default function SeedingWorkspace({
         if (!composer || !allowCreate) return;
         const fullText = String(composer.full_text || '').trim();
         if (!fullText) return;
-        const links = Array.isArray(composer.links) && composer.links.length > 0
-            ? composer.links
-            : extractLinksFromPaste(fullText, composer.source_html);
         const socialTargets = Array.isArray(composer.social_targets) && composer.social_targets.length > 0
             ? composer.social_targets
             : [{
@@ -422,7 +421,8 @@ export default function SeedingWorkspace({
                 source_html: composer.source_html || null,
                 social_url: String(composer.social_url || '').trim(),
                 social_targets: socialTargets,
-                links,
+                // FLOW A independent of FLOW B — do not attach shared assignments to Topic.
+                links: [],
                 idempotency_key: `create:${String(composer.localId || composer.id || Date.now())}`,
             });
             const createdCount = Array.isArray(data?.topics) ? data.topics.length : 1;
@@ -513,7 +513,7 @@ export default function SeedingWorkspace({
                 social_platform: topic.social_platform || undefined,
                 target_comments: topic.target_comments || undefined,
                 social_targets: topic.social_targets || undefined,
-                links: topic.links || [],
+                links: [],
                 idempotency_key: idempotencyKey,
             });
             const optimistic = removeDraftTopic(topicsRef.current, key);
@@ -561,7 +561,7 @@ export default function SeedingWorkspace({
             title: topic.title || '',
             full_text: topic.full_text || '',
             social_url: topic.social_url || '',
-            links: topic.links || [],
+            links: [],
             source_html: null,
             _mode: 'edit',
         });
@@ -580,8 +580,9 @@ export default function SeedingWorkspace({
         if (toastMsg) notifySuccess(toastMsg);
     };
 
-    const onAssignmentsChange = (rows) => {
-        setLinkAssignments(Array.isArray(rows) ? rows : []);
+    const onAssignmentsChange = () => {
+        // Creator CRUD updated DB — reload installation shared list (do not use mine rows for Copy).
+        void refreshSharedAssignments();
     };
 
     const runGenerate = async (quantity) => {
@@ -835,7 +836,6 @@ export default function SeedingWorkspace({
                                         topic={composer}
                                         canMutate={allowCreate}
                                         mode={composer._mode === 'edit' ? 'edit' : 'create'}
-                                        availableAssignments={linkAssignments}
                                         onChange={patchComposer}
                                         onPasteContent={onPasteContent}
                                         onCancel={cancelComposer}
@@ -858,6 +858,7 @@ export default function SeedingWorkspace({
                                         sharingTopicKey={sharingTopicKey}
                                         activeGenTopicId={activeGenTopicId}
                                         dailyLinkProgress={dailyLinkProgress}
+                                        sharedAssignments={sharedAssignments}
                                         generating={generating}
                                         outputsForTopic={outputsForTopic}
                                         canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
@@ -890,6 +891,7 @@ export default function SeedingWorkspace({
                                         sharingTopicKey={sharingTopicKey}
                                         activeGenTopicId={activeGenTopicId}
                                         dailyLinkProgress={dailyLinkProgress}
+                                        sharedAssignments={sharedAssignments}
                                         generating={generating}
                                         outputsForTopic={outputsForTopic}
                                         canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
@@ -930,7 +932,8 @@ export default function SeedingWorkspace({
                 seedBatches={seedBatches}
                 seedOutputs={seedOutputs}
                 seedLinks={seedLinks}
-                linkAssignments={linkAssignments}
+                sharedAssignments={sharedAssignments}
+                dailyProgressMap={dailyProgressToday}
                 userId={userId}
                 linkPoolOpen={linkPoolOpen}
                 canManageLinkPool={canManageLinkPool}

@@ -80,7 +80,7 @@ final class SeedingFeedUxContractTest extends TestCase
         );
         self::assertStringContainsString('canManageLinkPool', $workspace);
         self::assertStringNotContainsString('Link Pool', $workspace);
-        self::assertStringContainsString('AssignedLinksEditor', (string) file_get_contents(
+        self::assertStringNotContainsString('AssignedLinksEditor', (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx'
         ));
         self::assertStringContainsString('Danh sách link', (string) file_get_contents(
@@ -130,6 +130,8 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('Seeding hôm nay', $sidebar);
         self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
         self::assertStringContainsString('Quản lý danh sách link', $sidebar);
+        self::assertStringContainsString('data-shared-assignments', $sidebar);
+        self::assertStringContainsString('sharedAssignments', $sidebar);
         self::assertStringNotContainsString('Quản lý Link Pool', $sidebar);
         self::assertStringNotContainsString('Link cá nhân (tuỳ chọn)', $sidebar);
         self::assertStringNotContainsString('Topic hiện tại', $sidebar);
@@ -143,15 +145,15 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('data-topic-social', (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicWorkTargets.jsx'
         ));
-        self::assertStringContainsString('data-topic-assigned-links', (string) file_get_contents(
+        self::assertStringNotContainsString('data-topic-assigned-links', (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicWorkTargets.jsx'
         ));
-        self::assertStringContainsString('AssignedLinksEditor', $composer);
-        self::assertStringContainsString('Topic này chưa được giao link seeding.', $panel);
+        self::assertStringNotContainsString('AssignedLinksEditor', $composer);
+        self::assertStringContainsString('Chưa có link shared assignment', $panel);
         self::assertStringNotContainsString('Bạn chưa có link trong Link Pool.', $panel);
 
         self::assertStringContainsString('export function derivePersonalSeedingStats', $selectors);
-        self::assertStringContainsString('export function deriveTopicAssignedLinks', $selectors);
+        self::assertStringContainsString('export function deriveSharedAssignmentRows', $selectors);
         self::assertStringContainsString('export function deriveTopicSocialTarget', $selectors);
         self::assertStringContainsString('shortenUrlDisplay', $selectors);
         self::assertStringContainsString('genBatches', $selectors);

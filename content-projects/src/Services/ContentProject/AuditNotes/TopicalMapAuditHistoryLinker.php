@@ -94,6 +94,43 @@ final class TopicalMapAuditHistoryLinker
     }
 
     /**
+     * Latest Topical Map Audit PromptResult linked for this site (planner run).
+     * Read-only; does not create Shared Draft.
+     */
+    public function latestAuditPromptResultId(int $siteId): ?int
+    {
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        try {
+            $run = SeoContentProjectPlannerRun::query()
+                ->where('source_type', SeoContentProjectPlannerRun::SOURCE_TOPICAL_MAP_AUDIT)
+                ->where('site_id', $siteId)
+                ->whereNotNull('prompt_result_id')
+                ->where('prompt_result_id', '>', 0)
+                ->orderByDesc('id')
+                ->first(['id', 'prompt_result_id', 'result_summary']);
+
+            if ($run === null) {
+                return null;
+            }
+
+            $summary = is_array($run->result_summary ?? null) ? $run->result_summary : [];
+            $status = strtolower(trim((string) ($summary['status'] ?? '')));
+            if ($status !== '' && ! in_array($status, ['completed', 'success', 'succeeded'], true)) {
+                return null;
+            }
+
+            $id = (int) ($run->prompt_result_id ?? 0);
+
+            return $id > 0 ? $id : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Content Plan AI History URL for an existing Shared Draft, or null.
      * Does not call ensureSharedDraft.
      */

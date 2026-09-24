@@ -20,6 +20,7 @@ export default function TopicFeed({
     sharingTopicKey = null,
     activeGenTopicId = null,
     dailyLinkProgress = {},
+    sharedAssignments = [],
     generating = false,
     outputsForTopic,
     canSeedTopicFn,
@@ -97,6 +98,7 @@ export default function TopicFeed({
                                     open
                                     inline
                                     topic={topic}
+                                    sharedAssignments={sharedAssignments}
                                     dailyLinkProgress={dailyLinkProgress}
                                     topicOutputs={topicOutputs}
                                     linkPreviewCache={linkPreviewCache}
