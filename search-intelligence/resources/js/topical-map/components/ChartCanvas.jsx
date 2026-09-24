@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useImperativeHandle, useRef, forwardRef, useCallback } from 'react';
 import * as echarts from 'echarts/core';
 import { TreeChart, GraphChart, SunburstChart } from 'echarts/charts';
 import {
@@ -20,10 +20,25 @@ echarts.use([
     CanvasRenderer,
 ]);
 
+const ZOOM_STEP = 1.2;
+const ZOOM_MIN = 0.35;
+const ZOOM_MAX = 4;
+
+function readSeriesZoom(chart) {
+    try {
+        const opt = chart.getOption();
+        const series = Array.isArray(opt?.series) ? opt.series[0] : null;
+        const z = Number(series?.zoom ?? 1);
+        return Number.isFinite(z) && z > 0 ? z : 1;
+    } catch {
+        return 1;
+    }
+}
+
 /**
- * Full-flex ECharts canvas — wheel zoom, ResizeObserver, click/dblclick disambiguation.
+ * Full-flex ECharts canvas — wheel zoom, toolbar zoom API, ResizeObserver.
  */
-export default function ChartCanvas({
+const ChartCanvas = forwardRef(function ChartCanvas({
     overview,
     renderer,
     neighborhood,
@@ -34,13 +49,17 @@ export default function ChartCanvas({
     onFocusTopic,
     onLoadChildren,
     onNetworkFocus,
+    onZoomChange,
     meta,
-}) {
+}, ref) {
     const hostRef = useRef(null);
     const chartRef = useRef(null);
     const clickRef = useRef({ topicId: null, at: 0 });
     const childrenCacheRef = useRef(childrenCache);
     childrenCacheRef.current = childrenCache;
+    const zoomRef = useRef(1);
+    const onZoomChangeRef = useRef(onZoomChange);
+    onZoomChangeRef.current = onZoomChange;
 
     const propsRef = useRef({});
     propsRef.current = {
@@ -50,6 +69,74 @@ export default function ChartCanvas({
         onLoadChildren,
         onNetworkFocus,
     };
+
+    const emitZoom = useCallback((zoom) => {
+        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom));
+        zoomRef.current = next;
+        onZoomChangeRef.current?.(next);
+    }, []);
+
+    const applyZoomFactor = useCallback((factor) => {
+        const chart = chartRef.current;
+        if (!chart) {
+            return;
+        }
+        const mode = propsRef.current.renderer;
+        if (mode === 'sunburst') {
+            return;
+        }
+        const current = readSeriesZoom(chart);
+        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current * factor));
+        const center = (() => {
+            try {
+                const opt = chart.getOption();
+                return opt?.series?.[0]?.center;
+            } catch {
+                return undefined;
+            }
+        })();
+
+        if (mode === 'tree') {
+            chart.setOption({
+                series: [{ id: 'topical-map-tree', zoom: next, center }],
+            });
+        } else if (mode === 'network') {
+            chart.setOption({
+                series: [{ id: 'topical-map-network', zoom: next, center }],
+            });
+        }
+        emitZoom(next);
+    }, [emitZoom]);
+
+    const resetZoom = useCallback(() => {
+        const chart = chartRef.current;
+        if (!chart) {
+            return;
+        }
+        const mode = propsRef.current.renderer;
+        if (mode === 'sunburst') {
+            emitZoom(1);
+            return;
+        }
+        if (mode === 'tree') {
+            chart.setOption({
+                series: [{ id: 'topical-map-tree', zoom: 1, center: undefined }],
+            });
+        } else if (mode === 'network') {
+            chart.setOption({
+                series: [{ id: 'topical-map-network', zoom: 1, center: undefined }],
+            });
+        }
+        emitZoom(1);
+    }, [emitZoom]);
+
+    useImperativeHandle(ref, () => ({
+        zoomIn: () => applyZoomFactor(ZOOM_STEP),
+        zoomOut: () => applyZoomFactor(1 / ZOOM_STEP),
+        resetZoom,
+        getZoom: () => zoomRef.current,
+        supportsZoom: () => propsRef.current.renderer !== 'sunburst',
+    }), [applyZoomFactor, resetZoom]);
 
     useEffect(() => {
         const el = hostRef.current;
@@ -67,6 +154,12 @@ export default function ChartCanvas({
             event.preventDefault();
         };
         el.addEventListener('wheel', onWheel, { passive: false });
+
+        const syncZoomFromEvent = () => {
+            emitZoom(readSeriesZoom(chart));
+        };
+        chart.on('treeroam', syncZoomFromEvent);
+        chart.on('graphroam', syncZoomFromEvent);
 
         const onClick = async (params) => {
             const data = params?.data || {};
@@ -123,16 +216,21 @@ export default function ChartCanvas({
             ro?.disconnect();
             chart.off('click', onClick);
             chart.off('dblclick', onDblClick);
+            chart.off('treeroam', syncZoomFromEvent);
+            chart.off('graphroam', syncZoomFromEvent);
             chart.dispose();
             chartRef.current = null;
         };
-    }, []);
+    }, [emitZoom]);
 
     useEffect(() => {
         const chart = chartRef.current;
         if (!chart || !overview) {
             return;
         }
+
+        zoomRef.current = 1;
+        onZoomChangeRef.current?.(1);
 
         if (renderer === 'network') {
             chart.clear();
@@ -172,4 +270,6 @@ export default function ChartCanvas({
             {meta ? <p className="tm-chart-meta">{meta}</p> : null}
         </div>
     );
-}
+});
+
+export default ChartCanvas;

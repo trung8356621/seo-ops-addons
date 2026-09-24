@@ -1,3 +1,11 @@
+import {
+    mcpToSymbolSize,
+    topicColorById,
+    tintHex,
+    topicTreeLabel,
+    clampMcp,
+} from './theme';
+
 function escapeHtml(value) {
     return String(value)
         .replaceAll('&', '&amp;')
@@ -6,38 +14,79 @@ function escapeHtml(value) {
         .replaceAll('"', '&quot;');
 }
 
+function topicTooltipHtml(d) {
+    const title = String(d.name || '').split('\n')[0] || '';
+    return [
+        `<strong>${escapeHtml(title)}</strong>`,
+        `MCP: ${clampMcp(d.mcp).toFixed(1)}%`,
+        `DNA: ${d.dna_count ?? 0}`,
+        `Articles: ${d.article_count ?? 0}`,
+        '<em>Double-click to open Topic</em>',
+    ].join('<br/>');
+}
+
+/** @deprecated use topicTreeLabel — kept for greps/tests that import topicLabel */
 export function topicLabel(topic) {
-    const mcp = Number(topic.mcp ?? 0);
-    const dna = Number(topic.dna_count ?? 0);
-    const articles = Number(topic.article_count ?? 0);
-    return `${topic.name}\nMCP ${mcp.toFixed(0)}% · DNA ${dna} · Art ${articles}`;
+    return topicTreeLabel(topic);
 }
 
 export function buildTreeOption(data, childrenCache) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
     const siteId = Number(data?.site_id ?? 0);
     const children = topics.map((topic) => {
-        const cached = childrenCache.get(Number(topic.id));
+        const topicId = Number(topic.id);
+        const color = topicColorById(topicId);
+        const cached = childrenCache.get(topicId);
         const node = {
-            name: topicLabel(topic),
-            topicId: Number(topic.id),
+            name: topicTreeLabel(topic),
+            topicId,
             nodeType: 'topic',
-            value: Math.max(1, Number(topic.article_count ?? 0) || Number(topic.keyword_count ?? 0) || 1),
+            value: Math.max(1, clampMcp(topic.mcp)),
             mcp: topic.mcp,
             dna_count: topic.dna_count,
             article_count: topic.article_count,
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
             tags: topic.tags,
+            symbolSize: mcpToSymbolSize(topic.mcp),
+            itemStyle: {
+                color,
+                borderColor: '#fff',
+                borderWidth: 1.5,
+                shadowBlur: 4,
+                shadowColor: 'rgba(15, 23, 42, 0.12)',
+            },
+            lineStyle: {
+                color,
+                width: 1.25,
+                opacity: 0.4,
+                curveness: 0.35,
+            },
+            label: {
+                color: '#0f172a',
+                fontWeight: 600,
+            },
             collapsed: !cached,
         };
         if (cached?.children?.length) {
+            const leafColor = tintHex(color, 0.5);
             node.children = cached.children.map((child) => ({
                 name: child.name,
                 keywordId: Number(child.id),
                 nodeType: 'keyword',
                 value: 1,
                 article_count: child.article_count ?? 0,
+                symbolSize: 8,
+                itemStyle: {
+                    color: leafColor,
+                    borderColor: color,
+                    borderWidth: 1,
+                },
+                label: {
+                    color: '#64748b',
+                    fontWeight: 500,
+                    fontSize: 10,
+                },
             }));
         } else if (topic.has_children) {
             node.children = [];
@@ -49,6 +98,11 @@ export function buildTreeOption(data, childrenCache) {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
+            confine: true,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderColor: 'rgba(15,23,42,0.1)',
+            borderWidth: 1,
+            textStyle: { color: '#0f172a', fontSize: 12 },
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'keyword') {
@@ -56,19 +110,7 @@ export function buildTreeOption(data, childrenCache) {
                         + (d.article_count ? `<br/>Articles: ${d.article_count}` : '');
                 }
                 if (d.nodeType === 'topic') {
-                    const tagNames = Array.isArray(d.tags)
-                        ? d.tags.map((t) => t.name).filter(Boolean).join(', ')
-                        : '';
-                    return [
-                        `<strong>${escapeHtml(String(d.name || '').split('\n')[0] || '')}</strong>`,
-                        `MCP: ${Number(d.mcp ?? 0).toFixed(1)}%`,
-                        `DNA: ${d.dna_count ?? 0}`,
-                        `Articles: ${d.article_count ?? 0}`,
-                        `Keywords: ${d.keyword_count ?? 0}`,
-                        d.coverage ? `Coverage: ${escapeHtml(String(d.coverage))}` : '',
-                        tagNames ? `Tags: ${escapeHtml(tagNames)}` : '',
-                        '<em>Double-click to open Topic</em>',
-                    ].filter(Boolean).join('<br/>');
+                    return topicTooltipHtml(d);
                 }
                 return escapeHtml(params?.name || 'Site');
             },
@@ -80,37 +122,51 @@ export function buildTreeOption(data, childrenCache) {
                 name: 'Topical Map',
                 data: [
                     {
-                        name: `Site #${siteId || ''}`,
+                        name: siteId ? `Site` : 'Site',
                         nodeType: 'site',
+                        symbolSize: 18,
+                        itemStyle: {
+                            color: '#94a3b8',
+                            borderColor: '#64748b',
+                            borderWidth: 1,
+                        },
+                        label: {
+                            color: '#64748b',
+                            fontWeight: 600,
+                        },
                         children,
                     },
                 ],
-                top: '4%',
-                left: '8%',
-                bottom: '4%',
-                right: '18%',
-                symbolSize: 10,
+                top: '3%',
+                left: '10%',
+                bottom: '3%',
+                right: '20%',
+                symbol: 'circle',
                 orient: 'LR',
                 expandAndCollapse: true,
                 initialTreeDepth: 1,
+                zoom: 1,
                 label: {
                     position: 'left',
                     verticalAlign: 'middle',
                     align: 'right',
                     fontSize: 11,
-                    lineHeight: 14,
+                    lineHeight: 15,
+                    distance: 8,
                 },
                 leaves: {
                     label: {
                         position: 'right',
                         verticalAlign: 'middle',
                         align: 'left',
+                        distance: 8,
                     },
                 },
                 emphasis: { focus: 'descendant' },
                 animationDuration: 350,
                 animationDurationUpdate: 450,
                 roam: true,
+                scaleLimit: { min: 0.35, max: 4 },
             },
         ],
     };
@@ -119,12 +175,14 @@ export function buildTreeOption(data, childrenCache) {
 export function buildSunburstOption(data, childrenCache) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
     const children = topics.map((topic) => {
-        const cached = childrenCache.get(Number(topic.id));
-        const value = Math.max(1, Number(topic.article_count ?? 0) || Number(topic.keyword_count ?? 0) || 1);
+        const topicId = Number(topic.id);
+        const color = topicColorById(topicId);
+        const cached = childrenCache.get(topicId);
+        const value = Math.max(1, clampMcp(topic.mcp) || Number(topic.article_count ?? 0) || 1);
         const node = {
             name: topic.name,
             value,
-            topicId: Number(topic.id),
+            topicId,
             nodeType: 'topic',
             mcp: topic.mcp,
             dna_count: topic.dna_count,
@@ -132,14 +190,17 @@ export function buildSunburstOption(data, childrenCache) {
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
             tags: topic.tags,
+            itemStyle: { color },
         };
         if (cached?.children?.length) {
+            const leafColor = tintHex(color, 0.45);
             node.children = cached.children.map((child) => ({
                 name: child.name,
                 value: 1,
                 keywordId: Number(child.id),
                 nodeType: 'keyword',
                 article_count: child.article_count ?? 0,
+                itemStyle: { color: leafColor },
             }));
         }
         return node;
@@ -149,16 +210,11 @@ export function buildSunburstOption(data, childrenCache) {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'item',
+            confine: true,
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'topic') {
-                    return [
-                        `<strong>${escapeHtml(d.name || '')}</strong>`,
-                        `Articles: ${d.article_count ?? d.value ?? 0}`,
-                        `Keywords: ${d.keyword_count ?? 0}`,
-                        `MCP: ${Number(d.mcp ?? 0).toFixed(1)}%`,
-                        '<em>Double-click to open Topic</em>',
-                    ].join('<br/>');
+                    return topicTooltipHtml(d);
                 }
                 return `<strong>${escapeHtml(params?.name || '')}</strong>`;
             },
@@ -196,6 +252,7 @@ export function buildNetworkOption(neighborhood) {
         backgroundColor: 'transparent',
         legend: [{ data: categories.map((c) => c.name) }],
         tooltip: {
+            confine: true,
             formatter(params) {
                 if (params.dataType === 'edge') {
                     return 'Topic membership';
@@ -211,18 +268,30 @@ export function buildNetworkOption(neighborhood) {
                 id: 'topical-map-network',
                 layout: 'force',
                 roam: true,
+                scaleLimit: { min: 0.35, max: 4 },
                 draggable: false,
                 categories,
-                data: nodes.map((n) => ({
-                    id: n.id,
-                    name: n.name,
-                    category: categoryIndex[n.category] ?? 1,
-                    value: n.value ?? 1,
-                    symbolSize: n.category === 'site' ? 28 : (n.category === 'topic' ? 18 : 10),
-                    nodeType: n.category,
-                    topicId: n.category === 'topic' ? Number(String(n.id).replace(/^topic:/, '')) : undefined,
-                    keywordId: n.category === 'keyword' ? Number(String(n.id).replace(/^keyword:/, '')) : undefined,
-                })),
+                data: nodes.map((n) => {
+                    const topicId = n.category === 'topic'
+                        ? Number(String(n.id).replace(/^topic:/, ''))
+                        : undefined;
+                    const color = n.category === 'topic' && topicId
+                        ? topicColorById(topicId)
+                        : (n.category === 'site' ? '#94a3b8' : '#cbd5e1');
+                    return {
+                        id: n.id,
+                        name: n.name,
+                        category: categoryIndex[n.category] ?? 1,
+                        value: n.value ?? 1,
+                        symbolSize: n.category === 'site' ? 28 : (n.category === 'topic' ? 18 : 10),
+                        nodeType: n.category,
+                        topicId,
+                        keywordId: n.category === 'keyword'
+                            ? Number(String(n.id).replace(/^keyword:/, ''))
+                            : undefined,
+                        itemStyle: { color },
+                    };
+                }),
                 links: links.map((l) => ({
                     source: l.source,
                     target: l.target,

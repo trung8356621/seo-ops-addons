@@ -6,8 +6,7 @@ import {
     readFilterQuery,
     writeFilterQuery,
 } from './state/filters';
-import TopToolbar from './components/TopToolbar';
-import FilterBar from './components/FilterBar';
+import AppChrome from './components/AppChrome';
 import ChartCanvas from './components/ChartCanvas';
 import AuditConfirmModal from './components/AuditConfirmModal';
 import AuditOverlay from './components/AuditOverlay';
@@ -16,6 +15,7 @@ export default function App({ config }) {
     const labels = config.labels || {};
     const api = useMemo(() => createApi(config), [config]);
     const initialFilters = useMemo(() => readFilterQuery(), []);
+    const chartRef = useRef(null);
 
     const [overviewRaw, setOverviewRaw] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -32,6 +32,7 @@ export default function App({ config }) {
     const [mcpMax, setMcpMax] = useState(initialFilters.mcpMax);
     const [renderer, setRenderer] = useState(initialFilters.renderer);
     const [focusedTopicId, setFocusedTopicId] = useState(null);
+    const [zoomPercent, setZoomPercent] = useState(100);
 
     const [auditStatus, setAuditStatus] = useState(null);
     const [confirmAi, setConfirmAi] = useState(false);
@@ -233,6 +234,10 @@ export default function App({ config }) {
         setFocusedTopicId(topicId);
     };
 
+    const onZoomChange = useCallback((zoom) => {
+        setZoomPercent(Math.round(zoom * 100));
+    }, []);
+
     if (siteId <= 0) {
         return (
             <div className="tm-app tm-app--empty">
@@ -244,9 +249,11 @@ export default function App({ config }) {
     const empty = !loading && (!filteredOverview || (filteredOverview.topics || []).length === 0)
         && Number(overviewRaw?.summary?.topic_count || 0) === 0;
 
+    const zoomDisabled = loading || empty || renderer === 'sunburst';
+
     return (
         <div className="tm-app">
-            <TopToolbar
+            <AppChrome
                 title={labels.title}
                 siteDomain={config.siteDomain}
                 labels={labels}
@@ -257,9 +264,6 @@ export default function App({ config }) {
                 onOpenAudit={() => setShowAuditOverlay(true)}
                 onBeginAiAudit={beginAiAudit}
                 topicsPageUrl={config.topicsPageUrl}
-            />
-            <FilterBar
-                labels={labels}
                 tagFacets={overviewRaw?.tag_facets || []}
                 untaggedCount={overviewRaw?.summary?.untagged_count || 0}
                 selectedTagIds={selectedTagIds}
@@ -273,6 +277,11 @@ export default function App({ config }) {
                 onToggleTag={toggleTag}
                 onMcpChange={onMcpChange}
                 onRendererChange={setRenderer}
+                zoomPercent={zoomPercent}
+                zoomDisabled={zoomDisabled}
+                onZoomIn={() => chartRef.current?.zoomIn?.()}
+                onZoomOut={() => chartRef.current?.zoomOut?.()}
+                onZoomReset={() => chartRef.current?.resetZoom?.()}
             />
 
             <div className="tm-canvas-wrap">
@@ -283,6 +292,7 @@ export default function App({ config }) {
                 ) : null}
                 {!loading && !error && !empty && filteredOverview ? (
                     <ChartCanvas
+                        ref={chartRef}
                         overview={filteredOverview}
                         renderer={renderer}
                         neighborhood={neighborhood}
@@ -293,6 +303,7 @@ export default function App({ config }) {
                         onFocusTopic={setFocusedTopicId}
                         onLoadChildren={onLoadChildren}
                         onNetworkFocus={loadNetwork}
+                        onZoomChange={onZoomChange}
                         meta={meta}
                     />
                 ) : null}

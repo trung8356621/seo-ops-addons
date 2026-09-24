@@ -91,20 +91,34 @@ final class TopicalMapReactAppContractTest extends TestCase
         $css = (string) file_get_contents($root.'/styles/topical-map-app.css');
         $canvas = (string) file_get_contents($root.'/components/ChartCanvas.jsx');
         $filters = (string) file_get_contents($root.'/state/filters.js');
+        $options = (string) file_get_contents($root.'/charts/options.js');
+        $theme = (string) file_get_contents($root.'/charts/theme.js');
+        $chrome = (string) file_get_contents($root.'/components/AppChrome.jsx');
 
         self::assertStringContainsString('100dvh', $css);
         self::assertStringContainsString('overflow: hidden', $css);
         self::assertStringNotContainsString('tm-sidebar', $css);
+        self::assertStringContainsString('tm-chrome', $css);
+        self::assertStringContainsString('tm-zoom', $css);
         self::assertStringContainsString('filterTopics', $app);
         self::assertStringContainsString('mcpMin', $app);
         self::assertStringContainsString('mcpMax', $app);
         self::assertStringContainsString('showUntagged', $app);
+        self::assertStringContainsString('AppChrome', $app);
+        self::assertStringContainsString('ZoomControls', $chrome);
         self::assertStringContainsString('passive: false', $canvas);
         self::assertStringContainsString('ResizeObserver', $canvas);
+        self::assertStringContainsString('zoomIn', $canvas);
         self::assertStringContainsString("window.open(url, '_blank', 'noopener,noreferrer')", $canvas);
         self::assertStringNotContainsString('window.location.href', $canvas);
         self::assertStringContainsString('normalizeMcpRange', $filters);
         self::assertStringContainsString('selected.includes', $filters);
+        self::assertStringContainsString('mcpToSymbolSize', $options);
+        self::assertStringContainsString('topicColorById', $options);
+        self::assertStringContainsString('topicTreeLabel', $options);
+        self::assertStringNotContainsString('Art ', $options);
+        self::assertStringContainsString('MCP_SYMBOL_MIN', $theme);
+        self::assertStringContainsString('TOPIC_PALETTE', $theme);
     }
 
     public function test_api_controllers_delegate_to_read_model_and_enforce_access(): void
