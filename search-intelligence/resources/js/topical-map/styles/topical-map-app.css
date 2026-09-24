@@ -401,12 +401,13 @@
 }
 
 .tm-chart-shell {
+    position: relative;
     flex: 1 1 auto;
     min-height: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    position: relative;
 }
 
 .tm-chart-canvas {
@@ -607,6 +608,98 @@
 
 .tm-audit-error {
     color: #b91c1c;
+}
+
+/* —— Keyword Relationship mode —— */
+.tm-rel-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    flex: 1 1 18rem;
+}
+
+.tm-rel-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.25rem;
+}
+
+.tm-rel-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.12rem 0.45rem;
+    border-radius: 0.35rem;
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.tm-rel-badge--warn {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.tm-rel-badge--issue {
+    background: #fff7ed;
+    color: #9a3412;
+}
+
+.tm-rel-overlay {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 5;
+    width: min(20rem, calc(100% - 1.5rem));
+    max-height: min(60%, 22rem);
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 0.55rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    padding: 0.65rem 0.75rem;
+}
+
+.tm-rel-overlay__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.45rem;
+}
+
+.tm-rel-overlay__dl {
+    margin: 0;
+}
+
+.tm-rel-overlay__row {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.tm-rel-overlay__row dt {
+    margin: 0;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.tm-rel-overlay__row dd {
+    margin: 0;
+    color: #0f172a;
+    word-break: break-word;
+}
+
+.tm-rel-overlay__empty {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #64748b;
 }
 
 @media (max-width: 900px) {

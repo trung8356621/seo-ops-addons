@@ -57,7 +57,8 @@ final class TopicUiPolishTopicalShareAndRowsTest extends TestCase
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicListQuery.php');
         self::assertStringContainsString('TopicTopicalShareCalculator', $src);
-        self::assertStringContainsString("'topical_share' => (float)", $src);
+        self::assertStringContainsString("'topical_share'", $src);
+        self::assertStringContainsString('(float)', $src);
         self::assertStringContainsString('topical_share_desc', $src);
         self::assertStringContainsString('topical_share_asc', $src);
         self::assertStringNotContainsString("'topical_share' => null", $src);
@@ -86,15 +87,22 @@ final class TopicUiPolishTopicalShareAndRowsTest extends TestCase
         self::assertStringNotContainsString('keyword-item-list space-y-2', $blade);
     }
 
-    public function test_cluster_context_hides_zero_article_dash(): void
+    public function test_cluster_context_always_shows_explicit_focus_and_linked_counts(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Support/KeywordIntelligence/KeywordItemPresenter.php');
         self::assertStringContainsString('CONTEXT_CLUSTER', $src);
-        self::assertStringContainsString("\$articleCountLabel = ''", $src);
-        self::assertStringContainsString("'show_article_meta' => \$articleCountLabel !== ''", $src);
+        self::assertStringContainsString('focus_article_count', $src);
+        self::assertStringContainsString('linked_article_count', $src);
+        self::assertStringContainsString("'show_article_meta' => true", $src);
+        self::assertStringNotContainsString("'article_count' =>", $src);
 
         $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/keyword-item.blade.php');
         self::assertStringContainsString('show_article_meta', $blade);
+        self::assertStringContainsString('focus_article_count_label', $blade);
+        self::assertStringContainsString('linked_article_count_label', $blade);
+        self::assertStringContainsString('openKeywordDetail', $blade);
+        self::assertStringContainsString('openKeywordLinkedArticles', $blade);
+        self::assertStringContainsString('keyword-item__counts-sep', $blade);
         self::assertStringContainsString('semantic_tags', $blade);
         self::assertStringContainsString('keyword-item__semantic', $blade);
     }

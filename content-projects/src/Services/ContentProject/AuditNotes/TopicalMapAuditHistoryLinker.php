@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes;
 
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditPromptInstaller;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectDraftAiHistory;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
@@ -82,9 +83,37 @@ final class TopicalMapAuditHistoryLinker
         );
     }
 
-    public function resolvePlanningProject(int $siteId, ?int $actorId = null): ?SeoProject
+    /**
+     * Existing Shared Draft only — never creates (safe for AI History navigation).
+     */
+    public function findExistingPlanningProject(): ?SeoProject
     {
         $draft = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
+
+        return $draft instanceof SeoProject ? $draft : null;
+    }
+
+    /**
+     * Content Plan AI History URL for an existing Shared Draft, or null.
+     * Does not call ensureSharedDraft.
+     */
+    public function resolveAiHistoryUrl(): ?string
+    {
+        $project = $this->findExistingPlanningProject();
+        if (! $project instanceof SeoProject) {
+            return null;
+        }
+
+        return ContentProjectDraftAiHistory::urlForProject($project);
+    }
+
+    /**
+     * Resolve Shared Draft for audit history linkage.
+     * May create via ensureSharedDraft when none exists (audit path only).
+     */
+    public function resolvePlanningProject(int $siteId, ?int $actorId = null): ?SeoProject
+    {
+        $draft = $this->findExistingPlanningProject();
         if ($draft instanceof SeoProject) {
             return $draft;
         }

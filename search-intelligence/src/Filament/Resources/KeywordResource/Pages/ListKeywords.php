@@ -295,14 +295,13 @@ class ListKeywords extends ListRecords
                     ->url(function (Keyword $record): string {
                         $siteId = KeywordResource::resolveKeywordSiteId($record)
                             ?? $this->resolveKeywordWorkspaceSiteId();
-                        $url = KeywordResource::getUrl('relationships', ['keyword' => (int) $record->id]);
-                        if ($siteId !== null && $siteId > 0) {
-                            return app(\Omnichannel\Addons\Seo\Support\DomainContextResolver::class)
-                                ->appendSiteToUrl($url, (int) $siteId);
-                        }
 
-                        return $url;
-                    }),
+                        return \Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordRelationshipAppPage::appUrl(
+                            (int) $record->id,
+                            ($siteId !== null && (int) $siteId > 0) ? (int) $siteId : null,
+                        );
+                    })
+                    ->openUrlInNewTab(),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
                     ->visible(function (Keyword $record): bool {

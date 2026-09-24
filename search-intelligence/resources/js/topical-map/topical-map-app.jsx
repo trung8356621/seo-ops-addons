@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import AppRouter from './App';
 import './styles/topical-map-app.css';
 
 const el = document.getElementById('topical-map-app-root');
@@ -13,7 +13,7 @@ if (el) {
     }
     createRoot(el).render(
         <React.StrictMode>
-            <App config={props} />
+            <AppRouter config={props} />
         </React.StrictMode>,
     );
 }

@@ -216,6 +216,10 @@ final class TopicDetailQuery
             $keyword = $keywords->get((int) $row->keyword_id);
             if ($keyword instanceof Keyword) {
                 $keyword->setAttribute(
+                    'focus_article_count',
+                    $panel->focusArticleCount($keyword, $siteId),
+                );
+                $keyword->setAttribute(
                     'linked_article_count',
                     $panel->linkedArticleCount($keyword, $siteId),
                 );

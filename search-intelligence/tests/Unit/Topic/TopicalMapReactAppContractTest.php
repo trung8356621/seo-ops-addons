@@ -113,6 +113,23 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('neighborhood={filteredNetworkNeighborhood}', $app);
         self::assertStringContainsString('TagFilterControl', $chrome);
         self::assertStringContainsString('ZoomControls', $chrome);
+        self::assertStringContainsString('ai_history_url', $chrome);
+        self::assertStringContainsString('aiHistoryUrl', $chrome);
+        self::assertStringContainsString('labels.aiHistory', $chrome);
+        self::assertStringContainsString("target=\"_blank\"", $chrome);
+        self::assertStringContainsString('noopener noreferrer', $chrome);
+        self::assertStringContainsString('onBeginAiAudit', $chrome);
+        // AI History is a plain <a> — must not call beginAiAudit / runAudit.
+        $historyAnchor = '';
+        if (preg_match('/historyUrl\s*\?[\s\S]*?<\/a>/', $chrome, $m)) {
+            $historyAnchor = $m[0];
+        }
+        self::assertNotSame('', $historyAnchor, 'AI History anchor block missing');
+        self::assertStringContainsString('href={historyUrl}', $historyAnchor);
+        self::assertStringContainsString('target="_blank"', $historyAnchor);
+        self::assertStringNotContainsString('onBeginAiAudit', $historyAnchor);
+        self::assertStringNotContainsString('runAudit', $historyAnchor);
+        self::assertStringContainsString('aiHistoryUrl={config.aiHistoryUrl', $app);
 
         $tagControl = (string) file_get_contents($root.'/components/TagFilterControl.jsx');
         self::assertStringContainsString('tm-tags__popover', $tagControl);
@@ -187,7 +204,11 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString("slug = 'topical-map'", $page);
         self::assertStringContainsString('bootstrapConfig', $page);
         self::assertStringContainsString('endpoints', $page);
+        self::assertStringContainsString('aiHistoryUrl', $page);
+        self::assertStringContainsString('resolveAiHistoryUrl', $page);
+        self::assertStringContainsString('draft_ai_history_link', $page);
         self::assertStringNotContainsString('overview()->toArray()', $page);
+        self::assertStringNotContainsString('ensureSharedDraft', $page);
 
         $blade = dirname(__DIR__, 3).'/resources/views/filament/pages/topical-map-app.blade.php';
         $bladeSrc = (string) file_get_contents($blade);

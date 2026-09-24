@@ -98,6 +98,10 @@ final class TopicalMapV1ClosureContractTest extends TestCase
         self::assertStringContainsString('STATUS_NEVER_RUN', $status);
         self::assertStringContainsString('STATUS_CURRENT', $status);
         self::assertStringContainsString('STATUS_STALE', $status);
+        self::assertStringContainsString("'ai_history_url'", $status);
+        self::assertStringContainsString('resolveAiHistoryUrl', $status);
+        self::assertStringContainsString('TopicalMapAuditHistoryLinker', $status);
+        self::assertStringNotContainsString('ensureSharedDraft', $status);
     }
 
     public function test_tag_provenance_migration_and_constants(): void

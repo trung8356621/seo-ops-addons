@@ -15,6 +15,7 @@
         ->filter(static fn (array $item): bool => ($item['link_type'] ?? '') === 'internal')
         ->values();
     // Mini-stats MUST match rendered lists (presenter SSOT) — never raw withCount edge rows.
+    $focusArticleCount = $focusArticle !== null ? 1 : 0;
     $linkedArticleCount = $linkedArticles->count();
     $internalLinkCount = $internalLinks->count();
     $siteDomainOption = $viewSiteId > 0 ? (KeywordResource::siteSelectOptions()[$viewSiteId] ?? null) : null;
@@ -44,6 +45,10 @@
     </section>
 
     <div class="keyword-dictionary-drawer__mini-stats">
+        <div class="keyword-dictionary-drawer__mini-stat">
+            <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.focus_articles') }}</span>
+            <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format($focusArticleCount) }}</span>
+        </div>
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.linked_articles') }}</span>
             <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format($linkedArticleCount) }}</span>

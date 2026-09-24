@@ -20,6 +20,7 @@ use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditStatusController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapChildrenController;
+use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapKeywordRelationshipController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapOverviewController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapTagsController;
@@ -87,6 +88,9 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                     ->name('seo.topical-map.api.audit-status');
                 Route::post('/audit', TopicalMapAuditController::class)
                     ->name('seo.topical-map.api.audit');
+                Route::get('/keywords/{keyword}/relationship', TopicalMapKeywordRelationshipController::class)
+                    ->whereNumber('keyword')
+                    ->name('seo.topical-map.api.keyword-relationship');
             });
     }
 

@@ -15,6 +15,15 @@ trait InteractsWithKeywordItemActions
 {
     public function openKeywordLinkedArticles(int $keywordId): void
     {
+        $this->openKeywordDetail($keywordId);
+    }
+
+    /**
+     * Open Keyword Detail drawer (Focus Article section is the primary identity context).
+     * Distinct from linked-list navigation naming — same drawer shell.
+     */
+    public function openKeywordDetail(int $keywordId): void
+    {
         if ($keywordId <= 0) {
             return;
         }

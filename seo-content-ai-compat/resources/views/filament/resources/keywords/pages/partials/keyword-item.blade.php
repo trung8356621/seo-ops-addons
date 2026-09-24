@@ -161,20 +161,27 @@
         @endif
 
         <div class="keyword-item__footer">
-            @if (! empty($item['show_article_meta']) || (int) $item['article_count'] > 0)
-                <span class="keyword-item__meta-line">
-                    @if ((int) $item['article_count'] > 0)
-                        <button
-                            type="button"
-                            class="keyword-item__articles-btn"
-                            wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})"
-                            wire:loading.attr="disabled"
-                        >
-                            {{ $item['article_count_label'] }}
-                        </button>
-                    @elseif (($item['article_count_label'] ?? '') !== '')
-                        <span class="keyword-item__articles">{{ $item['article_count_label'] }}</span>
-                    @endif
+            @if (! empty($item['show_article_meta']))
+                <span class="keyword-item__meta-line keyword-item__counts">
+                    <button
+                        type="button"
+                        class="keyword-item__articles-btn keyword-item__focus-count-btn"
+                        wire:click="openKeywordDetail({{ $item['keyword_id'] }})"
+                        wire:loading.attr="disabled"
+                        title="{{ __('seo-content-ai::filament.keyword.drawer_focus_article_heading') }}"
+                    >
+                        {{ $item['focus_article_count_label'] }}
+                    </button>
+                    <span class="keyword-item__counts-sep" aria-hidden="true">·</span>
+                    <button
+                        type="button"
+                        class="keyword-item__articles-btn keyword-item__linked-count-btn"
+                        wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})"
+                        wire:loading.attr="disabled"
+                        title="{{ __('seo-content-ai::filament.keyword.drawer_linked_articles_heading') }}"
+                    >
+                        {{ $item['linked_article_count_label'] }}
+                    </button>
                 </span>
             @endif
         </div>
@@ -211,6 +218,22 @@
                         <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})" @click="menuOpen = false">
                             {{ __('seo-content-ai::filament.keyword.keyword_item_view_linked_articles') }}
                         </button>
+                        @php
+                            $relationshipUrl = \Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordRelationshipAppPage::appUrl(
+                                (int) $item['keyword_id'],
+                                ($siteId !== null && $siteId > 0) ? $siteId : null,
+                            );
+                        @endphp
+                        <a
+                            role="menuitem"
+                            class="keyword-item__menu-item"
+                            href="{{ $relationshipUrl }}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            @click="menuOpen = false"
+                        >
+                            {{ __('seo-content-ai::filament.keyword.relationship_action') }}
+                        </a>
                         @if ($item['can_skip_mcp'])
                             <button
                                 type="button"

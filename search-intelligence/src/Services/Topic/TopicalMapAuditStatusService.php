@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResult;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditPromptInstaller;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\TopicalMapAuditHistoryLinker;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 use Throwable;
 
@@ -26,6 +27,7 @@ final class TopicalMapAuditStatusService
         private readonly TopicalMapReadModel $topicalMap,
         private readonly TopicUserTagService $tags,
         private readonly KeywordTopicAssignmentStats $assignmentStats,
+        private readonly TopicalMapAuditHistoryLinker $historyLinker,
     ) {}
 
     /**
@@ -42,7 +44,8 @@ final class TopicalMapAuditStatusService
      *   untagged_topics: int,
      *   source_updated_at: string|null,
      *   last_ai_run_at: string|null,
-     *   last_prompt_result_id: int|null
+     *   last_prompt_result_id: int|null,
+     *   ai_history_url: string|null
      * }
      */
     public function snapshot(int $siteId, string $siteDomain = ''): array
@@ -99,6 +102,7 @@ final class TopicalMapAuditStatusService
             'source_updated_at' => $sourceUpdatedAt,
             'last_ai_run_at' => $lastAt,
             'last_prompt_result_id' => $last['prompt_result_id'] ?? null,
+            'ai_history_url' => $this->historyLinker->resolveAiHistoryUrl(),
         ];
     }
 

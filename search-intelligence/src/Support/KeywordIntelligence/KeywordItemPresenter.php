@@ -45,8 +45,17 @@ final class KeywordItemPresenter
         $siteId = is_int($siteId) && $siteId > 0 ? $siteId : null;
 
         $keywordId = (int) $keyword->id;
-        // Row "X articles" = linked articles (distinct non-focus sources), NOT focus, NOT edges.
-        $linkedArticleCount = $this->resolveLinkedArticleCount($keyword, $siteId);
+        $panel = app(KeywordLinkDetailPanelPresenter::class);
+        $focusArticleCount = $this->resolveFocusArticleCount($keyword, $siteId, $panel);
+        $linkedArticleCount = $this->resolveLinkedArticleCount($keyword, $siteId, $panel);
+
+        $focusArticleCountLabel = __('seo-content-ai::filament.keyword.keyword_row_focus_count', [
+            'count' => number_format($focusArticleCount),
+        ]);
+        $linkedArticleCountLabel = __('seo-content-ai::filament.keyword.keyword_row_linked_count', [
+            'count' => number_format($linkedArticleCount),
+        ]);
+
         $isHidden = $this->hideService->isHidden($keywordId);
         $isMcpSkipped = $this->mcpSkipService->isSkipped($keywordId);
         $groupedTags = $this->groupedTags($keyword);
@@ -78,16 +87,6 @@ final class KeywordItemPresenter
             $siteId,
         );
 
-        $articleCountLabel = '';
-        if ($linkedArticleCount > 0) {
-            $articleCountLabel = trans_choice('seo-content-ai::filament.keyword.topic_row_article_count', $linkedArticleCount, [
-                'count' => number_format($linkedArticleCount),
-            ]);
-        } elseif ($context !== self::CONTEXT_CLUSTER) {
-            // Dictionary keeps the em dash placeholder; Topic member rows hide it.
-            $articleCountLabel = '—';
-        }
-
         return [
             'keyword_id' => $keywordId,
             'raw_phrase' => (string) $keyword->phrase,
@@ -97,11 +96,12 @@ final class KeywordItemPresenter
             'planning_tags' => $groupedTags['planning'],
             'intent' => '',
             'intent_label' => '',
+            'focus_article_count' => $focusArticleCount,
+            'focus_article_count_label' => $focusArticleCountLabel,
             'linked_article_count' => $linkedArticleCount,
-            // BC alias for blade — canonical meaning is linked_article_count.
-            'article_count' => $linkedArticleCount,
-            'article_count_label' => $articleCountLabel,
-            'show_article_meta' => $articleCountLabel !== '',
+            'linked_article_count_label' => $linkedArticleCountLabel,
+            // Always show explicit "N focus · M linked" for SEO inspection (incl. zeros).
+            'show_article_meta' => true,
             'show_cluster' => false,
             'context' => $context,
             'can_edit_phrase' => KeywordResource::canEdit($keyword),
@@ -149,16 +149,35 @@ final class KeywordItemPresenter
     }
 
     /**
+     * Canonical Focus Article count for current site (normally 0|1).
+     */
+    private function resolveFocusArticleCount(
+        Keyword $keyword,
+        ?int $siteId,
+        KeywordLinkDetailPanelPresenter $panel,
+    ): int {
+        $attributes = $keyword->getAttributes();
+        if (array_key_exists('focus_article_count', $attributes) && $attributes['focus_article_count'] !== null) {
+            return max(0, (int) $attributes['focus_article_count']);
+        }
+
+        return $panel->focusArticleCount($keyword, $siteId);
+    }
+
+    /**
      * Distinct non-focus source articles for the Keyword row label.
      * Prefers precomputed attribute; otherwise presenter SSOT (excludes Focus).
      */
-    private function resolveLinkedArticleCount(Keyword $keyword, ?int $siteId): int
-    {
+    private function resolveLinkedArticleCount(
+        Keyword $keyword,
+        ?int $siteId,
+        KeywordLinkDetailPanelPresenter $panel,
+    ): int {
         $attributes = $keyword->getAttributes();
         if (array_key_exists('linked_article_count', $attributes) && $attributes['linked_article_count'] !== null) {
             return max(0, (int) $attributes['linked_article_count']);
         }
 
-        return app(KeywordLinkDetailPanelPresenter::class)->linkedArticleCount($keyword, $siteId);
+        return $panel->linkedArticleCount($keyword, $siteId);
     }
 }

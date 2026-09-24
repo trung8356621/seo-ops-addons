@@ -157,14 +157,22 @@ final class KeywordLinkDetailPanelPresenterTest extends TestCase
         $blade = $this->drawerBladeSource();
         $source = $this->presenterSource();
 
+        $this->assertStringContainsString('$focusArticleCount = $focusArticle !== null ? 1 : 0', $blade);
         $this->assertStringContainsString('$linkedArticleCount = $linkedArticles->count()', $blade);
         $this->assertStringContainsString('$internalLinkCount = $internalLinks->count()', $blade);
+        $this->assertStringContainsString('focus_articles', $blade);
         $this->assertStringNotContainsString('linked_articles_count', $blade);
         $this->assertStringNotContainsString('site_links_count', $blade);
         $this->assertStringContainsString('function counts(Keyword $keyword, ?int $siteId = null): array', $source);
         $this->assertStringContainsString("'linked_article_count'", $source);
         $this->assertStringContainsString("'internal_link_count'", $source);
         $this->assertStringContainsString("'focus_article_count'", $source);
+
+        $focusStatPos = strpos($blade, 'focus_articles');
+        $linkedStatPos = strpos($blade, "'seo-content-ai::filament.keyword.linked_articles'");
+        $this->assertNotFalse($focusStatPos);
+        $this->assertNotFalse($linkedStatPos);
+        $this->assertLessThan($linkedStatPos, $focusStatPos);
     }
 
     public function test_linked_source_articles_are_distinct_by_source_article_id(): void

@@ -68,9 +68,44 @@ final class ArticleLinkCountSemanticsContractTest extends TestCase
         );
 
         self::assertStringContainsString('resolveLinkedArticleCount', $src);
+        self::assertStringContainsString('resolveFocusArticleCount', $src);
+        self::assertStringContainsString('focus_article_count', $src);
         self::assertStringContainsString('linked_article_count', $src);
         self::assertStringContainsString('KeywordLinkDetailPanelPresenter', $src);
         self::assertStringNotContainsString('$keyword->linked_articles_count ?? 0', $src);
+        self::assertStringNotContainsString("'article_count' =>", $src);
+    }
+
+    public function test_keyword_row_blade_renders_explicit_focus_and_linked_counts(): void
+    {
+        $blade = (string) file_get_contents(
+            dirname(__DIR__, 4)
+            .'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/keyword-item.blade.php',
+        );
+
+        self::assertStringContainsString('focus_article_count_label', $blade);
+        self::assertStringContainsString('linked_article_count_label', $blade);
+        self::assertStringContainsString('openKeywordDetail', $blade);
+        self::assertStringContainsString('openKeywordLinkedArticles', $blade);
+        self::assertStringNotContainsString("\$item['article_count_label']", $blade);
+        self::assertStringNotContainsString("\$item['article_count']", $blade);
+    }
+
+    public function test_sidebar_focus_stat_matches_focus_section_source(): void
+    {
+        $blade = (string) file_get_contents(
+            dirname(__DIR__, 4)
+            .'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/keyword-dictionary-drawer-content.blade.php',
+        );
+
+        self::assertStringContainsString("\$focusArticleCount = \$focusArticle !== null ? 1 : 0", $blade);
+        self::assertStringContainsString('focus_articles', $blade);
+        self::assertStringContainsString('linked_articles', $blade);
+        $focusStatPos = strpos($blade, 'focus_articles');
+        $linkedStatPos = strpos($blade, "'seo-content-ai::filament.keyword.linked_articles'");
+        self::assertNotFalse($focusStatPos);
+        self::assertNotFalse($linkedStatPos);
+        self::assertLessThan($linkedStatPos, $focusStatPos);
     }
 
     public function test_keyword_detail_panel_exposes_count_contract(): void

@@ -3321,6 +3321,12 @@ body.keyword-drawer-open {
     gap: 0.35rem;
 }
 
+.keyword-item__counts-sep {
+    color: rgb(148 163 184);
+    font-weight: 500;
+    user-select: none;
+}
+
 .keyword-item__articles-btn {
     color: rgb(79 70 229);
     font-weight: 600;

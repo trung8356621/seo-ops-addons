@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
+use Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordRelationshipAppPage;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordRelationshipView;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicalMap;
@@ -26,23 +27,25 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
             (string) (new ReflectionClass(ListKeywords::class))->getFileName(),
         );
         self::assertStringContainsString("Action::make('item_relationships')", $listSrc);
-        self::assertStringContainsString("getUrl('relationships'", $listSrc);
+        self::assertStringContainsString('KeywordRelationshipAppPage::appUrl', $listSrc);
         self::assertStringContainsString('relationship_action', $listSrc);
+        self::assertStringContainsString('openUrlInNewTab', $listSrc);
     }
 
-    public function test_relationship_page_uses_gateway_and_graph_presenter(): void
+    public function test_legacy_page_redirects_without_direct_queries(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(KeywordRelationshipView::class))->getFileName(),
         );
-        self::assertStringContainsString('KeywordRelationshipGateway', $src);
-        self::assertStringContainsString('KeywordRelationshipGraphPresenter', $src);
+        self::assertStringContainsString('KeywordRelationshipAppPage::appUrl', $src);
+        self::assertStringContainsString('redirect', $src);
         self::assertStringNotContainsString('SeoTopicKeyword::', $src);
         self::assertStringNotContainsString('SeoLinkMap::', $src);
         self::assertStringNotContainsString('SeoGscQueryMapping::', $src);
+        self::assertStringNotContainsString('KeywordRelationshipGraphPresenter', $src);
     }
 
-    public function test_blade_and_js_use_echarts_graph_with_side_panel(): void
+    public function test_legacy_blade_and_js_retired_from_production(): void
     {
         $blade = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-relationship.blade.php';
         if (! is_readable($blade)) {
@@ -51,22 +54,18 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
         }
         self::assertFileExists($blade);
         $bladeSrc = (string) file_get_contents($blade);
-        self::assertStringContainsString('keyword-relationship-chart.js', $bladeSrc);
-        self::assertStringContainsString("@vite(['addons/search-intelligence/resources/js/keyword-relationship-chart.js'])", $bladeSrc);
-        self::assertStringContainsString('data-keyword-relationship-root', $bladeSrc);
-        self::assertStringContainsString('data-keyword-relationship-side', $bladeSrc);
-        self::assertStringContainsString('toggleCategory', $bladeSrc);
+        self::assertStringNotContainsString('keyword-relationship-chart.js', $bladeSrc);
+        self::assertStringNotContainsString('@vite', $bladeSrc);
 
         $js = dirname(__DIR__, 3).'/resources/js/keyword-relationship-chart.js';
         self::assertFileExists($js);
         $jsSrc = (string) file_get_contents($js);
-        self::assertStringContainsString("from 'echarts/charts'", $jsSrc);
-        self::assertStringContainsString('GraphChart', $jsSrc);
+        self::assertStringContainsString('retired', strtolower($jsSrc));
+        self::assertStringNotContainsString('echarts.init', $jsSrc);
         self::assertStringNotContainsString('cytoscape', $jsSrc);
-        self::assertStringNotContainsString('d3', strtolower($jsSrc));
     }
 
-    public function test_client_vite_config_registers_relationship_entry(): void
+    public function test_client_vite_does_not_register_relationship_entry(): void
     {
         $candidates = [
             dirname(__DIR__, 5).'/omnichannel-client/vite.config.js',
@@ -85,8 +84,8 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
         }
 
         $src = (string) file_get_contents($vite);
-        self::assertStringContainsString(
-            "addons/search-intelligence/resources/js/keyword-relationship-chart.js",
+        self::assertStringNotContainsString(
+            'addons/search-intelligence/resources/js/keyword-relationship-chart.js',
             $src,
         );
     }
@@ -98,6 +97,7 @@ final class KeywordRelationshipUiBoundaryContractTest extends TestCase
         self::assertArrayHasKey('topical-map', $pages);
         self::assertArrayHasKey('relationships', $pages);
         self::assertNotSame($pages['topical-map'], $pages['relationships']);
+        self::assertTrue(class_exists(KeywordRelationshipAppPage::class));
     }
 
     public function test_read_model_constructor_wiring(): void

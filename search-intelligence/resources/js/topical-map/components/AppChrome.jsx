@@ -36,6 +36,7 @@ export default function AppChrome({
     onOpenAudit,
     onBeginAiAudit,
     topicsPageUrl,
+    aiHistoryUrl,
     tagFacets,
     untaggedCount,
     selectedTagIds,
@@ -64,6 +65,9 @@ export default function AppChrome({
         aiLabel = labels.aiStale;
     }
     const canRun = Boolean(canMutate && auditStatus?.can_run && !auditRunning);
+    const historyUrl = String(
+        auditStatus?.ai_history_url || aiHistoryUrl || '',
+    ).trim();
     const summary = filterSummary({
         tagFilterAll,
         selectedTagIds,
@@ -96,6 +100,16 @@ export default function AppChrome({
                             rel="noopener noreferrer"
                         >
                             ← {labels.openTopics}
+                        </a>
+                    ) : null}
+                    {historyUrl ? (
+                        <a
+                            className="tm-btn tm-btn--ghost"
+                            href={historyUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            {labels.aiHistory || 'AI History ↗'}
                         </a>
                     ) : null}
                     {hasAuditResult ? (
