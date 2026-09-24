@@ -1,81 +1,159 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { makeId, normalizeLink } from '../services/storage';
+import { fetchLinkAssignments } from '../api';
+import { normalizeLink } from '../services/storage';
 
 /**
- * Topic Creator: DB-backed assigned seeding links (title, url, target_per_day).
+ * Topic Composer: pick DB-backed Creator assignments → snapshot into topic.links.
+ * Does not invent random ids; preserves assign:{dbId} for Seeder progress keys.
  *
  * @param {{
  *   links: Array<Record<string, unknown>>,
  *   canMutate?: boolean,
+ *   availableAssignments?: Array<Record<string, unknown>>,
  *   onChange: (links: Array<Record<string, unknown>>) => void,
  * }} props
  */
-export default function AssignedLinksEditor({ links = [], canMutate = true, onChange }) {
-    const rows = Array.isArray(links) ? links : [];
+export default function AssignedLinksEditor({
+    links = [],
+    canMutate = true,
+    availableAssignments = null,
+    onChange,
+}) {
+    const [catalog, setCatalog] = useState(() => (
+        Array.isArray(availableAssignments) ? availableAssignments : []
+    ));
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (Array.isArray(availableAssignments)) {
+            setCatalog(availableAssignments);
+            return;
+        }
+        if (!canMutate) return;
+        let cancelled = false;
+        setLoading(true);
+        fetchLinkAssignments(true)
+            .then((data) => {
+                if (cancelled) return;
+                setCatalog(Array.isArray(data?.assignments) ? data.assignments : []);
+            })
+            .catch(() => {
+                if (!cancelled) setCatalog([]);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [availableAssignments, canMutate]);
+
+    const selected = useMemo(() => {
+        const rows = Array.isArray(links) ? links : [];
+        return rows.map((row) => normalizeLink({
+            ...row,
+            title: row.title || row.label || '',
+            target_per_day: Math.max(0, Number(row.target_per_day) || 0),
+        })).filter(Boolean);
+    }, [links]);
+
+    const selectedIds = useMemo(
+        () => new Set(selected.map((r) => String(r.id))),
+        [selected],
+    );
 
     const commit = (next) => {
-        onChange(next.map((row) => {
-            const url = String(row?.url || '').trim();
-            if (!url) {
-                return {
-                    id: String(row?.id || makeId('tlink')),
-                    title: String(row?.title || row?.label || '').trim(),
-                    label: String(row?.title || row?.label || '').trim(),
-                    url: '',
-                    target_per_day: Math.max(1, Number(row?.target_per_day) || 5),
-                };
-            }
-            return normalizeLink({
-                ...row,
-                title: row.title || row.label || '',
-                target_per_day: Math.max(1, Number(row.target_per_day) || 5),
-            });
-        }).filter(Boolean));
+        onChange(next.map((row) => normalizeLink({
+            ...row,
+            title: row.title || row.label || '',
+            target_per_day: Math.max(1, Number(row.target_per_day) || 5),
+        })).filter(Boolean));
     };
 
-    const updateRow = (index, patch) => {
-        commit(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-    };
-
-    const removeRow = (index) => {
-        commit(rows.filter((_, i) => i !== index));
-    };
-
-    const addRow = () => {
+    const toggleAssignment = (assignment) => {
+        if (!canMutate || !assignment?.id) return;
+        const id = String(assignment.id);
+        if (selectedIds.has(id)) {
+            commit(selected.filter((r) => String(r.id) !== id));
+            return;
+        }
         commit([
-            ...rows,
+            ...selected,
             {
-                id: makeId('tlink'),
-                title: '',
-                url: '',
-                target_per_day: 5,
+                id,
+                title: assignment.title || assignment.label || '',
+                label: assignment.title || assignment.label || '',
+                url: assignment.url,
+                target_per_day: Math.max(1, Number(assignment.target_per_day) || 5),
             },
         ]);
     };
 
+    const updateSelected = (index, patch) => {
+        if (!canMutate) return;
+        commit(selected.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    };
+
+    const removeSelected = (index) => {
+        if (!canMutate) return;
+        commit(selected.filter((_, i) => i !== index));
+    };
+
+    const activeCatalog = catalog.filter((a) => a && a.is_active !== false);
+
     return (
         <section className="seeding-ws__section" data-assigned-links-editor>
-            <div className="seeding-ws__section-title">Link seeding giao cho Seeder</div>
+            <div className="seeding-ws__section-title">Link seeding</div>
             <p className="seeding-ws__sidebar-lead seeding-ws__sidebar-lead--tight">
-                Title, URL và Limit/ngày lưu trên Topic (DB). Seeder chỉ ghi tiến độ local theo ngày.
+                Chọn từ danh sách DB. Snapshot title / URL / target/ngày vào Topic khi chia sẻ.
             </p>
+
+            {canMutate && activeCatalog.length > 0 ? (
+                <div className="seeding-ws__assigned-catalog" data-assignment-catalog>
+                    {loading ? <div className="seeding-ws__muted">Đang tải…</div> : null}
+                    {activeCatalog.map((assignment) => {
+                        const id = String(assignment.id);
+                        const checked = selectedIds.has(id);
+                        return (
+                            <label key={id} className="seeding-ws__assigned-catalog-row">
+                                <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleAssignment(assignment)}
+                                />
+                                <span className="seeding-ws__assigned-catalog-title">
+                                    {assignment.title || assignment.label || assignment.url}
+                                </span>
+                                <span className="seeding-ws__muted">
+                                    {Number(assignment.target_per_day) || 5} / ngày
+                                </span>
+                            </label>
+                        );
+                    })}
+                </div>
+            ) : null}
+
+            {canMutate && activeCatalog.length === 0 && !loading ? (
+                <p className="seeding-ws__muted">
+                    Chưa có link trong danh sách DB. Mở «Danh sách link» để thêm trước.
+                </p>
+            ) : null}
+
             <div className="seeding-ws__assigned-editor">
-                {rows.map((row, index) => (
+                {selected.map((row, index) => (
                     <div key={String(row.id || index)} className="seeding-ws__assigned-editor-row">
                         <input
                             className="seeding-ws__input"
                             value={row.title || row.label || ''}
                             disabled={!canMutate}
-                            placeholder="Tiêu đề (vd. Shopee - Balo laptop)"
-                            onChange={(e) => updateRow(index, { title: e.target.value, label: e.target.value })}
+                            placeholder="Tiêu đề"
+                            onChange={(e) => updateSelected(index, { title: e.target.value, label: e.target.value })}
                         />
                         <input
                             className="seeding-ws__input"
                             value={row.url || ''}
                             disabled={!canMutate}
                             placeholder="https://…"
-                            onChange={(e) => updateRow(index, { url: e.target.value })}
+                            onChange={(e) => updateSelected(index, { url: e.target.value })}
                         />
                         <input
                             className="seeding-ws__input"
@@ -84,9 +162,9 @@ export default function AssignedLinksEditor({ links = [], canMutate = true, onCh
                             max={10000}
                             value={row.target_per_day > 0 ? row.target_per_day : 5}
                             disabled={!canMutate}
-                            title="Limit / ngày"
-                            aria-label="Limit mỗi ngày"
-                            onChange={(e) => updateRow(index, {
+                            title="Target / ngày"
+                            aria-label="Target mỗi ngày"
+                            onChange={(e) => updateSelected(index, {
                                 target_per_day: Math.max(1, Number(e.target.value) || 1),
                             })}
                             style={{ maxWidth: '6.5rem' }}
@@ -95,18 +173,25 @@ export default function AssignedLinksEditor({ links = [], canMutate = true, onCh
                             <button
                                 type="button"
                                 className="seeding-ws__icon-btn"
-                                onClick={() => removeRow(index)}
-                                title="Xóa link"
-                                aria-label="Xóa link"
+                                onClick={() => removeSelected(index)}
+                                title="Bỏ khỏi Topic"
+                                aria-label="Bỏ khỏi Topic"
                             >
                                 <Trash2 size={14} />
                             </button>
                         ) : null}
                     </div>
                 ))}
-                {canMutate ? (
-                    <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={addRow}>
-                        <Plus size={14} /> Thêm link seeding
+                {canMutate && selected.length === 0 && activeCatalog.length > 0 ? (
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--ghost"
+                        onClick={() => {
+                            const first = activeCatalog[0];
+                            if (first) toggleAssignment(first);
+                        }}
+                    >
+                        <Plus size={14} /> Chọn link đầu tiên
                     </button>
                 ) : null}
             </div>

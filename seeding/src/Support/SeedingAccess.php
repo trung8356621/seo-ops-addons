@@ -74,6 +74,9 @@ final class SeedingAccess
         }
     }
 
+    /**
+     * Manager-only: pause/resume/cancel, management table, stats.
+     */
     public function canManageTopics(?User $user = null): bool
     {
         return $this->isManager($user);
@@ -82,6 +85,48 @@ final class SeedingAccess
     public function assertCanManage(?User $user = null): void
     {
         abort_unless($this->canManageTopics($user), 403);
+    }
+
+    /**
+     * Create/share Topics + manage DB link assignments — Manager or Topic Creator.
+     * Exact Seeder must never pass this gate.
+     */
+    public function canCreateTopics(?User $user = null): bool
+    {
+        $user ??= Auth::user();
+        if (! $user instanceof User || ! $this->canAccess($user)) {
+            return false;
+        }
+
+        if ($this->isManager($user)) {
+            return true;
+        }
+
+        try {
+            $role = app(SeedingRoleAssignment::class)->resolveForUser($user);
+
+            return $role === self::ROLE_TOPIC_CREATOR;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public function assertCanCreateTopics(?User $user = null): void
+    {
+        abort_unless($this->canCreateTopics($user), 403);
+    }
+
+    /**
+     * DB-backed link assignment CRUD — same gate as create topics.
+     */
+    public function canManageLinkAssignments(?User $user = null): bool
+    {
+        return $this->canCreateTopics($user);
+    }
+
+    public function assertCanManageLinkAssignments(?User $user = null): void
+    {
+        abort_unless($this->canManageLinkAssignments($user), 403);
     }
 
     public function canAccessSite(int $siteId, ?User $user = null): bool

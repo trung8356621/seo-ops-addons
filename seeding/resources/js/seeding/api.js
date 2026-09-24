@@ -220,3 +220,65 @@ export async function fetchLinkPreview(url) {
         };
     }
 }
+
+/** Creator: DB-backed link assignment master list */
+export async function fetchLinkAssignments(activeOnly = false) {
+    const qs = activeOnly ? '?active_only=1' : '';
+    return seedingApiFetch(`/api/seeding/link-assignments${qs}`, { method: 'GET' });
+}
+
+/**
+ * @param {{ title?: string, url: string, target_per_day?: number, is_active?: boolean }} payload
+ */
+export async function createLinkAssignment(payload) {
+    return seedingApiFetch('/api/seeding/link-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/**
+ * @param {number|string} assignmentId numeric DB id
+ * @param {{ title?: string, url?: string, target_per_day?: number, is_active?: boolean }} payload
+ */
+export async function updateLinkAssignment(assignmentId, payload) {
+    return seedingApiFetch(`/api/seeding/link-assignments/${assignmentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/** @param {number|string} assignmentId numeric DB id */
+export async function deleteLinkAssignment(assignmentId) {
+    return seedingApiFetch(`/api/seeding/link-assignments/${assignmentId}`, {
+        method: 'DELETE',
+    });
+}
+
+/**
+ * One-time import of legacy local seed_links into DB.
+ * @param {Array<Record<string, unknown>>} links
+ */
+export async function importLocalLinkAssignments(links) {
+    return seedingApiFetch('/api/seeding/link-assignments/import-local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ links }),
+    });
+}
+
+/**
+ * Extract numeric DB id from public id `assign:123` or raw number.
+ * @param {string|number|null|undefined} publicOrNumeric
+ * @returns {number|null}
+ */
+export function assignmentNumericId(publicOrNumeric) {
+    const raw = String(publicOrNumeric ?? '').trim();
+    if (!raw) return null;
+    const m = raw.match(/^assign:(\d+)$/i);
+    if (m) return Number(m[1]);
+    if (/^\d+$/.test(raw)) return Number(raw);
+    return null;
+}

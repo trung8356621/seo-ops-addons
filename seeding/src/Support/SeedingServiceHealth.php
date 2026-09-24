@@ -99,8 +99,9 @@ final class SeedingServiceHealth
             ],
             'permissions' => [
                 'is_manager' => $user instanceof User && $access->isManager($user),
-                'can_create_topic' => $user instanceof User && $access->canManageTopics($user),
+                'can_create_topic' => $user instanceof User && $access->canCreateTopics($user),
                 'can_manage' => $user instanceof User && $access->canManageTopics($user),
+                'can_manage_link_assignments' => $user instanceof User && $access->canManageLinkAssignments($user),
             ],
         ];
     }

@@ -175,6 +175,23 @@ final class TopicMcpExclusionContractTest extends TestCase
         self::assertStringContainsString('canMutateMcp', $index);
     }
 
+    public function test_topics_index_shows_mcp_excluded_badge_only_when_excluded(): void
+    {
+        $index = (string) file_get_contents(
+            dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
+        );
+
+        self::assertStringContainsString('$isMcpExcluded = (bool) ($row[\'mcp_excluded\'] ?? false)', $index);
+        self::assertStringContainsString('@if ($isMcpExcluded)', $index);
+        self::assertStringContainsString('keyword_item_tag_mcp_skipped', $index);
+        self::assertStringContainsString('cluster-tag cluster-tag--planned', $index);
+        // Presentation only — mutate still via menu actions, not a direct badge button.
+        self::assertStringNotContainsString('wire:click="excludeTopicFromMcp', $index);
+        self::assertStringNotContainsString('wire:click="restoreTopicMcp', $index);
+        // Badge is gated; included Topics render no MCP badge markup without the flag.
+        self::assertSame(2, substr_count($index, '@if ($isMcpExcluded)'));
+    }
+
     public function test_exclude_action_does_not_call_ai_or_recluster(): void
     {
         $trait = (string) file_get_contents(

@@ -35,18 +35,30 @@ export function canDeleteTopic(topic, userId, canMutate, reports = [], hasWorkHi
 }
 
 /**
- * Author may share local draft → DB commit (Manager).
+ * Author may share local draft → DB commit (Manager / Topic Creator).
  */
-export function canShareDraftTopic(topic, userId, canMutate, isManager = false) {
-    if (!isManager) return false;
+export function canShareDraftTopic(topic, userId, canMutate, isManager = false, opts = {}) {
+    const role = String(opts.seedingRole || '').trim();
+    const isCreator = opts.isTopicCreator === true
+        || role === 'seeding.topic_creator'
+        || role === 'topic_creator';
+    if (!isManager && !isCreator) return false;
     return canEditTopic(topic, userId, canMutate);
 }
 
 /**
- * Manager may create topics.
+ * Manager / Topic Creator may create topics.
  */
-export function canCreateTopic(isManager, canMutate) {
-    return Boolean(isManager && canMutate);
+export function canCreateTopic(isManager, canMutate, opts = {}) {
+    if (!canMutate) return false;
+    if (isManager) return true;
+    const role = String(opts.seedingRole || '').trim();
+    if (opts.isTopicCreator === true
+        || role === 'seeding.topic_creator'
+        || role === 'topic_creator') {
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -81,7 +93,7 @@ export function canShareTopic(topic, opts = {}) {
 }
 
 /**
- * Personal Link Pool CRUD — Manager / Topic Creator only.
+ * DB-backed link assignment CRUD — Manager / Topic Creator only.
  * Exact Seeder must NEVER create/edit/delete assignment URL or target_per_day.
  *
  * @param {boolean} [hasWorkspaceAccess]

@@ -33,6 +33,13 @@ final class TopicalMapAuditHistoryContractTest extends TestCase
         self::assertStringContainsString('hook_version', $src);
         self::assertStringContainsString('prompt_result_id', $src);
         self::assertSame('seo_keywords.topical_map_audit', DefaultTopicalMapAuditPromptInstaller::HOOK_KEY);
+
+        // Failed runs must still pass prompt_result_id when PromptRunner already persisted it.
+        $auditSrc = (string) file_get_contents((string) (new ReflectionClass(
+            \Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService::class,
+        ))->getFileName());
+        self::assertStringContainsString('failFromThrowable', $auditSrc);
+        self::assertStringContainsString("context['prompt_result_id']", $auditSrc);
     }
 
     public function test_draft_history_maps_topical_map_audit_type_label_and_filter(): void

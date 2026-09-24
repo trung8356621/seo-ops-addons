@@ -12,6 +12,7 @@ use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultSeedingCommentPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptRoutingPolicyResolver;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionTransport;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 use Omnichannel\Addons\Seeding\Services\SeedingSharedCommentPromptResolver;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingCommentPromptRenderer;
@@ -54,9 +55,19 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
         $profiles = $this->profiles ?? new PromptExecutionProfileResolver();
         $routingPolicies = $this->routingPolicies ?? new PromptRoutingPolicyResolver();
 
-        $mcpContext = $resolver->resolve($input);
-        $active = $shared->resolveActive();
-        $finalPrompt = (new SeedingCommentPromptRenderer())->render($active['body'], $mcpContext);
+        // Duplicate of SeedingCommentGenerateService prep — measured separately (diagnostic only).
+        $mcpContext = AiLatencyDiag::time('C_handler_context_resolve_ms', static fn (): string => $resolver->resolve($input));
+        $active = AiLatencyDiag::time('C_handler_shared_prompt_resolve_ms', static fn (): array => $shared->resolveActive());
+        $finalPrompt = AiLatencyDiag::time(
+            'C_handler_prompt_render_ms',
+            static fn (): string => (new SeedingCommentPromptRenderer())->render($active['body'], $mcpContext),
+        );
+        if (AiLatencyDiag::isEnabled()) {
+            $handlerPrep = (AiLatencyDiag::report()['spans_ms']['C_handler_context_resolve_ms'] ?? 0.0)
+                + (AiLatencyDiag::report()['spans_ms']['C_handler_shared_prompt_resolve_ms'] ?? 0.0)
+                + (AiLatencyDiag::report()['spans_ms']['C_handler_prompt_render_ms'] ?? 0.0);
+            AiLatencyDiag::setMs('C_handler_context_prompt_prep_ms', $handlerPrep);
+        }
 
         $quantity = (int) ($input['quantity'] ?? $input['count'] ?? 3);
         $quantity = max(1, min(12, $quantity));
@@ -74,29 +85,35 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
         }
 
         try {
-            $normalized = $task->normalizeInput([
+            $normalized = AiLatencyDiag::time('handler_normalize_input_ms', static fn (): array => $task->normalizeInput([
                 'context' => $mcpContext,
                 'business_prompt' => $finalPrompt,
                 'social' => $social,
                 'quantity' => $quantity,
-            ]);
+            ]));
         } catch (SocialAiValidationException $e) {
             throw new RuntimeException($e->getMessage(), 0, $e);
         }
 
-        $compiledPrompt = $task->buildCompiledPrompt($normalized);
+        $compiledPrompt = AiLatencyDiag::time(
+            'handler_compile_prompt_ms',
+            static fn (): string => $task->buildCompiledPrompt($normalized),
+        );
         $maxOutput = min(2048, max(256, $quantity * 180));
 
-        $seoPrompt = $this->loadPrompt($active['prompt_id']);
-        $profile = $profiles->resolve($seoPrompt, self::KEY);
-        $routingPolicy = $routingPolicies->resolve($seoPrompt, self::KEY);
+        $seoPrompt = AiLatencyDiag::time('handler_load_prompt_ms', fn (): ?SeoPrompt => $this->loadPrompt($active['prompt_id']));
+        $profile = AiLatencyDiag::time('handler_profile_resolve_ms', static fn () => $profiles->resolve($seoPrompt, self::KEY));
+        $routingPolicy = AiLatencyDiag::time(
+            'handler_routing_policy_resolve_ms',
+            static fn () => $routingPolicies->resolve($seoPrompt, self::KEY),
+        );
 
         $promptResultId = null;
         $startedAt = now();
 
         try {
             // External AI call — never wrap in a long DB transaction.
-            $generated = $textPort->generate(
+            $generated = AiLatencyDiag::time('E_text_port_generate_ms', static fn (): array => $textPort->generate(
                 $compiledPrompt,
                 self::KEY,
                 [
@@ -112,30 +129,38 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
                     'prompt' => $seoPrompt,
                     'idempotency_key' => $idempotencyKey,
                 ],
-            );
+            ));
 
             $raw = (string) ($generated['text'] ?? '');
-            $comments = $task->validateAndParseOutput($raw, $quantity);
-
-            $promptResultId = $this->persistPromptResult(
-                promptId: $active['prompt_id'],
-                promptVersionId: $active['prompt_version_id'],
-                status: 'completed',
-                mcpContext: $mcpContext,
-                social: $social,
-                quantity: $quantity,
-                compiledPrompt: $compiledPrompt,
-                outputText: $raw,
-                errorMessage: null,
-                startedAt: $startedAt,
-                idempotencyKey: $idempotencyKey,
-                comments: $comments,
-                generated: $generated,
-                profile: $profile->value,
-                routingPolicy: $routingPolicy->value,
+            $comments = AiLatencyDiag::time(
+                'F_parse_validate_ms',
+                static fn (): array => $task->validateAndParseOutput($raw, $quantity),
             );
 
-            return [
+            $promptResultId = AiLatencyDiag::time('G_prompt_result_persist_ms', function () use (
+                $active, $mcpContext, $social, $quantity, $compiledPrompt, $raw, $startedAt,
+                $idempotencyKey, $comments, $generated, $profile, $routingPolicy,
+            ): ?int {
+                return $this->persistPromptResult(
+                    promptId: $active['prompt_id'],
+                    promptVersionId: $active['prompt_version_id'],
+                    status: 'completed',
+                    mcpContext: $mcpContext,
+                    social: $social,
+                    quantity: $quantity,
+                    compiledPrompt: $compiledPrompt,
+                    outputText: $raw,
+                    errorMessage: null,
+                    startedAt: $startedAt,
+                    idempotencyKey: $idempotencyKey,
+                    comments: $comments,
+                    generated: $generated,
+                    profile: $profile->value,
+                    routingPolicy: $routingPolicy->value,
+                );
+            });
+
+            $payload = [
                 'comments' => $comments,
                 'raw_output' => $raw,
                 'compiled_prompt' => $compiledPrompt,
@@ -156,25 +181,41 @@ final class SeedingCommentGenerateCapabilityHandler implements SystemCapabilityH
                 'routing_policy' => $routingPolicy->value,
                 'execution_profile' => $profile->value,
                 'idempotency_key' => $idempotencyKey,
+                'usage' => $generated['usage'] ?? null,
+                'trace' => $generated['trace'] ?? null,
             ];
+
+            if (AiLatencyDiag::isEnabled()) {
+                AiLatencyDiag::setMeta('routing_policy_requested', $generated['trace']['routing_policy_requested'] ?? $routingPolicy->value);
+                AiLatencyDiag::setMeta('routing_policy_effective', $generated['trace']['routing_policy_effective'] ?? $routingPolicy->value);
+                AiLatencyDiag::setMeta('max_output_ceiling', $maxOutput);
+                $payload['_latency_diag'] = AiLatencyDiag::report();
+            }
+
+            return $payload;
         } catch (Throwable $e) {
-            $this->persistPromptResult(
-                promptId: $active['prompt_id'],
-                promptVersionId: $active['prompt_version_id'],
-                status: 'failed',
-                mcpContext: $mcpContext,
-                social: $social,
-                quantity: $quantity,
-                compiledPrompt: $compiledPrompt,
-                outputText: null,
-                errorMessage: $e->getMessage() !== '' ? $e->getMessage() : 'Gen comment thất bại.',
-                startedAt: $startedAt,
-                idempotencyKey: $idempotencyKey,
-                comments: null,
-                generated: null,
-                profile: $profile->value,
-                routingPolicy: $routingPolicy->value,
-            );
+            AiLatencyDiag::time('G_prompt_result_persist_ms', function () use (
+                $active, $mcpContext, $social, $quantity, $compiledPrompt, $e, $startedAt,
+                $idempotencyKey, $profile, $routingPolicy,
+            ): void {
+                $this->persistPromptResult(
+                    promptId: $active['prompt_id'],
+                    promptVersionId: $active['prompt_version_id'],
+                    status: 'failed',
+                    mcpContext: $mcpContext,
+                    social: $social,
+                    quantity: $quantity,
+                    compiledPrompt: $compiledPrompt,
+                    outputText: null,
+                    errorMessage: $e->getMessage() !== '' ? $e->getMessage() : 'Gen comment thất bại.',
+                    startedAt: $startedAt,
+                    idempotencyKey: $idempotencyKey,
+                    comments: null,
+                    generated: null,
+                    profile: $profile->value,
+                    routingPolicy: $routingPolicy->value,
+                );
+            });
 
             if ($e instanceof SocialAiValidationException) {
                 throw new RuntimeException($e->getMessage(), 0, $e);

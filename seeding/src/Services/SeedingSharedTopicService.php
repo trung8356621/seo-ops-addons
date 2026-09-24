@@ -28,6 +28,7 @@ final class SeedingSharedTopicService
     public function __construct(
         private readonly SeedingServiceResolver $resolver,
         private readonly SeedingTargetCalculator $targets,
+        private readonly SeedingLinkAssignmentService $linkAssignments,
         private readonly SeedingSocialPlatformDetector $platformDetector = new SeedingSocialPlatformDetector,
     ) {}
 
@@ -94,7 +95,10 @@ final class SeedingSharedTopicService
 
         $installationId = $this->resolver->installationNamespace();
         $socialUrl = $this->normalizeOptionalUrl($payload['social_url'] ?? null);
-        $links = $this->normalizeLinks($payload['links'] ?? []);
+        $links = $this->snapshotLinks(
+            is_array($payload['links'] ?? null) ? $payload['links'] : [],
+            $createdBy,
+        );
         $sourceType = SeedingTopicSourceType::tryFrom((string) ($payload['source_type'] ?? 'manual'))
             ?? SeedingTopicSourceType::Manual;
         $memberCount = $this->activeMemberCount();
@@ -488,54 +492,28 @@ final class SeedingSharedTopicService
     }
 
     /**
+     * Snapshot assignment fields into Topic.links_json.
+     * Prefer DB-backed assignments when ids resolve; preserve legacy tlink:* payloads.
+     *
+     * @param  list<mixed>  $links
+     * @return list<array<string, mixed>>
+     */
+    private function snapshotLinks(array $links, int $ownerUserId): array
+    {
+        $service = $this->linkAssignments;
+
+        return $service->snapshotLinksForShare($links, $ownerUserId);
+    }
+
+    /**
+     * @deprecated Prefer snapshotLinks — kept for any residual callers.
+     *
      * @param  list<mixed>  $links
      * @return list<array<string, mixed>>
      */
     private function normalizeLinks(array $links): array
     {
-        $out = [];
-        foreach ($links as $link) {
-            if (is_string($link)) {
-                $url = trim($link);
-                if ($url !== '') {
-                    $out[] = [
-                        'id' => 'tlink:'.md5(strtolower(rtrim($url, '/'))),
-                        'url' => $url,
-                        'title' => null,
-                        'label' => null,
-                        'target_per_day' => 0,
-                    ];
-                }
-                continue;
-            }
-            if (! is_array($link)) {
-                continue;
-            }
-            $url = trim((string) ($link['url'] ?? $link['normalized_url'] ?? ''));
-            if ($url === '') {
-                continue;
-            }
-            $out[] = [
-                'id' => isset($link['id']) && is_string($link['id']) && trim($link['id']) !== ''
-                    ? trim($link['id'])
-                    : ('tlink:'.md5(strtolower(rtrim($url, '/')))),
-                'url' => $url,
-                'normalized_url' => isset($link['normalized_url']) ? (string) $link['normalized_url'] : null,
-                'title' => isset($link['title']) ? $this->nullableString($link['title']) : (
-                    isset($link['label']) ? $this->nullableString($link['label']) : null
-                ),
-                'label' => isset($link['label']) ? $this->nullableString($link['label']) : (
-                    isset($link['title']) ? $this->nullableString($link['title']) : null
-                ),
-                'target_per_day' => max(0, (int) ($link['target_per_day'] ?? 0)),
-                'preview_title' => $link['preview_title'] ?? null,
-                'preview_description' => $link['preview_description'] ?? null,
-                'preview_image_url' => $link['preview_image_url'] ?? null,
-                'preview_domain' => $link['preview_domain'] ?? null,
-            ];
-        }
-
-        return $out;
+        return $this->snapshotLinks($links, 0);
     }
 
     private function normalizeOptionalUrl(mixed $value): ?string

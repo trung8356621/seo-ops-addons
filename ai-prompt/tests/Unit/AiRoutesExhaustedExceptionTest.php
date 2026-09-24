@@ -209,4 +209,38 @@ final class AiRoutesExhaustedExceptionTest extends TestCase
         self::assertStringContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
         self::assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $exception->userMessage());
     }
+
+    public function test_output_truncation_exhaustion_surfaces_primary_truncation_message(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 6,
+            routingAttempts: [
+                [
+                    'result' => 'failed',
+                    'model' => 'nvidia/nemotron:free',
+                    'is_free' => true,
+                    'failure_class' => 'provider_invalid_output',
+                    'failure_code' => 'OUTPUT_TRUNCATED',
+                    'finish_reason' => 'length',
+                ],
+                [
+                    'result' => 'failed',
+                    'model' => 'deepseek/deepseek-chat',
+                    'is_free' => false,
+                    'failure_class' => 'provider_invalid_output',
+                    'failure_code' => 'OUTPUT_TRUNCATED',
+                    'finish_reason' => 'length',
+                ],
+            ],
+            diagnostics: [
+                'fail_counts' => ['provider_invalid_output' => 6],
+                'primary_failure_code' => 'AI_OUTPUT_TOO_SHORT',
+            ],
+        );
+
+        $user = $exception->userMessage();
+        self::assertStringContainsString('truncated', strtolower($user));
+        self::assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $user);
+        self::assertStringNotContainsString('6 AI attempt', $user);
+    }
 }

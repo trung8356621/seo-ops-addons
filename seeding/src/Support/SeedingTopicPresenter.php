@@ -15,6 +15,7 @@ final class SeedingTopicPresenter
     public static function topic(SeedingTopic $topic): array
     {
         $links = is_array($topic->links_json) ? array_values($topic->links_json) : [];
+        $links = self::normalizeLinks($links);
 
         return [
             'id' => (int) $topic->id,
@@ -51,6 +52,61 @@ final class SeedingTopicPresenter
             'created_at' => $topic->created_at?->toIso8601String(),
             'updated_at' => $topic->updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Ensure Seeder always receives id / title / url / target_per_day from Topic snapshot.
+     * Preserves legacy tlink:* ids and optional preview fields.
+     *
+     * @param  list<mixed>  $links
+     * @return list<array<string, mixed>>
+     */
+    public static function normalizeLinks(array $links): array
+    {
+        $out = [];
+        foreach ($links as $link) {
+            if (is_string($link)) {
+                $url = trim($link);
+                if ($url === '') {
+                    continue;
+                }
+                $out[] = [
+                    'id' => 'tlink:'.md5(strtolower(rtrim($url, '/'))),
+                    'title' => '',
+                    'label' => '',
+                    'url' => $url,
+                    'target_per_day' => 0,
+                ];
+                continue;
+            }
+            if (! is_array($link)) {
+                continue;
+            }
+            $url = trim((string) ($link['url'] ?? $link['normalized_url'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $title = trim((string) ($link['title'] ?? $link['label'] ?? ''));
+            $id = trim((string) ($link['id'] ?? ''));
+            if ($id === '') {
+                $id = 'tlink:'.md5(strtolower(rtrim($url, '/')));
+            }
+            $row = [
+                'id' => $id,
+                'title' => $title,
+                'label' => $title,
+                'url' => $url,
+                'target_per_day' => max(0, (int) ($link['target_per_day'] ?? 0)),
+            ];
+            foreach (['normalized_url', 'preview_title', 'preview_description', 'preview_image_url', 'preview_domain'] as $extra) {
+                if (array_key_exists($extra, $link) && $link[$extra] !== null && $link[$extra] !== '') {
+                    $row[$extra] = $link[$extra];
+                }
+            }
+            $out[] = $row;
+        }
+
+        return $out;
     }
 
     /**

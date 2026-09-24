@@ -5,7 +5,8 @@
  * Scope: installation + user (no site/domain).
  *
  * Topic drafts = local. Shared feed = API. Generated comments = local.
- * seed_links = personal Link Pool (optional). link_usage_today = report-derived cache.
+ * seed_links = legacy personal Link Pool (optional import only; not Creator SoT).
+ * link_assignments live in DB (seeding_link_assignments).
  * daily_link_progress = Seeder-local per-assignment counts for Topic-assigned links.
  * Proof binary for local preview may use Object URL; report upload goes to API.
  */

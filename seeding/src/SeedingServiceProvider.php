@@ -26,6 +26,7 @@ use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentPromptController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkAssignmentController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewImageController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerTopicsController;
@@ -40,6 +41,7 @@ use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
 use Omnichannel\Addons\Seeding\Services\SeedingDatabaseConnectionService;
+use Omnichannel\Addons\Seeding\Services\SeedingLinkAssignmentService;
 use Omnichannel\Addons\Seeding\Services\SeedingLinkPreviewService;
 use Omnichannel\Addons\Seeding\Services\SeedingReportService;
 use Omnichannel\Addons\Seeding\Services\SeedingSharedTopicService;
@@ -67,6 +69,7 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingSocialPlatformDetector::class);
         $this->app->singleton(SeedingTargetCalculator::class);
         $this->app->singleton(SeedingSharedTopicService::class);
+        $this->app->singleton(SeedingLinkAssignmentService::class);
         $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(WebsiteShareJobService::class);
         $this->app->singleton(SeedingCommentPromptService::class);
@@ -287,6 +290,18 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.feed');
                 Route::post('/topics/share', SeedingShareTopicController::class)
                     ->name('seeding.topics.share');
+                Route::get('/link-assignments', [SeedingLinkAssignmentController::class, 'index'])
+                    ->name('seeding.link-assignments.index');
+                Route::post('/link-assignments', [SeedingLinkAssignmentController::class, 'store'])
+                    ->name('seeding.link-assignments.store');
+                Route::put('/link-assignments/{assignmentId}', [SeedingLinkAssignmentController::class, 'update'])
+                    ->whereNumber('assignmentId')
+                    ->name('seeding.link-assignments.update');
+                Route::delete('/link-assignments/{assignmentId}', [SeedingLinkAssignmentController::class, 'destroy'])
+                    ->whereNumber('assignmentId')
+                    ->name('seeding.link-assignments.destroy');
+                Route::post('/link-assignments/import-local', [SeedingLinkAssignmentController::class, 'importLocal'])
+                    ->name('seeding.link-assignments.import-local');
                 Route::post('/reports', SeedingReportController::class)
                     ->name('seeding.reports.store');
                 Route::post('/comments/generate', SeedingCommentGenerateController::class)

@@ -122,10 +122,14 @@ final class SeedingReactFirstContractTest extends TestCase
         $root = $this->addonRoot().'/database/migrations';
         self::assertFileExists($root.'/2026_09_09_100000_create_seeding_topics_table.php');
         self::assertFileExists($root.'/2026_09_09_100100_create_seeding_reports_table.php');
+        self::assertFileExists($root.'/2026_09_24_120000_create_seeding_link_assignments_table.php');
         $topics = (string) file_get_contents($root.'/2026_09_09_100000_create_seeding_topics_table.php');
         self::assertStringContainsString("omi_seeding", $topics);
         self::assertStringContainsString('required_comments_per_user', $topics);
         self::assertStringContainsString('member_count_at_share', $topics);
         self::assertStringContainsString('max_comments_target', $topics);
+        $assignments = (string) file_get_contents($root.'/2026_09_24_120000_create_seeding_link_assignments_table.php');
+        self::assertStringContainsString('seeding_link_assignments', $assignments);
+        self::assertStringContainsString('target_per_day', $assignments);
     }
 }

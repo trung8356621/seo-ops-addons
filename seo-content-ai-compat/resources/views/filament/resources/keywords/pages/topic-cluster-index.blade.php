@@ -487,6 +487,7 @@
                         $rowLabel = KeywordPhrasePresentation::present((string) ($row['label'] ?? ''));
                         $isTopicLocked = (bool) ($row['is_locked'] ?? false);
                         $hasMembershipLocks = (bool) ($row['has_membership_locks'] ?? false);
+                        $isMcpExcluded = (bool) ($row['mcp_excluded'] ?? false);
                         $rowCanEdit = $canEditCanonical && ! $isTopicLocked;
                     @endphp
                     <div
@@ -700,6 +701,11 @@
                                             x-cloak
                                             x-text="autoLabel"
                                         ></span>
+                                        @if ($isMcpExcluded)
+                                            <span class="cluster-tag cluster-tag--planned">
+                                                {{ __('seo-content-ai::filament.keyword.keyword_item_tag_mcp_skipped') }}
+                                            </span>
+                                        @endif
                                         <template x-for="tag in userTags" :key="'ut-' + tag.id">
                                             <span class="cluster-tag cluster-tag--manual">
                                                 <span x-text="tag.name"></span>
@@ -768,6 +774,11 @@
                                         'state' => $row['state'] ?? 'active',
                                         'keywordCount' => $row['keyword_count'] ?? 0,
                                     ])
+                                    @if ($isMcpExcluded)
+                                        <span class="cluster-tag cluster-tag--planned">
+                                            {{ __('seo-content-ai::filament.keyword.keyword_item_tag_mcp_skipped') }}
+                                        </span>
+                                    @endif
                                     @if (! empty($row['user_tags']))
                                         <div class="cluster-tag-row">
                                             @foreach ($row['user_tags'] as $userTag)

@@ -166,7 +166,8 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('lastSeededAtForUser', $selectors);
         self::assertStringContainsString("filter === 'recent'", $selectors);
         self::assertStringContainsString('Đã dùng gần đây', $toolbar);
-        self::assertStringContainsString('Link của tôi', $toolbar);
+        self::assertStringContainsString('Danh sách link', $toolbar);
+        self::assertStringNotContainsString('Link của tôi', $toolbar);
         self::assertStringContainsString('Tất cả', $toolbar);
     }
 

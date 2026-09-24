@@ -41,7 +41,7 @@ import {
     normalizeDailyLinkProgress,
     todayProgressMap,
 } from './services/dailyLinkProgress';
-import { fetchSharedFeed, shareTopic as shareTopicApi, submitReport } from './api';
+import { fetchSharedFeed, fetchLinkAssignments, shareTopic as shareTopicApi, submitReport } from './api';
 import {
     applyReportSuccessLocal,
     mergeSharedFeed,
@@ -98,10 +98,14 @@ export default function SeedingWorkspace({
         || bootstrap?.permissions?.is_manager
     );
     const seedingRole = resolveSeedingRole(bootstrap, manager);
+    const isTopicCreatorRole = seedingRole === ROLE_TOPIC_CREATOR;
     const isSeederQuickFeed = seedingRole === ROLE_SEEDER && !manager;
     const allowCreate = canCreateTopicProp != null
         ? Boolean(canCreateTopicProp)
-        : canCreateTopic(manager, canMutate);
+        : canCreateTopic(manager, canMutate, {
+            seedingRole,
+            isTopicCreator: isTopicCreatorRole,
+        });
     const scope = useMemo(() => ({ installationId, userId }), [installationId, userId]);
     const hasWorkspaceAccess = true;
 
@@ -109,6 +113,7 @@ export default function SeedingWorkspace({
     const [topics, setTopics] = useState([]);
     const [reports, setReports] = useState([]);
     const [seedLinks, setSeedLinks] = useState([]);
+    const [linkAssignments, setLinkAssignments] = useState([]);
     const [seedBatches, setSeedBatches] = useState([]);
     const [seedOutputs, setSeedOutputs] = useState([]);
     const [linkPreviews, setLinkPreviews] = useState({});
@@ -270,6 +275,28 @@ export default function SeedingWorkspace({
             if (feedAbortRef.current) feedAbortRef.current.abort();
         };
     }, [scope, userId, userDisplayName, refreshFeed]);
+
+    useEffect(() => {
+        const canLoad = canManageOwnSeedLinks(hasWorkspaceAccess, {
+            seedingRole,
+            isManager: manager,
+            isTopicCreator: isTopicCreatorRole,
+        });
+        if (!canLoad) {
+            setLinkAssignments([]);
+            return undefined;
+        }
+        let cancelled = false;
+        fetchLinkAssignments(false)
+            .then((data) => {
+                if (cancelled) return;
+                setLinkAssignments(Array.isArray(data?.assignments) ? data.assignments : []);
+            })
+            .catch(() => {
+                if (!cancelled) setLinkAssignments([]);
+            });
+        return () => { cancelled = true; };
+    }, [seedingRole, manager, isTopicCreatorRole, hasWorkspaceAccess]);
 
     useEffect(() => () => {
         writer.current.cancel();
@@ -467,7 +494,10 @@ export default function SeedingWorkspace({
     const closeGen = () => setActiveGenTopicId(null);
 
     const shareDraft = async (topic) => {
-        if (!canShareDraftTopic(topic, userId, canMutate, manager)) return;
+        if (!canShareDraftTopic(topic, userId, canMutate, manager, {
+            seedingRole,
+            isTopicCreator: isTopicCreatorRole,
+        })) return;
         const key = topicKeyOf(topic);
         const draftSnapshot = { ...topic };
 
@@ -543,10 +573,15 @@ export default function SeedingWorkspace({
         if (!canManageOwnSeedLinks(hasWorkspaceAccess, {
             seedingRole,
             isManager: manager,
-            isTopicCreator: seedingRole === ROLE_TOPIC_CREATOR,
+            isTopicCreator: isTopicCreatorRole,
         })) return;
+        // Legacy local cache only — Creator SoT is DB assignments.
         applyDoc({ seed_links: normalizeSeedLinks(nextLinks) });
         if (toastMsg) notifySuccess(toastMsg);
+    };
+
+    const onAssignmentsChange = (rows) => {
+        setLinkAssignments(Array.isArray(rows) ? rows : []);
     };
 
     const runGenerate = async (quantity) => {
@@ -691,7 +726,7 @@ export default function SeedingWorkspace({
     const canManageLinkPool = canManageOwnSeedLinks(hasWorkspaceAccess, {
         seedingRole,
         isManager: manager,
-        isTopicCreator: seedingRole === ROLE_TOPIC_CREATOR,
+        isTopicCreator: isTopicCreatorRole,
     });
 
     const openLinkPool = () => {
@@ -727,7 +762,10 @@ export default function SeedingWorkspace({
                         onDelete={() => deleteTopic(detailTopic)}
                         onEdit={() => editTopic(detailTopic)}
                         onShare={() => {
-                            if (canShareDraftTopic(detailTopic, userId, canMutate, manager)) {
+                            if (canShareDraftTopic(detailTopic, userId, canMutate, manager, {
+                                seedingRole,
+                                isTopicCreator: isTopicCreatorRole,
+                            })) {
                                 shareDraft(detailTopic);
                             } else {
                                 openGen(detailTopic);
@@ -797,6 +835,7 @@ export default function SeedingWorkspace({
                                         topic={composer}
                                         canMutate={allowCreate}
                                         mode={composer._mode === 'edit' ? 'edit' : 'create'}
+                                        availableAssignments={linkAssignments}
                                         onChange={patchComposer}
                                         onPasteContent={onPasteContent}
                                         onCancel={cancelComposer}
@@ -891,14 +930,14 @@ export default function SeedingWorkspace({
                 seedBatches={seedBatches}
                 seedOutputs={seedOutputs}
                 seedLinks={seedLinks}
-                linkUsageToday={linkUsageToday}
+                linkAssignments={linkAssignments}
                 userId={userId}
                 linkPoolOpen={linkPoolOpen}
                 canManageLinkPool={canManageLinkPool}
                 onToggleCollapse={toggleSidebar}
                 onOpenLinkPool={openLinkPool}
                 onCloseLinkPool={() => setLinkPoolOpen(false)}
-                onSeedLinksChange={onSeedLinksChange}
+                onAssignmentsChange={onAssignmentsChange}
             />
 
             </div>

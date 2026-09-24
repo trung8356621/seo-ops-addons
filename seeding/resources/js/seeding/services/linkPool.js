@@ -109,7 +109,10 @@ export function linkPoolCapacity(links, usedMap) {
         if (!link?.is_active) continue;
         active += 1;
         const used = getUsed(link.id);
-        const limit = Math.max(MIN_DAILY_LIMIT, Number(link.daily_limit) || DEFAULT_DAILY_LIMIT);
+        const limit = Math.max(
+            MIN_DAILY_LIMIT,
+            Number(link.daily_limit ?? link.target_per_day) || DEFAULT_DAILY_LIMIT,
+        );
         const rem = Math.max(0, limit - used);
         if (rem > 0) {
             available += 1;

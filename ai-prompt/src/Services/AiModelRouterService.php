@@ -20,6 +20,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\AiPrompt\Support\FreePoolHealthState;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
@@ -224,6 +225,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         AiRoutingContext $context,
         callable $executor,
     ): array {
+        $routingPrepStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $parsed = AiExecutionProfile::tryFrom($profile);
         $candidates = $this->resolveAll($profile, $context);
         if ($candidates === []) {
@@ -357,6 +359,17 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             primaryArea: $primaryAreaKey,
             secondaryArea: $secondaryAreaEnum?->value,
         );
+
+        if (AiLatencyDiag::isEnabled() && $routingPrepStarted > 0) {
+            AiLatencyDiag::setMs('D_routing_candidate_planning_ms', (hrtime(true) - $routingPrepStarted) / 1_000_000);
+            AiLatencyDiag::setMeta('routing_path', $routingPlan->routingPath ?? null);
+            AiLatencyDiag::setMeta('plan_attemptable_count', count($candidates));
+            AiLatencyDiag::setMeta('routing_policy_effective', $enrichedContext->effectiveRoutingPolicy()->value);
+            AiLatencyDiag::setMeta(
+                'routing_policy_requested',
+                ($enrichedContext->routingPolicyRequested ?? $enrichedContext->routingPolicy)?->value,
+            );
+        }
 
         /** @var array<string, string> physical route → routing phase */
         $phaseByPhysicalRoute = [];
@@ -688,9 +701,25 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 $paidAttempts++;
             }
             $providerAttempt = $actualAttempts;
+            $providerStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
 
             try {
                 [$output, $usage] = $executor($candidate);
+                $providerMs = $providerStarted > 0
+                    ? round((hrtime(true) - $providerStarted) / 1_000_000, 3)
+                    : null;
+                if ($providerMs !== null) {
+                    AiLatencyDiag::addMs('E_provider_http_total_ms', $providerMs);
+                    AiLatencyDiag::addProviderAttempt([
+                        'result' => 'success',
+                        'provider' => $candidate->provider,
+                        'model' => $candidate->model,
+                        'physical_route' => $candidate->physicalRouteKey(),
+                        'is_free' => $candidate->isFree,
+                        'duration_ms' => $providerMs,
+                        'attempt' => $providerAttempt,
+                    ]);
+                }
                 $health->recordSuccess($userId, $candidate);
                 $actualProviderModel = is_array($usage)
                     ? trim((string) ($usage['resolved_model'] ?? $usage['actual_provider_model'] ?? ''))
@@ -719,6 +748,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                             'candidates_tried' => $candidatesTried,
                             'candidates_skipped' => $candidatesSkipped,
                             'request_sent' => true,
+                            'duration_ms' => $providerMs,
                             'actual_provider_model' => $actualProviderModel !== '' ? $actualProviderModel : null,
                             'requested_model' => is_array($usage)
                                 ? (trim((string) ($usage['requested_model'] ?? '')) ?: null)
@@ -727,6 +757,29 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                         ], static fn (mixed $v): bool => $v !== null && $v !== ''),
                     ),
                 );
+
+                if (AiLatencyDiag::isEnabled()) {
+                    AiLatencyDiag::setMeta('fallback_count', $fallbackCount);
+                    AiLatencyDiag::setMeta('free_attempts', $freeAttempts);
+                    AiLatencyDiag::setMeta('paid_attempts', $paidAttempts);
+                    AiLatencyDiag::setMeta('actual_attempts', $actualAttempts);
+                    AiLatencyDiag::setMeta('candidates_tried', $candidatesTried);
+                    AiLatencyDiag::setMeta('candidates_skipped', $candidatesSkipped);
+                    AiLatencyDiag::setMeta('winning_is_free', $candidate->isFree);
+                    AiLatencyDiag::setMeta('routing_attempts_summary', array_map(
+                        static fn (array $row): array => [
+                            'result' => $row['result'] ?? null,
+                            'is_free' => $row['is_free'] ?? null,
+                            'provider' => $row['provider'] ?? null,
+                            'model' => $row['model'] ?? null,
+                            'physical_route' => $row['physical_route'] ?? null,
+                            'skip_reason' => $row['skip_reason'] ?? null,
+                            'failure_class' => $row['failure_class'] ?? null,
+                            'duration_ms' => $row['duration_ms'] ?? null,
+                        ],
+                        $routingAttempts,
+                    ));
+                }
 
                 return [$output, is_array($usage) ? array_merge($usage, [
                     '_routing_plan' => $routingPlan->toDebugArray(),
@@ -738,6 +791,22 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     '_routing_mode' => $routingMode->value,
                 ], $candidate, $fallbackCount, $reasons, $routingAttempts];
             } catch (\Throwable $exception) {
+                $providerMsFailed = $providerStarted > 0
+                    ? round((hrtime(true) - $providerStarted) / 1_000_000, 3)
+                    : null;
+                if ($providerMsFailed !== null) {
+                    AiLatencyDiag::addMs('E_provider_http_total_ms', $providerMsFailed);
+                    AiLatencyDiag::addProviderAttempt([
+                        'result' => 'failed',
+                        'provider' => $candidate->provider,
+                        'model' => $candidate->model,
+                        'physical_route' => $candidate->physicalRouteKey(),
+                        'is_free' => $candidate->isFree,
+                        'duration_ms' => $providerMsFailed,
+                        'attempt' => $providerAttempt,
+                        'error' => mb_substr($exception->getMessage(), 0, 240),
+                    ]);
+                }
                 $lastException = $exception;
                 $decision = $classifier->classify($exception);
 

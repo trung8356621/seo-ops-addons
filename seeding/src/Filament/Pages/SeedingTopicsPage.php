@@ -90,7 +90,7 @@ final class SeedingTopicsPage extends Page
         return [
             'canMutate' => $access->canMutate(),
             'isManager' => $access->isManager(),
-            'canCreateTopic' => $access->canManageTopics(),
+            'canCreateTopic' => $access->canCreateTopics(),
             'bootstrap' => $bootstrap,
         ];
     }

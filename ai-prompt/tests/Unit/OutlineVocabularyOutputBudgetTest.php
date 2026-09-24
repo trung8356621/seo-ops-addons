@@ -110,6 +110,26 @@ final class OutlineVocabularyOutputBudgetTest extends TestCase
         self::assertSame(8192, $plan->requestedMaxOutputTokens);
     }
 
+    /** Topical Map Audit — same capability-aware reserve as outline/vocab (not default 512). */
+    public function test_topical_map_audit_uses_business_split_output_reserve(): void
+    {
+        $reasoning = $this->capability(maxOut: 8192, reasoning: true);
+        $plain = $this->capability(maxOut: 4096, reasoning: false);
+        $strategy = $this->registry->forHook('seo_keywords.topical_map_audit');
+
+        self::assertSame(PromptSplitClass::BusinessSplit, $strategy->splitClass());
+        self::assertSame(8192, $strategy->estimateOutputReserve([], $reasoning));
+        self::assertSame(4096, $strategy->estimateOutputReserve([], $plain));
+
+        $plan = $this->preflight->planWithCapability(
+            $reasoning,
+            $strategy,
+            'Topical map audit JSON.',
+            ['desired_output_tokens' => 8192],
+        );
+        self::assertSame(8192, $plan->requestedMaxOutputTokens);
+    }
+
     /** T5 — small hooks unchanged */
     public function test_t5_small_hooks_remain_unchanged(): void
     {

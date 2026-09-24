@@ -55,7 +55,7 @@ export default function FeedToolbar({
                             onClick={onOpenLinkPool}
                         >
                             <Link2 size={14} />
-                            Link của tôi
+                            Danh sách link
                         </button>
                     ) : null}
                     <button

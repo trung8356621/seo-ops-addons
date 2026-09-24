@@ -738,6 +738,33 @@
     align-items: center;
 }
 
+.seeding-ws__assigned-catalog {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0.55rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid #fed7aa;
+    border-radius: 0.45rem;
+    background: #fffbeb;
+}
+
+.seeding-ws__assigned-catalog-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.seeding-ws__assigned-catalog-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .seeding-ws__btn.is-active {
     background: #ea580c;
 }

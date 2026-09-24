@@ -68,6 +68,9 @@ final class PromptSplitStrategyRegistry
             'article.outline.generate',
             'article.outline.structure.generate',
             'article.vocabulary.generate',
+            // Site-level Topical Map Audit + Tags JSON — same class as outline/vocab.
+            // Default DirectFit 512 left finish_reason=length on every route (OUTPUT_TRUNCATED).
+            'seo_keywords.topical_map_audit',
         ] as $hook) {
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::BusinessSplit));
         }

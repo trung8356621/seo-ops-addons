@@ -25,7 +25,7 @@ final class SeedingShareTopicController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
-        $this->access->assertCanManage();
+        $this->access->assertCanCreateTopics();
         $user = $request->user();
         abort_unless($user instanceof User, 401);
 

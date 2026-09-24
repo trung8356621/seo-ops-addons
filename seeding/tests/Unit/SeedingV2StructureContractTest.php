@@ -65,7 +65,7 @@ final class SeedingV2StructureContractTest extends TestCase
     {
         $share = (string) file_get_contents($this->addonRoot().'/src/Http/Controllers/SeedingShareTopicController.php');
         $service = (string) file_get_contents($this->addonRoot().'/src/Services/SeedingSharedTopicService.php');
-        self::assertStringContainsString('assertCanManage', $share);
+        self::assertStringContainsString('assertCanCreateTopics', $share);
         self::assertStringContainsString('social_targets', $share);
         self::assertStringContainsString('Social là bắt buộc', $share);
         self::assertStringContainsString('normalizeExecutions', $service);

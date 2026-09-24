@@ -83,6 +83,12 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('AssignedLinksEditor', (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx'
         ));
+        self::assertStringContainsString('Danh sách link', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/FeedToolbar.jsx'
+        ));
+        self::assertStringNotContainsString('Link của tôi', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/FeedToolbar.jsx'
+        ));
     }
 
     public function test_sidebar_is_stable_personal_stats_without_active_topic(): void
@@ -123,6 +129,9 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('data-sidebar-reopen', $sidebar);
         self::assertStringContainsString('Seeding hôm nay', $sidebar);
         self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
+        self::assertStringContainsString('Quản lý danh sách link', $sidebar);
+        self::assertStringNotContainsString('Quản lý Link Pool', $sidebar);
+        self::assertStringNotContainsString('Link cá nhân (tuỳ chọn)', $sidebar);
         self::assertStringNotContainsString('Topic hiện tại', $sidebar);
         self::assertStringNotContainsString('activeTopic', $sidebar);
         self::assertStringNotContainsString('deriveActiveTopicLinkTargets', $sidebar);

@@ -18,6 +18,7 @@ export default function TopicComposer({
     topic,
     canMutate,
     mode = 'create',
+    availableAssignments = null,
     onChange,
     onPasteContent,
     onCancel,
@@ -147,6 +148,7 @@ export default function TopicComposer({
             <AssignedLinksEditor
                 links={topic.links || []}
                 canMutate={canMutate}
+                availableAssignments={availableAssignments}
                 onChange={(links) => onChange({ links })}
             />
 

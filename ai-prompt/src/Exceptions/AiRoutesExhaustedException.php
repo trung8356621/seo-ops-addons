@@ -140,6 +140,16 @@ final class AiRoutesExhaustedException extends PromptRunException
             ? $diagnostics['live_compatible_rejection_counts']
             : [];
 
+        // Prefer canonical primary failure when selector already classified truncation/validation.
+        $normalized = is_array($diagnostics['normalized_failure'] ?? null)
+            ? $diagnostics['normalized_failure']
+            : [];
+        $primaryCode = (string) ($diagnostics['primary_failure_code'] ?? $normalized['code'] ?? '');
+        if ($primaryCode === 'AI_OUTPUT_TOO_SHORT'
+            || self::allProviderFailuresAreOutputTruncation($routingAttempts, $failCounts)) {
+            return 'AI output was truncated before a complete response. Available routes hit the output limit.';
+        }
+
         $hasCredential = ((int) ($failCounts[AiFailureClass::CredentialInvalid->value] ?? 0) > 0)
             || ((int) ($skipCounts['connection_locked'] ?? 0) > 0
                 && ((string) ($diagnostics['connection_lock_reason'] ?? '') === AiFailureClass::CredentialInvalid->value
@@ -310,6 +320,52 @@ final class AiRoutesExhaustedException extends PromptRunException
         }
 
         return $total;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $routingAttempts
+     * @param  array<string, int>  $failCounts
+     */
+    private static function allProviderFailuresAreOutputTruncation(array $routingAttempts, array $failCounts): bool
+    {
+        $invalid = (int) ($failCounts[AiFailureClass::ProviderInvalidOutput->value] ?? 0);
+        if ($invalid <= 0) {
+            return false;
+        }
+        $other = 0;
+        foreach ($failCounts as $class => $count) {
+            if (! is_string($class) || ! is_numeric($count)) {
+                continue;
+            }
+            if ($class === AiFailureClass::ProviderInvalidOutput->value) {
+                continue;
+            }
+            $other += (int) $count;
+        }
+        if ($other > 0) {
+            return false;
+        }
+
+        $seenTruncation = false;
+        foreach ($routingAttempts as $row) {
+            if (! is_array($row) || (string) ($row['result'] ?? '') !== 'failed') {
+                continue;
+            }
+            $code = strtolower(trim((string) ($row['failure_code'] ?? $row['provider_terminal_reason'] ?? '')));
+            $class = (string) ($row['failure_class'] ?? $row['failure_category'] ?? '');
+            if ($code === 'output_truncated'
+                || str_contains($code, 'truncat')
+                || (string) ($row['finish_reason'] ?? '') === 'length') {
+                $seenTruncation = true;
+                continue;
+            }
+            if ($class === AiFailureClass::ProviderInvalidOutput->value) {
+                // Invalid output without an explicit truncation marker — do not claim truncation.
+                return false;
+            }
+        }
+
+        return $seenTruncation;
     }
 
     /** Warning when paid lane is blocked but free/other routes remain eligible (not a hard fail). */

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use App\Models\Site;
 use InvalidArgumentException;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
@@ -18,6 +19,7 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpAiContextBuilder;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpPeriodService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
+use Throwable;
 
 /**
  * AI Topical Map Audit — Prompt registry + MCP bundle (site + keywords + gsc)
@@ -134,8 +136,8 @@ final class TopicalMapAuditService
             );
         } catch (InvalidArgumentException $e) {
             return $this->fail($e->getMessage());
-        } catch (\Throwable $e) {
-            return $this->fail('Topical Map audit failed: '.$e->getMessage());
+        } catch (Throwable $e) {
+            return $this->failFromThrowable($e);
         }
 
         $parsed = $this->parser->parse($run['value'], $allowedTopicRefs, $existingTags);
@@ -309,6 +311,43 @@ final class TopicalMapAuditService
             'value' => $value,
             'prompt_result_id' => ($promptResultId !== null && $promptResultId > 0) ? $promptResultId : null,
         ];
+    }
+
+    /**
+     * Prefer PromptRunner's existing PromptResult + user_message over raw AI_ROUTES_EXHAUSTED.
+     * One click must still produce exactly one PromptResult (already persisted by PromptRunner).
+     *
+     * @return array{
+     *   ok: bool,
+     *   message: string,
+     *   payload: null,
+     *   prompt_result_id: int|null,
+     *   tag_apply: null
+     * }
+     */
+    private function failFromThrowable(Throwable $e): array
+    {
+        $promptResultId = null;
+        if ($e instanceof PromptRunException) {
+            $fromContext = (int) ($e->context['prompt_result_id'] ?? 0);
+            if ($fromContext > 0) {
+                $promptResultId = $fromContext;
+            }
+        }
+
+        $detail = $e instanceof PromptRunException
+            ? trim($e->userMessage())
+            : trim($e->getMessage());
+        if ($detail === '') {
+            $detail = 'AI routing failed.';
+        }
+
+        // Avoid duplicating the technical classification when a primary user message exists.
+        if (str_starts_with($detail, 'AI_ROUTES_EXHAUSTED')) {
+            $detail = 'all available AI routes failed before a valid audit JSON was produced.';
+        }
+
+        return $this->fail('AI Audit failed: '.$detail, $promptResultId);
     }
 
     /**

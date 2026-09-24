@@ -5,7 +5,8 @@ import LinkPoolPanel from './LinkPoolPanel';
 
 /**
  * Right sidebar — GLOBAL/PERSONAL Seeder stats only.
- * Does NOT bind to active/selected Topic. Link Pool is optional personal tooling.
+ * Does NOT bind to active/selected Topic.
+ * Creator may open DB-backed assignment list (LinkPoolPanel).
  *
  * @param {{
  *   open?: boolean,
@@ -13,15 +14,15 @@ import LinkPoolPanel from './LinkPoolPanel';
  *   topics: Array<Record<string, unknown>>,
  *   seedBatches: Array<Record<string, unknown>>,
  *   seedOutputs: Array<Record<string, unknown>>,
- *   seedLinks: Array<Record<string, unknown>>,
- *   linkUsageToday?: Record<string, number>,
+ *   seedLinks?: Array<Record<string, unknown>>,
+ *   linkAssignments?: Array<Record<string, unknown>>,
  *   userId: number|string,
  *   linkPoolOpen?: boolean,
  *   canManageLinkPool?: boolean,
  *   onToggleCollapse: () => void,
  *   onOpenLinkPool?: () => void,
  *   onCloseLinkPool?: () => void,
- *   onSeedLinksChange?: (links: Array<Record<string, unknown>>, toastMsg?: string) => void,
+ *   onAssignmentsChange?: (rows: Array<Record<string, unknown>>) => void,
  * }} props
  */
 export default function SeedingSidebar({
@@ -30,25 +31,25 @@ export default function SeedingSidebar({
     topics,
     seedBatches,
     seedOutputs,
-    seedLinks,
-    linkUsageToday = {},
+    seedLinks = [],
+    linkAssignments = [],
     userId,
     linkPoolOpen = false,
     canManageLinkPool = false,
     onToggleCollapse,
     onOpenLinkPool,
     onCloseLinkPool,
-    onSeedLinksChange,
+    onAssignmentsChange,
 }) {
     const stats = useMemo(
         () => derivePersonalSeedingStats({
             topics,
             batches: seedBatches,
             outputs: seedOutputs,
-            seedLinks,
+            seedLinks: linkAssignments.length > 0 ? linkAssignments : seedLinks,
             userId,
         }),
-        [topics, seedBatches, seedOutputs, seedLinks, userId],
+        [topics, seedBatches, seedOutputs, seedLinks, linkAssignments, userId],
     );
 
     if (!open) return null;
@@ -102,15 +103,11 @@ export default function SeedingSidebar({
 
                 {canManageLinkPool ? (
                     <section className="seeding-ws__section" data-stats="links">
-                        <div className="seeding-ws__section-title">Link cá nhân (tuỳ chọn)</div>
+                        <div className="seeding-ws__section-title">Link seeding</div>
                         <dl className="seeding-ws__stat-rows">
                             <div className="seeding-ws__stat-row">
                                 <dt>Link đang active</dt>
                                 <dd>{stats.today.linksActive}</dd>
-                            </div>
-                            <div className="seeding-ws__stat-row">
-                                <dt>Đã đạt ngưỡng hôm nay</dt>
-                                <dd>{stats.today.linksAtLimit}</dd>
                             </div>
                         </dl>
                         {!linkPoolOpen && typeof onOpenLinkPool === 'function' ? (
@@ -119,21 +116,20 @@ export default function SeedingSidebar({
                                 className="seeding-ws__btn seeding-ws__btn--ghost seeding-ws__btn--block"
                                 onClick={onOpenLinkPool}
                             >
-                                Quản lý Link Pool
+                                Quản lý danh sách link
                             </button>
                         ) : null}
                     </section>
                 ) : null}
 
-                {linkPoolOpen ? (
+                {linkPoolOpen && canManageLinkPool ? (
                     <div className="seeding-ws__sidebar-pool" data-drawer="link-pool">
                         <LinkPoolPanel
                             open
-                            seedLinks={seedLinks}
-                            linkUsageToday={linkUsageToday}
                             canManage={canManageLinkPool}
+                            legacySeedLinks={seedLinks}
                             onClose={onCloseLinkPool}
-                            onChange={onSeedLinksChange}
+                            onAssignmentsChange={onAssignmentsChange}
                         />
                     </div>
                 ) : null}

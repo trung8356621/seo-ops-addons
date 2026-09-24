@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicalMap;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\RunsTopicalMapAuditAndTags;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicClusters;
+use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditController;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditContracts;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditResultParser;
@@ -77,6 +79,40 @@ final class TopicalMapAuditContractTest extends TestCase
         $src = (string) file_get_contents((string) (new ReflectionClass(PromptExecutionProfileResolver::class))->getFileName());
         self::assertStringContainsString('routing_profile_key', $src);
         self::assertStringContainsString('seo_keywords.topical_map_audit', $src);
+    }
+
+    public function test_output_budget_registered_as_business_split_not_default_512(): void
+    {
+        $registry = new \Omnichannel\Addons\AiPrompt\PromptBudget\PromptSplitStrategyRegistry;
+        $strategy = $registry->forHook('seo_keywords.topical_map_audit');
+        self::assertSame(
+            \Omnichannel\Addons\AiPrompt\Support\PromptSplitClass::BusinessSplit,
+            $strategy->splitClass(),
+        );
+
+        $reasoning = new \Omnichannel\Addons\AiPrompt\DataTransfer\ModelContextCapability(
+            contextWindow: 128_000,
+            maxOutputTokens: 8192,
+            capabilitySource: 'test',
+            estimatorFamily: \Omnichannel\Addons\AiPrompt\Services\PromptTokenEstimator::FAMILY_DEFAULT,
+            isReasoningModel: true,
+            safetyMarginTokens: 800,
+        );
+        self::assertSame(8192, $strategy->estimateOutputReserve([], $reasoning));
+        self::assertGreaterThan(512, $strategy->estimateOutputReserve([], $reasoning));
+    }
+
+    public function test_audit_service_surfaces_prompt_result_id_and_user_message_on_routes_exhausted(): void
+    {
+        $src = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditService::class))->getFileName());
+        self::assertStringContainsString('failFromThrowable', $src);
+        self::assertStringContainsString("context['prompt_result_id']", $src);
+        self::assertStringContainsString('userMessage()', $src);
+        self::assertStringContainsString('AI Audit failed:', $src);
+        self::assertStringNotContainsString(
+            "return \$this->fail('Topical Map audit failed: '.\$e->getMessage());",
+            $src,
+        );
     }
 
     public function test_audit_service_uses_mcp_domain_structural_projection_not_direct_provider(): void
@@ -255,27 +291,29 @@ final class TopicalMapAuditContractTest extends TestCase
         self::assertFalse(TopicalMapAuditContracts::isAllowedFindingType('random'));
     }
 
-    public function test_ui_page_wires_history_focus_and_empty_guard(): void
+    public function test_manual_audit_path_wires_history_linker_and_confirm_action(): void
     {
-        $pageSrc = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName());
-        self::assertStringContainsString('TopicalMapAuditHistoryLinker', $pageSrc);
-        self::assertStringContainsString('focusTopicFromRef', $pageSrc);
-        self::assertStringContainsString('auditPromptResultId', $pageSrc);
-        self::assertStringContainsString('beginConfirmAiAudit', $pageSrc);
+        // Topics page (KeywordTopicClusters) + React controller — not legacy KeywordTopicalMap redirect stub.
+        $traitSrc = (string) file_get_contents((string) (new ReflectionClass(RunsTopicalMapAuditAndTags::class))->getFileName());
+        self::assertStringContainsString('TopicalMapAuditHistoryLinker', $traitSrc);
+        self::assertStringContainsString('beginConfirmAiAudit', $traitSrc);
+        self::assertStringContainsString('confirmRunAiAuditAndTags', $traitSrc);
+        self::assertStringContainsString('TopicalMapAuditService', $traitSrc);
 
-        $blade = dirname((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName(), 6)
-            .'/../seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
-        // Path via monorepo peer: resolve from known workspace layout.
-        $bladeAlt = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
-        $bladePath = is_file($bladeAlt) ? $bladeAlt : $blade;
-        self::assertFileExists($bladePath);
-        $bladeSrc = (string) file_get_contents($bladePath);
-        self::assertStringContainsString('focusTopicFromRef', $bladeSrc);
-        self::assertStringContainsString('topical-map-audit__badge', $bladeSrc);
+        $topicsPage = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicClusters::class))->getFileName());
+        self::assertStringContainsString('RunsTopicalMapAuditAndTags', $topicsPage);
+
+        $controller = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditController::class))->getFileName());
+        self::assertStringContainsString('TopicalMapAuditHistoryLinker', $controller);
+        self::assertStringContainsString('TopicalMapAuditService', $controller);
+        self::assertStringContainsString('prompt_result_id', $controller);
+
+        $bladeAlt = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php';
+        self::assertFileExists($bladeAlt);
+        $bladeSrc = (string) file_get_contents($bladeAlt);
         self::assertStringContainsString('beginConfirmAiAudit', $bladeSrc);
+        self::assertStringContainsString('confirmRunAiAuditAndTags', $bladeSrc);
         self::assertStringContainsString('ai_audit_tags', $bladeSrc);
-        self::assertStringNotContainsString('json_encode($this->auditResult', $bladeSrc);
-        self::assertStringNotContainsString('topical-map-side', $bladeSrc);
     }
 
     public function test_finding_and_action_enums_are_closed(): void
