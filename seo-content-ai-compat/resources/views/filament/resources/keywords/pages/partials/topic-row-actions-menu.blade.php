@@ -1,6 +1,15 @@
 @php
     $topicId = (int) ($topicId ?? 0);
+    $topicName = trim((string) ($topicName ?? ''));
     $canDissolve = (bool) ($canDissolve ?? false);
+    $canMutateMcp = (bool) ($canMutateMcp ?? false);
+    $mcpExcluded = (bool) ($mcpExcluded ?? false);
+    $confirmExclude = __('seo-content-ai::filament.keyword.topic_mcp_exclude_confirm_named', [
+        'label' => $topicName !== '' ? $topicName : (string) $topicId,
+    ])."\n\n".__('seo-content-ai::filament.keyword.topic_mcp_exclude_confirm_body');
+    $confirmRestore = __('seo-content-ai::filament.keyword.topic_mcp_restore_confirm_named', [
+        'label' => $topicName !== '' ? $topicName : (string) $topicId,
+    ]);
 @endphp
 
 @if ($topicId > 0)
@@ -60,6 +69,33 @@
         >
             {{ __('seo-content-ai::filament.keyword.topic_view_cluster') }}
         </a>
+        @if ($canMutateMcp)
+            @if ($mcpExcluded)
+                <button
+                    type="button"
+                    class="keyword-item__menu-item"
+                    wire:click="restoreTopicMcp({{ $topicId }})"
+                    wire:confirm="{{ $confirmRestore }}"
+                    wire:loading.attr="disabled"
+                    wire:target="restoreTopicMcp({{ $topicId }})"
+                    @click="open = false"
+                >
+                    {{ __('seo-content-ai::filament.keyword.topic_mcp_restore_action') }}
+                </button>
+            @else
+                <button
+                    type="button"
+                    class="keyword-item__menu-item"
+                    wire:click="excludeTopicFromMcp({{ $topicId }})"
+                    wire:confirm="{{ $confirmExclude }}"
+                    wire:loading.attr="disabled"
+                    wire:target="excludeTopicFromMcp({{ $topicId }})"
+                    @click="open = false"
+                >
+                    {{ __('seo-content-ai::filament.keyword.topic_mcp_exclude_action') }}
+                </button>
+            @endif
+        @endif
         @if ($canDissolve)
             <button
                 type="button"

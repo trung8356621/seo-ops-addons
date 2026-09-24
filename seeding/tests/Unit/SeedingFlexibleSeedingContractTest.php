@@ -114,6 +114,8 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('DEFAULT_SEED_QUANTITY', $panel);
         self::assertStringContainsString('Gen comment', $panel);
         self::assertStringContainsString('Append link khi Copy', $panel);
+        self::assertStringContainsString('data-copy-append-toggle', $panel);
+        self::assertStringContainsString('data-section="seed-outputs"', $panel);
         self::assertStringContainsString('Link assigned khả dụng', $panel);
         self::assertStringContainsString('Còn ngưỡng hôm nay', $panel);
         self::assertStringContainsString('Topic này chưa được giao link seeding.', $panel);
@@ -122,6 +124,13 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('Copy', $panel);
         self::assertStringNotContainsString('Bạn chưa có link trong Link Pool.', $panel);
         self::assertStringNotContainsString('Nhận việc', $panel);
+
+        $genBtnPos = strpos($panel, "{generating ? 'Đang Gen…' : 'Gen comment'}");
+        $togglePos = strpos($panel, 'data-copy-append-toggle');
+        self::assertNotFalse($genBtnPos);
+        self::assertNotFalse($togglePos);
+        self::assertGreaterThan($genBtnPos, $togglePos);
+        self::assertStringNotContainsString('Append link khi Copy', substr($panel, 0, (int) $genBtnPos));
     }
 
     public function test_topic_card_chia_se_draft_gen_shared(): void

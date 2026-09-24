@@ -51,28 +51,24 @@ final class TopicalMapReadModel
         $topicIds = array_map(static fn ($t): int => $t->id, $topics);
         $keywordCounts = $this->mcpEligibleKeywordCountsByTopicIds($siteId, $topicIds);
         $tagsByTopic = $this->topicTags->mapForTopics($siteId, $topicIds);
-        $tagFacets = $this->topicTags->listForSite($siteId);
-        $facetRows = array_map(
-            static fn (array $tag): array => [
-                'id' => (int) $tag['id'],
-                'name' => (string) $tag['name'],
-                'topic_count' => (int) $tag['topic_count'],
-            ],
-            $tagFacets,
-        );
+        // Tag facets for Map = MCP-eligible Topics only (not raw site inventory).
+        $facetRows = $this->buildMcpEligibleTagFacets($tagsByTopic);
+        $untaggedCount = 0;
+        foreach ($topics as $topic) {
+            $topicTags = $tagsByTopic[$topic->id] ?? [];
+            if ($topicTags === []) {
+                $untaggedCount++;
+            }
+        }
 
         $nodes = [];
         $totalArticles = 0;
         $totalKeywords = 0;
-        $untaggedCount = 0;
         foreach ($topics as $topic) {
             $kwCount = (int) ($keywordCounts[$topic->id] ?? 0);
             $totalArticles += $topic->articleCount;
             $totalKeywords += $kwCount;
             $topicTags = $tagsByTopic[$topic->id] ?? [];
-            if ($topicTags === []) {
-                $untaggedCount++;
-            }
             $nodes[] = [
                 'id' => $topic->id,
                 'name' => $topic->name,
@@ -304,5 +300,36 @@ final class TopicalMapReadModel
             $keywordIds,
             static fn (int $id): bool => $id > 0 && ! isset($skipped[$id]),
         ));
+    }
+
+    /**
+     * @param  array<int, list<array{id: int, name: string}>>  $tagsByTopic
+     * @return list<array{id: int, name: string, topic_count: int}>
+     */
+    private function buildMcpEligibleTagFacets(array $tagsByTopic): array
+    {
+        /** @var array<int, array{id: int, name: string, topic_count: int}> $byId */
+        $byId = [];
+        foreach ($tagsByTopic as $tags) {
+            foreach ($tags as $tag) {
+                $id = (int) ($tag['id'] ?? 0);
+                if ($id <= 0) {
+                    continue;
+                }
+                if (! isset($byId[$id])) {
+                    $byId[$id] = [
+                        'id' => $id,
+                        'name' => (string) ($tag['name'] ?? ''),
+                        'topic_count' => 0,
+                    ];
+                }
+                $byId[$id]['topic_count']++;
+            }
+        }
+
+        $rows = array_values($byId);
+        usort($rows, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
+
+        return $rows;
     }
 }

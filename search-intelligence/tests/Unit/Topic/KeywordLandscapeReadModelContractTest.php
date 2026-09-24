@@ -118,5 +118,7 @@ final class KeywordLandscapeReadModelContractTest extends TestCase
         self::assertStringContainsString('skippedKeywordIdMap', $src);
         self::assertStringContainsString('mcpExcludedKeywordIdsForTopics', $src);
         self::assertStringContainsString('excludeKeywordIds', $src);
+        self::assertStringContainsString('TopicMcpExclusionService', $src);
+        self::assertStringContainsString("where('mcp_excluded', false)", $src);
     }
 }

@@ -67,13 +67,16 @@ final class SeedingReactFirstContractTest extends TestCase
 
         self::assertStringContainsString('buildCopyPayload', $copy);
         self::assertStringContainsString('writeClipboard', $copy);
-        self::assertStringContainsString('navigator.clipboard.writeText', $copy);
+        self::assertStringContainsString("from './clipboardWrite'", $copy);
+        self::assertStringContainsString('doc.execCommand', $this->js('services/clipboardWrite.js'));
         self::assertStringContainsString('softLimitReached', $copy);
         self::assertStringNotContainsString('seedingApiFetch', $copy);
         self::assertStringNotContainsString('selectLinksForBatch', $gen);
         self::assertStringContainsString('selected_seed_link_id: null', $gen);
         self::assertStringContainsString('Append link khi Copy', $panel);
+        self::assertStringContainsString('data-copy-append-toggle', $panel);
         self::assertStringContainsString('buildCopyPayload', $panel);
+        self::assertStringContainsString('wrote.ok', $panel);
         self::assertStringContainsString('Báo cáo', $panel);
         self::assertStringContainsString('Gen comment', $panel);
     }

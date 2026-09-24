@@ -24,11 +24,13 @@ final class SeoTopic extends Model
         'source',
         'status',
         'is_locked',
+        'mcp_excluded',
     ];
 
     protected $casts = [
         'site_id' => 'integer',
         'is_locked' => 'boolean',
+        'mcp_excluded' => 'boolean',
     ];
 
     public function memberships(): HasMany

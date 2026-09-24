@@ -5,6 +5,9 @@
 
 import { eligibleLinks, weightedPickByRemaining } from './linkSelector';
 import { usedTodayByLinkId } from './linkPool';
+import { copyTextViaExecCommand, writeClipboard } from './clipboardWrite';
+
+export { copyTextViaExecCommand, writeClipboard };
 
 /**
  * Build clipboard text for a generated comment.
@@ -91,12 +94,4 @@ function normalizeUsageMap(raw) {
         }
     }
     return map;
-}
-
-/**
- * Instant client-side clipboard write — no network.
- * @param {string} text
- */
-export async function writeClipboard(text) {
-    await navigator.clipboard.writeText(String(text || ''));
 }

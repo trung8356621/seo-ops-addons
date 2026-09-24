@@ -48,14 +48,16 @@ export default function FeedToolbar({
                     ))}
                 </div>
                 <div className="seeding-ws__toolbar-actions">
-                    <button
-                        type="button"
-                        className="seeding-ws__btn seeding-ws__btn--ghost"
-                        onClick={onOpenLinkPool}
-                    >
-                        <Link2 size={14} />
-                        Link của tôi
-                    </button>
+                    {typeof onOpenLinkPool === 'function' ? (
+                        <button
+                            type="button"
+                            className="seeding-ws__btn seeding-ws__btn--ghost"
+                            onClick={onOpenLinkPool}
+                        >
+                            <Link2 size={14} />
+                            Link của tôi
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         className="seeding-ws__btn seeding-ws__btn--primary"

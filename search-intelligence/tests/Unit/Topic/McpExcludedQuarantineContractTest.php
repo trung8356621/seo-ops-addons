@@ -147,8 +147,8 @@ final class McpExcludedQuarantineContractTest extends TestCase
 
         self::assertStringContainsString('SkipKeywordFromMcpService', $src);
         self::assertStringContainsString('mcpExcludedKeywordIdsForTopics', $src);
-        self::assertStringContainsString('countForTopics($siteId, $allSiteTopicIds, $excludedKeywordIds)', $src);
-        self::assertStringContainsString('forTopics($siteId, $topicIds, $siteArticleCounts, $excludedKeywordIds)', $src);
+        self::assertStringContainsString('countForTopics($siteId, $mcpEligibleTopicIds, $excludedKeywordIds)', $src);
+        self::assertStringContainsString('forTopics($siteId, $mcpEligibleTopicIds, $mcpArticleCounts, $excludedKeywordIds)', $src);
     }
 
     public function test_topic_detail_keeps_raw_members_for_inspection(): void

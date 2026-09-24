@@ -18,8 +18,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTop
  * SSOT for: Keyword MCP snapshots, domain.keyword_landscape, SEO Audit cluster suggestions.
  * Does not change MCP/DNA algorithms — only consolidates Topic Core reads.
  *
- * McpExcluded keywords are filtered here so they never contribute to MCP %, DNA,
- * coverage, or landscape_json consumers (Discover New Topics, SEO Audit, etc.).
+ * Eligibility = Topic NOT mcp_excluded AND Keyword NOT mcp_keyword_excluded.
+ * Excluded Topics are omitted entirely (no empty 0%/0-keyword shells).
  */
 final class KeywordLandscapeReadModel
 {
@@ -43,10 +43,17 @@ final class KeywordLandscapeReadModel
             return new KeywordLandscape($siteId, [], null);
         }
 
-        $topics = SeoTopic::query()
+        $query = SeoTopic::query()
             ->where('site_id', $siteId)
-            ->orderBy('id')
-            ->get(['id', 'site_id', 'name', 'status', 'updated_at']);
+            ->orderBy('id');
+
+        if (TopicMcpExclusionService::columnReady()) {
+            $query->where(static function ($q): void {
+                $q->where('mcp_excluded', false)->orWhereNull('mcp_excluded');
+            });
+        }
+
+        $topics = $query->get(['id', 'site_id', 'name', 'status', 'updated_at']);
 
         if ($topics->isEmpty()) {
             return new KeywordLandscape($siteId, [], null);

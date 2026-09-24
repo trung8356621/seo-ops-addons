@@ -1605,6 +1605,24 @@
     font-weight: 600;
 }
 
+.seeding-ws__check--inline {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.seeding-ws__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.45rem;
+}
+
+.seeding-ws__section-head .seeding-ws__section-title {
+    margin-bottom: 0;
+}
+
 .seeding-ws__progress-line {
     font-size: 0.8125rem;
     font-weight: 650;

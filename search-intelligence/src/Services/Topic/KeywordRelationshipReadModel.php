@@ -44,11 +44,17 @@ final class KeywordRelationshipReadModel
         private readonly KeywordMetaRepository $keywordMeta,
         private readonly KeywordLandscapeGateway $landscape,
         private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
+        private readonly ?TopicMcpExclusionService $topicMcp = null,
     ) {}
 
     private function mcpSkip(): SkipKeywordFromMcpService
     {
         return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
+    }
+
+    private function topicMcp(): TopicMcpExclusionService
+    {
+        return $this->topicMcp ?? app(TopicMcpExclusionService::class);
     }
 
     public function relationship(int $siteId, int $keywordId): ?KeywordRelationship
@@ -75,6 +81,7 @@ final class KeywordRelationshipReadModel
         $sourceUpdatedAt = null;
         if ($topic !== null) {
             $landscapeTopic = $this->landscape->findTopic($siteId, (int) $topic->id, true);
+            $topicMcpExcluded = $this->topicMcp()->isExcluded($siteId, (int) $topic->id);
             $topics[] = [
                 'topic_ref' => 'topic:'.(int) $topic->id,
                 'id' => (int) $topic->id,
@@ -84,6 +91,7 @@ final class KeywordRelationshipReadModel
                 'dna_count' => $landscapeTopic?->dnaCount,
                 'coverage' => $landscapeTopic?->coverage,
                 'article_count' => $landscapeTopic?->articleCount,
+                'mcp_excluded' => $topicMcpExcluded,
             ];
             $sourceUpdatedAt = $topic->updated_at?->toIso8601String();
         }

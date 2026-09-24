@@ -12,6 +12,7 @@ use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ExcludesTopicsFromMcp;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersSiteTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\RunsTopicalMapAuditAndTags;
@@ -29,6 +30,7 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 final class KeywordTopicClusters extends Page
 {
     use DissolvesTopics;
+    use ExcludesTopicsFromMcp;
     use HasKeywordWorkspaceNavigation;
     use ReclustersSiteTopics;
     use RunsTopicalMapAuditAndTags;

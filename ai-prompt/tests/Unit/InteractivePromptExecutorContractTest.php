@@ -39,6 +39,9 @@ final class InteractivePromptExecutorContractTest extends TestCase
         self::assertStringNotContainsString('::dispatch', $src);
         self::assertStringNotContainsString('ShouldQueue', $src);
         self::assertStringContainsString('CanonicalAiTextExecutionService', $src);
+        self::assertStringContainsString('AiRoutingOwnerResolver', $src);
+        self::assertStringContainsString('resolveRoutingOwnerId', $src);
+        self::assertStringNotContainsString('auth()->id()', $src);
     }
 
     public function test_prompt_execution_request_dto_exists(): void

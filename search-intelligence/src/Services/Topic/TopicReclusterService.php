@@ -446,6 +446,17 @@ final class TopicReclusterService
             ];
         }
 
+        // MCP-quarantined Topics must not be dissolved by Recluster (flag is on the row).
+        if (TopicMcpExclusionService::columnReady()) {
+            $mcpExcluded = SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->where('mcp_excluded', true)
+                ->pluck('id');
+            foreach ($mcpExcluded as $id) {
+                $preservedTopicIds[(int) $id] = true;
+            }
+        }
+
         return [
             'locked_topic_ids' => $lockedTopicIds,
             'preserved_topic_ids' => $preservedTopicIds,

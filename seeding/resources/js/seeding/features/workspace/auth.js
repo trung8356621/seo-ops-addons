@@ -80,8 +80,31 @@ export function canShareTopic(topic, opts = {}) {
     return canSeedTopic(topic, opts);
 }
 
-export function canManageOwnSeedLinks(hasWorkspaceAccess = true) {
-    return hasWorkspaceAccess !== false;
+/**
+ * Personal Link Pool CRUD — Manager / Topic Creator only.
+ * Exact Seeder must NEVER create/edit/delete assignment URL or target_per_day.
+ *
+ * @param {boolean} [hasWorkspaceAccess]
+ * @param {{ seedingRole?: string, isManager?: boolean, isTopicCreator?: boolean }} [opts]
+ */
+export function canManageOwnSeedLinks(hasWorkspaceAccess = true, opts = {}) {
+    if (hasWorkspaceAccess === false) return false;
+
+    const role = String(opts.seedingRole || '').trim();
+    if (role === 'seeding.seeder' || role === 'seeder') {
+        return false;
+    }
+    if (role === 'seeding.manager' || role === 'seeding.topic_creator'
+        || role === 'manager' || role === 'topic_creator') {
+        return true;
+    }
+
+    // Legacy callers without role: manager/topic-creator flags only — never blanket workspace access.
+    if (opts.isManager === true || opts.isTopicCreator === true) {
+        return true;
+    }
+
+    return false;
 }
 
 /**

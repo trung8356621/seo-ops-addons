@@ -259,7 +259,7 @@ export default function SeedingWorkspace({
         setSearch(doc.ui?.search || '');
         setDetailId(doc.ui?.detail_topic_id ? String(doc.ui.detail_topic_id) : null);
         setSidebarCollapsed(Boolean(doc.ui?.sidebar_collapsed));
-        setLinkPoolOpen(Boolean(doc.ui?.link_pool_open));
+        setLinkPoolOpen(Boolean(doc.ui?.link_pool_open) && seedingRole !== ROLE_SEEDER);
         setActiveGenTopicId(doc.ui?.share_topic_id ? String(doc.ui.share_topic_id) : null);
         setComposerOpen(false);
         setComposer(null);
@@ -540,7 +540,11 @@ export default function SeedingWorkspace({
     };
 
     const onSeedLinksChange = (nextLinks, toastMsg) => {
-        if (!canManageOwnSeedLinks(hasWorkspaceAccess)) return;
+        if (!canManageOwnSeedLinks(hasWorkspaceAccess, {
+            seedingRole,
+            isManager: manager,
+            isTopicCreator: seedingRole === ROLE_TOPIC_CREATOR,
+        })) return;
         applyDoc({ seed_links: normalizeSeedLinks(nextLinks) });
         if (toastMsg) notifySuccess(toastMsg);
     };
@@ -684,7 +688,14 @@ export default function SeedingWorkspace({
         !sidebarCollapsed ? 'has-sidebar' : 'sidebar-collapsed',
     ].filter(Boolean).join(' ');
 
+    const canManageLinkPool = canManageOwnSeedLinks(hasWorkspaceAccess, {
+        seedingRole,
+        isManager: manager,
+        isTopicCreator: seedingRole === ROLE_TOPIC_CREATOR,
+    });
+
     const openLinkPool = () => {
+        if (!canManageLinkPool) return;
         setLinkPoolOpen(true);
         if (sidebarCollapsed) {
             setSidebarCollapsed(false);
@@ -777,19 +788,9 @@ export default function SeedingWorkspace({
                                         onFilter={(f) => { setFilter(f); schedulePersist(); }}
                                         onSearch={(v) => { setSearch(v); schedulePersist(); }}
                                         onCreate={openComposer}
-                                        onOpenLinkPool={openLinkPool}
+                                        onOpenLinkPool={canManageLinkPool ? openLinkPool : undefined}
                                     />
-                                ) : (
-                                    <div className="seeding-ws__seeder-toolbar">
-                                        <button
-                                            type="button"
-                                            className="seeding-ws__btn seeding-ws__btn--ghost"
-                                            onClick={openLinkPool}
-                                        >
-                                            Link Pool
-                                        </button>
-                                    </div>
-                                )}
+                                ) : null}
 
                                 {composerOpen && composer ? (
                                     <TopicComposer
@@ -893,7 +894,7 @@ export default function SeedingWorkspace({
                 linkUsageToday={linkUsageToday}
                 userId={userId}
                 linkPoolOpen={linkPoolOpen}
-                canManageLinkPool={canManageOwnSeedLinks(hasWorkspaceAccess)}
+                canManageLinkPool={canManageLinkPool}
                 onToggleCollapse={toggleSidebar}
                 onOpenLinkPool={openLinkPool}
                 onCloseLinkPool={() => setLinkPoolOpen(false)}

@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\PromptExecutionRequest;
 use Omnichannel\Addons\AiPrompt\DataTransfer\PromptExecutionResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionTransport;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
@@ -124,8 +125,10 @@ final class InteractivePromptExecutor
         AiRoutingPolicy $requested,
         AiRoutingPolicy $effective,
     ): AiRoutingContext {
+        $routingOwnerId = $this->resolveRoutingOwnerId($request->prompt);
+
         $base = $request->routingContext ?? new AiRoutingContext(
-            userId: $this->resolveUserId(),
+            userId: $routingOwnerId,
             hookKey: $hookKey,
             canonicalPromptKey: $hookKey,
             promptTaskType: 'interactive_text',
@@ -133,6 +136,8 @@ final class InteractivePromptExecutor
         );
 
         return $base->with([
+            // Always prefer AI Routing / Prompt owner — never the acting Seeder staff id.
+            'userId' => $routingOwnerId ?? $base->userId,
             'hookKey' => $base->hookKey ?: $hookKey,
             'canonicalPromptKey' => $base->canonicalPromptKey ?? $hookKey,
             'modelArea' => $base->modelArea ?? $profile->value,
@@ -145,10 +150,22 @@ final class InteractivePromptExecutor
         ]);
     }
 
-    private function resolveUserId(): ?int
+    /**
+     * Routing candidate ownership follows Prompt / AI Center owner (same as PromptRunnerService).
+     * Acting staff (Seeder) must not resolve empty personal membership as "no candidates".
+     */
+    private function resolveRoutingOwnerId(?SeoPrompt $prompt): ?int
     {
-        $id = (int) (auth()->id() ?? 0);
+        $resolver = function_exists('app') && app()->bound(AiRoutingOwnerResolver::class)
+            ? app(AiRoutingOwnerResolver::class)
+            : new AiRoutingOwnerResolver();
 
-        return $id > 0 ? $id : null;
+        $ownerId = $resolver->resolve(
+            explicitUserId: null,
+            prompt: $prompt,
+            connection: null,
+        );
+
+        return $ownerId > 0 ? $ownerId : null;
     }
 }

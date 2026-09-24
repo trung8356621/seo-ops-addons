@@ -36,13 +36,33 @@ require $clientRoot.'/vendor/autoload.php';
 $app = require $clientRoot.'/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
-$user = User::query()
-    ->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])
-    ->orderBy('id')
-    ->first();
+$userIdOverride = isset($argv[1]) ? (int) $argv[1] : 0;
+$user = null;
+if ($userIdOverride > 0) {
+    $user = User::query()->find($userIdOverride);
+} else {
+    // Prefer a staff Seeder with empty personal AI Routing — proves owner fallback.
+    $staff = User::query()->where('role', User::ROLE_STAFF)->orderByDesc('id')->first();
+    if ($staff instanceof User) {
+        $prio = app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class);
+        $fast = count($prio->effectiveAreaModels(
+            (int) $staff->id,
+            \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextFast,
+        ));
+        if ($fast === 0) {
+            $user = $staff;
+        }
+    }
+    if (! $user instanceof User) {
+        $user = User::query()
+            ->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])
+            ->orderBy('id')
+            ->first();
+    }
+}
 
 if (! $user instanceof User) {
-    fwrite(STDERR, json_encode(['error' => 'no_owner_or_admin_user'], JSON_UNESCAPED_UNICODE).PHP_EOL);
+    fwrite(STDERR, json_encode(['error' => 'no_usable_user'], JSON_UNESCAPED_UNICODE).PHP_EOL);
     exit(1);
 }
 

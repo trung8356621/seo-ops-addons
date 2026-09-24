@@ -823,7 +823,10 @@
                             @if ($canEditCanonical)
                                 @include('seo-content-ai::filament.resources.keywords.pages.partials.topic-row-actions-menu', [
                                     'topicId' => $topicId,
+                                    'topicName' => (string) ($row['label'] ?? $row['name'] ?? ''),
                                     'canDissolve' => $canDissolve && ! $isTopicLocked,
+                                    'canMutateMcp' => $canEditCanonical && ! $topicMutationsLocked,
+                                    'mcpExcluded' => (bool) ($row['mcp_excluded'] ?? false),
                                 ])
                             @elseif ($canDissolve && ! $isTopicLocked)
                                 @include('seo-content-ai::filament.resources.keywords.pages.partials.topic-dissolve-row-action', [

@@ -15,8 +15,8 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicA
  * Site-scoped Topic list read model for Filament Topic index.
  *
  * Identity = seo_topics.id (numeric Topic Core), never retired cluster identity.
- * Topical Share / coverage follow MCP-eligible keywords (McpExcluded omitted).
- * keyword_count remains raw membership inventory for management.
+ * Lists ALL Topics including mcp_excluded (raw management).
+ * Topical Share / coverage follow MCP-eligible Topics + Keywords only.
  */
 final class TopicListQuery
 {
@@ -25,6 +25,7 @@ final class TopicListQuery
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
         private readonly ?TopicUserTagService $userTags = null,
         private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
+        private readonly ?TopicMcpExclusionService $topicMcp = null,
     ) {}
 
     private function userTags(): TopicUserTagService
@@ -35,6 +36,11 @@ final class TopicListQuery
     private function mcpSkip(): SkipKeywordFromMcpService
     {
         return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
+    }
+
+    private function topicMcp(): TopicMcpExclusionService
+    {
+        return $this->topicMcp ?? app(TopicMcpExclusionService::class);
     }
 
     /**
@@ -119,14 +125,22 @@ final class TopicListQuery
         $topicIds = $topics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
 
         // Site-wide MCP-eligible article counts so Topical Share denominator matches landscape SSOT.
+        // Excluded Topics remain listed (raw management) but do not contribute to share/coverage.
         $allSiteTopicIds = SeoTopic::query()
             ->where('site_id', $siteId)
             ->pluck('id')
             ->map(static fn ($id): int => (int) $id)
             ->all();
-        $excludedKeywordIds = $this->mcpExcludedKeywordIdsForTopics($siteId, $allSiteTopicIds);
-        $siteArticleCounts = $this->articleCounter->countForTopics($siteId, $allSiteTopicIds, $excludedKeywordIds);
-        $shares = (new TopicTopicalShareCalculator)->percentages($siteArticleCounts);
+        $excludedTopics = $this->topicMcp()->excludedTopicIdMap($siteId, $allSiteTopicIds);
+        $mcpEligibleTopicIds = array_values(array_filter(
+            $allSiteTopicIds,
+            static fn (int $id): bool => ! isset($excludedTopics[$id]),
+        ));
+        $excludedKeywordIds = $this->mcpExcludedKeywordIdsForTopics($siteId, $mcpEligibleTopicIds);
+        $mcpArticleCounts = $this->articleCounter->countForTopics($siteId, $mcpEligibleTopicIds, $excludedKeywordIds);
+        $shares = (new TopicTopicalShareCalculator)->percentages($mcpArticleCounts);
+        // Raw inventory counts for management rows (includes excluded Topic / Keyword links).
+        $rawArticleCounts = $this->articleCounter->countForTopics($siteId, $topicIds);
 
         $memberCounts = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -136,7 +150,7 @@ final class TopicListQuery
             ->get()
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
 
-        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $siteArticleCounts, $excludedKeywordIds);
+        $tagMetrics = $this->tagMetrics->forTopics($siteId, $mcpEligibleTopicIds, $mcpArticleCounts, $excludedKeywordIds);
         $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
 
         $rows = [];
@@ -145,8 +159,9 @@ final class TopicListQuery
             $counts = $memberCounts->get($topicId);
             $keywordCount = (int) ($counts->member_count ?? 0);
             $lockedMemberCount = (int) ($counts->locked_member_count ?? 0);
-            $articleCount = (int) ($siteArticleCounts[$topicId] ?? 0);
+            $articleCount = (int) ($rawArticleCounts[$topicId] ?? 0);
             $isTopicLocked = (bool) $topic->is_locked;
+            $isMcpExcluded = isset($excludedTopics[$topicId]);
             $tags = $tagMetrics[$topicId] ?? [
                 'intent' => '',
                 'coverage' => 'unknown',
@@ -159,10 +174,10 @@ final class TopicListQuery
             if ($lockFilter === 'membership_locked' && ($isTopicLocked || $lockedMemberCount <= 0)) {
                 continue;
             }
-            if ($intentFilter !== '' && strtolower((string) ($tags['intent'] ?? '')) !== $intentFilter) {
+            if (! $isMcpExcluded && $intentFilter !== '' && strtolower((string) ($tags['intent'] ?? '')) !== $intentFilter) {
                 continue;
             }
-            if ($coverageFilter !== '' && strtolower((string) ($tags['coverage'] ?? '')) !== $coverageFilter) {
+            if (! $isMcpExcluded && $coverageFilter !== '' && strtolower((string) ($tags['coverage'] ?? '')) !== $coverageFilter) {
                 continue;
             }
 
@@ -173,19 +188,20 @@ final class TopicListQuery
                 'label' => (string) $topic->name,
                 'status' => (string) $topic->status,
                 'is_locked' => $isTopicLocked,
+                'mcp_excluded' => $isMcpExcluded,
                 'has_membership_locks' => $lockedMemberCount > 0,
                 'locked_member_count' => $lockedMemberCount,
                 'keyword_count' => $keywordCount,
                 'article_count' => $articleCount,
                 'internal_link_count' => $articleCount,
                 'internal_links' => $articleCount,
-                'intent' => (string) ($tags['intent'] ?? ''),
-                'coverage' => (string) ($tags['coverage'] ?? 'unknown'),
+                'intent' => $isMcpExcluded ? '' : (string) ($tags['intent'] ?? ''),
+                'coverage' => $isMcpExcluded ? 'unknown' : (string) ($tags['coverage'] ?? 'unknown'),
                 'canonical_source' => (string) ($tags['canonical_source'] ?? 'auto'),
-                'intent_diversity' => (int) ($tags['intent_diversity'] ?? 0),
-                'dna_branch_count' => (int) ($tags['dna_branch_count'] ?? 0),
+                'intent_diversity' => $isMcpExcluded ? 0 : (int) ($tags['intent_diversity'] ?? 0),
+                'dna_branch_count' => $isMcpExcluded ? 0 : (int) ($tags['dna_branch_count'] ?? 0),
                 'user_tags' => $userTagsByTopic[$topicId] ?? [],
-                'topical_share' => (float) ($shares[$topicId] ?? 0.0),
+                'topical_share' => $isMcpExcluded ? 0.0 : (float) ($shares[$topicId] ?? 0.0),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
             ];

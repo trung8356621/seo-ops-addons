@@ -56,13 +56,33 @@ final class SeedingFeedUxContractTest extends TestCase
         $auth = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/features/workspace/auth.js'
         );
+        $workspace = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
+        );
         self::assertStringContainsString('canEditTopic', $auth);
         self::assertStringContainsString('canDeleteTopic', $auth);
         self::assertStringContainsString('canSeedTopic', $auth);
         self::assertStringContainsString('canShareDraftTopic', $auth);
         self::assertStringContainsString('created_by_user_id', $auth);
         self::assertStringContainsString('hasWorkspaceAccess', $auth);
+        self::assertStringContainsString('seeding.seeder', $auth);
+        self::assertStringContainsString('seedingRole', $auth);
         self::assertStringNotContainsString('comments.length >= 1', $auth);
+
+        // Exact Seeder must not get blanket Link Pool CRUD from hasWorkspaceAccess alone.
+        self::assertMatchesRegularExpression(
+            '/export function canManageOwnSeedLinks[\s\S]*seeding\.seeder[\s\S]*return false/m',
+            $auth,
+        );
+        self::assertStringNotContainsString(
+            "export function canManageOwnSeedLinks(hasWorkspaceAccess = true) {\n    return hasWorkspaceAccess !== false;\n}",
+            $auth,
+        );
+        self::assertStringContainsString('canManageLinkPool', $workspace);
+        self::assertStringNotContainsString('Link Pool', $workspace);
+        self::assertStringContainsString('AssignedLinksEditor', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx'
+        ));
     }
 
     public function test_sidebar_is_stable_personal_stats_without_active_topic(): void

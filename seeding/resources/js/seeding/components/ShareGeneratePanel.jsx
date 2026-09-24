@@ -9,7 +9,7 @@ import {
 import { DEFAULT_SEED_QUANTITY } from '../services/seedGenerate';
 import { buildCopyPayload, writeClipboard } from '../services/copyComment';
 import { normalizeLink, normalizeUrlKey } from '../services/storage';
-import { notifySuccess, notifyWarning } from '../services/toast';
+import { notifyError, notifySuccess, notifyWarning } from '../services/toast';
 
 /**
  * Gen comment panel for shared topics (not draft share).
@@ -86,14 +86,18 @@ export default function ShareGeneratePanel({
     const copyOutput = async (out) => {
         const payload = buildCopyPayload({
             content: String(out.content || ''),
-            appendLink: appendLink || Boolean(out.append_link),
+            appendLink,
             selectedSeedLinkId: out.selected_seed_link_id || out.seed_link_id,
             selectedSeedUrl: out.selected_seed_url || out.url,
             seedLinks: assignedLinks,
             linkUsageToday: usageToday,
         });
 
-        await writeClipboard(payload.text);
+        const wrote = await writeClipboard(payload.text);
+        if (!wrote.ok) {
+            notifyError('Không copy được vào clipboard. Hãy thử lại hoặc copy thủ công.');
+            return;
+        }
 
         const next = {
             ...out,
@@ -165,15 +169,6 @@ export default function ShareGeneratePanel({
                 </div>
             </div>
 
-            <label className="seeding-ws__check">
-                <input
-                    type="checkbox"
-                    checked={appendLink}
-                    onChange={(e) => setAppendLink(e.target.checked)}
-                />
-                Append link khi Copy
-            </label>
-
             <dl className="seeding-ws__stat-rows seeding-ws__stat-rows--compact">
                 <div className="seeding-ws__stat-row">
                     <dt>Link assigned khả dụng</dt>
@@ -204,7 +199,17 @@ export default function ShareGeneratePanel({
 
             {topicOutputs.length > 0 ? (
                 <section className="seeding-ws__section" data-section="seed-outputs">
-                    <div className="seeding-ws__section-title">Comment đã Gen</div>
+                    <div className="seeding-ws__section-head seeding-ws__section-head--outputs" data-copy-append-toggle>
+                        <div className="seeding-ws__section-title">Comment đã Gen</div>
+                        <label className="seeding-ws__check seeding-ws__check--inline">
+                            <input
+                                type="checkbox"
+                                checked={appendLink}
+                                onChange={(e) => setAppendLink(e.target.checked)}
+                            />
+                            Append link khi Copy
+                        </label>
+                    </div>
                     <ul className="seeding-ws__output-list">
                         {topicOutputs.map((out) => {
                             const linkUrl = out.selected_seed_url || out.url;
