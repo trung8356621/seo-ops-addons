@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoGscQueryMapping;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordRelationship;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\RelationshipListSlice;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
@@ -25,6 +26,9 @@ use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
  *
  * On-demand only — never writes seo_mcp_source_snapshots.
  * Includes A+B relations only (no heuristic semantic neighbors).
+ *
+ * Explicit inspection of an McpExcluded keyword remains available (cleanup/debug)
+ * with mcp_excluded=true on core. Type-1 landscape metrics stay MCP-eligible only.
  */
 final class KeywordRelationshipReadModel
 {
@@ -39,7 +43,13 @@ final class KeywordRelationshipReadModel
         private readonly TopicMembershipQuery $membership,
         private readonly KeywordMetaRepository $keywordMeta,
         private readonly KeywordLandscapeGateway $landscape,
+        private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
     ) {}
+
+    private function mcpSkip(): SkipKeywordFromMcpService
+    {
+        return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
+    }
 
     public function relationship(int $siteId, int $keywordId): ?KeywordRelationship
     {
@@ -58,7 +68,8 @@ final class KeywordRelationshipReadModel
 
         $siteClass = $this->loadSiteClassification($siteId, $keywordId);
         $membershipRow = $this->loadTopicMembership($siteId, $keywordId);
-        $core = $this->buildKeywordCore($keyword, $siteClass, $membershipRow);
+        $isMcpExcluded = $this->mcpSkip()->isSkipped($keywordId);
+        $core = $this->buildKeywordCore($keyword, $siteClass, $membershipRow, $isMcpExcluded);
         $topic = $this->membership->topicForKeyword($siteId, $keywordId);
         $topics = [];
         $sourceUpdatedAt = null;
@@ -176,8 +187,12 @@ final class KeywordRelationshipReadModel
      * @param  array<string, mixed>|null  $siteClass
      * @return array<string, mixed>
      */
-    private function buildKeywordCore(Keyword $keyword, ?array $siteClass, ?SeoTopicKeyword $membership): array
-    {
+    private function buildKeywordCore(
+        Keyword $keyword,
+        ?array $siteClass,
+        ?SeoTopicKeyword $membership,
+        bool $mcpExcluded = false,
+    ): array {
         $id = (int) $keyword->id;
 
         $classification = null;
@@ -207,6 +222,7 @@ final class KeywordRelationshipReadModel
             'membership_locked' => $membership instanceof SeoTopicKeyword
                 ? (bool) ($membership->is_locked ?? false)
                 : null,
+            'mcp_excluded' => $mcpExcluded,
         ];
     }
 
@@ -253,10 +269,23 @@ final class KeywordRelationshipReadModel
             ->where('site_id', $siteId)
             ->where('topic_id', $topicId)
             ->orderBy('value')
-            ->get(['value']);
+            ->get(['keyword_id', 'value']);
+
+        $keywordIds = [];
+        foreach ($rows as $row) {
+            $kid = (int) ($row->keyword_id ?? 0);
+            if ($kid > 0) {
+                $keywordIds[] = $kid;
+            }
+        }
+        $skipped = $this->mcpSkip()->skippedKeywordIdMap(array_values(array_unique($keywordIds)));
 
         $weights = [];
         foreach ($rows as $row) {
+            $kid = (int) ($row->keyword_id ?? 0);
+            if ($kid > 0 && isset($skipped[$kid])) {
+                continue;
+            }
             $phrase = trim((string) ($row->value ?? ''));
             if ($phrase === '') {
                 continue;
@@ -291,6 +320,11 @@ final class KeywordRelationshipReadModel
         $siblingIds = array_values(array_filter(
             $siblingIds,
             static fn (int $id): bool => $id > 0 && $id !== $keywordId,
+        ));
+        $skipped = $this->mcpSkip()->skippedKeywordIdMap($siblingIds);
+        $siblingIds = array_values(array_filter(
+            $siblingIds,
+            static fn (int $id): bool => ! isset($skipped[$id]),
         ));
         sort($siblingIds);
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
-import ResourceLinks from './ResourceLinks';
+import AssignedLinksEditor from './AssignedLinksEditor';
 
 const SOCIAL_OPTIONS = [
     { value: 'facebook', label: 'Facebook' },
@@ -85,13 +85,13 @@ export default function TopicComposer({
             </section>
 
             <section className="seeding-ws__section">
-                <div className="seeding-ws__section-title">Link</div>
+                <div className="seeding-ws__section-title">Social destination</div>
                 <div className="seeding-ws__social-row">
                     <input
                         className="seeding-ws__input"
                         value={topic.social_url || ''}
                         disabled={!canMutate}
-                        placeholder="https://example.com/…"
+                        placeholder="https://www.threads.com/@…/post/…"
                         onChange={(e) => onChange({ social_url: e.target.value })}
                     />
                     {topic.social_url ? (
@@ -144,7 +144,11 @@ export default function TopicComposer({
                 </div>
             </section>
 
-            <ResourceLinks links={topic.links || []} />
+            <AssignedLinksEditor
+                links={topic.links || []}
+                canMutate={canMutate}
+                onChange={(links) => onChange({ links })}
+            />
 
             <footer className="seeding-ws__composer-footer">
                 <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={onCancel}>

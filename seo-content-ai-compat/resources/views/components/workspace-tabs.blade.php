@@ -22,6 +22,12 @@
                 href="{{ $item['url'] ?? '#' }}"
                 role="tab"
                 aria-selected="{{ $isActive ? 'true' : 'false' }}"
+                @if (! empty($item['target']))
+                    target="{{ $item['target'] }}"
+                @endif
+                @if (! empty($item['rel']))
+                    rel="{{ $item['rel'] }}"
+                @endif
                 @class([
                     'workspace-tabs__item',
                     'is-active' => $isActive,

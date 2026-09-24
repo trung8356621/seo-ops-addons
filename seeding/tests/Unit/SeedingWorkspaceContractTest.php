@@ -123,7 +123,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             $this->addonRoot().'/resources/js/seeding/services/linkExtract.js'
         );
 
-        self::assertStringContainsString('SCHEMA_VERSION = 8', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 9', $storage);
         self::assertMatchesRegularExpression(
             '/seeding:v5:\$\{installationId\}:\$\{userId\}:workspace/',
             $storage
@@ -152,8 +152,11 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString('TopicFeed', $workspace);
         self::assertStringContainsString('activeGenTopicId', $workspace);
         self::assertStringContainsString('outputsForTopic', $workspace);
-        self::assertStringContainsString('LinkPoolPanel', $workspace);
         self::assertStringContainsString('SeedingSidebar', $workspace);
+        self::assertStringContainsString('linkPoolOpen', $workspace);
+        self::assertStringContainsString('LinkPoolPanel', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/SeedingSidebar.jsx'
+        ));
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);
         self::assertStringContainsString('shareTopicApi', $workspace);

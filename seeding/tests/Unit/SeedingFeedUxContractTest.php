@@ -65,7 +65,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringNotContainsString('comments.length >= 1', $auth);
     }
 
-    public function test_sidebar_is_personal_stats_with_active_topic_context(): void
+    public function test_sidebar_is_stable_personal_stats_without_active_topic(): void
     {
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
@@ -76,42 +76,68 @@ final class SeedingFeedUxContractTest extends TestCase
         $composer = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx'
         );
+        $card = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/TopicCard.jsx'
+        );
         $selectors = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/features/workspace/selectors.js'
         );
         $css = (string) file_get_contents(
             $this->addonRoot().'/resources/css/seeding-workspace.css'
         );
+        $panel = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/ShareGeneratePanel.jsx'
+        );
 
         self::assertStringContainsString('SeedingSidebar', $workspace);
         self::assertStringContainsString('data-layout="shell"', $workspace);
+        self::assertStringNotContainsString('activeTopic={genTopic}', $workspace);
         self::assertStringNotContainsString('Mở panel', $workspace);
         self::assertStringNotContainsString('TopicContextSidebar', $workspace);
         self::assertStringNotContainsString('TopicContextSidebar', $composer);
 
         self::assertFileExists($this->addonRoot().'/resources/js/seeding/components/SeedingSidebar.jsx');
-        self::assertFileExists($this->addonRoot().'/resources/js/seeding/components/TeamStatsSidebar.jsx');
+        self::assertFileExists($this->addonRoot().'/resources/js/seeding/components/TopicWorkTargets.jsx');
+        self::assertFileExists($this->addonRoot().'/resources/js/seeding/components/AssignedLinksEditor.jsx');
         self::assertStringContainsString('data-sidebar="personal-stats"', $sidebar);
         self::assertStringContainsString('data-sidebar-reopen', $sidebar);
-        self::assertStringContainsString('Topic hiện tại', $sidebar);
-        self::assertStringContainsString('deriveActiveTopicLinkTargets', $sidebar);
-        self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
         self::assertStringContainsString('Seeding hôm nay', $sidebar);
+        self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
+        self::assertStringNotContainsString('Topic hiện tại', $sidebar);
+        self::assertStringNotContainsString('activeTopic', $sidebar);
+        self::assertStringNotContainsString('deriveActiveTopicLinkTargets', $sidebar);
+        self::assertStringNotContainsString('data-stats="active-topic"', $sidebar);
         self::assertStringNotContainsString('Chi tiết chủ đề', $sidebar);
         self::assertStringNotContainsString('FeedCommentsBlock', $sidebar);
-        self::assertStringNotContainsString('Nhân viên', $sidebar);
-        self::assertStringNotContainsString('Facebook', $sidebar);
-        self::assertStringNotContainsString('TikTok', $sidebar);
+
+        self::assertStringContainsString('TopicWorkTargets', $card);
+        self::assertStringContainsString('data-topic-social', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/TopicWorkTargets.jsx'
+        ));
+        self::assertStringContainsString('data-topic-assigned-links', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/TopicWorkTargets.jsx'
+        ));
+        self::assertStringContainsString('AssignedLinksEditor', $composer);
+        self::assertStringContainsString('Topic này chưa được giao link seeding.', $panel);
+        self::assertStringNotContainsString('Bạn chưa có link trong Link Pool.', $panel);
 
         self::assertStringContainsString('export function derivePersonalSeedingStats', $selectors);
-        self::assertStringContainsString('export function deriveActiveTopicLinkTargets', $selectors);
-        self::assertStringContainsString('shortenUrlForSidebar', $selectors);
+        self::assertStringContainsString('export function deriveTopicAssignedLinks', $selectors);
+        self::assertStringContainsString('export function deriveTopicSocialTarget', $selectors);
+        self::assertStringContainsString('shortenUrlDisplay', $selectors);
         self::assertStringContainsString('genBatches', $selectors);
+        self::assertStringContainsString('daily_link_progress', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/services/storage.js'
+        ));
+        self::assertStringContainsString('target_per_day', (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/services/storage.js'
+        ));
 
         self::assertStringContainsString('seeding-ws--shell', $css);
         self::assertStringContainsString('seeding-ws__feed-host', $css);
         self::assertStringContainsString('seeding-ws__feed-grid', $css);
         self::assertStringContainsString('is-seeder-quick-feed', $css);
+        self::assertStringContainsString('seeding-ws__topic-work', $css);
         self::assertMatchesRegularExpression(
             '/(?:^|\n)\.seeding-ws__feed-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s',
             $css
@@ -120,7 +146,23 @@ final class SeedingFeedUxContractTest extends TestCase
             '/\.seeding-ws__feed-host\.is-seeder-quick-feed\s+\.seeding-ws__feed-grid\s*\{[^}]*repeat\(\s*2/s',
             $css
         );
-        self::assertStringContainsString('grid-column: 1 / -1', $css);
+        self::assertStringNotContainsString(
+            '.seeding-ws__feed-item.is-gen-open {\n    grid-column: 1 / -1;',
+            $css
+        );
+        self::assertStringNotContainsString(
+            '.seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__feed-item.is-gen-open {\n    grid-column: 1 / -1;',
+            $css
+        );
+        self::assertDoesNotMatchRegularExpression(
+            '/\.seeding-ws__feed-item\.is-gen-open\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s',
+            $css
+        );
+        self::assertMatchesRegularExpression(
+            '/\.seeding-ws__vcard\.is-gen-open|\.seeding-ws__feed-item\.is-gen-open\s*>\s*\.seeding-ws__vcard/s',
+            $css
+        );
+        self::assertStringContainsString('box-shadow: 0 0 0 2px rgba(234, 88, 12', $css);
         self::assertStringNotContainsString('@container seeding-feed', $css);
         self::assertStringNotContainsString('minmax(min(100%, 320px)', $css);
     }
@@ -170,6 +212,8 @@ final class SeedingFeedUxContractTest extends TestCase
             'TopicCard.jsx',
             'TopicFeed.jsx',
             'SeederQuickFeed.jsx',
+            'TopicWorkTargets.jsx',
+            'AssignedLinksEditor.jsx',
             'ShareGeneratePanel.jsx',
             'LinkPoolPanel.jsx',
             'ReportModal.jsx',
@@ -183,15 +227,20 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('ShareGeneratePanel', $feed);
         self::assertStringContainsString('activeGenTopicId', $feed);
         self::assertStringContainsString('is-gen-open', $feed);
+        self::assertStringContainsString('dailyProgressMap', $feed);
+        self::assertStringContainsString('dailyLinkProgress', $feed);
         self::assertStringNotContainsString('selectedId', $feed);
         self::assertStringNotContainsString('onSelect', $feed);
         self::assertStringNotContainsString('data-drawer="share-generate"', $feed);
         self::assertStringContainsString('is-seeder-quick-feed', $quick);
         self::assertStringContainsString('isWebsiteShareActionable', $quick);
         self::assertStringContainsString('WebsiteShareCard', $quick);
-        self::assertStringContainsString('grid-column', (string) file_get_contents(
-            $this->addonRoot().'/resources/css/seeding-workspace.css'
-        ));
+        self::assertStringContainsString('dailyProgressMap', $quick);
+        $css = (string) file_get_contents($this->addonRoot().'/resources/css/seeding-workspace.css');
+        self::assertDoesNotMatchRegularExpression(
+            '/\.seeding-ws__feed-item\.is-gen-open\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s',
+            $css
+        );
     }
 
     public function test_storage_tracks_ownership_and_preview_fields(): void
@@ -206,6 +255,8 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('link_previews', $storage);
         self::assertStringContainsString('seed_links', $storage);
         self::assertStringContainsString('link_usage_today', $storage);
+        self::assertStringContainsString('daily_link_progress', $storage);
+        self::assertStringContainsString('target_per_day', $storage);
         self::assertStringNotContainsString('selected_topic_id', $storage);
     }
 }

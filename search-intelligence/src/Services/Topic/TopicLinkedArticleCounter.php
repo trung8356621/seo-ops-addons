@@ -16,18 +16,24 @@ final class TopicLinkedArticleCounter
 {
     /**
      * Distinct source articles on this site that link any Topic member keyword.
+     *
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds  MCP-quarantined (or other) keyword ids to omit
      */
-    public function countForTopic(int $siteId, int $topicId): int
+    public function countForTopic(int $siteId, int $topicId, array|null $excludeKeywordIds = null): int
     {
         if ($siteId <= 0 || $topicId <= 0) {
             return 0;
         }
+
+        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
 
         $keywordIds = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
             ->where('topic_id', $topicId)
             ->pluck('keyword_id')
             ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0 && ! isset($exclude[$id]))
+            ->values()
             ->all();
 
         return $this->countForKeywords($siteId, $keywordIds);
@@ -35,9 +41,15 @@ final class TopicLinkedArticleCounter
 
     /**
      * @param  list<int>  $keywordIds
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds
      */
-    public function countForKeywords(int $siteId, array $keywordIds): int
+    public function countForKeywords(int $siteId, array $keywordIds, array|null $excludeKeywordIds = null): int
     {
+        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $keywordIds = array_values(array_filter(
+            array_map('intval', $keywordIds),
+            static fn (int $id): bool => $id > 0 && ! isset($exclude[$id]),
+        ));
         if ($siteId <= 0 || $keywordIds === []) {
             return 0;
         }
@@ -57,9 +69,10 @@ final class TopicLinkedArticleCounter
      * Batch counts for many topics on one site (no N+1).
      *
      * @param  list<int>  $topicIds
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds
      * @return array<int, int> topic_id => count
      */
-    public function countForTopics(int $siteId, array $topicIds): array
+    public function countForTopics(int $siteId, array $topicIds, array|null $excludeKeywordIds = null): array
     {
         $topicIds = array_values(array_unique(array_filter(
             array_map('intval', $topicIds),
@@ -69,6 +82,8 @@ final class TopicLinkedArticleCounter
         if ($siteId <= 0 || $topicIds === []) {
             return $out;
         }
+
+        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
 
         $memberships = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -82,6 +97,9 @@ final class TopicLinkedArticleCounter
         foreach ($memberships as $row) {
             $topicId = (int) $row->topic_id;
             $keywordId = (int) $row->keyword_id;
+            if ($keywordId <= 0 || isset($exclude[$keywordId])) {
+                continue;
+            }
             $byTopic[$topicId][] = $keywordId;
             $allKeywordIds[] = $keywordId;
         }
@@ -114,6 +132,34 @@ final class TopicLinkedArticleCounter
                 }
             }
             $out[$topicId] = count($articles);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds
+     * @return array<int, true>
+     */
+    private function normalizeExcludeMap(array|null $excludeKeywordIds): array
+    {
+        if ($excludeKeywordIds === null || $excludeKeywordIds === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($excludeKeywordIds as $key => $value) {
+            if (is_int($key) && $value === true) {
+                if ($key > 0) {
+                    $out[$key] = true;
+                }
+
+                continue;
+            }
+            $id = (int) $value;
+            if ($id > 0) {
+                $out[$id] = true;
+            }
         }
 
         return $out;

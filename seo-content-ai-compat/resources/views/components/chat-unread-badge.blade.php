@@ -1,6 +1,5 @@
 @php
     $unreadUrl = auth()->check() ? route('seo.team-messages.unread-count') : '';
-    $onChatPage = \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::is('filament.seo.pages.chat');
 @endphp
 
 @if ($unreadUrl !== '')
@@ -13,7 +12,6 @@
     @vite('addons/content/resources/js/chat/unreadBadge.js')
 @endif
 
-{{-- Outside /chat: round launcher is the only chat entry. On /chat the page mounts its own. --}}
-@if (auth()->check() && ! $onChatPage && request()->is('seo', 'seo/*'))
-    <x-seo-content-ai::chat-mode-launcher />
-@endif
+{{-- Floating Chat/Agent launcher retired from normal/global pages.
+     Support Ticket entry is global header (support-ticket-header).
+     /seo/{hash}/chat may still mount its own launcher for Agent|Group mode switch. --}}

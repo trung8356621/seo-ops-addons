@@ -40,7 +40,10 @@ final class SeedingV2StructureContractTest extends TestCase
             '/\.seeding-ws__feed-host\.is-seeder-quick-feed\s+\.seeding-ws__feed-grid\s*\{[^}]*repeat\(\s*2/s',
             $css
         );
-        self::assertStringContainsString('grid-column: 1 / -1', $css);
+        self::assertDoesNotMatchRegularExpression(
+            '/\.seeding-ws__feed-item\.is-gen-open\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s',
+            $css
+        );
         self::assertStringNotContainsString('@container seeding-feed', $css);
     }
 

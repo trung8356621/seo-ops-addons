@@ -61,6 +61,13 @@ final class KeywordItemPresenter
                 'label' => __('seo-content-ai::filament.keyword.keyword_item_tag_mcp_skipped'),
                 'badge_class' => 'keyword-item-tag keyword-item-tag--planning',
             ]);
+        } elseif ($context === self::CONTEXT_CLUSTER) {
+            // Topic member rows: always surface MCP eligibility for quarantine clarity.
+            array_unshift($groupedTags['planning'], [
+                'code' => 'mcp_included',
+                'label' => __('seo-content-ai::filament.keyword.keyword_item_tag_mcp_included'),
+                'badge_class' => 'keyword-item-tag keyword-item-tag--planning',
+            ]);
         }
 
         $semanticTags = $this->semanticTags->forKeyword(

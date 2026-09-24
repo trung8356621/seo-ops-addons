@@ -498,7 +498,13 @@ final class SeedingSharedTopicService
             if (is_string($link)) {
                 $url = trim($link);
                 if ($url !== '') {
-                    $out[] = ['url' => $url];
+                    $out[] = [
+                        'id' => 'tlink:'.md5(strtolower(rtrim($url, '/'))),
+                        'url' => $url,
+                        'title' => null,
+                        'label' => null,
+                        'target_per_day' => 0,
+                    ];
                 }
                 continue;
             }
@@ -510,8 +516,18 @@ final class SeedingSharedTopicService
                 continue;
             }
             $out[] = [
+                'id' => isset($link['id']) && is_string($link['id']) && trim($link['id']) !== ''
+                    ? trim($link['id'])
+                    : ('tlink:'.md5(strtolower(rtrim($url, '/')))),
                 'url' => $url,
                 'normalized_url' => isset($link['normalized_url']) ? (string) $link['normalized_url'] : null,
+                'title' => isset($link['title']) ? $this->nullableString($link['title']) : (
+                    isset($link['label']) ? $this->nullableString($link['label']) : null
+                ),
+                'label' => isset($link['label']) ? $this->nullableString($link['label']) : (
+                    isset($link['title']) ? $this->nullableString($link['title']) : null
+                ),
+                'target_per_day' => max(0, (int) ($link['target_per_day'] ?? 0)),
                 'preview_title' => $link['preview_title'] ?? null,
                 'preview_description' => $link['preview_description'] ?? null,
                 'preview_image_url' => $link['preview_image_url'] ?? null,

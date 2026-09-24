@@ -811,11 +811,16 @@ return [
         'keyword_item_hide_seo' => 'Hide / Exclude from SEO',
         'keyword_item_exclude_seo' => 'Exclude from SEO',
         'keyword_item_restore_seo' => 'Restore SEO',
-        'keyword_item_skip_mcp' => 'Skip MCP',
-        'keyword_item_skip_mcp_body' => '“:phrase” skipped from Site MCP (still SEO-eligible).',
+        'keyword_item_skip_mcp' => 'Exclude from MCP',
+        'keyword_item_skip_mcp_body' => '“:phrase” is excluded from MCP, SEO Audit, and AI planning. Data and linked articles are kept.',
+        'keyword_item_skip_mcp_confirm_heading' => 'Exclude this Keyword from MCP?',
+        'keyword_item_skip_mcp_confirm_heading_named' => 'Exclude Keyword “:phrase” from MCP?',
+        'keyword_item_skip_mcp_confirm_body' => "After exclusion:\n- The Keyword will no longer participate in MCP, SEO Audit, or AI planning.\n- The Keyword remains in your data.\n- Existing articles using this Keyword are not changed.\n- You can review and rewrite those articles later.",
+        'keyword_item_skip_mcp_confirm_action' => 'Exclude from MCP',
         'keyword_item_restore_mcp' => 'Restore to MCP',
         'keyword_item_restore_mcp_body' => '“:phrase” restored to Site MCP.',
-        'keyword_item_tag_mcp_skipped' => 'Skip MCP',
+        'keyword_item_tag_mcp_skipped' => 'MCP Excluded',
+        'keyword_item_tag_mcp_included' => 'MCP Included',
         'keyword_item_tag_seo_excluded' => 'Excluded from SEO',
         'keyword_item_exclusion_saved' => 'Exclusion updated',
         'keyword_item_exclusion_failed' => 'Could not update exclusion',
@@ -5766,6 +5771,12 @@ return [
         'launcher' => 'Open chat',
         'mode_menu' => 'Choose chat mode',
         'redirecting' => 'Redirecting to Chat Workspace…',
+    ],
+
+    'support_ticket_header' => [
+        'trigger' => 'Ticket',
+        'trigger_aria' => 'Open Support Ticket form',
+        'dialog_aria' => 'Submit Support Ticket',
     ],
 
     'agent_workspace' => [

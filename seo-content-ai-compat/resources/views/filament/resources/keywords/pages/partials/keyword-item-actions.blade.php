@@ -89,7 +89,14 @@
                 {{ __('seo-content-ai::filament.keyword.keyword_item_view_linked_articles') }}
             </button>
             @if ($item['can_skip_mcp'])
-                <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="skipKeywordFromMcp({{ $item['keyword_id'] }})" @click="menuOpen = false">
+                <button
+                    type="button"
+                    role="menuitem"
+                    class="keyword-item__menu-item"
+                    wire:click="skipKeywordFromMcp({{ $item['keyword_id'] }})"
+                    wire:confirm="{{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_heading_named', ['phrase' => $item['display_phrase']]) }}\n\n{{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_body') }}"
+                    @click="menuOpen = false"
+                >
                     {{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp') }}
                 </button>
             @endif

@@ -217,6 +217,7 @@
                                 role="menuitem"
                                 class="keyword-item__menu-item"
                                 wire:click="skipKeywordFromMcp({{ $item['keyword_id'] }})"
+                                wire:confirm="{{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_heading_named', ['phrase' => $item['display_phrase']]) }}\n\n{{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_body') }}"
                                 wire:loading.attr="disabled"
                                 wire:target="skipKeywordFromMcp({{ $item['keyword_id'] }})"
                                 @click="menuOpen = false"

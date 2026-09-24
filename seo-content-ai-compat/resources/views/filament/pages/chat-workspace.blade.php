@@ -19,14 +19,14 @@
             )),
             'maxFileSizeBytes' => app(\Omnichannel\Addons\Content\Services\TeamChatAttachmentService::class)->clientConfig()['max_file_size_bytes'] ?? (5 * 1024 * 1024),
         ];
-        $ticketChatConfig = app(\Omnichannel\Addons\Content\Services\TeamChatAttachmentService::class)->clientConfig();
+        $ticketChatConfig = app(\App\Services\SupportTickets\SupportTicketAttachmentService::class)->clientConfig();
         $ticketProps = [
-            'indexUrl' => route('seo.support-tickets.index'),
-            'storeUrl' => route('seo.support-tickets.store'),
-            'retryUrlTemplate' => url('/api/seo/support-tickets/__ID__/retry'),
+            'indexUrl' => route('support-tickets.index'),
+            'storeUrl' => route('support-tickets.store'),
             'csrfToken' => csrf_token(),
             'pageUrl' => url()->current(),
             'connectionHash' => $hash,
+            'service' => 'seo',
             'accept' => implode(',', array_map(
                 static fn (string $ext): string => '.'.$ext,
                 $ticketChatConfig['allowed_extensions'] ?? [],

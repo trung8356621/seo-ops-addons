@@ -6,7 +6,6 @@ import TopicFeed from './components/TopicFeed';
 import TopicComposer from './components/TopicComposer';
 import TopicDetail from './components/TopicDetail';
 import SeedingSidebar from './components/SeedingSidebar';
-import LinkPoolPanel from './components/LinkPoolPanel';
 import ReportModal from './components/ReportModal';
 import ManagerPanel from './components/ManagerPanel';
 import WebsiteShareFeed from './components/WebsiteShareFeed';
@@ -37,6 +36,11 @@ import {
 } from './features/workspace/auth';
 import { generateSeedBatch, regenerateSeedOutput } from './services/seedGenerate';
 import { normalizeSeedLinks } from './services/linkPool';
+import {
+    bumpAssignmentProgress,
+    normalizeDailyLinkProgress,
+    todayProgressMap,
+} from './services/dailyLinkProgress';
 import { fetchSharedFeed, shareTopic as shareTopicApi, submitReport } from './api';
 import {
     applyReportSuccessLocal,
@@ -109,6 +113,7 @@ export default function SeedingWorkspace({
     const [seedOutputs, setSeedOutputs] = useState([]);
     const [linkPreviews, setLinkPreviews] = useState({});
     const [linkUsageToday, setLinkUsageToday] = useState({});
+    const [dailyLinkProgress, setDailyLinkProgress] = useState({});
     const [filter, setFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [composerOpen, setComposerOpen] = useState(false);
@@ -130,6 +135,7 @@ export default function SeedingWorkspace({
     const seedOutputsRef = useRef(seedOutputs);
     const linkPreviewsRef = useRef(linkPreviews);
     const linkUsageRef = useRef(linkUsageToday);
+    const dailyProgressRef = useRef(dailyLinkProgress);
     const uiRef = useRef({});
     const feedAbortRef = useRef(null);
 
@@ -140,6 +146,7 @@ export default function SeedingWorkspace({
     useEffect(() => { seedOutputsRef.current = seedOutputs; }, [seedOutputs]);
     useEffect(() => { linkPreviewsRef.current = linkPreviews; }, [linkPreviews]);
     useEffect(() => { linkUsageRef.current = linkUsageToday; }, [linkUsageToday]);
+    useEffect(() => { dailyProgressRef.current = dailyLinkProgress; }, [dailyLinkProgress]);
     useEffect(() => {
         uiRef.current = {
             filter,
@@ -162,6 +169,7 @@ export default function SeedingWorkspace({
             seed_batches: partial.seed_batches ?? seedBatchesRef.current,
             seed_outputs: partial.seed_outputs ?? seedOutputsRef.current,
             link_usage_today: partial.link_usage_today ?? linkUsageRef.current,
+            daily_link_progress: partial.daily_link_progress ?? dailyProgressRef.current,
             link_previews: partial.link_previews ?? linkPreviewsRef.current,
             ui: {
                 ...uiRef.current,
@@ -203,6 +211,11 @@ export default function SeedingWorkspace({
             linkUsageRef.current = patch.link_usage_today;
             setLinkUsageToday(patch.link_usage_today);
         }
+        if (patch.daily_link_progress) {
+            const next = normalizeDailyLinkProgress(patch.daily_link_progress);
+            dailyProgressRef.current = next;
+            setDailyLinkProgress(next);
+        }
         if (persist) schedulePersist();
     }, [schedulePersist]);
 
@@ -241,6 +254,7 @@ export default function SeedingWorkspace({
         setSeedOutputs(doc.seed_outputs || []);
         setLinkPreviews(doc.link_previews && typeof doc.link_previews === 'object' ? doc.link_previews : {});
         setLinkUsageToday(doc.link_usage_today && typeof doc.link_usage_today === 'object' ? doc.link_usage_today : {});
+        setDailyLinkProgress(normalizeDailyLinkProgress(doc.daily_link_progress));
         setFilter(doc.ui?.filter || 'all');
         setSearch(doc.ui?.search || '');
         setDetailId(doc.ui?.detail_topic_id ? String(doc.ui.detail_topic_id) : null);
@@ -294,6 +308,11 @@ export default function SeedingWorkspace({
     const genTopic = useMemo(
         () => (activeGenTopicId ? topics.find((t) => topicKeyOf(t) === String(activeGenTopicId)) || null : null),
         [activeGenTopicId, topics],
+    );
+
+    const dailyProgressToday = useMemo(
+        () => todayProgressMap(dailyLinkProgress),
+        [dailyLinkProgress],
     );
 
     const outputsForTopic = useCallback((topic) => {
@@ -619,15 +638,22 @@ export default function SeedingWorkspace({
                 seedLinkId: comment.selected_seed_link_id || comment.seed_link_id,
             });
 
+            const assignmentId = comment.selected_seed_link_id || comment.seed_link_id;
+            const nextDaily = assignmentId
+                ? bumpAssignmentProgress(dailyProgressRef.current, String(assignmentId), 1)
+                : dailyProgressRef.current;
+
             applyDoc({
                 topics: local.topics,
                 seed_outputs: local.generatedComments,
                 link_usage_today: data.link_usage_today || local.linkUsageToday,
+                daily_link_progress: nextDaily,
             }, false);
             writer.current.flush(() => persistNow({
                 topics: local.topics,
                 seed_outputs: local.generatedComments,
                 link_usage_today: data.link_usage_today || local.linkUsageToday,
+                daily_link_progress: nextDaily,
             }));
 
             setReportTarget(null);
@@ -656,9 +682,15 @@ export default function SeedingWorkspace({
         'seeding-ws--feed',
         'seeding-ws--shell',
         !sidebarCollapsed ? 'has-sidebar' : 'sidebar-collapsed',
-        linkPoolOpen ? 'has-drawer' : '',
     ].filter(Boolean).join(' ');
 
+    const openLinkPool = () => {
+        setLinkPoolOpen(true);
+        if (sidebarCollapsed) {
+            setSidebarCollapsed(false);
+            schedulePersist();
+        }
+    };
     return (
         <>
             {/* Outside grid — fixed Toaster as grid child steals the 1fr track */}
@@ -745,14 +777,14 @@ export default function SeedingWorkspace({
                                         onFilter={(f) => { setFilter(f); schedulePersist(); }}
                                         onSearch={(v) => { setSearch(v); schedulePersist(); }}
                                         onCreate={openComposer}
-                                        onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                                        onOpenLinkPool={openLinkPool}
                                     />
                                 ) : (
                                     <div className="seeding-ws__seeder-toolbar">
                                         <button
                                             type="button"
                                             className="seeding-ws__btn seeding-ws__btn--ghost"
-                                            onClick={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                                            onClick={openLinkPool}
                                         >
                                             Link Pool
                                         </button>
@@ -782,10 +814,10 @@ export default function SeedingWorkspace({
                                         isManager={manager}
                                         userId={userId}
                                         linkPreviewCache={linkPreviews}
+                                        dailyProgressMap={dailyProgressToday}
                                         sharingTopicKey={sharingTopicKey}
                                         activeGenTopicId={activeGenTopicId}
-                                        seedLinks={seedLinks}
-                                        linkUsageToday={linkUsageToday}
+                                        dailyLinkProgress={dailyLinkProgress}
                                         generating={generating}
                                         outputsForTopic={outputsForTopic}
                                         canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
@@ -814,10 +846,10 @@ export default function SeedingWorkspace({
                                         isManager={manager}
                                         userId={userId}
                                         linkPreviewCache={linkPreviews}
+                                        dailyProgressMap={dailyProgressToday}
                                         sharingTopicKey={sharingTopicKey}
                                         activeGenTopicId={activeGenTopicId}
-                                        seedLinks={seedLinks}
-                                        linkUsageToday={linkUsageToday}
+                                        dailyLinkProgress={dailyLinkProgress}
                                         generating={generating}
                                         outputsForTopic={outputsForTopic}
                                         canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
@@ -858,25 +890,15 @@ export default function SeedingWorkspace({
                 seedBatches={seedBatches}
                 seedOutputs={seedOutputs}
                 seedLinks={seedLinks}
-                linkPreviewCache={linkPreviews}
-                activeTopic={genTopic}
+                linkUsageToday={linkUsageToday}
                 userId={userId}
+                linkPoolOpen={linkPoolOpen}
+                canManageLinkPool={canManageOwnSeedLinks(hasWorkspaceAccess)}
                 onToggleCollapse={toggleSidebar}
-                onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                onOpenLinkPool={openLinkPool}
+                onCloseLinkPool={() => setLinkPoolOpen(false)}
+                onSeedLinksChange={onSeedLinksChange}
             />
-
-            {linkPoolOpen ? (
-                <aside className="seeding-ws__drawer" data-drawer="link-pool">
-                    <LinkPoolPanel
-                        open
-                        seedLinks={seedLinks}
-                        linkUsageToday={linkUsageToday}
-                        canManage={canManageOwnSeedLinks(hasWorkspaceAccess)}
-                        onClose={() => setLinkPoolOpen(false)}
-                        onChange={onSeedLinksChange}
-                    />
-                </aside>
-            ) : null}
 
             </div>
 

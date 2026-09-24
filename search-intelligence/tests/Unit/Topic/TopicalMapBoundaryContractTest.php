@@ -28,6 +28,7 @@ final class TopicalMapBoundaryContractTest extends TestCase
         self::assertStringContainsString('landscape->forSite', $src);
         self::assertStringContainsString('landscape->findTopic', $src);
         self::assertStringContainsString('MAX_TOPIC_NODES', $src);
+        self::assertStringContainsString('mcpEligibleKeywordIdsForTopic', $src);
         self::assertSame(500, TopicalMapReadModel::MAX_TOPIC_NODES);
         self::assertSame(100, TopicalMapTopicChildren::MAX_CHILDREN);
     }
@@ -65,42 +66,34 @@ final class TopicalMapBoundaryContractTest extends TestCase
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php',
         );
         self::assertStringContainsString("'key' => 'topical-map'", $nav);
-        self::assertStringContainsString("getUrl('topical-map')", $nav);
+        self::assertStringContainsString('TopicalMapAppPage::appUrl', $nav);
+        self::assertStringContainsString("'target' => '_blank'", $nav);
         self::assertTrue(class_exists(KeywordTopicalMap::class));
     }
 
     public function test_ui_defaults_to_tree_and_exposes_three_renderers(): void
     {
         $pageSrc = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName());
-        self::assertStringContainsString("public string \$mapRenderer = 'tree'", $pageSrc);
-        self::assertStringContainsString("'tree', 'network', 'sunburst'", $pageSrc);
-        self::assertStringContainsString('loadTopicChildren', $pageSrc);
-        self::assertStringContainsString('loadNetworkNeighborhood', $pageSrc);
-        self::assertStringContainsString('beginConfirmAiAudit', $pageSrc);
-        self::assertStringContainsString('redirectToFirstAccessibleDomainIfNeeded', $pageSrc);
-        self::assertStringContainsString("getUrl('topical-map')", $pageSrc);
+        self::assertStringContainsString('TopicalMapAppPage::appUrl', $pageSrc);
+        self::assertStringContainsString('redirect', $pageSrc);
 
-        $blade = (string) file_get_contents(
-            dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php',
-        );
-        self::assertStringContainsString('topical_map_mode_tree', $blade);
-        self::assertStringContainsString('topical_map_mode_network', $blade);
-        self::assertStringContainsString('topical_map_mode_sunburst', $blade);
-        self::assertStringContainsString('data-topical-map-root', $blade);
-        self::assertStringContainsString('topical-map-chart.js', $blade);
-        self::assertStringContainsString('topical_map_empty', $blade);
+        $app = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/App.jsx');
+        self::assertStringContainsString("readFilterQuery()", $app);
+        self::assertStringContainsString("'tree', 'network', 'sunburst'", (string) file_get_contents(
+            dirname(__DIR__, 3).'/resources/js/topical-map/components/FilterBar.jsx',
+        ));
 
-        $js = (string) file_get_contents(
-            dirname(__DIR__, 3).'/resources/js/topical-map-chart.js',
-        );
-        self::assertStringContainsString("from 'echarts/core'", $js);
-        self::assertStringContainsString("type: 'tree'", $js);
-        self::assertStringContainsString("type: 'graph'", $js);
-        self::assertStringContainsString("type: 'sunburst'", $js);
-        self::assertStringContainsString('Topic membership', $js);
-        self::assertStringNotContainsString('cytoscape', strtolower($js));
-        self::assertStringNotContainsString('reactflow', strtolower($js));
-        self::assertStringNotContainsString('dagre', strtolower($js));
+        $options = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/charts/options.js');
+        self::assertStringContainsString("type: 'tree'", $options);
+        self::assertStringContainsString("type: 'graph'", $options);
+        self::assertStringContainsString("type: 'sunburst'", $options);
+        self::assertStringContainsString('Topic membership', $options);
+        self::assertStringNotContainsString('cytoscape', strtolower($options));
+        self::assertStringNotContainsString('reactflow', strtolower($options));
+
+        $js = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map-chart.js');
+        self::assertStringContainsString('retired', strtolower($js));
+        self::assertStringNotContainsString("from 'echarts/core'", $js);
     }
 
     public function test_overview_dto_shape(): void

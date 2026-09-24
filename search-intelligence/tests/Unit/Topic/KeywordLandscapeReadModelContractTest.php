@@ -107,4 +107,16 @@ final class KeywordLandscapeReadModelContractTest extends TestCase
         self::assertTrue(class_exists(TopicTagMetricsResolver::class));
         self::assertTrue(class_exists(TopicTopicalShareCalculator::class));
     }
+
+    public function test_landscape_filters_mcp_excluded_keywords_at_read_model(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(KeywordLandscapeReadModel::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('SkipKeywordFromMcpService', $src);
+        self::assertStringContainsString('skippedKeywordIdMap', $src);
+        self::assertStringContainsString('mcpExcludedKeywordIdsForTopics', $src);
+        self::assertStringContainsString('excludeKeywordIds', $src);
+    }
 }

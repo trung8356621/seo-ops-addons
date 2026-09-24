@@ -11,7 +11,12 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use RuntimeException;
 
 /**
- * Keyword-level MCP skip — SEO eligible, excluded from Site MCP context.
+ * Keyword-level MCP quarantine — soft-skip from Site MCP / SEO intelligence.
+ *
+ * Storage is keyword_meta.mcp_keyword_excluded (global per Keyword row).
+ * $siteId is accepted for call-site compatibility but not used for scoping —
+ * Keywords are phrase-identity rows shared via site meta; redesigning site-scoped
+ * quarantine requires a separate schema decision.
  */
 final class SkipKeywordFromMcpService
 {

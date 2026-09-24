@@ -62,15 +62,24 @@ final class SeedingCommentGenerateCanonicalAiContractTest extends TestCase
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
         );
+        $sidebar = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/SeedingSidebar.jsx'
+        );
         $feed = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicFeed.jsx'
         );
         $panel = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/ShareGeneratePanel.jsx'
         );
+        $css = (string) file_get_contents(
+            $this->addonRoot().'/resources/css/seeding-workspace.css'
+        );
 
         self::assertStringNotContainsString('data-drawer="share-generate"', $workspace);
-        self::assertStringContainsString('data-drawer="link-pool"', $workspace);
+        self::assertStringContainsString('data-drawer="link-pool"', $sidebar);
+        self::assertStringNotContainsString('has-drawer', $workspace);
+        self::assertStringNotContainsString("linkPoolOpen ? 'has-drawer'", $workspace);
+        self::assertStringNotContainsString('seeding-ws__drawer', $workspace);
 
         self::assertStringNotContainsString('ShareGeneratePanel', $workspace);
         self::assertStringContainsString('activeGenTopicId', $workspace);
@@ -79,6 +88,14 @@ final class SeedingCommentGenerateCanonicalAiContractTest extends TestCase
         self::assertStringContainsString('is-gen-open', $feed);
         self::assertStringContainsString('data-inline', $panel);
         self::assertStringContainsString('seeding-ws__panel--inline', $panel);
-        self::assertStringContainsString('linkPoolOpen ? \'has-drawer\'', $workspace);
+        self::assertStringContainsString('LinkPoolPanel', $sidebar);
+        self::assertStringContainsString('seeding-ws__sidebar-pool', $sidebar);
+
+        self::assertStringNotContainsString('has-drawer.has-sidebar', $css);
+        self::assertStringNotContainsString('grid-column: 3', $css);
+        self::assertMatchesRegularExpression(
+            '/\.seeding-ws--shell\.has-sidebar\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(320px,\s*360px\)/s',
+            $css
+        );
     }
 }

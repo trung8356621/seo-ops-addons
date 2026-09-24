@@ -101,13 +101,11 @@
                 <div class="mt-1 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-300">${escapeHtml(t.body || '')}</div>
                 ${attachmentHtml(t.attachments)}
                 <div class="text-xs text-gray-500 mt-1">#${t.id} · ${escapeHtml(t.status)}${t.sent_at ? ' · ' + escapeHtml(t.sent_at) : ''}</div>
-                ${t.status !== 'sent' ? `<button type="button" class="mt-2 text-xs text-primary-600" data-retry="${t.id}">Retry gửi remote</button>` : ''}
-                ${t.last_error ? `<div class="mt-1 text-xs text-rose-600">${escapeHtml(t.last_error)}</div>` : ''}
               </li>`).join('');
 
             root.innerHTML = `
               <div class="seo-ticket-panel max-w-2xl space-y-4 p-1">
-                <p class="text-sm text-gray-600 dark:text-gray-300">Gửi lỗi/support về server. Ticket luôn được lưu cục bộ trước — máy chủ remote có thể offline. Dán ảnh (Ctrl+V) hoặc đính kèm tệp.</p>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Gửi ticket hỗ trợ. Ticket được lưu vào hệ thống sau khi gửi thành công. Dán ảnh (Ctrl+V) hoặc đính kèm tệp.</p>
                 ${state.notice ? `<div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">${escapeHtml(state.notice)}</div>` : ''}
                 <form class="space-y-3" data-role="form">
                   <div>
@@ -153,31 +151,6 @@
                     const idx = Number(btn.getAttribute('data-remove-file'));
                     if (!Number.isNaN(idx)) {
                         state.files.splice(idx, 1);
-                        render();
-                    }
-                });
-            });
-            root.querySelectorAll('[data-retry]').forEach((btn) => {
-                btn.addEventListener('click', async () => {
-                    const id = btn.getAttribute('data-retry');
-                    const url = String(props.retryUrlTemplate || '').replace('__ID__', id);
-                    try {
-                        const res = await fetch(url, {
-                            method: 'POST',
-                            headers: {
-                                Accept: 'application/json',
-                                'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': props.csrfToken || csrf(),
-                                'X-Requested-With': 'XMLHttpRequest',
-                            },
-                            credentials: 'same-origin',
-                            body: JSON.stringify({}),
-                        });
-                        const data = await res.json();
-                        state.notice = data.message || 'Đã thử gửi lại.';
-                        await loadList();
-                    } catch (_) {
-                        state.notice = 'Retry thất bại — ticket vẫn còn trên máy local.';
                         render();
                     }
                 });
@@ -229,6 +202,12 @@
                 form.append('title', state.title);
                 form.append('body', state.body);
                 form.append('page_url', props.pageUrl || window.location.href);
+                if (props.connectionHash) {
+                    form.append('connection_hash', props.connectionHash);
+                }
+                if (props.service) {
+                    form.append('service', props.service);
+                }
                 state.files.forEach((file) => {
                     form.append('files[]', file);
                 });
@@ -246,7 +225,7 @@
                 if (!res.ok) {
                     throw new Error(data.message || ('HTTP ' + res.status));
                 }
-                state.notice = data.message || 'Đã lưu ticket cục bộ.';
+                state.notice = data.message || 'Đã gửi ticket thành công.';
                 state.title = '';
                 state.body = '';
                 state.files = [];

@@ -16,10 +16,10 @@ export default function TopicFeed({
     isManager = false,
     userId,
     linkPreviewCache = {},
+    dailyProgressMap = {},
     sharingTopicKey = null,
     activeGenTopicId = null,
-    seedLinks = [],
-    linkUsageToday = {},
+    dailyLinkProgress = {},
     generating = false,
     outputsForTopic,
     canSeedTopicFn,
@@ -81,6 +81,7 @@ export default function TopicFeed({
                                 isManager={isManager}
                                 userId={userId}
                                 linkPreviewCache={linkPreviewCache}
+                                dailyProgressMap={dailyProgressMap}
                                 sharing={sharingTopicKey === id}
                                 genOpen={genOpen}
                                 onOpenDetail={onOpenDetail}
@@ -96,8 +97,7 @@ export default function TopicFeed({
                                     open
                                     inline
                                     topic={topic}
-                                    seedLinks={seedLinks}
-                                    linkUsageToday={linkUsageToday}
+                                    dailyLinkProgress={dailyLinkProgress}
                                     topicOutputs={topicOutputs}
                                     linkPreviewCache={linkPreviewCache}
                                     canSeed={canSeed}

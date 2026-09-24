@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 use App\Models\SupportTicket;
 use Omnichannel\Addons\Seo\Services\SupportTicketDeliveryService;
 use Illuminate\Support\Facades\Http;
-use ReflectionClass;
 use Tests\TestCase;
 
 final class SupportTicketOfflineContractTest extends TestCase
@@ -31,18 +30,6 @@ final class SupportTicketOfflineContractTest extends TestCase
         self::assertSame('remote_disabled', $result['error']);
     }
 
-    public function test_controller_never_returns_500_path_on_remote_fail_via_source(): void
-    {
-        $path = (new ReflectionClass(\Omnichannel\Addons\Seo\Http\Controllers\SupportTicketController::class))->getFileName();
-        $source = (string) file_get_contents((string) $path);
-
-        self::assertStringContainsString('STATUS_QUEUED', $source);
-        self::assertStringContainsString('Đã lưu cục bộ', $source);
-        self::assertStringContainsString('deliverOrKeepQueued', $source);
-        self::assertStringNotContainsString('abort(500', $source);
-        self::assertStringContainsString(', 201)', $source);
-    }
-
     public function test_delivery_service_catches_http_failures(): void
     {
         config([
@@ -63,5 +50,15 @@ final class SupportTicketOfflineContractTest extends TestCase
         $result = (new SupportTicketDeliveryService())->attemptDelivery($ticket);
         self::assertFalse($result['ok']);
         self::assertNotNull($result['error']);
+    }
+
+    public function test_canonical_submit_does_not_require_remote_delivery(): void
+    {
+        $path = app_path('Services/SupportTickets/SupportTicketSubmitService.php');
+        self::assertFileExists($path);
+        $source = (string) file_get_contents($path);
+        self::assertStringContainsString('support_ticket.messages.submitted', $source);
+        self::assertStringNotContainsString('attemptDelivery', $source);
+        self::assertStringNotContainsString('Đã lưu cục bộ', $source);
     }
 }

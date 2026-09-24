@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapTopicChildren;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
@@ -14,6 +15,7 @@ use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
  *
  * Does not invent Pillar hierarchy. Hierarchy = Site → Topic → Keyword (lazy).
  * Network edges = Topic membership only (canonical).
+ * Lazy keyword leaves omit McpExcluded keywords (SEO/MCP surface, not raw inventory).
  */
 final class TopicalMapReadModel
 {
@@ -23,7 +25,13 @@ final class TopicalMapReadModel
         private readonly KeywordLandscapeGateway $landscape,
         private readonly TopicMembershipQuery $membership,
         private readonly TopicUserTagService $topicTags = new TopicUserTagService,
+        private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
     ) {}
+
+    private function mcpSkip(): SkipKeywordFromMcpService
+    {
+        return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
+    }
 
     public function overview(int $siteId): TopicalMapOverview
     {
@@ -41,7 +49,7 @@ final class TopicalMapReadModel
         }
 
         $topicIds = array_map(static fn ($t): int => $t->id, $topics);
-        $keywordCounts = $this->membership->keywordCountsByTopicIds($siteId, $topicIds);
+        $keywordCounts = $this->mcpEligibleKeywordCountsByTopicIds($siteId, $topicIds);
         $tagsByTopic = $this->topicTags->mapForTopics($siteId, $topicIds);
         $tagFacets = $this->topicTags->listForSite($siteId);
         $facetRows = array_map(
@@ -137,7 +145,7 @@ final class TopicalMapReadModel
         }
 
         $limit = max(1, min(TopicalMapTopicChildren::MAX_CHILDREN, $limit));
-        $keywordIds = $this->membership->keywordIdsForTopic($siteId, $topicId);
+        $keywordIds = $this->mcpEligibleKeywordIdsForTopic($siteId, $topicId);
         $total = count($keywordIds);
         $slice = array_slice($keywordIds, 0, $limit);
 
@@ -255,5 +263,46 @@ final class TopicalMapReadModel
             'showing_topics' => count($focus),
             'total_topics' => $totalTopics,
         ];
+    }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @return array<int, int>
+     */
+    private function mcpEligibleKeywordCountsByTopicIds(int $siteId, array $topicIds): array
+    {
+        $raw = $this->membership->keywordCountsByTopicIds($siteId, $topicIds);
+        if ($raw === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($topicIds as $topicId) {
+            $topicId = (int) $topicId;
+            if ($topicId <= 0) {
+                continue;
+            }
+            $out[$topicId] = count($this->mcpEligibleKeywordIdsForTopic($siteId, $topicId));
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function mcpEligibleKeywordIdsForTopic(int $siteId, int $topicId): array
+    {
+        $keywordIds = $this->membership->keywordIdsForTopic($siteId, $topicId);
+        if ($keywordIds === []) {
+            return [];
+        }
+
+        $skipped = $this->mcpSkip()->skippedKeywordIdMap($keywordIds);
+
+        return array_values(array_filter(
+            $keywordIds,
+            static fn (int $id): bool => $id > 0 && ! isset($skipped[$id]),
+        ));
     }
 }

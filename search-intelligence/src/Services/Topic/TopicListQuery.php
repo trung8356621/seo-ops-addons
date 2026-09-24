@@ -8,12 +8,15 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 
 /**
  * Site-scoped Topic list read model for Filament Topic index.
  *
  * Identity = seo_topics.id (numeric Topic Core), never retired cluster identity.
+ * Topical Share / coverage follow MCP-eligible keywords (McpExcluded omitted).
+ * keyword_count remains raw membership inventory for management.
  */
 final class TopicListQuery
 {
@@ -21,11 +24,17 @@ final class TopicListQuery
         private readonly TopicLinkedArticleCounter $articleCounter,
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
         private readonly ?TopicUserTagService $userTags = null,
+        private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
     ) {}
 
     private function userTags(): TopicUserTagService
     {
         return $this->userTags ?? app(TopicUserTagService::class);
+    }
+
+    private function mcpSkip(): SkipKeywordFromMcpService
+    {
+        return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
     }
 
     /**
@@ -109,14 +118,14 @@ final class TopicListQuery
         /** @var list<int> $topicIds */
         $topicIds = $topics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
 
-        // Site-wide article counts (same site isolation as TopicLinkedArticleCounter)
-        // so Topical Share denominator is the full site, not the search-filtered page.
+        // Site-wide MCP-eligible article counts so Topical Share denominator matches landscape SSOT.
         $allSiteTopicIds = SeoTopic::query()
             ->where('site_id', $siteId)
             ->pluck('id')
             ->map(static fn ($id): int => (int) $id)
             ->all();
-        $siteArticleCounts = $this->articleCounter->countForTopics($siteId, $allSiteTopicIds);
+        $excludedKeywordIds = $this->mcpExcludedKeywordIdsForTopics($siteId, $allSiteTopicIds);
+        $siteArticleCounts = $this->articleCounter->countForTopics($siteId, $allSiteTopicIds, $excludedKeywordIds);
         $shares = (new TopicTopicalShareCalculator)->percentages($siteArticleCounts);
 
         $memberCounts = SeoTopicKeyword::query()
@@ -127,7 +136,7 @@ final class TopicListQuery
             ->get()
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
 
-        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $siteArticleCounts);
+        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $siteArticleCounts, $excludedKeywordIds);
         $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
 
         $rows = [];
@@ -276,5 +285,28 @@ final class TopicListQuery
         });
 
         return $rows;
+    }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @return array<int, true>
+     */
+    private function mcpExcludedKeywordIdsForTopics(int $siteId, array $topicIds): array
+    {
+        if ($siteId <= 0 || $topicIds === []) {
+            return [];
+        }
+
+        $keywordIds = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        return $this->mcpSkip()->skippedKeywordIdMap($keywordIds);
     }
 }

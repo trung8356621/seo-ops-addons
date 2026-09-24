@@ -6,7 +6,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 
@@ -15,6 +17,9 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTop
  *
  * SSOT for: Keyword MCP snapshots, domain.keyword_landscape, SEO Audit cluster suggestions.
  * Does not change MCP/DNA algorithms — only consolidates Topic Core reads.
+ *
+ * McpExcluded keywords are filtered here so they never contribute to MCP %, DNA,
+ * coverage, or landscape_json consumers (Discover New Topics, SEO Audit, etc.).
  */
 final class KeywordLandscapeReadModel
 {
@@ -24,7 +29,13 @@ final class KeywordLandscapeReadModel
         private readonly TopicLinkedArticleCounter $articleCounter,
         private readonly TopicTagMetricsResolver $tagMetrics = new TopicTagMetricsResolver,
         private readonly TopicTopicalShareCalculator $shareCalculator = new TopicTopicalShareCalculator,
+        private readonly ?SkipKeywordFromMcpService $mcpSkip = null,
     ) {}
+
+    private function mcpSkip(): SkipKeywordFromMcpService
+    {
+        return $this->mcpSkip ?? app(SkipKeywordFromMcpService::class);
+    }
 
     public function forSite(int $siteId, bool $includeDna = true): KeywordLandscape
     {
@@ -43,10 +54,11 @@ final class KeywordLandscapeReadModel
 
         /** @var list<int> $topicIds */
         $topicIds = $topics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
-        $articleCounts = $this->articleCounter->countForTopics($siteId, $topicIds);
+        $excludedKeywordIds = $this->mcpExcludedKeywordIdsForTopics($siteId, $topicIds);
+        $articleCounts = $this->articleCounter->countForTopics($siteId, $topicIds, $excludedKeywordIds);
         $shares = $this->shareCalculator->percentages($articleCounts);
-        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $articleCounts);
-        $dnaByTopic = $includeDna ? $this->loadDnaByTopic($siteId, $topicIds) : [];
+        $tagMetrics = $this->tagMetrics->forTopics($siteId, $topicIds, $articleCounts, $excludedKeywordIds);
+        $dnaByTopic = $includeDna ? $this->loadDnaByTopic($siteId, $topicIds, $excludedKeywordIds) : [];
 
         $sourceUpdatedAt = null;
         $rows = [];
@@ -135,9 +147,33 @@ final class KeywordLandscapeReadModel
 
     /**
      * @param  list<int>  $topicIds
+     * @return array<int, true>
+     */
+    private function mcpExcludedKeywordIdsForTopics(int $siteId, array $topicIds): array
+    {
+        if ($siteId <= 0 || $topicIds === []) {
+            return [];
+        }
+
+        $keywordIds = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        return $this->mcpSkip()->skippedKeywordIdMap($keywordIds);
+    }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @param  array<int, true>  $excludeKeywordIds
      * @return array<int, list<array{phrase: string, weight: int}>>
      */
-    private function loadDnaByTopic(int $siteId, array $topicIds): array
+    private function loadDnaByTopic(int $siteId, array $topicIds, array $excludeKeywordIds = []): array
     {
         if ($siteId <= 0 || $topicIds === [] || ! $this->topicDnaTableReady()) {
             return [];
@@ -146,11 +182,15 @@ final class KeywordLandscapeReadModel
         $rows = SeoTopicKeywordDna::query()
             ->where('site_id', $siteId)
             ->whereIn('topic_id', $topicIds)
-            ->get(['topic_id', 'value']);
+            ->get(['topic_id', 'keyword_id', 'value']);
 
         /** @var array<int, array<string, array{phrase: string, weight: int}>> $byTopic */
         $byTopic = [];
         foreach ($rows as $row) {
+            $keywordId = (int) ($row->keyword_id ?? 0);
+            if ($keywordId > 0 && isset($excludeKeywordIds[$keywordId])) {
+                continue;
+            }
             $topicId = (int) $row->topic_id;
             $phrase = $this->displayPhrase((string) ($row->value ?? ''));
             if ($phrase === '') {

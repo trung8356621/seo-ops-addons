@@ -184,7 +184,11 @@ trait HasKeywordWorkspaceNavigation
             [
                 'key' => 'topical-map',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_topical_map'),
-                'url' => KeywordResource::getUrl('topical-map'),
+                'url' => \Omnichannel\Addons\SearchIntelligence\Filament\Pages\TopicalMapAppPage::appUrl(
+                    $this->resolveKeywordWorkspaceSiteId()
+                ),
+                'target' => '_blank',
+                'rel' => 'noopener noreferrer',
             ],
             [
                 'key' => 'tags',

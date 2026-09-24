@@ -315,6 +315,12 @@ class ListKeywords extends ListRecords
 
                         return ! $hidden && ! $skipped;
                     })
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (Keyword $record): string => __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_heading_named', [
+                        'phrase' => (string) $record->phrase,
+                    ]))
+                    ->modalDescription(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_body'))
+                    ->modalSubmitActionLabel(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_action'))
                     ->action(fn (Keyword $record): mixed => $this->skipKeywordFromMcp((int) $record->id)),
                 Tables\Actions\Action::make('item_restore_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_mcp'))

@@ -1,6 +1,7 @@
 import React, { useCallback, memo } from 'react';
 import { MoreHorizontal, Pencil, Share2, Sparkles, Trash2 } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
+import TopicWorkTargets from './TopicWorkTargets';
 import useEnsureLinkPreviews from '../hooks/useEnsureLinkPreviews';
 import {
     detectPlatformLabel,
@@ -20,6 +21,7 @@ import { topicHasWorkHistory } from '../services/storage';
 
 /**
  * Vertical feed card — draft: Chia sẻ→DB; shared: Gen comment.
+ * Active Gen = border/outline only; work package stays inside the card.
  */
 function TopicCard({
     topic,
@@ -31,6 +33,7 @@ function TopicCard({
     isManager = false,
     userId,
     linkPreviewCache = {},
+    dailyProgressMap = {},
     sharing = false,
     genOpen = false,
     onOpenDetail,
@@ -138,6 +141,14 @@ function TopicCard({
                 variant="topic"
                 className="seeding-ws__vcard-body"
             />
+
+            {!isDraft ? (
+                <TopicWorkTargets
+                    topic={topic}
+                    dailyProgressMap={dailyProgressMap}
+                    linkPreviewCache={linkPreviewCache}
+                />
+            ) : null}
 
             <div className="seeding-ws__vcard-foot">
                 <time className="seeding-ws__time">{relativeTime(topic.updated_at || topic.shared_at)}</time>

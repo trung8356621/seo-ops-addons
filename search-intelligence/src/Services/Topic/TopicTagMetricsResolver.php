@@ -31,10 +31,15 @@ final class TopicTagMetricsResolver
     /**
      * @param  list<int>  $topicIds
      * @param  array<int, int>  $articleCountsByTopic  topic_id => article_count
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds  MCP-quarantined keywords omitted from coverage/intent/DNA
      * @return array<int, TopicTagMetrics>
      */
-    public function forTopics(int $siteId, array $topicIds, array $articleCountsByTopic = []): array
-    {
+    public function forTopics(
+        int $siteId,
+        array $topicIds,
+        array $articleCountsByTopic = [],
+        array|null $excludeKeywordIds = null,
+    ): array {
         $topicIds = array_values(array_unique(array_filter(
             array_map('intval', $topicIds),
             static fn (int $id): bool => $id > 0,
@@ -55,6 +60,8 @@ final class TopicTagMetricsResolver
         if ($siteId <= 0 || $topicIds === []) {
             return $out;
         }
+
+        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
 
         /** @var array<int, string> $topicSourceById */
         $topicSourceById = SeoTopic::query()
@@ -79,7 +86,7 @@ final class TopicTagMetricsResolver
         foreach ($memberships as $row) {
             $topicId = (int) $row->topic_id;
             $keywordId = (int) $row->keyword_id;
-            if ($topicId <= 0 || $keywordId <= 0) {
+            if ($topicId <= 0 || $keywordId <= 0 || isset($exclude[$keywordId])) {
                 continue;
             }
             $keywordIdsByTopic[$topicId][] = $keywordId;
@@ -108,8 +115,12 @@ final class TopicTagMetricsResolver
         $dnaRows = SeoTopicKeywordDna::query()
             ->where('site_id', $siteId)
             ->whereIn('topic_id', $topicIds)
-            ->get(['topic_id', 'value']);
+            ->get(['topic_id', 'keyword_id', 'value']);
         foreach ($dnaRows as $row) {
+            $keywordId = (int) ($row->keyword_id ?? 0);
+            if ($keywordId > 0 && isset($exclude[$keywordId])) {
+                continue;
+            }
             $value = trim((string) $row->value);
             if ($value === '') {
                 continue;
@@ -153,6 +164,34 @@ final class TopicTagMetricsResolver
                 'dna_branch_count' => $dnaBranchCount,
                 'intent_counts' => $intentCounts,
             ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds
+     * @return array<int, true>
+     */
+    private function normalizeExcludeMap(array|null $excludeKeywordIds): array
+    {
+        if ($excludeKeywordIds === null || $excludeKeywordIds === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($excludeKeywordIds as $key => $value) {
+            if (is_int($key) && $value === true) {
+                if ($key > 0) {
+                    $out[$key] = true;
+                }
+
+                continue;
+            }
+            $id = (int) $value;
+            if ($id > 0) {
+                $out[$id] = true;
+            }
         }
 
         return $out;

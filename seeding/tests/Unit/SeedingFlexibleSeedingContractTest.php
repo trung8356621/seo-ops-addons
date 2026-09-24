@@ -24,11 +24,12 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
     public function test_schema_v8_has_seed_links_batches_outputs_and_usage_cache(): void
     {
         $storage = $this->js('services/storage.js');
-        self::assertStringContainsString('SCHEMA_VERSION = 8', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 9', $storage);
         self::assertStringContainsString('seed_links', $storage);
         self::assertStringContainsString('seed_batches', $storage);
         self::assertStringContainsString('seed_outputs', $storage);
         self::assertStringContainsString('link_usage_today', $storage);
+        self::assertStringContainsString('daily_link_progress', $storage);
         self::assertStringContainsString('requested_quantity', $storage);
         self::assertStringContainsString('generated_quantity', $storage);
     }
@@ -95,7 +96,8 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('activeGenTopicId', $workspace);
         self::assertStringContainsString('ShareGeneratePanel', $feed);
         self::assertStringNotContainsString('data-drawer="share-generate"', $workspace);
-        self::assertStringContainsString('LinkPoolPanel', $workspace);
+        self::assertStringContainsString('SeedingSidebar', $workspace);
+        self::assertStringContainsString('LinkPoolPanel', $this->js('components/SeedingSidebar.jsx'));
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);
         self::assertStringContainsString('Toaster', $workspace);
@@ -112,10 +114,13 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
         self::assertStringContainsString('DEFAULT_SEED_QUANTITY', $panel);
         self::assertStringContainsString('Gen comment', $panel);
         self::assertStringContainsString('Append link khi Copy', $panel);
-        self::assertStringContainsString('Link khả dụng', $panel);
-        self::assertStringContainsString('Còn ngưỡng gợi ý', $panel);
+        self::assertStringContainsString('Link assigned khả dụng', $panel);
+        self::assertStringContainsString('Còn ngưỡng hôm nay', $panel);
+        self::assertStringContainsString('Topic này chưa được giao link seeding.', $panel);
+        self::assertStringContainsString('topicAssignedLinksAsSelectable', $panel);
         self::assertStringContainsString('Báo cáo', $panel);
         self::assertStringContainsString('Copy', $panel);
+        self::assertStringNotContainsString('Bạn chưa có link trong Link Pool.', $panel);
         self::assertStringNotContainsString('Nhận việc', $panel);
     }
 

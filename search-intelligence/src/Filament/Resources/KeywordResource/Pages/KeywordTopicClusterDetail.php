@@ -235,6 +235,15 @@ final class KeywordTopicClusterDetail extends Page
         );
     }
 
+    protected function afterKeywordItemMutation(): void
+    {
+        if (method_exists($this, 'flushCachedTableRecords')) {
+            $this->flushCachedTableRecords();
+        }
+        $this->clusterDataEpoch++;
+        $this->resetPage();
+    }
+
     /** @deprecated BC aliases for adapted blades */
     public function canEditClusterCanonical(): bool
     {

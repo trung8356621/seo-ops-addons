@@ -10,7 +10,7 @@ use Throwable;
 
 /**
  * Optional remote delivery for support tickets.
- * Local MySQL row is always persisted first by the controller.
+ * Core MySQL `support_tickets` row is the product SSOT; remote push is best-effort.
  */
 final class SupportTicketDeliveryService
 {

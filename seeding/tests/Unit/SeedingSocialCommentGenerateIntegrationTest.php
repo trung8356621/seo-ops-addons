@@ -82,7 +82,12 @@ final class SeedingSocialCommentGenerateIntegrationTest extends TestCase
         // Generation only updates seed_batches and seed_outputs
         self::assertStringContainsString('seed_batches: nextBatches', $workspaceJs);
         self::assertStringContainsString('seed_outputs: nextOutputs', $workspaceJs);
-        // Link pool drawer is separate
-        self::assertStringContainsString('data-drawer="link-pool"', $workspaceJs);
+        // Link Pool nests inside the single right sidebar column (not a third grid track)
+        self::assertStringNotContainsString('has-drawer', $workspaceJs);
+        $sidebarJs = (string) file_get_contents(
+            $this->seedingAddonRoot().'/resources/js/seeding/components/SeedingSidebar.jsx'
+        );
+        self::assertStringContainsString('data-drawer="link-pool"', $sidebarJs);
+        self::assertStringContainsString('seeding-ws__sidebar-pool', $sidebarJs);
     }
 }

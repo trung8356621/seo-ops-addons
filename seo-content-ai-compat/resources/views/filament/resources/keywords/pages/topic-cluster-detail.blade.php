@@ -308,7 +308,7 @@
                                     <td class="keyword-item-table-cell p-0 align-top">
                                         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [
                                             'keyword' => $keyword,
-                                            'context' => \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter::CONTEXT_DICTIONARY,
+                                            'context' => \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter::CONTEXT_CLUSTER,
                                             'siteId' => $siteId,
                                             'dnaValues' => $dnaMap[(int) $keyword->id] ?? [],
                                             'clusterKey' => '',

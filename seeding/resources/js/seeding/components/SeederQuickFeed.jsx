@@ -47,10 +47,10 @@ export default function SeederQuickFeed({
     isManager = false,
     userId,
     linkPreviewCache = {},
+    dailyProgressMap = {},
     sharingTopicKey = null,
     activeGenTopicId = null,
-    seedLinks = [],
-    linkUsageToday = {},
+    dailyLinkProgress = {},
     generating = false,
     outputsForTopic,
     canSeedTopicFn,
@@ -248,6 +248,7 @@ export default function SeederQuickFeed({
                                 isManager={isManager}
                                 userId={userId}
                                 linkPreviewCache={linkPreviewCache}
+                                dailyProgressMap={dailyProgressMap}
                                 sharing={sharingTopicKey === id}
                                 genOpen={genOpen}
                                 onOpenDetail={onOpenDetail}
@@ -263,8 +264,7 @@ export default function SeederQuickFeed({
                                     open
                                     inline
                                     topic={topic}
-                                    seedLinks={seedLinks}
-                                    linkUsageToday={linkUsageToday}
+                                    dailyLinkProgress={dailyLinkProgress}
                                     topicOutputs={topicOutputs}
                                     linkPreviewCache={linkPreviewCache}
                                     canSeed={canSeed}

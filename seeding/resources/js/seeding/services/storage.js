@@ -1,15 +1,18 @@
 /**
- * Seeding local repository — V8 hybrid (local drafts + DB commit points).
+ * Seeding local repository — V9 hybrid (local drafts + DB commit points).
  *
  * Key: seeding:v5:{installationId}:{userId}:workspace (stable key; schema_version inside).
  * Scope: installation + user (no site/domain).
  *
  * Topic drafts = local. Shared feed = API. Generated comments = local.
- * seed_links = personal Link Pool. link_usage_today = report-derived cache.
+ * seed_links = personal Link Pool (optional). link_usage_today = report-derived cache.
+ * daily_link_progress = Seeder-local per-assignment counts for Topic-assigned links.
  * Proof binary for local preview may use Object URL; report upload goes to API.
  */
 
-const SCHEMA_VERSION = 8;
+import { normalizeDailyLinkProgress } from './dailyLinkProgress';
+
+const SCHEMA_VERSION = 9;
 const LOCAL_PERSIST_MS = 200;
 
 /**
@@ -63,6 +66,7 @@ function emptyDocument() {
         seed_batches: [],
         seed_outputs: [],
         link_usage_today: {},
+        daily_link_progress: {},
         link_previews: {},
         ui: {
             filter: 'all',
@@ -84,9 +88,15 @@ function emptyDocument() {
 export function normalizeLink(link) {
     if (typeof link === 'string') {
         const url = link.trim();
-        return url ? {
+        if (!url) return null;
+        const normalizedUrl = normalizeUrlKey(url);
+        return {
+            id: `tlink:${normalizedUrl}`,
+            title: '',
+            label: '',
+            target_per_day: 0,
             url,
-            normalized_url: normalizeUrlKey(url),
+            normalized_url: normalizedUrl,
             detected_at: new Date().toISOString(),
             preview_url: null,
             preview_title: null,
@@ -95,14 +105,24 @@ export function normalizeLink(link) {
             preview_domain: null,
             preview_fetched_at: null,
             preview_status: null,
-        } : null;
+        };
     }
     if (!link || typeof link !== 'object') return null;
     const url = String(link.url || link.normalized_url || '').trim();
     if (!url) return null;
+    const normalizedUrl = String(link.normalized_url || normalizeUrlKey(url));
+    const title = typeof link.title === 'string'
+        ? link.title.trim()
+        : (typeof link.label === 'string' ? link.label.trim() : '');
+    const targetPerDay = Math.max(0, Number(link.target_per_day) || 0);
+    const id = String(link.id || '').trim() || `tlink:${normalizedUrl}`;
     return {
+        id,
+        title,
+        label: title,
+        target_per_day: targetPerDay,
         url,
-        normalized_url: String(link.normalized_url || normalizeUrlKey(url)),
+        normalized_url: normalizedUrl,
         detected_at: link.detected_at || new Date().toISOString(),
         preview_url: link.preview_url || null,
         preview_title: link.preview_title || null,
@@ -476,6 +496,7 @@ export function migrateVersion(raw) {
         link_usage_today: doc.link_usage_today && typeof doc.link_usage_today === 'object'
             ? doc.link_usage_today
             : {},
+        daily_link_progress: normalizeDailyLinkProgress(doc.daily_link_progress),
         link_previews: linkPreviews,
         ui: {
             filter,
@@ -599,6 +620,7 @@ export function writeDocument(scope, doc) {
             link_usage_today: doc.link_usage_today && typeof doc.link_usage_today === 'object'
                 ? doc.link_usage_today
                 : {},
+            daily_link_progress: normalizeDailyLinkProgress(doc.daily_link_progress),
             link_previews: normalizeLinkPreviewCache(doc.link_previews),
             ui: {
                 filter: doc.ui?.filter || 'all',

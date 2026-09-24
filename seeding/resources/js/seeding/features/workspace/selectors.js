@@ -208,93 +208,115 @@ export function topicCardTitle(topic) {
 }
 
 /**
- * Flat target/link rows for the active-topic sidebar (no platform grouping).
- * Composed at UI/read-model level from topic.links + progress fields.
+ * Flat assigned-link rows for a Topic work item (card-local, not sidebar).
+ * Progress = Seeder local daily count; target = DB target_per_day.
  *
  * @param {Record<string, unknown>|null|undefined} topic
+ * @param {Record<string, number>} [dailyProgressMap] today bucket only
  * @param {Record<string, Record<string, unknown>>} [linkPreviewCache]
  * @returns {Array<{
  *   key: string,
+ *   id: string,
  *   title: string,
  *   url: string,
  *   urlShort: string,
- *   completed: number,
- *   target: number,
+ *   localDone: number,
+ *   targetPerDay: number,
  * }>}
  */
-export function deriveActiveTopicLinkTargets(topic, linkPreviewCache = {}) {
+export function deriveTopicAssignedLinks(topic, dailyProgressMap = {}, linkPreviewCache = {}) {
     if (!topic || typeof topic !== 'object') return [];
-
-    const completed = Number(
-        topic.completed_comments
-        ?? topic.current_user_report_count
-        ?? 0,
-    );
-    const target = Number(
-        topic.target_comments
-        ?? topic.max_comments_target
-        ?? topic.required_report_count
-        ?? 0,
-    );
 
     /** @type {Array<Record<string, unknown>>} */
     const rawLinks = Array.isArray(topic.links) ? topic.links : [];
     const rows = [];
     const seen = new Set();
 
-    const pushUrl = (url, meta = {}) => {
-        const href = String(url || '').trim();
-        if (!href) return;
-        const key = href.toLowerCase().replace(/\/$/, '');
-        if (seen.has(key)) return;
-        seen.add(key);
+    for (const link of rawLinks) {
+        if (!link || typeof link !== 'object') continue;
+        const href = String(link.url || link.normalized_url || link.preview_url || '').trim();
+        if (!href) continue;
+        const id = String(link.id || '').trim();
+        const dedupe = id || href.toLowerCase().replace(/\/$/, '');
+        if (seen.has(dedupe)) continue;
+        seen.add(dedupe);
 
-        const cacheHit = linkPreviewCache[meta.normalized_url]
-            || linkPreviewCache[key]
+        const cacheHit = linkPreviewCache[link.normalized_url]
+            || linkPreviewCache[dedupe]
             || null;
         const domain = String(
-            meta.preview_domain
+            link.preview_domain
             || cacheHit?.preview_domain
             || hostOf(href)
             || '',
         ).trim();
         const title = String(
-            meta.title
-            || meta.label
-            || meta.preview_title
+            link.title
+            || link.label
+            || link.preview_title
             || cacheHit?.preview_title
             || domain
             || 'Link',
         ).trim() || 'Link';
+        const targetPerDay = Math.max(0, Number(link.target_per_day) || 0);
+        const localDone = Math.max(0, Number(dailyProgressMap[id] || dailyProgressMap[dedupe]) || 0);
 
         rows.push({
-            key,
+            key: dedupe,
+            id: id || dedupe,
             title,
             url: href,
-            urlShort: shortenUrlForSidebar(href),
-            completed: Number.isFinite(completed) ? Math.max(0, completed) : 0,
-            target: Number.isFinite(target) ? Math.max(0, target) : 0,
+            urlShort: shortenUrlDisplay(href),
+            localDone,
+            targetPerDay,
         });
-    };
-
-    for (const link of rawLinks) {
-        if (!link || typeof link !== 'object') continue;
-        pushUrl(link.url || link.normalized_url || link.preview_url, link);
-    }
-
-    const social = String(topic.social_url || '').trim();
-    if (social) {
-        pushUrl(social, { preview_title: topicDistinctTitle(topic) });
     }
 
     return rows;
 }
 
 /**
+ * Social destination for a Topic work item (separate from assigned seeding links).
+ *
+ * @param {Record<string, unknown>|null|undefined} topic
+ * @returns {{ platform: string, url: string, urlShort: string }|null}
+ */
+export function deriveTopicSocialTarget(topic) {
+    const url = String(topic?.social_url || '').trim();
+    if (!url) return null;
+    const platform = String(
+        topic.social_platform_label
+        || detectPlatformLabel(url)
+        || topic.social_platform
+        || 'Social',
+    ).trim() || 'Social';
+    return {
+        platform,
+        url,
+        urlShort: shortenUrlDisplay(url),
+    };
+}
+
+/**
+ * @deprecated Prefer deriveTopicAssignedLinks for card-local work items.
+ * Kept for any residual callers; does not use DB report counts as progress SSOT.
+ */
+export function deriveActiveTopicLinkTargets(topic, linkPreviewCache = {}) {
+    return deriveTopicAssignedLinks(topic, {}, linkPreviewCache).map((row) => ({
+        key: row.key,
+        title: row.title,
+        url: row.url,
+        urlShort: row.urlShort,
+        completed: row.localDone,
+        target: row.targetPerDay,
+    }));
+}
+
+/**
  * @param {string} url
  * @param {number} [max]
  */
-export function shortenUrlForSidebar(url, max = 42) {
+export function shortenUrlDisplay(url, max = 42) {
     const raw = String(url || '').trim();
     if (!raw) return '';
     try {
@@ -308,6 +330,11 @@ export function shortenUrlForSidebar(url, max = 42) {
         if (raw.length <= max) return raw;
         return `${raw.slice(0, Math.max(8, max - 1))}…`;
     }
+}
+
+/** @deprecated Use shortenUrlDisplay */
+export function shortenUrlForSidebar(url, max = 42) {
+    return shortenUrlDisplay(url, max);
 }
 
 export function commentsCount(topic) {

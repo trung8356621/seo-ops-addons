@@ -135,27 +135,19 @@ final class TopicalMapV1ClosureContractTest extends TestCase
 
     public function test_full_viewport_removes_sidebar_and_fixed_height(): void
     {
-        $blade = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
-        $bladeSrc = (string) file_get_contents($blade);
-        self::assertStringNotContainsString('topical-map-side', $bladeSrc);
-        self::assertStringNotContainsString('topical-map-side__', $bladeSrc);
-        self::assertStringContainsString('topical-map-audit-overlay', $bladeSrc);
-        self::assertStringContainsString('topical-map-tag-filters', $bladeSrc);
-        self::assertStringContainsString('focusTopicFromRef', $bladeSrc);
-        self::assertStringContainsString('beginConfirmAiAudit', $bladeSrc);
+        $reactCss = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/styles/topical-map-app.css');
+        self::assertStringNotContainsString('height: 560px', $reactCss);
+        self::assertStringNotContainsString('min-height: 560px', $reactCss);
+        self::assertStringContainsString('100dvh', $reactCss);
+        self::assertStringNotContainsString('tm-sidebar', $reactCss);
 
-        $css = (string) file_get_contents(dirname(__DIR__, 3).'/resources/css/topical-map.css');
-        self::assertStringNotContainsString('height: 560px', $css);
-        self::assertStringNotContainsString('min-height: 560px', $css);
-        self::assertStringContainsString('100dvh', $css);
-        self::assertStringContainsString('.topical-map-page', $css);
+        $canvas = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/components/ChartCanvas.jsx');
+        self::assertStringContainsString('ResizeObserver', $canvas);
+        self::assertStringContainsString('passive: false', $canvas);
+        self::assertStringContainsString("window.open(url, '_blank', 'noopener,noreferrer')", $canvas);
 
         $js = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map-chart.js');
-        self::assertStringNotContainsString('data-topical-map-side', $js);
-        self::assertStringContainsString('ResizeObserver', $js);
-        self::assertStringContainsString('openTopicDetail', $js);
-        self::assertStringContainsString('onChartWheel', $js);
-        self::assertStringContainsString('passive: false', $js);
+        self::assertStringContainsString('retired', strtolower($js));
     }
 
     public function test_tag_filter_or_semantics_in_read_model(): void
@@ -168,14 +160,15 @@ final class TopicalMapV1ClosureContractTest extends TestCase
         self::assertStringContainsString('untaggedCount', $src);
         self::assertStringContainsString("'tags' => \$topicTags", $src);
 
+        $filters = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/state/filters.js');
+        self::assertStringContainsString('showUntagged', $filters);
+        self::assertStringContainsString('selectedTagIds', $filters);
+        self::assertStringContainsString('selected.includes', $filters);
+
         $page = (string) file_get_contents(
             (string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName()
         );
-        self::assertStringContainsString('tagFilterAll', $page);
-        self::assertStringContainsString('tagFilterUntagged', $page);
-        self::assertStringContainsString('selectedTagIds', $page);
-        self::assertStringContainsString('topic_filtered_out', $page);
-        self::assertStringContainsString('applyTagFilter', $page);
+        self::assertStringContainsString('TopicalMapAppPage::appUrl', $page);
     }
 
     public function test_audit_service_applies_tags_after_parse_only(): void

@@ -43,7 +43,11 @@ final class SeedingShareTopicController extends Controller
             'social_targets.*.target_comments' => ['required_with:social_targets', 'integer', 'min:1', 'max:10000'],
             'source_type' => ['nullable', 'string', 'max:32'],
             'links' => ['nullable', 'array', 'max:50'],
+            'links.*.id' => ['nullable', 'string', 'max:128'],
             'links.*.url' => ['nullable', 'string', 'max:2000'],
+            'links.*.title' => ['nullable', 'string', 'max:255'],
+            'links.*.label' => ['nullable', 'string', 'max:255'],
+            'links.*.target_per_day' => ['nullable', 'integer', 'min:0', 'max:10000'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
             'client_request_id' => ['nullable', 'string', 'max:128'],
         ]);

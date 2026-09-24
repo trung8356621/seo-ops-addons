@@ -2,6 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { Copy, ExternalLink, Loader2, Minus, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import { linkPoolCapacity } from '../services/linkPool';
+import {
+    todayProgressMap,
+    topicAssignedLinksAsSelectable,
+} from '../services/dailyLinkProgress';
 import { DEFAULT_SEED_QUANTITY } from '../services/seedGenerate';
 import { buildCopyPayload, writeClipboard } from '../services/copyComment';
 import { normalizeLink, normalizeUrlKey } from '../services/storage';
@@ -9,13 +13,15 @@ import { notifySuccess, notifyWarning } from '../services/toast';
 
 /**
  * Gen comment panel for shared topics (not draft share).
+ * Append-link uses Topic-assigned links + Seeder local daily progress.
  *
  * @param {{
  *   open: boolean,
  *   inline?: boolean,
  *   topic: Record<string, unknown>|null,
- *   seedLinks: Array<Record<string, unknown>>,
+ *   seedLinks?: Array<Record<string, unknown>>,
  *   linkUsageToday?: Record<string, number>,
+ *   dailyLinkProgress?: Record<string, Record<string, number>>,
  *   topicOutputs: Array<Record<string, unknown>>,
  *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   canSeed: boolean,
@@ -33,8 +39,7 @@ export default function ShareGeneratePanel({
     open,
     inline = false,
     topic,
-    seedLinks,
-    linkUsageToday = {},
+    dailyLinkProgress = {},
     topicOutputs,
     linkPreviewCache = {},
     canSeed,
@@ -52,15 +57,25 @@ export default function ShareGeneratePanel({
     const [regenId, setRegenId] = useState(null);
     const [appendLink, setAppendLink] = useState(true);
 
+    const assignedLinks = useMemo(
+        () => topicAssignedLinksAsSelectable(topic?.links || []),
+        [topic],
+    );
+
+    const usageToday = useMemo(
+        () => todayProgressMap(dailyLinkProgress),
+        [dailyLinkProgress],
+    );
+
     const capacity = useMemo(
-        () => linkPoolCapacity(seedLinks, linkUsageToday),
-        [seedLinks, linkUsageToday],
+        () => linkPoolCapacity(assignedLinks, usageToday),
+        [assignedLinks, usageToday],
     );
 
     if (!open || !topic) return null;
 
-    const emptyPool = (seedLinks || []).filter((l) => l.is_active !== false).length === 0;
-    const allAtLimit = !emptyPool && capacity.available === 0 && capacity.active > 0;
+    const emptyAssigned = assignedLinks.length === 0;
+    const allAtLimit = !emptyAssigned && capacity.available === 0 && capacity.active > 0;
     const progress = Number(topic.current_user_report_count || 0);
     const required = Number(topic.required_report_count || topic.required_comments_per_user || 0);
 
@@ -74,8 +89,8 @@ export default function ShareGeneratePanel({
             appendLink: appendLink || Boolean(out.append_link),
             selectedSeedLinkId: out.selected_seed_link_id || out.seed_link_id,
             selectedSeedUrl: out.selected_seed_url || out.url,
-            seedLinks,
-            linkUsageToday,
+            seedLinks: assignedLinks,
+            linkUsageToday: usageToday,
         });
 
         await writeClipboard(payload.text);
@@ -93,9 +108,7 @@ export default function ShareGeneratePanel({
         onUpdateOutput(next);
 
         if (payload.softLimitReached) {
-            notifyWarning('Các link hôm nay đã đủ ngưỡng');
-        } else if (payload.appended) {
-            notifySuccess('Đã copy comment');
+            notifyWarning('Các link assigned hôm nay đã đủ ngưỡng');
         } else {
             notifySuccess('Đã copy comment');
         }
@@ -163,20 +176,20 @@ export default function ShareGeneratePanel({
 
             <dl className="seeding-ws__stat-rows seeding-ws__stat-rows--compact">
                 <div className="seeding-ws__stat-row">
-                    <dt>Link khả dụng hôm nay</dt>
+                    <dt>Link assigned khả dụng</dt>
                     <dd>{capacity.available}</dd>
                 </div>
                 <div className="seeding-ws__stat-row">
-                    <dt>Còn ngưỡng gợi ý</dt>
+                    <dt>Còn ngưỡng hôm nay</dt>
                     <dd>{capacity.remainingHint}</dd>
                 </div>
             </dl>
 
-            {emptyPool ? (
-                <div className="seeding-ws__hint">Bạn chưa có link trong Link Pool.</div>
+            {emptyAssigned ? (
+                <div className="seeding-ws__hint">Topic này chưa được giao link seeding.</div>
             ) : null}
             {allAtLimit ? (
-                <div className="seeding-ws__hint">Các link của bạn đều đã đạt ngưỡng hôm nay.</div>
+                <div className="seeding-ws__hint">Các link assigned hôm nay đã đạt ngưỡng.</div>
             ) : null}
 
             <button
