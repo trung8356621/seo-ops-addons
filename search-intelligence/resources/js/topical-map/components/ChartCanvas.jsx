@@ -68,6 +68,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         onFocusTopic,
         onLoadChildren,
         onNetworkFocus,
+        topicCount: Array.isArray(overview?.topics) ? overview.topics.length : 0,
     };
 
     const emitZoom = useCallback((zoom) => {
@@ -118,16 +119,22 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             emitZoom(1);
             return;
         }
+        // Fit: scale so inflated tree extent mostly enters viewport (may crowd labels).
+        // Default layout uses zoom=1 with taller series for readable spacing + pan.
+        const topicCount = Math.max(1, Number(propsRef.current.topicCount) || 1);
+        const fitZoom = Math.max(ZOOM_MIN, Math.min(1, 12 / topicCount));
         if (mode === 'tree') {
             chart.setOption({
-                series: [{ id: 'topical-map-tree', zoom: 1, center: undefined }],
+                series: [{ id: 'topical-map-tree', zoom: fitZoom, center: undefined }],
             });
         } else if (mode === 'network') {
             chart.setOption({
                 series: [{ id: 'topical-map-network', zoom: 1, center: undefined }],
             });
+            emitZoom(1);
+            return;
         }
-        emitZoom(1);
+        emitZoom(fitZoom);
     }, [emitZoom]);
 
     useImperativeHandle(ref, () => ({

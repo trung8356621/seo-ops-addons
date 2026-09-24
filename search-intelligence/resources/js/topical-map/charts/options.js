@@ -4,6 +4,9 @@ import {
     tintHex,
     topicTreeLabel,
     clampMcp,
+    sortKeywordsByWordCount,
+    treeSeriesBottomExtent,
+    KEYWORD_SYMBOL_SIZE,
 } from './theme';
 
 function escapeHtml(value) {
@@ -70,13 +73,14 @@ export function buildTreeOption(data, childrenCache) {
         };
         if (cached?.children?.length) {
             const leafColor = tintHex(color, 0.5);
-            node.children = cached.children.map((child) => ({
+            const sorted = sortKeywordsByWordCount(cached.children);
+            node.children = sorted.map((child) => ({
                 name: child.name,
                 keywordId: Number(child.id),
                 nodeType: 'keyword',
                 value: 1,
                 article_count: child.article_count ?? 0,
-                symbolSize: 8,
+                symbolSize: KEYWORD_SYMBOL_SIZE,
                 itemStyle: {
                     color: leafColor,
                     borderColor: color,
@@ -93,6 +97,9 @@ export function buildTreeOption(data, childrenCache) {
         }
         return node;
     });
+
+    // Taller virtual layout → more vertical sibling gap; pan/zoom (not fit-all) by default.
+    const seriesBottom = treeSeriesBottomExtent(topics.length);
 
     return {
         backgroundColor: 'transparent',
@@ -137,10 +144,10 @@ export function buildTreeOption(data, childrenCache) {
                         children,
                     },
                 ],
-                top: '3%',
-                left: '10%',
-                bottom: '3%',
-                right: '20%',
+                top: '4%',
+                left: '12%',
+                bottom: seriesBottom,
+                right: '22%',
                 symbol: 'circle',
                 orient: 'LR',
                 expandAndCollapse: true,
@@ -151,15 +158,15 @@ export function buildTreeOption(data, childrenCache) {
                     verticalAlign: 'middle',
                     align: 'right',
                     fontSize: 11,
-                    lineHeight: 15,
-                    distance: 8,
+                    lineHeight: 16,
+                    distance: 10,
                 },
                 leaves: {
                     label: {
                         position: 'right',
                         verticalAlign: 'middle',
                         align: 'left',
-                        distance: 8,
+                        distance: 10,
                     },
                 },
                 emphasis: { focus: 'descendant' },

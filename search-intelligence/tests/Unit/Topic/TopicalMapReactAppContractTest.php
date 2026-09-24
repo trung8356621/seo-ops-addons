@@ -116,9 +116,14 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('mcpToSymbolSize', $options);
         self::assertStringContainsString('topicColorById', $options);
         self::assertStringContainsString('topicTreeLabel', $options);
+        self::assertStringContainsString('sortKeywordsByWordCount', $options);
+        self::assertStringContainsString('treeSeriesBottomExtent', $options);
         self::assertStringNotContainsString('Art ', $options);
         self::assertStringContainsString('MCP_SYMBOL_MIN', $theme);
         self::assertStringContainsString('TOPIC_PALETTE', $theme);
+        self::assertStringContainsString('Math.sqrt', $theme);
+        self::assertStringContainsString('sortKeywordsByWordCount', $theme);
+        self::assertStringContainsString('phraseWordCount', $theme);
     }
 
     public function test_api_controllers_delegate_to_read_model_and_enforce_access(): void
