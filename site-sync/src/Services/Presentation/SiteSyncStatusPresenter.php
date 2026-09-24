@@ -292,13 +292,18 @@ final class SiteSyncStatusPresenter
             $contentFetched = $fullFetched;
         }
         $catchUpFetched = (int) ($counters['catch_up_fetched'] ?? 0);
+        $languageScope = trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] ?? ''));
+        $languageRole = strtolower(trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_ROLE] ?? '')));
+        if ($languageRole === '') {
+            $languageRole = SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY;
+        }
         $expectedTotal = $this->resolveContentExpectedTotal($meta);
         $finalExpected = (int) ($meta['final_expected_content_total'] ?? 0);
         if ($finalExpected <= 0) {
             $finalExpected = (int) ($meta['final_expected_total'] ?? 0);
             // Prefer content split if final_expected_total was still discover.total+terms.
             $finalDiscover = is_array($meta['discover'] ?? null) ? $meta['discover'] : [];
-            $finalContent = $this->contentTotalFromDiscoverPayload($finalDiscover);
+            $finalContent = $this->contentTotalFromDiscoverPayload($finalDiscover, $languageScope);
             if ($finalContent > 0 && $finalExpected > $finalContent) {
                 $finalExpected = $finalContent;
             }
@@ -306,11 +311,6 @@ final class SiteSyncStatusPresenter
         $jobNumber = (int) ($meta['job_number'] ?? 0);
         $retryCount = (int) ($meta['retry_count'] ?? 0);
 
-        $languageScope = trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] ?? ''));
-        $languageRole = strtolower(trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_ROLE] ?? '')));
-        if ($languageRole === '') {
-            $languageRole = SiteSyncV3Schema::LANGUAGE_ROLE_PRIMARY;
-        }
         $scopeLabel = $this->buildRunScopeLabel($site, $languageScope, $languageRole);
 
         $phaseLabel = SiteSyncStepCatalog::v3Label($currentStep);
@@ -475,6 +475,11 @@ final class SiteSyncStatusPresenter
     }
 
     /**
+     * User-facing content progress denom.
+     * Prefer orchestrator `initial_expected_content_total`; when missing (legacy /
+     * stale-worker runs), never inflate a language-scoped run with unscoped
+     * `resources.content.total` (e.g. 8077 = vi+en while scope is vi).
+     *
      * @param  array<string, mixed>  $meta
      */
     private function resolveContentExpectedTotal(array $meta): int
@@ -484,8 +489,9 @@ final class SiteSyncStatusPresenter
             return $explicit;
         }
 
+        $languageScope = trim((string) ($meta[SiteSyncV3Schema::META_LANGUAGE_SCOPE] ?? ''));
         $discover = is_array($meta['discover'] ?? null) ? $meta['discover'] : [];
-        $fromDiscover = $this->contentTotalFromDiscoverPayload($discover);
+        $fromDiscover = $this->contentTotalFromDiscoverPayload($discover, $languageScope);
         if ($fromDiscover > 0) {
             return $fromDiscover;
         }
@@ -505,9 +511,22 @@ final class SiteSyncStatusPresenter
     /**
      * @param  array<string, mixed>  $discover
      */
-    private function contentTotalFromDiscoverPayload(array $discover): int
+    private function contentTotalFromDiscoverPayload(array $discover, string $languageScope = ''): int
     {
         $fromResources = (int) ($discover['resources']['content']['total'] ?? 0);
+        $byLanguage = is_array($discover['by_language'] ?? null) ? $discover['by_language'] : [];
+        $scopedRef = $languageScope !== '' ? (int) ($byLanguage[$languageScope] ?? 0) : 0;
+
+        if ($languageScope !== '' && $scopedRef > 0) {
+            // Same gate as RunSiteSyncV3Orchestrator::contentExpectedFromDiscover —
+            // unscoped content.total on a scoped run must not win.
+            if ($fromResources > 0 && $fromResources <= (int) round($scopedRef * 1.2) + 25) {
+                return $fromResources;
+            }
+
+            return $scopedRef;
+        }
+
         if ($fromResources > 0) {
             return $fromResources;
         }

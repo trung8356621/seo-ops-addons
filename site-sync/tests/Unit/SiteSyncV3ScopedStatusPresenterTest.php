@@ -77,6 +77,7 @@ final class SiteSyncV3ScopedStatusPresenterTest extends TestCase
         self::assertStringContainsString('resolveContentExpectedTotal', $presenter);
         self::assertStringContainsString('contentTotalFromDiscoverPayload', $presenter);
         self::assertStringContainsString("resources']['content']['total']", $presenter);
+        self::assertStringContainsString('by_language', $presenter);
         self::assertStringContainsString('content_fetched', $presenter);
     }
 
@@ -171,6 +172,48 @@ final class SiteSyncV3ScopedStatusPresenterTest extends TestCase
                     'terms' => ['total' => 4427],
                 ],
             ],
+        ]);
+        self::assertSame(3820, $resolved);
+    }
+
+    public function test_presenter_scoped_run_prefers_by_language_over_unscoped_content_total(): void
+    {
+        $contentMethod = new ReflectionMethod(SiteSyncStatusPresenter::class, 'contentTotalFromDiscoverPayload');
+        $resolveMethod = new ReflectionMethod(SiteSyncStatusPresenter::class, 'resolveContentExpectedTotal');
+        $contentMethod->setAccessible(true);
+        $resolveMethod->setAccessible(true);
+
+        $presenter = (new ReflectionClass(SiteSyncStatusPresenter::class))->newInstanceWithoutConstructor();
+        $discover = [
+            'language' => null,
+            'total' => 8247,
+            'resources' => [
+                'content' => ['total' => 8077],
+                'terms' => ['total' => 170],
+            ],
+            'by_language' => [
+                'vi' => 3820,
+                'en' => 4257,
+            ],
+        ];
+
+        self::assertSame(
+            3820,
+            $contentMethod->invoke($presenter, $discover, 'vi'),
+            'Scoped discover fallback must use by_language[vi], not unscoped 8077',
+        );
+        self::assertSame(
+            8077,
+            $contentMethod->invoke($presenter, $discover, ''),
+            'Unscoped runs keep resources.content.total',
+        );
+
+        $resolved = $resolveMethod->invoke($presenter, [
+            'language_scope' => 'vi',
+            'language_role' => 'primary',
+            'initial_expected_total' => 8247,
+            // Legacy / stale-worker: no initial_expected_content_total.
+            'discover' => $discover,
         ]);
         self::assertSame(3820, $resolved);
     }
