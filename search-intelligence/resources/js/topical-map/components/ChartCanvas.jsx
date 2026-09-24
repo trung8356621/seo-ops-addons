@@ -48,7 +48,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     focusedTopicId,
     onFocusTopic,
     onLoadChildren,
-    onNetworkFocus,
+    onNetworkTopicClick,
+    onNetworkSiteClick,
+    networkFocused = false,
+    networkPendingTopicId = null,
     onZoomChange,
     meta,
 }, ref) {
@@ -60,6 +63,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     const zoomRef = useRef(1);
     const onZoomChangeRef = useRef(onZoomChange);
     onZoomChangeRef.current = onZoomChange;
+    const lastRendererRef = useRef(null);
 
     const propsRef = useRef({});
     propsRef.current = {
@@ -67,7 +71,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         topicDetailUrlTemplate,
         onFocusTopic,
         onLoadChildren,
-        onNetworkFocus,
+        onNetworkTopicClick,
+        onNetworkSiteClick,
+        networkFocused,
+        networkPendingTopicId,
         topicCount: Array.isArray(overview?.topics) ? overview.topics.length : 0,
     };
 
@@ -119,8 +126,6 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             emitZoom(1);
             return;
         }
-        // Fit: scale so inflated tree extent mostly enters viewport (may crowd labels).
-        // Default layout uses zoom=1 with taller series for readable spacing + pan.
         const topicCount = Math.max(1, Number(propsRef.current.topicCount) || 1);
         const fitZoom = Math.max(ZOOM_MIN, Math.min(1, 12 / topicCount));
         if (mode === 'tree') {
@@ -170,6 +175,13 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         const onClick = async (params) => {
             const data = params?.data || {};
+            const latest = propsRef.current;
+
+            if (latest.renderer === 'network' && data.nodeType === 'site') {
+                latest.onNetworkSiteClick?.();
+                return;
+            }
+
             if (data.nodeType !== 'topic' || !data.topicId) {
                 return;
             }
@@ -181,14 +193,13 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                 return;
             }
 
-            const latest = propsRef.current;
             latest.onFocusTopic?.(topicId);
 
             if (latest.renderer === 'tree' || latest.renderer === 'sunburst') {
                 await latest.onLoadChildren?.(topicId);
             }
             if (latest.renderer === 'network') {
-                await latest.onNetworkFocus?.(topicId);
+                latest.onNetworkTopicClick?.(topicId);
             }
         };
 
@@ -236,14 +247,29 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
 
-        zoomRef.current = 1;
-        onZoomChangeRef.current?.(1);
+        const rendererChanged = lastRendererRef.current !== renderer;
+        lastRendererRef.current = renderer;
 
         if (renderer === 'network') {
-            chart.clear();
-            chart.setOption(buildNetworkOption(neighborhood || { nodes: [], links: [] }), true);
+            const option = buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
+                focused: networkFocused,
+                pendingTopicId: networkPendingTopicId,
+                siteNavigable: networkFocused || networkPendingTopicId != null,
+            });
+            if (rendererChanged) {
+                zoomRef.current = 1;
+                onZoomChangeRef.current?.(1);
+                chart.clear();
+                chart.setOption(option, true);
+            } else {
+                // Soft update — keep instance, enable update animation / node id continuity.
+                chart.setOption(option, { notMerge: true, lazyUpdate: false });
+            }
             return;
         }
+
+        zoomRef.current = 1;
+        onZoomChangeRef.current?.(1);
 
         if (renderer === 'sunburst') {
             chart.clear();
@@ -253,11 +279,19 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         chart.clear();
         chart.setOption(buildTreeOption(overview, childrenCacheRef.current), true);
-    }, [overview, renderer, neighborhood, childrenCache, childrenCacheVersion]);
+    }, [
+        overview,
+        renderer,
+        neighborhood,
+        childrenCache,
+        childrenCacheVersion,
+        networkFocused,
+        networkPendingTopicId,
+    ]);
 
     useEffect(() => {
         const chart = chartRef.current;
-        if (!chart || !focusedTopicId || !overview?.topics) {
+        if (!chart || !focusedTopicId || !overview?.topics || renderer === 'network') {
             return;
         }
         const topic = overview.topics.find((row) => Number(row.id) === Number(focusedTopicId));
@@ -269,7 +303,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         } catch {
             // ignore
         }
-    }, [focusedTopicId, overview]);
+    }, [focusedTopicId, overview, renderer]);
 
     return (
         <div className="tm-chart-shell">

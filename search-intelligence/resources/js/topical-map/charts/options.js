@@ -33,6 +33,47 @@ export function topicLabel(topic) {
     return topicTreeLabel(topic);
 }
 
+/**
+ * Network overview graph from already-filtered Topic rows (no API).
+ * Site → Topic nodes only.
+ */
+export function buildOverviewNeighborhood(siteId, topics) {
+    const sid = Number(siteId) || 0;
+    const list = Array.isArray(topics) ? topics : [];
+    const nodes = [
+        {
+            id: `site:${sid}`,
+            name: 'Site',
+            category: 'site',
+            value: 1,
+        },
+    ];
+    const links = [];
+    for (const topic of list) {
+        const tid = Number(topic.id);
+        if (!Number.isFinite(tid) || tid <= 0) {
+            continue;
+        }
+        nodes.push({
+            id: `topic:${tid}`,
+            name: String(topic.name || ''),
+            category: 'topic',
+            value: Math.max(1, Number(topic.mcp) || 1),
+            mcp: topic.mcp,
+            dna_count: topic.dna_count,
+            article_count: topic.article_count,
+        });
+        links.push({ source: `site:${sid}`, target: `topic:${tid}` });
+    }
+    return {
+        nodes,
+        links,
+        truncated: false,
+        showing_topics: list.length,
+        total_topics: list.length,
+    };
+}
+
 export function buildTreeOption(data, childrenCache) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
     const siteId = Number(data?.site_id ?? 0);
@@ -98,7 +139,6 @@ export function buildTreeOption(data, childrenCache) {
         return node;
     });
 
-    // Taller virtual layout → more vertical sibling gap; pan/zoom (not fit-all) by default.
     const seriesBottom = treeSeriesBottomExtent(topics.length);
 
     return {
@@ -245,7 +285,15 @@ export function buildSunburstOption(data, childrenCache) {
     };
 }
 
-export function buildNetworkOption(neighborhood) {
+/**
+ * @param {object} neighborhood
+ * @param {{
+ *   focused?: boolean,
+ *   pendingTopicId?: number|null,
+ *   siteNavigable?: boolean,
+ * }} [ui]
+ */
+export function buildNetworkOption(neighborhood, ui = {}) {
     const nodes = Array.isArray(neighborhood?.nodes) ? neighborhood.nodes : [];
     const links = Array.isArray(neighborhood?.links) ? neighborhood.links : [];
     const categories = [
@@ -254,9 +302,18 @@ export function buildNetworkOption(neighborhood) {
         { name: 'keyword' },
     ];
     const categoryIndex = { site: 0, topic: 1, keyword: 2 };
+    const pendingId = ui.pendingTopicId != null && Number(ui.pendingTopicId) > 0
+        ? Number(ui.pendingTopicId)
+        : null;
+    const focused = Boolean(ui.focused);
+    const siteNavigable = Boolean(ui.siteNavigable);
 
     return {
         backgroundColor: 'transparent',
+        animation: true,
+        animationDuration: 350,
+        animationDurationUpdate: 420,
+        animationEasingUpdate: 'cubicOut',
         legend: [{ data: categories.map((c) => c.name) }],
         tooltip: {
             confine: true,
@@ -265,8 +322,18 @@ export function buildNetworkOption(neighborhood) {
                     return 'Topic membership';
                 }
                 const d = params.data || {};
-                return `<strong>${escapeHtml(d.name || '')}</strong><br/>${escapeHtml(d.category || '')}`
-                    + (d.nodeType === 'topic' ? '<br/><em>Double-click to open Topic</em>' : '');
+                if (d.nodeType === 'site') {
+                    if (siteNavigable) {
+                        return `<strong>${escapeHtml(d.name || 'Site')}</strong><br/><em>Back to all Topics</em>`;
+                    }
+                    return `<strong>${escapeHtml(d.name || 'Site')}</strong>`;
+                }
+                if (d.nodeType === 'topic') {
+                    const mcpLine = d.mcp != null ? `<br/>MCP: ${clampMcp(d.mcp).toFixed(1)}%` : '';
+                    return `<strong>${escapeHtml(d.name || '')}</strong>${mcpLine}`
+                        + '<br/><em>Double-click to open Topic</em>';
+                }
+                return `<strong>${escapeHtml(d.name || '')}</strong><br/>${escapeHtml(d.category || '')}`;
             },
         },
         series: [
@@ -278,6 +345,9 @@ export function buildNetworkOption(neighborhood) {
                 scaleLimit: { min: 0.35, max: 4 },
                 draggable: false,
                 categories,
+                animation: true,
+                animationDurationUpdate: 420,
+                animationEasingUpdate: 'cubicOut',
                 data: nodes.map((n) => {
                     const topicId = n.category === 'topic'
                         ? Number(String(n.id).replace(/^topic:/, ''))
@@ -285,23 +355,66 @@ export function buildNetworkOption(neighborhood) {
                     const color = n.category === 'topic' && topicId
                         ? topicColorById(topicId)
                         : (n.category === 'site' ? '#94a3b8' : '#cbd5e1');
+
+                    let opacity = 1;
+                    let borderColor = undefined;
+                    let borderWidth = 0;
+                    let shadowBlur = 0;
+                    let symbolSize = n.category === 'site' ? 28 : (n.category === 'topic' ? 18 : 10);
+
+                    if (pendingId && n.category === 'topic') {
+                        if (Number(topicId) === pendingId) {
+                            opacity = 1;
+                            borderColor = '#0f172a';
+                            borderWidth = 3;
+                            shadowBlur = 12;
+                            symbolSize = 22;
+                        } else {
+                            opacity = 0.28;
+                        }
+                    } else if (pendingId && n.category !== 'site') {
+                        opacity = 0.28;
+                    }
+
+                    if (n.category === 'site' && siteNavigable) {
+                        borderColor = '#0f172a';
+                        borderWidth = 2;
+                        symbolSize = 32;
+                    }
+
                     return {
                         id: n.id,
                         name: n.name,
                         category: categoryIndex[n.category] ?? 1,
                         value: n.value ?? 1,
-                        symbolSize: n.category === 'site' ? 28 : (n.category === 'topic' ? 18 : 10),
+                        symbolSize,
                         nodeType: n.category,
                         topicId,
                         keywordId: n.category === 'keyword'
                             ? Number(String(n.id).replace(/^keyword:/, ''))
                             : undefined,
-                        itemStyle: { color },
+                        mcp: n.mcp,
+                        dna_count: n.dna_count,
+                        article_count: n.article_count,
+                        cursor: (n.category === 'site' && siteNavigable) || n.category === 'topic'
+                            ? 'pointer'
+                            : 'default',
+                        itemStyle: {
+                            color,
+                            opacity,
+                            borderColor,
+                            borderWidth,
+                            shadowBlur,
+                            shadowColor: 'rgba(15, 23, 42, 0.35)',
+                        },
                     };
                 }),
                 links: links.map((l) => ({
                     source: l.source,
                     target: l.target,
+                    lineStyle: pendingId
+                        ? { opacity: 0.2 }
+                        : undefined,
                 })),
                 label: {
                     show: true,
@@ -310,8 +423,8 @@ export function buildNetworkOption(neighborhood) {
                     fontSize: 10,
                 },
                 force: {
-                    repulsion: 120,
-                    edgeLength: [40, 120],
+                    repulsion: focused ? 160 : 120,
+                    edgeLength: focused ? [50, 140] : [40, 120],
                     gravity: 0.08,
                 },
                 lineStyle: { color: 'source', curveness: 0.05, opacity: 0.55 },

@@ -6,10 +6,13 @@ import {
     readFilterQuery,
     writeFilterQuery,
 } from './state/filters';
+import { buildOverviewNeighborhood } from './charts/options';
 import AppChrome from './components/AppChrome';
 import ChartCanvas from './components/ChartCanvas';
 import AuditConfirmModal from './components/AuditConfirmModal';
 import AuditOverlay from './components/AuditOverlay';
+
+const NETWORK_SPINNER_DELAY_MS = 150;
 
 export default function App({ config }) {
     const labels = config.labels || {};
@@ -21,7 +24,6 @@ export default function App({ config }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [meta, setMeta] = useState('');
-    const [neighborhood, setNeighborhood] = useState(null);
     const [childrenCacheVersion, setChildrenCacheVersion] = useState(0);
     const childrenCacheRef = useRef(new Map());
 
@@ -34,6 +36,16 @@ export default function App({ config }) {
     const [focusedTopicId, setFocusedTopicId] = useState(null);
     const [zoomPercent, setZoomPercent] = useState(100);
 
+    // Network drill-down
+    const [networkFocusedTopicId, setNetworkFocusedTopicId] = useState(null);
+    const [networkPendingTopicId, setNetworkPendingTopicId] = useState(null);
+    const [networkSpinner, setNetworkSpinner] = useState(false);
+    const [networkError, setNetworkError] = useState('');
+    const [neighborhood, setNeighborhood] = useState(null);
+    const networkCacheRef = useRef(new Map());
+    const networkReqRef = useRef(0);
+    const spinnerTimerRef = useRef(null);
+
     const [auditStatus, setAuditStatus] = useState(null);
     const [confirmAi, setConfirmAi] = useState(false);
     const [auditRunning, setAuditRunning] = useState(false);
@@ -42,6 +54,13 @@ export default function App({ config }) {
     const [showAuditOverlay, setShowAuditOverlay] = useState(false);
 
     const siteId = Number(config.siteId || 0);
+
+    const clearSpinnerTimer = useCallback(() => {
+        if (spinnerTimerRef.current) {
+            clearTimeout(spinnerTimerRef.current);
+            spinnerTimerRef.current = null;
+        }
+    }, []);
 
     const reloadOverview = useCallback(async () => {
         if (siteId <= 0) {
@@ -57,6 +76,7 @@ export default function App({ config }) {
             ]);
             setOverviewRaw(overviewRes.overview || null);
             childrenCacheRef.current = new Map();
+            networkCacheRef.current = new Map();
             setChildrenCacheVersion((v) => v + 1);
             if (statusRes?.status) {
                 setAuditStatus(statusRes.status);
@@ -104,27 +124,134 @@ export default function App({ config }) {
         };
     }, [overviewRaw, filteredTopics]);
 
-    const loadNetwork = useCallback(async (topicId = null) => {
-        try {
-            const res = await api.fetchNetwork(topicId);
-            setNeighborhood(res.neighborhood || null);
-            const n = res.neighborhood;
-            if (n?.truncated) {
-                setMeta(`Showing ${n.showing_topics} of ${n.total_topics} Topics (membership neighborhood)`);
-            } else {
-                setMeta(n ? 'Network semantics: Topic membership' : '');
-            }
-        } catch (err) {
-            setMeta(err.message || 'Network load failed');
-            setNeighborhood({ nodes: [], links: [], truncated: false });
-        }
-    }, [api]);
+    const overviewNeighborhood = useMemo(
+        () => buildOverviewNeighborhood(siteId, filteredTopics),
+        [siteId, filteredTopics],
+    );
 
+    const returnToNetworkOverview = useCallback((nextMeta = '') => {
+        clearSpinnerTimer();
+        networkReqRef.current += 1;
+        setNetworkPendingTopicId(null);
+        setNetworkSpinner(false);
+        setNetworkFocusedTopicId(null);
+        setNetworkError('');
+        setNeighborhood(overviewNeighborhood);
+        setMeta(nextMeta || (filteredTopics.length
+            ? `Network overview · ${filteredTopics.length} Topics`
+            : ''));
+    }, [clearSpinnerTimer, overviewNeighborhood, filteredTopics.length]);
+
+    // Sync Network graph when entering Network or filters change.
     useEffect(() => {
-        if (renderer === 'network' && filteredOverview) {
-            loadNetwork(null);
+        if (renderer !== 'network' || !filteredOverview) {
+            return;
         }
-    }, [renderer, filteredOverview, loadNetwork]);
+
+        if (networkFocusedTopicId != null) {
+            const stillVisible = filteredTopics.some(
+                (t) => Number(t.id) === Number(networkFocusedTopicId),
+            );
+            if (!stillVisible) {
+                returnToNetworkOverview('Focused Topic left current filters — back to overview');
+                return;
+            }
+            // Stay on focused neighborhood while filters still include it.
+            return;
+        }
+
+        setNeighborhood(overviewNeighborhood);
+        setMeta(filteredTopics.length
+            ? `Network overview · ${filteredTopics.length} Topics`
+            : '');
+    }, [
+        renderer,
+        filteredOverview,
+        filteredTopics,
+        overviewNeighborhood,
+        networkFocusedTopicId,
+        returnToNetworkOverview,
+    ]);
+
+    useEffect(() => () => clearSpinnerTimer(), [clearSpinnerTimer]);
+
+    const focusNetworkTopic = useCallback(async (topicId) => {
+        const id = Number(topicId);
+        if (!Number.isFinite(id) || id <= 0) {
+            return;
+        }
+        if (networkPendingTopicId === id) {
+            return;
+        }
+        if (networkFocusedTopicId === id && !networkPendingTopicId) {
+            return;
+        }
+
+        const reqId = ++networkReqRef.current;
+        setNetworkError('');
+        setNetworkPendingTopicId(id);
+        setNetworkSpinner(false);
+        clearSpinnerTimer();
+        spinnerTimerRef.current = setTimeout(() => {
+            if (networkReqRef.current === reqId) {
+                setNetworkSpinner(true);
+            }
+        }, NETWORK_SPINNER_DELAY_MS);
+
+        const applyFocus = (n) => {
+            if (networkReqRef.current !== reqId) {
+                return;
+            }
+            clearSpinnerTimer();
+            setNeighborhood(n);
+            setNetworkFocusedTopicId(id);
+            setNetworkPendingTopicId(null);
+            setNetworkSpinner(false);
+            if (n?.truncated) {
+                setMeta(`Focused Topic · showing ${n.showing_topics} of ${n.total_topics}`);
+            } else {
+                setMeta('Focused Topic · membership neighborhood');
+            }
+        };
+
+        if (networkCacheRef.current.has(id)) {
+            applyFocus(networkCacheRef.current.get(id));
+            return;
+        }
+
+        try {
+            const res = await api.fetchNetwork(id);
+            if (networkReqRef.current !== reqId) {
+                return;
+            }
+            const n = res.neighborhood || { nodes: [], links: [], truncated: false };
+            networkCacheRef.current.set(id, n);
+            applyFocus(n);
+        } catch (err) {
+            if (networkReqRef.current !== reqId) {
+                return;
+            }
+            clearSpinnerTimer();
+            setNetworkPendingTopicId(null);
+            setNetworkSpinner(false);
+            setNetworkError(err.message || 'Failed to load Topic neighborhood');
+            // Keep current graph (overview or prior focus) intact.
+            setMeta(err.message || 'Network load failed');
+        }
+    }, [
+        api,
+        networkPendingTopicId,
+        networkFocusedTopicId,
+        clearSpinnerTimer,
+    ]);
+
+    const onNetworkSiteClick = useCallback(() => {
+        if (networkFocusedTopicId == null && networkPendingTopicId == null) {
+            chartRef.current?.resetZoom?.();
+            return;
+        }
+        returnToNetworkOverview();
+    }, [networkFocusedTopicId, networkPendingTopicId, returnToNetworkOverview]);
 
     const onLoadChildren = useCallback(async (topicId) => {
         if (childrenCacheRef.current.has(topicId)) {
@@ -232,11 +359,25 @@ export default function App({ config }) {
     const focusFromAudit = (topicId) => {
         setShowAuditOverlay(false);
         setFocusedTopicId(topicId);
+        if (renderer === 'network') {
+            focusNetworkTopic(topicId);
+        }
     };
 
     const onZoomChange = useCallback((zoom) => {
         setZoomPercent(Math.round(zoom * 100));
     }, []);
+
+    const onRendererChange = (mode) => {
+        setRenderer(mode);
+        if (mode !== 'network') {
+            clearSpinnerTimer();
+            setNetworkPendingTopicId(null);
+            setNetworkSpinner(false);
+            setNetworkFocusedTopicId(null);
+            setNetworkError('');
+        }
+    };
 
     if (siteId <= 0) {
         return (
@@ -250,6 +391,7 @@ export default function App({ config }) {
         && Number(overviewRaw?.summary?.topic_count || 0) === 0;
 
     const zoomDisabled = loading || empty || renderer === 'sunburst';
+    const networkFocused = networkFocusedTopicId != null;
 
     return (
         <div className="tm-app">
@@ -276,7 +418,7 @@ export default function App({ config }) {
                 onToggleUntagged={toggleUntagged}
                 onToggleTag={toggleTag}
                 onMcpChange={onMcpChange}
-                onRendererChange={setRenderer}
+                onRendererChange={onRendererChange}
                 zoomPercent={zoomPercent}
                 zoomDisabled={zoomDisabled}
                 onZoomIn={() => chartRef.current?.zoomIn?.()}
@@ -302,10 +444,32 @@ export default function App({ config }) {
                         focusedTopicId={focusedTopicId}
                         onFocusTopic={setFocusedTopicId}
                         onLoadChildren={onLoadChildren}
-                        onNetworkFocus={loadNetwork}
+                        onNetworkTopicClick={focusNetworkTopic}
+                        onNetworkSiteClick={onNetworkSiteClick}
+                        networkFocused={networkFocused}
+                        networkPendingTopicId={networkPendingTopicId}
                         onZoomChange={onZoomChange}
                         meta={meta}
                     />
+                ) : null}
+
+                {networkSpinner ? (
+                    <div className="tm-network-loading" aria-live="polite">
+                        Loading Topic…
+                    </div>
+                ) : null}
+
+                {networkError ? (
+                    <div className="tm-network-error" role="status">
+                        {networkError}
+                        <button
+                            type="button"
+                            className="tm-btn tm-btn--ghost"
+                            onClick={() => setNetworkError('')}
+                        >
+                            Dismiss
+                        </button>
+                    </div>
                 ) : null}
 
                 {showAuditOverlay ? (

@@ -105,6 +105,10 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('mcpMax', $app);
         self::assertStringContainsString('showUntagged', $app);
         self::assertStringContainsString('AppChrome', $app);
+        self::assertStringContainsString('focusNetworkTopic', $app);
+        self::assertStringContainsString('returnToNetworkOverview', $app);
+        self::assertStringContainsString('networkCacheRef', $app);
+        self::assertStringContainsString('buildOverviewNeighborhood', $app);
         self::assertStringContainsString('ZoomControls', $chrome);
         self::assertStringContainsString('passive: false', $canvas);
         self::assertStringContainsString('ResizeObserver', $canvas);
@@ -114,11 +118,9 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('normalizeMcpRange', $filters);
         self::assertStringContainsString('selected.includes', $filters);
         self::assertStringContainsString('mcpToSymbolSize', $options);
-        self::assertStringContainsString('topicColorById', $options);
-        self::assertStringContainsString('topicTreeLabel', $options);
-        self::assertStringContainsString('sortKeywordsByWordCount', $options);
-        self::assertStringContainsString('treeSeriesBottomExtent', $options);
-        self::assertStringNotContainsString('Art ', $options);
+        self::assertStringContainsString('buildOverviewNeighborhood', $options);
+        self::assertStringContainsString('Back to all Topics', $options);
+        self::assertStringContainsString('siteNavigable', $options);
         self::assertStringContainsString('MCP_SYMBOL_MIN', $theme);
         self::assertStringContainsString('TOPIC_PALETTE', $theme);
         self::assertStringContainsString('Math.sqrt', $theme);
