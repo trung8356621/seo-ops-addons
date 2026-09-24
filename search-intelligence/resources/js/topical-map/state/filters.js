@@ -133,8 +133,10 @@ export function readFilterQuery(search = window.location.search) {
         .filter((n) => Number.isFinite(n) && n > 0);
     const showUntagged = params.get('untagged') === '1';
     const tagFilterAll = selectedTagIds.length === 0 && !showUntagged;
-    const view = String(params.get('view') || 'tree').toLowerCase();
-    const renderer = ['tree', 'network', 'sunburst'].includes(view) ? view : 'tree';
+    const viewRaw = String(params.get('view') || 'tree').toLowerCase();
+    // Legacy bookmarks: sunburst → treemap (no blank view).
+    const view = viewRaw === 'sunburst' ? 'treemap' : viewRaw;
+    const renderer = ['tree', 'network', 'treemap'].includes(view) ? view : 'tree';
     const { mcpMin, mcpMax } = normalizeMcpRange(
         params.has('mcp_min') ? params.get('mcp_min') : 0,
         params.has('mcp_max') ? params.get('mcp_max') : 100,

@@ -79,14 +79,19 @@ final class TopicalMapBoundaryContractTest extends TestCase
 
         $app = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/App.jsx');
         self::assertStringContainsString("readFilterQuery()", $app);
-        self::assertStringContainsString("'tree', 'network', 'sunburst'", (string) file_get_contents(
+        self::assertStringContainsString("'tree', 'network', 'treemap'", (string) file_get_contents(
             dirname(__DIR__, 3).'/resources/js/topical-map/components/AppChrome.jsx',
         ));
 
         $options = (string) file_get_contents(dirname(__DIR__, 3).'/resources/js/topical-map/charts/options.js');
         self::assertStringContainsString("type: 'tree'", $options);
         self::assertStringContainsString("type: 'graph'", $options);
-        self::assertStringContainsString("type: 'sunburst'", $options);
+        self::assertStringContainsString("type: 'treemap'", $options);
+        self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
+        self::assertStringContainsString('treemapLayoutValue', $options);
+        self::assertStringContainsString('Focus Articles:', $options);
+        self::assertStringNotContainsString("type: 'sunburst'", $options);
+        self::assertStringNotContainsString('buildSunburstOption', $options);
         self::assertStringContainsString('Topic membership', $options);
         self::assertStringContainsString('mcpToSymbolSize', $options);
         self::assertStringNotContainsString('Art ', $options);

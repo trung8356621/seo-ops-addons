@@ -1,19 +1,19 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef, useCallback } from 'react';
 import * as echarts from 'echarts/core';
-import { TreeChart, GraphChart, SunburstChart } from 'echarts/charts';
+import { TreeChart, GraphChart, TreemapChart } from 'echarts/charts';
 import {
     TooltipComponent,
     LegendComponent,
     ToolboxComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { buildTreeOption, buildSunburstOption, buildNetworkOption } from '../charts/options';
+import { buildTreeOption, buildTreemapOption, buildNetworkOption } from '../charts/options';
 import { topicDetailUrl } from '../api/client';
 
 echarts.use([
     TreeChart,
     GraphChart,
-    SunburstChart,
+    TreemapChart,
     TooltipComponent,
     LegendComponent,
     ToolboxComponent,
@@ -64,6 +64,8 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     const onZoomChangeRef = useRef(onZoomChange);
     onZoomChangeRef.current = onZoomChange;
     const lastRendererRef = useRef(null);
+    const overviewRef = useRef(overview);
+    overviewRef.current = overview;
 
     const propsRef = useRef({});
     propsRef.current = {
@@ -90,7 +92,8 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         const mode = propsRef.current.renderer;
-        if (mode === 'sunburst') {
+        // Treemap uses native drill/breadcrumb — generic +/- scale is misleading.
+        if (mode === 'treemap') {
             return;
         }
         const current = readSeriesZoom(chart);
@@ -122,7 +125,21 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         const mode = propsRef.current.renderer;
-        if (mode === 'sunburst') {
+        if (mode === 'treemap') {
+            // Fit = return to full Topic overview (root), not a fake scale %.
+            try {
+                chart.dispatchAction({
+                    type: 'treemapRootToNode',
+                    targetNodeId: undefined,
+                });
+            } catch {
+                // ignore
+            }
+            const ov = overviewRef.current;
+            if (ov) {
+                chart.clear();
+                chart.setOption(buildTreemapOption(ov), true);
+            }
             emitZoom(1);
             return;
         }
@@ -147,7 +164,8 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         zoomOut: () => applyZoomFactor(1 / ZOOM_STEP),
         resetZoom,
         getZoom: () => zoomRef.current,
-        supportsZoom: () => propsRef.current.renderer !== 'sunburst',
+        supportsZoom: () => propsRef.current.renderer !== 'treemap',
+        supportsFit: () => true,
     }), [applyZoomFactor, resetZoom]);
 
     useEffect(() => {
@@ -163,7 +181,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             if (!el.contains(event.target)) {
                 return;
             }
-            event.preventDefault();
+            // Prevent page scroll; Tree/Network roam handles zoom. Treemap uses click-drill.
+            if (propsRef.current.renderer !== 'treemap') {
+                event.preventDefault();
+            }
         };
         el.addEventListener('wheel', onWheel, { passive: false });
 
@@ -182,6 +203,12 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                 return;
             }
 
+            // Treemap breadcrumb / root → overview (native + Fit).
+            if (latest.renderer === 'treemap' && data.nodeType === 'site') {
+                latest.onFocusTopic?.(null);
+                return;
+            }
+
             if (data.nodeType !== 'topic' || !data.topicId) {
                 return;
             }
@@ -195,12 +222,13 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
             latest.onFocusTopic?.(topicId);
 
-            if (latest.renderer === 'tree' || latest.renderer === 'sunburst') {
+            if (latest.renderer === 'tree') {
                 await latest.onLoadChildren?.(topicId);
             }
             if (latest.renderer === 'network') {
                 latest.onNetworkTopicClick?.(topicId);
             }
+            // Treemap: native nodeClick zoomToNode handles drill.
         };
 
         const onDblClick = (params) => {
@@ -271,9 +299,9 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         zoomRef.current = 1;
         onZoomChangeRef.current?.(1);
 
-        if (renderer === 'sunburst') {
+        if (renderer === 'treemap') {
             chart.clear();
-            chart.setOption(buildSunburstOption(overview, childrenCacheRef.current), true);
+            chart.setOption(buildTreemapOption(overview), true);
             return;
         }
 

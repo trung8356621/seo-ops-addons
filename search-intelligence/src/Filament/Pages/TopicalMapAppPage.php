@@ -137,7 +137,7 @@ final class TopicalMapAppPage extends Page
                 'untagged' => (string) __('seo-content-ai::filament.keyword.topical_map_tags_untagged'),
                 'tree' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_tree'),
                 'network' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_network'),
-                'sunburst' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_sunburst'),
+                'treemap' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_treemap'),
                 'empty' => (string) __('seo-content-ai::filament.keyword.topical_map_empty'),
                 'needSite' => (string) __('seo-content-ai::filament.keyword.topical_map_need_site'),
                 'aiAction' => (string) __('seo-content-ai::filament.keyword.ai_audit_tags_action'),

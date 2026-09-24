@@ -51,6 +51,7 @@ export default function AppChrome({
     onRendererChange,
     zoomPercent,
     zoomDisabled,
+    zoomScaleDisabled = false,
     onZoomIn,
     onZoomOut,
     onZoomReset,
@@ -152,7 +153,7 @@ export default function AppChrome({
                     </div>
 
                     <div className="tm-renderer" role="tablist" aria-label="Topical Map renderer">
-                        {['tree', 'network', 'sunburst'].map((mode) => (
+                        {['tree', 'network', 'treemap'].map((mode) => (
                             <button
                                 key={mode}
                                 type="button"
@@ -169,6 +170,7 @@ export default function AppChrome({
                     <ZoomControls
                         zoomPercent={zoomPercent}
                         disabled={zoomDisabled}
+                        scaleDisabled={zoomScaleDisabled}
                         onZoomIn={onZoomIn}
                         onZoomOut={onZoomOut}
                         onReset={onZoomReset}

@@ -408,7 +408,8 @@ export default function App({ config }) {
     const empty = !loading && (!filteredOverview || (filteredOverview.topics || []).length === 0)
         && Number(overviewRaw?.summary?.topic_count || 0) === 0;
 
-    const zoomDisabled = loading || empty || renderer === 'sunburst';
+    const zoomDisabled = loading || empty;
+    const zoomScaleDisabled = renderer === 'treemap';
     const networkFocused = networkFocusedTopicId != null;
 
     return (
@@ -439,6 +440,7 @@ export default function App({ config }) {
                 onRendererChange={onRendererChange}
                 zoomPercent={zoomPercent}
                 zoomDisabled={zoomDisabled}
+                zoomScaleDisabled={zoomScaleDisabled}
                 onZoomIn={() => chartRef.current?.zoomIn?.()}
                 onZoomOut={() => chartRef.current?.zoomOut?.()}
                 onZoomReset={() => chartRef.current?.resetZoom?.()}

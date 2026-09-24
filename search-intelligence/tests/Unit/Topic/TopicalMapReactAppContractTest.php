@@ -130,8 +130,15 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('pruneNeighborhoodByAllowedTopics', $filters);
         self::assertStringContainsString('mcpToSymbolSize', $options);
         self::assertStringContainsString('buildOverviewNeighborhood', $options);
+        self::assertStringContainsString('buildTreemapOption', $options);
+        self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
         self::assertStringContainsString('Back to all Topics', $options);
         self::assertStringContainsString('siteNavigable', $options);
+        self::assertStringContainsString('TreemapChart', $canvas);
+        self::assertStringNotContainsString('SunburstChart', $canvas);
+        self::assertStringContainsString("viewRaw === 'sunburst'", $filters);
+        self::assertStringContainsString("'treemap'", $filters);
+        self::assertStringContainsString('scaleDisabled', $chrome);
         self::assertStringContainsString('MCP_SYMBOL_MIN', $theme);
         self::assertStringContainsString('TOPIC_PALETTE', $theme);
         self::assertStringContainsString('Math.sqrt', $theme);

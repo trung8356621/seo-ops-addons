@@ -606,7 +606,7 @@ return [
         'relationship_side_placeholder' => 'Chọn một node.',
         'topical_map_mode_tree' => 'Tree',
         'topical_map_mode_network' => 'Network',
-        'topical_map_mode_sunburst' => 'Sunburst',
+        'topical_map_mode_treemap' => 'Treemap',
         'topical_map_empty' => 'Chưa có dữ liệu Topical Map cho site này.',
         'topical_map_need_site' => 'Chọn site để mở Topical Map.',
         'topical_map_load_error' => 'Không tải được Keyword con của Topic.',

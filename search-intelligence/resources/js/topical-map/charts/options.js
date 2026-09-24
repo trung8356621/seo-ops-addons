@@ -19,13 +19,33 @@ function escapeHtml(value) {
 
 function topicTooltipHtml(d) {
     const title = String(d.name || '').split('\n')[0] || '';
-    return [
+    const keywords = d.keyword_count != null ? Number(d.keyword_count) : null;
+    const lines = [
         `<strong>${escapeHtml(title)}</strong>`,
+        `Focus Articles: ${Number(d.article_count ?? 0)}`,
         `MCP: ${clampMcp(d.mcp).toFixed(1)}%`,
         `DNA: ${d.dna_count ?? 0}`,
-        `Articles: ${d.article_count ?? 0}`,
-        '<em>Double-click to open Topic</em>',
-    ].join('<br/>');
+    ];
+    if (keywords != null && Number.isFinite(keywords)) {
+        lines.push(`Keywords: ${keywords}`);
+    }
+    lines.push('<em>Double-click to open Topic</em>');
+    return lines.join('<br/>');
+}
+
+/**
+ * Layout-only floor so 0-Focus Topics stay visible in Treemap.
+ * Tooltip / labels MUST use real `article_count`, never this weight.
+ */
+export const TREEMAP_MIN_DISPLAY_WEIGHT = 0.35;
+
+/**
+ * Tile AREA = canonical Topic article_count (DISTINCT Focus Articles).
+ * layoutValue may use MIN_DISPLAY_WEIGHT; displayed counts stay real.
+ */
+export function treemapLayoutValue(articleCount) {
+    const real = Math.max(0, Number(articleCount) || 0);
+    return Math.max(TREEMAP_MIN_DISPLAY_WEIGHT, real);
 }
 
 /** @deprecated use topicTreeLabel — kept for greps/tests that import topicLabel */
@@ -219,38 +239,46 @@ export function buildTreeOption(data, childrenCache) {
     };
 }
 
-export function buildSunburstOption(data, childrenCache) {
+/**
+ * Site-level Topic distribution Treemap.
+ * Area ∝ article_count (Focus Articles). MCP only tints; never area.
+ */
+export function buildTreemapOption(data) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
+    const siteId = Number(data?.site_id ?? 0);
+
     const children = topics.map((topic) => {
         const topicId = Number(topic.id);
         const color = topicColorById(topicId);
-        const cached = childrenCache.get(topicId);
-        const value = Math.max(1, clampMcp(topic.mcp) || Number(topic.article_count ?? 0) || 1);
-        const node = {
-            name: topic.name,
-            value,
+        const mcp = clampMcp(topic.mcp);
+        // Secondary visual only — keep identity hue, soft opacity by MCP.
+        const opacity = 0.62 + 0.38 * (mcp / 100);
+        const articleCount = Math.max(0, Number(topic.article_count ?? 0));
+        const name = String(topic.name || 'Topic');
+
+        return {
+            name,
+            // layoutValue ≠ displayed article_count (see TREEMAP_MIN_DISPLAY_WEIGHT).
+            value: treemapLayoutValue(articleCount),
             topicId,
             nodeType: 'topic',
-            mcp: topic.mcp,
+            mcp,
             dna_count: topic.dna_count,
-            article_count: topic.article_count,
+            article_count: articleCount,
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
             tags: topic.tags,
-            itemStyle: { color },
+            itemStyle: {
+                color,
+                opacity,
+                borderColor: '#fff',
+                borderWidth: 1,
+            },
+            label: {
+                color: '#0f172a',
+                fontWeight: 600,
+            },
         };
-        if (cached?.children?.length) {
-            const leafColor = tintHex(color, 0.45);
-            node.children = cached.children.map((child) => ({
-                name: child.name,
-                value: 1,
-                keywordId: Number(child.id),
-                nodeType: 'keyword',
-                article_count: child.article_count ?? 0,
-                itemStyle: { color: leafColor },
-            }));
-        }
-        return node;
     });
 
     return {
@@ -258,28 +286,115 @@ export function buildSunburstOption(data, childrenCache) {
         tooltip: {
             trigger: 'item',
             confine: true,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderColor: 'rgba(15,23,42,0.1)',
+            borderWidth: 1,
+            textStyle: { color: '#0f172a', fontSize: 12 },
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'topic') {
                     return topicTooltipHtml(d);
                 }
-                return `<strong>${escapeHtml(params?.name || '')}</strong>`;
+                if (d.nodeType === 'site') {
+                    return `<strong>${escapeHtml(d.name || 'Site')}</strong><br/><em>Click breadcrumb / Fit for overview</em>`;
+                }
+                return escapeHtml(params?.name || '');
             },
         },
         series: [
             {
-                type: 'sunburst',
-                id: 'topical-map-sunburst',
-                radius: [0, '92%'],
-                sort: undefined,
-                emphasis: { focus: 'ancestor' },
-                data: children,
-                label: { rotate: 'radial', minAngle: 4, fontSize: 10 },
+                type: 'treemap',
+                id: 'topical-map-treemap',
+                name: 'Topic distribution',
+                width: '100%',
+                height: '100%',
+                top: 28,
+                left: 4,
+                right: 4,
+                bottom: 4,
+                roam: false,
+                nodeClick: 'zoomToNode',
+                breadcrumb: {
+                    show: true,
+                    height: 22,
+                    left: 4,
+                    top: 2,
+                    itemStyle: {
+                        color: '#f1f5f9',
+                        borderColor: 'rgba(15,23,42,0.1)',
+                        textStyle: { color: '#334155' },
+                    },
+                },
+                leafDepth: 1,
+                visibleMin: 0,
+                squareRatio: 0.75 * (1 + Math.sqrt(5)),
+                label: {
+                    show: true,
+                    formatter(params) {
+                        const d = params?.data || {};
+                        if (d.nodeType !== 'topic') {
+                            return params?.name || '';
+                        }
+                        const w = Number(params?.rect?.width ?? 0);
+                        const h = Number(params?.rect?.height ?? 0);
+                        const name = String(d.name || '');
+                        // Hide cramped labels to avoid overlap.
+                        if (w < 48 || h < 28) {
+                            return '';
+                        }
+                        if (w < 96 || h < 52) {
+                            return name;
+                        }
+                        const focus = Number(d.article_count ?? 0);
+                        const mcp = clampMcp(d.mcp).toFixed(0);
+                        return `${name}\n${focus} Focus\nMCP ${mcp}%`;
+                    },
+                    color: '#0f172a',
+                    fontSize: 11,
+                    lineHeight: 15,
+                    overflow: 'truncate',
+                    ellipsis: '…',
+                },
+                upperLabel: { show: false },
+                itemStyle: {
+                    borderColor: '#fff',
+                    borderWidth: 2,
+                    gapWidth: 2,
+                },
+                emphasis: {
+                    label: { fontWeight: 700 },
+                    itemStyle: {
+                        borderColor: '#0f172a',
+                        borderWidth: 2,
+                    },
+                },
                 levels: [
-                    {},
-                    { r0: '15%', r: '55%', label: { rotate: 'tangential' } },
-                    { r0: '55%', r: '92%', label: { position: 'outside', padding: 2 } },
+                    {
+                        itemStyle: {
+                            borderColor: 'transparent',
+                            borderWidth: 0,
+                            gapWidth: 2,
+                        },
+                        upperLabel: { show: false },
+                    },
+                    {
+                        itemStyle: {
+                            borderColor: '#fff',
+                            borderWidth: 1,
+                            gapWidth: 1,
+                        },
+                    },
                 ],
+                data: [
+                    {
+                        name: siteId ? 'Site' : 'Site',
+                        nodeType: 'site',
+                        topicId: undefined,
+                        children,
+                    },
+                ],
+                animationDuration: 350,
+                animationDurationUpdate: 450,
             },
         ],
     };

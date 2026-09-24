@@ -606,7 +606,7 @@ return [
         'relationship_side_placeholder' => 'Select a node.',
         'topical_map_mode_tree' => 'Tree',
         'topical_map_mode_network' => 'Network',
-        'topical_map_mode_sunburst' => 'Sunburst',
+        'topical_map_mode_treemap' => 'Treemap',
         'topical_map_empty' => 'No Topical Map data available for this site.',
         'topical_map_need_site' => 'Select a site to open Topical Map.',
         'topical_map_load_error' => 'Failed to load Topic children.',
