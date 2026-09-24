@@ -20,14 +20,24 @@ final class SeoTopicTagAssignment extends Model
 
     public const UPDATED_AT = null;
 
+    public const SOURCE_MANUAL = 'manual';
+
+    public const SOURCE_AI = 'ai';
+
     protected $fillable = [
         'topic_id',
         'tag_id',
+        'source',
+    ];
+
+    protected $attributes = [
+        'source' => self::SOURCE_MANUAL,
     ];
 
     protected $casts = [
         'topic_id' => 'integer',
         'tag_id' => 'integer',
+        'source' => 'string',
     ];
 
     public function topic(): BelongsTo

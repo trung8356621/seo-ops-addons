@@ -20,7 +20,7 @@ final class DefaultTopicalMapAuditPromptInstaller
 {
     public const HOOK_KEY = 'seo_keywords.topical_map_audit';
 
-    public const HOOK_VERSION = '0.2.0';
+    public const HOOK_VERSION = '0.3.0';
 
     public const PROMPT_NAME = 'Topical Map Audit';
 
@@ -196,6 +196,7 @@ final class DefaultTopicalMapAuditPromptInstaller
         return $rows !== [] ? $rows : [
             ['name' => 'mcp_markdown', 'description' => 'Combined MCP markdown'],
             ['name' => 'topical_map_json', 'description' => 'Structural Topical Map overview JSON'],
+            ['name' => 'existing_topic_tags_json', 'description' => 'Current site Topic Tag vocabulary JSON'],
             ['name' => 'primary_language', 'description' => 'Effective primary language'],
             ['name' => 'site_domain', 'description' => 'Site domain'],
             ['name' => 'period_key', 'description' => 'MCP period key'],

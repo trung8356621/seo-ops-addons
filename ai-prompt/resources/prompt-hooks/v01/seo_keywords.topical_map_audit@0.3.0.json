@@ -1,0 +1,75 @@
+{
+  "spec_version": "0.1",
+  "key": "seo_keywords.topical_map_audit",
+  "version": "0.3.0",
+  "name": "Topical Map Audit",
+  "description": "Site-level Topical Map audit + Topic Tag taxonomy/assignments from Domain + Keyword + GSC MCP, structural Topical Map, and existing Topic Tags. Observations and tag suggestions only — never create Topics or articles.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "seo_keywords",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": { "temperature": 0.3 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "mcp_markdown": { "type": "string", "required": true, "max_length": 200000, "label": "Combined MCP markdown (Domain + Keywords + GSC)" },
+    "topical_map_json": { "type": "string", "required": true, "max_length": 100000, "label": "Structural Topical Map overview JSON (canonical topic_ref list)" },
+    "existing_topic_tags_json": { "type": "string", "required": false, "nullable": true, "max_length": 50000, "label": "Current site Topic Tag vocabulary JSON" },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
+    "site_domain": { "type": "string", "required": false, "nullable": true, "max_length": 255, "label": "Site domain" },
+    "period_key": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "MCP period key" },
+    "company_short_identity": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Company Short Identity" },
+    "short_description": { "type": "string", "required": false, "nullable": true, "max_length": 4000, "label": "Short Description" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You audit the site Topical Map for SEO planning AND propose a compact Topic Tag taxonomy with assignments.\n\nYou do NOT create Topics.\nYou do NOT create articles.\nYou do NOT invent metrics, volume, rankings, GSC numbers, or relationship edges that are not in the provided evidence.\nYou do NOT invent an SEO score.\nYou do NOT invent Topic IDs.\nYou do NOT return database Tag IDs — return Tag names only.\n\nUnderstand the business first:\n- Company Short Identity: {{company_short_identity}}\n- Short Description: {{short_description}}\n- Site domain: {{site_domain}}\n- Primary language: {{primary_language}}\n- MCP period: {{period_key}}\n\nEvidence sources (use only these):\n1) Combined MCP markdown — Domain/site metrics, Keyword Intelligence, GSC when present. Do not invent GSC findings when GSC evidence is empty/stale.\n2) Structural Topical Map overview JSON — CANONICAL Topic list. Every Topic reference MUST use topic_ref from this JSON (format topic:{id}). Prefer this list over any Topic names that appear only in MCP prose.\n3) Existing Topic Tags JSON — reuse these names when they still fit; extend sparingly.\n\nSEO reasoning (practical):\n- Topical authority and semantic coverage\n- Search intent separation between Topics\n- Coverage gaps vs business relevance\n- Over-concentration when evidence supports it\n- Potential overlap / cannibalization RISK only (never claim confirmed cannibalization from similar names alone)\n- Cluster depth / viability (low MCP ≠ automatically write more; high article count ≠ automatically healthy)\n- GSC evidence only when present\n- Internal-link observations ONLY when link evidence exists in MCP context\n\nFinding types (use ONLY these):\nstrong_coverage, weak_coverage, coverage_gap, over_concentration, structural_gap, search_opportunity, potential_overlap, internal_link_gap, data_quality\n\nSeverity: low | medium | high\n\nAction types (use ONLY these):\nexpand_topic, improve_coverage, investigate_new_topic, consolidate_overlap, review_gsc_opportunity, review_internal_links, review_structure, no_action\n\nTag taxonomy rules:\n- Prefer 5–12 durable facet Tags (audience, offer, industry, use-case). Cap at 20.\n- Names are short, human-readable, site language when possible.\n- Reuse existing Tag names from existing_topic_tags_json when appropriate.\n- assignments.topic_ref MUST come from topical_map_json.\n- tags[] are names (not ids). Deduplicate per Topic.\n- Do not invent Topics. Do not recluster. Do not rename Topics.\n\nRules:\n- Prefer fewer meaningful findings; merge duplicates.\n- Distinguish evidence from interpretation.\n- Do not recommend more content merely because article_count is low.\n- Do not turn every low-MCP Topic into a finding.\n- For new territory, use action_type=investigate_new_topic (actual generation stays in seo_audit.discover_new_topics).\n- No article titles. No new Topic creation.\n\nMCP CONTEXT:\n{{mcp_markdown}}\n\nTOPICAL MAP STRUCTURAL JSON:\n{{topical_map_json}}\n\nEXISTING TOPIC TAGS JSON:\n{{existing_topic_tags_json}}\n\nOUTPUT CONTRACT — STRICT\nReturn ONLY valid JSON object:\n{\"summary\":\"...\",\"findings\":[{\"type\":\"weak_coverage\",\"severity\":\"high\",\"topic_ref\":\"topic:123\",\"topic_name\":\"...\",\"title\":\"...\",\"observation\":\"...\",\"evidence\":[\"...\"]}],\"opportunities\":[{\"topic_ref\":\"topic:123\",\"topic_name\":\"...\",\"title\":\"...\",\"reason\":\"...\",\"suggested_direction\":\"...\"}],\"recommended_actions\":[{\"priority\":1,\"action_type\":\"expand_topic\",\"topic_ref\":\"topic:123\",\"title\":\"...\",\"reason\":\"...\"}],\"tag_suggestions\":{\"taxonomy\":[{\"name\":\"B2B\"}],\"assignments\":[{\"topic_ref\":\"topic:123\",\"tags\":[\"B2B\",\"OEM\"]}]}}\nNo markdown fences, no commentary, no text before/after JSON.\nFirst non-whitespace character MUST be { and last MUST be }."
+  },
+  "presentation": {
+    "description": "Site-level Topical Map audit + Topic Tag suggestions from Domain/Keyword/GSC MCP + structural Topical Map + existing Tags.",
+    "default_instructions": [
+      "Understand company identity before judging coverage.",
+      "Use topical_map_json as the only source of topic_ref.",
+      "Reuse existing_topic_tags_json names when they still fit.",
+      "Do not invent metrics, GSC evidence, or Topic ids.",
+      "Do not create Topics or articles.",
+      "Return structured summary, findings, opportunities, recommended_actions, and tag_suggestions."
+    ],
+    "output_format": [
+      "{\"summary\":\"...\",\"findings\":[...],\"opportunities\":[...],\"recommended_actions\":[...],\"tag_suggestions\":{\"taxonomy\":[...],\"assignments\":[...]}}"
+    ],
+    "notes": [
+      "Approved Keyword MCP type-1 consumer path: Keywords / Topical Map.",
+      "investigate_new_topic defers generation to seo_audit.discover_new_topics.",
+      "Company Short Identity / Short Description from Domain prompt context.",
+      "One execution = audit + tag suggestions (no separate Auto Tag prompt)."
+    ],
+    "variables": [
+      { "key": "mcp_markdown", "required": true },
+      { "key": "topical_map_json", "required": true },
+      { "key": "existing_topic_tags_json", "required": false },
+      { "key": "primary_language", "required": false },
+      { "key": "site_domain", "required": false },
+      { "key": "period_key", "required": false },
+      { "key": "company_short_identity", "required": false },
+      { "key": "short_description", "required": false }
+    ]
+  },
+  "retry": { "max": 1 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

@@ -14,6 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersSiteTopics;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\RunsTopicalMapAuditAndTags;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicManualCreateService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicRenameService;
@@ -30,6 +31,7 @@ final class KeywordTopicClusters extends Page
     use DissolvesTopics;
     use HasKeywordWorkspaceNavigation;
     use ReclustersSiteTopics;
+    use RunsTopicalMapAuditAndTags;
     use WithPagination;
 
     protected static string $resource = KeywordResource::class;
@@ -78,6 +80,7 @@ final class KeywordTopicClusters extends Page
         $this->normalizeBuiltinFilters();
         $this->pruneInvalidTopicTagFilter();
         $this->syncReclusterStateFromCache();
+        $this->refreshAiAuditSnapshot();
     }
 
     public function applyClusterSearch(): void

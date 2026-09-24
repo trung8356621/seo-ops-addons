@@ -53,6 +53,7 @@ final class TopicalMapAuditHistoryLinker
         $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
         $findings = is_array($payload['findings'] ?? null) ? $payload['findings'] : [];
         $actions = is_array($payload['recommended_actions'] ?? null) ? $payload['recommended_actions'] : [];
+        $tagApply = is_array($result['tag_apply'] ?? null) ? $result['tag_apply'] : [];
 
         $this->plannerRuns->recordExecuted(
             project: $project,
@@ -71,6 +72,9 @@ final class TopicalMapAuditHistoryLinker
                 'operation' => self::OPERATION,
                 'findings_count' => count($findings),
                 'actions_count' => count($actions),
+                'tag_count' => (int) ($tagApply['tag_count'] ?? 0),
+                'topic_tagged_count' => (int) ($tagApply['topic_tagged_count'] ?? 0),
+                'ai_assignment_count' => (int) ($tagApply['ai_assignment_count'] ?? 0),
                 'message' => (string) ($result['message'] ?? ''),
             ],
             actorId: $actorId,

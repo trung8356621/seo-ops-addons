@@ -2,6 +2,9 @@
     $overview = $this->topicalMapOverview;
     $empty = (bool) ($overview['empty'] ?? true);
     $summary = is_array($overview['summary'] ?? null) ? $overview['summary'] : [];
+    $tagFacets = is_array($overview['tag_facets'] ?? null) ? $overview['tag_facets'] : [];
+    $untaggedCount = (int) ($summary['untagged_count'] ?? 0);
+    $aiSnap = $this->aiAuditStatusSnapshot();
     $workspaceCss = base_path('addons/seo/resources/css/keyword-workspace.css');
     $chartCss = base_path('addons/search-intelligence/resources/css/topical-map.css');
 @endphp
@@ -15,41 +18,71 @@
         <style>{!! file_get_contents($chartCss) !!}</style>
     @endif
 
-    <div class="keyword-workspace-shell max-w-full space-y-4">
+    <div class="keyword-workspace-shell topical-map-workspace max-w-full">
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
             'navItems' => $this->getKeywordWorkspaceNavItems(),
         ])
 
-        <header class="topic-index-section-heading topical-map-header">
-            <div class="topical-map-header__row">
-                <div>
-                    <h2 class="topic-index-section-heading__title">
-                        {{ __('seo-content-ai::filament.keyword.topical_map_title') }}
-                    </h2>
-                    <p class="topic-index-section-heading__subtitle">
-                        {{ __('seo-content-ai::filament.keyword.topical_map_subtitle') }}
-                    </p>
-                </div>
-                <div class="topical-map-header__actions">
+        <header class="topical-map-toolbar-bar">
+            <div class="topical-map-toolbar-bar__title-row">
+                <h2 class="topical-map-toolbar-bar__title">
+                    {{ __('seo-content-ai::filament.keyword.topical_map_title') }}
+                    @if (! empty($aiSnap['site_domain']))
+                        <span class="topical-map-toolbar-bar__domain">— {{ $aiSnap['site_domain'] }}</span>
+                    @endif
+                </h2>
+                <div class="topical-map-toolbar-bar__actions">
+                    @if (is_array($this->auditResult))
+                        <button type="button" class="topical-map-toolbar__btn" wire:click="openAuditOverlay">
+                            {{ __('seo-content-ai::filament.keyword.topical_map_open_audit') }}
+                        </button>
+                    @endif
                     <button
                         type="button"
-                        class="cp-plan-btn"
-                        wire:click="runTopicalMapAudit"
+                        class="topical-map-toolbar__btn topical-map-toolbar__btn--ai"
+                        wire:click="beginConfirmAiAudit"
                         wire:loading.attr="disabled"
-                        wire:target="runTopicalMapAudit"
-                        @disabled($empty)
-                        title="{{ $empty ? __('seo-content-ai::filament.keyword.topical_map_audit_empty') : '' }}"
+                        wire:target="confirmRunAiAuditAndTags,beginConfirmAiAudit"
+                        @disabled(! $this->canRunAiAuditAndTags() || $this->aiAuditRunning)
                     >
-                        <span wire:loading.remove wire:target="runTopicalMapAudit">
-                            {{ __('seo-content-ai::filament.keyword.topical_map_audit') }}
+                        <span wire:loading.remove wire:target="confirmRunAiAuditAndTags">
+                            {{ $this->aiAuditButtonLabel() }}
                         </span>
-                        <span wire:loading wire:target="runTopicalMapAudit" class="inline-flex items-center gap-2 opacity-70">
+                        <span wire:loading wire:target="confirmRunAiAuditAndTags" class="inline-flex items-center gap-2 opacity-70">
                             <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                            {{ __('seo-content-ai::filament.keyword.topical_map_audit') }}
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_running') }}
                         </span>
                     </button>
                 </div>
+            </div>
+
+            <div class="topical-map-tag-filters" role="group" aria-label="{{ __('seo-content-ai::filament.keyword.topical_map_tags_label') }}">
+                <span class="topical-map-tag-filters__label">{{ __('seo-content-ai::filament.keyword.topical_map_tags_label') }}:</span>
+                <button
+                    type="button"
+                    class="topical-map-tag-chip {{ $this->tagFilterAll ? 'is-active' : '' }}"
+                    wire:click="toggleTagFilterAll"
+                >
+                    {{ __('seo-content-ai::filament.keyword.topical_map_tags_all') }}
+                </button>
+                @foreach ($tagFacets as $facet)
+                    @php $fid = (int) ($facet['id'] ?? 0); @endphp
+                    <button
+                        type="button"
+                        class="topical-map-tag-chip {{ (! $this->tagFilterAll && in_array($fid, $this->selectedTagIds, true)) ? 'is-active' : '' }}"
+                        wire:click="toggleTagFilter({{ $fid }})"
+                    >
+                        {{ $facet['name'] ?? '' }} {{ (int) ($facet['topic_count'] ?? 0) }}
+                    </button>
+                @endforeach
+                <button
+                    type="button"
+                    class="topical-map-tag-chip {{ (! $this->tagFilterAll && $this->tagFilterUntagged) ? 'is-active' : '' }}"
+                    wire:click="toggleTagFilterUntagged"
+                >
+                    {{ __('seo-content-ai::filament.keyword.topical_map_tags_untagged') }} {{ $untaggedCount }}
+                </button>
             </div>
 
             <div class="topical-map-toolbar" role="tablist" aria-label="Topical Map renderer">
@@ -66,25 +99,11 @@
                     </button>
                 @endforeach
             </div>
-
-            @if (! $empty)
-                <p class="topic-index-compact-stats">
-                    <span>{{ number_format((int) ($summary['topic_count'] ?? 0)) }} Topics</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{{ number_format((int) ($summary['total_keywords'] ?? 0)) }} Keywords</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{{ number_format((int) ($summary['total_articles'] ?? 0)) }} Articles</span>
-                    @if (! empty($summary['source_updated_at']))
-                        <span aria-hidden="true">·</span>
-                        <span>{{ $summary['source_updated_at'] }}</span>
-                    @endif
-                </p>
-            @endif
         </header>
 
         <div class="topical-map-layout">
             <div class="topical-map-chart-shell" wire:ignore>
-                @if ($empty)
+                @if ($empty && (int) ($summary['topic_count'] ?? 0) === 0)
                     <div class="topical-map-empty" data-topical-map-empty="1">
                         {{ __('seo-content-ai::filament.keyword.topical_map_empty') }}
                     </div>
@@ -98,27 +117,21 @@
                         data-load-children="loadTopicChildren"
                         data-load-network="loadNetworkNeighborhood"
                         data-focus-topic="focusTopic"
+                        data-open-topic="openTopicDetail"
                     ></div>
                     <p class="topical-map-meta" data-topical-map-meta hidden></p>
                 @endif
             </div>
 
-            <aside class="topical-map-side" aria-label="{{ __('seo-content-ai::filament.keyword.topical_map_side_panel') }}">
-                <h3 class="topical-map-side__title">{{ __('seo-content-ai::filament.keyword.topical_map_side_panel') }}</h3>
-                <div class="topical-map-side__body" data-topical-map-side>
-                    <p class="topical-map-side__placeholder">Select a Topic or Keyword node.</p>
-                </div>
-                @if ($this->focusedTopicId)
-                    <a
-                        class="topical-map-side__link"
-                        href="{{ $this->topicDetailUrl((int) $this->focusedTopicId) }}"
-                    >
-                        {{ __('seo-content-ai::filament.keyword.topical_map_open_topic') }}
-                    </a>
-                @endif
-
-                @if (is_array($this->auditResult))
-                    <div class="topical-map-audit" data-topical-map-audit>
+            @if ($this->showAuditOverlay && is_array($this->auditResult))
+                <div class="topical-map-audit-overlay" role="dialog" aria-modal="true">
+                    <div class="topical-map-audit-overlay__panel" data-topical-map-audit>
+                        <div class="topical-map-audit-overlay__head">
+                            <h3>{{ __('seo-content-ai::filament.keyword.topical_map_open_audit') }}</h3>
+                            <button type="button" class="topical-map-toolbar__btn" wire:click="closeAuditOverlay">
+                                {{ __('seo-content-ai::filament.keyword.topical_map_close_audit') }}
+                            </button>
+                        </div>
                         <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_summary') }}</h4>
                         <p class="topical-map-audit__summary">{{ $this->auditResult['summary'] ?? '' }}</p>
 
@@ -139,19 +152,8 @@
                                         @if (! empty($finding['observation']))
                                             <div class="topical-map-audit__body">{{ $finding['observation'] }}</div>
                                         @endif
-                                        @if (! empty($finding['evidence']) && is_array($finding['evidence']))
-                                            <ul class="topical-map-audit__evidence">
-                                                @foreach ($finding['evidence'] as $ev)
-                                                    <li>{{ $ev }}</li>
-                                                @endforeach
-                                            </ul>
-                                        @endif
                                         @if ($topicRef !== '')
-                                            <button
-                                                type="button"
-                                                class="topical-map-audit__focus"
-                                                wire:click="focusTopicFromRef('{{ $topicRef }}')"
-                                            >
+                                            <button type="button" class="topical-map-audit__focus" wire:click="focusTopicFromRef('{{ $topicRef }}')">
                                                 {{ $finding['topic_name'] ?? $topicRef }}
                                             </button>
                                         @endif
@@ -170,15 +172,8 @@
                                         @if (! empty($opp['reason']))
                                             <div class="topical-map-audit__body">{{ $opp['reason'] }}</div>
                                         @endif
-                                        @if (! empty($opp['suggested_direction']))
-                                            <div class="topical-map-audit__body">{{ $opp['suggested_direction'] }}</div>
-                                        @endif
                                         @if ($topicRef !== '')
-                                            <button
-                                                type="button"
-                                                class="topical-map-audit__focus"
-                                                wire:click="focusTopicFromRef('{{ $topicRef }}')"
-                                            >
+                                            <button type="button" class="topical-map-audit__focus" wire:click="focusTopicFromRef('{{ $topicRef }}')">
                                                 {{ $opp['topic_name'] ?? $topicRef }}
                                             </button>
                                         @endif
@@ -191,24 +186,12 @@
                             <h4>{{ __('seo-content-ai::filament.keyword.topical_map_audit_actions') }}</h4>
                             <ol class="topical-map-audit__list topical-map-audit__list--actions">
                                 @foreach ($this->auditResult['recommended_actions'] as $action)
-                                    @php
-                                        $topicRef = is_array($action) ? trim((string) ($action['topic_ref'] ?? '')) : '';
-                                    @endphp
+                                    @php $topicRef = is_array($action) ? trim((string) ($action['topic_ref'] ?? '')) : ''; @endphp
                                     <li class="topical-map-audit__item">
                                         @if (is_array($action))
-                                            <div class="topical-map-audit__item-head">
-                                                <span class="topical-map-audit__type">#{{ $action['priority'] ?? '' }} · {{ $action['action_type'] ?? '' }}</span>
-                                            </div>
                                             <strong class="topical-map-audit__title">{{ $action['title'] ?? '' }}</strong>
-                                            @if (! empty($action['reason']))
-                                                <div class="topical-map-audit__body">{{ $action['reason'] }}</div>
-                                            @endif
                                             @if ($topicRef !== '')
-                                                <button
-                                                    type="button"
-                                                    class="topical-map-audit__focus"
-                                                    wire:click="focusTopicFromRef('{{ $topicRef }}')"
-                                                >
+                                                <button type="button" class="topical-map-audit__focus" wire:click="focusTopicFromRef('{{ $topicRef }}')">
                                                     {{ $topicRef }}
                                                 </button>
                                             @endif
@@ -220,12 +203,50 @@
                             </ol>
                         @endif
                     </div>
-                @elseif ($this->auditError !== '')
-                    <div class="topical-map-audit topical-map-audit--error">{{ $this->auditError }}</div>
-                @endif
-            </aside>
+                </div>
+            @elseif ($this->auditError !== '')
+                <div class="topical-map-audit-overlay topical-map-audit-overlay--error">
+                    <div class="topical-map-audit-overlay__panel">
+                        <p class="topical-map-audit--error">{{ $this->auditError }}</p>
+                        <button type="button" class="topical-map-toolbar__btn" wire:click="$set('auditError', '')">
+                            {{ __('seo-content-ai::filament.keyword.topical_map_close_audit') }}
+                        </button>
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
+
+    @if ($this->confirmAiAudit)
+        @php $snap = $this->aiAuditStatusSnapshot(); @endphp
+        <div class="topic-ai-audit-modal" role="dialog" aria-modal="true">
+            <div class="topic-ai-audit-modal__backdrop" wire:click="cancelConfirmAiAudit"></div>
+            <div class="topic-ai-audit-modal__panel">
+                <h3 class="topic-ai-audit-modal__title">{{ __('seo-content-ai::filament.keyword.ai_audit_tags_modal_title') }}</h3>
+                <p class="topic-ai-audit-modal__site">
+                    {{ __('seo-content-ai::filament.keyword.ai_audit_tags_site') }}:
+                    <strong>{{ $snap['site_domain'] !== '' ? $snap['site_domain'] : ('#'.$snap['site_id']) }}</strong>
+                </p>
+                <ul class="topic-ai-audit-modal__stats">
+                    <li>{{ number_format((int) $snap['topic_count']) }} Topics</li>
+                    <li>{{ number_format((int) $snap['assigned_keywords']) }} {{ __('seo-content-ai::filament.keyword.ai_audit_tags_assigned_kw') }}</li>
+                    <li>{{ number_format((int) $snap['unassigned_keywords']) }} {{ __('seo-content-ai::filament.keyword.ai_audit_tags_unassigned_kw') }}</li>
+                    <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_existing') }}: {{ number_format((int) $snap['existing_tags']) }}</li>
+                    <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_topics_tagged') }}: {{ number_format((int) $snap['topics_with_tags']) }} / {{ number_format((int) $snap['topic_count']) }}</li>
+                    <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_untagged') }}: {{ number_format((int) $snap['untagged_topics']) }}</li>
+                </ul>
+                <p class="topic-ai-audit-modal__notice">{{ __('seo-content-ai::filament.keyword.ai_audit_tags_cost_notice') }}</p>
+                <div class="topic-ai-audit-modal__actions">
+                    <x-filament::button type="button" size="sm" color="gray" wire:click="cancelConfirmAiAudit">
+                        {{ __('seo-content-ai::filament.keyword.topic_recluster_cancel') }}
+                    </x-filament::button>
+                    <x-filament::button type="button" size="sm" color="primary" wire:click="confirmRunAiAuditAndTags">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_run') }}
+                    </x-filament::button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     @vite(['addons/search-intelligence/resources/js/topical-map-chart.js'])
 </x-filament-panels::page>

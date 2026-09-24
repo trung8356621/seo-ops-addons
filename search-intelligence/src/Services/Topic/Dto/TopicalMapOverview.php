@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto;
 /**
  * Site-level Topical Map overview (Topic nodes only — keyword leaves are lazy).
  *
+ * @phpstan-type TopicTag array{id: int, name: string}
+ * @phpstan-type TagFacet array{id: int, name: string, topic_count: int}
  * @phpstan-type TopicNode array{
  *   id: int,
  *   name: string,
@@ -16,13 +18,15 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto;
  *   keyword_count: int,
  *   coverage: string,
  *   status: string,
- *   has_children: bool
+ *   has_children: bool,
+ *   tags: list<TopicTag>
  * }
  */
 final class TopicalMapOverview
 {
     /**
      * @param  list<TopicNode>  $topics
+     * @param  list<TagFacet>  $tagFacets
      */
     public function __construct(
         public readonly int $siteId,
@@ -31,13 +35,22 @@ final class TopicalMapOverview
         public readonly int $totalArticles,
         public readonly int $totalKeywords,
         public readonly ?string $sourceUpdatedAt,
+        public readonly array $tagFacets = [],
+        public readonly int $untaggedCount = 0,
     ) {}
 
     /**
      * @return array{
      *   site_id: int,
-     *   summary: array{topic_count: int, total_articles: int, total_keywords: int, source_updated_at: string|null},
-     *   topics: list<TopicNode>
+     *   summary: array{
+     *     topic_count: int,
+     *     total_articles: int,
+     *     total_keywords: int,
+     *     source_updated_at: string|null,
+     *     untagged_count: int
+     *   },
+     *   topics: list<TopicNode>,
+     *   tag_facets: list<TagFacet>
      * }
      */
     public function toArray(): array
@@ -49,8 +62,10 @@ final class TopicalMapOverview
                 'total_articles' => $this->totalArticles,
                 'total_keywords' => $this->totalKeywords,
                 'source_updated_at' => $this->sourceUpdatedAt,
+                'untagged_count' => $this->untaggedCount,
             ],
             'topics' => $this->topics,
+            'tag_facets' => $this->tagFacets,
         ];
     }
 }

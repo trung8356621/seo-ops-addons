@@ -11,9 +11,10 @@ final class TopicalMapAuditResultParser
 {
     /**
      * @param  list<string>  $allowedTopicRefs  Exact topic_ref values supplied in prompt input
+     * @param  list<array{id?: int, name?: string, slug?: string}>  $existingTags
      * @return array{ok: bool, message: string, payload: array<string, mixed>|null}
      */
-    public function parse(mixed $value, array $allowedTopicRefs = []): array
+    public function parse(mixed $value, array $allowedTopicRefs = [], array $existingTags = []): array
     {
         $payload = $this->decode($value);
         if ($payload === null) {
@@ -36,8 +37,19 @@ final class TopicalMapAuditResultParser
         $normalizedFindings = $this->normalizeFindings($findings, $allowed);
         $normalizedOpps = $this->normalizeOpportunities($opportunities, $allowed);
         $normalizedActions = $this->normalizeActions($actions, $allowed);
+        $tagSuggestions = $this->normalizeTagSuggestions(
+            is_array($payload['tag_suggestions'] ?? null) ? $payload['tag_suggestions'] : [],
+            $allowed,
+            $existingTags,
+        );
 
-        if ($summary === '' && $normalizedFindings === [] && $normalizedOpps === [] && $normalizedActions === []) {
+        if (
+            $summary === ''
+            && $normalizedFindings === []
+            && $normalizedOpps === []
+            && $normalizedActions === []
+            && ($tagSuggestions['taxonomy'] === [] && $tagSuggestions['assignments'] === [])
+        ) {
             return ['ok' => false, 'message' => 'Audit payload is empty.', 'payload' => null];
         }
 
@@ -49,7 +61,111 @@ final class TopicalMapAuditResultParser
                 'findings' => $normalizedFindings,
                 'opportunities' => $normalizedOpps,
                 'recommended_actions' => $normalizedActions,
+                'tag_suggestions' => $tagSuggestions,
             ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $raw
+     * @param  array<string, true>  $allowed
+     * @param  list<array{id?: int, name?: string, slug?: string}>  $existingTags
+     * @return array{
+     *   taxonomy: list<array{name: string}>,
+     *   assignments: list<array{topic_ref: string, topic_id: int, tags: list<string>}>
+     * }
+     */
+    public function normalizeTagSuggestions(array $raw, array $allowed, array $existingTags = []): array
+    {
+        $tagService = new TopicUserTagService;
+        /** @var array<string, string> $allowedSlugs slug => canonical name */
+        $allowedSlugs = [];
+        foreach ($existingTags as $tag) {
+            if (! is_array($tag)) {
+                continue;
+            }
+            $name = $tagService->normalizeName((string) ($tag['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $allowedSlugs[$tagService->slugFor($name)] = $name;
+        }
+
+        $taxonomyRaw = is_array($raw['taxonomy'] ?? null) ? array_values($raw['taxonomy']) : [];
+        $taxonomy = [];
+        foreach ($taxonomyRaw as $row) {
+            if (count($allowedSlugs) >= TopicalMapAuditContracts::MAX_TAG_TAXONOMY) {
+                break;
+            }
+            $name = '';
+            if (is_string($row)) {
+                $name = $tagService->normalizeName($row);
+            } elseif (is_array($row)) {
+                $name = $tagService->normalizeName((string) ($row['name'] ?? ''));
+            }
+            if ($name === '') {
+                continue;
+            }
+            $slug = $tagService->slugFor($name);
+            if (isset($allowedSlugs[$slug])) {
+                continue;
+            }
+            $allowedSlugs[$slug] = $name;
+            $taxonomy[] = ['name' => $name];
+        }
+
+        $assignmentsRaw = is_array($raw['assignments'] ?? null) ? array_values($raw['assignments']) : [];
+        $assignments = [];
+        $seenTopic = [];
+        foreach ($assignmentsRaw as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $topicRef = $this->normalizeTopicRef($row['topic_ref'] ?? null, $allowed);
+            if ($topicRef === null) {
+                continue;
+            }
+            $topicId = TopicalMapAuditContracts::topicIdFromRef($topicRef);
+            if ($topicId === null) {
+                continue;
+            }
+            if (isset($seenTopic[$topicRef])) {
+                continue;
+            }
+            $seenTopic[$topicRef] = true;
+
+            $tagNamesRaw = is_array($row['tags'] ?? null) ? $row['tags'] : [];
+            $resolvedNames = [];
+            $seenSlug = [];
+            foreach ($tagNamesRaw as $tagName) {
+                $name = $tagService->normalizeName((string) $tagName);
+                if ($name === '') {
+                    continue;
+                }
+                $slug = $tagService->slugFor($name);
+                if (! isset($allowedSlugs[$slug])) {
+                    // Unknown to this result vocabulary — discard.
+                    continue;
+                }
+                if (isset($seenSlug[$slug])) {
+                    continue;
+                }
+                $seenSlug[$slug] = true;
+                $resolvedNames[] = $allowedSlugs[$slug];
+            }
+            if ($resolvedNames === []) {
+                continue;
+            }
+            $assignments[] = [
+                'topic_ref' => $topicRef,
+                'topic_id' => $topicId,
+                'tags' => $resolvedNames,
+            ];
+        }
+
+        return [
+            'taxonomy' => $taxonomy,
+            'assignments' => $assignments,
         ];
     }
 

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTag;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTagAssignment;
+use Throwable;
 
 /**
  * Site-scoped Topic custom tags.
@@ -30,6 +32,12 @@ final class TopicUserTagService
             && $schema->hasTable('seo_topic_tag_assignments')
             && $schema->hasColumn('seo_topic_tags', 'site_id')
             && $schema->hasColumn('seo_topic_tags', 'name');
+    }
+
+    public static function provenanceReady(): bool
+    {
+        return self::tablesReady()
+            && Schema::connection('omi_seo_ai')->hasColumn('seo_topic_tag_assignments', 'source');
     }
 
     /**
@@ -294,14 +302,224 @@ final class TopicUserTagService
             return ['ok' => false, 'error' => 'site_mismatch', 'tags' => []];
         }
 
-        SeoTopicTagAssignment::query()->firstOrCreate([
-            'topic_id' => $topicId,
-            'tag_id' => $tagId,
-        ]);
+        $this->attachManualPair($topicId, $tagId);
 
-        // Tag-only metadata — do NOT promote auto→manual.
+        // Tag-only metadata — do NOT promote Topic auto→manual / do NOT promote auto→manual.
 
         return ['ok' => true, 'error' => null, 'tags' => $this->listForTopic($siteId, $topicId)];
+    }
+
+    /**
+     * Manual attach: source=manual. If an AI pair exists, promote to manual.
+     */
+    public function attachManualPair(int $topicId, int $tagId): void
+    {
+        $existing = SeoTopicTagAssignment::query()
+            ->where('topic_id', $topicId)
+            ->where('tag_id', $tagId)
+            ->first();
+
+        if ($existing instanceof SeoTopicTagAssignment) {
+            if (self::provenanceReady()
+                && TopicTagAssignmentSource::isAi((string) ($existing->source ?? ''))
+            ) {
+                $existing->source = TopicTagAssignmentSource::MANUAL;
+                $existing->save();
+            }
+
+            return;
+        }
+
+        $attrs = [
+            'topic_id' => $topicId,
+            'tag_id' => $tagId,
+        ];
+        if (self::provenanceReady()) {
+            $attrs['source'] = TopicTagAssignmentSource::MANUAL;
+        }
+        SeoTopicTagAssignment::query()->create($attrs);
+    }
+
+    /**
+     * Apply validated AI tag_suggestions. Preserves manual assignments.
+     * Removes obsolete AI-only pairs. Never mutates Topic source / membership.
+     *
+     * @param  list<array{name: string}>  $taxonomy
+     * @param  list<array{topic_id: int, tags: list<string>}>  $assignments
+     * @return array{
+     *   ok: bool,
+     *   error: ?string,
+     *   tag_count: int,
+     *   topic_tagged_count: int,
+     *   ai_assignment_count: int,
+     *   untagged_topics: int
+     * }
+     */
+    public function syncAiSuggestions(int $siteId, array $taxonomy, array $assignments, int $totalTopics = 0): array
+    {
+        $empty = [
+            'ok' => false,
+            'error' => 'invalid_args',
+            'tag_count' => 0,
+            'topic_tagged_count' => 0,
+            'ai_assignment_count' => 0,
+            'untagged_topics' => 0,
+        ];
+        if ($siteId <= 0 || ! self::tablesReady()) {
+            return $empty;
+        }
+
+        try {
+            return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $taxonomy, $assignments, $totalTopics): array {
+                /** @var array<string, array{id: int, name: string, slug: string}> $resolvedBySlug */
+                $resolvedBySlug = [];
+
+                foreach ($taxonomy as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+                    $name = $this->normalizeName((string) ($row['name'] ?? ''));
+                    if ($name === '') {
+                        continue;
+                    }
+                    $created = $this->findOrCreate($siteId, $name);
+                    if (! ($created['ok'] ?? false) || $created['tag'] === null) {
+                        continue;
+                    }
+                    $slug = (string) $created['tag']['slug'];
+                    $resolvedBySlug[$slug] = $created['tag'];
+                }
+
+                /** @var array<int, array<int, true>> $desiredAiPairs topic_id => [tag_id => true] */
+                $desiredAiPairs = [];
+                foreach ($assignments as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+                    $topicId = (int) ($row['topic_id'] ?? 0);
+                    if ($topicId <= 0 || ! $this->topicBelongsToSite($siteId, $topicId)) {
+                        continue;
+                    }
+                    $tagNames = is_array($row['tags'] ?? null) ? $row['tags'] : [];
+                    foreach ($tagNames as $tagName) {
+                        $name = $this->normalizeName((string) $tagName);
+                        if ($name === '') {
+                            continue;
+                        }
+                        $slug = $this->slugFor($name);
+                        if (! isset($resolvedBySlug[$slug])) {
+                            $created = $this->findOrCreate($siteId, $name);
+                            if (! ($created['ok'] ?? false) || $created['tag'] === null) {
+                                continue;
+                            }
+                            $resolvedBySlug[$slug] = $created['tag'];
+                        }
+                        $tagId = (int) $resolvedBySlug[$slug]['id'];
+                        $desiredAiPairs[$topicId][$tagId] = true;
+                    }
+                }
+
+                $siteTopicIds = SeoTopic::query()
+                    ->where('site_id', $siteId)
+                    ->pluck('id')
+                    ->map(static fn ($id): int => (int) $id)
+                    ->all();
+
+                $provenance = self::provenanceReady();
+                $existing = SeoTopicTagAssignment::query()
+                    ->whereIn('topic_id', $siteTopicIds !== [] ? $siteTopicIds : [0])
+                    ->get($provenance ? ['topic_id', 'tag_id', 'source'] : ['topic_id', 'tag_id']);
+
+                /** @var array<string, SeoTopicTagAssignment> $byPair */
+                $byPair = [];
+                foreach ($existing as $row) {
+                    $byPair[((int) $row->topic_id).':'.((int) $row->tag_id)] = $row;
+                }
+
+                // Remove obsolete AI assignments (never touch manual).
+                foreach ($existing as $row) {
+                    $topicId = (int) $row->topic_id;
+                    $tagId = (int) $row->tag_id;
+                    $source = $provenance
+                        ? TopicTagAssignmentSource::normalize((string) ($row->source ?? TopicTagAssignmentSource::MANUAL))
+                        : TopicTagAssignmentSource::MANUAL;
+                    if ($source !== TopicTagAssignmentSource::AI) {
+                        continue;
+                    }
+                    if (isset($desiredAiPairs[$topicId][$tagId])) {
+                        continue;
+                    }
+                    SeoTopicTagAssignment::query()
+                        ->where('topic_id', $topicId)
+                        ->where('tag_id', $tagId)
+                        ->delete();
+                    unset($byPair[$topicId.':'.$tagId]);
+                }
+
+                // Upsert desired AI pairs without demoting manual.
+                foreach ($desiredAiPairs as $topicId => $tagIds) {
+                    foreach (array_keys($tagIds) as $tagId) {
+                        $key = $topicId.':'.$tagId;
+                        if (isset($byPair[$key])) {
+                            $existingSource = $provenance
+                                ? TopicTagAssignmentSource::normalize((string) ($byPair[$key]->source ?? ''))
+                                : TopicTagAssignmentSource::MANUAL;
+                            if ($existingSource === TopicTagAssignmentSource::MANUAL) {
+                                continue;
+                            }
+                            if ($provenance && $existingSource !== TopicTagAssignmentSource::AI) {
+                                $byPair[$key]->source = TopicTagAssignmentSource::AI;
+                                $byPair[$key]->save();
+                            }
+
+                            continue;
+                        }
+                        $attrs = [
+                            'topic_id' => $topicId,
+                            'tag_id' => $tagId,
+                        ];
+                        if ($provenance) {
+                            $attrs['source'] = TopicTagAssignmentSource::AI;
+                        }
+                        $created = SeoTopicTagAssignment::query()->create($attrs);
+                        $byPair[$key] = $created;
+                    }
+                }
+
+                $vocabCount = (int) SeoTopicTag::query()->where('site_id', $siteId)->count();
+                $aiCount = 0;
+                $taggedTopics = [];
+                $allAssignments = SeoTopicTagAssignment::query()
+                    ->whereIn('topic_id', $siteTopicIds !== [] ? $siteTopicIds : [0])
+                    ->get($provenance ? ['topic_id', 'tag_id', 'source'] : ['topic_id', 'tag_id']);
+                foreach ($allAssignments as $row) {
+                    $taggedTopics[(int) $row->topic_id] = true;
+                    if ($provenance && TopicTagAssignmentSource::isAi((string) ($row->source ?? ''))) {
+                        $aiCount++;
+                    }
+                }
+                $topicTaggedCount = count($taggedTopics);
+                $topicTotal = $totalTopics > 0 ? $totalTopics : count($siteTopicIds);
+
+                return [
+                    'ok' => true,
+                    'error' => null,
+                    'tag_count' => $vocabCount,
+                    'topic_tagged_count' => $topicTaggedCount,
+                    'ai_assignment_count' => $provenance ? $aiCount : 0,
+                    'untagged_topics' => max(0, $topicTotal - $topicTaggedCount),
+                ];
+            });
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => $e->getMessage(),
+                'tag_count' => 0,
+                'topic_tagged_count' => 0,
+                'ai_assignment_count' => 0,
+                'untagged_topics' => 0,
+            ];
+        }
     }
 
     /**

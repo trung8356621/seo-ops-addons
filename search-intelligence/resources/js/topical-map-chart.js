@@ -1,6 +1,7 @@
 /**
  * Site-level Topical Map — Apache ECharts (Tree / Network / Sunburst).
  * Presentation only: overview is injected; children/network via Livewire.
+ * Full-viewport canvas: no persistent side panel. Tag filter applied server-side in overview.
  */
 import * as echarts from 'echarts/core';
 import { TreeChart, GraphChart, SunburstChart } from 'echarts/charts';
@@ -23,7 +24,6 @@ echarts.use([
 
 const ROOT_SELECTOR = '[data-topical-map-root]';
 const META_SELECTOR = '[data-topical-map-meta]';
-const SIDE_SELECTOR = '[data-topical-map-side]';
 
 /** @type {import('echarts').ECharts|null} */
 let chart = null;
@@ -37,6 +37,12 @@ let renderer = 'tree';
 const childrenCache = new Map();
 /** @type {WeakMap<HTMLElement, boolean>} */
 const wired = new WeakMap();
+/** @type {ResizeObserver|null} */
+let resizeObserver = null;
+/** @type {number|null} */
+let lastClickTopicId = null;
+/** @type {number} */
+let lastClickAt = 0;
 
 function parseOverview(el) {
     const raw = el.getAttribute('data-overview') || '';
@@ -85,6 +91,7 @@ function buildTreeOption(data) {
             article_count: topic.article_count,
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
+            tags: topic.tags,
             collapsed: ! cached,
         };
         if (cached?.children?.length) {
@@ -108,9 +115,13 @@ function buildTreeOption(data) {
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'keyword') {
-                    return `<strong>${escapeHtml(d.name || '')}</strong><br/>Keyword`;
+                    return `<strong>${escapeHtml(d.name || '')}</strong><br/>Keyword`
+                        + (d.article_count ? `<br/>Articles: ${d.article_count}` : '');
                 }
                 if (d.nodeType === 'topic') {
+                    const tagNames = Array.isArray(d.tags)
+                        ? d.tags.map((t) => t.name).filter(Boolean).join(', ')
+                        : '';
                     return [
                         `<strong>${escapeHtml(String(d.name || '').split('\n')[0] || '')}</strong>`,
                         `MCP: ${Number(d.mcp ?? 0).toFixed(1)}%`,
@@ -118,6 +129,8 @@ function buildTreeOption(data) {
                         `Articles: ${d.article_count ?? 0}`,
                         `Keywords: ${d.keyword_count ?? 0}`,
                         d.coverage ? `Coverage: ${escapeHtml(String(d.coverage))}` : '',
+                        tagNames ? `Tags: ${escapeHtml(tagNames)}` : '',
+                        '<em>Double-click to open Topic</em>',
                     ].filter(Boolean).join('<br/>');
                 }
                 return escapeHtml(params?.name || 'Site');
@@ -138,7 +151,7 @@ function buildTreeOption(data) {
                 top: '4%',
                 left: '8%',
                 bottom: '4%',
-                right: '22%',
+                right: '18%',
                 symbolSize: 10,
                 orient: 'LR',
                 expandAndCollapse: true,
@@ -181,6 +194,7 @@ function buildSunburstOption(data) {
             article_count: topic.article_count,
             keyword_count: topic.keyword_count,
             coverage: topic.coverage,
+            tags: topic.tags,
         };
         if (cached?.children?.length) {
             node.children = cached.children.map((child) => ({
@@ -188,6 +202,7 @@ function buildSunburstOption(data) {
                 value: 1,
                 keywordId: Number(child.id),
                 nodeType: 'keyword',
+                article_count: child.article_count ?? 0,
             }));
         }
         return node;
@@ -205,6 +220,7 @@ function buildSunburstOption(data) {
                         `Articles: ${d.article_count ?? d.value ?? 0}`,
                         `Keywords: ${d.keyword_count ?? 0}`,
                         `MCP: ${Number(d.mcp ?? 0).toFixed(1)}%`,
+                        '<em>Double-click to open Topic</em>',
                     ].join('<br/>');
                 }
                 return `<strong>${escapeHtml(params?.name || '')}</strong>`;
@@ -248,7 +264,8 @@ function buildNetworkOption(neighborhood) {
                     return 'Topic membership';
                 }
                 const d = params.data || {};
-                return `<strong>${escapeHtml(d.name || '')}</strong><br/>${escapeHtml(d.category || '')}`;
+                return `<strong>${escapeHtml(d.name || '')}</strong><br/>${escapeHtml(d.category || '')}`
+                    + (d.nodeType === 'topic' ? '<br/><em>Double-click to open Topic</em>' : '');
             },
         },
         series: [
@@ -299,22 +316,6 @@ function escapeHtml(value) {
         .replaceAll('"', '&quot;');
 }
 
-function updateSidePanel(payload) {
-    const side = document.querySelector(SIDE_SELECTOR);
-    if (! side) {
-        return;
-    }
-    if (! payload) {
-        side.innerHTML = '<p class="topical-map-side__placeholder">Select a Topic or Keyword node.</p>';
-        return;
-    }
-    const rows = Object.entries(payload)
-        .filter(([, v]) => v !== undefined && v !== null && v !== '')
-        .map(([k, v]) => `<div class="topical-map-side__row"><span>${escapeHtml(k)}</span><strong>${escapeHtml(String(v))}</strong></div>`)
-        .join('');
-    side.innerHTML = rows || '<p class="topical-map-side__placeholder">No details.</p>';
-}
-
 function updateMeta(text) {
     const meta = document.querySelector(META_SELECTOR);
     if (! meta) {
@@ -336,8 +337,18 @@ function ensureChart() {
     if (! chart) {
         chart = echarts.init(rootEl, undefined, { renderer: 'canvas' });
         chart.on('click', onChartClick);
+        chart.on('dblclick', onChartDblClick);
+        rootEl.addEventListener('wheel', onChartWheel, { passive: false });
     }
     return chart;
+}
+
+function onChartWheel(event) {
+    // Keep wheel interaction inside the map canvas (layout already overflow:hidden).
+    if (! rootEl || ! rootEl.contains(event.target)) {
+        return;
+    }
+    event.preventDefault();
 }
 
 async function onChartClick(params) {
@@ -345,15 +356,14 @@ async function onChartClick(params) {
     const wire = rootEl ? findLivewireComponent(rootEl) : null;
 
     if (data.nodeType === 'topic' && data.topicId) {
-        updateSidePanel({
-            Type: 'Topic',
-            Name: String(data.name || '').split('\n')[0],
-            MCP: `${Number(data.mcp ?? 0).toFixed(1)}%`,
-            DNA: data.dna_count ?? 0,
-            Articles: data.article_count ?? 0,
-            Keywords: data.keyword_count ?? 0,
-            Coverage: data.coverage ?? '',
-        });
+        const now = Date.now();
+        const isDouble = lastClickTopicId === Number(data.topicId) && (now - lastClickAt) < 350;
+        lastClickTopicId = Number(data.topicId);
+        lastClickAt = now;
+        if (isDouble) {
+            return;
+        }
+
         if (wire) {
             try {
                 await wire.call('focusTopic', Number(data.topicId));
@@ -371,14 +381,21 @@ async function onChartClick(params) {
         }
         return;
     }
+}
 
-    if (data.nodeType === 'keyword') {
-        updateSidePanel({
-            Type: 'Keyword',
-            Name: data.name || '',
-            Id: data.keywordId ?? '',
-            Articles: data.article_count ?? 0,
-        });
+async function onChartDblClick(params) {
+    const data = params?.data || {};
+    if (data.nodeType !== 'topic' || ! data.topicId) {
+        return;
+    }
+    const wire = rootEl ? findLivewireComponent(rootEl) : null;
+    if (! wire) {
+        return;
+    }
+    try {
+        await wire.call('openTopicDetail', Number(data.topicId));
+    } catch (error) {
+        console.warn('[TopicalMap] openTopicDetail failed', error);
     }
 }
 
@@ -435,7 +452,6 @@ function renderCurrent() {
     }
 
     if (renderer === 'network') {
-        // Network loads asynchronously; keep placeholder until data arrives.
         return;
     }
 
@@ -466,6 +482,17 @@ async function switchRenderer(next) {
 }
 
 function destroy() {
+    if (resizeObserver) {
+        try {
+            resizeObserver.disconnect();
+        } catch {
+            // ignore
+        }
+        resizeObserver = null;
+    }
+    if (rootEl) {
+        rootEl.removeEventListener('wheel', onChartWheel);
+    }
     if (chart) {
         try {
             chart.dispose();
@@ -474,6 +501,15 @@ function destroy() {
         }
         chart = null;
     }
+}
+
+function applyOverview(nextOverview) {
+    overview = nextOverview;
+    childrenCache.clear();
+    if (! overview || ! Array.isArray(overview.topics)) {
+        return;
+    }
+    switchRenderer(renderer);
 }
 
 function mount() {
@@ -495,11 +531,19 @@ function mount() {
     childrenCache.clear();
     wired.set(el, true);
 
-    if (! overview || overview.empty || ! Array.isArray(overview.topics) || overview.topics.length === 0) {
+    if (! overview || ! Array.isArray(overview.topics)) {
         return;
     }
 
     switchRenderer(renderer);
+
+    if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => {
+            onResize();
+        });
+        const shell = el.closest('.topical-map-chart-shell') || el;
+        resizeObserver.observe(shell);
+    }
 }
 
 function onResize() {
@@ -514,18 +558,15 @@ function focusTopicFromAudit(topicId) {
         return;
     }
     const topic = overview.topics.find((row) => Number(row.id) === id);
-    if (! topic) {
+    if (! topic || ! chart) {
         return;
     }
-    updateSidePanel({
-        Type: 'Topic',
-        Name: String(topic.name || ''),
-        MCP: `${Number(topic.mcp ?? 0).toFixed(1)}%`,
-        DNA: topic.dna_count ?? 0,
-        Articles: topic.article_count ?? 0,
-        Keywords: topic.keyword_count ?? 0,
-        Coverage: topic.coverage ?? '',
-    });
+    // Emphasize via dispatchAction when possible; tooltip path remains primary.
+    try {
+        chart.dispatchAction({ type: 'highlight', seriesIndex: 0, name: topic.name });
+    } catch {
+        // ignore
+    }
 }
 
 function boot() {
@@ -544,6 +585,12 @@ function boot() {
             focusTopicFromAudit(topicId);
         }
     });
+    document.addEventListener('topical-map-overview-updated', (event) => {
+        const next = event?.detail?.overview ?? event?.detail?.[0]?.overview;
+        if (next) {
+            applyOverview(next);
+        }
+    });
     if (window.Livewire) {
         window.Livewire.on('topical-map-renderer-changed', (payload) => {
             const next = payload?.renderer ?? payload?.[0]?.renderer;
@@ -555,6 +602,12 @@ function boot() {
             const topicId = payload?.topicId ?? payload?.[0]?.topicId;
             if (topicId) {
                 focusTopicFromAudit(topicId);
+            }
+        });
+        window.Livewire.on('topical-map-overview-updated', (payload) => {
+            const next = payload?.overview ?? payload?.[0]?.overview;
+            if (next) {
+                applyOverview(next);
             }
         });
     }

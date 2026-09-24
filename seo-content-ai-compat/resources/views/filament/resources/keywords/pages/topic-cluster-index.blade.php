@@ -138,9 +138,20 @@
                                 </div>
                             </div>
                         @else
-                            <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
-                                {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
-                            </x-filament::button>
+                            <div class="topic-index-stale-alert__confirm-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                                </x-filament::button>
+                                <x-filament::button
+                                    type="button"
+                                    size="sm"
+                                    color="primary"
+                                    wire:click="beginConfirmAiAudit"
+                                    :disabled="! $this->canRunAiAuditAndTags() || $reclusterActive || $topicMutationsLocked || $this->aiAuditRunning"
+                                >
+                                    {{ $this->aiAuditButtonLabel() }}
+                                </x-filament::button>
+                            </div>
                         @endif
                     </div>
                 </div>
@@ -181,6 +192,27 @@
                             <x-filament::button type="button" size="sm" color="gray" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                 {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                             </x-filament::button>
+                            @php
+                                $aiAuditCan = $this->canRunAiAuditAndTags();
+                                $aiAuditLabel = $this->aiAuditButtonLabel();
+                            @endphp
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="primary"
+                                wire:click="beginConfirmAiAudit"
+                                wire:loading.attr="disabled"
+                                wire:target="confirmRunAiAuditAndTags,beginConfirmAiAudit"
+                                :disabled="! $aiAuditCan || $reclusterActive || $topicMutationsLocked || $this->aiAuditRunning"
+                            >
+                                <span wire:loading.remove wire:target="confirmRunAiAuditAndTags">
+                                    {{ $aiAuditLabel }}
+                                </span>
+                                <span wire:loading wire:target="confirmRunAiAuditAndTags" class="inline-flex items-center gap-2">
+                                    <x-filament::loading-indicator class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.ai_audit_tags_running') }}
+                                </span>
+                            </x-filament::button>
                             <span
                                 class="inline-flex text-gray-400 dark:text-gray-500"
                                 title="{{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}"
@@ -193,6 +225,59 @@
                 </div>
             @endif
         </div>
+
+        @if ($this->confirmAiAudit)
+            @php $snap = $this->aiAuditStatusSnapshot(); @endphp
+            <div class="topic-ai-audit-modal" role="dialog" aria-modal="true" aria-labelledby="topic-ai-audit-modal-title">
+                <div class="topic-ai-audit-modal__backdrop" wire:click="cancelConfirmAiAudit"></div>
+                <div class="topic-ai-audit-modal__panel">
+                    <h3 id="topic-ai-audit-modal-title" class="topic-ai-audit-modal__title">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_modal_title') }}
+                    </h3>
+                    <p class="topic-ai-audit-modal__site">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_site') }}:
+                        <strong>{{ $snap['site_domain'] !== '' ? $snap['site_domain'] : ('#'.$snap['site_id']) }}</strong>
+                    </p>
+                    <ul class="topic-ai-audit-modal__stats">
+                        <li>{{ number_format((int) $snap['topic_count']) }} Topics</li>
+                        <li>{{ number_format((int) $snap['assigned_keywords']) }} {{ __('seo-content-ai::filament.keyword.ai_audit_tags_assigned_kw') }}</li>
+                        <li>{{ number_format((int) $snap['unassigned_keywords']) }} {{ __('seo-content-ai::filament.keyword.ai_audit_tags_unassigned_kw') }}</li>
+                        <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_existing') }}: {{ number_format((int) $snap['existing_tags']) }}</li>
+                        <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_topics_tagged') }}: {{ number_format((int) $snap['topics_with_tags']) }} / {{ number_format((int) $snap['topic_count']) }}</li>
+                        <li>{{ __('seo-content-ai::filament.keyword.ai_audit_tags_untagged') }}: {{ number_format((int) $snap['untagged_topics']) }}</li>
+                    </ul>
+                    <p class="topic-ai-audit-modal__meta">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_last_run') }}:
+                        @if (! empty($snap['last_ai_run_at']))
+                            {{ \Illuminate\Support\Carbon::parse($snap['last_ai_run_at'])->timezone(config('app.timezone'))->format('d/m/Y H:i') }}
+                        @else
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_never') }}
+                        @endif
+                    </p>
+                    <p class="topic-ai-audit-modal__meta">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_status_label') }}:
+                        @if (($snap['status'] ?? '') === 'current')
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_status_current') }}
+                        @elseif (($snap['status'] ?? '') === 'stale')
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_status_stale') }}
+                        @else
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_status_never') }}
+                        @endif
+                    </p>
+                    <p class="topic-ai-audit-modal__notice">
+                        {{ __('seo-content-ai::filament.keyword.ai_audit_tags_cost_notice') }}
+                    </p>
+                    <div class="topic-ai-audit-modal__actions">
+                        <x-filament::button type="button" size="sm" color="gray" wire:click="cancelConfirmAiAudit">
+                            {{ __('seo-content-ai::filament.keyword.topic_recluster_cancel') }}
+                        </x-filament::button>
+                        <x-filament::button type="button" size="sm" color="primary" wire:click="confirmRunAiAuditAndTags">
+                            {{ __('seo-content-ai::filament.keyword.ai_audit_tags_run') }}
+                        </x-filament::button>
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <div
             class="topic-index-toolbar"

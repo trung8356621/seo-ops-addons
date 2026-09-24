@@ -33,6 +33,12 @@ final class TopicSiteScopedTagsContractTest extends TestCase
         self::assertStringNotContainsString('is_system', $migration);
         self::assertStringNotContainsString('taggable', $migration);
         self::assertStringNotContainsString('keyword_id', $migration);
+
+        $provenance = (string) file_get_contents(
+            dirname(__DIR__, 3).'/database/migrations/2026_09_24_100000_add_source_to_seo_topic_tag_assignments.php'
+        );
+        self::assertStringContainsString("'source'", $provenance);
+        self::assertStringContainsString("'manual'", $provenance);
     }
 
     public function test_models_disable_updated_at(): void
@@ -42,6 +48,7 @@ final class TopicSiteScopedTagsContractTest extends TestCase
 
         self::assertStringContainsString('UPDATED_AT = null', $tagSrc);
         self::assertStringContainsString('UPDATED_AT = null', $assignSrc);
+        self::assertStringContainsString("'source'", $assignSrc);
         self::assertStringNotContainsString("'updated_at'", $tagSrc);
         self::assertStringNotContainsString("'updated_at'", $assignSrc);
         self::assertTrue(class_exists(SeoTopicTag::class));

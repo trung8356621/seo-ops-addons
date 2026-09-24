@@ -22,6 +22,7 @@ final class TopicalMapReadModel
     public function __construct(
         private readonly KeywordLandscapeGateway $landscape,
         private readonly TopicMembershipQuery $membership,
+        private readonly TopicUserTagService $topicTags = new TopicUserTagService,
     ) {}
 
     public function overview(int $siteId): TopicalMapOverview
@@ -41,14 +42,29 @@ final class TopicalMapReadModel
 
         $topicIds = array_map(static fn ($t): int => $t->id, $topics);
         $keywordCounts = $this->membership->keywordCountsByTopicIds($siteId, $topicIds);
+        $tagsByTopic = $this->topicTags->mapForTopics($siteId, $topicIds);
+        $tagFacets = $this->topicTags->listForSite($siteId);
+        $facetRows = array_map(
+            static fn (array $tag): array => [
+                'id' => (int) $tag['id'],
+                'name' => (string) $tag['name'],
+                'topic_count' => (int) $tag['topic_count'],
+            ],
+            $tagFacets,
+        );
 
         $nodes = [];
         $totalArticles = 0;
         $totalKeywords = 0;
+        $untaggedCount = 0;
         foreach ($topics as $topic) {
             $kwCount = (int) ($keywordCounts[$topic->id] ?? 0);
             $totalArticles += $topic->articleCount;
             $totalKeywords += $kwCount;
+            $topicTags = $tagsByTopic[$topic->id] ?? [];
+            if ($topicTags === []) {
+                $untaggedCount++;
+            }
             $nodes[] = [
                 'id' => $topic->id,
                 'name' => $topic->name,
@@ -59,6 +75,7 @@ final class TopicalMapReadModel
                 'coverage' => $topic->coverage,
                 'status' => $topic->status,
                 'has_children' => $kwCount > 0 || $topic->dnaCount > 0,
+                'tags' => $topicTags,
             ];
         }
 
@@ -69,7 +86,43 @@ final class TopicalMapReadModel
             totalArticles: $totalArticles,
             totalKeywords: $totalKeywords,
             sourceUpdatedAt: $landscape->sourceUpdatedAt,
+            tagFacets: $facetRows,
+            untaggedCount: $untaggedCount,
         );
+    }
+
+    /**
+     * Filter overview topics by selected tag facet ids (OR). Empty selection / "all" = no filter.
+     *
+     * @param  list<int>  $selectedTagIds  Positive tag ids; include 0 for Untagged facet.
+     * @return list<array<string, mixed>>
+     */
+    public function filterTopicsByTags(array $topics, array $selectedTagIds, bool $includeUntagged = false): array
+    {
+        $selectedTagIds = array_values(array_unique(array_filter(
+            array_map('intval', $selectedTagIds),
+            static fn (int $id): bool => $id > 0,
+        )));
+        if ($selectedTagIds === [] && ! $includeUntagged) {
+            return $topics;
+        }
+
+        return array_values(array_filter($topics, static function (array $topic) use ($selectedTagIds, $includeUntagged): bool {
+            $tags = is_array($topic['tags'] ?? null) ? $topic['tags'] : [];
+            if ($tags === []) {
+                return $includeUntagged;
+            }
+            if ($selectedTagIds === []) {
+                return false;
+            }
+            foreach ($tags as $tag) {
+                if (in_array((int) ($tag['id'] ?? 0), $selectedTagIds, true)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
     }
 
     public function topicChildren(int $siteId, int $topicId, int $limit = TopicalMapTopicChildren::MAX_CHILDREN): ?TopicalMapTopicChildren

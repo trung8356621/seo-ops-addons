@@ -9,6 +9,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
  */
 final class TopicalMapAuditContracts
 {
+    public const MAX_TAG_TAXONOMY = 20;
+
     /** @var list<string> */
     public const FINDING_TYPES = [
         'strong_coverage',

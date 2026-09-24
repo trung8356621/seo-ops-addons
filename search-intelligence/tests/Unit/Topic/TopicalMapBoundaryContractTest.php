@@ -76,7 +76,9 @@ final class TopicalMapBoundaryContractTest extends TestCase
         self::assertStringContainsString("'tree', 'network', 'sunburst'", $pageSrc);
         self::assertStringContainsString('loadTopicChildren', $pageSrc);
         self::assertStringContainsString('loadNetworkNeighborhood', $pageSrc);
-        self::assertStringContainsString('runTopicalMapAudit', $pageSrc);
+        self::assertStringContainsString('beginConfirmAiAudit', $pageSrc);
+        self::assertStringContainsString('redirectToFirstAccessibleDomainIfNeeded', $pageSrc);
+        self::assertStringContainsString("getUrl('topical-map')", $pageSrc);
 
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php',
@@ -115,19 +117,47 @@ final class TopicalMapBoundaryContractTest extends TestCase
                 'coverage' => 'partial',
                 'status' => 'active',
                 'has_children' => true,
+                'tags' => [['id' => 1, 'name' => 'B2B']],
             ]],
             topicCount: 1,
             totalArticles: 12,
             totalKeywords: 23,
             sourceUpdatedAt: '2026-09-01T00:00:00+00:00',
+            tagFacets: [['id' => 1, 'name' => 'B2B', 'topic_count' => 1]],
+            untaggedCount: 0,
         );
         $arr = $dto->toArray();
         self::assertSame(9, $arr['site_id']);
         self::assertSame(1, $arr['summary']['topic_count']);
         self::assertSame(12, $arr['summary']['total_articles']);
         self::assertSame(23, $arr['summary']['total_keywords']);
+        self::assertSame(0, $arr['summary']['untagged_count']);
         self::assertSame('Balo', $arr['topics'][0]['name']);
         self::assertTrue($arr['topics'][0]['has_children']);
+        self::assertSame('B2B', $arr['topics'][0]['tags'][0]['name']);
+        self::assertSame('B2B', $arr['tag_facets'][0]['name']);
+    }
+
+    public function test_filter_topics_by_tags_uses_or_and_untagged(): void
+    {
+        $model = (new ReflectionClass(TopicalMapReadModel::class))->newInstanceWithoutConstructor();
+        $topics = [
+            ['id' => 1, 'name' => 'A', 'tags' => [['id' => 10, 'name' => 'B2B']]],
+            ['id' => 2, 'name' => 'B', 'tags' => [['id' => 11, 'name' => 'OEM']]],
+            ['id' => 3, 'name' => 'C', 'tags' => []],
+        ];
+
+        $all = $model->filterTopicsByTags($topics, [], false);
+        self::assertCount(3, $all);
+
+        $or = $model->filterTopicsByTags($topics, [10, 11], false);
+        self::assertSame([1, 2], array_column($or, 'id'));
+
+        $untagged = $model->filterTopicsByTags($topics, [], true);
+        self::assertSame([3], array_column($untagged, 'id'));
+
+        $mixed = $model->filterTopicsByTags($topics, [10], true);
+        self::assertSame([1, 3], array_column($mixed, 'id'));
     }
 
     public function test_children_dto_reports_truncation(): void

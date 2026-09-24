@@ -21,7 +21,9 @@ use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 
 /**
  * AI Topical Map Audit — Prompt registry + MCP bundle (site + keywords + gsc)
- * + structural Topical Map projection. Does not create Topics or articles.
+ * + structural Topical Map projection + existing Topic Tags.
+ * One execution = audit findings + tag suggestions. Does not create Topics or articles.
+ * Does not auto-run after Recluster.
  */
 final class TopicalMapAuditService
 {
@@ -41,6 +43,7 @@ final class TopicalMapAuditService
         private readonly SitePrimaryLanguageService $primaryLanguage,
         private readonly SiteDomainPromptContextService $domainPromptContext,
         private readonly TopicalMapAuditResultParser $parser,
+        private readonly TopicUserTagService $topicTags,
     ) {}
 
     /**
@@ -48,7 +51,15 @@ final class TopicalMapAuditService
      *   ok: bool,
      *   message: string,
      *   payload: array<string, mixed>|null,
-     *   prompt_result_id: int|null
+     *   prompt_result_id: int|null,
+     *   tag_apply: array{
+     *     ok: bool,
+     *     error: ?string,
+     *     tag_count: int,
+     *     topic_tagged_count: int,
+     *     ai_assignment_count: int,
+     *     untagged_topics: int
+     *   }|null
      * }
      */
     public function audit(int $siteId, ?int $actorId = null): array
@@ -78,6 +89,20 @@ final class TopicalMapAuditService
             return $this->fail('Failed to encode Topical Map overview.');
         }
 
+        $existingTags = $this->topicTags->listForSite($siteId);
+        $existingTagsPayload = array_map(
+            static fn (array $tag): array => [
+                'name' => (string) ($tag['name'] ?? ''),
+                'slug' => (string) ($tag['slug'] ?? ''),
+                'topic_count' => (int) ($tag['topic_count'] ?? 0),
+            ],
+            $existingTags,
+        );
+        $existingTagsJson = json_encode($existingTagsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (! is_string($existingTagsJson)) {
+            $existingTagsJson = '[]';
+        }
+
         $period = $this->periods->currentOpenOrLatestFinalized() ?? $this->periods->ensureCurrentMonth();
         $periodKey = $period->periodKey();
         $mcpMarkdown = $this->mcpContext->build($siteId, $periodKey);
@@ -100,6 +125,7 @@ final class TopicalMapAuditService
                 actorId: $actorId,
                 mcpMarkdown: $mcpMarkdown,
                 topicalMapJson: $mapJson,
+                existingTopicTagsJson: $existingTagsJson,
                 primaryLanguage: $language,
                 siteDomain: (string) ($site->domain ?? ''),
                 periodKey: $periodKey,
@@ -112,16 +138,42 @@ final class TopicalMapAuditService
             return $this->fail('Topical Map audit failed: '.$e->getMessage());
         }
 
-        $parsed = $this->parser->parse($run['value'], $allowedTopicRefs);
+        $parsed = $this->parser->parse($run['value'], $allowedTopicRefs, $existingTags);
         if (! $parsed['ok']) {
             return $this->fail($parsed['message'], $run['prompt_result_id']);
+        }
+
+        $payload = $parsed['payload'] ?? [];
+        $tagSuggestions = is_array($payload['tag_suggestions'] ?? null) ? $payload['tag_suggestions'] : [
+            'taxonomy' => [],
+            'assignments' => [],
+        ];
+        $taxonomy = is_array($tagSuggestions['taxonomy'] ?? null) ? $tagSuggestions['taxonomy'] : [];
+        $assignments = is_array($tagSuggestions['assignments'] ?? null) ? $tagSuggestions['assignments'] : [];
+
+        $tagApply = $this->topicTags->syncAiSuggestions(
+            $siteId,
+            $taxonomy,
+            $assignments,
+            $overview->topicCount,
+        );
+
+        if (! ($tagApply['ok'] ?? false)) {
+            return [
+                'ok' => true,
+                'message' => 'Audit succeeded but Tag apply failed: '.(string) ($tagApply['error'] ?? 'unknown'),
+                'payload' => $payload,
+                'prompt_result_id' => $run['prompt_result_id'],
+                'tag_apply' => $tagApply,
+            ];
         }
 
         return [
             'ok' => true,
             'message' => '',
-            'payload' => $parsed['payload'],
+            'payload' => $payload,
             'prompt_result_id' => $run['prompt_result_id'],
+            'tag_apply' => $tagApply,
         ];
     }
 
@@ -187,6 +239,7 @@ final class TopicalMapAuditService
         ?int $actorId,
         string $mcpMarkdown,
         string $topicalMapJson,
+        string $existingTopicTagsJson,
         string $primaryLanguage,
         string $siteDomain,
         string $periodKey,
@@ -203,6 +256,7 @@ final class TopicalMapAuditService
         $input = [
             'mcp_markdown' => $mcpMarkdown,
             'topical_map_json' => $topicalMapJson,
+            'existing_topic_tags_json' => $existingTopicTagsJson,
             'primary_language' => $primaryLanguage,
             'site_domain' => $siteDomain,
             'period_key' => $periodKey,
@@ -258,7 +312,13 @@ final class TopicalMapAuditService
     }
 
     /**
-     * @return array{ok: bool, message: string, payload: null, prompt_result_id: int|null}
+     * @return array{
+     *   ok: bool,
+     *   message: string,
+     *   payload: null,
+     *   prompt_result_id: int|null,
+     *   tag_apply: null
+     * }
      */
     private function fail(string $message, ?int $promptResultId = null): array
     {
@@ -267,6 +327,7 @@ final class TopicalMapAuditService
             'message' => $message,
             'payload' => null,
             'prompt_result_id' => $promptResultId,
+            'tag_apply' => null,
         ];
     }
 }

@@ -17,27 +17,33 @@ use ReflectionClass;
 
 final class TopicalMapAuditContractTest extends TestCase
 {
-    public function test_hook_key_and_version_match_installer_0_2_0(): void
+    public function test_hook_key_and_version_match_installer_0_3_0(): void
     {
         self::assertSame('seo_keywords.topical_map_audit', TopicalMapAuditService::HOOK_KEY);
-        self::assertSame('0.2.0', TopicalMapAuditService::HOOK_VERSION);
+        self::assertSame('0.3.0', TopicalMapAuditService::HOOK_VERSION);
         self::assertSame(TopicalMapAuditService::HOOK_KEY, DefaultTopicalMapAuditPromptInstaller::HOOK_KEY);
         self::assertSame(TopicalMapAuditService::HOOK_VERSION, DefaultTopicalMapAuditPromptInstaller::HOOK_VERSION);
     }
 
-    public function test_historical_0_1_0_json_preserved_and_0_2_0_is_current_spec(): void
+    public function test_historical_0_1_0_and_0_2_0_preserved_and_0_3_0_is_current_spec(): void
     {
-        $v01 = dirname((string) (new ReflectionClass(DefaultTopicalMapAuditPromptInstaller::class))->getFileName(), 4)
-            .'/resources/prompt-hooks/v01/seo_keywords.topical_map_audit@0.1.0.json';
+        $base = dirname((string) (new ReflectionClass(DefaultTopicalMapAuditPromptInstaller::class))->getFileName(), 4)
+            .'/resources/prompt-hooks/v01/';
+        $v01 = $base.'seo_keywords.topical_map_audit@0.1.0.json';
+        $v02 = $base.'seo_keywords.topical_map_audit@0.2.0.json';
         self::assertFileExists($v01);
+        self::assertFileExists($v02);
         $old = json_decode((string) file_get_contents($v01), true);
+        $mid = json_decode((string) file_get_contents($v02), true);
         self::assertSame('0.1.0', $old['version'] ?? null);
+        self::assertSame('0.2.0', $mid['version'] ?? null);
 
         $spec = DefaultTopicalMapAuditPromptInstaller::loadCanonicalSpec();
         self::assertSame('seo_keywords.topical_map_audit', $spec['key'] ?? null);
-        self::assertSame('0.2.0', $spec['version'] ?? null);
+        self::assertSame('0.3.0', $spec['version'] ?? null);
         self::assertArrayHasKey('mcp_markdown', $spec['input_schema'] ?? []);
         self::assertArrayHasKey('topical_map_json', $spec['input_schema'] ?? []);
+        self::assertArrayHasKey('existing_topic_tags_json', $spec['input_schema'] ?? []);
         self::assertArrayHasKey('company_short_identity', $spec['input_schema'] ?? []);
         self::assertArrayHasKey('short_description', $spec['input_schema'] ?? []);
     }
@@ -52,8 +58,10 @@ final class TopicalMapAuditContractTest extends TestCase
         self::assertStringContainsString('weak_coverage', $markdown);
         self::assertStringContainsString('investigate_new_topic', $markdown);
         self::assertStringContainsString('recommended_actions', $markdown);
+        self::assertStringContainsString('tag_suggestions', $markdown);
         self::assertStringContainsString('{{mcp_markdown}}', $markdown);
         self::assertStringContainsString('{{topical_map_json}}', $markdown);
+        self::assertStringContainsString('{{existing_topic_tags_json}}', $markdown);
         self::assertStringContainsString('{{company_short_identity}}', $markdown);
         self::assertStringNotContainsString('SEO score:', $markdown);
     }
@@ -154,6 +162,46 @@ final class TopicalMapAuditContractTest extends TestCase
         self::assertSame(['MCP 12%', 'DNA 1'], $result['payload']['findings'][0]['evidence']);
         self::assertSame('Add supporting pages', $result['payload']['opportunities'][0]['suggested_direction']);
         self::assertSame('expand_topic', $result['payload']['recommended_actions'][0]['action_type']);
+        self::assertArrayHasKey('tag_suggestions', $result['payload']);
+    }
+
+    public function test_parser_validates_tag_suggestions_refs_and_taxonomy_cap(): void
+    {
+        $parser = new TopicalMapAuditResultParser;
+        $result = $parser->parse([
+            'summary' => 'ok',
+            'findings' => [],
+            'opportunities' => [],
+            'recommended_actions' => [['priority' => 1, 'action_type' => 'no_action', 'title' => 'hold']],
+            'tag_suggestions' => [
+                'taxonomy' => [
+                    ['name' => 'B2B'],
+                    ['name' => 'b2b'],
+                    ['name' => 'OEM'],
+                    ['name' => 'Ghost'],
+                ],
+                'assignments' => [
+                    ['topic_ref' => 'topic:12', 'tags' => ['B2B', 'OEM', 'Unknown']],
+                    ['topic_ref' => 'topic:999', 'tags' => ['B2B']],
+                    ['topic_ref' => 'topic:12', 'tags' => ['OEM']],
+                ],
+            ],
+        ], ['topic:12'], [
+            ['name' => 'Existing', 'slug' => 'existing'],
+        ]);
+
+        self::assertTrue($result['ok']);
+        $tags = $result['payload']['tag_suggestions'];
+        $names = array_column($tags['taxonomy'], 'name');
+        self::assertContains('B2B', $names);
+        self::assertContains('OEM', $names);
+        self::assertContains('Ghost', $names);
+        self::assertCount(1, $tags['assignments']);
+        self::assertSame('topic:12', $tags['assignments'][0]['topic_ref']);
+        self::assertSame(12, $tags['assignments'][0]['topic_id']);
+        self::assertContains('B2B', $tags['assignments'][0]['tags']);
+        self::assertContains('OEM', $tags['assignments'][0]['tags']);
+        self::assertNotContains('Unknown', $tags['assignments'][0]['tags']);
     }
 
     public function test_parser_rejects_invalid_type_severity_action_and_unknown_topic_ref(): void
@@ -212,8 +260,8 @@ final class TopicalMapAuditContractTest extends TestCase
         $pageSrc = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName());
         self::assertStringContainsString('TopicalMapAuditHistoryLinker', $pageSrc);
         self::assertStringContainsString('focusTopicFromRef', $pageSrc);
-        self::assertStringContainsString('topical_map_audit_empty', $pageSrc);
         self::assertStringContainsString('auditPromptResultId', $pageSrc);
+        self::assertStringContainsString('beginConfirmAiAudit', $pageSrc);
 
         $blade = dirname((string) (new ReflectionClass(KeywordTopicalMap::class))->getFileName(), 6)
             .'/../seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-topical-map.blade.php';
@@ -224,8 +272,10 @@ final class TopicalMapAuditContractTest extends TestCase
         $bladeSrc = (string) file_get_contents($bladePath);
         self::assertStringContainsString('focusTopicFromRef', $bladeSrc);
         self::assertStringContainsString('topical-map-audit__badge', $bladeSrc);
-        self::assertStringContainsString('@disabled($empty)', $bladeSrc);
+        self::assertStringContainsString('beginConfirmAiAudit', $bladeSrc);
+        self::assertStringContainsString('ai_audit_tags', $bladeSrc);
         self::assertStringNotContainsString('json_encode($this->auditResult', $bladeSrc);
+        self::assertStringNotContainsString('topical-map-side', $bladeSrc);
     }
 
     public function test_finding_and_action_enums_are_closed(): void
