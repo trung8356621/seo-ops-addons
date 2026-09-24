@@ -207,6 +207,109 @@ export function topicCardTitle(topic) {
     return topicDistinctTitle(topic) || previewText(topic.full_text || topic.preview, 80);
 }
 
+/**
+ * Flat target/link rows for the active-topic sidebar (no platform grouping).
+ * Composed at UI/read-model level from topic.links + progress fields.
+ *
+ * @param {Record<string, unknown>|null|undefined} topic
+ * @param {Record<string, Record<string, unknown>>} [linkPreviewCache]
+ * @returns {Array<{
+ *   key: string,
+ *   title: string,
+ *   url: string,
+ *   urlShort: string,
+ *   completed: number,
+ *   target: number,
+ * }>}
+ */
+export function deriveActiveTopicLinkTargets(topic, linkPreviewCache = {}) {
+    if (!topic || typeof topic !== 'object') return [];
+
+    const completed = Number(
+        topic.completed_comments
+        ?? topic.current_user_report_count
+        ?? 0,
+    );
+    const target = Number(
+        topic.target_comments
+        ?? topic.max_comments_target
+        ?? topic.required_report_count
+        ?? 0,
+    );
+
+    /** @type {Array<Record<string, unknown>>} */
+    const rawLinks = Array.isArray(topic.links) ? topic.links : [];
+    const rows = [];
+    const seen = new Set();
+
+    const pushUrl = (url, meta = {}) => {
+        const href = String(url || '').trim();
+        if (!href) return;
+        const key = href.toLowerCase().replace(/\/$/, '');
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const cacheHit = linkPreviewCache[meta.normalized_url]
+            || linkPreviewCache[key]
+            || null;
+        const domain = String(
+            meta.preview_domain
+            || cacheHit?.preview_domain
+            || hostOf(href)
+            || '',
+        ).trim();
+        const title = String(
+            meta.title
+            || meta.label
+            || meta.preview_title
+            || cacheHit?.preview_title
+            || domain
+            || 'Link',
+        ).trim() || 'Link';
+
+        rows.push({
+            key,
+            title,
+            url: href,
+            urlShort: shortenUrlForSidebar(href),
+            completed: Number.isFinite(completed) ? Math.max(0, completed) : 0,
+            target: Number.isFinite(target) ? Math.max(0, target) : 0,
+        });
+    };
+
+    for (const link of rawLinks) {
+        if (!link || typeof link !== 'object') continue;
+        pushUrl(link.url || link.normalized_url || link.preview_url, link);
+    }
+
+    const social = String(topic.social_url || '').trim();
+    if (social) {
+        pushUrl(social, { preview_title: topicDistinctTitle(topic) });
+    }
+
+    return rows;
+}
+
+/**
+ * @param {string} url
+ * @param {number} [max]
+ */
+export function shortenUrlForSidebar(url, max = 42) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    try {
+        const u = new URL(raw);
+        const host = u.hostname.replace(/^www\./i, '');
+        const path = `${u.pathname || ''}${u.search || ''}`.replace(/\/$/, '');
+        const full = path && path !== '/' ? `${host}${path}` : host;
+        if (full.length <= max) return full;
+        return `${full.slice(0, Math.max(8, max - 1))}…`;
+    } catch {
+        if (raw.length <= max) return raw;
+        return `${raw.slice(0, Math.max(8, max - 1))}…`;
+    }
+}
+
 export function commentsCount(topic) {
     return Array.isArray(topic?.comments) ? topic.comments.length : 0;
 }

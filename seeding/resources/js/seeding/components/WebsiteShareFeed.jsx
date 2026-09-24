@@ -6,6 +6,7 @@ import {
     generateSampleComments,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
+import WebsiteShareCard from './WebsiteShareCard';
 
 const FILTERS = [
     { id: 'all', label: 'Tất cả' },
@@ -15,14 +16,6 @@ const FILTERS = [
     { id: 'sharing', label: 'Đang chia sẻ' },
     { id: 'completed', label: 'Đã hoàn thành' },
 ];
-
-function formatCountdown(seconds) {
-    const s = Math.max(0, Number(seconds) || 0);
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    if (m <= 0) return `Còn ${r} giây`;
-    return `Còn ${m} phút`;
-}
 
 /**
  * Website Share feed — independent from Topic Comment seeding.
@@ -142,91 +135,22 @@ export default function WebsiteShareFeed({ canMutate }) {
             ) : null}
 
             <div className="seeding-ws__feed-grid">
-                {jobs.map((job) => {
-                    const scheduled = job.status === 'scheduled';
-                    const busy = busyId === job.id;
-                    return (
-                        <article key={job.id} className="seeding-ws__ws-card" data-website-share-card>
-                            {job.thumbnail_url ? (
-                                <img className="seeding-ws__ws-thumb" src={job.thumbnail_url} alt="" />
-                            ) : null}
-                            <div>
-                                <strong>{job.title || 'Bài website'}</strong>
-                                <div className="seeding-ws__page-sub">{job.domain || '—'}</div>
-                            </div>
-                            <div className="seeding-ws__vcard-chips">
-                                <span className="seeding-ws__chip">Index: {job.indexed_at_label || '—'}</span>
-                                <span className="seeding-ws__chip">{job.status_label || job.status}</span>
-                                {(job.targets || []).map((t) => (
-                                    <span key={t.id || t.social} className="seeding-ws__chip">
-                                        {t.social_label || t.social} {t.completed_count}/{t.target_count}
-                                    </span>
-                                ))}
-                            </div>
-
-                            {scheduled ? (
-                                <p className="seeding-ws__page-sub">
-                                    Chờ tạo nhiệm vụ — {formatCountdown(job.seconds_until_eligible)}
-                                </p>
-                            ) : (
-                                <>
-                                    {editingId === job.id ? (
-                                        <textarea
-                                            className="seeding-ws__textarea"
-                                            value={draft}
-                                            onChange={(e) => setDraft(e.target.value)}
-                                        />
-                                    ) : (
-                                        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                                            {job.share_content || 'Chưa có nội dung share.'}
-                                        </p>
-                                    )}
-
-                                    <div className="seeding-ws__vcard-actions">
-                                        {editingId === job.id ? (
-                                            <button type="button" className="seeding-ws__btn seeding-ws__btn--primary" disabled={busy} onClick={() => onSaveEdit(job)}>
-                                                Lưu
-                                            </button>
-                                        ) : (
-                                            <>
-                                                <button type="button" className="seeding-ws__btn seeding-ws__btn--primary" disabled={!canMutate || busy} onClick={() => onGen(job)}>
-                                                    {job.share_content ? 'Gen lại' : 'Tạo nội dung'}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="seeding-ws__btn seeding-ws__btn--ghost"
-                                                    disabled={!canMutate}
-                                                    onClick={() => { setEditingId(job.id); setDraft(job.share_content || ''); }}
-                                                >
-                                                    Sửa
-                                                </button>
-                                                <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => onCopy(job)}>
-                                                    Copy
-                                                </button>
-                                                {(job.targets || []).filter((t) => !t.is_complete).map((t) => (
-                                                    <button
-                                                        key={`report-${t.social}`}
-                                                        type="button"
-                                                        className="seeding-ws__btn seeding-ws__btn--ghost"
-                                                        disabled={!canMutate || busy || !job.share_content}
-                                                        onClick={() => onReport(job, t.social)}
-                                                    >
-                                                        Báo cáo {t.social_label || t.social}
-                                                    </button>
-                                                ))}
-                                                {job.article_url ? (
-                                                    <a className="seeding-ws__btn seeding-ws__btn--ghost" href={job.article_url} target="_blank" rel="noreferrer">
-                                                        Mở bài
-                                                    </a>
-                                                ) : null}
-                                            </>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </article>
-                    );
-                })}
+                {jobs.map((job) => (
+                    <WebsiteShareCard
+                        key={job.id}
+                        job={job}
+                        canMutate={canMutate}
+                        busy={busyId === job.id}
+                        editing={editingId === job.id}
+                        draft={draft}
+                        onDraftChange={setDraft}
+                        onGen={onGen}
+                        onStartEdit={(j) => { setEditingId(j.id); setDraft(j.share_content || ''); }}
+                        onSaveEdit={onSaveEdit}
+                        onCopy={onCopy}
+                        onReport={onReport}
+                    />
+                ))}
             </div>
         </div>
     );

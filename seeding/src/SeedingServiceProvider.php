@@ -27,6 +27,7 @@ use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentPromptController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewImageController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerTopicsController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingReportController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
@@ -292,6 +293,9 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.comments.generate');
                 Route::post('/link-preview', SeedingLinkPreviewController::class)
                     ->name('seeding.link-preview');
+                Route::get('/link-preview/image/{hash}', SeedingLinkPreviewImageController::class)
+                    ->where('hash', '[a-f0-9]{40}')
+                    ->name('seeding.link-preview.image');
 
                 Route::get('/manager/comment-prompt', [SeedingCommentPromptController::class, 'show'])
                     ->name('seeding.manager.comment-prompt.show');

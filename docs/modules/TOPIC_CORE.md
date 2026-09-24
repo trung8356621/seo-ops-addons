@@ -1,6 +1,6 @@
 # Topic Core (site-scoped)
 
-> Last verified: 2026-09-18 (Phase 2A seed-source correction)
+> Last verified: 2026-09-24 (Keyword MCP Type 2 closure docs pointer)
 
 Owner: `search-intelligence/`  
 Capability: `search.topic`
@@ -79,3 +79,13 @@ See [WEBSITE_TYPE.md](./WEBSITE_TYPE.md) — Manufacturer UI = `production` inte
 ## Linked articles
 
 Always filter link maps by `sourceArticle.site_id`. Never `WHERE keyword_id IN (...)` alone.
+
+## Keyword MCP
+
+Topic Core backs:
+
+- **Type 1 — Landscape** (`keywords.mcp.v2` / `KeywordLandscapeGateway`) — site Topic landscape for approved consumers only  
+- **Type 2 — Relationship** (`keyword.relationship` / `keyword.relationship.v1`) — **CLOSED — v1**; one-keyword on-demand graph; does not write `seo_mcp_source_snapshots`
+
+Canonical contract (client): `omnichannel-client/docs/contracts/KEYWORD_MCP.md`.  
+Deferred Type 2 items: `omnichannel-client/bugs/keyword-mcp-type-2-deferred.md`.

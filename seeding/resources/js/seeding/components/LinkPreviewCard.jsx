@@ -3,6 +3,7 @@ import { hasRichPreview } from '../features/workspace/content';
 
 /**
  * Shared link preview card — Topic (vertical) + Comment (compact horizontal).
+ * Media block is omitted entirely when no image (no giant empty gray placeholder).
  *
  * @param {{
  *   link: Record<string, unknown>,
@@ -27,11 +28,12 @@ export default function LinkPreviewCard({
 
     return (
         <a
-            className={`seeding-ws__link-preview seeding-ws__link-preview--${variant}`}
+            className={`seeding-ws__link-preview seeding-ws__link-preview--${variant}${image ? '' : ' is-no-media'}`}
             href={url}
             target="_blank"
             rel="noreferrer"
             data-preview-variant={variant}
+            data-has-media={image ? '1' : '0'}
             onClick={(e) => {
                 e.stopPropagation();
                 onNavigate?.(e);
@@ -47,9 +49,7 @@ export default function LinkPreviewCard({
                         className="seeding-ws__link-preview-img"
                     />
                 </div>
-            ) : (
-                <div className="seeding-ws__link-preview-media seeding-ws__link-preview-media--empty" data-preview-media />
-            )}
+            ) : null}
             <div className="seeding-ws__link-preview-body">
                 <div className="seeding-ws__link-preview-title">{title}</div>
                 {domain ? <div className="seeding-ws__link-preview-domain">{domain}</div> : null}

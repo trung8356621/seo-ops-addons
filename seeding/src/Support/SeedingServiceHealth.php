@@ -80,7 +80,7 @@ final class SeedingServiceHealth
                 'id' => (int) $user->id,
                 'display_name' => (string) ($user->name ?? ''),
                 'is_manager' => $access->isManager($user),
-                'role' => $access->isManager($user) ? 'manager' : 'seeder',
+                'role' => $this->projectRole($user, $access),
             ] : null,
             'sites' => $sites,
             'settings' => [
@@ -103,5 +103,19 @@ final class SeedingServiceHealth
                 'can_manage' => $user instanceof User && $access->canManageTopics($user),
             ],
         ];
+    }
+
+    /**
+     * Real normalized Seeding addon role for the React workspace.
+     * Uses SeedingRoleAssignment (manager > topic_creator > seeder).
+     * Core owner/admin manager bypass still projects seeding.manager.
+     */
+    private function projectRole(User $user, SeedingAccess $access): string
+    {
+        if ($access->isManager($user)) {
+            return SeedingAccess::ROLE_MANAGER;
+        }
+
+        return app(SeedingRoleAssignment::class)->resolveForUser($user);
     }
 }

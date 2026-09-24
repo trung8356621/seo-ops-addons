@@ -5,11 +5,12 @@ import FeedToolbar from './components/FeedToolbar';
 import TopicFeed from './components/TopicFeed';
 import TopicComposer from './components/TopicComposer';
 import TopicDetail from './components/TopicDetail';
-import TeamStatsSidebar from './components/TeamStatsSidebar';
+import SeedingSidebar from './components/SeedingSidebar';
 import LinkPoolPanel from './components/LinkPoolPanel';
 import ReportModal from './components/ReportModal';
 import ManagerPanel from './components/ManagerPanel';
 import WebsiteShareFeed from './components/WebsiteShareFeed';
+import SeederQuickFeed from './components/SeederQuickFeed';
 import {
     createDebouncedWriter,
     documentKey,
@@ -45,6 +46,21 @@ import {
 } from './services/shareFeed';
 import { notifyError, notifySuccess } from './services/toast';
 
+const ROLE_MANAGER = 'seeding.manager';
+const ROLE_TOPIC_CREATOR = 'seeding.topic_creator';
+const ROLE_SEEDER = 'seeding.seeder';
+
+function resolveSeedingRole(bootstrap, manager) {
+    const raw = String(bootstrap?.user?.role || '').trim().toLowerCase();
+    if (raw === ROLE_MANAGER || raw === ROLE_TOPIC_CREATOR || raw === ROLE_SEEDER) {
+        return raw;
+    }
+    // Legacy short roles from older bootstrap payloads
+    if (raw === 'manager') return ROLE_MANAGER;
+    if (raw === 'topic_creator') return ROLE_TOPIC_CREATOR;
+    if (raw === 'seeder') return ROLE_SEEDER;
+    return manager ? ROLE_MANAGER : ROLE_SEEDER;
+}
 function emptyComposerDraft() {
     return {
         localId: makeLocalDraftId(),
@@ -77,6 +93,8 @@ export default function SeedingWorkspace({
         || bootstrap?.user?.is_manager
         || bootstrap?.permissions?.is_manager
     );
+    const seedingRole = resolveSeedingRole(bootstrap, manager);
+    const isSeederQuickFeed = seedingRole === ROLE_SEEDER && !manager;
     const allowCreate = canCreateTopicProp != null
         ? Boolean(canCreateTopicProp)
         : canCreateTopic(manager, canMutate);
@@ -679,58 +697,67 @@ export default function SeedingWorkspace({
                             <div>
                                 <h1 className="seeding-ws__page-title">Seeding</h1>
                                 <p className="seeding-ws__page-sub">
-                                    Feed comment · Bài website · Quản lý (Manager)
+                                    {isSeederQuickFeed
+                                        ? 'Quick feed — comment & share website'
+                                        : 'Feed comment · Bài website · Quản lý (Manager)'}
                                 </p>
-                            </div>
-                            <div className="seeding-ws__page-head-actions">
-                                {sidebarCollapsed ? (
-                                    <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={toggleSidebar}>
-                                        Mở panel
-                                    </button>
-                                ) : null}
                             </div>
                         </header>
 
-                        <nav className="seeding-ws__main-tabs" data-main-tabs>
-                            <button
-                                type="button"
-                                className={`seeding-ws__main-tab${mainTab === 'feed' ? ' is-active' : ''}`}
-                                onClick={() => setMainTab('feed')}
-                            >
-                                Feed Seeding
-                            </button>
-                            <button
-                                type="button"
-                                className={`seeding-ws__main-tab${mainTab === 'website' ? ' is-active' : ''}`}
-                                onClick={() => setMainTab('website')}
-                            >
-                                Bài từ Website
-                            </button>
-                            {manager ? (
+                        {!isSeederQuickFeed ? (
+                            <nav className="seeding-ws__main-tabs" data-main-tabs>
                                 <button
                                     type="button"
-                                    className={`seeding-ws__main-tab${mainTab === 'manage' ? ' is-active' : ''}`}
-                                    onClick={() => setMainTab('manage')}
+                                    className={`seeding-ws__main-tab${mainTab === 'feed' ? ' is-active' : ''}`}
+                                    onClick={() => setMainTab('feed')}
                                 >
-                                    Quản lý / Tổng kết
+                                    Feed Seeding
                                 </button>
-                            ) : null}
-                        </nav>
+                                <button
+                                    type="button"
+                                    className={`seeding-ws__main-tab${mainTab === 'website' ? ' is-active' : ''}`}
+                                    onClick={() => setMainTab('website')}
+                                >
+                                    Bài từ Website
+                                </button>
+                                {manager ? (
+                                    <button
+                                        type="button"
+                                        className={`seeding-ws__main-tab${mainTab === 'manage' ? ' is-active' : ''}`}
+                                        onClick={() => setMainTab('manage')}
+                                    >
+                                        Quản lý / Tổng kết
+                                    </button>
+                                ) : null}
+                            </nav>
+                        ) : null}
 
-                        {mainTab === 'feed' ? (
+                        {isSeederQuickFeed || mainTab === 'feed' ? (
                             <>
-                                <MetricCards metrics={metrics} />
+                                {!isSeederQuickFeed ? <MetricCards metrics={metrics} /> : null}
 
-                                <FeedToolbar
-                                    filter={filter}
-                                    search={search}
-                                    counts={counts}
-                                    canMutate={allowCreate}
-                                    onFilter={(f) => { setFilter(f); schedulePersist(); }}
-                                    onSearch={(v) => { setSearch(v); schedulePersist(); }}
-                                    onCreate={openComposer}
-                                    onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
-                                />
+                                {!isSeederQuickFeed ? (
+                                    <FeedToolbar
+                                        filter={filter}
+                                        search={search}
+                                        counts={counts}
+                                        canMutate={allowCreate}
+                                        onFilter={(f) => { setFilter(f); schedulePersist(); }}
+                                        onSearch={(v) => { setSearch(v); schedulePersist(); }}
+                                        onCreate={openComposer}
+                                        onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                                    />
+                                ) : (
+                                    <div className="seeding-ws__seeder-toolbar">
+                                        <button
+                                            type="button"
+                                            className="seeding-ws__btn seeding-ws__btn--ghost"
+                                            onClick={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                                        >
+                                            Link Pool
+                                        </button>
+                                    </div>
+                                )}
 
                                 {composerOpen && composer ? (
                                     <TopicComposer
@@ -744,61 +771,98 @@ export default function SeedingWorkspace({
                                     />
                                 ) : null}
 
-                                <TopicFeed
-                                    topics={filteredTopics}
-                                    reports={reports}
-                                    seedBatches={seedBatches}
-                                    seedOutputs={seedOutputs}
-                                    canMutate={canMutate}
-                                    hasWorkspaceAccess={hasWorkspaceAccess}
-                                    isManager={manager}
-                                    userId={userId}
-                                    linkPreviewCache={linkPreviews}
-                                    sharingTopicKey={sharingTopicKey}
-                                    activeGenTopicId={activeGenTopicId}
-                                    seedLinks={seedLinks}
-                                    linkUsageToday={linkUsageToday}
-                                    generating={generating}
-                                    outputsForTopic={outputsForTopic}
-                                    canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
-                                    onOpenDetail={openDetail}
-                                    onLinksChange={updateTopicLinks}
-                                    onCacheUpdate={updateLinkPreviewCache}
-                                    onEdit={editTopic}
-                                    onDelete={deleteTopic}
-                                    onShareDraft={shareDraft}
-                                    onGenComment={openGen}
-                                    onCreate={openComposer}
-                                    onCloseGen={closeGen}
-                                    onGenerate={runGenerate}
-                                    onUpdateOutput={updateOutput}
-                                    onRegenerateOutput={regenOutput}
-                                    onDeleteOutput={deleteOutput}
-                                    onReport={openReport}
-                                />
+                                {isSeederQuickFeed ? (
+                                    <SeederQuickFeed
+                                        topics={filteredTopics}
+                                        reports={reports}
+                                        seedBatches={seedBatches}
+                                        seedOutputs={seedOutputs}
+                                        canMutate={canMutate}
+                                        hasWorkspaceAccess={hasWorkspaceAccess}
+                                        isManager={manager}
+                                        userId={userId}
+                                        linkPreviewCache={linkPreviews}
+                                        sharingTopicKey={sharingTopicKey}
+                                        activeGenTopicId={activeGenTopicId}
+                                        seedLinks={seedLinks}
+                                        linkUsageToday={linkUsageToday}
+                                        generating={generating}
+                                        outputsForTopic={outputsForTopic}
+                                        canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
+                                        onOpenDetail={openDetail}
+                                        onLinksChange={updateTopicLinks}
+                                        onCacheUpdate={updateLinkPreviewCache}
+                                        onEdit={editTopic}
+                                        onDelete={deleteTopic}
+                                        onShareDraft={shareDraft}
+                                        onGenComment={openGen}
+                                        onCloseGen={closeGen}
+                                        onGenerate={runGenerate}
+                                        onUpdateOutput={updateOutput}
+                                        onRegenerateOutput={regenOutput}
+                                        onDeleteOutput={deleteOutput}
+                                        onReport={openReport}
+                                    />
+                                ) : (
+                                    <TopicFeed
+                                        topics={filteredTopics}
+                                        reports={reports}
+                                        seedBatches={seedBatches}
+                                        seedOutputs={seedOutputs}
+                                        canMutate={canMutate}
+                                        hasWorkspaceAccess={hasWorkspaceAccess}
+                                        isManager={manager}
+                                        userId={userId}
+                                        linkPreviewCache={linkPreviews}
+                                        sharingTopicKey={sharingTopicKey}
+                                        activeGenTopicId={activeGenTopicId}
+                                        seedLinks={seedLinks}
+                                        linkUsageToday={linkUsageToday}
+                                        generating={generating}
+                                        outputsForTopic={outputsForTopic}
+                                        canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
+                                        onOpenDetail={openDetail}
+                                        onLinksChange={updateTopicLinks}
+                                        onCacheUpdate={updateLinkPreviewCache}
+                                        onEdit={editTopic}
+                                        onDelete={deleteTopic}
+                                        onShareDraft={shareDraft}
+                                        onGenComment={openGen}
+                                        onCreate={openComposer}
+                                        onCloseGen={closeGen}
+                                        onGenerate={runGenerate}
+                                        onUpdateOutput={updateOutput}
+                                        onRegenerateOutput={regenOutput}
+                                        onDeleteOutput={deleteOutput}
+                                        onReport={openReport}
+                                    />
+                                )}
                             </>
                         ) : null}
 
-                        {mainTab === 'website' ? (
+                        {!isSeederQuickFeed && mainTab === 'website' ? (
                             <WebsiteShareFeed canMutate={canMutate} />
                         ) : null}
 
-                        {mainTab === 'manage' && manager ? (
+                        {!isSeederQuickFeed && mainTab === 'manage' && manager ? (
                             <ManagerPanel />
                         ) : null}
                     </>
                 )}
             </div>
 
-            <TeamStatsSidebar
+            <SeedingSidebar
                 open
                 collapsed={sidebarCollapsed}
                 topics={topics}
                 seedBatches={seedBatches}
                 seedOutputs={seedOutputs}
                 seedLinks={seedLinks}
+                linkPreviewCache={linkPreviews}
+                activeTopic={genTopic}
                 userId={userId}
                 onToggleCollapse={toggleSidebar}
+                onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
             />
 
             {linkPoolOpen ? (

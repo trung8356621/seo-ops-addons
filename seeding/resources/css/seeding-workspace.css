@@ -255,12 +255,16 @@
 }
 
 /* Single-column feed — full-width cards for readable previews + Gen panel.
- * Do not split into multi-column card grids (hard to read link preview / Gen).
+ * Seeder quick feed opts into 2 columns via .is-seeder-quick-feed (role-specific).
  */
 .seeding-ws__feed-host {
     width: 100%;
     min-width: 0;
     max-width: 920px;
+}
+
+.seeding-ws__feed-host.is-seeder-quick-feed {
+    max-width: none;
 }
 
 .seeding-ws__feed-grid {
@@ -269,6 +273,20 @@
     gap: 0.85rem;
     max-width: 100%;
     width: 100%;
+}
+
+.seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__feed-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__feed-item.is-gen-open {
+    grid-column: 1 / -1;
+}
+
+.seeding-ws__seeder-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.65rem;
 }
 
 .seeding-ws__main-tabs {
@@ -355,6 +373,13 @@
     flex-direction: column;
     gap: 0.65rem;
     max-width: 920px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__ws-card,
+.seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__vcard {
+    max-width: none;
 }
 
 .seeding-ws__ws-thumb {
@@ -715,8 +740,19 @@
 }
 
 .seeding-ws__link-preview-media--empty {
-    min-height: 72px;
-    background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+    display: none;
+}
+
+.seeding-ws__link-preview.is-no-media {
+    display: block;
+}
+
+.seeding-ws__link-preview.is-no-media .seeding-ws__link-preview-body {
+    padding: 0.65rem 0.75rem;
+}
+
+.seeding-ws__link-preview--comment.is-no-media {
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .seeding-ws__link-preview-body {
@@ -966,6 +1002,89 @@
     font-size: 0.75rem;
     color: #6b7280;
     line-height: 1.4;
+}
+
+.seeding-ws__sidebar-lead--tight {
+    margin-bottom: 0.35rem;
+    font-weight: 650;
+    color: #111827;
+}
+
+.seeding-ws__topic-targets {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.seeding-ws__topic-target {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.seeding-ws__topic-target:last-child {
+    border-bottom: 0;
+}
+
+.seeding-ws__topic-target-main {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.seeding-ws__topic-target-title {
+    font-size: 0.8125rem;
+    font-weight: 650;
+    color: #111827;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__topic-target-title:hover {
+    color: #c2410c;
+}
+
+.seeding-ws__topic-target-url {
+    font-size: 0.6875rem;
+    color: #6b7280;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__topic-target-url:hover {
+    color: #2563eb;
+}
+
+.seeding-ws__topic-target-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.seeding-ws__topic-target-count {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.seeding-ws__btn--block {
+    width: 100%;
+    margin-top: 0.5rem;
+    justify-content: center;
 }
 
 .seeding-ws__stat-rows {
@@ -1544,6 +1663,9 @@
     .seeding-ws__metrics { grid-template-columns: 1fr 1fr; }
     .seeding-ws__feed-grid {
         grid-template-columns: 1fr !important;
+    }
+    .seeding-ws__feed-host.is-seeder-quick-feed .seeding-ws__feed-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
     }
 }
 

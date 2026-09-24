@@ -144,6 +144,22 @@ export function buildCommentRecord(text, fields = {}, cache = {}) {
     };
 }
 
+/** Failed preview retry TTL (ms) — avoid permanently poisoning the cache. */
+export const PREVIEW_RETRY_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * @param {Record<string, unknown>|null|undefined} entry
+ * @param {number} [nowMs]
+ */
+export function isPreviewCacheFresh(entry, nowMs = Date.now()) {
+    if (!entry?.preview_fetched_at) return false;
+    const status = String(entry.preview_status || '');
+    if (status === 'ok') return true;
+    const ts = Date.parse(String(entry.preview_fetched_at));
+    if (!Number.isFinite(ts)) return false;
+    return (nowMs - ts) < PREVIEW_RETRY_TTL_MS;
+}
+
 /**
  * Fetch missing previews; dedupe by normalized URL across callers via inflight + cache.
  *
@@ -160,12 +176,13 @@ export async function ensureLinkPreviews(links, options = {}) {
     /** @type {Array<Record<string, unknown>>} */
     const out = [];
     let cacheDirty = false;
+    const nowMs = Date.now();
 
     for (const raw of list) {
         const link = emptyLinkRecord(raw);
         const key = link.normalized_url;
 
-        if (link.preview_fetched_at) {
+        if (link.preview_fetched_at && isPreviewCacheFresh(link, nowMs)) {
             out.push(link);
             if (!cache[key]?.preview_fetched_at) {
                 const entry = cacheEntryFromLink(link);
@@ -177,7 +194,7 @@ export async function ensureLinkPreviews(links, options = {}) {
             continue;
         }
 
-        if (cache[key]?.preview_fetched_at) {
+        if (cache[key]?.preview_fetched_at && isPreviewCacheFresh(cache[key], nowMs)) {
             out.push(applyPreviewMeta(link, cache[key]));
             continue;
         }
