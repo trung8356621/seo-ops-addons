@@ -29,7 +29,7 @@ trait InteractsWithAiUsageOverview
         $this->assertUsageManager();
 
         Notification::make()
-            ->title('Đã làm mới dữ liệu dashboard')
+            ->title(__('seo-content-ai::filament.ai_usage.refresh_success'))
             ->success()
             ->send();
     }
@@ -51,8 +51,11 @@ trait InteractsWithAiUsageOverview
         }
 
         $notification = Notification::make()
-            ->title('Đã kiểm tra số dư nhà cung cấp')
-            ->body("Thành công: {$successful}. Thất bại: {$failed}.");
+            ->title(__('seo-content-ai::filament.ai_usage.wallets_checked'))
+            ->body(__('seo-content-ai::filament.ai_usage.wallets_checked_body', [
+                'successful' => $successful,
+                'failed' => $failed,
+            ]));
 
         if ($failed > 0) {
             $notification->warning();
@@ -68,7 +71,7 @@ trait InteractsWithAiUsageOverview
         $this->assertUsageManager();
         $connection = ApiConnection::query()->find($connectionId);
         if (! $connection instanceof ApiConnection) {
-            Notification::make()->title('Không tìm thấy connection')->danger()->send();
+            Notification::make()->title(__('seo-content-ai::filament.ai_usage.connection_not_found'))->danger()->send();
 
             return;
         }
@@ -78,7 +81,7 @@ trait InteractsWithAiUsageOverview
 
         if (! $result->supported) {
             Notification::make()
-                ->title("Provider {$connection->provider} không hỗ trợ balance API")
+                ->title(__('seo-content-ai::filament.ai_usage.balance_unsupported', ['provider' => $connection->provider]))
                 ->warning()
                 ->send();
 
@@ -87,14 +90,17 @@ trait InteractsWithAiUsageOverview
 
         if ($result->success) {
             Notification::make()
-                ->title("Đã cập nhật số dư {$connection->name}")
-                ->body("Số dư hiện tại: {$result->currency} ".number_format((float) $result->balance, 2))
+                ->title(__('seo-content-ai::filament.ai_usage.balance_updated', ['name' => $connection->name]))
+                ->body(__('seo-content-ai::filament.ai_usage.balance_updated_body', [
+                    'currency' => $result->currency,
+                    'balance' => number_format((float) $result->balance, 2),
+                ]))
                 ->success()
                 ->send();
         } else {
             Notification::make()
-                ->title("Không thể cập nhật số dư {$connection->name}")
-                ->body($result->error ?: 'Lỗi không xác định khi kết nối API.')
+                ->title(__('seo-content-ai::filament.ai_usage.balance_update_failed', ['name' => $connection->name]))
+                ->body($result->error ?: __('seo-content-ai::filament.ai_usage.unknown_api_error'))
                 ->danger()
                 ->send();
         }
@@ -128,8 +134,10 @@ trait InteractsWithAiUsageOverview
             app(AiProviderWalletService::class)->updateWarningThreshold($connection, $this->editingThresholdValue);
 
             Notification::make()
-                ->title("Đã lưu ngưỡng cảnh báo cho {$connection->name}")
-                ->body('Ngưỡng mới: $'.number_format($this->editingThresholdValue, 2))
+                ->title(__('seo-content-ai::filament.ai_usage.threshold_saved', ['name' => $connection->name]))
+                ->body(__('seo-content-ai::filament.ai_usage.threshold_saved_body', [
+                    'threshold' => number_format($this->editingThresholdValue, 2),
+                ]))
                 ->success()
                 ->send();
         }

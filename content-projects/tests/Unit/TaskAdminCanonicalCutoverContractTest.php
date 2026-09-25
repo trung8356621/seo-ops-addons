@@ -39,7 +39,7 @@ final class TaskAdminCanonicalCutoverContractTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         self::assertTrue(TaskResource::shouldRegisterNavigation());
-        self::assertSame(SeoUserNavigation::GROUP_SYSTEM, TaskResource::getNavigationGroup());
+        self::assertSame(SeoUserNavigation::systemGroup(), TaskResource::getNavigationGroup());
         self::assertStringContainsString('/admin/tasks', TaskResource::getUrl('index'));
         self::assertStringContainsString('/admin/tasks/1/edit', TaskResource::getUrl('edit', ['record' => 1]));
         self::assertStringContainsString('/admin/tasks/1/builder', TaskResource::getUrl('builder', ['record' => 1]));

@@ -29,7 +29,7 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
         self::assertStringContainsString('getNavigationGroup', $src);
         self::assertStringContainsString('shouldRegisterNavigation', $src);
         self::assertStringContainsString("=== 'admin'", $src);
-        self::assertStringContainsString('SeoUserNavigation::GROUP_SYSTEM', $src);
+        self::assertStringContainsString('SeoUserNavigation::systemGroup()', $src);
         self::assertSame('admin', PromptResource::panelId());
     }
 
@@ -43,7 +43,7 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         self::assertTrue(PromptResource::shouldRegisterNavigation());
-        self::assertSame(SeoUserNavigation::GROUP_SYSTEM, PromptResource::getNavigationGroup());
+        self::assertSame(SeoUserNavigation::systemGroup(), PromptResource::getNavigationGroup());
 
         Filament::setCurrentPanel(Filament::getPanel('seo-main'));
         self::assertFalse(PromptResource::shouldRegisterNavigation());

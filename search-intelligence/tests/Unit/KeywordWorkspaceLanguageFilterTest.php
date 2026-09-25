@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit;
 
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordWorkspaceLanguageFilter;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\LegacyAddonPath;
 
@@ -40,5 +41,46 @@ final class KeywordWorkspaceLanguageFilterTest extends TestCase
         $this->assertStringContainsString('ContentLanguageLegacyRepair', $scope);
         $this->assertStringContainsString('applyToKeywordQuery', $scope);
         $this->assertStringContainsString('applyToSeoLinkMapQuery', $scope);
+    }
+
+    public function test_language_switch_normalizes_state_and_invalidates_request_cache(): void
+    {
+        $component = new class
+        {
+            use InteractsWithKeywordWorkspaceLanguageFilter;
+
+            public int $cacheClears = 0;
+
+            public int $pageResets = 0;
+
+            /** @return array<string, string> */
+            public function getKeywordLanguageFilterOptions(): array
+            {
+                return ['vi' => 'Tiếng Việt', 'en' => 'English'];
+            }
+
+            public function resolveKeywordWorkspacePrimaryLanguage(): ?string
+            {
+                return 'vi';
+            }
+
+            protected function clearKeywordWorkspaceTabCountsCache(): void
+            {
+                $this->cacheClears++;
+            }
+
+            public function resetPage(): void
+            {
+                $this->pageResets++;
+            }
+        };
+
+        $component->keywordLanguageFilter = 'en_US';
+        $component->updatedKeywordLanguageFilter();
+
+        self::assertSame('en', $component->keywordLanguageFilter);
+        self::assertSame(['en', 'EN', 'en_us', 'en-us', 'en_gb', 'en-gb', 'en_US', 'en-US', 'EN_US', 'en_GB', 'en-GB', 'EN_GB'], $component->resolveKeywordLanguageFilterVariants());
+        self::assertSame(1, $component->cacheClears);
+        self::assertSame(1, $component->pageResets);
     }
 }

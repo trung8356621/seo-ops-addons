@@ -20,15 +20,16 @@ final class Statistics extends SeoPanelPage
 {
     protected static ?string $navigationIcon = 'heroicon-o-chart-bar-square';
 
-    protected static ?string $navigationLabel = 'Thống kê';
-
-    protected static ?string $title = 'Thống kê';
-
     protected static ?int $navigationSort = -1;
 
     protected static ?string $slug = 'statistics';
 
     protected static string $view = 'seo-content-ai::filament.pages.statistics';
+
+    public static function getNavigationLabel(): string
+    {
+        return __('Statistics');
+    }
 
     #[Url(as: 'tab', except: 'domain')]
     public string $tab = 'domain';

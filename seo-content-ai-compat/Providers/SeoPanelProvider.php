@@ -745,7 +745,7 @@ class SeoPanelProvider extends PanelProvider
             ->collapsedSidebarWidth('4rem')
             ->maxContentWidth(MaxWidth::Full)
             ->navigationGroups([
-                \Filament\Navigation\NavigationGroup::make(\Omnichannel\Addons\Seo\Support\SeoUserNavigation::GROUP_SYSTEM),
+                \Filament\Navigation\NavigationGroup::make(\Omnichannel\Addons\Seo\Support\SeoUserNavigation::systemGroup()),
             ])
             ->discoverResources(
                 in: __DIR__.'/../Filament/Resources',

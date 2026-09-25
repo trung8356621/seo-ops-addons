@@ -7,15 +7,12 @@ namespace Omnichannel\Addons\Seo\Support;
 /**
  * User-facing SEO sidebar — WordPress-style modules (presentation only).
  *
- * Top-level items are domain modules (Dự án, Bài viết, …). Nested children use
- * Filament parentItem / childItems. Only 「Hệ thống」 remains a NavigationGroup
+ * Top-level items are domain modules. Nested children use Filament
+ * parentItem / childItems. Only the system group remains a NavigationGroup
  * for low-frequency technical tools.
  */
 final class SeoUserNavigation
 {
-    /** Technical tools group (Operation Center, PG Canary). */
-    public const GROUP_SYSTEM = 'Hệ thống';
-
     public const SORT_DASHBOARD = 1;
 
     public const SORT_PROJECTS = 10;
@@ -43,11 +40,16 @@ final class SeoUserNavigation
 
     public const SORT_SYSTEM = 100;
 
+    public static function systemGroup(): string
+    {
+        return __('navigation.system');
+    }
+
     /** @return list<string> */
     public static function groups(): array
     {
         return [
-            self::GROUP_SYSTEM,
+            self::systemGroup(),
         ];
     }
 

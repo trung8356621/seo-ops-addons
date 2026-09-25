@@ -16,17 +16,12 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
 
     protected function initializeKeywordWorkspaceLanguageFilter(): void
     {
-        $primary = $this->resolveKeywordWorkspacePrimaryLanguage();
         $options = $this->getKeywordLanguageFilterOptions();
-
-        if ($primary !== null && isset($options[$primary])) {
-            $this->keywordLanguageFilter = $primary;
-
-            return;
-        }
-
-        $first = array_key_first($options);
-        $this->keywordLanguageFilter = is_string($first) ? $first : null;
+        $this->keywordLanguageFilter = KeywordWorkspaceLanguageScope::resolveSelectedCode(
+            null,
+            $options,
+            $this->resolveKeywordWorkspacePrimaryLanguage(),
+        );
     }
 
     /**
@@ -58,8 +53,12 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
     public function resolveKeywordLanguageFilterVariants(): ?array
     {
         $options = $this->getKeywordLanguageFilterOptions();
-        $selected = trim((string) ($this->keywordLanguageFilter ?? ''));
-        if ($selected === '' || ! isset($options[$selected])) {
+        $selected = KeywordWorkspaceLanguageScope::resolveSelectedCode(
+            $this->keywordLanguageFilter,
+            $options,
+            $this->resolveKeywordWorkspacePrimaryLanguage(),
+        );
+        if ($selected === null) {
             return null;
         }
 
@@ -69,10 +68,11 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
     public function updatedKeywordLanguageFilter(): void
     {
         $options = $this->getKeywordLanguageFilterOptions();
-        $selected = trim((string) ($this->keywordLanguageFilter ?? ''));
-        if ($selected !== '' && ! isset($options[$selected])) {
-            $this->initializeKeywordWorkspaceLanguageFilter();
-        }
+        $this->keywordLanguageFilter = KeywordWorkspaceLanguageScope::resolveSelectedCode(
+            $this->keywordLanguageFilter,
+            $options,
+            $this->resolveKeywordWorkspacePrimaryLanguage(),
+        );
 
         if (method_exists($this, 'clearKeywordWorkspaceTabCountsCache')) {
             $this->clearKeywordWorkspaceTabCountsCache();
@@ -119,7 +119,11 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
             return $query;
         }
 
-        return KeywordWorkspaceLanguageScope::applyToKeywordQuery($query, $variants);
+        return KeywordWorkspaceLanguageScope::applyToKeywordQuery(
+            $query,
+            $variants,
+            $this->resolveKeywordWorkspaceSiteId(),
+        );
     }
 
     /**

@@ -36,7 +36,7 @@ final class PromptAdminCanonicalCutoverContractTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         self::assertTrue(PromptResource::shouldRegisterNavigation());
-        self::assertSame(SeoUserNavigation::GROUP_SYSTEM, PromptResource::getNavigationGroup());
+        self::assertSame(SeoUserNavigation::systemGroup(), PromptResource::getNavigationGroup());
 
         Filament::setCurrentPanel(Filament::getPanel('seo-main'));
         self::assertFalse(PromptResource::shouldRegisterNavigation());

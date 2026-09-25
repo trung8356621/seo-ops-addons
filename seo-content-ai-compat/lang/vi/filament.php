@@ -5099,6 +5099,20 @@ return [
         'browser_notification_body' => 'Tin nhắn workspace mới',
     ],
 
+    'ai_usage' => [
+        'refresh_success' => 'Đã làm mới dữ liệu dashboard',
+        'wallets_checked' => 'Đã kiểm tra số dư nhà cung cấp',
+        'wallets_checked_body' => 'Thành công: :successful. Thất bại: :failed.',
+        'connection_not_found' => 'Không tìm thấy kết nối',
+        'balance_unsupported' => 'Provider :provider không hỗ trợ API số dư',
+        'balance_updated' => 'Đã cập nhật số dư :name',
+        'balance_updated_body' => 'Số dư hiện tại: :currency :balance',
+        'balance_update_failed' => 'Không thể cập nhật số dư :name',
+        'unknown_api_error' => 'Lỗi không xác định khi kết nối API.',
+        'threshold_saved' => 'Đã lưu ngưỡng cảnh báo cho :name',
+        'threshold_saved_body' => 'Ngưỡng mới: $:threshold',
+    ],
+
     'dashboard' => [
         'title' => 'SEO Workspace Dashboard',
         'select_domain' => 'Chọn domain',

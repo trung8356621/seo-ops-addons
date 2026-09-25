@@ -66,7 +66,7 @@ final class SeedingTopicsPage extends Page
 
     public function getTitle(): string|Htmlable
     {
-        return 'Seeding';
+        return __('seeding::filament.topics.nav');
     }
 
     public function getHeading(): string|Htmlable

@@ -5124,6 +5124,20 @@ return [
         'browser_notification_body' => 'New workspace message',
     ],
 
+    'ai_usage' => [
+        'refresh_success' => 'Dashboard data refreshed',
+        'wallets_checked' => 'Provider balances checked',
+        'wallets_checked_body' => 'Successful: :successful. Failed: :failed.',
+        'connection_not_found' => 'Connection not found',
+        'balance_unsupported' => 'Provider :provider does not support the balance API',
+        'balance_updated' => 'Balance updated for :name',
+        'balance_updated_body' => 'Current balance: :currency :balance',
+        'balance_update_failed' => 'Could not update the balance for :name',
+        'unknown_api_error' => 'Unknown error while connecting to the API.',
+        'threshold_saved' => 'Warning threshold saved for :name',
+        'threshold_saved_body' => 'New threshold: $:threshold',
+    ],
+
     'dashboard' => [
         'title' => 'SEO Workspace Dashboard',
         'select_domain' => 'Select domain',

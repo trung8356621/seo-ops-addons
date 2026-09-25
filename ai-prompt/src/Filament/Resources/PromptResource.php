@@ -62,7 +62,7 @@ class PromptResource extends SeoPanelResource
     public static function getNavigationGroup(): ?string
     {
         if (Filament::getCurrentPanel()?->getId() === 'admin') {
-            return SeoUserNavigation::GROUP_SYSTEM;
+            return SeoUserNavigation::systemGroup();
         }
 
         return static::$navigationGroup;

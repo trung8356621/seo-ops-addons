@@ -41,7 +41,7 @@ final class KeywordUiInventoryQuery
         );
 
         if ($languageVariants !== null && $languageVariants !== []) {
-            $query = KeywordWorkspaceLanguageScope::applyToKeywordQuery($query, $languageVariants);
+            $query = KeywordWorkspaceLanguageScope::applyToKeywordQuery($query, $languageVariants, $siteId);
         }
 
         $query = KeywordResource::applyMinimumKeywordWordCount($query);
@@ -134,7 +134,11 @@ final class KeywordUiInventoryQuery
             static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
         );
         if ($languageVariants !== null && $languageVariants !== []) {
-            $linkedLanguage = KeywordWorkspaceLanguageScope::applyToKeywordQuery($linkedLanguage, $languageVariants);
+            $linkedLanguage = KeywordWorkspaceLanguageScope::applyToKeywordQuery(
+                $linkedLanguage,
+                $languageVariants,
+                $siteId,
+            );
         }
         $linkedLanguageIds = $linkedLanguage
             ->pluck('id')
@@ -149,7 +153,7 @@ final class KeywordUiInventoryQuery
 
         $siteWide = Keyword::query()->forSite($siteId);
         if ($languageVariants !== null && $languageVariants !== []) {
-            $siteWide = KeywordWorkspaceLanguageScope::applyToKeywordQuery($siteWide, $languageVariants);
+            $siteWide = KeywordWorkspaceLanguageScope::applyToKeywordQuery($siteWide, $languageVariants, $siteId);
         }
         $siteWideIds = $siteWide->pluck('id')->map(static fn ($id): int => (int) $id)->all();
         $linkedSet = array_fill_keys($linkedLanguageIds, true);
@@ -159,8 +163,8 @@ final class KeywordUiInventoryQuery
             ->where('type', Keyword::TYPE_SUGGEST)
             ->when(
                 $languageVariants !== null && $languageVariants !== [],
-                static function (Builder $q) use ($languageVariants): Builder {
-                    return KeywordWorkspaceLanguageScope::applyToKeywordQuery($q, $languageVariants);
+                static function (Builder $q) use ($languageVariants, $siteId): Builder {
+                    return KeywordWorkspaceLanguageScope::applyToKeywordQuery($q, $languageVariants, $siteId);
                 },
             )
             ->pluck('id')

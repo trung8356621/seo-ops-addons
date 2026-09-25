@@ -13,6 +13,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceLanguageScope;
 use Tests\TestCase;
 
 /**
@@ -50,22 +51,22 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         $summary = app(TopicListQuery::class)->summary(self::SITE_A, $variants);
         $rows = app(TopicListQuery::class)->paginate(self::SITE_A, ['per_page' => 50], $variants)->items();
 
-        self::assertSame(2, $inventory->count(self::SITE_A, $variants));
-        self::assertSame(1, (int) app(KeywordDictionaryQuery::class)
+        self::assertSame(40, $inventory->count(self::SITE_A, $variants));
+        self::assertSame(10, (int) app(KeywordDictionaryQuery::class)
             ->filtered(self::SITE_A, $variants, ['focus' => true])
             ->count());
-        self::assertSame(1, $stats['assigned']);
-        self::assertSame(1, $stats['unassigned']);
-        self::assertSame(1, $stats['topic_count']);
-        self::assertSame(1, $summary['topic_count']);
-        self::assertSame(2, $summary['inventory_total']);
-        self::assertSame(1, $summary['assigned']);
-        self::assertSame(1, $summary['unassigned']);
+        self::assertSame(2, $stats['assigned']);
+        self::assertSame(38, $stats['unassigned']);
+        self::assertSame(40, $stats['assigned'] + $stats['unassigned']);
+        self::assertSame(2, $stats['topic_count']);
+        self::assertSame(2, $summary['topic_count']);
+        self::assertSame(40, $summary['inventory_total']);
+        self::assertSame(2, $summary['assigned']);
+        self::assertSame(38, $summary['unassigned']);
 
-        self::assertCount(1, $rows);
-        self::assertSame('VI Bags', (string) ($rows[0]['name'] ?? ''));
-        self::assertSame(1, (int) ($rows[0]['keyword_count'] ?? 0));
-        self::assertSame(1, (int) ($rows[0]['article_count'] ?? 0));
+        self::assertCount(2, $rows);
+        self::assertSame(['Mixed Topic', 'VI Bags'], collect($rows)->pluck('name')->sort()->values()->all());
+        self::assertSame([1, 1], collect($rows)->pluck('keyword_count')->sort()->values()->all());
     }
 
     public function test_en_landscape_excludes_vi_keywords_topics_and_counts(): void
@@ -76,20 +77,20 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         $summary = app(TopicListQuery::class)->summary(self::SITE_A, $variants);
         $rows = app(TopicListQuery::class)->paginate(self::SITE_A, ['per_page' => 50], $variants)->items();
 
-        self::assertSame(2, $inventory->count(self::SITE_A, $variants));
-        self::assertSame(1, (int) app(KeywordDictionaryQuery::class)
+        self::assertSame(60, $inventory->count(self::SITE_A, $variants));
+        self::assertSame(15, (int) app(KeywordDictionaryQuery::class)
             ->filtered(self::SITE_A, $variants, ['focus' => true])
             ->count());
-        self::assertSame(1, $stats['assigned']);
-        self::assertSame(1, $stats['unassigned']);
-        self::assertSame(1, $stats['topic_count']);
-        self::assertSame(1, $summary['topic_count']);
-        self::assertSame(2, $summary['inventory_total']);
+        self::assertSame(2, $stats['assigned']);
+        self::assertSame(58, $stats['unassigned']);
+        self::assertSame(60, $stats['assigned'] + $stats['unassigned']);
+        self::assertSame(2, $stats['topic_count']);
+        self::assertSame(2, $summary['topic_count']);
+        self::assertSame(60, $summary['inventory_total']);
 
-        self::assertCount(1, $rows);
-        self::assertSame('EN Laptops', (string) ($rows[0]['name'] ?? ''));
-        self::assertSame(1, (int) ($rows[0]['keyword_count'] ?? 0));
-        self::assertSame(1, (int) ($rows[0]['article_count'] ?? 0));
+        self::assertCount(2, $rows);
+        self::assertSame(['EN Laptops', 'Mixed Topic'], collect($rows)->pluck('name')->sort()->values()->all());
+        self::assertSame([1, 1], collect($rows)->pluck('keyword_count')->sort()->values()->all());
     }
 
     public function test_switching_vi_to_en_changes_dataset_and_aggregates(): void
@@ -103,11 +104,12 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
             ->pluck('name')
             ->all();
 
-        self::assertNotSame($vi['inventory_total'], $en['inventory_total'] + $vi['inventory_total']);
-        self::assertSame(['VI Bags'], $viRows);
-        self::assertSame(['EN Laptops'], $enRows);
-        self::assertSame(1, $vi['topic_count']);
-        self::assertSame(1, $en['topic_count']);
+        self::assertSame(40, $vi['inventory_total']);
+        self::assertSame(60, $en['inventory_total']);
+        self::assertSame(['Mixed Topic', 'VI Bags'], collect($viRows)->sort()->values()->all());
+        self::assertSame(['EN Laptops', 'Mixed Topic'], collect($enRows)->sort()->values()->all());
+        self::assertSame(2, $vi['topic_count']);
+        self::assertSame(2, $en['topic_count']);
         self::assertNotEquals($viRows, $enRows);
     }
 
@@ -115,10 +117,32 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
     {
         $stats = app(KeywordTopicAssignmentStats::class)->forSite(self::SITE_A, null);
 
-        self::assertSame(4, $stats['inventory_total']);
-        self::assertSame(2, $stats['assigned']);
-        self::assertSame(2, $stats['unassigned']);
-        self::assertSame(2, $stats['topic_count']);
+        self::assertSame(100, $stats['inventory_total']);
+        self::assertSame(4, $stats['assigned']);
+        self::assertSame(96, $stats['unassigned']);
+        self::assertSame(3, $stats['topic_count']);
+    }
+
+    public function test_visible_option_never_resolves_to_unscoped_all_languages(): void
+    {
+        $options = ['vi' => 'Tiếng Việt', 'en' => 'English'];
+
+        self::assertSame('vi', KeywordWorkspaceLanguageScope::resolveSelectedCode('vi_VN', $options, 'en'));
+        self::assertSame('en', KeywordWorkspaceLanguageScope::resolveSelectedCode('stale', $options, 'en'));
+        self::assertSame('vi', KeywordWorkspaceLanguageScope::resolveSelectedCode(null, $options, null));
+    }
+
+    public function test_language_match_from_another_site_cannot_leak_into_selected_site(): void
+    {
+        $siteAEnglish = $this->createArticle(self::SITE_A, 'en', 'Shared phrase EN');
+        $normalVietnamese = $this->createArticle(self::SITE_NORMAL, 'vi', 'Shared phrase VI');
+        $keywordId = $this->createInventoryKeyword('shared cross site phrase', $siteAEnglish, withFocus: false);
+        $this->linkKeywordToArticle($keywordId, $normalVietnamese, 'shared cross site phrase');
+
+        $inventory = app(KeywordUiInventoryQuery::class);
+
+        self::assertSame(40, $inventory->count(self::SITE_A, ['vi']));
+        self::assertSame(61, $inventory->count(self::SITE_A, ['en']));
     }
 
     public function test_ai_audit_selected_language_overrides_site_primary_for_multilingual_options(): void
@@ -187,19 +211,51 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         $enArticle = $this->createArticle(self::SITE_A, 'en', 'EN focus article');
         $viTopic = $this->createTopic(self::SITE_A, 'VI Bags');
         $enTopic = $this->createTopic(self::SITE_A, 'EN Laptops');
+        $mixedTopic = $this->createTopic(self::SITE_A, 'Mixed Topic');
 
-        $viAssigned = $this->createInventoryKeyword('balo hoc sinh', $viArticle, withFocus: true);
-        $viUnassigned = $this->createInventoryKeyword('balo tre em', $viArticle, withFocus: false);
-        $enAssigned = $this->createInventoryKeyword('laptop gaming gear', $enArticle, withFocus: true);
-        $enUnassigned = $this->createInventoryKeyword('laptop office kit', $enArticle, withFocus: false);
+        for ($index = 1; $index <= 40; $index++) {
+            $keywordId = $this->createInventoryKeyword(
+                "vietnamese inventory phrase {$index}",
+                $viArticle,
+                withFocus: $index <= 10,
+            );
+            if ($index === 1) {
+                $this->assignTopicKeyword(self::SITE_A, $viTopic, $keywordId);
+            } elseif ($index === 2) {
+                $this->assignTopicKeyword(self::SITE_A, $mixedTopic, $keywordId);
+            }
+        }
 
-        $this->assignTopicKeyword(self::SITE_A, $viTopic, $viAssigned);
-        $this->assignTopicKeyword(self::SITE_A, $enTopic, $enAssigned);
+        for ($index = 1; $index <= 60; $index++) {
+            $keywordId = $this->createInventoryKeyword(
+                "english inventory phrase {$index}",
+                $enArticle,
+                withFocus: $index <= 15,
+            );
+            if ($index === 1) {
+                $this->assignTopicKeyword(self::SITE_A, $enTopic, $keywordId);
+            } elseif ($index === 2) {
+                $this->assignTopicKeyword(self::SITE_A, $mixedTopic, $keywordId);
+            }
+        }
 
         // Normal single-language site fixture (inventory only) for regression isolation.
         $normalArticle = $this->createArticle(self::SITE_NORMAL, 'vi', 'Normal site article');
         $this->createInventoryKeyword('normal site phrase', $normalArticle, withFocus: true);
-        unset($viUnassigned, $enUnassigned);
+    }
+
+    private function linkKeywordToArticle(int $keywordId, int $sourceArticleId, string $phrase): void
+    {
+        DB::connection('omi_seo_ai')->table('seo_link_maps')->insert([
+            'keyword_id' => $keywordId,
+            'source_article_id' => $sourceArticleId,
+            'target_article_id' => $sourceArticleId,
+            'anchor_text' => $phrase,
+            'link_type' => 'internal',
+            'status' => 'active',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function createTopic(int $siteId, string $name): int
