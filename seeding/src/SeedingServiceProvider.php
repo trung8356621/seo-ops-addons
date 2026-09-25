@@ -50,6 +50,7 @@ use Omnichannel\Addons\Seeding\Services\SeedingSharedTopicService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialAccountService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialPlatformDetector;
 use Omnichannel\Addons\Seeding\Services\WebsiteShareJobService;
+use Omnichannel\Addons\Seeding\Services\WebsiteShareContentService;
 use Omnichannel\Addons\Seeding\Settings\SeedingSettingsSectionContributor;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingDatabaseHealth;
@@ -59,6 +60,7 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingTargetCalculator;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicAuthorization;
 use Omnichannel\Addons\Seeding\Support\SeedingVite;
+use Omnichannel\Addons\Seeding\System\WebsiteShareGenerateCapabilityHandler;
 use Throwable;
 
 final class SeedingServiceProvider extends ServiceProvider
@@ -76,6 +78,8 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingSocialAccountService::class);
         $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(WebsiteShareJobService::class);
+        $this->app->singleton(WebsiteShareContentService::class);
+        $this->app->singleton(WebsiteShareGenerateCapabilityHandler::class);
         $this->app->singleton(SeedingCommentPromptService::class);
         $this->app->singleton(SeedingCommentGenerateHistoryService::class);
         $this->app->singleton(SeedingCommentGenerateService::class);
@@ -107,16 +111,26 @@ final class SeedingServiceProvider extends ServiceProvider
 
         /** @var \App\System\Capability\SystemCapabilityRegistry $registry */
         $registry = $this->app->make(\App\System\Capability\SystemCapabilityRegistry::class);
-        if ($registry->has(\Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::KEY)) {
-            return;
+        foreach ([
+            [
+                'key' => \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::KEY,
+                'handler' => \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::class,
+            ],
+            [
+                'key' => WebsiteShareGenerateCapabilityHandler::KEY,
+                'handler' => WebsiteShareGenerateCapabilityHandler::class,
+            ],
+        ] as $definition) {
+            if ($registry->has($definition['key'])) {
+                continue;
+            }
+            $registry->register(new \App\System\Capability\SystemCapabilityDefinition(
+                key: $definition['key'],
+                owner: self::SLUG,
+                handler: $definition['handler'],
+                sideEffectFree: false,
+            ));
         }
-
-        $registry->register(new \App\System\Capability\SystemCapabilityDefinition(
-            key: \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::KEY,
-            owner: self::SLUG,
-            handler: \Omnichannel\Addons\Seeding\System\SeedingCommentGenerateCapabilityHandler::class,
-            sideEffectFree: false,
-        ));
 
         if ($this->app->bound(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)) {
             $this->app->make(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)
@@ -372,6 +386,13 @@ final class SeedingServiceProvider extends ServiceProvider
 
                 Route::get('/website-share', [WebsiteShareFeedController::class, 'index'])
                     ->name('seeding.website-share.index');
+                Route::post('/website-share/{jobId}/generate', [WebsiteShareFeedController::class, 'generate'])
+                    ->whereNumber('jobId')
+                    ->name('seeding.website-share.generate');
+                Route::put('/website-share/{jobId}/targets/{targetId}/content', [WebsiteShareFeedController::class, 'updateTargetContent'])
+                    ->whereNumber('jobId')
+                    ->whereNumber('targetId')
+                    ->name('seeding.website-share.target-content');
                 Route::post('/website-share/{jobId}/content', [WebsiteShareFeedController::class, 'updateContent'])
                     ->whereNumber('jobId')
                     ->name('seeding.website-share.content');

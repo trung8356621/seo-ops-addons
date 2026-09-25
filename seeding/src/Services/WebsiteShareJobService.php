@@ -8,6 +8,7 @@ use App\Core\Event\ArticleIndexStatusChanged;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
 use Omnichannel\Addons\Seeding\Enums\WebsiteShareJobStatus;
 use Omnichannel\Addons\Seeding\Jobs\CheckArticleForWebsiteShareJob;
 use Omnichannel\Addons\Seeding\Models\WebsiteShareJob;
@@ -183,6 +184,68 @@ final class WebsiteShareJobService
         return $job->fresh(['targets']) ?? $job;
     }
 
+    public function generateShareContent(int $jobId, WebsiteShareContentService $generator): WebsiteShareJob
+    {
+        $job = $this->findJob($jobId)->load('targets');
+        if ($job->status === WebsiteShareJobStatus::Scheduled || $job->status === WebsiteShareJobStatus::Cancelled) {
+            throw new InvalidArgumentException('Nhiệm vụ chưa sẵn sàng để gen');
+        }
+
+        $targets = $job->targets->filter(static fn (WebsiteShareTarget $target): bool => ! $target->isComplete());
+        if ($targets->isEmpty()) {
+            throw new InvalidArgumentException('Tất cả social đã hoàn thành');
+        }
+
+        $outputs = $generator->generate($job, $targets->map(static fn (WebsiteShareTarget $target): string => $target->social?->value ?? 'other')->all());
+
+        return DB::connection(SeedingServiceConfig::CONNECTION)->transaction(function () use ($jobId, $outputs): WebsiteShareJob {
+            $locked = WebsiteShareJob::query()->whereKey($jobId)->lockForUpdate()->first();
+            if (! $locked instanceof WebsiteShareJob || $locked->status === WebsiteShareJobStatus::Cancelled) {
+                throw new InvalidArgumentException('Nhiệm vụ không tồn tại');
+            }
+
+            foreach ($outputs as $social => $content) {
+                $target = WebsiteShareTarget::query()->where('job_id', $jobId)->where('social', $social)->lockForUpdate()->first();
+                if (! $target instanceof WebsiteShareTarget || $target->isComplete()) {
+                    continue;
+                }
+                $target->share_content = $content;
+                $target->content_generated_at = Carbon::now();
+                $target->save();
+            }
+
+            if (in_array($locked->status, [WebsiteShareJobStatus::Ready, WebsiteShareJobStatus::HasContent], true)) {
+                $locked->status = WebsiteShareJobStatus::HasContent;
+                $locked->save();
+            }
+
+            return $locked->fresh(['targets']) ?? $locked;
+        });
+    }
+
+    public function updateTargetContent(int $jobId, int $targetId, string $content): WebsiteShareJob
+    {
+        return DB::connection(SeedingServiceConfig::CONNECTION)->transaction(function () use ($jobId, $targetId, $content): WebsiteShareJob {
+            $job = $this->findJob($jobId);
+            if ($job->status === WebsiteShareJobStatus::Scheduled || $job->status === WebsiteShareJobStatus::Cancelled) {
+                throw new InvalidArgumentException('Nhiệm vụ chưa sẵn sàng để sửa');
+            }
+            $target = WebsiteShareTarget::query()->where('job_id', $jobId)->whereKey($targetId)->lockForUpdate()->first();
+            if (! $target instanceof WebsiteShareTarget) {
+                throw new InvalidArgumentException('Không có target social này');
+            }
+            if ($target->isComplete()) {
+                throw new InvalidArgumentException('Social đã báo cáo và không thể sửa');
+            }
+            $text = trim($content);
+            $target->share_content = $text === '' ? null : $text;
+            $target->content_generated_at = $text === '' ? null : Carbon::now();
+            $target->save();
+
+            return $job->fresh(['targets']) ?? $job;
+        });
+    }
+
     /**
      * @param  array{
      *     job_id: int,
@@ -231,6 +294,14 @@ final class WebsiteShareJobService
                 throw new InvalidArgumentException('Đã đủ target share cho social này');
             }
 
+            $shareText = trim((string) ($target->share_content ?? ''));
+            if ($shareText === '') {
+                $shareText = trim((string) ($payload['share_text'] ?? ''));
+            }
+            if ($shareText === '') {
+                throw new InvalidArgumentException('Social chưa có nội dung để báo cáo');
+            }
+
             $report = new WebsiteShareReport([
                 'job_id' => $jobId,
                 'target_id' => (int) $target->id,
@@ -239,7 +310,7 @@ final class WebsiteShareJobService
                     ? trim((string) $payload['user_display_name'])
                     : null,
                 'social' => $social,
-                'share_text' => isset($payload['share_text']) ? trim((string) $payload['share_text']) : null,
+                'share_text' => $shareText,
                 'proof_path' => $payload['proof_path'] ?? null,
                 'proof_mime' => $payload['proof_mime'] ?? null,
                 'proof_meta' => $payload['proof_meta'] ?? null,

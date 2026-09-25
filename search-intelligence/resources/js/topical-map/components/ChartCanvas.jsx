@@ -46,6 +46,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     untaggedBucketTooltip = '',
     onZoomChange,
     meta,
+    theme = 'light',
 }, ref) {
     const hostRef = useRef(null);
     const chartRef = useRef(null);
@@ -58,6 +59,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     onZoomChangeRef.current = onZoomChange;
     const lastRendererRef = useRef(null);
     const lastFocusedTopicIdRef = useRef(null);
+    const lastThemeRef = useRef(null);
     const applyZoomFactorRef = useRef(() => {});
 
     const propsRef = useRef({});
@@ -70,6 +72,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         siteDomain,
         untaggedBucketLabel,
         untaggedBucketTooltip,
+        theme,
         topicCount: Array.isArray(overview?.topics) ? overview.topics.length : 0,
     };
 
@@ -104,9 +107,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         }
         typographyBandRef.current = band;
         const typoPatch = mode === 'tree'
-            ? buildStructureTypographyPatch(band)
+            ? buildStructureTypographyPatch(band, propsRef.current.theme)
             : buildNetworkTypographyPatch(band, {
                 focused: Boolean(propsRef.current.focusedTopicId),
+                theme: propsRef.current.theme,
             });
         if (intoPatch && typeof intoPatch === 'object') {
             Object.assign(intoPatch, typoPatch);
@@ -429,6 +433,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         const rendererChanged = lastRendererRef.current !== renderer;
         lastRendererRef.current = renderer;
+        lastThemeRef.current = theme;
 
         if (renderer === 'network') {
             if (rendererChanged) {
@@ -444,6 +449,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                     typographyBand: typographyBandRef.current,
                     focused: Boolean(focusedTopicId),
                     zoom: initialZoom,
+                    theme,
                 }), true);
             } else {
                 // Focus enter/exit: re-center on the (new) fixed layout — no pan remnant.
@@ -461,6 +467,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                     typographyBand: band,
                     focused: Boolean(focusedTopicId),
                     zoom: zoomRef.current,
+                    theme,
                 }), { notMerge: true, lazyUpdate: false });
                 typographyBandRef.current = band;
                 const z = zoomRef.current;
@@ -470,6 +477,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                     center: centerRef.current,
                     ...buildNetworkTypographyPatch(band, {
                         focused: Boolean(focusedTopicId),
+                        theme,
                     }),
                 };
                 chart.setOption({ series: [zoomPatch] });
@@ -486,7 +494,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         if (renderer === 'treemap') {
             chart.clear();
-            chart.setOption(buildTreemapOption(overview), true);
+            chart.setOption(buildTreemapOption(overview, { theme }), true);
             chart.resize();
             return;
         }
@@ -498,6 +506,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             untaggedBucketLabel: propsRef.current.untaggedBucketLabel,
             untaggedBucketTooltip: propsRef.current.untaggedBucketTooltip,
             typographyBand: getStructureTypographyBand(1),
+            theme,
         }), true);
     }, [
         overview,
@@ -509,6 +518,71 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         untaggedBucketLabel,
         untaggedBucketTooltip,
     ]);
+
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart || !overview || lastThemeRef.current === theme) {
+            return;
+        }
+        lastThemeRef.current = theme;
+
+        if (renderer === 'network') {
+            const band = getChartTypographyBand(zoomRef.current);
+            const option = buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
+                siteDomain: propsRef.current.siteDomain,
+                typographyBand: band,
+                focused: Boolean(focusedTopicId),
+                zoom: zoomRef.current,
+                theme,
+            });
+            if (centerRef.current !== undefined) {
+                option.series[0].center = centerRef.current;
+            }
+            chart.setOption(option, { notMerge: true, lazyUpdate: false });
+            typographyBandRef.current = band;
+            return;
+        }
+
+        if (renderer === 'treemap') {
+            chart.setOption(buildTreemapOption(overview, { theme }), {
+                notMerge: true,
+                lazyUpdate: false,
+            });
+            return;
+        }
+
+        const band = getStructureTypographyBand(zoomRef.current);
+        const option = buildTreeOption(overview, {
+            preferredTagIds: propsRef.current.preferredTagIds,
+            siteDomain: propsRef.current.siteDomain,
+            untaggedBucketLabel: propsRef.current.untaggedBucketLabel,
+            untaggedBucketTooltip: propsRef.current.untaggedBucketTooltip,
+            typographyBand: band,
+            theme,
+        });
+        option.series[0].zoom = zoomRef.current;
+        if (centerRef.current !== undefined) {
+            option.series[0].center = centerRef.current;
+        }
+        chart.setOption(option, { notMerge: true, lazyUpdate: false });
+        typographyBandRef.current = band;
+        if (focusedTopicId) {
+            const topic = overview.topics?.find(
+                (row) => Number(row.id) === Number(focusedTopicId),
+            );
+            if (topic) {
+                try {
+                    chart.dispatchAction({
+                        type: 'highlight',
+                        seriesIndex: 0,
+                        name: topicStructureLabel(topic, formatTreemapMcpPercent),
+                    });
+                } catch {
+                    // Presentation refresh should not affect the stored focus state.
+                }
+            }
+        }
+    }, [theme]);
 
     useEffect(() => {
         const chart = chartRef.current;

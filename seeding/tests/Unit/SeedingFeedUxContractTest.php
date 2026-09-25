@@ -266,6 +266,8 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('is-seeder-quick-feed', $quick);
         self::assertStringContainsString('isWebsiteShareActionable', $quick);
         self::assertStringContainsString('WebsiteShareCard', $quick);
+        self::assertStringContainsString('WebsiteShareGeneratePanel', $quick);
+        self::assertStringContainsString('activeWebsiteShareId', $quick);
         self::assertStringContainsString('dailyProgressMap', $quick);
         $css = (string) file_get_contents($this->addonRoot().'/resources/css/seeding-workspace.css');
         self::assertDoesNotMatchRegularExpression(
@@ -274,23 +276,46 @@ final class SeedingFeedUxContractTest extends TestCase
         );
     }
 
-    public function test_website_share_uses_platform_snapshot_badges_without_remove_or_quantity_controls(): void
+    public function test_website_share_uses_summary_card_and_inline_work_panel(): void
     {
         $root = $this->addonRoot().'/resources/js/seeding/components';
         $card = (string) file_get_contents($root.'/WebsiteShareCard.jsx');
         $feed = (string) file_get_contents($root.'/WebsiteShareFeed.jsx');
+        $quick = (string) file_get_contents($root.'/SeederQuickFeed.jsx');
+        $panel = (string) file_get_contents($root.'/WebsiteShareGeneratePanel.jsx');
 
         self::assertStringContainsString('Website Share', $card);
         self::assertStringContainsString('job.targets', $card);
-        self::assertStringContainsString('is_complete', $card);
-        self::assertStringContainsString('Chưa cấu hình Social Account active cho domain này.', $card);
-        self::assertStringContainsString('Báo cáo', $card);
-        self::assertStringNotContainsString('completed_count}/{t.target_count', $card);
+        self::assertStringContainsString('aria-expanded', $card);
+        self::assertStringContainsString('Gen share', $card);
+        self::assertStringNotContainsString('<textarea', $card);
+        self::assertStringNotContainsString('>Copy<', $card);
+        self::assertStringNotContainsString('>Sửa<', $card);
+        self::assertStringNotContainsString('Báo cáo', $card);
         self::assertStringNotContainsString('×', $card);
         self::assertStringNotContainsString('remove', $card);
         self::assertStringNotContainsString('skip', $card);
-        self::assertStringContainsString('writeClipboard', $feed);
-        self::assertStringNotContainsString('navigator.clipboard.writeText', $feed);
+
+        self::assertStringContainsString('job.targets', $panel);
+        self::assertStringContainsString('Social', $panel);
+        self::assertStringContainsString('Gen share', $panel);
+        self::assertStringContainsString('Nội dung đã Gen', $panel);
+        self::assertStringContainsString('Copy', $panel);
+        self::assertStringContainsString('Sửa', $panel);
+        self::assertStringContainsString('Báo cáo', $panel);
+        self::assertStringContainsString('Chưa cấu hình Social Account active cho domain này.', $panel);
+        self::assertStringNotContainsString('Minus', $panel);
+        self::assertStringNotContainsString('Plus', $panel);
+        self::assertStringNotContainsString('skip', $panel);
+        self::assertStringNotContainsString('remove', $panel);
+        self::assertStringNotContainsString('×', $panel);
+
+        self::assertStringContainsString('WebsiteShareGeneratePanel', $feed);
+        self::assertStringContainsString('seeding-ws__feed-item', $feed);
+        self::assertStringContainsString('onClose={() => setActiveWebsiteShareId(null)}', $feed);
+        self::assertStringContainsString('WebsiteShareGeneratePanel', $quick);
+        self::assertStringContainsString('data-item-kind="website"', $quick);
+        self::assertStringContainsString('data-gen-open', $quick);
     }
 
     public function test_storage_tracks_ownership_and_preview_fields(): void

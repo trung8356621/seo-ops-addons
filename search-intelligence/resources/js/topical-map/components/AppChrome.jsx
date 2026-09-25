@@ -1,6 +1,23 @@
 import ZoomControls from './ZoomControls';
 import TagFilterControl from './TagFilterControl';
 
+function ThemeIcon({ theme }) {
+    if (theme === 'dark') {
+        return (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2.75v2.1M12 19.15v2.1M4.75 12h-2.1M21.35 12h-2.1M5.2 5.2 3.72 3.72M20.28 20.28 18.8 18.8M18.8 5.2l1.48-1.48M3.72 20.28 5.2 18.8" />
+                <circle cx="12" cy="12" r="4.25" />
+            </svg>
+        );
+    }
+
+    return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.4 15.2A8.5 8.5 0 0 1 8.8 3.6 8.5 8.5 0 1 0 20.4 15.2Z" />
+        </svg>
+    );
+}
+
 function filterSummary({ tagFilterAll, selectedTagIds, showUntagged, tagFacets, mcpMin, mcpMax }) {
     const parts = [];
     if (tagFilterAll) {
@@ -37,6 +54,9 @@ export default function AppChrome({
     onBeginAiAudit,
     topicsPageUrl,
     aiHistoryUrl,
+    seoAuditUrl,
+    theme,
+    onToggleTheme,
     tagFacets,
     untaggedCount,
     selectedTagIds,
@@ -112,6 +132,16 @@ export default function AppChrome({
                             {labels.aiHistory || 'AI History ↗'}
                         </a>
                     ) : null}
+                    {seoAuditUrl ? (
+                        <a
+                            className="tm-btn tm-btn--ghost"
+                            href={seoAuditUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            {labels.seoAudit || 'SEO Audit'} {'\u2197'}
+                        </a>
+                    ) : null}
                     {hasAuditResult ? (
                         <button type="button" className="tm-btn tm-btn--ghost" onClick={onOpenAudit}>
                             {labels.openAudit}
@@ -124,6 +154,16 @@ export default function AppChrome({
                         disabled={!canRun}
                     >
                         {auditRunning ? labels.aiRunning : aiLabel}
+                    </button>
+                    <button
+                        type="button"
+                        className="tm-btn tm-btn--ghost tm-theme-toggle"
+                        onClick={onToggleTheme}
+                        title={theme === 'dark' ? labels.themeLight : labels.themeDark}
+                        aria-label={theme === 'dark' ? labels.themeLight : labels.themeDark}
+                        aria-pressed={theme === 'dark'}
+                    >
+                        <ThemeIcon theme={theme} />
                     </button>
                 </div>
             </div>

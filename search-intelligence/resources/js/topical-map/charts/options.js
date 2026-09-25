@@ -19,6 +19,7 @@ import {
     getNetworkTypography,
     getTreemapTypographyRich,
     getStructureTypographyBand,
+    getChartTheme,
 } from './theme.js';
 import {
     compareTopicsForNetworkLayout,
@@ -43,8 +44,9 @@ function escapeRichText(value) {
  * @param {'compact'|'normal'|'medium'|'large'|'xlarge'} [band]
  * @returns {object}
  */
-export function buildStructureTypographyPatch(band = 'compact') {
+export function buildStructureTypographyPatch(band = 'compact', theme = 'light') {
     const typo = getStructureTypography(band);
+    const colors = getChartTheme(theme);
     return {
         // Non-leaves: Site / Tag / untagged bucket
         label: {
@@ -56,7 +58,7 @@ export function buildStructureTypographyPatch(band = 'compact') {
             fontFamily: CHART_FONT_FAMILY,
             fontSize: typo.tag.fontSize,
             fontWeight: typo.tag.fontWeight,
-            color: '#475569',
+            color: colors.textMuted,
             distance: typo.tag.distance,
             overflow: 'truncate',
             width: typo.tag.width,
@@ -77,21 +79,21 @@ export function buildStructureTypographyPatch(band = 'compact') {
                     fontFamily: CHART_FONT_FAMILY,
                     fontSize: typo.site.fontSize,
                     fontWeight: typo.site.fontWeight,
-                    color: '#64748b',
+                    color: colors.textMuted,
                     lineHeight: typo.site.fontSize + 2,
                 },
                 tag: {
                     fontFamily: CHART_FONT_FAMILY,
                     fontSize: typo.tag.fontSize,
                     fontWeight: typo.tag.fontWeight,
-                    color: '#475569',
+                    color: colors.textSoft,
                     lineHeight: typo.tag.fontSize + 2,
                 },
                 bucket: {
                     fontFamily: CHART_FONT_FAMILY,
                     fontSize: typo.tag.fontSize,
                     fontWeight: typo.tag.fontWeight,
-                    color: '#64748b',
+                    color: colors.textMuted,
                     lineHeight: typo.tag.fontSize + 2,
                 },
             },
@@ -107,7 +109,7 @@ export function buildStructureTypographyPatch(band = 'compact') {
                 fontFamily: CHART_FONT_FAMILY,
                 fontSize: typo.topic.fontSize,
                 fontWeight: typo.topic.fontWeight,
-                color: '#334155',
+                color: colors.textSoft,
                 distance: typo.topic.distance,
                 overflow: 'truncate',
                 width: typo.topic.width,
@@ -124,8 +126,9 @@ export function buildStructureTypographyPatch(band = 'compact') {
  * @param {'compact'|'normal'|'medium'|'large'} [band]
  * @returns {{ rich: object, distance: number }}
  */
-export function buildNetworkLabelStyles(band = 'normal') {
+export function buildNetworkLabelStyles(band = 'normal', theme = 'light') {
     const typo = getNetworkTypography(band);
+    const colors = getChartTheme(theme);
     return {
         distance: typo.distance,
         rich: {
@@ -133,30 +136,30 @@ export function buildNetworkLabelStyles(band = 'normal') {
                 fontFamily: CHART_FONT_FAMILY,
                 fontSize: typo.site,
                 fontWeight: 600,
-                color: '#64748b',
+                color: colors.textMuted,
                 lineHeight: typo.site + 2,
             },
             topic: {
                 fontFamily: CHART_FONT_FAMILY,
                 fontSize: typo.topic,
                 fontWeight: 700,
-                color: '#1e293b',
+                color: colors.textStrong,
                 lineHeight: typo.topic + 4,
             },
             mcp: {
                 fontFamily: CHART_FONT_FAMILY,
                 fontSize: Math.max(9, typo.topic - 1),
                 fontWeight: 600,
-                color: '#475569',
+                color: colors.textMuted,
                 lineHeight: typo.topic + 2,
             },
             dna: {
                 fontFamily: CHART_FONT_FAMILY,
                 fontSize: typo.dna,
                 fontWeight: 500,
-                color: '#334155',
+                color: colors.isDark ? colors.textMuted : colors.textSoft,
                 lineHeight: typo.dna + 4,
-                backgroundColor: 'rgba(255,255,255,0.88)',
+                backgroundColor: colors.labelMask,
                 borderRadius: 2,
                 padding: [1, 3],
             },
@@ -198,7 +201,7 @@ export function shouldShowDnaNetworkLabel(band, focused = false) {
  * @returns {object}
  */
 export function buildNetworkTypographyPatch(band = 'normal', opts = {}) {
-    const styles = buildNetworkLabelStyles(band);
+    const styles = buildNetworkLabelStyles(band, opts?.theme);
     const focused = Boolean(opts?.focused);
     const dnaLabels = shouldShowDnaNetworkLabel(band, focused);
     return {
@@ -403,9 +406,10 @@ export function pickPrimaryTag(topic, preferredTagIds = []) {
     return tags[0];
 }
 
-function buildStructureTopicNode(topic) {
+function buildStructureTopicNode(topic, theme = 'light') {
     const topicId = Number(topic.id);
-    const color = topicColorById(topicId);
+    const colors = getChartTheme(theme);
+    const color = topicColorById(topicId, theme);
     const tags = normalizeTopicTags(topic);
     return {
         name: topicStructureLabel(topic, formatTreemapMcpPercent),
@@ -422,11 +426,11 @@ function buildStructureTopicNode(topic) {
         symbolSize: STRUCTURE_SYMBOL_SIZE,
         itemStyle: {
             color,
-            borderColor: '#fff',
+            borderColor: colors.nodeBorder,
             borderWidth: 1,
         },
         lineStyle: {
-            color: 'rgba(148, 163, 184, 0.55)',
+            color: colors.edge,
             width: 1,
             curveness: 0.5,
         },
@@ -434,10 +438,11 @@ function buildStructureTopicNode(topic) {
     };
 }
 
-function buildStructureTagNode(tag, topicNodes) {
+function buildStructureTagNode(tag, topicNodes, theme = 'light') {
     const count = topicNodes.length;
     const label = count > 0 ? `${tag.name} · ${count}` : tag.name;
-    const color = tagColorById(tag.id);
+    const colors = getChartTheme(theme);
+    const color = tagColorById(tag.id, theme);
     return {
         name: label,
         tagName: tag.name,
@@ -448,11 +453,11 @@ function buildStructureTagNode(tag, topicNodes) {
         symbolSize: STRUCTURE_SYMBOL_SIZE,
         itemStyle: {
             color,
-            borderColor: '#fff',
+            borderColor: colors.nodeBorder,
             borderWidth: 1,
         },
         lineStyle: {
-            color: 'rgba(148, 163, 184, 0.55)',
+            color: colors.edge,
             width: 1,
             curveness: 0.5,
         },
@@ -471,6 +476,7 @@ export const STRUCTURE_UNTAGGED_BUCKET_KEY = 'structure:untagged';
 const STRUCTURE_UNTAGGED_BUCKET_COLOR = '#94a3b8';
 
 function buildStructureUntaggedBucketNode(topicNodes, opts = {}) {
+    const colors = getChartTheme(opts?.theme);
     const count = topicNodes.length;
     const baseLabel = String(opts.untaggedBucketLabel || 'Chưa gắn tag').trim() || 'Chưa gắn tag';
     const label = count > 0 ? `${baseLabel} · ${count}` : baseLabel;
@@ -488,12 +494,12 @@ function buildStructureUntaggedBucketNode(topicNodes, opts = {}) {
         value: 1,
         symbolSize: STRUCTURE_SYMBOL_SIZE,
         itemStyle: {
-            color: STRUCTURE_UNTAGGED_BUCKET_COLOR,
-            borderColor: '#e2e8f0',
+            color: colors.isDark ? colors.bucketColor : STRUCTURE_UNTAGGED_BUCKET_COLOR,
+            borderColor: colors.bucketBorder,
             borderWidth: 1,
         },
         lineStyle: {
-            color: 'rgba(148, 163, 184, 0.45)',
+            color: colors.edgeMuted,
             width: 1,
             curveness: 0.5,
         },
@@ -821,6 +827,7 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
  *   untaggedBucketLabel?: string,
  *   untaggedBucketTooltip?: string,
  *   typographyBand?: 'compact'|'normal'|'medium'|'large'|'xlarge',
+ *   theme?: 'light'|'dark',
  * }} [opts]
  */
 export function buildTreeOption(data, opts = {}) {
@@ -832,8 +839,10 @@ export function buildTreeOption(data, opts = {}) {
         || '',
     ).trim();
     const siteLabel = siteDomain || 'Site';
+    const theme = opts?.theme === 'dark' ? 'dark' : 'light';
+    const colors = getChartTheme(theme);
     const typographyBand = opts?.typographyBand || getStructureTypographyBand(1);
-    const typographyPatch = buildStructureTypographyPatch(typographyBand);
+    const typographyPatch = buildStructureTypographyPatch(typographyBand, theme);
 
     /** @type {Map<number, {id: number, name: string, topics: object[]}>} */
     const tagBuckets = new Map();
@@ -887,30 +896,34 @@ export function buildTreeOption(data, opts = {}) {
     const rootChildren = [
         ...sortedTags.map((tag) => buildStructureTagNode(
             tag,
-            sortTopics(tag.topics).map((topic) => buildStructureTopicNode(topic)),
+            sortTopics(tag.topics).map((topic) => buildStructureTopicNode(topic, theme)),
+            theme,
         )),
     ];
     if (untaggedTopics.length > 0) {
         rootChildren.push(buildStructureUntaggedBucketNode(
-            sortTopics(untaggedTopics).map((topic) => buildStructureTopicNode(topic)),
-            opts,
+            sortTopics(untaggedTopics).map((topic) => buildStructureTopicNode(topic, theme)),
+            { ...opts, theme },
         ));
     }
 
     return {
-        backgroundColor: 'transparent',
+        backgroundColor: colors.background,
         textStyle: {
             fontFamily: CHART_FONT_FAMILY,
+            color: colors.text,
         },
         tooltip: {
             trigger: 'item',
             triggerOn: 'mousemove',
             confine: true,
-            backgroundColor: 'rgba(255,255,255,0.96)',
-            borderColor: 'rgba(15,23,42,0.1)',
+            backgroundColor: colors.tooltipBackground,
+            borderColor: colors.tooltipBorder,
             borderWidth: 1,
+            shadowBlur: 16,
+            shadowColor: colors.tooltipShadow,
             textStyle: {
-                color: '#0f172a',
+                color: colors.text,
                 fontSize: CHART_FONT_TOOLTIP,
                 fontFamily: CHART_FONT_FAMILY,
             },
@@ -942,8 +955,8 @@ export function buildTreeOption(data, opts = {}) {
                         nodeType: 'site',
                         symbolSize: STRUCTURE_SYMBOL_SIZE,
                         itemStyle: {
-                            color: '#94a3b8',
-                            borderColor: '#64748b',
+                            color: colors.siteColor,
+                            borderColor: colors.siteBorder,
                             borderWidth: 1,
                         },
                         // No per-node label — Site uses series.label rich `{site|…}`.
@@ -962,7 +975,7 @@ export function buildTreeOption(data, opts = {}) {
                 zoom: 1,
                 ...typographyPatch,
                 lineStyle: {
-                    color: 'rgba(148, 163, 184, 0.55)',
+                    color: colors.edge,
                     width: 1,
                     curveness: 0.5,
                 },
@@ -983,13 +996,15 @@ export function buildTreeOption(data, opts = {}) {
  * Area ∝ canonical MCP % (share). Colors stay per-Topic identity.
  * ECharts implicit root is fine; do NOT expose a visible Site node.
  */
-export function buildTreemapOption(data) {
+export function buildTreemapOption(data, ui = {}) {
     const topics = Array.isArray(data?.topics) ? data.topics : [];
+    const theme = ui?.theme === 'dark' ? 'dark' : 'light';
+    const colors = getChartTheme(theme);
     const labelTiers = assignTreemapLabelTiers(topics);
 
     const leaves = topics.map((topic) => {
         const topicId = Number(topic.id);
-        const color = topicColorById(topicId);
+        const color = topicColorById(topicId, theme);
         const realMcp = clampMcp(topic.mcp);
         // Soft identity tint — not a second quantitative scale.
         const opacity = 0.62 + 0.38 * (realMcp / 100);
@@ -1018,7 +1033,7 @@ export function buildTreemapOption(data) {
             itemStyle: {
                 color,
                 opacity,
-                borderColor: '#fff',
+                borderColor: colors.treemapBorder,
                 borderWidth: 1,
             },
             label: {
@@ -1033,18 +1048,21 @@ export function buildTreemapOption(data) {
     });
 
     return {
-        backgroundColor: 'transparent',
+        backgroundColor: colors.background,
         textStyle: {
             fontFamily: CHART_FONT_FAMILY,
+            color: colors.text,
         },
         tooltip: {
             trigger: 'item',
             confine: true,
-            backgroundColor: 'rgba(255,255,255,0.96)',
-            borderColor: 'rgba(15,23,42,0.1)',
+            backgroundColor: colors.tooltipBackground,
+            borderColor: colors.tooltipBorder,
             borderWidth: 1,
+            shadowBlur: 16,
+            shadowColor: colors.tooltipShadow,
             textStyle: {
-                color: '#0f172a',
+                color: colors.text,
                 fontSize: CHART_FONT_TOOLTIP,
                 fontFamily: CHART_FONT_FAMILY,
             },
@@ -1097,14 +1115,14 @@ export function buildTreemapOption(data) {
                 },
                 upperLabel: { show: false },
                 itemStyle: {
-                    borderColor: '#fff',
+                    borderColor: colors.treemapBorder,
                     borderWidth: 2,
                     gapWidth: 2,
                 },
                 emphasis: {
                     label: { fontWeight: 700 },
                     itemStyle: {
-                        borderColor: '#0f172a',
+                        borderColor: colors.treemapEmphasisBorder,
                         borderWidth: 2,
                     },
                 },
@@ -1120,7 +1138,7 @@ export function buildTreemapOption(data) {
                     },
                     {
                         itemStyle: {
-                            borderColor: '#fff',
+                            borderColor: colors.treemapBorder,
                             borderWidth: 1,
                             gapWidth: 1,
                         },
@@ -1221,6 +1239,7 @@ export function buildFocusedNetworkNeighborhood(fullNeighborhood, topicId) {
  *   typographyBand?: 'compact'|'normal'|'medium'|'large',
  *   focused?: boolean,
  *   zoom?: number,
+ *   theme?: 'light'|'dark',
  * }} [ui]
  */
 export function buildNetworkOption(neighborhood, ui = {}) {
@@ -1233,13 +1252,15 @@ export function buildNetworkOption(neighborhood, ui = {}) {
     ];
     const categoryIndex = { site: 0, topic: 1, dna: 2, DNA: 2 };
     const siteDomain = String(ui.siteDomain || '').trim();
+    const theme = ui?.theme === 'dark' ? 'dark' : 'light';
+    const colors = getChartTheme(theme);
     const typographyBand = ui.typographyBand || getChartTypographyBand(1);
     const focused = Boolean(
         ui.focused
         || neighborhood?.focused_topic_id
         || (Number(neighborhood?.showing_topics) === 1 && neighborhood?.focused_topic_name),
     );
-    const typographyPatch = buildNetworkTypographyPatch(typographyBand, { focused });
+    const typographyPatch = buildNetworkTypographyPatch(typographyBand, { focused, theme });
 
     let maxMcp = Number(neighborhood?.max_mcp);
     if (!Number.isFinite(maxMcp) || maxMcp <= 0) {
@@ -1268,27 +1289,31 @@ export function buildNetworkOption(neighborhood, ui = {}) {
     }
 
     return {
-        backgroundColor: 'transparent',
+        backgroundColor: colors.background,
         animation: false,
         animationDuration: 0,
         animationDurationUpdate: 0,
         textStyle: {
             fontFamily: CHART_FONT_FAMILY,
+            color: colors.text,
         },
         legend: [{
             data: categories.map((c) => c.name),
             textStyle: {
                 fontFamily: CHART_FONT_FAMILY,
+                color: colors.textSoft,
             },
         }],
         tooltip: {
             confine: true,
             trigger: 'item',
-            backgroundColor: 'rgba(255,255,255,0.96)',
-            borderColor: 'rgba(15,23,42,0.1)',
+            backgroundColor: colors.tooltipBackground,
+            borderColor: colors.tooltipBorder,
             borderWidth: 1,
+            shadowBlur: 16,
+            shadowColor: colors.tooltipShadow,
             textStyle: {
-                color: '#0f172a',
+                color: colors.text,
                 fontSize: CHART_FONT_TOOLTIP,
                 fontFamily: CHART_FONT_FAMILY,
             },
@@ -1331,10 +1356,10 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                     const topicId = category === 'topic'
                         ? Number(String(n.id).replace(/^topic:/, ''))
                         : (category === 'dna' ? Number(n.topic_id) : undefined);
-                    const topicColor = topicId ? topicColorById(topicId) : '#94a3b8';
+                    const topicColor = topicId ? topicColorById(topicId, theme) : colors.siteColor;
 
                     let symbolSize = NETWORK_DNA_SYMBOL_SIZE;
-                    let color = '#94a3b8';
+                    let color = colors.siteColor;
                     let labelShow = false;
                     let cursor = 'default';
                     /** Outside-only label side — never 'inside'. */
@@ -1342,7 +1367,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
 
                     if (category === 'site') {
                         symbolSize = NETWORK_SITE_SYMBOL_SIZE;
-                        color = '#94a3b8';
+                        color = colors.siteColor;
                         labelShow = true;
                         cursor = focused ? 'pointer' : 'default';
                         labelPosition = n.labelPosition === 'top'
@@ -1372,7 +1397,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                             ? Number(n.symbolSizeHint)
                             : networkDnaSymbolSize(parentSize, { focused });
                         // Topic color family, reduced emphasis — not random bright DNA colors.
-                        color = tintHex(topicColor, 0.55);
+                        color = tintHex(topicColor, colors.isDark ? 0.25 : 0.55);
                         labelShow = shouldShowDnaNetworkLabel(typographyBand, focused);
                         cursor = 'default';
                         labelPosition = n.labelPosition === 'top'
@@ -1414,7 +1439,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                             scale: false,
                             itemStyle: {
                                 borderWidth: category === 'topic' || category === 'site' ? 2 : 1.5,
-                                borderColor: category === 'site' ? '#475569' : '#fff',
+                                borderColor: category === 'site' ? colors.siteBorder : colors.nodeBorder,
                             },
                             label: {
                                 // Hover always reveals DNA text even if overview band hid it.
@@ -1424,7 +1449,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                         },
                         itemStyle: {
                             color,
-                            borderColor: category === 'site' ? '#64748b' : '#fff',
+                            borderColor: category === 'site' ? colors.siteBorder : colors.nodeBorder,
                             borderWidth: category === 'site' ? 1 : (category === 'topic' ? 1 : 1.5),
                         },
                     };
@@ -1435,8 +1460,18 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                         source: l.source,
                         target: l.target,
                         lineStyle: isDna
-                            ? { color: 'source', opacity: 0.24, width: 0.5, curveness: 0 }
-                            : { color: 'source', opacity: 0.14, width: 0.65, curveness: 0.02 },
+                            ? {
+                                color: colors.isDark ? colors.edge : 'source',
+                                opacity: colors.isDark ? 1 : 0.24,
+                                width: 0.5,
+                                curveness: 0,
+                            }
+                            : {
+                                color: colors.isDark ? colors.edgeMuted : 'source',
+                                opacity: colors.isDark ? 1 : 0.14,
+                                width: 0.65,
+                                curveness: 0.02,
+                            },
                         emphasis: {
                             lineStyle: {
                                 width: isDna ? 0.9 : 1.2,
@@ -1447,9 +1482,9 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                 }),
                 ...typographyPatch,
                 lineStyle: {
-                    color: 'source',
+                    color: colors.isDark ? colors.edgeMuted : 'source',
                     curveness: 0.02,
-                    opacity: 0.14,
+                    opacity: colors.isDark ? 1 : 0.14,
                     width: 0.65,
                 },
             },

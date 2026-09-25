@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
 use Omnichannel\Addons\Seeding\Services\WebsiteShareJobService;
+use Omnichannel\Addons\Seeding\Services\WebsiteShareContentService;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\WebsiteSharePresenter;
 use Throwable;
@@ -55,6 +56,33 @@ final class WebsiteShareFeedController extends Controller
             'ok' => true,
             'job' => WebsiteSharePresenter::feedCard($job->loadMissing('targets')),
         ]);
+    }
+
+    public function generate(int $jobId, WebsiteShareContentService $generator): JsonResponse
+    {
+        $this->access->assertCanMutate();
+        try {
+            $job = $this->jobs->generateShareContent($jobId, $generator);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        } catch (Throwable) {
+            return response()->json(['ok' => false, 'message' => 'Gen không thành công'], 500);
+        }
+
+        return response()->json(['ok' => true, 'job' => WebsiteSharePresenter::feedCard($job)]);
+    }
+
+    public function updateTargetContent(Request $request, int $jobId, int $targetId): JsonResponse
+    {
+        $this->access->assertCanMutate();
+        $validated = $request->validate(['content' => ['nullable', 'string', 'max:20000']]);
+        try {
+            $job = $this->jobs->updateTargetContent($jobId, $targetId, (string) ($validated['content'] ?? ''));
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'job' => WebsiteSharePresenter::feedCard($job)]);
     }
 
     public function report(Request $request, int $jobId): JsonResponse

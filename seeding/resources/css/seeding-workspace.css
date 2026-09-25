@@ -810,14 +810,6 @@ select.seeding-ws__input::-ms-expand {
     vertical-align: 0.08em;
 }
 
-.seeding-ws__ws-socials {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    color: #374151;
-    font-size: 0.8125rem;
-}
-
 .seeding-ws__ws-social-list {
     display: flex;
     flex-wrap: wrap;

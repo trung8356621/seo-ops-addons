@@ -21,6 +21,8 @@ class WebsiteShareTarget extends Model
         'social',
         'target_count',
         'completed_count',
+        'share_content',
+        'content_generated_at',
     ];
 
     protected $casts = [
@@ -28,6 +30,7 @@ class WebsiteShareTarget extends Model
         'social' => SeedingSocialPlatform::class,
         'target_count' => 'integer',
         'completed_count' => 'integer',
+        'content_generated_at' => 'datetime',
     ];
 
     /** @return BelongsTo<WebsiteShareJob, $this> */

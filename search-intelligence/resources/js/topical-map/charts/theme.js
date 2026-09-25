@@ -3,7 +3,7 @@
  */
 
 /** Distinct hues readable on light backgrounds. */
-export const TOPIC_PALETTE = [
+export const LIGHT_NODE_PALETTE = [
     '#2563eb', // blue
     '#db2777', // pink
     '#059669', // emerald
@@ -21,6 +21,84 @@ export const TOPIC_PALETTE = [
     '#9333ea', // purple
     '#e11d48', // rose
 ];
+
+/** Same deterministic hue families, lifted for soft-dark surfaces. */
+export const DARK_NODE_PALETTE = [
+    '#60a5fa', // blue
+    '#f472b6', // pink
+    '#34d399', // emerald
+    '#fbbf24', // amber
+    '#a78bfa', // violet
+    '#22d3ee', // cyan
+    '#f87171', // red
+    '#818cf8', // indigo
+    '#facc15', // yellow
+    '#2dd4bf', // teal
+    '#e879f9', // fuchsia
+    '#fb923c', // orange
+    '#38bdf8', // sky
+    '#a3e635', // lime
+    '#c084fc', // purple
+    '#fb7185', // rose
+];
+
+/** Backward-compatible light palette export. */
+export const TOPIC_PALETTE = LIGHT_NODE_PALETTE;
+
+export function normalizeChartTheme(theme) {
+    return theme === 'dark' ? 'dark' : 'light';
+}
+
+/** Central presentation tokens for ECharts canvas options. */
+export function getChartTheme(theme = 'light') {
+    if (normalizeChartTheme(theme) === 'dark') {
+        return {
+            name: 'dark',
+            isDark: true,
+            background: '#111827',
+            text: '#e5e7eb',
+            textStrong: '#f1f5f9',
+            textSoft: '#cbd5e1',
+            textMuted: '#94a3b8',
+            labelMask: 'rgba(17,24,39,0.9)',
+            tooltipBackground: 'rgba(23,32,51,0.98)',
+            tooltipBorder: 'rgba(148,163,184,0.22)',
+            tooltipShadow: 'rgba(2,6,23,0.42)',
+            nodeBorder: '#1e293b',
+            siteColor: '#64748b',
+            siteBorder: '#94a3b8',
+            bucketColor: '#64748b',
+            bucketBorder: '#94a3b8',
+            edge: 'rgba(148,163,184,0.22)',
+            edgeMuted: 'rgba(148,163,184,0.18)',
+            treemapBorder: '#1e293b',
+            treemapEmphasisBorder: '#e5e7eb',
+        };
+    }
+
+    return {
+        name: 'light',
+        isDark: false,
+        background: '#ffffff',
+        text: '#0f172a',
+        textStrong: '#1e293b',
+        textSoft: '#334155',
+        textMuted: '#64748b',
+        labelMask: 'rgba(255,255,255,0.88)',
+        tooltipBackground: 'rgba(255,255,255,0.96)',
+        tooltipBorder: 'rgba(15,23,42,0.1)',
+        tooltipShadow: 'rgba(15,23,42,0.16)',
+        nodeBorder: '#ffffff',
+        siteColor: '#94a3b8',
+        siteBorder: '#64748b',
+        bucketColor: '#94a3b8',
+        bucketBorder: '#e2e8f0',
+        edge: 'rgba(148,163,184,0.55)',
+        edgeMuted: 'rgba(148,163,184,0.45)',
+        treemapBorder: '#ffffff',
+        treemapEmphasisBorder: '#0f172a',
+    };
+}
 
 /** Fixed keyword leaf size — never scales with MCP. */
 export const KEYWORD_SYMBOL_SIZE = 8;
@@ -277,9 +355,12 @@ export function networkDnaSymbolSize(topicSymbolSize, opts = {}) {
 }
 
 /** Stable color from topic id (reload-safe). */
-export function topicColorById(topicId) {
+export function topicColorById(topicId, theme = 'light') {
     const id = Math.abs(Number(topicId) || 0);
-    return TOPIC_PALETTE[id % TOPIC_PALETTE.length];
+    const palette = normalizeChartTheme(theme) === 'dark'
+        ? DARK_NODE_PALETTE
+        : LIGHT_NODE_PALETTE;
+    return palette[id % palette.length];
 }
 
 /** Lighter tint of a hex color (keyword leaves). */
@@ -331,8 +412,8 @@ export function structureTopicSymbolSize(_mcp) {
 }
 
 /** Deterministic Tag color (identification only — not metric meaning). */
-export function tagColorById(tagId) {
-    return topicColorById(tagId);
+export function tagColorById(tagId, theme = 'light') {
+    return topicColorById(tagId, theme);
 }
 
 /** Unicode-safe word count: trim + collapse whitespace + split. */

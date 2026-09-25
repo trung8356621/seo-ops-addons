@@ -6,6 +6,10 @@ import {
     readFilterQuery,
     writeFilterQuery,
 } from '../state/filters';
+import {
+    persistTopicalMapTheme,
+    resolveInitialTopicalMapTheme,
+} from '../state/theme';
 import { buildOverviewNeighborhood, buildFocusedNetworkNeighborhood } from '../charts/options';
 import AppChrome from '../components/AppChrome';
 import ChartCanvas from '../components/ChartCanvas';
@@ -34,6 +38,7 @@ export default function SiteTopicalMapPage({ config }) {
     const api = useMemo(() => createApi(config), [config]);
     const initialFilters = useMemo(() => readFilterQuery(), []);
     const chartRef = useRef(null);
+    const [theme, setTheme] = useState(resolveInitialTopicalMapTheme);
 
     const [overviewRaw, setOverviewRaw] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -276,9 +281,17 @@ export default function SiteTopicalMapPage({ config }) {
         setRenderer(mode);
     };
 
+    const toggleTheme = () => {
+        setTheme((current) => {
+            const next = current === 'dark' ? 'light' : 'dark';
+            persistTopicalMapTheme(next);
+            return next;
+        });
+    };
+
     if (siteId <= 0) {
         return (
-            <div className="tm-app tm-app--empty">
+            <div className="tm-app tm-app--empty" data-theme={theme}>
                 <p>{labels.needSite}</p>
             </div>
         );
@@ -291,7 +304,7 @@ export default function SiteTopicalMapPage({ config }) {
     const zoomScaleDisabled = renderer === 'treemap';
 
     return (
-        <div className="tm-app">
+        <div className="tm-app" data-theme={theme}>
             <AppChrome
                 title={labels.title}
                 siteDomain={config.siteDomain}
@@ -304,6 +317,9 @@ export default function SiteTopicalMapPage({ config }) {
                 onBeginAiAudit={beginAiAudit}
                 topicsPageUrl={config.topicsPageUrl}
                 aiHistoryUrl={config.aiHistoryUrl || null}
+                seoAuditUrl={config.seoAuditUrl || null}
+                theme={theme}
+                onToggleTheme={toggleTheme}
                 tagFacets={overviewRaw?.tag_facets || []}
                 untaggedCount={overviewRaw?.summary?.untagged_count || 0}
                 selectedTagIds={selectedTagIds}
@@ -336,6 +352,7 @@ export default function SiteTopicalMapPage({ config }) {
                         ref={chartRef}
                         overview={filteredOverview}
                         renderer={renderer}
+                        theme={theme}
                         neighborhood={networkNeighborhood}
                         topicDetailUrlTemplate={config.topicDetailUrlTemplate}
                         focusedTopicId={focusedTopicId}

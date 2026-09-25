@@ -16,7 +16,7 @@ final class WebsiteSharePresenter
     {
         $targets = [];
         foreach ($job->targets as $target) {
-            $targets[] = self::target($target);
+            $targets[] = self::target($target, $job->share_content);
         }
 
         $eligibleAt = $job->eligible_at;
@@ -54,12 +54,14 @@ final class WebsiteSharePresenter
     /**
      * @return array<string, mixed>
      */
-    public static function target(WebsiteShareTarget $target): array
+    public static function target(WebsiteShareTarget $target, ?string $legacyContent = null): array
     {
         return [
             'id' => (int) $target->id,
             'social' => $target->social?->value,
             'social_label' => $target->social?->label(),
+            'share_content' => $target->share_content ?? $legacyContent,
+            'content_generated_at' => $target->content_generated_at?->toIso8601String(),
             'target_count' => (int) $target->target_count,
             'completed_count' => (int) $target->completed_count,
             'is_complete' => $target->isComplete(),

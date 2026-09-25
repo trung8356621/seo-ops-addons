@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
     fetchWebsiteShareFeed,
-    updateWebsiteShareContent,
+    generateWebsiteShareContent,
+    updateWebsiteShareTargetContent,
     reportWebsiteShare,
-    generateSampleComments,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
 import { writeClipboard } from '../services/clipboardWrite';
 import WebsiteShareCard from './WebsiteShareCard';
+import WebsiteShareGeneratePanel from './WebsiteShareGeneratePanel';
 
 const FILTERS = [
     { id: 'all', label: 'Tất cả' },
@@ -25,9 +26,10 @@ export default function WebsiteShareFeed({ canMutate }) {
     const [filter, setFilter] = useState('all');
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [editingId, setEditingId] = useState(null);
+    const [editingTargetId, setEditingTargetId] = useState(null);
     const [draft, setDraft] = useState('');
     const [busyId, setBusyId] = useState(null);
+    const [activeWebsiteShareId, setActiveWebsiteShareId] = useState(null);
 
     const load = async () => {
         setLoading(true);
@@ -51,13 +53,7 @@ export default function WebsiteShareFeed({ canMutate }) {
         if (!canMutate || job.status === 'scheduled') return;
         setBusyId(job.id);
         try {
-            const res = await generateSampleComments({
-                full_text: `${job.title || ''}\n${job.article_url || ''}`,
-                count: 1,
-                platform: null,
-            });
-            const text = Array.isArray(res?.comments) ? (res.comments[0] || '') : '';
-            const updated = await updateWebsiteShareContent(job.id, text);
+            const updated = await generateWebsiteShareContent(job.id);
             notifySuccess('Đã tạo nội dung');
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
         } catch (e) {
@@ -67,13 +63,13 @@ export default function WebsiteShareFeed({ canMutate }) {
         }
     };
 
-    const onSaveEdit = async (job) => {
+    const onSaveEdit = async (job, target) => {
         setBusyId(job.id);
         try {
-            const updated = await updateWebsiteShareContent(job.id, draft);
+            const updated = await updateWebsiteShareTargetContent(job.id, target.id, draft);
             notifySuccess('Đã lưu nội dung');
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
-            setEditingId(null);
+            setEditingTargetId(null);
         } catch (e) {
             notifyError(e?.message || 'Không lưu được');
         } finally {
@@ -81,8 +77,8 @@ export default function WebsiteShareFeed({ canMutate }) {
         }
     };
 
-    const onCopy = async (job) => {
-        const text = String(job.share_content || '').trim();
+    const onCopy = async (target) => {
+        const text = String(target.share_content || '').trim();
         if (!text) {
             notifyError('Chưa có nội dung');
             return;
@@ -96,13 +92,12 @@ export default function WebsiteShareFeed({ canMutate }) {
         }
     };
 
-    const onReport = async (job, social) => {
+    const onReport = async (job, target) => {
         if (!canMutate) return;
         setBusyId(job.id);
         try {
             const updated = await reportWebsiteShare(job.id, {
-                social,
-                share_text: job.share_content || '',
+                social: target.social,
             });
             notifySuccess('Đã báo cáo share');
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
@@ -137,22 +132,38 @@ export default function WebsiteShareFeed({ canMutate }) {
             ) : null}
 
             <div className="seeding-ws__feed-grid">
-                {jobs.map((job) => (
-                    <WebsiteShareCard
-                        key={job.id}
-                        job={job}
-                        canMutate={canMutate}
-                        busy={busyId === job.id}
-                        editing={editingId === job.id}
-                        draft={draft}
-                        onDraftChange={setDraft}
-                        onGen={onGen}
-                        onStartEdit={(j) => { setEditingId(j.id); setDraft(j.share_content || ''); }}
-                        onSaveEdit={onSaveEdit}
-                        onCopy={onCopy}
-                        onReport={onReport}
-                    />
-                ))}
+                {jobs.map((job) => {
+                    const open = String(activeWebsiteShareId) === String(job.id);
+                    return (
+                        <div key={job.id} className={`seeding-ws__feed-item${open ? ' is-gen-open' : ''}`} data-feed-item data-item-kind="website">
+                            <WebsiteShareCard
+                                job={job}
+                                canMutate={canMutate}
+                                busy={busyId === job.id}
+                                genOpen={open}
+                                onGenToggle={(current) => setActiveWebsiteShareId(open ? null : current.id)}
+                            />
+                            {open ? (
+                                <WebsiteShareGeneratePanel
+                                    open
+                                    job={job}
+                                    canMutate={canMutate}
+                                    busy={busyId === job.id}
+                                    editingTargetId={editingTargetId}
+                                    draft={draft}
+                                    onDraftChange={setDraft}
+                                    onGenerate={onGen}
+                                    onStartEdit={(target) => { setEditingTargetId(target.id); setDraft(target.share_content || ''); }}
+                                    onSaveEdit={onSaveEdit}
+                                    onCancelEdit={() => setEditingTargetId(null)}
+                                    onCopy={onCopy}
+                                    onReport={onReport}
+                                    onClose={() => setActiveWebsiteShareId(null)}
+                                />
+                            ) : null}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

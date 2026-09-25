@@ -213,6 +213,20 @@ export async function updateWebsiteShareContent(jobId, shareContent) {
     });
 }
 
+export async function generateWebsiteShareContent(jobId) {
+    return seedingApiFetch(`/api/seeding/website-share/${jobId}/generate`, {
+        method: 'POST',
+    });
+}
+
+export async function updateWebsiteShareTargetContent(jobId, targetId, content) {
+    return seedingApiFetch(`/api/seeding/website-share/${jobId}/targets/${targetId}/content`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+    });
+}
+
 export async function reportWebsiteShare(jobId, payload) {
     return seedingApiFetch(`/api/seeding/website-share/${jobId}/report`, {
         method: 'POST',

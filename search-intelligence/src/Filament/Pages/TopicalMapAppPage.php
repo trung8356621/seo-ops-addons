@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 use Filament\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\TopicalMapAuditHistoryLinker;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\TopicalMapSeoAuditEntryPoint;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -124,6 +125,7 @@ final class TopicalMapAppPage extends Page
             'canMutate' => $access->canMutateSite($siteId),
             'topicsPageUrl' => $topicsUrl,
             'aiHistoryUrl' => app(TopicalMapAuditHistoryLinker::class)->resolveAiHistoryUrl(),
+            'seoAuditUrl' => app(TopicalMapSeoAuditEntryPoint::class)->resolveUrl($siteId),
             'topicDetailUrlTemplate' => $topicDetailTemplate,
             'endpoints' => [
                 'overview' => url('/seo/topical-map/api/overview'),
@@ -169,6 +171,9 @@ final class TopicalMapAppPage extends Page
                 'auditActions' => (string) __('seo-content-ai::filament.keyword.topical_map_audit_actions'),
                 'openTopics' => (string) __('seo-content-ai::filament.keyword.workspace_nav_two'),
                 'aiHistory' => (string) __('seo-content-ai::filament.projects.draft_ai_history_link'),
+                'seoAudit' => (string) __('seo-content-ai::filament.keyword.topical_map_seo_audit'),
+                'themeLight' => (string) __('seo-content-ai::filament.keyword.topical_map_theme_light'),
+                'themeDark' => (string) __('seo-content-ai::filament.keyword.topical_map_theme_dark'),
             ],
         ];
     }
