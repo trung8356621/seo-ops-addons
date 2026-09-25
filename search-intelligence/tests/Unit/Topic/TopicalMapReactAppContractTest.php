@@ -235,6 +235,8 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringNotContainsString('networkFocused', $canvas);
         self::assertStringContainsString('focusNetworkTopic', $canvas);
         self::assertStringContainsString('openTopicBlank', $canvas);
+        self::assertStringContainsString('NETWORK_ZOOM_MAX = 12', $canvas);
+        self::assertStringContainsString('initialZoom = focusedTopicId ? 1 : 4', $canvas);
         self::assertStringContainsString('clearNetworkFocus', $canvas);
         self::assertStringContainsString('NETWORK_CLICK_DELAY_MS', $canvas);
         self::assertStringContainsString('Click to open Topic', $options);
@@ -374,7 +376,10 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringNotContainsString('placeDnaAroundTopic', $layout);
         self::assertStringContainsString('planTopicRingCapacities', $layout);
         self::assertStringContainsString('NETWORK_DNA_SYMBOL_FOCUS_MAX', $theme);
-        self::assertStringContainsString('NETWORK_TOPIC_SYMBOL_MAX = 60', $theme);
+        self::assertStringContainsString('NETWORK_TOPIC_SYMBOL_SIZE = 14', $theme);
+        self::assertStringContainsString('NETWORK_DNA_SYMBOL_SIZE = 10', $theme);
+        self::assertStringContainsString('networkLabelBounds', $layout);
+        self::assertStringContainsString('networkBoundsOverlap', $layout);
         self::assertStringContainsString('dnaNetworkLabel', $options);
         self::assertStringContainsString('hideOverlap', $options);
         self::assertStringContainsString('silent: true', $options);
@@ -446,13 +451,20 @@ import {
 import {
   resolveDnaLayoutMetrics,
   DNA_AIR_GAP_MIN,
+  networkLabelBounds,
+  networkBoundsOverlap,
 } from './networkLayout.js';
 
 const topics = [];
 for (let i = 1; i <= 12; i += 1) {
   const dna = [];
   for (let d = 0; d < (i % 5) + 2; d += 1) {
-    dna.push({ phrase: `dna-${i}-${d}`, weight: 1 });
+    dna.push({
+      phrase: d === 0
+        ? `dna-${i}-${d} full descriptive label that must never be truncated`
+        : `dna-${i}-${d}`,
+      weight: 1,
+    });
   }
   topics.push({
     id: i,
@@ -490,9 +502,12 @@ const smallTopic = topicsA.find((t) => Number(String(t.id).replace(/^topic:/, ''
 if (!largeTopic || !smallTopic) throw new Error('missing sized topics');
 const largeSize = networkTopicSymbolSize(largeTopic.mcp, maxMcp);
 const smallSize = networkTopicSymbolSize(smallTopic.mcp, maxMcp);
-if (largeSize <= smallSize) throw new Error('topic MCP size hierarchy broken');
+if (largeSize !== smallSize) throw new Error('topics must use one fixed size');
 if (largeSize > NETWORK_TOPIC_SYMBOL_MAX || smallSize < NETWORK_TOPIC_SYMBOL_MIN) {
   throw new Error('topic size out of range');
+}
+if (NETWORK_TOPIC_SYMBOL_MAX !== NETWORK_TOPIC_SYMBOL_MIN) {
+  throw new Error('topic MCP scaling must be disabled');
 }
 
 const largeDna = dnaA.filter((d) => Number(d.topic_id) === 1);
@@ -500,19 +515,25 @@ const smallDna = dnaA.filter((d) => Number(d.topic_id) === 12);
 if (largeDna.length === 0 || smallDna.length === 0) throw new Error('missing dna samples');
 const largeDnaSize = networkDnaSymbolSize(largeSize);
 const smallDnaSize = networkDnaSymbolSize(smallSize);
-if (largeDnaSize < smallDnaSize) throw new Error('dna should scale with parent');
+if (largeDnaSize !== smallDnaSize) throw new Error('dna must use one fixed size');
 if (largeDnaSize < NETWORK_DNA_SYMBOL_MIN || largeDnaSize > NETWORK_DNA_SYMBOL_MAX) {
   throw new Error('dna size out of range '+largeDnaSize);
 }
 if (largeDnaSize >= largeSize) throw new Error('dna must stay smaller than topic');
+if (largeSize / largeDnaSize > 1.5) {
+  throw new Error('topic/dna size contrast must stay subtle');
+}
 
 const largeMetrics = resolveDnaLayoutMetrics(largeSize, largeDna.length, 'overview');
 const smallMetrics = resolveDnaLayoutMetrics(smallSize, smallDna.length, 'overview');
 const largeOrbit = largeMetrics.clusterOuter;
 const smallOrbit = smallMetrics.clusterOuter;
-if (largeOrbit <= smallOrbit) throw new Error('large topic cluster must be bigger');
+if (smallOrbit <= largeOrbit) throw new Error('higher DNA count must reserve more room');
 if (largeMetrics.airGap < DNA_AIR_GAP_MIN.overview) {
   throw new Error('overview airGap below hard min');
+}
+if (largeMetrics.airGap < 90) {
+  throw new Error('overview breathing room regressed');
 }
 
 const largeRadii = largeDna.map((d) => Math.hypot(d.x - largeTopic.x, d.y - largeTopic.y));
@@ -520,9 +541,8 @@ for (const dist of largeRadii) {
   if (dist < largeMetrics.clusterInner - 0.5) {
     throw new Error('dna inside clusterInner '+dist);
   }
-  // Ellipse stretch may push past circular clusterOuter along the long axis.
-  if (dist > largeMetrics.clusterOuter * 1.4 + 1) {
-    throw new Error('dna outside cluster outer bound '+dist);
+  if (dist < largeSize * 8) {
+    throw new Error('overview dna still visually attached to parent '+dist);
   }
 }
 // Organic cluster: radii must vary (not equal-radius ring/arc).
@@ -557,11 +577,20 @@ const fSite = focused.nodes.find((n) => n.category === 'site');
 if (!fSite || fSite.y <= 0) throw new Error('focused site not below topic');
 const fDna = focused.nodes.filter((n) => n.category === 'dna');
 const focusMetrics = resolveDnaLayoutMetrics(largeSize, fDna.length, 'focus');
+if (focusMetrics.airGap < 120) {
+  throw new Error('focus breathing room regressed');
+}
+if (focusMetrics.clusterOuter < largeMetrics.clusterOuter * 1.35) {
+  throw new Error('focus cluster is not materially wider than overview');
+}
 const fRadii = fDna.map((d) => Math.hypot(d.x, d.y));
 for (const d of fDna) {
   const dist = Math.hypot(d.x, d.y);
   if (dist < focusMetrics.clusterInner - 0.5) {
     throw new Error('focused dna too close to topic');
+  }
+  if (dist < largeSize * 12) {
+    throw new Error('focused dna still visually attached to parent '+dist);
   }
   if (Number(d.symbolSizeHint) < NETWORK_DNA_SYMBOL_FOCUS_MIN) {
     throw new Error('focused dna size too small '+d.symbolSizeHint);
@@ -573,8 +602,26 @@ for (const d of fDna) {
 if (focusMetrics.clusterOuter <= largeOrbit) {
   throw new Error('focus cluster must be larger than overview');
 }
-if (focusMetrics.childSize <= largeDnaSize) {
-  throw new Error('focus dna must be larger than overview dna');
+if (focusMetrics.childSize !== largeDnaSize) {
+  throw new Error('focus dna must keep the same fixed size');
+}
+const assertNoLabelOverlap = (nodes, context) => {
+  const labeled = nodes.filter((n) => n.category === 'topic' || n.category === 'dna');
+  for (let i = 0; i < labeled.length; i += 1) {
+    const left = networkLabelBounds(labeled[i]);
+    for (let j = i + 1; j < labeled.length; j += 1) {
+      const right = networkLabelBounds(labeled[j]);
+      if (networkBoundsOverlap(left, right)) {
+        throw new Error(context+' label overlap '+labeled[i].id+' '+labeled[j].id);
+      }
+    }
+  }
+};
+assertNoLabelOverlap(a.nodes, 'overview');
+assertNoLabelOverlap(focused.nodes, 'focus');
+const longDna = dnaA.find((d) => String(d.name).includes('full descriptive label'));
+if (!longDna || !String(longDna.name).endsWith('must never be truncated')) {
+  throw new Error('DNA labels must keep full text');
 }
 if (fDna.length >= 3) {
   const frMin = Math.min(...fRadii);
@@ -593,12 +640,23 @@ if (missing !== null) throw new Error('missing topic should return null');
 
 const opt = buildNetworkOption(a, { siteDomain: 'example.test' });
 if (opt.series[0].layout !== 'none') throw new Error('layout');
+if (opt.series[0].nodeScaleRatio !== 0) throw new Error('nodes must not swell with zoom');
+if (opt.series[0].zoom !== 4) throw new Error('overview must open at inspection zoom');
+if (opt.series[0].scaleLimit?.max !== 12) throw new Error('network zoom ceiling');
 if (opt.series[0].force) throw new Error('force present');
 if (opt.series[0].blur) throw new Error('blur present');
 if (opt.series[0].emphasis?.focus !== 'none') throw new Error('emphasis focus must be none');
+if (opt.series[0].emphasis?.scale !== false) throw new Error('hover must keep fixed node sizes');
 if (opt.series[0].label?.position !== 'bottom') throw new Error('series label default bottom');
-if (!opt.series[0].labelLayout?.hideOverlap) throw new Error('hideOverlap required');
+if (opt.series[0].labelLayout?.hideOverlap) throw new Error('labels must never be hidden');
 if (opt.series[0].label?.silent !== true) throw new Error('labels must be silent');
+const dnaTypography = opt.series[0].label?.rich?.dna;
+if (!dnaTypography || dnaTypography.fontSize < 12 || dnaTypography.fontWeight !== 500) {
+  throw new Error('DNA labels must stay readable');
+}
+if (!String(dnaTypography.backgroundColor || '').includes('255,255,255')) {
+  throw new Error('DNA labels need an edge-masking background');
+}
 const topicOpt = opt.series[0].data.find((d) => d.nodeType === 'topic');
 if (!topicOpt?.label || topicOpt.label.position === 'inside') {
   throw new Error('topic option label must be outside');
@@ -607,11 +665,25 @@ if (topicOpt.label.position !== 'bottom') {
   throw new Error('topic option label must be bottom');
 }
 const dnaOpt = opt.series[0].data.filter((d) => d.nodeType === 'dna');
+if (opt.series[0].data.some((d) => d.emphasis?.scale !== false)) {
+  throw new Error('per-node hover scaling must stay disabled');
+}
 if (dnaOpt.some((d) => !d.label?.show)) {
   throw new Error('overview dna labels should show (hideOverlap cleans)');
 }
 if (dnaOpt.some((d) => d.label?.position !== 'left' && d.label?.position !== 'right')) {
   throw new Error('dna option labels must be left/right');
+}
+if (dnaOpt.some((d) => Number(d.itemStyle?.borderWidth) < 1)) {
+  throw new Error('DNA nodes need a white edge halo');
+}
+const dnaLinks = opt.series[0].links.filter((l) => String(l.target).startsWith('dna:'));
+const topicLinks = opt.series[0].links.filter((l) => String(l.target).startsWith('topic:'));
+if (dnaLinks.some((l) => l.lineStyle?.opacity < 0.22 || l.lineStyle?.opacity > 0.28 || l.lineStyle?.width > 0.5)) {
+  throw new Error('DNA edge contrast is outside the readable range');
+}
+if (topicLinks.some((l) => l.lineStyle?.opacity > 0.14 || l.lineStyle?.width > 0.65)) {
+  throw new Error('Topic edges overpower Network content');
 }
 
 const dnaOptSizes = dnaOpt.map((d) => d.symbolSize);
@@ -621,6 +693,7 @@ if (dnaOptSizes.some((s) => s < NETWORK_DNA_SYMBOL_MIN || s > NETWORK_DNA_SYMBOL
 
 const focusedOpt = buildNetworkOption(focused, { siteDomain: 'example.test', focused: true });
 if (focusedOpt.series[0].layout !== 'none') throw new Error('focused layout');
+if (focusedOpt.series[0].zoom !== 1) throw new Error('focused layout should fit its one cluster');
 if (focusedOpt.series[0].force) throw new Error('focused force');
 if (focusedOpt.series[0].labelLayout?.hideOverlap) {
   throw new Error('focused mode must not aggressively hideOverlap');
@@ -672,9 +745,10 @@ JS;
             self::assertFalse($payload['truncated']);
             self::assertSame(1500, $payload['maxDna']);
             self::assertGreaterThan(0, $payload['smallSize']);
-            self::assertGreaterThan($payload['smallSize'], $payload['largeSize']);
-            self::assertGreaterThanOrEqual($payload['smallDnaSize'], $payload['largeDnaSize']);
-            self::assertGreaterThan($payload['smallOrbit'], $payload['largeOrbit']);
+            self::assertSame($payload['smallSize'], $payload['largeSize']);
+            self::assertSame($payload['smallDnaSize'], $payload['largeDnaSize']);
+            self::assertGreaterThan(0, $payload['largeOrbit']);
+            self::assertGreaterThan(0, $payload['smallOrbit']);
             self::assertSame($payload['focusedDna'], $payload['focusedNodes'] - 2);
         } finally {
             @unlink($tmp);

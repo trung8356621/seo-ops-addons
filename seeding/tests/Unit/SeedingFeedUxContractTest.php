@@ -274,6 +274,25 @@ final class SeedingFeedUxContractTest extends TestCase
         );
     }
 
+    public function test_website_share_uses_platform_snapshot_badges_without_remove_or_quantity_controls(): void
+    {
+        $root = $this->addonRoot().'/resources/js/seeding/components';
+        $card = (string) file_get_contents($root.'/WebsiteShareCard.jsx');
+        $feed = (string) file_get_contents($root.'/WebsiteShareFeed.jsx');
+
+        self::assertStringContainsString('Website Share', $card);
+        self::assertStringContainsString('job.targets', $card);
+        self::assertStringContainsString('is_complete', $card);
+        self::assertStringContainsString('Chưa cấu hình Social Account active cho domain này.', $card);
+        self::assertStringContainsString('Báo cáo', $card);
+        self::assertStringNotContainsString('completed_count}/{t.target_count', $card);
+        self::assertStringNotContainsString('×', $card);
+        self::assertStringNotContainsString('remove', $card);
+        self::assertStringNotContainsString('skip', $card);
+        self::assertStringContainsString('writeClipboard', $feed);
+        self::assertStringNotContainsString('navigator.clipboard.writeText', $feed);
+    }
+
     public function test_storage_tracks_ownership_and_preview_fields(): void
     {
         $storage = (string) file_get_contents(

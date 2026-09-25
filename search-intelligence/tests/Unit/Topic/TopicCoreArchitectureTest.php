@@ -51,6 +51,21 @@ final class TopicCoreArchitectureTest extends TestCase
         }
     }
 
+    public function test_dna_extractor_preserves_semantic_glue_in_question_phrases(): void
+    {
+        $extractor = new TopicDnaExtractor(
+            new KeywordNormalizer,
+            new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer),
+        );
+
+        $whatRows = $extractor->extract('vải da PVC là gì', 'Vải da PVC');
+        self::assertSame(['là gì'], array_column($whatRows, 'value'));
+        self::assertSame(['after'], array_column($whatRows, 'placement'));
+
+        $whereRows = $extractor->extract('vải da PVC ở đâu', 'Vải da PVC');
+        self::assertSame(['ở đâu'], array_column($whereRows, 'value'));
+    }
+
     public function test_migration_defines_four_tables_without_cluster_key(): void
     {
         $path = dirname(__DIR__, 3).'/database/migrations/2026_09_17_120000_create_seo_topic_core_tables.php';

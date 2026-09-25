@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Manager Social Accounts foundation — DB/API/UI/security contracts.
- * Does NOT wire Topic social selection or Website Share DEFAULT_SOCIALS.
+ * Manager Social Accounts are the source for Website Share target snapshots.
  */
 final class SeedingSocialAccountsContractTest extends TestCase
 {
@@ -126,13 +126,16 @@ final class SeedingSocialAccountsContractTest extends TestCase
         self::assertStringNotContainsString("'password' => \$row", $controller);
     }
 
-    public function test_website_share_default_socials_untouched(): void
+    public function test_website_share_uses_active_social_account_resolver(): void
     {
         $share = $this->src('Services/WebsiteShareJobService.php');
-        self::assertStringContainsString('public const DEFAULT_SOCIALS', $share);
-        self::assertStringContainsString('foreach (self::DEFAULT_SOCIALS as $social)', $share);
-        self::assertStringNotContainsString('SeedingSocialAccount', $share);
-        self::assertStringNotContainsString('activeForWorkspace', $share);
+        $service = $this->src('Services/SeedingSocialAccountService.php');
+        self::assertStringNotContainsString('DEFAULT_SOCIALS', $share);
+        self::assertStringContainsString('activePlatformsForWebsiteShare', $service);
+        self::assertStringContainsString('activePlatformsForWebsiteShare', $share);
+        self::assertStringContainsString("where('site_id', \$siteId)", $service);
+        self::assertStringContainsString('normalizeDomain', $service);
+        self::assertStringContainsString('->unique()', $service);
     }
 
     public function test_api_js_exposes_social_account_helpers(): void

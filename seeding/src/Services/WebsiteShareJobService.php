@@ -8,7 +8,6 @@ use App\Core\Event\ArticleIndexStatusChanged;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
 use Omnichannel\Addons\Seeding\Enums\WebsiteShareJobStatus;
 use Omnichannel\Addons\Seeding\Jobs\CheckArticleForWebsiteShareJob;
 use Omnichannel\Addons\Seeding\Models\WebsiteShareJob;
@@ -25,15 +24,9 @@ final class WebsiteShareJobService
 {
     public const DELAY_MINUTES = 10;
 
-    /** @var list<string> */
-    public const DEFAULT_SOCIALS = [
-        'facebook',
-        'threads',
-        'pinterest',
-    ];
-
     public function __construct(
         private readonly SeedingServiceResolver $resolver,
+        private readonly SeedingSocialAccountService $socialAccounts,
     ) {}
 
     public function handleIndexStatusChanged(ArticleIndexStatusChanged $event): void
@@ -108,11 +101,10 @@ final class WebsiteShareJobService
             $job->save();
 
             if ($job->targets()->count() === 0) {
-                foreach (self::DEFAULT_SOCIALS as $social) {
-                    $platform = SeedingSocialPlatform::tryFrom($social) ?? SeedingSocialPlatform::Other;
+                foreach ($this->socialAccounts->activePlatformsForWebsiteShare($job->site_id, $job->domain) as $social) {
                     WebsiteShareTarget::query()->create([
                         'job_id' => (int) $job->id,
-                        'social' => $platform,
+                        'social' => $social,
                         'target_count' => 1,
                         'completed_count' => 0,
                     ]);

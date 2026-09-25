@@ -106,6 +106,47 @@ final class SeedingSocialAccountService
     }
 
     /**
+     * Website Share target source: prefer the site identity, then the domain snapshot.
+     * Returns platform values only; duplicate accounts for one platform collapse here.
+     *
+     * @return list<string>
+     */
+    public function activePlatformsForWebsiteShare(?int $siteId, ?string $domain): array
+    {
+        if (! $this->tableReady()) {
+            return [];
+        }
+
+        $base = SeedingSocialAccount::query()
+            ->forInstallation($this->resolver->installationNamespace())
+            ->active();
+
+        $rows = $siteId !== null && $siteId > 0
+            ? (clone $base)->where('site_id', $siteId)->get()
+            : collect();
+
+        if ($rows->isEmpty()) {
+            $normalizedDomain = $this->normalizeDomain($domain);
+            if ($normalizedDomain === '') {
+                return [];
+            }
+
+            $rows = (clone $base)->get()->filter(
+                fn (SeedingSocialAccount $row): bool => $this->normalizeDomain((string) $row->domain) === $normalizedDomain
+            );
+        }
+
+        return $rows
+            ->map(static fn (SeedingSocialAccount $row): string => $row->platform instanceof SeedingSocialPlatform
+                ? $row->platform->value
+                : SeedingSocialPlatform::Other->value)
+            ->filter(static fn (string $platform): bool => $platform !== '')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  array{
      *   site_id?: int|null,
      *   domain?: string|null,
@@ -299,15 +340,23 @@ final class SeedingSocialAccountService
      */
     private function accessibleSites(): array
     {
-        return $this->access->accessibleSitesQuery()
-            ->orderBy('domain')
-            ->get(['id', 'domain'])
-            ->map(static fn (Site $site): array => [
-                'id' => (int) $site->id,
-                'domain' => (string) $site->domain,
-            ])
-            ->values()
-            ->all();
+        if (! class_exists(Site::class)) {
+            return [];
+        }
+
+        try {
+            return $this->access->accessibleSitesQuery()
+                ->orderBy('domain')
+                ->get(['id', 'domain'])
+                ->map(static fn (Site $site): array => [
+                    'id' => (int) $site->id,
+                    'domain' => (string) $site->domain,
+                ])
+                ->values()
+                ->all();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**
@@ -345,12 +394,26 @@ final class SeedingSocialAccountService
             return ['site_id' => $siteId, 'domain' => $domain];
         }
 
-        $domain = strtolower(trim((string) ($payload['domain'] ?? '')));
+        $domain = $this->normalizeDomain((string) ($payload['domain'] ?? ''));
         if ($domain === '') {
             throw new InvalidArgumentException('Chọn Domain/Site');
         }
 
         return ['site_id' => null, 'domain' => $domain];
+    }
+
+    private function normalizeDomain(string $raw): string
+    {
+        $value = strtolower(trim($raw));
+        if ($value === '') {
+            return '';
+        }
+
+        $parts = parse_url(str_contains($value, '://') ? $value : 'https://'.$value);
+        $host = is_array($parts) ? strtolower(trim((string) ($parts['host'] ?? ''))) : '';
+        $host = preg_replace('/^www\./', '', $host) ?? $host;
+
+        return trim($host, ". \t\n\r\0\x0B");
     }
 
     private function requirePlatform(mixed $raw): SeedingSocialPlatform

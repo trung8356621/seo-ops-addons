@@ -23,6 +23,9 @@ final class TopicDnaExtractor
     /** Location / discourse wrappers stripped from residual DNA display. */
     private const LOCATION_WRAPPERS = ['tai', 'o', 'tai thanh pho', 'o thanh pho'];
 
+    /** Question heads whose adjacent glue words are part of the semantic DNA phrase. */
+    private const QUESTION_TOKENS = ['gi', 'ai', 'dau', 'sao', 'nao', 'bao', 'khi'];
+
     /** @var array<string, string> */
     private const KNOWN_FACETS = [
         'canvas' => 'material',
@@ -482,23 +485,55 @@ final class TopicDnaExtractor
 
         $rawWords = preg_split('/\s+/u', trim($originalPhrase)) ?: [];
         $displayParts = [];
+        $matchedIndexes = [];
         $pi = 0;
-        foreach ($rawWords as $rawWord) {
+        foreach ($rawWords as $index => $rawWord) {
             if ($pi >= count($patternParts)) {
                 break;
             }
             $folded = $this->normalizer->fold(mb_strtolower($rawWord, 'UTF-8'));
             if ($folded === $patternParts[$pi]) {
                 $displayParts[] = $rawWord;
+                $matchedIndexes[] = (int) $index;
                 $pi++;
             }
         }
 
         if ($pi === count($patternParts) && $displayParts !== []) {
+            $questionPhrase = array_intersect($patternParts, self::QUESTION_TOKENS) !== [];
+            if ($questionPhrase && $matchedIndexes !== []) {
+                $start = $matchedIndexes[0];
+                $end = $matchedIndexes[count($matchedIndexes) - 1];
+                while ($start > 0 && $this->isGlueRawWord($rawWords[$start - 1])) {
+                    $start--;
+                }
+
+                $matched = array_fill_keys($matchedIndexes, true);
+                $onlyGlueBetween = true;
+                for ($index = $start; $index <= $end; $index++) {
+                    if (! isset($matched[$index]) && ! $this->isGlueRawWord($rawWords[$index])) {
+                        $onlyGlueBetween = false;
+                        break;
+                    }
+                }
+
+                if ($onlyGlueBetween) {
+                    return implode(' ', array_slice($rawWords, $start, $end - $start + 1));
+                }
+            }
+
             return implode(' ', $displayParts);
         }
 
         return $foldedFragment;
+    }
+
+    private function isGlueRawWord(string $word): bool
+    {
+        $folded = $this->normalizer->fold(mb_strtolower($word, 'UTF-8'));
+        $folded = preg_replace('/[^\p{L}\p{N}]+/u', '', $folded) ?? '';
+
+        return in_array($folded, self::GLUE, true);
     }
 
     private function guessFacet(string $normalized): ?string

@@ -6,65 +6,83 @@ import {
     clampMcp,
     NETWORK_TOPIC_SYMBOL_MIN,
     NETWORK_SITE_SYMBOL_SIZE,
-    normalizeTopicSymbolScale,
     networkDnaSymbolSize,
 } from './theme.js';
 
 /** Gap between adjacent Topic DNA clouds (px in layout space). */
-const TOPIC_CLOUD_GAP = 96;
+const TOPIC_CLOUD_GAP = 120;
 
 /** Minimum Topic ring radius from Site center. */
-const INNER_RING_BASE = 320;
+const INNER_RING_BASE = 460;
 
 /** Extra radial padding between successive Topic rings. */
-const RING_GAP = 88;
+const RING_GAP = 180;
 
 /** Radial step added per outer ring index. */
-const RING_INDEX_STEP = 84;
+const RING_INDEX_STEP = 150;
 
 /** Padding beyond Site symbol before first Topic ring. */
-const SITE_INNER_PAD = 48;
+const SITE_INNER_PAD = 96;
+
+/** Worst-case label metrics across Network zoom typography bands. */
+const LABEL_METRICS = Object.freeze({
+    topic: Object.freeze({ charWidth: 9.5, lineHeight: 20, distance: 8 }),
+    dna: Object.freeze({ charWidth: 8.4, lineHeight: 20, distance: 9 }),
+});
+
+/** Padding enforced between every node/label bounding box. */
+const LABEL_COLLISION_PAD = 8;
+
+/** Deterministic spiral growth used while seeking the next collision-free slot. */
+const DNA_SPIRAL_STEP = Object.freeze({ overview: 32, focus: 42 });
+
+/** Defensive upper bound; fallback remains deterministic if exhausted. */
+const DNA_PLACEMENT_ATTEMPTS = 5000;
+
+/** Dense-but-separated global Topic packing; avoids oversized sparse rings. */
+const TOPIC_CENTER_SPIRAL_STEP = 120;
+const TOPIC_CENTER_PLACEMENT_ATTEMPTS = 8000;
 
 /**
- * DNA organic cluster layout — single source of truth for overview + focus.
+ * DNA label-aware fixed layout — single source of truth for overview + focus.
  *
- * Annulus / safe-zone around each Topic (NOT ring / semicircle / force):
+ * Safe-zone around each Topic (NOT force physics):
  *   clusterInner = topicRadius + LABEL_CLEARANCE + MIN_DNA_GAP + childRadius
- *   clusterOuter = clusterInner + (BASE_DEPTH + sqrt(n) * SPACING) * spread
+ *   clusterOuter = measured extent of every placed node + full label
  *
- * DNA angles: golden-angle + deterministic hash jitter.
- * DNA radii: mixed packing + hash fill of the annulus.
+ * Candidates follow a deterministic golden-angle spiral and are accepted only
+ * when both node and label bounding boxes clear all prior content.
  * Precomputed only — layout:'none'.
  */
 /** @typedef {'overview'|'focus'} NetworkDnaLayoutMode */
 
 /** Label clearance beyond Topic outline (px). */
-export const DNA_LABEL_CLEARANCE = Object.freeze({ overview: 24, focus: 28 });
+export const DNA_LABEL_CLEARANCE = Object.freeze({ overview: 50, focus: 80 });
 /** Minimum gap Topic outline → DNA outline (px). */
-export const DNA_MIN_GAP = Object.freeze({ overview: 32, focus: 40 });
+export const DNA_MIN_GAP = Object.freeze({ overview: 70, focus: 120 });
 /** Hard minimum air between Topic outline and DNA outline (px). */
 export const DNA_AIR_GAP_MIN = Object.freeze({
     overview: DNA_LABEL_CLEARANCE.overview + DNA_MIN_GAP.overview,
     focus: DNA_LABEL_CLEARANCE.focus + DNA_MIN_GAP.focus,
 });
-/** Soft air-gap floor before parent-scale boost (alias of AIR_GAP_MIN). */
+/** Soft air-gap floor (alias of AIR_GAP_MIN). */
 export const DNA_AIR_GAP_BASE = Object.freeze({
     overview: DNA_AIR_GAP_MIN.overview,
     focus: DNA_AIR_GAP_MIN.focus,
 });
-/** Extra air-gap * normalizeTopicSymbolScale (0..1) — large Topics get more room. */
-export const DNA_AIR_GAP_SCALE = Object.freeze({ overview: 16, focus: 20 });
+/** Retired Topic-size boost; geometry now uses fixed Topic/DNA sizes. */
+export const DNA_AIR_GAP_SCALE = Object.freeze({ overview: 0, focus: 0 });
 /** Base radial depth of the DNA neighborhood (before sqrt(n) growth). */
-export const DNA_BASE_CLUSTER_DEPTH = Object.freeze({ overview: 28, focus: 36 });
+export const DNA_BASE_CLUSTER_DEPTH = Object.freeze({ overview: 48, focus: 64 });
 /** Radial growth of the cluster disc with DNA count. */
-export const DNA_CLUSTER_DENSITY = Object.freeze({ overview: 16, focus: 20 });
+export const DNA_CLUSTER_DENSITY = Object.freeze({ overview: 24, focus: 32 });
 /** Minimum center-to-center between DNA siblings (soft target). */
-export const DNA_MIN_SEPARATION = Object.freeze({ overview: 16, focus: 22 });
+export const DNA_MIN_SEPARATION = Object.freeze({ overview: 24, focus: 30 });
 /**
  * Spread multiplier on cluster depth.
- * overview 1.0 · focus 1.6 → roomier inspection neighborhood.
+ * overview 1.15 · focus 1.85 → roomier inspection neighborhood.
  */
-export const DNA_CLUSTER_SPREAD = Object.freeze({ overview: 1.0, focus: 1.6 });
+export const DNA_CLUSTER_SPREAD = Object.freeze({ overview: 1.15, focus: 1.85 });
 
 /** Golden angle — low-discrepancy angular packing (not equal-radius orbit). */
 export const DNA_GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -124,6 +142,118 @@ function dnaPlacementSeed(topicSeed, dnaNode, index) {
 }
 
 /**
+ * Conservative rendered label width for collision-free fixed placement.
+ * Uses the largest Network typography band so zooming never reveals overlap.
+ *
+ * @param {unknown} text
+ * @param {'topic'|'dna'} [nodeType='dna']
+ * @returns {number}
+ */
+export function estimateNetworkLabelWidth(text, nodeType = 'dna') {
+    const kind = nodeType === 'topic' ? 'topic' : 'dna';
+    const lines = String(text ?? '').split('\n');
+    const longest = lines.reduce(
+        (max, line) => Math.max(max, Array.from(line).length),
+        0,
+    );
+    return Math.max(12, Math.ceil(longest * LABEL_METRICS[kind].charWidth));
+}
+
+/**
+ * Axis-aligned label bounds in layout coordinates.
+ * Mirrors ECharts outside left/right/bottom placement used by Network nodes.
+ *
+ * @param {object} node
+ * @returns {{ left: number, right: number, top: number, bottom: number }}
+ */
+export function networkLabelBounds(node) {
+    const category = node?.category === 'topic' ? 'topic' : 'dna';
+    const metrics = LABEL_METRICS[category];
+    const x = Number(node?.x) || 0;
+    const y = Number(node?.y) || 0;
+    const size = Number(node?.symbolSizeHint) > 0
+        ? Number(node.symbolSizeHint)
+        : (category === 'topic' ? NETWORK_TOPIC_SYMBOL_MIN : networkDnaSymbolSize());
+    const radius = size / 2;
+    const lines = String(node?.name ?? '').split('\n');
+    const width = estimateNetworkLabelWidth(node?.name, category);
+    const height = Math.max(1, lines.length) * metrics.lineHeight;
+    const position = node?.labelPosition === 'left'
+        || node?.labelPosition === 'right'
+        || node?.labelPosition === 'top'
+        || node?.labelPosition === 'bottom'
+        ? node.labelPosition
+        : (category === 'topic' ? 'bottom' : 'right');
+
+    if (position === 'left') {
+        return {
+            left: x - radius - metrics.distance - width,
+            right: x - radius - metrics.distance,
+            top: y - height / 2,
+            bottom: y + height / 2,
+        };
+    }
+    if (position === 'top') {
+        return {
+            left: x - width / 2,
+            right: x + width / 2,
+            top: y - radius - metrics.distance - height,
+            bottom: y - radius - metrics.distance,
+        };
+    }
+    if (position === 'bottom') {
+        return {
+            left: x - width / 2,
+            right: x + width / 2,
+            top: y + radius + metrics.distance,
+            bottom: y + radius + metrics.distance + height,
+        };
+    }
+    return {
+        left: x + radius + metrics.distance,
+        right: x + radius + metrics.distance + width,
+        top: y - height / 2,
+        bottom: y + height / 2,
+    };
+}
+
+/** @param {object} node */
+function networkNodeBounds(node) {
+    const x = Number(node?.x) || 0;
+    const y = Number(node?.y) || 0;
+    const size = Number(node?.symbolSizeHint) > 0
+        ? Number(node.symbolSizeHint)
+        : (node?.category === 'topic' ? NETWORK_TOPIC_SYMBOL_MIN : networkDnaSymbolSize());
+    const radius = size / 2;
+    return {
+        left: x - radius,
+        right: x + radius,
+        top: y - radius,
+        bottom: y + radius,
+    };
+}
+
+/** @param {{left:number,right:number,top:number,bottom:number}} a @param {object} b */
+export function networkBoundsOverlap(a, b, padding = LABEL_COLLISION_PAD) {
+    return !(
+        a.right + padding <= b.left
+        || b.right + padding <= a.left
+        || a.bottom + padding <= b.top
+        || b.bottom + padding <= a.top
+    );
+}
+
+/** @param {{left:number,right:number,top:number,bottom:number}} box */
+function boxRadialExtent(box) {
+    return Math.max(
+        Math.hypot(box.left, box.top),
+        Math.hypot(box.left, box.bottom),
+        Math.hypot(box.right, box.top),
+        Math.hypot(box.right, box.bottom),
+    );
+}
+
+/**
  * Canonical DNA cluster metrics for one Topic neighborhood.
  *
  * @param {number} topicSymbolSize — Topic diameter (px)
@@ -152,7 +282,6 @@ export function resolveDnaLayoutMetrics(
     const topicSize = Number.isFinite(size) && size > 0 ? size : NETWORK_TOPIC_SYMBOL_MIN;
     const topicRadius = topicSize / 2;
     const n = Math.max(0, Number(dnaCount) || 0);
-    const scale = normalizeTopicSymbolScale(topicSize);
     const childSize = networkDnaSymbolSize(topicSize, { focused: layoutMode === 'focus' });
     const childRadius = childSize / 2;
     const spread = DNA_CLUSTER_SPREAD[layoutMode];
@@ -161,8 +290,7 @@ export function resolveDnaLayoutMetrics(
     const airGap = Math.max(
         DNA_AIR_GAP_MIN[layoutMode],
         DNA_LABEL_CLEARANCE[layoutMode]
-            + DNA_MIN_GAP[layoutMode]
-            + scale * DNA_AIR_GAP_SCALE[layoutMode],
+            + DNA_MIN_GAP[layoutMode],
     );
     const clusterInner = topicRadius + airGap + childRadius;
     const depth = DNA_BASE_CLUSTER_DEPTH[layoutMode]
@@ -301,8 +429,7 @@ export function planTopicRingCapacities(topicCount) {
  */
 export function topicCloudClearance(dnaCount, topicSymbolSize = NETWORK_TOPIC_SYMBOL_MIN) {
     const metrics = resolveDnaLayoutMetrics(topicSymbolSize, dnaCount, 'overview');
-    // Ellipse stretch can push DNA ~1.36× past clusterOuter along the long axis.
-    return metrics.clusterOuter * 1.36 + metrics.childRadius + TOPIC_CLOUD_GAP / 2;
+    return metrics.clusterOuter + TOPIC_CLOUD_GAP / 2;
 }
 
 /**
@@ -321,8 +448,8 @@ export function computeRingRadii(capacities, clearancesPerTopic) {
         const count = capacities[r];
         const slice = clearancesPerTopic.slice(offset, offset + count);
         const maxClear = slice.reduce((m, c) => Math.max(m, c), 0);
-        const minByChord = count > 0
-            ? (count * Math.max(...slice, 1) * 2) / (2 * Math.PI)
+        const minByChord = count > 1
+            ? Math.max(...slice, 1) / Math.sin(Math.PI / count)
             : INNER_RING_BASE;
         const radius = Math.max(
             INNER_RING_BASE + r * RING_INDEX_STEP,
@@ -338,10 +465,67 @@ export function computeRingRadii(capacities, clearancesPerTopic) {
 }
 
 /**
- * Place DNA as an organic annulus cluster around a Topic.
- * Precomputed only — no realtime force. Radii vary inside [inner, outer];
- * angles use golden-angle + hash jitter (no ring / radial spokes).
- * Stamps symbolSizeHint + left/right labelPosition per DNA.
+ * Pack Topic centers on a deterministic golden-angle spiral using each measured
+ * cluster footprint. Unlike max-sized rings, one large Topic does not force a
+ * huge empty radius on every sibling.
+ *
+ * @param {object[]} topics
+ * @param {number[]} clearances
+ */
+export function placeTopicCentersByFootprint(topics, clearances) {
+    const list = Array.isArray(topics) ? topics : [];
+    const placed = [];
+
+    for (let i = 0; i < list.length; i += 1) {
+        const clearance = Math.max(1, Number(clearances?.[i]) || 1);
+        let point = null;
+
+        for (let attempt = 0; attempt < TOPIC_CENTER_PLACEMENT_ATTEMPTS; attempt += 1) {
+            const slot = i + attempt + 1;
+            const radius = NETWORK_SITE_SYMBOL_SIZE / 2
+                + SITE_INNER_PAD
+                + clearance
+                + Math.sqrt(slot) * TOPIC_CENTER_SPIRAL_STEP;
+            const angle = -Math.PI / 2 + slot * DNA_GOLDEN_ANGLE;
+            const candidate = {
+                x: Math.cos(angle) * radius,
+                y: Math.sin(angle) * radius,
+                angle,
+                clearance,
+            };
+            const overlaps = placed.some((other) => (
+                Math.hypot(candidate.x - other.x, candidate.y - other.y)
+                < candidate.clearance + other.clearance
+            ));
+            if (!overlaps) {
+                point = candidate;
+                break;
+            }
+        }
+
+        if (!point) {
+            const rightEdge = placed.reduce(
+                (max, item) => Math.max(max, item.x + item.clearance),
+                NETWORK_SITE_SYMBOL_SIZE / 2 + SITE_INNER_PAD,
+            );
+            point = {
+                x: rightEdge + clearance,
+                y: 0,
+                angle: 0,
+                clearance,
+            };
+        }
+
+        list[i].x = point.x;
+        list[i].y = point.y;
+        list[i]._layoutAngle = point.angle;
+        placed.push(point);
+    }
+}
+
+/**
+ * Place DNA on a deterministic spiral, rejecting every candidate whose node or
+ * full label box collides with previously placed content. No realtime force.
  *
  * @param {object[]} dnaNodes
  * @param {{ x: number, y: number }} parent
@@ -350,6 +534,7 @@ export function computeRingRadii(capacities, clearancesPerTopic) {
  *   mode?: NetworkDnaLayoutMode|string,
  *   seed?: number,
  *   biasAngle?: number,
+ *   topicLabel?: string,
  * }} [opts]
  * @returns {ReturnType<typeof resolveDnaLayoutMetrics>}
  */
@@ -358,56 +543,97 @@ export function placeDnaInOrganicCluster(dnaNodes, parent, topicSymbolSize, opts
     const tx = Number(parent?.x) || 0;
     const ty = Number(parent?.y) || 0;
     const metrics = resolveDnaLayoutMetrics(topicSymbolSize, list.length, opts.mode);
-    const { clusterInner, clusterOuter, childSize, topicSize } = metrics;
+    const { clusterInner, childSize, topicSize, mode } = metrics;
     const count = list.length;
-    if (count === 0) {
-        return metrics;
-    }
-
     const seedBase = Number.isFinite(Number(opts.seed))
         ? Number(opts.seed)
         : (tx * 0.13 + ty * 0.17);
     const angle0 = Number.isFinite(Number(opts.biasAngle))
-        ? Number(opts.biasAngle) + unitHash(seedBase) * 0.55
+        ? Number(opts.biasAngle) + (unitHash(seedBase) - 0.5) * 0.35
         : unitHash(seedBase) * Math.PI * 2;
-    // Per-Topic ellipse stretch — breaks circular silhouette without force.
-    const stretchX = 1.08 + unitHash(seedBase + 3) * 0.28;
-    const stretchY = 0.78 + unitHash(seedBase + 7) * 0.22;
+
+    const topicProbe = {
+        category: 'topic',
+        name: String(opts.topicLabel || 'Topic'),
+        x: tx,
+        y: ty,
+        symbolSizeHint: topicSize,
+        labelPosition: 'bottom',
+    };
+    const occupied = [networkNodeBounds(topicProbe), networkLabelBounds(topicProbe)];
+    let maxExtent = occupied.reduce((max, box) => Math.max(max, boxRadialExtent({
+        left: box.left - tx,
+        right: box.right - tx,
+        top: box.top - ty,
+        bottom: box.bottom - ty,
+    })), 0);
+    const collides = (boxes) => boxes.some(
+        (candidate) => occupied.some((placed) => networkBoundsOverlap(candidate, placed)),
+    );
 
     for (let i = 0; i < count; i += 1) {
         const seed = dnaPlacementSeed(seedBase, list[i], i);
-        const hR = unitHash(seed);
-        const hA = unitHash(seed + 101);
-        // Mix low-discrepancy packing with hash so radii are not a thin outer ring.
-        const packingT = count === 1 ? 0.42 : Math.sqrt((i + 0.35) / count);
-        const t = Math.max(0, Math.min(1, packingT * 0.38 + hR * 0.62));
-        const radius = clusterInner + (clusterOuter - clusterInner) * t;
-        // Golden angle + hash jitter — avoids spokes and equal spacing look.
-        const theta = angle0 + i * DNA_GOLDEN_ANGLE + (hA - 0.5) * 0.7;
-        // Apply anisotropic stretch WITHOUT renormalizing onto a circle.
-        let dx = Math.cos(theta) * radius * stretchX;
-        let dy = Math.sin(theta) * radius * stretchY;
-        // Keep DNA inside an elliptical safe annulus (inner hard, outer soft).
-        const dist = Math.hypot(dx, dy);
-        const maxOuter = clusterOuter * Math.max(stretchX, stretchY);
-        if (dist > 0 && dist < clusterInner) {
-            const s = clusterInner / dist;
-            dx *= s;
-            dy *= s;
-        } else if (dist > maxOuter) {
-            const s = maxOuter / dist;
-            dx *= s;
-            dy *= s;
+        const jitter = (unitHash(seed + 101) - 0.5) * 0.32;
+        let placedNode = null;
+        let placedBoxes = null;
+
+        for (let attempt = 0; attempt < DNA_PLACEMENT_ATTEMPTS; attempt += 1) {
+            const slot = i + attempt + 1;
+            const radius = clusterInner + Math.sqrt(slot) * DNA_SPIRAL_STEP[mode];
+            const theta = angle0 + slot * DNA_GOLDEN_ANGLE + jitter;
+            const dx = Math.cos(theta) * radius;
+            const dy = Math.sin(theta) * radius;
+            const candidate = {
+                ...list[i],
+                category: 'dna',
+                x: tx + dx,
+                y: ty + dy,
+                symbolSizeHint: childSize,
+                labelPosition: dx < 0 ? 'left' : 'right',
+            };
+            const boxes = [networkNodeBounds(candidate), networkLabelBounds(candidate)];
+            if (!collides(boxes)) {
+                placedNode = candidate;
+                placedBoxes = boxes;
+                break;
+            }
         }
-        list[i].x = tx + dx;
-        list[i].y = ty + dy;
+
+        if (!placedNode || !placedBoxes) {
+            const side = i % 2 === 0 ? 1 : -1;
+            let row = i + 1;
+            do {
+                placedNode = {
+                    ...list[i],
+                    category: 'dna',
+                    x: tx + side * (clusterInner + DNA_SPIRAL_STEP[mode] * 2),
+                    y: ty + row * (LABEL_METRICS.dna.lineHeight + LABEL_COLLISION_PAD * 2),
+                    symbolSizeHint: childSize,
+                    labelPosition: side < 0 ? 'left' : 'right',
+                };
+                placedBoxes = [networkNodeBounds(placedNode), networkLabelBounds(placedNode)];
+                row += 1;
+            } while (collides(placedBoxes));
+        }
+
+        list[i].x = placedNode.x;
+        list[i].y = placedNode.y;
         list[i].symbolSizeHint = childSize;
         list[i].parentSymbolSize = topicSize;
-        // External left/right by side of Topic — readable, never rotated.
-        list[i].labelPosition = dx < 0 ? 'left' : 'right';
+        list[i].labelPosition = placedNode.labelPosition;
+        occupied.push(...placedBoxes);
+        for (const box of placedBoxes) {
+            maxExtent = Math.max(maxExtent, boxRadialExtent({
+                left: box.left - tx,
+                right: box.right - tx,
+                top: box.top - ty,
+                bottom: box.bottom - ty,
+            }));
+        }
     }
 
-    return metrics;
+    const clusterOuter = Math.max(metrics.clusterOuter, maxExtent);
+    return { ...metrics, clusterOuter, orbit: clusterOuter };
 }
 
 /**
@@ -429,9 +655,7 @@ export function placeDnaOnSemiArc(dnaNodes, parent, topicSymbolSize, arcCenter, 
  */
 export function assignNetworkFixedCoordinates(nodes, opts = {}) {
     const list = Array.isArray(nodes) ? nodes : [];
-    const dnaCountByTopic = opts.topicDnaCounts instanceof Map
-        ? opts.topicDnaCounts
-        : new Map();
+    void opts;
 
     const site = list.find((n) => n.category === 'site');
     if (site) {
@@ -440,52 +664,6 @@ export function assignNetworkFixedCoordinates(nodes, opts = {}) {
     }
 
     const topics = list.filter((n) => n.category === 'topic');
-    const capacities = planTopicRingCapacities(topics.length);
-    const clearances = topics.map((n) => {
-        const tid = Number(String(n.id).replace(/^topic:/, ''));
-        const count = dnaCountByTopic.has(tid)
-            ? Number(dnaCountByTopic.get(tid))
-            : Number(n.dna_count ?? 0);
-        return topicCloudClearance(count, resolveTopicSymbolSize(n));
-    });
-    const radii = computeRingRadii(capacities, clearances);
-
-    let topicIndex = 0;
-    for (let r = 0; r < capacities.length; r += 1) {
-        const count = capacities[r];
-        const radius = radii[r] ?? INNER_RING_BASE;
-        const startAngle = -Math.PI / 2 + r * 0.17;
-        for (let i = 0; i < count; i += 1) {
-            const node = topics[topicIndex];
-            if (!node) {
-                break;
-            }
-            const angle = startAngle + (2 * Math.PI * i) / count;
-            node.x = Math.cos(angle) * radius;
-            node.y = Math.sin(angle) * radius;
-            node._layoutAngle = angle;
-            node._layoutRing = r;
-            topicIndex += 1;
-        }
-    }
-
-    /** @type {Map<number, {x: number, y: number, angle: number, ring: number, symbolSize: number}>} */
-    const topicPos = new Map();
-    for (const node of topics) {
-        const tid = Number(String(node.id).replace(/^topic:/, ''));
-        if (Number.isFinite(tid) && tid > 0) {
-            topicPos.set(tid, {
-                x: Number(node.x) || 0,
-                y: Number(node.y) || 0,
-                angle: Number(node._layoutAngle) || 0,
-                ring: Number(node._layoutRing) || 0,
-                symbolSize: resolveTopicSymbolSize(node),
-            });
-        }
-        delete node._layoutAngle;
-        delete node._layoutRing;
-    }
-
     /** @type {Map<number, object[]>} */
     const dnaByTopic = new Map();
     for (const node of list) {
@@ -504,24 +682,52 @@ export function assignNetworkFixedCoordinates(nodes, opts = {}) {
         dnaByTopic.get(tid).push(node);
     }
 
+    // First place each cluster around a local origin. Its measured extent includes
+    // every full label, so Topic-center spacing can use the real footprint.
+    const clearances = topics.map((topic) => {
+        const tid = Number(String(topic.id).replace(/^topic:/, ''));
+        const metrics = placeDnaInOrganicCluster(
+            dnaByTopic.get(tid) || [],
+            { x: 0, y: 0 },
+            resolveTopicSymbolSize(topic),
+            {
+                mode: 'overview',
+                seed: tid,
+                topicLabel: topic.name,
+            },
+        );
+        return metrics.clusterOuter + TOPIC_CLOUD_GAP / 2;
+    });
+
+    placeTopicCentersByFootprint(topics, clearances);
+
+    /** @type {Map<number, {x: number, y: number, angle: number, symbolSize: number}>} */
+    const topicPos = new Map();
     for (const node of topics) {
-        // Topic labels always outside, preferred below the node.
+        const tid = Number(String(node.id).replace(/^topic:/, ''));
+        if (Number.isFinite(tid) && tid > 0) {
+            topicPos.set(tid, {
+                x: Number(node.x) || 0,
+                y: Number(node.y) || 0,
+                angle: Number(node._layoutAngle) || 0,
+                symbolSize: resolveTopicSymbolSize(node),
+            });
+        }
+        delete node._layoutAngle;
+    }
+
+    for (const node of topics) {
         node.labelPosition = 'bottom';
     }
 
     for (const [tid, dnaNodes] of dnaByTopic) {
         const parent = topicPos.get(tid);
-        const outward = parent?.angle ?? DNA_ARC_UP;
-        placeDnaInOrganicCluster(
-            dnaNodes,
-            { x: parent?.x ?? 0, y: parent?.y ?? 0 },
-            parent?.symbolSize ?? NETWORK_TOPIC_SYMBOL_MIN,
-            {
-                mode: 'overview',
-                seed: tid,
-                biasAngle: outward,
-            },
-        );
+        const px = parent?.x ?? 0;
+        const py = parent?.y ?? 0;
+        for (const node of dnaNodes) {
+            node.x = (Number(node.x) || 0) + px;
+            node.y = (Number(node.y) || 0) + py;
+        }
     }
 }
 
@@ -558,16 +764,17 @@ export function assignFocusedNetworkCoordinates(nodes) {
             mode: 'focus',
             seed: tid,
             biasAngle: DNA_ARC_UP,
+            topicLabel: topic?.name,
         },
     );
 
     if (site) {
-        // Clear of DNA cluster extent (incl. ellipse stretch) + Topic label (name + MCP%).
-        const dnaExtent = metrics.clusterOuter * 1.36 + metrics.childRadius;
+        // Clear of measured node + full-label footprint.
+        const dnaExtent = metrics.clusterOuter;
         site.x = 0;
         site.y = Math.max(
-            dnaExtent + NETWORK_SITE_SYMBOL_SIZE / 2 + 48,
-            topicSize / 2 + 120,
+            dnaExtent + NETWORK_SITE_SYMBOL_SIZE / 2 + 112,
+            topicSize / 2 + 180,
         );
         site.labelPosition = 'bottom';
     }

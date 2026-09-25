@@ -15,6 +15,7 @@ import { notifyError, notifySuccess } from '../services/toast';
 
 const EMPTY_FORM = {
     site_id: '',
+    domain: '',
     platform: 'facebook',
     label: '',
     username: '',
@@ -74,6 +75,7 @@ export default function SocialAccountsPanel() {
         setForm({
             ...EMPTY_FORM,
             site_id: defaultSite ? String(defaultSite.id) : '',
+            domain: defaultSite?.domain || '',
             platform: platforms[0]?.value || 'facebook',
         });
         setFormOpen(true);
@@ -83,6 +85,7 @@ export default function SocialAccountsPanel() {
         setEditingId(row.id);
         setForm({
             site_id: row.site_id != null ? String(row.site_id) : '',
+            domain: row.domain || '',
             platform: row.platform || 'facebook',
             label: row.label || '',
             username: row.username || '',
@@ -100,7 +103,7 @@ export default function SocialAccountsPanel() {
 
     const onSave = async (e) => {
         e?.preventDefault?.();
-        if (!form.site_id && !editingId) {
+        if (!form.site_id && !String(form.domain || '').trim()) {
             notifyError('Chọn Domain/Site');
             return;
         }
@@ -108,6 +111,7 @@ export default function SocialAccountsPanel() {
         try {
             const payload = {
                 site_id: form.site_id ? Number(form.site_id) : undefined,
+                domain: form.domain || undefined,
                 platform: form.platform,
                 label: form.label || null,
                 username: form.username || null,
@@ -342,17 +346,30 @@ export default function SocialAccountsPanel() {
                         <form className="seeding-ws__social-acct-form" onSubmit={onSave}>
                             <label className="seeding-ws__field">
                                 <span>Domain / Site</span>
-                                <select
-                                    className="seeding-ws__input"
-                                    value={form.site_id}
-                                    onChange={(e) => setForm((f) => ({ ...f, site_id: e.target.value }))}
-                                    required={!editingId}
-                                >
-                                    <option value="">— Chọn site —</option>
-                                    {sites.map((s) => (
-                                        <option key={s.id} value={String(s.id)}>{s.domain}</option>
-                                    ))}
-                                </select>
+                                {sites.length > 0 ? (
+                                    <select
+                                        className="seeding-ws__input"
+                                        value={form.site_id}
+                                        onChange={(e) => {
+                                            const site = sites.find((item) => String(item.id) === e.target.value);
+                                            setForm((f) => ({ ...f, site_id: e.target.value, domain: site?.domain || f.domain }));
+                                        }}
+                                        required={!String(form.domain || '').trim()}
+                                    >
+                                        <option value="">— Chọn site —</option>
+                                        {sites.map((s) => (
+                                            <option key={s.id} value={String(s.id)}>{s.domain}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        className="seeding-ws__input"
+                                        value={form.domain}
+                                        onChange={(e) => setForm((f) => ({ ...f, site_id: '', domain: e.target.value }))}
+                                        placeholder="example.com"
+                                        required
+                                    />
+                                )}
                             </label>
                             <label className="seeding-ws__field">
                                 <span>Platform</span>

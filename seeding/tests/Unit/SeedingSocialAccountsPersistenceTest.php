@@ -242,4 +242,41 @@ final class SeedingSocialAccountsPersistenceTest extends TestCase
         self::assertSame(42, $forSite[0]['site_id']);
         self::assertSame('reddit', $forSite[0]['platform']);
     }
+
+    public function test_website_share_resolver_prefers_site_then_falls_back_to_normalized_domain_and_dedupes(): void
+    {
+        $installation = app(\Omnichannel\Addons\Seeding\Support\SeedingServiceResolver::class)->installationNamespace();
+        SeedingSocialAccount::query()->create([
+            'installation_id' => $installation,
+            'site_id' => 7,
+            'domain' => 'example.com',
+            'platform' => 'facebook',
+            'status' => 'active',
+        ]);
+        SeedingSocialAccount::query()->create([
+            'installation_id' => $installation,
+            'site_id' => 7,
+            'domain' => 'example.com',
+            'platform' => 'facebook',
+            'status' => 'active',
+        ]);
+        SeedingSocialAccount::query()->create([
+            'installation_id' => $installation,
+            'site_id' => null,
+            'domain' => 'example.com',
+            'platform' => 'threads',
+            'status' => 'active',
+        ]);
+        SeedingSocialAccount::query()->create([
+            'installation_id' => $installation,
+            'site_id' => null,
+            'domain' => 'example.com',
+            'platform' => 'pinterest',
+            'status' => 'locked',
+        ]);
+
+        $service = $this->service();
+        self::assertSame(['facebook'], $service->activePlatformsForWebsiteShare(7, 'https://www.example.com/'));
+        self::assertSame(['facebook', 'threads'], $service->activePlatformsForWebsiteShare(null, 'https://www.example.com/'));
+    }
 }

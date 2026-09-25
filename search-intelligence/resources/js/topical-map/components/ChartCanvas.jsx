@@ -23,7 +23,12 @@ echarts.use([
 
 const ZOOM_STEP = 1.2;
 const ZOOM_MIN = 0.2;
-const ZOOM_MAX = 4;
+const STRUCTURE_ZOOM_MAX = 4;
+const NETWORK_ZOOM_MAX = 12;
+
+function zoomMaxForMode(mode) {
+    return mode === 'network' ? NETWORK_ZOOM_MAX : STRUCTURE_ZOOM_MAX;
+}
 
 /**
  * Full-flex ECharts canvas — wheel zoom (RAF-batched), toolbar zoom API, ResizeObserver.
@@ -69,7 +74,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     };
 
     const emitZoom = useCallback((zoom) => {
-        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom));
+        const next = Math.max(
+            ZOOM_MIN,
+            Math.min(zoomMaxForMode(propsRef.current.renderer), zoom),
+        );
         zoomRef.current = next;
         onZoomChangeRef.current?.(next);
     }, []);
@@ -134,7 +142,10 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         const current = zoomRef.current;
-        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current * factor));
+        const next = Math.max(
+            ZOOM_MIN,
+            Math.min(zoomMaxForMode(mode), current * factor),
+        );
         if (next === current) {
             return;
         }
@@ -421,16 +432,18 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         if (renderer === 'network') {
             if (rendererChanged) {
-                zoomRef.current = 1;
+                const initialZoom = focusedTopicId ? 1 : 4;
+                zoomRef.current = initialZoom;
                 centerRef.current = undefined;
                 lastFocusedTopicIdRef.current = focusedTopicId;
-                typographyBandRef.current = getChartTypographyBand(1);
-                onZoomChangeRef.current?.(1);
+                typographyBandRef.current = getChartTypographyBand(initialZoom);
+                onZoomChangeRef.current?.(initialZoom);
                 chart.clear();
                 chart.setOption(buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
                     siteDomain: propsRef.current.siteDomain,
                     typographyBand: typographyBandRef.current,
                     focused: Boolean(focusedTopicId),
+                    zoom: initialZoom,
                 }), true);
             } else {
                 // Focus enter/exit: re-center on the (new) fixed layout — no pan remnant.
@@ -447,6 +460,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                     siteDomain: propsRef.current.siteDomain,
                     typographyBand: band,
                     focused: Boolean(focusedTopicId),
+                    zoom: zoomRef.current,
                 }), { notMerge: true, lazyUpdate: false });
                 typographyBandRef.current = band;
                 const z = zoomRef.current;

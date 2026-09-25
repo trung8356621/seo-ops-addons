@@ -26,19 +26,19 @@ export const TOPIC_PALETTE = [
 export const KEYWORD_SYMBOL_SIZE = 8;
 
 /**
- * Default / mid Network DNA size (fallback when parent Topic size unknown).
- * Prefer {@see networkDnaSymbolSize} — DNA scales with parent Topic.
+ * Fixed Network DNA size (fallback and canonical value).
+ * Prefer {@see networkDnaSymbolSize} at call sites.
  */
-export const NETWORK_DNA_SYMBOL_SIZE = 7;
+export const NETWORK_DNA_SYMBOL_SIZE = 10;
 
-/** DNA satellite diameter — overview (full map). Modest, still clickable. */
-export const NETWORK_DNA_SYMBOL_MIN = 5;
-export const NETWORK_DNA_SYMBOL_MAX = 9;
-/** DNA satellite diameter — focus/isolate (easier hover/click). */
-export const NETWORK_DNA_SYMBOL_FOCUS_MIN = 9;
-export const NETWORK_DNA_SYMBOL_FOCUS_MAX = 13;
-/** DNA diameter ≈ this fraction of parent Topic diameter (then clamped). */
-export const NETWORK_DNA_PARENT_SIZE_RATIO = 0.18;
+/** One fixed DNA diameter in overview and focus. */
+export const NETWORK_DNA_SYMBOL_MIN = NETWORK_DNA_SYMBOL_SIZE;
+export const NETWORK_DNA_SYMBOL_MAX = NETWORK_DNA_SYMBOL_SIZE;
+/** Compatibility aliases: focus deliberately keeps the same DNA size. */
+export const NETWORK_DNA_SYMBOL_FOCUS_MIN = NETWORK_DNA_SYMBOL_SIZE;
+export const NETWORK_DNA_SYMBOL_FOCUS_MAX = NETWORK_DNA_SYMBOL_SIZE;
+/** Retired parent scaling; kept as an explicit zero-value compatibility token. */
+export const NETWORK_DNA_PARENT_SIZE_RATIO = 0;
 
 /** Fixed Network Site node — structural, not MCP-scaled. */
 export const NETWORK_SITE_SYMBOL_SIZE = 24;
@@ -46,10 +46,11 @@ export const NETWORK_SITE_SYMBOL_SIZE = 24;
 export const MCP_SYMBOL_MIN = 12;
 export const MCP_SYMBOL_MAX = 30;
 
-/** Network Topic size — MCP hierarchy kept; max tempered so Topics don't swallow DNA. */
-export const NETWORK_TOPIC_SYMBOL_MIN = 10;
-export const NETWORK_TOPIC_SYMBOL_MAX = 60;
-export const NETWORK_MCP_SIZE_EXPONENT = 1.35;
+/** One fixed Topic diameter; MCP remains label/data only. */
+export const NETWORK_TOPIC_SYMBOL_SIZE = 14;
+export const NETWORK_TOPIC_SYMBOL_MIN = NETWORK_TOPIC_SYMBOL_SIZE;
+export const NETWORK_TOPIC_SYMBOL_MAX = NETWORK_TOPIC_SYMBOL_SIZE;
+export const NETWORK_MCP_SIZE_EXPONENT = 0;
 
 /** Defensive full-graph DNA cap (never silent). */
 export const NETWORK_MAX_DNA_NODES = 1500;
@@ -174,14 +175,14 @@ export function getStructureTypography(band) {
 export function getNetworkTypography(band) {
     switch (band) {
         case 'compact':
-            return { topic: 10, site: 10, dna: 10, distance: 4 };
+            return { topic: 10, site: 10, dna: 11, distance: 5 };
         case 'medium':
-            return { topic: 13, site: 13, dna: 11, distance: 5 };
+            return { topic: 13, site: 13, dna: 13, distance: 6 };
         case 'large':
-            return { topic: 16, site: 15, dna: 11, distance: 6 };
+            return { topic: 16, site: 15, dna: 14, distance: 7 };
         case 'normal':
         default:
-            return { topic: 11, site: 12, dna: 10, distance: 4 };
+            return { topic: 11, site: 12, dna: 12, distance: 5 };
     }
 }
 
@@ -234,27 +235,17 @@ export function mcpToSymbolSize(mcp) {
 }
 
 /**
- * Network Topic diameter from MCP share relative to the max visible Topic MCP.
- * zero-MCP → MIN (still visible). Displayed MCP stays real.
- *
- * symbolSize = MIN + (MAX - MIN) * pow(clamp(mcp / maxMcp, 0, 1), EXPONENT)
+ * Fixed Network Topic diameter. MCP remains visible in the label and tooltip,
+ * but never changes geometry.
  *
  * @param {unknown} mcp
  * @param {unknown} maxMcp
  * @returns {number}
  */
 export function networkTopicSymbolSize(mcp, maxMcp) {
-    const real = clampMcp(mcp);
-    const peak = clampMcp(maxMcp);
-    if (peak <= 0) {
-        return NETWORK_TOPIC_SYMBOL_MIN;
-    }
-    const normalized = Math.max(0, Math.min(1, real / peak));
-    const t = normalized ** NETWORK_MCP_SIZE_EXPONENT;
-    return Math.round(
-        NETWORK_TOPIC_SYMBOL_MIN
-        + (NETWORK_TOPIC_SYMBOL_MAX - NETWORK_TOPIC_SYMBOL_MIN) * t,
-    );
+    void mcp;
+    void maxMcp;
+    return NETWORK_TOPIC_SYMBOL_SIZE;
 }
 
 /**
@@ -273,30 +264,16 @@ export function normalizeTopicSymbolScale(topicSymbolSize) {
 }
 
 /**
- * DNA satellite diameter — linked to parent Topic symbol size.
- *
- * Overview: readable but subordinate.
- * Focus (`opts.focused`): one step larger for hover/click — same scale family.
+ * Fixed DNA satellite diameter in overview and focus.
  *
  * @param {unknown} topicSymbolSize
  * @param {{ focused?: boolean }} [opts]
  * @returns {number}
  */
 export function networkDnaSymbolSize(topicSymbolSize, opts = {}) {
-    const focused = Boolean(opts?.focused);
-    const min = focused ? NETWORK_DNA_SYMBOL_FOCUS_MIN : NETWORK_DNA_SYMBOL_MIN;
-    const max = focused ? NETWORK_DNA_SYMBOL_FOCUS_MAX : NETWORK_DNA_SYMBOL_MAX;
-    const parent = Number(topicSymbolSize);
-    if (!Number.isFinite(parent) || parent <= 0) {
-        return min;
-    }
-    const scale = normalizeTopicSymbolScale(parent);
-    const byBand = min + scale * (max - min);
-    const byRatio = parent * NETWORK_DNA_PARENT_SIZE_RATIO * (focused ? 1.15 : 1);
-    const raw = Math.max(byBand, byRatio);
-    const size = Math.round(Math.max(min, Math.min(max, raw)));
-    // Hard ceiling: DNA must stay visually smaller than Topic.
-    return Math.min(size, Math.max(min, Math.floor(parent * 0.5)));
+    void topicSymbolSize;
+    void opts;
+    return NETWORK_DNA_SYMBOL_SIZE;
 }
 
 /** Stable color from topic id (reload-safe). */

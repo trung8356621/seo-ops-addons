@@ -98,6 +98,18 @@ final class SeedingV2StructureContractTest extends TestCase
         self::assertFileExists($this->addonRoot().'/database/migrations/2026_09_12_100100_create_website_share_jobs_tables.php');
     }
 
+    public function test_website_share_targets_are_snapshotted_from_active_accounts(): void
+    {
+        $service = (string) file_get_contents($this->addonRoot().'/src/Services/WebsiteShareJobService.php');
+        $presenter = (string) file_get_contents($this->addonRoot().'/src/Support/WebsiteSharePresenter.php');
+
+        self::assertStringNotContainsString('DEFAULT_SOCIALS', $service);
+        self::assertStringContainsString('activePlatformsForWebsiteShare', $service);
+        self::assertStringContainsString("if (\$job->targets()->count() === 0)", $service);
+        self::assertStringContainsString("'has_social_targets'", $presenter);
+        self::assertStringContainsString("'is_complete'", $presenter);
+    }
+
     public function test_composer_supports_multi_social_rows(): void
     {
         $composer = (string) file_get_contents($this->addonRoot().'/resources/js/seeding/components/TopicComposer.jsx');

@@ -38,18 +38,15 @@ export default function WebsiteShareCard({
                 <img className="seeding-ws__ws-thumb" src={job.thumbnail_url} alt="" />
             ) : null}
             <div>
-                <strong>{job.title || 'Bài website'}</strong>
+                <strong>
+                    <span className="seeding-ws__type-badge">Website Share</span>{' '}
+                    {job.title || 'Bài website'}
+                </strong>
                 <div className="seeding-ws__page-sub">{job.domain || '—'}</div>
             </div>
             <div className="seeding-ws__vcard-chips">
-                <span className="seeding-ws__chip">Website</span>
                 <span className="seeding-ws__chip">Index: {job.indexed_at_label || '—'}</span>
                 <span className="seeding-ws__chip">{job.status_label || job.status}</span>
-                {(job.targets || []).map((t) => (
-                    <span key={t.id || t.social} className="seeding-ws__chip">
-                        {t.social_label || t.social} {t.completed_count}/{t.target_count}
-                    </span>
-                ))}
             </div>
 
             {scheduled ? (
@@ -69,6 +66,27 @@ export default function WebsiteShareCard({
                             {job.share_content || 'Chưa có nội dung share.'}
                         </p>
                     )}
+
+                    <div className="seeding-ws__ws-socials" data-social-targets>
+                        <strong>Social cần đăng</strong>
+                        {job.has_social_targets === false || (job.targets || []).length === 0 ? (
+                            <p className="seeding-ws__ws-warning">
+                                Chưa cấu hình Social Account active cho domain này.
+                            </p>
+                        ) : (
+                            <div className="seeding-ws__ws-social-list">
+                                {(job.targets || []).map((t) => (
+                                    <span
+                                        key={t.id || t.social}
+                                        className={`seeding-ws__ws-social${t.is_complete ? ' is-complete' : ''}`}
+                                        data-complete={t.is_complete ? 'true' : 'false'}
+                                    >
+                                        {t.is_complete ? '✓ ' : ''}{t.social_label || t.social}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
 
                     <div className="seeding-ws__vcard-actions">
                         {editing ? (

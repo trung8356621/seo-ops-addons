@@ -798,6 +798,56 @@ select.seeding-ws__input::-ms-expand {
     background: #f3f4f6;
 }
 
+.seeding-ws__type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.42rem;
+    border-radius: 0.35rem;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    vertical-align: 0.08em;
+}
+
+.seeding-ws__ws-socials {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    color: #374151;
+    font-size: 0.8125rem;
+}
+
+.seeding-ws__ws-social-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.seeding-ws__ws-social {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.75rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #f9fafb;
+    color: #374151;
+    font-size: 0.75rem;
+    font-weight: 650;
+}
+
+.seeding-ws__ws-social.is-complete {
+    border-color: #86efac;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.seeding-ws__ws-warning {
+    margin: 0;
+    color: #b45309;
+}
+
 .seeding-ws__stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

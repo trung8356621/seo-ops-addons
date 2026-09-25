@@ -10,6 +10,7 @@ import {
     generateSampleComments,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
+import { writeClipboard } from '../services/clipboardWrite';
 
 /**
  * Presentation-only merge of Topic Comment + actionable Website Share items.
@@ -125,7 +126,7 @@ export default function SeederQuickFeed({
             const res = await generateSampleComments({
                 full_text: `${job.title || ''}\n${job.article_url || ''}`,
                 count: 1,
-                platform: job.targets?.[0]?.social || null,
+                platform: null,
             });
             const text = Array.isArray(res?.comments) ? (res.comments[0] || '') : '';
             const updated = await updateWebsiteShareContent(job.id, text);
@@ -159,8 +160,9 @@ export default function SeederQuickFeed({
             return;
         }
         try {
-            await navigator.clipboard.writeText(text);
-            notifySuccess('Đã copy');
+            const result = await writeClipboard(text);
+            if (result.ok) notifySuccess('Đã copy');
+            else notifyError(result.error || 'Copy thất bại');
         } catch {
             notifyError('Copy thất bại');
         }

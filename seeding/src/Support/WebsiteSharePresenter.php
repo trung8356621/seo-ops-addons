@@ -28,7 +28,7 @@ final class WebsiteSharePresenter
         return [
             'id' => (int) $job->id,
             'article_id' => (int) $job->article_id,
-            'site_id' => (int) $job->site_id,
+            'site_id' => $job->site_id !== null ? (int) $job->site_id : null,
             'source_type' => (string) $job->source_type,
             'status' => $job->status?->value,
             'status_label' => $job->status?->label(),
@@ -42,6 +42,7 @@ final class WebsiteSharePresenter
             'seconds_until_eligible' => $secondsLeft,
             'share_content' => $job->share_content,
             'content_generated_at' => $job->content_generated_at?->toIso8601String(),
+            'has_social_targets' => count($targets) > 0,
             'targets' => $targets,
             'socials' => array_values(array_map(
                 static fn (array $t): string => (string) ($t['social_label'] ?? $t['social']),
