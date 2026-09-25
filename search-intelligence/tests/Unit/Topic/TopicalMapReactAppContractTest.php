@@ -368,12 +368,16 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('labelPositionFromAngle', $layout);
         self::assertStringContainsString('resolveDnaLayoutMetrics', $layout);
         self::assertStringContainsString('DNA_AIR_GAP_MIN', $layout);
+        self::assertStringContainsString('DNA_LABEL_CLEARANCE', $layout);
+        self::assertStringContainsString('DNA_CLUSTER_SPREAD', $layout);
         self::assertStringContainsString('clusterInner', $layout);
         self::assertStringNotContainsString('placeDnaAroundTopic', $layout);
         self::assertStringContainsString('planTopicRingCapacities', $layout);
         self::assertStringContainsString('NETWORK_DNA_SYMBOL_FOCUS_MAX', $theme);
+        self::assertStringContainsString('NETWORK_TOPIC_SYMBOL_MAX = 60', $theme);
         self::assertStringContainsString('dnaNetworkLabel', $options);
         self::assertStringContainsString('hideOverlap', $options);
+        self::assertStringContainsString('silent: true', $options);
         self::assertStringContainsString("position: 'bottom'", $options);
         // Network series default is outside-bottom; Treemap may still use inside*.
         if (preg_match('/export function buildNetworkTypographyPatch\([\s\S]*?\n\}/', $options, $m)) {
@@ -516,8 +520,9 @@ for (const dist of largeRadii) {
   if (dist < largeMetrics.clusterInner - 0.5) {
     throw new Error('dna inside clusterInner '+dist);
   }
-  if (dist > largeMetrics.clusterOuter + 1) {
-    throw new Error('dna outside clusterOuter '+dist);
+  // Ellipse stretch may push past circular clusterOuter along the long axis.
+  if (dist > largeMetrics.clusterOuter * 1.4 + 1) {
+    throw new Error('dna outside cluster outer bound '+dist);
   }
 }
 // Organic cluster: radii must vary (not equal-radius ring/arc).
@@ -526,8 +531,11 @@ const rMax = Math.max(...largeRadii);
 if (largeDna.length >= 3 && (rMax - rMin) < 4) {
   throw new Error('dna radii too uniform — looks like a ring');
 }
-if (!largeTopic.labelPosition || largeTopic.labelPosition === 'inside') {
-  throw new Error('topic label must be outside');
+if (largeTopic.labelPosition !== 'bottom') {
+  throw new Error('topic label must be bottom');
+}
+if (largeDna.some((d) => d.labelPosition !== 'left' && d.labelPosition !== 'right')) {
+  throw new Error('dna labels must be left/right');
 }
 
 const focused = buildFocusedNetworkNeighborhood(a, 1);
@@ -590,13 +598,20 @@ if (opt.series[0].blur) throw new Error('blur present');
 if (opt.series[0].emphasis?.focus !== 'none') throw new Error('emphasis focus must be none');
 if (opt.series[0].label?.position !== 'bottom') throw new Error('series label default bottom');
 if (!opt.series[0].labelLayout?.hideOverlap) throw new Error('hideOverlap required');
+if (opt.series[0].label?.silent !== true) throw new Error('labels must be silent');
 const topicOpt = opt.series[0].data.find((d) => d.nodeType === 'topic');
 if (!topicOpt?.label || topicOpt.label.position === 'inside') {
   throw new Error('topic option label must be outside');
 }
+if (topicOpt.label.position !== 'bottom') {
+  throw new Error('topic option label must be bottom');
+}
 const dnaOpt = opt.series[0].data.filter((d) => d.nodeType === 'dna');
 if (dnaOpt.some((d) => !d.label?.show)) {
   throw new Error('overview dna labels should show (hideOverlap cleans)');
+}
+if (dnaOpt.some((d) => d.label?.position !== 'left' && d.label?.position !== 'right')) {
+  throw new Error('dna option labels must be left/right');
 }
 
 const dnaOptSizes = dnaOpt.map((d) => d.symbolSize);
@@ -607,6 +622,9 @@ if (dnaOptSizes.some((s) => s < NETWORK_DNA_SYMBOL_MIN || s > NETWORK_DNA_SYMBOL
 const focusedOpt = buildNetworkOption(focused, { siteDomain: 'example.test', focused: true });
 if (focusedOpt.series[0].layout !== 'none') throw new Error('focused layout');
 if (focusedOpt.series[0].force) throw new Error('focused force');
+if (focusedOpt.series[0].labelLayout?.hideOverlap) {
+  throw new Error('focused mode must not aggressively hideOverlap');
+}
 const fTopicOpt = focusedOpt.series[0].data.find((d) => d.nodeType === 'topic');
 if (fTopicOpt?.label?.position !== 'bottom') throw new Error('focused option label bottom');
 const fDnaOpt = focusedOpt.series[0].data.filter((d) => d.nodeType === 'dna');

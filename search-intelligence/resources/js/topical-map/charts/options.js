@@ -179,17 +179,16 @@ export function dnaNetworkLabel(phrase, opts = {}) {
 
 /**
  * Whether DNA node labels should render for this band / focus state.
- * Compact overview hides DNA text; ECharts hideOverlap cleans the rest.
+ * Always enable DNA labels — ECharts hideOverlap cleans collisions in overview.
  *
  * @param {'compact'|'normal'|'medium'|'large'} band
  * @param {boolean} focused
  * @returns {boolean}
  */
 export function shouldShowDnaNetworkLabel(band, focused = false) {
-    if (focused) {
-        return true;
-    }
-    return band === 'normal' || band === 'medium' || band === 'large';
+    void band;
+    void focused;
+    return true;
 }
 
 /**
@@ -210,6 +209,8 @@ export function buildNetworkTypographyPatch(band = 'normal', opts = {}) {
             position: 'bottom',
             distance: Math.max(styles.distance, 6),
             fontFamily: CHART_FONT_FAMILY,
+            // Labels must not steal clicks from nodes.
+            silent: true,
             formatter(params) {
                 const d = params?.data || {};
                 const raw = String(params?.name || '');
@@ -231,9 +232,9 @@ export function buildNetworkTypographyPatch(band = 'normal', opts = {}) {
             },
             rich: styles.rich,
         },
-        // graph-label-overlap spirit — hide colliding labels, keep FPS.
+        // Overview: hide colliding DNA labels. Focus: show all (roomier layout).
         labelLayout: {
-            hideOverlap: true,
+            hideOverlap: !focused,
         },
         // focus:'none' — no adjacency blur / full-graph dim on hover.
         emphasis: {
@@ -243,6 +244,7 @@ export function buildNetworkTypographyPatch(band = 'normal', opts = {}) {
             label: {
                 show: true,
                 fontFamily: CHART_FONT_FAMILY,
+                silent: true,
                 rich: styles.rich,
             },
         },

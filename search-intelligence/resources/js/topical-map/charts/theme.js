@@ -29,16 +29,16 @@ export const KEYWORD_SYMBOL_SIZE = 8;
  * Default / mid Network DNA size (fallback when parent Topic size unknown).
  * Prefer {@see networkDnaSymbolSize} — DNA scales with parent Topic.
  */
-export const NETWORK_DNA_SYMBOL_SIZE = 8;
+export const NETWORK_DNA_SYMBOL_SIZE = 7;
 
-/** DNA satellite diameter — overview (full map). */
-export const NETWORK_DNA_SYMBOL_MIN = 6;
-export const NETWORK_DNA_SYMBOL_MAX = 20;
+/** DNA satellite diameter — overview (full map). Modest, still clickable. */
+export const NETWORK_DNA_SYMBOL_MIN = 5;
+export const NETWORK_DNA_SYMBOL_MAX = 9;
 /** DNA satellite diameter — focus/isolate (easier hover/click). */
-export const NETWORK_DNA_SYMBOL_FOCUS_MIN = 10;
-export const NETWORK_DNA_SYMBOL_FOCUS_MAX = 26;
+export const NETWORK_DNA_SYMBOL_FOCUS_MIN = 9;
+export const NETWORK_DNA_SYMBOL_FOCUS_MAX = 13;
 /** DNA diameter ≈ this fraction of parent Topic diameter (then clamped). */
-export const NETWORK_DNA_PARENT_SIZE_RATIO = 0.28;
+export const NETWORK_DNA_PARENT_SIZE_RATIO = 0.18;
 
 /** Fixed Network Site node — structural, not MCP-scaled. */
 export const NETWORK_SITE_SYMBOL_SIZE = 24;
@@ -46,9 +46,9 @@ export const NETWORK_SITE_SYMBOL_SIZE = 24;
 export const MCP_SYMBOL_MIN = 12;
 export const MCP_SYMBOL_MAX = 30;
 
-/** Network Topic size — deliberately exaggerated MCP share differences. */
+/** Network Topic size — MCP hierarchy kept; max tempered so Topics don't swallow DNA. */
 export const NETWORK_TOPIC_SYMBOL_MIN = 10;
-export const NETWORK_TOPIC_SYMBOL_MAX = 78;
+export const NETWORK_TOPIC_SYMBOL_MAX = 60;
 export const NETWORK_MCP_SIZE_EXPONENT = 1.35;
 
 /** Defensive full-graph DNA cap (never silent). */
@@ -178,7 +178,7 @@ export function getNetworkTypography(band) {
         case 'medium':
             return { topic: 13, site: 13, dna: 11, distance: 5 };
         case 'large':
-            return { topic: 16, site: 15, dna: 12, distance: 6 };
+            return { topic: 16, site: 15, dna: 11, distance: 6 };
         case 'normal':
         default:
             return { topic: 11, site: 12, dna: 10, distance: 4 };
