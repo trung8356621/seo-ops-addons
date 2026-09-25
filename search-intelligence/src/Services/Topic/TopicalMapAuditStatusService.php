@@ -31,10 +31,12 @@ final class TopicalMapAuditStatusService
     ) {}
 
     /**
+     * @param  list<string>|null  $languageVariants
      * @return array{
      *   status: string,
      *   can_run: bool,
      *   site_id: int,
+     *   language: string,
      *   site_domain: string,
      *   topic_count: int,
      *   assigned_keywords: int,
@@ -48,8 +50,12 @@ final class TopicalMapAuditStatusService
      *   ai_history_url: string|null
      * }
      */
-    public function snapshot(int $siteId, string $siteDomain = ''): array
-    {
+    public function snapshot(
+        int $siteId,
+        string $siteDomain = '',
+        ?array $languageVariants = null,
+        ?string $languageCode = null,
+    ): array {
         $overview = $this->topicalMap->overview($siteId);
         $topicCount = $overview->topicCount;
         $sourceUpdatedAt = $overview->sourceUpdatedAt;
@@ -57,9 +63,12 @@ final class TopicalMapAuditStatusService
         $assigned = 0;
         $unassigned = 0;
         try {
-            $stats = $this->assignmentStats->forSite($siteId);
+            $stats = $this->assignmentStats->forSite($siteId, $languageVariants);
             $assigned = (int) ($stats['assigned'] ?? 0);
             $unassigned = (int) ($stats['unassigned'] ?? 0);
+            if ($languageVariants !== null && $languageVariants !== []) {
+                $topicCount = (int) ($stats['topic_count'] ?? 0);
+            }
         } catch (Throwable) {
             $assigned = (int) $overview->totalKeywords;
             $unassigned = 0;
@@ -90,8 +99,9 @@ final class TopicalMapAuditStatusService
 
         return [
             'status' => $status,
-            'can_run' => $topicCount > 0,
+            'can_run' => $overview->topicCount > 0,
             'site_id' => $siteId,
+            'language' => trim((string) ($languageCode ?? '')),
             'site_domain' => $siteDomain,
             'topic_count' => $topicCount,
             'assigned_keywords' => $assigned,

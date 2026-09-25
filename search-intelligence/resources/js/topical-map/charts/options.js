@@ -7,10 +7,247 @@ import {
     STRUCTURE_SYMBOL_SIZE,
     tintHex,
     networkTopicSymbolSize,
+    networkDnaSymbolSize,
     NETWORK_DNA_SYMBOL_SIZE,
     NETWORK_SITE_SYMBOL_SIZE,
     NETWORK_MAX_DNA_NODES,
-} from './theme';
+    CHART_FONT_FAMILY,
+    CHART_FONT_TOOLTIP,
+    CHART_FONT_NORMAL,
+    getChartTypographyBand,
+    getStructureTypography,
+    getNetworkTypography,
+    getTreemapTypographyRich,
+    getStructureTypographyBand,
+} from './theme.js';
+import {
+    compareTopicsForNetworkLayout,
+    assignNetworkFixedCoordinates,
+    assignFocusedNetworkCoordinates,
+} from './networkLayout.js';
+
+/**
+ * Escape text for ECharts rich-label fragments (`{style|text}`).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function escapeRichText(value) {
+    return String(value ?? '').replace(/[{}|]/g, '');
+}
+
+/**
+ * Partial series patch for Structure zoom-band typography (no data rebuild).
+ * Authoritative font sizes live here — Structure nodes must NOT set label.fontSize.
+ *
+ * @param {'compact'|'normal'|'medium'|'large'|'xlarge'} [band]
+ * @returns {object}
+ */
+export function buildStructureTypographyPatch(band = 'compact') {
+    const typo = getStructureTypography(band);
+    return {
+        // Non-leaves: Site / Tag / untagged bucket
+        label: {
+            show: true,
+            position: 'bottom',
+            rotate: 90,
+            verticalAlign: 'middle',
+            align: 'right',
+            fontFamily: CHART_FONT_FAMILY,
+            fontSize: typo.tag.fontSize,
+            fontWeight: typo.tag.fontWeight,
+            color: '#475569',
+            distance: typo.tag.distance,
+            overflow: 'truncate',
+            width: typo.tag.width,
+            ellipsis: '…',
+            formatter(params) {
+                const d = params?.data || {};
+                const name = escapeRichText(params?.name || '');
+                if (d.nodeType === 'site') {
+                    return `{site|${name}}`;
+                }
+                if (d.nodeType === 'untagged_bucket') {
+                    return `{bucket|${name}}`;
+                }
+                return `{tag|${name}}`;
+            },
+            rich: {
+                site: {
+                    fontFamily: CHART_FONT_FAMILY,
+                    fontSize: typo.site.fontSize,
+                    fontWeight: typo.site.fontWeight,
+                    color: '#64748b',
+                    lineHeight: typo.site.fontSize + 2,
+                },
+                tag: {
+                    fontFamily: CHART_FONT_FAMILY,
+                    fontSize: typo.tag.fontSize,
+                    fontWeight: typo.tag.fontWeight,
+                    color: '#475569',
+                    lineHeight: typo.tag.fontSize + 2,
+                },
+                bucket: {
+                    fontFamily: CHART_FONT_FAMILY,
+                    fontSize: typo.tag.fontSize,
+                    fontWeight: typo.tag.fontWeight,
+                    color: '#64748b',
+                    lineHeight: typo.tag.fontSize + 2,
+                },
+            },
+        },
+        // Topic leaves — plain series leaves.label (no per-node fontSize).
+        leaves: {
+            label: {
+                show: true,
+                position: 'top',
+                rotate: 90,
+                verticalAlign: 'middle',
+                align: 'left',
+                fontFamily: CHART_FONT_FAMILY,
+                fontSize: typo.topic.fontSize,
+                fontWeight: typo.topic.fontWeight,
+                color: '#334155',
+                distance: typo.topic.distance,
+                overflow: 'truncate',
+                width: typo.topic.width,
+                ellipsis: '…',
+                formatter: '{b}',
+            },
+        },
+    };
+}
+
+/**
+ * Network series label rich styles for a typography band.
+ *
+ * @param {'compact'|'normal'|'medium'|'large'} [band]
+ * @returns {{ rich: object, distance: number }}
+ */
+export function buildNetworkLabelStyles(band = 'normal') {
+    const typo = getNetworkTypography(band);
+    return {
+        distance: typo.distance,
+        rich: {
+            site: {
+                fontFamily: CHART_FONT_FAMILY,
+                fontSize: typo.site,
+                fontWeight: 600,
+                color: '#64748b',
+                lineHeight: typo.site + 2,
+            },
+            topic: {
+                fontFamily: CHART_FONT_FAMILY,
+                fontSize: typo.topic,
+                fontWeight: 700,
+                color: '#1e293b',
+                lineHeight: typo.topic + 4,
+            },
+            mcp: {
+                fontFamily: CHART_FONT_FAMILY,
+                fontSize: Math.max(9, typo.topic - 1),
+                fontWeight: 600,
+                color: '#475569',
+                lineHeight: typo.topic + 2,
+            },
+            dna: {
+                fontFamily: CHART_FONT_FAMILY,
+                fontSize: typo.dna,
+                fontWeight: 400,
+                color: '#64748b',
+                lineHeight: typo.dna + 2,
+            },
+        },
+    };
+}
+
+/**
+ * Network DNA phrase label — short, readable (full text stays in tooltip).
+ *
+ * @param {unknown} phrase
+ * @param {{ focused?: boolean }} [opts]
+ * @returns {string}
+ */
+export function dnaNetworkLabel(phrase, opts = {}) {
+    const raw = String(phrase ?? '').trim() || 'DNA';
+    const max = opts.focused ? 36 : 22;
+    if (raw.length <= max) {
+        return raw;
+    }
+    return `${raw.slice(0, Math.max(1, max - 1))}…`;
+}
+
+/**
+ * Whether DNA node labels should render for this band / focus state.
+ * Compact overview hides DNA text; ECharts hideOverlap cleans the rest.
+ *
+ * @param {'compact'|'normal'|'medium'|'large'} band
+ * @param {boolean} focused
+ * @returns {boolean}
+ */
+export function shouldShowDnaNetworkLabel(band, focused = false) {
+    if (focused) {
+        return true;
+    }
+    return band === 'normal' || band === 'medium' || band === 'large';
+}
+
+/**
+ * Partial series patch for Network zoom-band typography (no node/link rebuild).
+ *
+ * @param {'compact'|'normal'|'medium'|'large'} [band]
+ * @param {{ focused?: boolean }} [opts]
+ * @returns {object}
+ */
+export function buildNetworkTypographyPatch(band = 'normal', opts = {}) {
+    const styles = buildNetworkLabelStyles(band);
+    const focused = Boolean(opts?.focused);
+    const dnaLabels = shouldShowDnaNetworkLabel(band, focused);
+    return {
+        label: {
+            show: true,
+            // Default outside-below; per-node labelPosition overrides (outside only).
+            position: 'bottom',
+            distance: Math.max(styles.distance, 6),
+            fontFamily: CHART_FONT_FAMILY,
+            formatter(params) {
+                const d = params?.data || {};
+                const raw = String(params?.name || '');
+                const lines = raw.split('\n').map((line) => escapeRichText(line));
+                if (d.nodeType === 'site') {
+                    return lines.map((line) => `{site|${line}}`).join('\n');
+                }
+                if (d.nodeType === 'dna') {
+                    if (!dnaLabels && !d._forceDnaLabel) {
+                        return '';
+                    }
+                    return `{dna|${lines[0] || ''}}`;
+                }
+                // Topic: line1 name, line2 MCP% — outside symbol.
+                if (lines.length >= 2) {
+                    return `{topic|${lines[0]}}\n{mcp|${lines.slice(1).join(' ')}}`;
+                }
+                return `{topic|${lines[0] || ''}}`;
+            },
+            rich: styles.rich,
+        },
+        // graph-label-overlap spirit — hide colliding labels, keep FPS.
+        labelLayout: {
+            hideOverlap: true,
+        },
+        // focus:'none' — no adjacency blur / full-graph dim on hover.
+        emphasis: {
+            focus: 'none',
+            scale: true,
+            lineStyle: { width: 2, opacity: 0.85 },
+            label: {
+                show: true,
+                fontFamily: CHART_FONT_FAMILY,
+                rich: styles.rich,
+            },
+        },
+    };
+}
 
 function escapeHtml(value) {
     return String(value)
@@ -54,7 +291,7 @@ function networkTopicTooltipHtml(d) {
         lines.push(`Keywords: ${keywords}`);
     }
     lines.push(`Tags: ${escapeHtml(formatTagNames(d.tags))}`);
-    lines.push('<em>Click to open Topic</em>');
+    lines.push('<em>Single click: Focus · Double click: Open Topic</em>');
     return lines.join('<br/>');
 }
 
@@ -64,8 +301,12 @@ function networkDnaTooltipHtml(d) {
     return `<strong>${escapeHtml(phrase)}</strong><br/>Parent Topic: ${escapeHtml(parent)}`;
 }
 
-function networkSiteTooltipHtml(d) {
-    return `<strong>${escapeHtml(d.name || 'Site')}</strong>`;
+function networkSiteTooltipHtml(d, focused = false) {
+    const name = escapeHtml(d.name || 'Site');
+    if (focused) {
+        return `<strong>${name}</strong><br/><em>Back to full Network</em>`;
+    }
+    return `<strong>${name}</strong>`;
 }
 
 /** Treemap / shared Topic tooltip (double-click open). */
@@ -189,11 +430,7 @@ function buildStructureTopicNode(topic) {
             width: 1,
             curveness: 0.5,
         },
-        label: {
-            color: '#334155',
-            fontWeight: 500,
-            fontSize: 10,
-        },
+        // Label styles are series/leaves-only (no per-node text overrides).
     };
 }
 
@@ -218,11 +455,6 @@ function buildStructureTagNode(tag, topicNodes) {
             color: 'rgba(148, 163, 184, 0.55)',
             width: 1,
             curveness: 0.5,
-        },
-        label: {
-            color: '#475569',
-            fontWeight: 600,
-            fontSize: 10,
         },
         children: topicNodes,
     };
@@ -264,11 +496,6 @@ function buildStructureUntaggedBucketNode(topicNodes, opts = {}) {
             color: 'rgba(148, 163, 184, 0.45)',
             width: 1,
             curveness: 0.5,
-        },
-        label: {
-            color: '#64748b',
-            fontWeight: 500,
-            fontSize: 10,
         },
         children: topicNodes,
     };
@@ -488,16 +715,8 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
         maxMcp = Math.max(maxMcp, clampMcp(topic?.mcp));
     }
 
-    // High-MCP first so a defensive DNA cap keeps important satellites.
-    const ordered = [...list].sort((a, b) => {
-        const byMcp = clampMcp(b?.mcp) - clampMcp(a?.mcp);
-        if (byMcp !== 0) {
-            return byMcp;
-        }
-        return String(a?.name || '').localeCompare(String(b?.name || ''), undefined, {
-            sensitivity: 'base',
-        });
-    });
+    // High-MCP first: ring priority + defensive DNA cap keeps important satellites.
+    const ordered = [...list].sort(compareTopicsForNetworkLayout);
 
     const nodes = [
         {
@@ -505,11 +724,15 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
             name: siteDomain,
             category: 'site',
             value: 1,
+            x: 0,
+            y: 0,
         },
     ];
     const links = [];
     let totalDna = 0;
     let showingDna = 0;
+    /** @type {Map<number, number>} */
+    const topicDnaCounts = new Map();
 
     for (const topic of ordered) {
         const tid = Number(topic.id);
@@ -520,6 +743,7 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
         const mcp = clampMcp(topic.mcp);
         const dnaRows = Array.isArray(topic.dna) ? topic.dna : [];
         totalDna += dnaRows.length;
+        const topicSymbol = networkTopicSymbolSize(mcp, maxMcp);
 
         nodes.push({
             id: `topic:${tid}`,
@@ -532,10 +756,11 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
             article_count: topic.article_count,
             keyword_count: topic.keyword_count,
             tags: Array.isArray(topic.tags) ? topic.tags : [],
-            symbolSizeHint: networkTopicSymbolSize(mcp, maxMcp),
+            symbolSizeHint: topicSymbol,
         });
         links.push({ source: `site:${sid}`, target: `topic:${tid}` });
 
+        let placedForTopic = 0;
         for (let i = 0; i < dnaRows.length; i += 1) {
             if (showingDna >= maxDnaNodes) {
                 break;
@@ -547,16 +772,22 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
             const dnaId = `dna:${tid}:${i}`;
             nodes.push({
                 id: dnaId,
-                name: phrase,
+                name: dnaNetworkLabel(phrase),
                 category: 'dna',
                 value: 1,
                 topic_id: tid,
                 topicName,
+                parentSymbolSize: topicSymbol,
+                symbolSizeHint: networkDnaSymbolSize(topicSymbol),
             });
             links.push({ source: `topic:${tid}`, target: dnaId });
             showingDna += 1;
+            placedForTopic += 1;
         }
+        topicDnaCounts.set(tid, placedForTopic);
     }
+
+    assignNetworkFixedCoordinates(nodes, { topicDnaCounts });
 
     const dnaTruncated = totalDna > showingDna;
 
@@ -589,6 +820,7 @@ export function buildOverviewNeighborhood(siteId, topics, opts = {}) {
  *   siteDomain?: string,
  *   untaggedBucketLabel?: string,
  *   untaggedBucketTooltip?: string,
+ *   typographyBand?: 'compact'|'normal'|'medium'|'large'|'xlarge',
  * }} [opts]
  */
 export function buildTreeOption(data, opts = {}) {
@@ -600,6 +832,8 @@ export function buildTreeOption(data, opts = {}) {
         || '',
     ).trim();
     const siteLabel = siteDomain || 'Site';
+    const typographyBand = opts?.typographyBand || getStructureTypographyBand(1);
+    const typographyPatch = buildStructureTypographyPatch(typographyBand);
 
     /** @type {Map<number, {id: number, name: string, topics: object[]}>} */
     const tagBuckets = new Map();
@@ -665,6 +899,9 @@ export function buildTreeOption(data, opts = {}) {
 
     return {
         backgroundColor: 'transparent',
+        textStyle: {
+            fontFamily: CHART_FONT_FAMILY,
+        },
         tooltip: {
             trigger: 'item',
             triggerOn: 'mousemove',
@@ -672,7 +909,11 @@ export function buildTreeOption(data, opts = {}) {
             backgroundColor: 'rgba(255,255,255,0.96)',
             borderColor: 'rgba(15,23,42,0.1)',
             borderWidth: 1,
-            textStyle: { color: '#0f172a', fontSize: 12 },
+            textStyle: {
+                color: '#0f172a',
+                fontSize: CHART_FONT_TOOLTIP,
+                fontFamily: CHART_FONT_FAMILY,
+            },
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'topic') {
@@ -705,11 +946,7 @@ export function buildTreeOption(data, opts = {}) {
                             borderColor: '#64748b',
                             borderWidth: 1,
                         },
-                        label: {
-                            color: '#64748b',
-                            fontWeight: 600,
-                            fontSize: 10,
-                        },
+                        // No per-node label — Site uses series.label rich `{site|…}`.
                         children: rootChildren,
                     },
                 ],
@@ -723,32 +960,7 @@ export function buildTreeOption(data, opts = {}) {
                 expandAndCollapse: false,
                 initialTreeDepth: -1,
                 zoom: 1,
-                // Non-leaf labels (Site / Tag): along branch, rotated like official example.
-                label: {
-                    position: 'bottom',
-                    rotate: 90,
-                    verticalAlign: 'middle',
-                    align: 'right',
-                    fontSize: 10,
-                    distance: 6,
-                    overflow: 'truncate',
-                    width: 96,
-                    ellipsis: '…',
-                },
-                // Topic leaves at top: rotated vertical labels.
-                leaves: {
-                    label: {
-                        position: 'top',
-                        rotate: 90,
-                        verticalAlign: 'middle',
-                        align: 'left',
-                        fontSize: 10,
-                        distance: 6,
-                        overflow: 'truncate',
-                        width: 110,
-                        ellipsis: '…',
-                    },
-                },
+                ...typographyPatch,
                 lineStyle: {
                     color: 'rgba(148, 163, 184, 0.55)',
                     width: 1,
@@ -822,13 +1034,20 @@ export function buildTreemapOption(data) {
 
     return {
         backgroundColor: 'transparent',
+        textStyle: {
+            fontFamily: CHART_FONT_FAMILY,
+        },
         tooltip: {
             trigger: 'item',
             confine: true,
             backgroundColor: 'rgba(255,255,255,0.96)',
             borderColor: 'rgba(15,23,42,0.1)',
             borderWidth: 1,
-            textStyle: { color: '#0f172a', fontSize: 12 },
+            textStyle: {
+                color: '#0f172a',
+                fontSize: CHART_FONT_TOOLTIP,
+                fontFamily: CHART_FONT_FAMILY,
+            },
             formatter(params) {
                 const d = params?.data || {};
                 if (d.nodeType === 'topic') {
@@ -861,7 +1080,8 @@ export function buildTreemapOption(data) {
                     position: 'insideTopLeft',
                     distance: 0,
                     padding: [8, 10, 8, 10],
-                    fontSize: 13,
+                    fontFamily: CHART_FONT_FAMILY,
+                    fontSize: CHART_FONT_NORMAL,
                     fontWeight: 600,
                     lineHeight: 18,
                     overflow: 'truncate',
@@ -873,26 +1093,7 @@ export function buildTreemapOption(data) {
                         }
                         return formatTreemapTopicLabelRich(d, params);
                     },
-                    rich: {
-                        // Large tiles — fill empty space with readable type.
-                        L: {
-                            fontSize: 18,
-                            lineHeight: 24,
-                            fontWeight: 700,
-                        },
-                        // Medium tiles — balanced name + %.
-                        M: {
-                            fontSize: 14,
-                            lineHeight: 19,
-                            fontWeight: 600,
-                        },
-                        // Small tiles — MCP % only at middle readable size.
-                        S: {
-                            fontSize: 12,
-                            lineHeight: 15,
-                            fontWeight: 700,
-                        },
-                    },
+                    rich: getTreemapTypographyRich(),
                 },
                 upperLabel: { show: false },
                 itemStyle: {
@@ -925,6 +1126,7 @@ export function buildTreemapOption(data) {
                         },
                         label: {
                             show: true,
+                            fontFamily: CHART_FONT_FAMILY,
                             padding: [8, 10, 8, 10],
                             overflow: 'truncate',
                             ellipsis: '…',
@@ -941,11 +1143,84 @@ export function buildTreemapOption(data) {
 }
 
 /**
- * Single-state Network: Site → Topic → DNA force graph.
- * No drill / focus / pending UI.
+ * Client-side Topic Focus subset from an already-built full Network neighborhood.
+ * Does not call APIs / mutate the full neighborhood.
+ *
+ * Nodes: Site + selected Topic + its DNA.
+ * Coordinates: local centered layout (not full-map edge positions).
+ *
+ * @param {object|null|undefined} fullNeighborhood
+ * @param {unknown} topicId
+ * @returns {object|null} focused neighborhood, or null if Topic missing
+ */
+export function buildFocusedNetworkNeighborhood(fullNeighborhood, topicId) {
+    const tid = Number(topicId);
+    if (!Number.isFinite(tid) || tid <= 0) {
+        return null;
+    }
+    const nodes = Array.isArray(fullNeighborhood?.nodes) ? fullNeighborhood.nodes : [];
+    const links = Array.isArray(fullNeighborhood?.links) ? fullNeighborhood.links : [];
+    if (nodes.length === 0) {
+        return null;
+    }
+
+    const siteNode = nodes.find((n) => n.category === 'site');
+    const topicNode = nodes.find(
+        (n) => n.category === 'topic' && Number(String(n.id).replace(/^topic:/, '')) === tid,
+    );
+    if (!topicNode) {
+        return null;
+    }
+    const dnaNodes = nodes.filter(
+        (n) => n.category === 'dna' && Number(n.topic_id) === tid,
+    );
+
+    const focusedNodes = [
+        ...(siteNode ? [{ ...siteNode }] : []),
+        { ...topicNode },
+        ...dnaNodes.map((n) => ({
+            ...n,
+            name: dnaNetworkLabel(n.name, { focused: true }),
+        })),
+    ];
+    const keep = new Set(focusedNodes.map((n) => String(n.id)));
+    const focusedLinks = links
+        .filter((l) => keep.has(String(l.source)) && keep.has(String(l.target)))
+        .map((l) => ({ ...l }));
+
+    assignFocusedNetworkCoordinates(focusedNodes);
+
+    const topicName = String(topicNode.topicName || topicNode.name || '').split('\n')[0].trim()
+        || 'Topic';
+
+    return {
+        ...fullNeighborhood,
+        nodes: focusedNodes,
+        links: focusedLinks,
+        truncated: false,
+        dna_truncated: false,
+        showing_topics: 1,
+        total_topics: Number(fullNeighborhood?.total_topics ?? 1),
+        showing_dna: dnaNodes.length,
+        total_dna: dnaNodes.length,
+        focused_topic_id: tid,
+        focused_topic_name: topicName,
+        max_mcp: clampMcp(topicNode.mcp),
+    };
+}
+
+/**
+ * Network: Site → Topic → DNA with fixed radial coordinates.
+ * layout: 'none' — no force physics.
+ * Typography via series rich styles — zoom bands patch rich only.
+ * Hover uses emphasis.focus:'none' (no full-graph dim).
  *
  * @param {object} neighborhood
- * @param {{ siteDomain?: string }} [ui]
+ * @param {{
+ *   siteDomain?: string,
+ *   typographyBand?: 'compact'|'normal'|'medium'|'large',
+ *   focused?: boolean,
+ * }} [ui]
  */
 export function buildNetworkOption(neighborhood, ui = {}) {
     const nodes = Array.isArray(neighborhood?.nodes) ? neighborhood.nodes : [];
@@ -957,6 +1232,13 @@ export function buildNetworkOption(neighborhood, ui = {}) {
     ];
     const categoryIndex = { site: 0, topic: 1, dna: 2, DNA: 2 };
     const siteDomain = String(ui.siteDomain || '').trim();
+    const typographyBand = ui.typographyBand || getChartTypographyBand(1);
+    const focused = Boolean(
+        ui.focused
+        || neighborhood?.focused_topic_id
+        || (Number(neighborhood?.showing_topics) === 1 && neighborhood?.focused_topic_name),
+    );
+    const typographyPatch = buildNetworkTypographyPatch(typographyBand, { focused });
 
     let maxMcp = Number(neighborhood?.max_mcp);
     if (!Number.isFinite(maxMcp) || maxMcp <= 0) {
@@ -968,19 +1250,47 @@ export function buildNetworkOption(neighborhood, ui = {}) {
         }
     }
 
+    /** @type {Map<number, number>} parent Topic symbol size for DNA fallback */
+    const topicSizeById = new Map();
+    for (const n of nodes) {
+        if (n.category !== 'topic') {
+            continue;
+        }
+        const tid = Number(String(n.id).replace(/^topic:/, ''));
+        if (!Number.isFinite(tid) || tid <= 0) {
+            continue;
+        }
+        const size = Number(n.symbolSizeHint) > 0
+            ? Number(n.symbolSizeHint)
+            : networkTopicSymbolSize(n.mcp, maxMcp);
+        topicSizeById.set(tid, size);
+    }
+
     return {
         backgroundColor: 'transparent',
         animation: false,
         animationDuration: 0,
-        animationDurationUpdate: 120,
-        legend: [{ data: categories.map((c) => c.name) }],
+        animationDurationUpdate: 0,
+        textStyle: {
+            fontFamily: CHART_FONT_FAMILY,
+        },
+        legend: [{
+            data: categories.map((c) => c.name),
+            textStyle: {
+                fontFamily: CHART_FONT_FAMILY,
+            },
+        }],
         tooltip: {
             confine: true,
             trigger: 'item',
             backgroundColor: 'rgba(255,255,255,0.96)',
             borderColor: 'rgba(15,23,42,0.1)',
             borderWidth: 1,
-            textStyle: { color: '#0f172a', fontSize: 12 },
+            textStyle: {
+                color: '#0f172a',
+                fontSize: CHART_FONT_TOOLTIP,
+                fontFamily: CHART_FONT_FAMILY,
+            },
             formatter(params) {
                 if (params.dataType === 'edge') {
                     return '';
@@ -989,7 +1299,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                 if (d.nodeType === 'site') {
                     return networkSiteTooltipHtml({
                         name: siteDomain || d.name || 'Site',
-                    });
+                    }, focused);
                 }
                 if (d.nodeType === 'topic') {
                     return networkTopicTooltipHtml(d);
@@ -1004,7 +1314,7 @@ export function buildNetworkOption(neighborhood, ui = {}) {
             {
                 type: 'graph',
                 id: 'topical-map-network',
-                layout: 'force',
+                layout: 'none',
                 // Pan/drag only — wheel zoom is owned by ChartCanvas host listener.
                 roam: 'move',
                 scaleLimit: { min: 0.2, max: 4 },
@@ -1022,39 +1332,63 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                     let symbolSize = NETWORK_DNA_SYMBOL_SIZE;
                     let color = '#94a3b8';
                     let labelShow = false;
-                    let labelFontSize = 10;
-                    let labelFontWeight = 400;
                     let cursor = 'default';
+                    /** Outside-only label side — never 'inside'. */
+                    let labelPosition = 'bottom';
 
                     if (category === 'site') {
                         symbolSize = NETWORK_SITE_SYMBOL_SIZE;
                         color = '#94a3b8';
                         labelShow = true;
-                        labelFontSize = 11;
-                        labelFontWeight = 600;
+                        cursor = focused ? 'pointer' : 'default';
+                        labelPosition = n.labelPosition === 'top'
+                            || n.labelPosition === 'left'
+                            || n.labelPosition === 'right'
+                            || n.labelPosition === 'bottom'
+                            ? n.labelPosition
+                            : 'bottom';
                     } else if (category === 'topic') {
                         symbolSize = Number(n.symbolSizeHint) > 0
                             ? Number(n.symbolSizeHint)
                             : networkTopicSymbolSize(n.mcp, maxMcp);
                         color = topicColor;
                         labelShow = true;
-                        labelFontSize = 10;
-                        labelFontWeight = 600;
                         cursor = 'pointer';
+                        labelPosition = n.labelPosition === 'top'
+                            || n.labelPosition === 'left'
+                            || n.labelPosition === 'right'
+                            || n.labelPosition === 'bottom'
+                            ? n.labelPosition
+                            : 'bottom';
                     } else if (category === 'dna') {
-                        symbolSize = NETWORK_DNA_SYMBOL_SIZE;
+                        const parentSize = Number(n.parentSymbolSize) > 0
+                            ? Number(n.parentSymbolSize)
+                            : (topicSizeById.get(Number(n.topic_id)) || NETWORK_DNA_SYMBOL_SIZE * 4);
+                        symbolSize = Number(n.symbolSizeHint) > 0
+                            ? Number(n.symbolSizeHint)
+                            : networkDnaSymbolSize(parentSize, { focused });
                         // Topic color family, reduced emphasis — not random bright DNA colors.
                         color = tintHex(topicColor, 0.55);
-                        labelShow = false;
-                        labelFontSize = 9;
+                        labelShow = shouldShowDnaNetworkLabel(typographyBand, focused);
                         cursor = 'default';
+                        labelPosition = n.labelPosition === 'top'
+                            || n.labelPosition === 'left'
+                            || n.labelPosition === 'right'
+                            || n.labelPosition === 'bottom'
+                            ? n.labelPosition
+                            : 'right';
                     }
+
+                    const x = Number(n.x);
+                    const y = Number(n.y);
 
                     return {
                         id: n.id,
                         name: category === 'site' && siteDomain ? siteDomain : n.name,
                         category: categoryIndex[category] ?? 1,
                         value: n.value ?? 1,
+                        x: Number.isFinite(x) ? x : 0,
+                        y: Number.isFinite(y) ? y : 0,
                         symbolSize,
                         nodeType: category === 'dna' ? 'dna' : category,
                         topicId: category === 'topic' ? topicId : undefined,
@@ -1065,21 +1399,24 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                         keyword_count: n.keyword_count,
                         tags: n.tags,
                         cursor,
+                        // show + outside position — font sizes from series.label.rich (zoom bands).
+                        // Never 'inside' (overflow / wrap bugs on scaled Topics).
                         label: {
                             show: labelShow,
-                            position: 'right',
-                            distance: 4,
-                            fontSize: labelFontSize,
-                            fontWeight: labelFontWeight,
-                            color: category === 'dna' ? '#64748b' : '#334155',
-                            formatter: '{b}',
+                            position: labelPosition,
                         },
                         emphasis: {
-                            label: {
-                                show: true,
-                                fontSize: category === 'dna' ? 10 : labelFontSize,
+                            // Lightweight local feedback only — series focus:'none' avoids graph-wide blur.
+                            scale: category === 'dna' ? 1.2 : 1.08,
+                            itemStyle: {
+                                borderWidth: category === 'topic' ? 2 : (category === 'site' ? 2 : 0),
+                                borderColor: category === 'site' ? '#475569' : '#fff',
                             },
-                            scale: category === 'dna' ? 1.35 : 1.08,
+                            label: {
+                                // Hover always reveals DNA text even if overview band hid it.
+                                show: true,
+                                position: labelPosition,
+                            },
                         },
                         itemStyle: {
                             color,
@@ -1088,37 +1425,28 @@ export function buildNetworkOption(neighborhood, ui = {}) {
                         },
                     };
                 }),
-                links: links.map((l) => ({
-                    source: l.source,
-                    target: l.target,
-                })),
-                label: {
-                    show: true,
-                    position: 'right',
-                    formatter: '{b}',
-                    fontSize: 10,
-                },
-                force: {
-                    // Snapshot layout — no swirling settle animation.
-                    layoutAnimation: false,
-                    repulsion: 220,
-                    edgeLength: [36, 110],
-                    gravity: 0.12,
-                    friction: 0.6,
-                },
+                links: links.map((l) => {
+                    const isDna = String(l.target || '').startsWith('dna:');
+                    return {
+                        source: l.source,
+                        target: l.target,
+                        lineStyle: isDna
+                            ? { color: 'source', opacity: 0.28, width: 0.8, curveness: 0 }
+                            : { color: 'source', opacity: 0.42, width: 1, curveness: 0.04 },
+                        emphasis: {
+                            lineStyle: {
+                                width: isDna ? 1.2 : 2,
+                                opacity: 0.75,
+                            },
+                        },
+                    };
+                }),
+                ...typographyPatch,
                 lineStyle: {
                     color: 'source',
-                    curveness: 0.06,
-                    opacity: 0.45,
+                    curveness: 0.04,
+                    opacity: 0.4,
                     width: 1,
-                },
-                emphasis: {
-                    focus: 'adjacency',
-                    lineStyle: { width: 2, opacity: 0.85 },
-                },
-                blur: {
-                    itemStyle: { opacity: 0.18 },
-                    lineStyle: { opacity: 0.08 },
                 },
             },
         ],

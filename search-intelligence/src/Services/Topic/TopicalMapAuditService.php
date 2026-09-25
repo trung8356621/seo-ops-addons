@@ -65,7 +65,7 @@ final class TopicalMapAuditService
      *   }|null
      * }
      */
-    public function audit(int $siteId, ?int $actorId = null): array
+    public function audit(int $siteId, ?int $actorId = null, ?string $languageCode = null): array
     {
         if ($siteId <= 0) {
             return $this->fail('Site is required.');
@@ -110,13 +110,7 @@ final class TopicalMapAuditService
         $periodKey = $period->periodKey();
         $mcpMarkdown = $this->mcpContext->build($siteId, $periodKey);
 
-        $language = '';
-        try {
-            $resolved = $this->primaryLanguage->resolvePrimaryLanguage($site);
-            $language = is_string($resolved) ? trim($resolved) : '';
-        } catch (\Throwable) {
-            $language = '';
-        }
+        $language = $this->resolveEffectivePromptLanguage($site, $languageCode);
 
         $domainPayload = $this->domainPromptContext->getForSite($siteId);
         $companyShort = trim((string) ($domainPayload['company_short_identity'] ?? ''));
@@ -316,6 +310,33 @@ final class TopicalMapAuditService
             'value' => $value,
             'prompt_result_id' => ($promptResultId !== null && $promptResultId > 0) ? $promptResultId : null,
         ];
+    }
+
+    /**
+     * Keywords workspace: explicit selected language wins when valid for the site.
+     * Otherwise preserve Settings/primary resolution (normal sites + Topical Map entry).
+     */
+    public function resolveEffectivePromptLanguage(Site $site, ?string $languageCode = null): string
+    {
+        $explicit = trim((string) ($languageCode ?? ''));
+        if ($explicit !== '') {
+            try {
+                $options = $this->primaryLanguage->formLanguageOptions($site);
+                if (isset($options[$explicit])) {
+                    return $explicit;
+                }
+            } catch (Throwable) {
+                // Fall through to primary.
+            }
+        }
+
+        try {
+            $resolved = $this->primaryLanguage->resolvePrimaryLanguage($site);
+
+            return is_string($resolved) ? trim($resolved) : '';
+        } catch (Throwable) {
+            return '';
+        }
     }
 
     /**

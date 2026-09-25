@@ -124,6 +124,8 @@ final class TopicalMapAuditContractTest extends TestCase
         self::assertStringContainsString('EMPTY_MAP_MESSAGE', $src);
         self::assertStringContainsString('PromptHookCallerBridge', $src);
         self::assertStringContainsString('company_short_identity', $src);
+        self::assertStringContainsString('resolveEffectivePromptLanguage', $src);
+        self::assertStringContainsString('?string $languageCode = null', $src);
         self::assertStringNotContainsString('OpenAI', $src);
         self::assertStringNotContainsString('Anthropic', $src);
         self::assertStringNotContainsString('Http::', $src);
@@ -299,9 +301,12 @@ final class TopicalMapAuditContractTest extends TestCase
         self::assertStringContainsString('beginConfirmAiAudit', $traitSrc);
         self::assertStringContainsString('confirmRunAiAuditAndTags', $traitSrc);
         self::assertStringContainsString('TopicalMapAuditService', $traitSrc);
+        self::assertStringContainsString('keywordLanguageFilter', $traitSrc);
+        self::assertStringContainsString('languageVariants', $traitSrc);
 
         $topicsPage = (string) file_get_contents((string) (new ReflectionClass(KeywordTopicClusters::class))->getFileName());
         self::assertStringContainsString('RunsTopicalMapAuditAndTags', $topicsPage);
+        self::assertStringContainsString('resolveKeywordLanguageFilterVariants()', $topicsPage);
 
         $controller = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditController::class))->getFileName());
         self::assertStringContainsString('TopicalMapAuditHistoryLinker', $controller);

@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 
 /**
  * Site-scoped Topic list read model for Filament Topic index.
@@ -57,9 +58,10 @@ final class TopicListQuery
      *     per_page?: int,
      *     page?: int
      * }  $filters
+     * @param  list<string>|null  $languageVariants  Same Keywords workspace language gate as Dictionary.
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(int $siteId, array $filters = []): LengthAwarePaginator
+    public function paginate(int $siteId, array $filters = [], ?array $languageVariants = null): LengthAwarePaginator
     {
         if ($siteId <= 0 || ! TopicReclusterService::tablesReady()) {
             return new Paginator([], 0, max(1, (int) ($filters['per_page'] ?? 25)));
@@ -74,6 +76,8 @@ final class TopicListQuery
         $coverageFilter = strtolower(trim((string) ($filters['coverage'] ?? '')));
         $sourceFilter = strtolower(trim((string) ($filters['source'] ?? '')));
         $perPage = max(1, min(100, (int) ($filters['per_page'] ?? 25)));
+        $allowedKeywordIds = $this->resolveLanguageAllowedKeywordIds($siteId, $languageVariants);
+        $languageExcludeKeywordIds = $this->resolveLanguageExcludeKeywordIds($siteId, $allowedKeywordIds);
 
         $query = SeoTopic::query()
             ->where('site_id', $siteId)
@@ -125,7 +129,7 @@ final class TopicListQuery
         /** @var list<int> $topicIds */
         $topicIds = $topics->pluck('id')->map(static fn ($id): int => (int) $id)->all();
 
-        // Site-wide MCP-eligible article counts so Topical Share denominator matches landscape SSOT.
+        // MCP-eligible article counts for Topical Share — language-scoped when workspace filter set.
         // Excluded Topics remain listed (raw management) but do not contribute to share/coverage.
         $allSiteTopicIds = SeoTopic::query()
             ->where('site_id', $siteId)
@@ -138,20 +142,43 @@ final class TopicListQuery
             static fn (int $id): bool => ! isset($excludedTopics[$id]),
         ));
         $excludedKeywordIds = $this->mcpExcludedKeywordIdsForTopics($siteId, $mcpEligibleTopicIds);
+        if ($languageExcludeKeywordIds !== []) {
+            $excludedKeywordIds = $excludedKeywordIds + $languageExcludeKeywordIds;
+        }
         $mcpArticleCounts = $this->articleCounter->countForTopics($siteId, $mcpEligibleTopicIds, $excludedKeywordIds);
         $shares = (new TopicTopicalShareCalculator)->percentages($mcpArticleCounts);
         // Raw inventory counts for management rows (includes excluded Topic / Keyword links).
         // article_count = DISTINCT Focus Articles; internal_link_count = actual internal edges.
-        $rawArticleCounts = $this->articleCounter->countForTopics($siteId, $topicIds);
-        $rawInternalLinkCounts = $this->internalLinkCounter->countForTopics($siteId, $topicIds);
+        $rawArticleCounts = $this->articleCounter->countForTopics($siteId, $topicIds, $languageExcludeKeywordIds !== [] ? $languageExcludeKeywordIds : null);
+        $rawInternalLinkCounts = $this->internalLinkCounter->countForTopics($siteId, $topicIds, $languageExcludeKeywordIds !== [] ? $languageExcludeKeywordIds : null);
 
-        $memberCounts = SeoTopicKeyword::query()
+        $memberQuery = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->whereIn('topic_id', $topicIds)
+            ->whereIn('topic_id', $topicIds);
+        if ($allowedKeywordIds !== null) {
+            if ($allowedKeywordIds === []) {
+                $memberQuery->whereRaw('1 = 0');
+            } else {
+                $memberQuery->whereIn('keyword_id', $allowedKeywordIds);
+            }
+        }
+        $memberCounts = $memberQuery
             ->selectRaw('topic_id, COUNT(*) as member_count, SUM(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END) as locked_member_count')
             ->groupBy('topic_id')
             ->get()
             ->keyBy(static fn ($row): int => (int) $row->topic_id);
+
+        $rawMemberTotals = [];
+        if ($allowedKeywordIds !== null) {
+            $rawMemberTotals = SeoTopicKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('topic_id', $topicIds)
+                ->selectRaw('topic_id, COUNT(*) as member_count')
+                ->groupBy('topic_id')
+                ->pluck('member_count', 'topic_id')
+                ->map(static fn ($count): int => (int) $count)
+                ->all();
+        }
 
         $tagMetrics = $this->tagMetrics->forTopics($siteId, $mcpEligibleTopicIds, $mcpArticleCounts, $excludedKeywordIds);
         $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
@@ -171,6 +198,15 @@ final class TopicListQuery
                 'coverage' => 'unknown',
                 'canonical_source' => 'auto',
             ];
+
+            // Language landscape: hide Topics that only have memberships outside the selected language.
+            // Empty Topics (0 members total) remain visible for management.
+            if ($allowedKeywordIds !== null) {
+                $totalMembers = (int) ($rawMemberTotals[$topicId] ?? 0);
+                if ($keywordCount === 0 && $totalMembers > 0) {
+                    continue;
+                }
+            }
 
             if ($hasArticles && $articleCount <= 0) {
                 continue;
@@ -253,10 +289,18 @@ final class TopicListQuery
 
         $stats = app(KeywordTopicAssignmentStats::class)->forSite($siteId, $languageVariants);
         $topicLocked = (int) SeoTopic::query()->where('site_id', $siteId)->where('is_locked', true)->count();
-        $membershipLocked = (int) SeoTopicKeyword::query()
+        $membershipLockedQuery = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('is_locked', true)
-            ->count();
+            ->where('is_locked', true);
+        $allowedKeywordIds = $this->resolveLanguageAllowedKeywordIds($siteId, $languageVariants);
+        if ($allowedKeywordIds !== null) {
+            if ($allowedKeywordIds === []) {
+                $membershipLockedQuery->whereRaw('1 = 0');
+            } else {
+                $membershipLockedQuery->whereIn('keyword_id', $allowedKeywordIds);
+            }
+        }
+        $membershipLocked = (int) $membershipLockedQuery->count();
 
         return [
             // Primary UX denominator = Dictionary/UI inventory (language-aware when provided).
@@ -271,6 +315,51 @@ final class TopicListQuery
             'membership_locked' => $membershipLocked,
             'seo_eligible_clustering' => $stats['seo_eligible_clustering'],
         ];
+    }
+
+    /**
+     * Inventory keyword ids for the selected Keywords language, or null when no language gate.
+     *
+     * @param  list<string>|null  $languageVariants
+     * @return list<int>|null
+     */
+    private function resolveLanguageAllowedKeywordIds(int $siteId, ?array $languageVariants): ?array
+    {
+        if ($languageVariants === null || $languageVariants === []) {
+            return null;
+        }
+
+        return app(KeywordUiInventoryQuery::class)->keywordIds($siteId, $languageVariants);
+    }
+
+    /**
+     * Member keywords outside the selected language landscape (for article/link exclude maps).
+     *
+     * @param  list<int>|null  $allowedKeywordIds
+     * @return array<int, true>
+     */
+    private function resolveLanguageExcludeKeywordIds(int $siteId, ?array $allowedKeywordIds): array
+    {
+        if ($allowedKeywordIds === null || $siteId <= 0) {
+            return [];
+        }
+
+        $allowedSet = array_fill_keys($allowedKeywordIds, true);
+        $exclude = [];
+        $memberIds = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->all();
+        foreach ($memberIds as $keywordId) {
+            if (! isset($allowedSet[$keywordId])) {
+                $exclude[$keywordId] = true;
+            }
+        }
+
+        return $exclude;
     }
 
     /**

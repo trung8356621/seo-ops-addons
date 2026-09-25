@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace;
 
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 
 /**
@@ -51,7 +52,21 @@ final class KeywordTopicAssignmentStats
         $topicCount = 0;
         $seoEligibleClustering = 0;
         if (TopicReclusterService::tablesReady()) {
-            $topicCount = (int) SeoTopic::query()->where('site_id', $siteId)->count();
+            if ($languageVariants !== null && $languageVariants !== []) {
+                $inventoryIds = $this->inventory->keywordIds($siteId, $languageVariants);
+                if ($inventoryIds !== []) {
+                    $topicCount = SeoTopicKeyword::query()
+                        ->where('site_id', $siteId)
+                        ->whereIn('keyword_id', $inventoryIds)
+                        ->pluck('topic_id')
+                        ->map(static fn ($id): int => (int) $id)
+                        ->filter(static fn (int $id): bool => $id > 0)
+                        ->unique()
+                        ->count();
+                }
+            } else {
+                $topicCount = (int) SeoTopic::query()->where('site_id', $siteId)->count();
+            }
             $seoEligibleClustering = (int) \Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword::query()
                 ->where('site_id', $siteId)
                 ->where('is_seo_keyword', true)

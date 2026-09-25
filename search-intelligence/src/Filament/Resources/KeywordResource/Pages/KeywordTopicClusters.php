@@ -375,7 +375,7 @@ final class KeywordTopicClusters extends Page
                 'coverage' => $this->coverageFilter,
                 'source' => $this->sourceFilter,
                 'per_page' => 25,
-            ])
+            ], $this->resolveKeywordLanguageFilterVariants())
             ->withPath(KeywordResource::getUrl('clusters'))
             ->appends(array_filter([
                 'site_id' => $siteId > 0 ? $siteId : null,

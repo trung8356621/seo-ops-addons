@@ -74,6 +74,10 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
             $this->initializeKeywordWorkspaceLanguageFilter();
         }
 
+        if (method_exists($this, 'clearKeywordWorkspaceTabCountsCache')) {
+            $this->clearKeywordWorkspaceTabCountsCache();
+        }
+
         if (method_exists($this, 'resetPage')) {
             $this->resetPage();
         }
@@ -84,6 +88,10 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
 
         if (property_exists($this, 'clusterDataEpoch')) {
             $this->clusterDataEpoch++;
+        }
+
+        if (method_exists($this, 'refreshAiAuditSnapshot')) {
+            $this->refreshAiAuditSnapshot();
         }
     }
 

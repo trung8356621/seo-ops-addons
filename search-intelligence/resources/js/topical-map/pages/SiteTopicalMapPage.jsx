@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createApi, topicDetailUrl } from '../api/client';
+import { createApi } from '../api/client';
 import {
     filterTopics,
     normalizeMcpRange,
     readFilterQuery,
     writeFilterQuery,
 } from '../state/filters';
-import { buildOverviewNeighborhood } from '../charts/options';
+import { buildOverviewNeighborhood, buildFocusedNetworkNeighborhood } from '../charts/options';
 import AppChrome from '../components/AppChrome';
 import ChartCanvas from '../components/ChartCanvas';
 import AuditConfirmModal from '../components/AuditConfirmModal';
 import AuditOverlay from '../components/AuditOverlay';
 
 function formatNetworkMeta(neighborhood) {
-    const topics = Number(neighborhood?.showing_topics ?? 0);
+    const focusedName = String(neighborhood?.focused_topic_name || '').trim();
     const showingDna = Number(neighborhood?.showing_dna ?? 0);
+    if (focusedName) {
+        return `${focusedName} · ${showingDna} DNA`;
+    }
+    const topics = Number(neighborhood?.showing_topics ?? 0);
     const totalDna = Number(neighborhood?.total_dna ?? showingDna);
     if (topics <= 0) {
         return '';
@@ -121,13 +125,39 @@ export default function SiteTopicalMapPage({ config }) {
         return selectedTagIds;
     }, [tagFilterAll, selectedTagIds]);
 
-    /** Single-state Network graph from filtered Topics + their DNA (no drill). */
-    const networkNeighborhood = useMemo(
+    /** Full-site Network neighborhood from filtered Topics + DNA (no drill API). */
+    const fullNetworkNeighborhood = useMemo(
         () => buildOverviewNeighborhood(siteId, filteredTopics, {
             siteDomain: String(config.siteDomain || '').trim(),
         }),
         [siteId, filteredTopics, config.siteDomain],
     );
+
+    /** Clear focus when filters remove the focused Topic. */
+    useEffect(() => {
+        if (focusedTopicId == null) {
+            return;
+        }
+        const stillVisible = filteredTopics.some(
+            (topic) => Number(topic.id) === Number(focusedTopicId),
+        );
+        if (!stillVisible) {
+            setFocusedTopicId(null);
+        }
+    }, [filteredTopics, focusedTopicId]);
+
+    /**
+     * Visible Network graph: full neighborhood, or client-side focused subset.
+     * Focus rebuilds option once — never on wheel/pan/hover.
+     */
+    const networkNeighborhood = useMemo(() => {
+        if (focusedTopicId == null) {
+            return fullNetworkNeighborhood;
+        }
+        const focused = buildFocusedNetworkNeighborhood(fullNetworkNeighborhood, focusedTopicId);
+        // Invalid focus → full graph (effect above also clears state).
+        return focused || fullNetworkNeighborhood;
+    }, [fullNetworkNeighborhood, focusedTopicId]);
 
     useEffect(() => {
         if (renderer === 'treemap') {
@@ -231,12 +261,10 @@ export default function SiteTopicalMapPage({ config }) {
             return;
         }
         setFocusedTopicId(id);
-        // Network has no focus state — open Topic detail in a new tab.
+        // Network: focus constellation only (detail via double-click).
+        // Structure / Treemap: highlight helper; Treemap has no highlight path.
         if (renderer === 'network') {
-            const url = topicDetailUrl(config.topicDetailUrlTemplate, id);
-            if (url) {
-                window.open(url, '_blank', 'noopener,noreferrer');
-            }
+            return;
         }
     };
 

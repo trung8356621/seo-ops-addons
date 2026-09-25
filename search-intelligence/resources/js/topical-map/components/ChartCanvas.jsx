@@ -7,8 +7,8 @@ import {
     ToolboxComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { buildTreeOption, buildTreemapOption, buildNetworkOption, formatTreemapMcpPercent } from '../charts/options';
-import { topicStructureLabel } from '../charts/theme';
+import { buildTreeOption, buildTreemapOption, buildNetworkOption, buildStructureTypographyPatch, buildNetworkTypographyPatch, formatTreemapMcpPercent } from '../charts/options';
+import { topicStructureLabel, getChartTypographyBand, getStructureTypographyBand } from '../charts/theme';
 import { topicDetailUrl } from '../api/client';
 
 echarts.use([
@@ -25,19 +25,8 @@ const ZOOM_STEP = 1.2;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 4;
 
-function readSeriesZoom(chart) {
-    try {
-        const opt = chart.getOption();
-        const series = Array.isArray(opt?.series) ? opt.series[0] : null;
-        const z = Number(series?.zoom ?? 1);
-        return Number.isFinite(z) && z > 0 ? z : 1;
-    } catch {
-        return 1;
-    }
-}
-
 /**
- * Full-flex ECharts canvas — wheel zoom, toolbar zoom API, ResizeObserver.
+ * Full-flex ECharts canvas — wheel zoom (RAF-batched), toolbar zoom API, ResizeObserver.
  */
 const ChartCanvas = forwardRef(function ChartCanvas({
     overview,
@@ -56,9 +45,14 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     const hostRef = useRef(null);
     const chartRef = useRef(null);
     const zoomRef = useRef(1);
+    const centerRef = useRef(undefined);
+    const typographyBandRef = useRef(getStructureTypographyBand(1));
+    const pendingZoomFactorRef = useRef(1);
+    const wheelRafRef = useRef(null);
     const onZoomChangeRef = useRef(onZoomChange);
     onZoomChangeRef.current = onZoomChange;
     const lastRendererRef = useRef(null);
+    const lastFocusedTopicIdRef = useRef(null);
     const applyZoomFactorRef = useRef(() => {});
 
     const propsRef = useRef({});
@@ -66,6 +60,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         renderer,
         topicDetailUrlTemplate,
         onFocusTopic,
+        focusedTopicId,
         preferredTagIds,
         siteDomain,
         untaggedBucketLabel,
@@ -79,6 +74,55 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         onZoomChangeRef.current?.(next);
     }, []);
 
+    /**
+     * Apply Structure/Network label typography only when the discrete zoom band changes.
+     * Treemap is excluded. Never rebuilds graph data.
+     * Structure uses its own band scale (xlarge @ 400%); Network keeps approved bands.
+     *
+     * @param {number} zoom
+     * @param {object} [intoPatch] optional series patch object to merge into
+     * @returns {boolean} whether band changed (and patch was filled)
+     */
+    const applyTypographyBandIfNeeded = useCallback((zoom, intoPatch = null) => {
+        const mode = propsRef.current.renderer;
+        if (mode === 'treemap') {
+            return false;
+        }
+        const band = mode === 'tree'
+            ? getStructureTypographyBand(zoom)
+            : getChartTypographyBand(zoom);
+        if (band === typographyBandRef.current) {
+            return false;
+        }
+        typographyBandRef.current = band;
+        const typoPatch = mode === 'tree'
+            ? buildStructureTypographyPatch(band)
+            : buildNetworkTypographyPatch(band, {
+                focused: Boolean(propsRef.current.focusedTopicId),
+            });
+        if (intoPatch && typeof intoPatch === 'object') {
+            Object.assign(intoPatch, typoPatch);
+            return true;
+        }
+        const chart = chartRef.current;
+        if (!chart) {
+            return true;
+        }
+        if (mode === 'tree') {
+            chart.setOption({
+                series: [{ id: 'topical-map-tree', ...typoPatch }],
+            });
+        } else if (mode === 'network') {
+            chart.setOption({
+                series: [{ id: 'topical-map-network', ...typoPatch }],
+            });
+        }
+        return true;
+    }, []);
+
+    /**
+     * Zoom from zoomRef (not chart.getOption). Toolbar + RAF-batched wheel share this path.
+     */
     const applyZoomFactor = useCallback((factor) => {
         const chart = chartRef.current;
         if (!chart) {
@@ -89,28 +133,29 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         if (mode === 'treemap') {
             return;
         }
-        const current = readSeriesZoom(chart);
+        const current = zoomRef.current;
         const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current * factor));
-        const center = (() => {
-            try {
-                const opt = chart.getOption();
-                return opt?.series?.[0]?.center;
-            } catch {
-                return undefined;
-            }
-        })();
+        if (next === current) {
+            return;
+        }
+
+        const patch = { zoom: next };
+        if (centerRef.current !== undefined) {
+            patch.center = centerRef.current;
+        }
+        applyTypographyBandIfNeeded(next, patch);
 
         if (mode === 'tree') {
             chart.setOption({
-                series: [{ id: 'topical-map-tree', zoom: next, center }],
+                series: [{ id: 'topical-map-tree', ...patch }],
             });
         } else if (mode === 'network') {
             chart.setOption({
-                series: [{ id: 'topical-map-network', zoom: next, center }],
+                series: [{ id: 'topical-map-network', ...patch }],
             });
         }
         emitZoom(next);
-    }, [emitZoom]);
+    }, [emitZoom, applyTypographyBandIfNeeded]);
     applyZoomFactorRef.current = applyZoomFactor;
 
     const resetZoom = useCallback(() => {
@@ -123,10 +168,15 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         if (mode === 'treemap') {
             return;
         }
+        centerRef.current = undefined;
+        const patch = { zoom: 1, center: undefined };
+        // Force overview typography even if band string already matches (stale merge).
+        typographyBandRef.current = '';
+        applyTypographyBandIfNeeded(1, patch);
         // Structure BT overview: FIT = full taxonomy at zoom 1 (not leaf-count shrink).
         if (mode === 'tree') {
             chart.setOption({
-                series: [{ id: 'topical-map-tree', zoom: 1, center: undefined }],
+                series: [{ id: 'topical-map-tree', ...patch }],
             });
             emitZoom(1);
             return;
@@ -134,11 +184,11 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         if (mode === 'network') {
             // FIT = full Site → Topic → DNA overview (no Topic auto-focus).
             chart.setOption({
-                series: [{ id: 'topical-map-network', zoom: 1, center: undefined }],
+                series: [{ id: 'topical-map-network', ...patch }],
             });
             emitZoom(1);
         }
-    }, [emitZoom]);
+    }, [emitZoom, applyTypographyBandIfNeeded]);
 
     useImperativeHandle(ref, () => ({
         zoomIn: () => applyZoomFactor(ZOOM_STEP),
@@ -157,6 +207,16 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         const chart = echarts.init(el, undefined, { renderer: 'canvas' });
         chartRef.current = chart;
+
+        const flushPendingWheelZoom = () => {
+            wheelRafRef.current = null;
+            const pending = pendingZoomFactorRef.current;
+            pendingZoomFactorRef.current = 1;
+            if (pending === 1) {
+                return;
+            }
+            applyZoomFactorRef.current(pending);
+        };
 
         const onWheel = (event) => {
             if (!el.contains(event.target)) {
@@ -178,27 +238,69 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             }
             event.preventDefault();
             const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-            applyZoomFactorRef.current(factor);
+            pendingZoomFactorRef.current *= factor;
+            if (wheelRafRef.current != null) {
+                return;
+            }
+            wheelRafRef.current = requestAnimationFrame(flushPendingWheelZoom);
         };
         el.addEventListener('wheel', onWheel, { passive: false });
 
-        const syncZoomFromEvent = () => {
-            emitZoom(readSeriesZoom(chart));
+        // Pan via ECharts roam is infrequent — sync zoom/center from option once per roam.
+        // Typography only updates when the discrete zoom band changes (not on pure pan).
+        const syncRoamFromEvent = () => {
+            try {
+                const opt = chart.getOption();
+                const series = Array.isArray(opt?.series) ? opt.series[0] : null;
+                const z = Number(series?.zoom ?? 1);
+                if (Number.isFinite(z) && z > 0) {
+                    emitZoom(z);
+                    applyTypographyBandIfNeeded(z);
+                }
+                if (series?.center !== undefined) {
+                    centerRef.current = series.center;
+                }
+            } catch {
+                // ignore
+            }
         };
-        chart.on('treeroam', syncZoomFromEvent);
-        chart.on('graphroam', syncZoomFromEvent);
+        chart.on('treeroam', syncRoamFromEvent);
+        chart.on('graphroam', syncRoamFromEvent);
 
         const openTopicBlank = (topicId) => {
             const id = Number(topicId);
             if (!Number.isFinite(id) || id <= 0) {
                 return;
             }
-            propsRef.current.onFocusTopic?.(id);
+            // Open detail only — must NOT set Network focus state.
             const url = topicDetailUrl(propsRef.current.topicDetailUrlTemplate, id);
             if (url) {
                 window.open(url, '_blank', 'noopener,noreferrer');
             }
         };
+
+        const focusNetworkTopic = (topicId) => {
+            const id = Number(topicId);
+            if (!Number.isFinite(id) || id <= 0) {
+                return;
+            }
+            // No-op when already focused on this Topic.
+            if (Number(propsRef.current.focusedTopicId) === id) {
+                return;
+            }
+            propsRef.current.onFocusTopic?.(id);
+        };
+
+        const clearNetworkFocus = () => {
+            if (propsRef.current.focusedTopicId == null) {
+                return;
+            }
+            propsRef.current.onFocusTopic?.(null);
+        };
+
+        /** Delay single-click focus so dblclick can cancel it. */
+        const NETWORK_CLICK_DELAY_MS = 220;
+        let networkClickTimer = null;
 
         const onClick = (params) => {
             const data = params?.data || {};
@@ -210,17 +312,24 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                 return;
             }
 
-            // Network: Site click = FIT only; DNA = informational (no nav); Topic = open blank.
+            // Network: Topic single-click = focus; Site (when focused) = back; DNA = no-op.
             if (latest.renderer === 'network') {
                 if (data.nodeType === 'site') {
-                    resetZoom();
+                    clearNetworkFocus();
                     return;
                 }
                 if (data.nodeType === 'dna') {
                     return;
                 }
                 if (data.nodeType === 'topic' && data.topicId) {
-                    openTopicBlank(data.topicId);
+                    if (networkClickTimer != null) {
+                        clearTimeout(networkClickTimer);
+                    }
+                    const tid = data.topicId;
+                    networkClickTimer = setTimeout(() => {
+                        networkClickTimer = null;
+                        focusNetworkTopic(tid);
+                    }, NETWORK_CLICK_DELAY_MS);
                 }
                 return;
             }
@@ -230,16 +339,36 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                 if (data.nodeType !== 'topic' || !data.topicId) {
                     return;
                 }
+                // Structure highlight helper (separate from Network focus semantics).
+                latest.onFocusTopic?.(Number(data.topicId));
                 openTopicBlank(data.topicId);
             }
         };
 
         const onDblClick = (params) => {
             const data = params?.data || {};
-            // Structure / Network open on single click — avoid duplicate tab on dblclick.
-            if (propsRef.current.renderer === 'tree' || propsRef.current.renderer === 'network') {
+            const latest = propsRef.current;
+
+            // Network: double-click Topic opens detail; cancel pending single-click focus.
+            if (latest.renderer === 'network') {
+                if (networkClickTimer != null) {
+                    clearTimeout(networkClickTimer);
+                    networkClickTimer = null;
+                }
+                if (data.nodeType === 'dna' || data.nodeType === 'site') {
+                    return;
+                }
+                if (data.nodeType === 'topic' && data.topicId) {
+                    openTopicBlank(data.topicId);
+                }
                 return;
             }
+
+            // Structure opens on single click — avoid duplicate tab on dblclick.
+            if (latest.renderer === 'tree') {
+                return;
+            }
+
             if (data.nodeType !== 'topic' || !data.topicId) {
                 return;
             }
@@ -260,17 +389,26 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         window.addEventListener('resize', onWindowResize);
 
         return () => {
+            if (networkClickTimer != null) {
+                clearTimeout(networkClickTimer);
+                networkClickTimer = null;
+            }
+            if (wheelRafRef.current != null) {
+                cancelAnimationFrame(wheelRafRef.current);
+                wheelRafRef.current = null;
+            }
+            pendingZoomFactorRef.current = 1;
             el.removeEventListener('wheel', onWheel);
             window.removeEventListener('resize', onWindowResize);
             ro?.disconnect();
             chart.off('click', onClick);
             chart.off('dblclick', onDblClick);
-            chart.off('treeroam', syncZoomFromEvent);
-            chart.off('graphroam', syncZoomFromEvent);
+            chart.off('treeroam', syncRoamFromEvent);
+            chart.off('graphroam', syncRoamFromEvent);
             chart.dispose();
             chartRef.current = null;
         };
-    }, [emitZoom, resetZoom]);
+    }, [emitZoom, resetZoom, applyTypographyBandIfNeeded]);
 
     useEffect(() => {
         const chart = chartRef.current;
@@ -282,22 +420,54 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         lastRendererRef.current = renderer;
 
         if (renderer === 'network') {
-            const option = buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
-                siteDomain: propsRef.current.siteDomain,
-            });
             if (rendererChanged) {
                 zoomRef.current = 1;
+                centerRef.current = undefined;
+                lastFocusedTopicIdRef.current = focusedTopicId;
+                typographyBandRef.current = getChartTypographyBand(1);
                 onZoomChangeRef.current?.(1);
                 chart.clear();
-                chart.setOption(option, true);
+                chart.setOption(buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
+                    siteDomain: propsRef.current.siteDomain,
+                    typographyBand: typographyBandRef.current,
+                    focused: Boolean(focusedTopicId),
+                }), true);
             } else {
-                // Soft update — keep instance; force layoutAnimation is off.
-                chart.setOption(option, { notMerge: true, lazyUpdate: false });
+                // Focus enter/exit: re-center on the (new) fixed layout — no pan remnant.
+                const focusChanged = lastFocusedTopicIdRef.current !== focusedTopicId;
+                lastFocusedTopicIdRef.current = focusedTopicId;
+                if (focusChanged) {
+                    zoomRef.current = 1;
+                    centerRef.current = undefined;
+                    onZoomChangeRef.current?.(1);
+                }
+                const band = getChartTypographyBand(zoomRef.current);
+                // Soft replace graph data — fixed coords; restore zoom/center + typography after notMerge.
+                chart.setOption(buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
+                    siteDomain: propsRef.current.siteDomain,
+                    typographyBand: band,
+                    focused: Boolean(focusedTopicId),
+                }), { notMerge: true, lazyUpdate: false });
+                typographyBandRef.current = band;
+                const z = zoomRef.current;
+                const zoomPatch = {
+                    id: 'topical-map-network',
+                    zoom: z,
+                    center: centerRef.current,
+                    ...buildNetworkTypographyPatch(band, {
+                        focused: Boolean(focusedTopicId),
+                    }),
+                };
+                chart.setOption({ series: [zoomPatch] });
             }
             return;
         }
 
         zoomRef.current = 1;
+        centerRef.current = undefined;
+        typographyBandRef.current = renderer === 'tree'
+            ? getStructureTypographyBand(1)
+            : getChartTypographyBand(1);
         onZoomChangeRef.current?.(1);
 
         if (renderer === 'treemap') {
@@ -313,11 +483,13 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             siteDomain: propsRef.current.siteDomain,
             untaggedBucketLabel: propsRef.current.untaggedBucketLabel,
             untaggedBucketTooltip: propsRef.current.untaggedBucketTooltip,
+            typographyBand: getStructureTypographyBand(1),
         }), true);
     }, [
         overview,
         renderer,
         neighborhood,
+        focusedTopicId,
         preferredTagIds,
         siteDomain,
         untaggedBucketLabel,

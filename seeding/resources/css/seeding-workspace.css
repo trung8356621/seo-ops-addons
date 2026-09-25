@@ -147,11 +147,37 @@
     width: 100%;
     border-radius: 0.5rem;
     border: 1px solid #d1d5db;
-    background: #fff;
+    /* background-color only — shorthand `background` resets repeat/size and fights Filament forms select arrow */
+    background-color: #fff;
     color: inherit;
     font-size: 0.8125rem;
     padding: 0.45rem 0.6rem;
     box-sizing: border-box;
+}
+
+/**
+ * Filament (@tailwindcss/forms) sets a global `select { background-image: chevron }`.
+ * Combined with Seeding input styles that clobber background-repeat/size, the chevron tiles
+ * across the control. Force one arrow inside the Seeding mount only.
+ */
+.seeding-workspace-mount select,
+.seeding-workspace-shell select,
+select.seeding-ws__input {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    background-color: #fff !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 0.55rem center !important;
+    background-size: 1.05rem 1.05rem !important;
+    padding-right: 2rem !important;
+}
+
+.seeding-workspace-mount select::-ms-expand,
+.seeding-workspace-shell select::-ms-expand,
+select.seeding-ws__input::-ms-expand {
+    display: none;
 }
 
 .seeding-ws__textarea {

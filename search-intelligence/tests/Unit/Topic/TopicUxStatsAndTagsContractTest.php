@@ -46,6 +46,7 @@ final class TopicUxStatsAndTagsContractTest extends TestCase
         self::assertStringContainsString('languageVariants', $src);
         self::assertStringContainsString("'seo_eligible_keywords' => \$stats['inventory_total']", $src);
         self::assertStringContainsString("'unassigned' => \$stats['unassigned']", $src);
+        self::assertStringContainsString('paginate(int $siteId, array $filters = [], ?array $languageVariants = null)', $src);
         self::assertTrue(class_exists(TopicListQuery::class));
     }
 

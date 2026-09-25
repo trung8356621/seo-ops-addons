@@ -198,6 +198,26 @@ final class SeedingWorkspaceContractTest extends TestCase
         }
     }
 
+    public function test_select_chevron_is_single_non_repeating_inside_mount(): void
+    {
+        $css = (string) file_get_contents($this->addonRoot().'/resources/css/seeding-workspace.css');
+
+        // Do not use background shorthand on shared inputs — it resets repeat and fights Filament forms.
+        self::assertStringContainsString('background-color: #fff;', $css);
+        self::assertDoesNotMatchRegularExpression(
+            '/\.seeding-ws__input[^{]*\{[^}]*\bbackground:\s*#fff/',
+            $css,
+        );
+
+        self::assertStringContainsString('.seeding-workspace-mount select', $css);
+        self::assertStringContainsString('select.seeding-ws__input', $css);
+        self::assertStringContainsString('background-repeat: no-repeat !important', $css);
+        self::assertStringContainsString('background-position: right 0.55rem center !important', $css);
+        self::assertStringContainsString('background-size: 1.05rem 1.05rem !important', $css);
+        self::assertStringContainsString('appearance: none !important', $css);
+        self::assertStringContainsString("d='m6 8 4 4 4-4'", $css);
+    }
+
     public function test_db_plane_and_build_boundary(): void
     {
         self::assertSame('omi_seeding', SeedingServiceConfig::CONNECTION);

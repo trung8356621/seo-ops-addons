@@ -3,6 +3,11 @@
     $config = $this->bootstrapConfig();
 @endphp
 
+{{-- Inter once for standalone Topical Map (canvas + chrome). System stack remains fallback. --}}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
 <div class="topical-map-app-mount" data-topical-map-shell="1" wire:key="topical-map-app-shell">
     <div
         wire:ignore

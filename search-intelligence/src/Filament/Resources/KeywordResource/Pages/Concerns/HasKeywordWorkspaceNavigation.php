@@ -112,7 +112,8 @@ trait HasKeywordWorkspaceNavigation
     /**
      * Inventory counts for Dictionary / Focus / Topics / Tags tabs + header Total badge.
      * Scoped by site + language filter only — ignores table search/filters.
-     * Topics tab count = site Topic total (Topics have no language column).
+     * Topics tab count = Topics with ≥1 keyword in the selected language inventory
+     * (Topics have no language column; membership is the language gate).
      * Tags tab count = custom Topic tags for current site only (not built-in badges).
      *
      * @return array{total: int, dictionary: int, focus: int, topics: int, tags: int}

@@ -25,8 +25,20 @@ export const TOPIC_PALETTE = [
 /** Fixed keyword leaf size — never scales with MCP. */
 export const KEYWORD_SYMBOL_SIZE = 8;
 
-/** Fixed Network DNA satellite size — never scales with MCP / counts. */
-export const NETWORK_DNA_SYMBOL_SIZE = 6;
+/**
+ * Default / mid Network DNA size (fallback when parent Topic size unknown).
+ * Prefer {@see networkDnaSymbolSize} — DNA scales with parent Topic.
+ */
+export const NETWORK_DNA_SYMBOL_SIZE = 8;
+
+/** DNA satellite diameter — overview (full map). */
+export const NETWORK_DNA_SYMBOL_MIN = 6;
+export const NETWORK_DNA_SYMBOL_MAX = 20;
+/** DNA satellite diameter — focus/isolate (easier hover/click). */
+export const NETWORK_DNA_SYMBOL_FOCUS_MIN = 10;
+export const NETWORK_DNA_SYMBOL_FOCUS_MAX = 26;
+/** DNA diameter ≈ this fraction of parent Topic diameter (then clamped). */
+export const NETWORK_DNA_PARENT_SIZE_RATIO = 0.28;
 
 /** Fixed Network Site node — structural, not MCP-scaled. */
 export const NETWORK_SITE_SYMBOL_SIZE = 24;
@@ -41,6 +53,165 @@ export const NETWORK_MCP_SIZE_EXPONENT = 1.35;
 
 /** Defensive full-graph DNA cap (never silent). */
 export const NETWORK_MAX_DNA_NODES = 1500;
+
+/** Shared chart typography tokens (presentation only). */
+export const CHART_FONT_FAMILY =
+    "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
+export const CHART_FONT_TOOLTIP = 12;
+export const CHART_FONT_SMALL = 11;
+export const CHART_FONT_NORMAL = 12;
+export const CHART_FONT_MEDIUM = 14;
+export const CHART_FONT_LARGE = 16;
+export const CHART_FONT_MAX_ZOOM = 18;
+
+/**
+ * Discrete zoom → typography band (not a linear font multiplier).
+ * Used by Network (and shared helpers). Structure uses {@see getStructureTypographyBand}.
+ *
+ * @param {unknown} zoom
+ * @returns {'compact'|'normal'|'medium'|'large'}
+ */
+export function getChartTypographyBand(zoom) {
+    const z = Number(zoom);
+    if (!Number.isFinite(z) || z < 0.75) {
+        return 'compact';
+    }
+    if (z < 1.5) {
+        return 'normal';
+    }
+    if (z < 2.5) {
+        return 'medium';
+    }
+    return 'large';
+}
+
+/**
+ * Structure-only zoom bands — finer steps so 400% reaches ~20px Topic text.
+ * Network must keep {@see getChartTypographyBand}.
+ *
+ * @param {unknown} zoom
+ * @returns {'compact'|'normal'|'medium'|'large'|'xlarge'}
+ */
+export function getStructureTypographyBand(zoom) {
+    const z = Number(zoom);
+    if (!Number.isFinite(z) || z < 1) {
+        return 'compact';
+    }
+    if (z < 1.75) {
+        return 'normal';
+    }
+    if (z < 2.5) {
+        return 'medium';
+    }
+    if (z < 3.5) {
+        return 'large';
+    }
+    return 'xlarge';
+}
+
+/**
+ * Structure BT label metrics by zoom band.
+ *
+ * @param {'compact'|'normal'|'medium'|'large'|'xlarge'} band
+ * @returns {{
+ *   topic: { fontSize: number, width: number, distance: number, fontWeight: number },
+ *   tag: { fontSize: number, width: number, distance: number, fontWeight: number },
+ *   site: { fontSize: number, width: number, distance: number, fontWeight: number },
+ * }}
+ */
+export function getStructureTypography(band) {
+    switch (band) {
+        case 'compact':
+            // ~100% / FIT
+            return {
+                topic: { fontSize: 10, width: 110, distance: 6, fontWeight: 600 },
+                tag: { fontSize: 10, width: 96, distance: 6, fontWeight: 600 },
+                site: { fontSize: 11, width: 96, distance: 6, fontWeight: 600 },
+            };
+        case 'normal':
+            // ~150%
+            return {
+                topic: { fontSize: 12, width: 130, distance: 7, fontWeight: 600 },
+                tag: { fontSize: 11, width: 115, distance: 7, fontWeight: 600 },
+                site: { fontSize: 11, width: 115, distance: 7, fontWeight: 600 },
+            };
+        case 'medium':
+            // ~200%
+            return {
+                topic: { fontSize: 14, width: 155, distance: 8, fontWeight: 600 },
+                tag: { fontSize: 13, width: 140, distance: 8, fontWeight: 600 },
+                site: { fontSize: 13, width: 140, distance: 8, fontWeight: 600 },
+            };
+        case 'large':
+            // ~300%
+            return {
+                topic: { fontSize: 17, width: 190, distance: 10, fontWeight: 600 },
+                tag: { fontSize: 15, width: 165, distance: 9, fontWeight: 600 },
+                site: { fontSize: 15, width: 165, distance: 9, fontWeight: 600 },
+            };
+        case 'xlarge':
+            // ~400%
+            return {
+                topic: { fontSize: 20, width: 220, distance: 12, fontWeight: 600 },
+                tag: { fontSize: 17, width: 190, distance: 11, fontWeight: 600 },
+                site: { fontSize: 16, width: 180, distance: 11, fontWeight: 600 },
+            };
+        default:
+            return {
+                topic: { fontSize: 10, width: 110, distance: 6, fontWeight: 600 },
+                tag: { fontSize: 10, width: 96, distance: 6, fontWeight: 600 },
+                site: { fontSize: 11, width: 96, distance: 6, fontWeight: 600 },
+            };
+    }
+}
+
+/**
+ * Network label font sizes by zoom band (DNA hover only).
+ *
+ * @param {'compact'|'normal'|'medium'|'large'} band
+ * @returns {{ topic: number, site: number, dna: number, distance: number }}
+ */
+export function getNetworkTypography(band) {
+    switch (band) {
+        case 'compact':
+            return { topic: 10, site: 10, dna: 10, distance: 4 };
+        case 'medium':
+            return { topic: 13, site: 13, dna: 11, distance: 5 };
+        case 'large':
+            return { topic: 16, site: 15, dna: 12, distance: 6 };
+        case 'normal':
+        default:
+            return { topic: 11, site: 12, dna: 10, distance: 4 };
+    }
+}
+
+/**
+ * Treemap static tier styles (no zoom).
+ *
+ * @returns {{ L: object, M: object, S: object }}
+ */
+export function getTreemapTypographyRich() {
+    return {
+        L: {
+            fontFamily: CHART_FONT_FAMILY,
+            fontSize: 18,
+            lineHeight: 24,
+            fontWeight: 700,
+        },
+        M: {
+            fontFamily: CHART_FONT_FAMILY,
+            fontSize: 14,
+            lineHeight: 19,
+            fontWeight: 600,
+        },
+        S: {
+            fontFamily: CHART_FONT_FAMILY,
+            fontSize: 13,
+            lineHeight: 16,
+            fontWeight: 700,
+        },
+    };
+}
 
 export function clampMcp(value) {
     const n = Number(value);
@@ -84,6 +255,48 @@ export function networkTopicSymbolSize(mcp, maxMcp) {
         NETWORK_TOPIC_SYMBOL_MIN
         + (NETWORK_TOPIC_SYMBOL_MAX - NETWORK_TOPIC_SYMBOL_MIN) * t,
     );
+}
+
+/**
+ * Normalize Topic symbol diameter into 0..1 across NETWORK_TOPIC_SYMBOL_MIN/MAX.
+ *
+ * @param {unknown} topicSymbolSize
+ * @returns {number}
+ */
+export function normalizeTopicSymbolScale(topicSymbolSize) {
+    const size = Number(topicSymbolSize);
+    const span = NETWORK_TOPIC_SYMBOL_MAX - NETWORK_TOPIC_SYMBOL_MIN;
+    if (!Number.isFinite(size) || span <= 0) {
+        return 0;
+    }
+    return Math.max(0, Math.min(1, (size - NETWORK_TOPIC_SYMBOL_MIN) / span));
+}
+
+/**
+ * DNA satellite diameter — linked to parent Topic symbol size.
+ *
+ * Overview: readable but subordinate.
+ * Focus (`opts.focused`): one step larger for hover/click — same scale family.
+ *
+ * @param {unknown} topicSymbolSize
+ * @param {{ focused?: boolean }} [opts]
+ * @returns {number}
+ */
+export function networkDnaSymbolSize(topicSymbolSize, opts = {}) {
+    const focused = Boolean(opts?.focused);
+    const min = focused ? NETWORK_DNA_SYMBOL_FOCUS_MIN : NETWORK_DNA_SYMBOL_MIN;
+    const max = focused ? NETWORK_DNA_SYMBOL_FOCUS_MAX : NETWORK_DNA_SYMBOL_MAX;
+    const parent = Number(topicSymbolSize);
+    if (!Number.isFinite(parent) || parent <= 0) {
+        return min;
+    }
+    const scale = normalizeTopicSymbolScale(parent);
+    const byBand = min + scale * (max - min);
+    const byRatio = parent * NETWORK_DNA_PARENT_SIZE_RATIO * (focused ? 1.15 : 1);
+    const raw = Math.max(byBand, byRatio);
+    const size = Math.round(Math.max(min, Math.min(max, raw)));
+    // Hard ceiling: DNA must stay visually smaller than Topic.
+    return Math.min(size, Math.max(min, Math.floor(parent * 0.5)));
 }
 
 /** Stable color from topic id (reload-safe). */

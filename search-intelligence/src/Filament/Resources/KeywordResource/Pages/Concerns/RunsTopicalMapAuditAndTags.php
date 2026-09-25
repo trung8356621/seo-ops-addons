@@ -55,11 +55,15 @@ trait RunsTopicalMapAuditAndTags
     public function aiAuditStatusSnapshot(): array
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $languageCode = method_exists($this, 'resolveKeywordLanguageFilterVariants')
+            ? trim((string) ($this->keywordLanguageFilter ?? ''))
+            : '';
         if ($siteId <= 0) {
             return [
                 'status' => TopicalMapAuditStatusService::STATUS_NEVER_RUN,
                 'can_run' => false,
                 'site_id' => 0,
+                'language' => '',
                 'site_domain' => '',
                 'topic_count' => 0,
                 'assigned_keywords' => 0,
@@ -74,7 +78,11 @@ trait RunsTopicalMapAuditAndTags
             ];
         }
 
-        if (is_array($this->aiAuditSnapshot) && (int) ($this->aiAuditSnapshot['site_id'] ?? 0) === $siteId) {
+        if (
+            is_array($this->aiAuditSnapshot)
+            && (int) ($this->aiAuditSnapshot['site_id'] ?? 0) === $siteId
+            && (string) ($this->aiAuditSnapshot['language'] ?? '') === $languageCode
+        ) {
             return $this->aiAuditSnapshot;
         }
 
@@ -84,7 +92,16 @@ trait RunsTopicalMapAuditAndTags
             $domain = (string) ($site->domain ?? '');
         }
 
-        $this->aiAuditSnapshot = app(TopicalMapAuditStatusService::class)->snapshot($siteId, $domain);
+        $languageVariants = method_exists($this, 'resolveKeywordLanguageFilterVariants')
+            ? $this->resolveKeywordLanguageFilterVariants()
+            : null;
+
+        $this->aiAuditSnapshot = app(TopicalMapAuditStatusService::class)->snapshot(
+            $siteId,
+            $domain,
+            $languageVariants,
+            $languageCode !== '' ? $languageCode : null,
+        );
 
         return $this->aiAuditSnapshot;
     }
@@ -222,7 +239,14 @@ trait RunsTopicalMapAuditAndTags
         try {
             $actorId = auth()->id();
             $actor = is_numeric($actorId) ? (int) $actorId : null;
-            $result = app(TopicalMapAuditService::class)->audit($siteId, $actor);
+            $selectedLanguage = method_exists($this, 'resolveKeywordLanguageFilterVariants')
+                ? trim((string) ($this->keywordLanguageFilter ?? ''))
+                : '';
+            $result = app(TopicalMapAuditService::class)->audit(
+                $siteId,
+                $actor,
+                $selectedLanguage !== '' ? $selectedLanguage : null,
+            );
 
             try {
                 app(TopicalMapAuditHistoryLinker::class)->linkFromAuditResult($siteId, $actor, $result);
