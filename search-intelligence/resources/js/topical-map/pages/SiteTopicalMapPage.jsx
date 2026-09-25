@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createApi } from '../api/client';
+import { createApi, topicDetailUrl } from '../api/client';
 import {
     filterTopics,
     normalizeMcpRange,
-    pruneNeighborhoodByAllowedTopics,
     readFilterQuery,
     writeFilterQuery,
 } from '../state/filters';
@@ -13,7 +12,18 @@ import ChartCanvas from '../components/ChartCanvas';
 import AuditConfirmModal from '../components/AuditConfirmModal';
 import AuditOverlay from '../components/AuditOverlay';
 
-const NETWORK_SPINNER_DELAY_MS = 150;
+function formatNetworkMeta(neighborhood) {
+    const topics = Number(neighborhood?.showing_topics ?? 0);
+    const showingDna = Number(neighborhood?.showing_dna ?? 0);
+    const totalDna = Number(neighborhood?.total_dna ?? showingDna);
+    if (topics <= 0) {
+        return '';
+    }
+    if (neighborhood?.dna_truncated || totalDna > showingDna) {
+        return `${topics} Topics · Showing ${showingDna} of ${totalDna} DNA`;
+    }
+    return `${topics} Topics · ${showingDna} DNA`;
+}
 
 export default function SiteTopicalMapPage({ config }) {
     const labels = config.labels || {};
@@ -25,9 +35,6 @@ export default function SiteTopicalMapPage({ config }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [meta, setMeta] = useState('');
-    const [childrenCacheVersion, setChildrenCacheVersion] = useState(0);
-    const childrenCacheRef = useRef(new Map());
-
     const [tagFilterAll, setTagFilterAll] = useState(initialFilters.tagFilterAll);
     const [showUntagged, setShowUntagged] = useState(initialFilters.showUntagged);
     const [selectedTagIds, setSelectedTagIds] = useState(initialFilters.selectedTagIds);
@@ -37,17 +44,6 @@ export default function SiteTopicalMapPage({ config }) {
     const [focusedTopicId, setFocusedTopicId] = useState(null);
     const [zoomPercent, setZoomPercent] = useState(100);
 
-    // Network drill-down
-    const [networkFocusedTopicId, setNetworkFocusedTopicId] = useState(null);
-    const [networkPendingTopicId, setNetworkPendingTopicId] = useState(null);
-    const [networkSpinner, setNetworkSpinner] = useState(false);
-    const [networkError, setNetworkError] = useState('');
-    /** Raw focused neighborhood from API/cache — never mutated by Tag/MCP filters. */
-    const [rawFocusedNeighborhood, setRawFocusedNeighborhood] = useState(null);
-    const networkCacheRef = useRef(new Map());
-    const networkReqRef = useRef(0);
-    const spinnerTimerRef = useRef(null);
-
     const [auditStatus, setAuditStatus] = useState(null);
     const [confirmAi, setConfirmAi] = useState(false);
     const [auditRunning, setAuditRunning] = useState(false);
@@ -56,13 +52,6 @@ export default function SiteTopicalMapPage({ config }) {
     const [showAuditOverlay, setShowAuditOverlay] = useState(false);
 
     const siteId = Number(config.siteId || 0);
-
-    const clearSpinnerTimer = useCallback(() => {
-        if (spinnerTimerRef.current) {
-            clearTimeout(spinnerTimerRef.current);
-            spinnerTimerRef.current = null;
-        }
-    }, []);
 
     const reloadOverview = useCallback(async () => {
         if (siteId <= 0) {
@@ -77,9 +66,6 @@ export default function SiteTopicalMapPage({ config }) {
                 api.fetchAuditStatus().catch(() => null),
             ]);
             setOverviewRaw(overviewRes.overview || null);
-            childrenCacheRef.current = new Map();
-            networkCacheRef.current = new Map();
-            setChildrenCacheVersion((v) => v + 1);
             if (statusRes?.status) {
                 setAuditStatus(statusRes.status);
             }
@@ -123,174 +109,39 @@ export default function SiteTopicalMapPage({ config }) {
         return {
             ...overviewRaw,
             topics: filteredTopics,
+            site_domain: String(config.siteDomain || '').trim(),
         };
-    }, [overviewRaw, filteredTopics]);
+    }, [overviewRaw, filteredTopics, config.siteDomain]);
 
-    const allowedTopicIds = useMemo(
-        () => new Set(filteredTopics.map((t) => Number(t.id)).filter((id) => id > 0)),
-        [filteredTopics],
+    /** Structure primary-Tag preference when Tags filter is active. */
+    const structurePreferredTagIds = useMemo(() => {
+        if (tagFilterAll) {
+            return [];
+        }
+        return selectedTagIds;
+    }, [tagFilterAll, selectedTagIds]);
+
+    /** Single-state Network graph from filtered Topics + their DNA (no drill). */
+    const networkNeighborhood = useMemo(
+        () => buildOverviewNeighborhood(siteId, filteredTopics, {
+            siteDomain: String(config.siteDomain || '').trim(),
+        }),
+        [siteId, filteredTopics, config.siteDomain],
     );
 
-    /** Unfiltered Network overview (all Topics from overview payload). */
-    const rawOverviewNeighborhood = useMemo(
-        () => buildOverviewNeighborhood(siteId, overviewRaw?.topics || []),
-        [siteId, overviewRaw],
-    );
-
-    const filteredNetworkNeighborhood = useMemo(() => {
-        const source = (networkFocusedTopicId != null && rawFocusedNeighborhood)
-            ? rawFocusedNeighborhood
-            : rawOverviewNeighborhood;
-        return pruneNeighborhoodByAllowedTopics(source, allowedTopicIds);
-    }, [
-        networkFocusedTopicId,
-        rawFocusedNeighborhood,
-        rawOverviewNeighborhood,
-        allowedTopicIds,
-    ]);
-
-    const returnToNetworkOverview = useCallback((nextMeta = '') => {
-        clearSpinnerTimer();
-        networkReqRef.current += 1;
-        setNetworkPendingTopicId(null);
-        setNetworkSpinner(false);
-        setNetworkFocusedTopicId(null);
-        setRawFocusedNeighborhood(null);
-        setNetworkError('');
-        setMeta(nextMeta || (filteredTopics.length
-            ? `Network overview · ${filteredTopics.length} Topics`
-            : ''));
-    }, [clearSpinnerTimer, filteredTopics.length]);
-
-    // Focused Topic drops out of Tag/MCP filter → back to overview.
     useEffect(() => {
-        if (renderer !== 'network') {
+        if (renderer === 'treemap') {
+            setMeta(labels.treemapByMcp || 'Topic distribution by MCP share');
             return;
         }
-        if (networkFocusedTopicId == null) {
+        if (renderer === 'tree') {
+            setMeta('');
             return;
         }
-        if (!allowedTopicIds.has(Number(networkFocusedTopicId))) {
-            returnToNetworkOverview('Focused Topic left current filters — back to overview');
+        if (renderer === 'network') {
+            setMeta(formatNetworkMeta(networkNeighborhood));
         }
-    }, [renderer, networkFocusedTopicId, allowedTopicIds, returnToNetworkOverview]);
-
-    useEffect(() => {
-        if (renderer !== 'network') {
-            return;
-        }
-        if (networkFocusedTopicId != null) {
-            return;
-        }
-        setMeta(filteredTopics.length
-            ? `Network overview · ${filteredTopics.length} Topics`
-            : '');
-    }, [renderer, networkFocusedTopicId, filteredTopics.length]);
-
-    useEffect(() => () => clearSpinnerTimer(), [clearSpinnerTimer]);
-
-    const focusNetworkTopic = useCallback(async (topicId) => {
-        const id = Number(topicId);
-        if (!Number.isFinite(id) || id <= 0) {
-            return;
-        }
-        if (!allowedTopicIds.has(id)) {
-            return;
-        }
-        if (networkPendingTopicId === id) {
-            return;
-        }
-        if (networkFocusedTopicId === id && !networkPendingTopicId) {
-            return;
-        }
-
-        const reqId = ++networkReqRef.current;
-        setNetworkError('');
-        setNetworkPendingTopicId(id);
-        setNetworkSpinner(false);
-        clearSpinnerTimer();
-        spinnerTimerRef.current = setTimeout(() => {
-            if (networkReqRef.current === reqId) {
-                setNetworkSpinner(true);
-            }
-        }, NETWORK_SPINNER_DELAY_MS);
-
-        const applyFocus = (n) => {
-            if (networkReqRef.current !== reqId) {
-                return;
-            }
-            clearSpinnerTimer();
-            setRawFocusedNeighborhood(n);
-            setNetworkFocusedTopicId(id);
-            setNetworkPendingTopicId(null);
-            setNetworkSpinner(false);
-            if (n?.truncated) {
-                setMeta(`Focused Topic · showing ${n.showing_topics} of ${n.total_topics}`);
-            } else {
-                setMeta('Focused Topic · membership neighborhood');
-            }
-        };
-
-        if (networkCacheRef.current.has(id)) {
-            applyFocus(networkCacheRef.current.get(id));
-            return;
-        }
-
-        try {
-            const res = await api.fetchNetwork(id);
-            if (networkReqRef.current !== reqId) {
-                return;
-            }
-            const n = res.neighborhood || { nodes: [], links: [], truncated: false };
-            networkCacheRef.current.set(id, n);
-            applyFocus(n);
-        } catch (err) {
-            if (networkReqRef.current !== reqId) {
-                return;
-            }
-            clearSpinnerTimer();
-            setNetworkPendingTopicId(null);
-            setNetworkSpinner(false);
-            setNetworkError(err.message || 'Failed to load Topic neighborhood');
-            setMeta(err.message || 'Network load failed');
-        }
-    }, [
-        api,
-        allowedTopicIds,
-        networkPendingTopicId,
-        networkFocusedTopicId,
-        clearSpinnerTimer,
-    ]);
-
-    const onNetworkSiteClick = useCallback(() => {
-        if (networkFocusedTopicId == null && networkPendingTopicId == null) {
-            chartRef.current?.resetZoom?.();
-            return;
-        }
-        returnToNetworkOverview();
-    }, [networkFocusedTopicId, networkPendingTopicId, returnToNetworkOverview]);
-
-    const onLoadChildren = useCallback(async (topicId) => {
-        if (childrenCacheRef.current.has(topicId)) {
-            return childrenCacheRef.current.get(topicId);
-        }
-        try {
-            const result = await api.fetchTopicChildren(topicId);
-            if (!result?.ok) {
-                setMeta(result?.error || 'Failed to load Topic children.');
-                return null;
-            }
-            childrenCacheRef.current.set(topicId, result);
-            setChildrenCacheVersion((v) => v + 1);
-            if (result.truncated) {
-                setMeta(`Showing ${result.showing} of ${result.total} keywords`);
-            }
-            return result;
-        } catch (err) {
-            setMeta(err.message || 'Failed to load Topic children.');
-            return null;
-        }
-    }, [api]);
+    }, [renderer, labels.treemapByMcp, networkNeighborhood]);
 
     const syncFilters = useCallback((next) => {
         setTagFilterAll(next.tagFilterAll);
@@ -375,9 +226,17 @@ export default function SiteTopicalMapPage({ config }) {
 
     const focusFromAudit = (topicId) => {
         setShowAuditOverlay(false);
-        setFocusedTopicId(topicId);
+        const id = Number(topicId);
+        if (!Number.isFinite(id) || id <= 0) {
+            return;
+        }
+        setFocusedTopicId(id);
+        // Network has no focus state — open Topic detail in a new tab.
         if (renderer === 'network') {
-            focusNetworkTopic(topicId);
+            const url = topicDetailUrl(config.topicDetailUrlTemplate, id);
+            if (url) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            }
         }
     };
 
@@ -387,14 +246,6 @@ export default function SiteTopicalMapPage({ config }) {
 
     const onRendererChange = (mode) => {
         setRenderer(mode);
-        if (mode !== 'network') {
-            clearSpinnerTimer();
-            setNetworkPendingTopicId(null);
-            setNetworkSpinner(false);
-            setNetworkFocusedTopicId(null);
-            setRawFocusedNeighborhood(null);
-            setNetworkError('');
-        }
     };
 
     if (siteId <= 0) {
@@ -410,7 +261,6 @@ export default function SiteTopicalMapPage({ config }) {
 
     const zoomDisabled = loading || empty;
     const zoomScaleDisabled = renderer === 'treemap';
-    const networkFocused = networkFocusedTopicId != null;
 
     return (
         <div className="tm-app">
@@ -458,39 +308,24 @@ export default function SiteTopicalMapPage({ config }) {
                         ref={chartRef}
                         overview={filteredOverview}
                         renderer={renderer}
-                        neighborhood={filteredNetworkNeighborhood}
-                        childrenCache={childrenCacheRef.current}
-                        childrenCacheVersion={childrenCacheVersion}
+                        neighborhood={networkNeighborhood}
                         topicDetailUrlTemplate={config.topicDetailUrlTemplate}
                         focusedTopicId={focusedTopicId}
                         onFocusTopic={setFocusedTopicId}
-                        onLoadChildren={onLoadChildren}
-                        onNetworkTopicClick={focusNetworkTopic}
-                        onNetworkSiteClick={onNetworkSiteClick}
-                        networkFocused={networkFocused}
-                        networkPendingTopicId={networkPendingTopicId}
+                        preferredTagIds={structurePreferredTagIds}
+                        siteDomain={String(config.siteDomain || '').trim()}
+                        untaggedBucketLabel={
+                            labels.structureUntaggedBucket
+                            || labels.untagged
+                            || 'Chưa gắn tag'
+                        }
+                        untaggedBucketTooltip={
+                            labels.structureUntaggedTooltip
+                            || 'Các Topic chưa được gắn tag'
+                        }
                         onZoomChange={onZoomChange}
                         meta={meta}
                     />
-                ) : null}
-
-                {networkSpinner ? (
-                    <div className="tm-network-loading" aria-live="polite">
-                        Loading Topic…
-                    </div>
-                ) : null}
-
-                {networkError ? (
-                    <div className="tm-network-error" role="status">
-                        {networkError}
-                        <button
-                            type="button"
-                            className="tm-btn tm-btn--ghost"
-                            onClick={() => setNetworkError('')}
-                        >
-                            Dismiss
-                        </button>
-                    </div>
                 ) : null}
 
                 {showAuditOverlay ? (

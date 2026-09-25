@@ -7,7 +7,8 @@ import {
     ToolboxComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { buildTreeOption, buildTreemapOption, buildNetworkOption } from '../charts/options';
+import { buildTreeOption, buildTreemapOption, buildNetworkOption, formatTreemapMcpPercent } from '../charts/options';
+import { topicStructureLabel } from '../charts/theme';
 import { topicDetailUrl } from '../api/client';
 
 echarts.use([
@@ -21,7 +22,7 @@ echarts.use([
 ]);
 
 const ZOOM_STEP = 1.2;
-const ZOOM_MIN = 0.35;
+const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 4;
 
 function readSeriesZoom(chart) {
@@ -42,41 +43,33 @@ const ChartCanvas = forwardRef(function ChartCanvas({
     overview,
     renderer,
     neighborhood,
-    childrenCache,
-    childrenCacheVersion = 0,
     topicDetailUrlTemplate,
     focusedTopicId,
     onFocusTopic,
-    onLoadChildren,
-    onNetworkTopicClick,
-    onNetworkSiteClick,
-    networkFocused = false,
-    networkPendingTopicId = null,
+    preferredTagIds = [],
+    siteDomain = '',
+    untaggedBucketLabel = '',
+    untaggedBucketTooltip = '',
     onZoomChange,
     meta,
 }, ref) {
     const hostRef = useRef(null);
     const chartRef = useRef(null);
-    const clickRef = useRef({ topicId: null, at: 0 });
-    const childrenCacheRef = useRef(childrenCache);
-    childrenCacheRef.current = childrenCache;
     const zoomRef = useRef(1);
     const onZoomChangeRef = useRef(onZoomChange);
     onZoomChangeRef.current = onZoomChange;
     const lastRendererRef = useRef(null);
-    const overviewRef = useRef(overview);
-    overviewRef.current = overview;
+    const applyZoomFactorRef = useRef(() => {});
 
     const propsRef = useRef({});
     propsRef.current = {
         renderer,
         topicDetailUrlTemplate,
         onFocusTopic,
-        onLoadChildren,
-        onNetworkTopicClick,
-        onNetworkSiteClick,
-        networkFocused,
-        networkPendingTopicId,
+        preferredTagIds,
+        siteDomain,
+        untaggedBucketLabel,
+        untaggedBucketTooltip,
         topicCount: Array.isArray(overview?.topics) ? overview.topics.length : 0,
     };
 
@@ -92,7 +85,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         const mode = propsRef.current.renderer;
-        // Treemap uses native drill/breadcrumb — generic +/- scale is misleading.
+        // Treemap is a fixed overview — no scale / roam.
         if (mode === 'treemap') {
             return;
         }
@@ -118,6 +111,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         }
         emitZoom(next);
     }, [emitZoom]);
+    applyZoomFactorRef.current = applyZoomFactor;
 
     const resetZoom = useCallback(() => {
         const chart = chartRef.current;
@@ -125,38 +119,25 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         const mode = propsRef.current.renderer;
+        // Treemap has no zoom/drill state — Fit is a no-op (toolbar hidden).
         if (mode === 'treemap') {
-            // Fit = return to full Topic overview (root), not a fake scale %.
-            try {
-                chart.dispatchAction({
-                    type: 'treemapRootToNode',
-                    targetNodeId: undefined,
-                });
-            } catch {
-                // ignore
-            }
-            const ov = overviewRef.current;
-            if (ov) {
-                chart.clear();
-                chart.setOption(buildTreemapOption(ov), true);
-            }
+            return;
+        }
+        // Structure BT overview: FIT = full taxonomy at zoom 1 (not leaf-count shrink).
+        if (mode === 'tree') {
+            chart.setOption({
+                series: [{ id: 'topical-map-tree', zoom: 1, center: undefined }],
+            });
             emitZoom(1);
             return;
         }
-        const topicCount = Math.max(1, Number(propsRef.current.topicCount) || 1);
-        const fitZoom = Math.max(ZOOM_MIN, Math.min(1, 12 / topicCount));
-        if (mode === 'tree') {
-            chart.setOption({
-                series: [{ id: 'topical-map-tree', zoom: fitZoom, center: undefined }],
-            });
-        } else if (mode === 'network') {
+        if (mode === 'network') {
+            // FIT = full Site → Topic → DNA overview (no Topic auto-focus).
             chart.setOption({
                 series: [{ id: 'topical-map-network', zoom: 1, center: undefined }],
             });
             emitZoom(1);
-            return;
         }
-        emitZoom(fitZoom);
     }, [emitZoom]);
 
     useImperativeHandle(ref, () => ({
@@ -165,7 +146,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         resetZoom,
         getZoom: () => zoomRef.current,
         supportsZoom: () => propsRef.current.renderer !== 'treemap',
-        supportsFit: () => true,
+        supportsFit: () => propsRef.current.renderer !== 'treemap',
     }), [applyZoomFactor, resetZoom]);
 
     useEffect(() => {
@@ -181,10 +162,23 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             if (!el.contains(event.target)) {
                 return;
             }
-            // Prevent page scroll; Tree/Network roam handles zoom. Treemap uses click-drill.
-            if (propsRef.current.renderer !== 'treemap') {
+            const mode = propsRef.current.renderer;
+            // Treemap: fixed overview — no wheel zoom; keep blocking page scroll over canvas.
+            if (mode === 'treemap') {
                 event.preventDefault();
+                return;
             }
+            // Structure / Network: host-level zoom anywhere inside `.tm-chart-canvas`
+            // (including empty whitespace). Native roam is pan-only (`roam: 'move'`).
+            if (mode !== 'tree' && mode !== 'network') {
+                return;
+            }
+            if (event.deltaY === 0) {
+                return;
+            }
+            event.preventDefault();
+            const factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+            applyZoomFactorRef.current(factor);
         };
         el.addEventListener('wheel', onWheel, { passive: false });
 
@@ -194,53 +188,62 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         chart.on('treeroam', syncZoomFromEvent);
         chart.on('graphroam', syncZoomFromEvent);
 
-        const onClick = async (params) => {
+        const openTopicBlank = (topicId) => {
+            const id = Number(topicId);
+            if (!Number.isFinite(id) || id <= 0) {
+                return;
+            }
+            propsRef.current.onFocusTopic?.(id);
+            const url = topicDetailUrl(propsRef.current.topicDetailUrlTemplate, id);
+            if (url) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            }
+        };
+
+        const onClick = (params) => {
             const data = params?.data || {};
             const latest = propsRef.current;
 
-            if (latest.renderer === 'network' && data.nodeType === 'site') {
-                latest.onNetworkSiteClick?.();
+            // Treemap: fixed overview — single click does not navigate / drill / zoom.
+            // Double-click opens Topic via dblclick handler.
+            if (latest.renderer === 'treemap') {
                 return;
             }
 
-            // Treemap breadcrumb / root → overview (native + Fit).
-            if (latest.renderer === 'treemap' && data.nodeType === 'site') {
-                latest.onFocusTopic?.(null);
-                return;
-            }
-
-            if (data.nodeType !== 'topic' || !data.topicId) {
-                return;
-            }
-            const topicId = Number(data.topicId);
-            const now = Date.now();
-            const isDouble = clickRef.current.topicId === topicId && (now - clickRef.current.at) < 350;
-            clickRef.current = { topicId, at: now };
-            if (isDouble) {
-                return;
-            }
-
-            latest.onFocusTopic?.(topicId);
-
-            if (latest.renderer === 'tree') {
-                await latest.onLoadChildren?.(topicId);
-            }
+            // Network: Site click = FIT only; DNA = informational (no nav); Topic = open blank.
             if (latest.renderer === 'network') {
-                latest.onNetworkTopicClick?.(topicId);
+                if (data.nodeType === 'site') {
+                    resetZoom();
+                    return;
+                }
+                if (data.nodeType === 'dna') {
+                    return;
+                }
+                if (data.nodeType === 'topic' && data.topicId) {
+                    openTopicBlank(data.topicId);
+                }
+                return;
             }
-            // Treemap: native nodeClick zoomToNode handles drill.
+
+            // Structure (view=tree): Tag/Site clicks do nothing; Topic opens detail.
+            if (latest.renderer === 'tree') {
+                if (data.nodeType !== 'topic' || !data.topicId) {
+                    return;
+                }
+                openTopicBlank(data.topicId);
+            }
         };
 
         const onDblClick = (params) => {
             const data = params?.data || {};
+            // Structure / Network open on single click — avoid duplicate tab on dblclick.
+            if (propsRef.current.renderer === 'tree' || propsRef.current.renderer === 'network') {
+                return;
+            }
             if (data.nodeType !== 'topic' || !data.topicId) {
                 return;
             }
-            const url = topicDetailUrl(propsRef.current.topicDetailUrlTemplate, Number(data.topicId));
-            if (!url) {
-                return;
-            }
-            window.open(url, '_blank', 'noopener,noreferrer');
+            openTopicBlank(data.topicId);
         };
 
         chart.on('click', onClick);
@@ -267,7 +270,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             chart.dispose();
             chartRef.current = null;
         };
-    }, [emitZoom]);
+    }, [emitZoom, resetZoom]);
 
     useEffect(() => {
         const chart = chartRef.current;
@@ -280,9 +283,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
 
         if (renderer === 'network') {
             const option = buildNetworkOption(neighborhood || { nodes: [], links: [] }, {
-                focused: networkFocused,
-                pendingTopicId: networkPendingTopicId,
-                siteNavigable: networkFocused || networkPendingTopicId != null,
+                siteDomain: propsRef.current.siteDomain,
             });
             if (rendererChanged) {
                 zoomRef.current = 1;
@@ -290,7 +291,7 @@ const ChartCanvas = forwardRef(function ChartCanvas({
                 chart.clear();
                 chart.setOption(option, true);
             } else {
-                // Soft update — keep instance, enable update animation / node id continuity.
+                // Soft update — keep instance; force layoutAnimation is off.
                 chart.setOption(option, { notMerge: true, lazyUpdate: false });
             }
             return;
@@ -302,24 +303,30 @@ const ChartCanvas = forwardRef(function ChartCanvas({
         if (renderer === 'treemap') {
             chart.clear();
             chart.setOption(buildTreemapOption(overview), true);
+            chart.resize();
             return;
         }
 
         chart.clear();
-        chart.setOption(buildTreeOption(overview, childrenCacheRef.current), true);
+        chart.setOption(buildTreeOption(overview, {
+            preferredTagIds: propsRef.current.preferredTagIds,
+            siteDomain: propsRef.current.siteDomain,
+            untaggedBucketLabel: propsRef.current.untaggedBucketLabel,
+            untaggedBucketTooltip: propsRef.current.untaggedBucketTooltip,
+        }), true);
     }, [
         overview,
         renderer,
         neighborhood,
-        childrenCache,
-        childrenCacheVersion,
-        networkFocused,
-        networkPendingTopicId,
+        preferredTagIds,
+        siteDomain,
+        untaggedBucketLabel,
+        untaggedBucketTooltip,
     ]);
 
     useEffect(() => {
         const chart = chartRef.current;
-        if (!chart || !focusedTopicId || !overview?.topics || renderer === 'network') {
+        if (!chart || !focusedTopicId || !overview?.topics || renderer === 'network' || renderer === 'treemap') {
             return;
         }
         const topic = overview.topics.find((row) => Number(row.id) === Number(focusedTopicId));
@@ -327,7 +334,11 @@ const ChartCanvas = forwardRef(function ChartCanvas({
             return;
         }
         try {
-            chart.dispatchAction({ type: 'highlight', seriesIndex: 0, name: topic.name });
+            chart.dispatchAction({
+                type: 'highlight',
+                seriesIndex: 0,
+                name: topicStructureLabel(topic, formatTreemapMcpPercent),
+            });
         } catch {
             // ignore
         }

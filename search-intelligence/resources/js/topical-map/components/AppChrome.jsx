@@ -181,14 +181,16 @@ export default function AppChrome({
                         ))}
                     </div>
 
-                    <ZoomControls
-                        zoomPercent={zoomPercent}
-                        disabled={zoomDisabled}
-                        scaleDisabled={zoomScaleDisabled}
-                        onZoomIn={onZoomIn}
-                        onZoomOut={onZoomOut}
-                        onReset={onZoomReset}
-                    />
+                    {renderer !== 'treemap' ? (
+                        <ZoomControls
+                            zoomPercent={zoomPercent}
+                            disabled={zoomDisabled}
+                            scaleDisabled={zoomScaleDisabled}
+                            onZoomIn={onZoomIn}
+                            onZoomOut={onZoomOut}
+                            onReset={onZoomReset}
+                        />
+                    ) : null}
                 </div>
             </div>
         </header>

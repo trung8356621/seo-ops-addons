@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import {
     fetchManagerTopics,
+    fetchManagerReports,
     pauseManagerTopic,
     resumeManagerTopic,
     cancelManagerTopic,
@@ -9,6 +10,8 @@ import {
     fetchCommentPromptHistoryDetail,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
+import ReportReviewModal from './ReportReviewModal';
+import SocialAccountsPanel from './SocialAccountsPanel';
 
 const STATUS_FILTERS = [
     { id: 'all', label: 'Tất cả' },
@@ -21,14 +24,47 @@ const STATUS_FILTERS = [
 const SUB_TABS = [
     { id: 'topics', label: 'Chủ đề' },
     { id: 'reports', label: 'Báo cáo' },
+    { id: 'social-accounts', label: 'Tài khoản Social' },
     { id: 'members', label: 'Thành viên' },
     { id: 'summary', label: 'Tổng kết' },
+];
+
+const SOCIAL_OPTIONS = [
+    { value: '', label: 'Tất cả social' },
+    { value: 'facebook', label: 'Facebook' },
+    { value: 'threads', label: 'Threads' },
+    { value: 'tiktok', label: 'TikTok' },
+    { value: 'pinterest', label: 'Pinterest' },
+    { value: 'reddit', label: 'Reddit' },
+];
+
+const REPORT_APPROVAL_FILTERS = [
+    { id: 'all', label: 'Tất cả' },
+    { id: 'pending', label: 'Chờ duyệt' },
+    { id: 'approved', label: 'Đã duyệt' },
 ];
 
 function statusLabel(status) {
     if (status === 'success') return 'Thành công';
     if (status === 'failed') return 'Thất bại';
     return status || '—';
+}
+
+function compactUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    try {
+        const u = new URL(raw);
+        const path = u.pathname === '/' ? '' : u.pathname;
+        const short = `${u.host}${path}`;
+        return short.length > 36 ? `${short.slice(0, 34)}…` : short;
+    } catch {
+        return raw.length > 36 ? `${raw.slice(0, 34)}…` : raw;
+    }
+}
+
+function reportIsApproved(row) {
+    return Boolean(row?.is_approved || row?.approval_status === 'approved');
 }
 
 /**
@@ -42,6 +78,17 @@ export default function ManagerPanel({ websiteStats = null }) {
     const [topics, setTopics] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
+
+    const [reports, setReports] = useState([]);
+    const [reportMembers, setReportMembers] = useState([]);
+    const [reportsLoading, setReportsLoading] = useState(false);
+    const [reportUserId, setReportUserId] = useState('');
+    const [reportSocial, setReportSocial] = useState('');
+    const [reportSearch, setReportSearch] = useState('');
+    const [reportDateFrom, setReportDateFrom] = useState('');
+    const [reportDateTo, setReportDateTo] = useState('');
+    const [reportApprovalStatus, setReportApprovalStatus] = useState('all');
+    const [reportDetailIndex, setReportDetailIndex] = useState(null);
 
     const [promptBody, setPromptBody] = useState('');
     const [promptLoading, setPromptLoading] = useState(false);
@@ -63,6 +110,31 @@ export default function ManagerPanel({ websiteStats = null }) {
             notifyError(e?.message || 'Không tải được bảng quản lý');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadReports = async () => {
+        setReportsLoading(true);
+        try {
+            const data = await fetchManagerReports({
+                user_id: reportUserId,
+                social: reportSocial,
+                search: reportSearch,
+                date_from: reportDateFrom,
+                date_to: reportDateTo,
+                status: reportApprovalStatus === 'all' ? '' : reportApprovalStatus,
+            });
+            setReports(Array.isArray(data?.reports) ? data.reports : []);
+            setReportMembers(Array.isArray(data?.members) ? data.members : []);
+            setReportDetailIndex((prev) => {
+                if (prev == null) return null;
+                const list = Array.isArray(data?.reports) ? data.reports : [];
+                return prev < list.length ? prev : (list.length > 0 ? list.length - 1 : null);
+            });
+        } catch (e) {
+            notifyError(e?.message || 'Không tải được báo cáo');
+        } finally {
+            setReportsLoading(false);
         }
     };
 
@@ -93,7 +165,10 @@ export default function ManagerPanel({ websiteStats = null }) {
         if (subTab === 'summary') {
             loadPrompt();
         }
-    }, [subTab]);
+        if (subTab === 'reports') {
+            loadReports();
+        }
+    }, [subTab, reportApprovalStatus]);
 
     const onAction = async (topic, action) => {
         try {
@@ -272,12 +347,9 @@ export default function ManagerPanel({ websiteStats = null }) {
                             value={social}
                             onChange={(e) => setSocial(e.target.value)}
                         >
-                            <option value="">Tất cả social</option>
-                            <option value="facebook">Facebook</option>
-                            <option value="threads">Threads</option>
-                            <option value="tiktok">TikTok</option>
-                            <option value="pinterest">Pinterest</option>
-                            <option value="reddit">Reddit</option>
+                            {SOCIAL_OPTIONS.map((opt) => (
+                                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                            ))}
                         </select>
                         <input
                             className="seeding-ws__input"
@@ -344,10 +416,211 @@ export default function ManagerPanel({ websiteStats = null }) {
                 </>
             ) : null}
 
-            {subTab === 'reports' || subTab === 'members' ? (
-                <div className="seeding-ws__empty-feed">
-                    <p>Bảng {subTab === 'reports' ? 'báo cáo' : 'thành viên'} sẽ mở rộng từ seeding_reports (đang dùng dữ liệu Tổng kết).</p>
+            {subTab === 'reports' ? (
+                <div data-section="manager-reports">
+                    <div className="seeding-ws__manager-filters" data-filters="reports">
+                        {REPORT_APPROVAL_FILTERS.map((f) => (
+                            <button
+                                key={f.id}
+                                type="button"
+                                className={`seeding-ws__tab${reportApprovalStatus === f.id ? ' is-active' : ''}`}
+                                onClick={() => setReportApprovalStatus(f.id)}
+                                data-filter-status={f.id}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                        <select
+                            className="seeding-ws__input"
+                            style={{ maxWidth: '12rem' }}
+                            value={reportUserId}
+                            onChange={(e) => setReportUserId(e.target.value)}
+                            aria-label="Thành viên"
+                        >
+                            <option value="">Tất cả thành viên</option>
+                            {reportMembers.map((m) => (
+                                <option key={m.user_id} value={String(m.user_id)}>
+                                    {m.user_display_name || `#${m.user_id}`}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            className="seeding-ws__input"
+                            style={{ maxWidth: '10rem' }}
+                            value={reportSocial}
+                            onChange={(e) => setReportSocial(e.target.value)}
+                            aria-label="MXH"
+                        >
+                            {SOCIAL_OPTIONS.map((opt) => (
+                                <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                        <input
+                            className="seeding-ws__input"
+                            style={{ maxWidth: '14rem' }}
+                            placeholder="Tìm comment / URL / chủ đề"
+                            value={reportSearch}
+                            onChange={(e) => setReportSearch(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') loadReports(); }}
+                        />
+                        <input
+                            type="date"
+                            className="seeding-ws__input"
+                            style={{ maxWidth: '10rem' }}
+                            value={reportDateFrom}
+                            onChange={(e) => setReportDateFrom(e.target.value)}
+                            aria-label="Từ ngày"
+                        />
+                        <input
+                            type="date"
+                            className="seeding-ws__input"
+                            style={{ maxWidth: '10rem' }}
+                            value={reportDateTo}
+                            onChange={(e) => setReportDateTo(e.target.value)}
+                            aria-label="Đến ngày"
+                        />
+                        <button
+                            type="button"
+                            className="seeding-ws__btn seeding-ws__btn--ghost"
+                            onClick={loadReports}
+                            disabled={reportsLoading}
+                        >
+                            {reportsLoading ? 'Đang tải…' : 'Lọc'}
+                        </button>
+                    </div>
+
+                    <div className="seeding-ws__manager-table-wrap">
+                        <table className="seeding-ws__manager-table seeding-ws__reports-table" data-table="manager-reports">
+                            <thead>
+                                <tr>
+                                    <th>Thời gian</th>
+                                    <th>Trạng thái</th>
+                                    <th>Thành viên</th>
+                                    <th>Chủ đề</th>
+                                    <th>MXH</th>
+                                    <th>Comment</th>
+                                    <th>Link</th>
+                                    <th>Proof</th>
+                                    <th />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {reports.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={9}>
+                                            {reportsLoading ? 'Đang tải…' : 'Chưa có báo cáo.'}
+                                        </td>
+                                    </tr>
+                                ) : reports.map((row, idx) => (
+                                    <tr
+                                        key={row.id}
+                                        className="seeding-ws__report-row"
+                                        onClick={() => setReportDetailIndex(idx)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setReportDetailIndex(idx);
+                                            }
+                                        }}
+                                        tabIndex={0}
+                                        role="button"
+                                    >
+                                        <td className="seeding-ws__nowrap">{row.reported_at_label || '—'}</td>
+                                        <td>
+                                            <span
+                                                className={`seeding-ws__report-status-pill seeding-ws__report-status-pill--table${reportIsApproved(row) ? ' is-approved' : ' is-pending'}`}
+                                                data-status={reportIsApproved(row) ? 'approved' : 'pending'}
+                                            >
+                                                {row.approval_status_label || (reportIsApproved(row) ? 'Đã duyệt' : 'Chờ duyệt')}
+                                            </span>
+                                        </td>
+                                        <td>{row.user_display_name || '—'}</td>
+                                        <td className="seeding-ws__report-topic">
+                                            {row.topic_title || row.topic_preview || `#${row.topic_id}`}
+                                        </td>
+                                        <td>{row.social_platform_label || row.social_platform || '—'}</td>
+                                        <td
+                                            className="seeding-ws__report-comment-cell"
+                                            title={row.comment_text || ''}
+                                        >
+                                            {row.comment_excerpt || '—'}
+                                        </td>
+                                        <td className="seeding-ws__report-link-cell">
+                                            {row.seed_url ? (
+                                                <a
+                                                    href={row.seed_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    title={row.seed_url}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    {row.seed_link_title || compactUrl(row.seed_url) || row.seed_link_label || 'Link'}
+                                                </a>
+                                            ) : (
+                                                <span className="seeding-ws__muted">—</span>
+                                            )}
+                                        </td>
+                                        <td onClick={(e) => e.stopPropagation()}>
+                                            {row.has_proof && row.proof_url ? (
+                                                <button
+                                                    type="button"
+                                                    className="seeding-ws__report-proof-btn"
+                                                    onClick={() => setReportDetailIndex(idx)}
+                                                    aria-label="Xem proof"
+                                                >
+                                                    <img
+                                                        className="seeding-ws__proof-thumb"
+                                                        src={row.proof_url}
+                                                        alt=""
+                                                        loading="lazy"
+                                                    />
+                                                </button>
+                                            ) : (
+                                                <span className="seeding-ws__proof-thumb seeding-ws__proof-thumb--empty" aria-hidden="true" />
+                                            )}
+                                        </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="seeding-ws__btn seeding-ws__btn--ghost"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setReportDetailIndex(idx);
+                                                }}
+                                            >
+                                                Xem
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+            ) : null}
+
+            {subTab === 'social-accounts' ? (
+                <SocialAccountsPanel />
+            ) : null}
+
+            {subTab === 'members' ? (
+                <div className="seeding-ws__empty-feed" data-section="manager-members-placeholder">
+                    <p>Bảng thành viên sẽ mở rộng từ seeding_reports (đang dùng dữ liệu Tổng kết).</p>
+                </div>
+            ) : null}
+
+            {reportDetailIndex != null && reports[reportDetailIndex] ? (
+                <ReportReviewModal
+                    reports={reports}
+                    index={reportDetailIndex}
+                    onClose={() => setReportDetailIndex(null)}
+                    onIndexChange={setReportDetailIndex}
+                    onReportUpdated={(updated) => {
+                        setReports((prev) => prev.map((r) => (
+                            Number(r.id) === Number(updated.id) ? { ...r, ...updated } : r
+                        )));
+                    }}
+                />
             ) : null}
 
             {detailOpen ? (

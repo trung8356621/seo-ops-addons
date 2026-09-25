@@ -2018,12 +2018,26 @@ body.keyword-drawer-open {
     gap: 0.25rem;
 }
 
+.topic-index-section-heading__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    min-width: 0;
+}
+
 .topic-index-section-heading__title {
     margin: 0;
     font-size: 1.75rem;
     font-weight: 800;
     line-height: 1.2;
     color: rgb(17 24 39);
+    min-width: 0;
+}
+
+.topic-index-section-heading__map-link {
+    flex-shrink: 0;
 }
 
 .dark .topic-index-section-heading__title {

@@ -51,10 +51,14 @@ final class TopicalMapBoundaryContractTest extends TestCase
     {
         $src = (string) file_get_contents((string) (new ReflectionClass(TopicalMapReadModel::class))->getFileName());
         self::assertStringContainsString('membershipNeighborhood', $src);
-        self::assertStringContainsString('Topic membership only', $src);
+        self::assertStringContainsString('Site → Topic → DNA', $src);
+        self::assertStringContainsString('MAX_NETWORK_DNA_NODES', $src);
+        self::assertStringContainsString("'category' => 'dna'", $src);
+        self::assertStringNotContainsString("'category' => 'keyword'", $src);
         self::assertStringNotContainsString('embedding', strtolower($src));
         self::assertStringNotContainsString('semantic relationship', strtolower($src));
         self::assertStringNotContainsString('internal link', strtolower($src));
+        self::assertSame(1500, TopicalMapReadModel::MAX_NETWORK_DNA_NODES);
     }
 
     public function test_keywords_resource_registers_topical_map_page(): void
@@ -65,9 +69,12 @@ final class TopicalMapBoundaryContractTest extends TestCase
         $nav = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php',
         );
-        self::assertStringContainsString("'key' => 'topical-map'", $nav);
-        self::assertStringContainsString('TopicalMapAppPage::appUrl', $nav);
-        self::assertStringContainsString("'target' => '_blank'", $nav);
+        self::assertStringNotContainsString("'key' => 'topical-map'", $nav);
+        self::assertStringContainsString("'key' => 'index'", $nav);
+        self::assertStringContainsString("'key' => 'focus'", $nav);
+        self::assertStringContainsString("'key' => 'clusters'", $nav);
+        self::assertStringContainsString("'key' => 'tags'", $nav);
+        self::assertStringContainsString("'key' => 'anchor-audit'", $nav);
         self::assertTrue(class_exists(KeywordTopicalMap::class));
     }
 
@@ -87,18 +94,31 @@ final class TopicalMapBoundaryContractTest extends TestCase
         self::assertStringContainsString("type: 'tree'", $options);
         self::assertStringContainsString("type: 'graph'", $options);
         self::assertStringContainsString("type: 'treemap'", $options);
-        self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
+        self::assertStringContainsString('TREEMAP_MIN_VISUAL_MCP_WEIGHT', $options);
         self::assertStringContainsString('treemapLayoutValue', $options);
+        self::assertStringContainsString('formatTreemapMcpPercent', $options);
         self::assertStringContainsString('formatTreemapTopicLabel', $options);
+        self::assertStringContainsString('formatTreemapTopicLabelRich', $options);
         self::assertStringContainsString('assignTreemapLabelTiers', $options);
-        self::assertStringContainsString('Focus · MCP', $options);
+        self::assertStringContainsString('Topic distribution by MCP share', $options);
         self::assertStringContainsString("overflow: 'truncate'", $options);
-        self::assertStringContainsString('padding: [8, 8, 8, 8]', $options);
+        self::assertStringContainsString('padding: [8, 10, 8, 10]', $options);
+        self::assertStringContainsString('fontSize: 18', $options);
+        self::assertStringContainsString('nodeClick: false', $options);
+        self::assertMatchesRegularExpression('/breadcrumb:\s*\{\s*show:\s*false/', $options);
         self::assertStringContainsString('Focus Articles:', $options);
         self::assertStringNotContainsString("type: 'sunburst'", $options);
         self::assertStringNotContainsString('buildSunburstOption', $options);
-        self::assertStringContainsString('Topic membership', $options);
-        self::assertStringContainsString('mcpToSymbolSize', $options);
+        self::assertStringContainsString("name: 'DNA'", $options);
+        self::assertStringContainsString('layoutAnimation: false', $options);
+        self::assertStringContainsString('pickPrimaryTag', $options);
+        self::assertStringContainsString("orient: 'BT'", $options);
+        self::assertStringContainsString("rotate: 90", $options);
+        self::assertStringContainsString('STRUCTURE_SYMBOL_SIZE', $options);
+        self::assertStringContainsString('Click to open Topic', $options);
+        self::assertStringContainsString("nodeType: 'tag'", $options);
+        self::assertStringContainsString("nodeType: 'untagged_bucket'", $options);
+        self::assertStringContainsString('STRUCTURE_UNTAGGED_BUCKET_KEY', $options);
         self::assertStringNotContainsString('Art ', $options);
         self::assertStringNotContainsString('cytoscape', strtolower($options));
         self::assertStringNotContainsString('reactflow', strtolower($options));
@@ -117,6 +137,7 @@ final class TopicalMapBoundaryContractTest extends TestCase
                 'name' => 'Balo',
                 'mcp' => 64.2,
                 'dna_count' => 8,
+                'dna' => [['phrase' => 'balo', 'weight' => 2]],
                 'article_count' => 12,
                 'keyword_count' => 23,
                 'coverage' => 'partial',

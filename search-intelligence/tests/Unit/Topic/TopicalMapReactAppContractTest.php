@@ -105,14 +105,16 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('mcpMax', $app);
         self::assertStringContainsString('showUntagged', $app);
         self::assertStringContainsString('AppChrome', $app);
-        self::assertStringContainsString('filteredNetworkNeighborhood', $app);
-        self::assertStringContainsString('pruneNeighborhoodByAllowedTopics', $app);
-        self::assertStringContainsString('rawFocusedNeighborhood', $app);
-        self::assertStringContainsString('allowedTopicIds', $app);
+        self::assertStringContainsString('networkNeighborhood', $app);
         self::assertStringContainsString('buildOverviewNeighborhood', $app);
-        self::assertStringContainsString('neighborhood={filteredNetworkNeighborhood}', $app);
+        self::assertStringContainsString('neighborhood={networkNeighborhood}', $app);
+        self::assertStringNotContainsString('networkFocusedTopicId', $app);
+        self::assertStringNotContainsString('focusNetworkTopic', $app);
+        self::assertStringNotContainsString('rawFocusedNeighborhood', $app);
+        self::assertStringNotContainsString('fetchNetwork', $app);
         self::assertStringContainsString('TagFilterControl', $chrome);
         self::assertStringContainsString('ZoomControls', $chrome);
+        self::assertStringContainsString("renderer !== 'treemap'", $chrome);
         self::assertStringContainsString('ai_history_url', $chrome);
         self::assertStringContainsString('aiHistoryUrl', $chrome);
         self::assertStringContainsString('labels.aiHistory', $chrome);
@@ -138,6 +140,10 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('All tags', $tagControl);
         self::assertStringNotContainsString('tagFacets.map', $chrome);
         self::assertStringContainsString('passive: false', $canvas);
+        self::assertStringContainsString('applyZoomFactorRef.current', $canvas);
+        self::assertStringContainsString("mode === 'treemap'", $canvas);
+        self::assertStringContainsString("roam: 'move'", $options);
+        self::assertStringNotContainsString('roam: true', $options);
         self::assertStringContainsString('ResizeObserver', $canvas);
         self::assertStringContainsString('zoomIn', $canvas);
         self::assertStringContainsString("window.open(url, '_blank', 'noopener,noreferrer')", $canvas);
@@ -145,26 +151,64 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringContainsString('normalizeMcpRange', $filters);
         self::assertStringContainsString('selected.includes', $filters);
         self::assertStringContainsString('pruneNeighborhoodByAllowedTopics', $filters);
-        self::assertStringContainsString('mcpToSymbolSize', $options);
+        self::assertStringContainsString("startsWith('dna:')", $filters);
+        self::assertStringContainsString('focused_topic', $filters);
+        self::assertStringContainsString('pickPrimaryTag', $options);
+        self::assertStringContainsString("orient: 'BT'", $options);
+        self::assertStringContainsString("nodeType: 'tag'", $options);
+        self::assertStringContainsString('Click to open Topic', $options);
         self::assertStringContainsString('buildOverviewNeighborhood', $options);
         self::assertStringContainsString('buildTreemapOption', $options);
-        self::assertStringContainsString('TREEMAP_MIN_DISPLAY_WEIGHT', $options);
+        self::assertStringContainsString('TREEMAP_MIN_VISUAL_MCP_WEIGHT', $options);
+        self::assertStringContainsString('formatTreemapMcpPercent', $options);
         self::assertStringContainsString('formatTreemapTopicLabel', $options);
+        self::assertStringContainsString('formatTreemapTopicLabelRich', $options);
         self::assertStringContainsString('assignTreemapLabelTiers', $options);
-        self::assertStringContainsString('Focus · MCP', $options);
+        self::assertStringContainsString('treemapLayoutValue', $options);
+        self::assertStringContainsString('Topic distribution by MCP share', $options);
+        self::assertStringContainsString('Focus Articles:', $options);
         self::assertStringContainsString("overflow: 'truncate'", $options);
-        self::assertStringContainsString('Back to all Topics', $options);
-        self::assertStringContainsString('siteNavigable', $options);
+        self::assertStringContainsString('fontSize: 18', $options);
+        self::assertStringContainsString('fontSize: 12', $options);
+        self::assertStringContainsString('nodeClick: false', $options);
+        self::assertMatchesRegularExpression('/breadcrumb:\s*\{\s*show:\s*false/', $options);
+        self::assertStringContainsString("name: 'DNA'", $options);
+        self::assertStringContainsString('layoutAnimation: false', $options);
+        self::assertStringContainsString('networkTopicSymbolSize', $options);
+        self::assertStringContainsString("nodeType === 'dna'", $options);
+        self::assertStringNotContainsString('Back to all Topics', $options);
+        self::assertStringNotContainsString('siteNavigable', $options);
+        self::assertStringNotContainsString("name: 'keyword'", $options);
         self::assertStringContainsString('TreemapChart', $canvas);
         self::assertStringNotContainsString('SunburstChart', $canvas);
         self::assertStringContainsString("viewRaw === 'sunburst'", $filters);
+        self::assertStringContainsString("viewRaw === 'structure'", $filters);
         self::assertStringContainsString("'treemap'", $filters);
         self::assertStringContainsString('scaleDisabled', $chrome);
         self::assertStringContainsString('MCP_SYMBOL_MIN', $theme);
         self::assertStringContainsString('TOPIC_PALETTE', $theme);
         self::assertStringContainsString('Math.sqrt', $theme);
+        self::assertStringContainsString('networkTopicSymbolSize', $theme);
+        self::assertStringContainsString('NETWORK_TOPIC_SYMBOL_MAX', $theme);
+        self::assertStringContainsString('NETWORK_DNA_SYMBOL_SIZE', $theme);
+        self::assertStringContainsString('topicStructureLabel', $theme);
+        self::assertStringContainsString('STRUCTURE_SYMBOL_SIZE', $theme);
+        self::assertStringContainsString('tagColorById', $theme);
+        self::assertStringContainsString('mcpToSymbolSize', $theme);
         self::assertStringContainsString('sortKeywordsByWordCount', $theme);
         self::assertStringContainsString('phraseWordCount', $theme);
+        self::assertStringContainsString('preferredTagIds', $app);
+        self::assertStringContainsString('structurePreferredTagIds', $app);
+        self::assertStringNotContainsString('onLoadChildren', $app);
+        self::assertStringNotContainsString('fetchTopicChildren', $app);
+        self::assertStringContainsString("renderer === 'tree'", $canvas);
+        self::assertStringContainsString("renderer === 'network'", $canvas);
+        self::assertStringNotContainsString('onNetworkTopicClick', $canvas);
+        self::assertStringNotContainsString('networkFocused', $canvas);
+        self::assertStringContainsString('Click to open Topic', $options);
+        self::assertStringContainsString("nodeType: 'untagged_bucket'", $options);
+        self::assertStringContainsString('STRUCTURE_UNTAGGED_BUCKET_KEY', $options);
+        self::assertStringContainsString('presentation-only', $options);
     }
 
     public function test_api_controllers_delegate_to_read_model_and_enforce_access(): void
@@ -225,14 +269,30 @@ final class TopicalMapReactAppContractTest extends TestCase
         self::assertStringNotContainsString('loadTopicChildren', $legacy);
     }
 
-    public function test_keywords_nav_opens_react_app_blank(): void
+    public function test_topics_heading_opens_react_app_blank(): void
     {
         $nav = (string) file_get_contents(
             (string) (new ReflectionClass(HasKeywordWorkspaceNavigation::class))->getFileName()
         );
-        self::assertStringContainsString('TopicalMapAppPage::appUrl', $nav);
-        self::assertStringContainsString("'target' => '_blank'", $nav);
-        self::assertStringContainsString("'rel' => 'noopener noreferrer'", $nav);
+        self::assertStringNotContainsString("'key' => 'topical-map'", $nav);
+        self::assertStringNotContainsString('TopicalMapAppPage::appUrl', $nav);
+
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordTopicClusters::class))->getFileName()
+        );
+        self::assertStringContainsString('function getTopicalMapUrl', $page);
+        self::assertStringContainsString('TopicalMapAppPage::appUrl', $page);
+        self::assertStringContainsString('resolveKeywordWorkspaceSiteId', $page);
+
+        $blade = (string) file_get_contents(
+            dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
+        );
+        self::assertStringContainsString('getTopicalMapUrl()', $blade);
+        self::assertStringContainsString('topic-index-section-heading__map-link', $blade);
+        self::assertStringContainsString('target="_blank"', $blade);
+        self::assertStringContainsString('rel="noopener noreferrer"', $blade);
+        self::assertStringContainsString('workspace_nav_topical_map', $blade);
+        self::assertStringContainsString('heroicon-o-arrow-top-right-on-square', $blade);
 
         $tabs = dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/components/workspace-tabs.blade.php';
         $tabsSrc = (string) file_get_contents($tabs);

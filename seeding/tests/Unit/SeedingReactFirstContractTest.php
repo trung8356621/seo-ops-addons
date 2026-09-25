@@ -112,9 +112,11 @@ final class SeedingReactFirstContractTest extends TestCase
         self::assertStringContainsString("'/feed'", $provider);
         self::assertStringContainsString('topics/share', $provider);
         self::assertStringContainsString("'/reports'", $provider);
+        self::assertStringContainsString("'/manager/reports'", $provider);
         self::assertStringContainsString('SeedingFeedController', $provider);
         self::assertStringContainsString('SeedingShareTopicController', $provider);
         self::assertStringContainsString('SeedingReportController', $provider);
+        self::assertStringContainsString('SeedingManagerReportsController', $provider);
     }
 
     public function test_migrations_exist_on_omi_seeding(): void
@@ -122,7 +124,9 @@ final class SeedingReactFirstContractTest extends TestCase
         $root = $this->addonRoot().'/database/migrations';
         self::assertFileExists($root.'/2026_09_09_100000_create_seeding_topics_table.php');
         self::assertFileExists($root.'/2026_09_09_100100_create_seeding_reports_table.php');
+        self::assertFileExists($root.'/2026_09_25_100000_add_approval_to_seeding_reports.php');
         self::assertFileExists($root.'/2026_09_24_120000_create_seeding_link_assignments_table.php');
+        self::assertFileExists($root.'/2026_09_25_110000_create_seeding_social_accounts_table.php');
         $topics = (string) file_get_contents($root.'/2026_09_09_100000_create_seeding_topics_table.php');
         self::assertStringContainsString("omi_seeding", $topics);
         self::assertStringContainsString('required_comments_per_user', $topics);
@@ -131,5 +135,8 @@ final class SeedingReactFirstContractTest extends TestCase
         $assignments = (string) file_get_contents($root.'/2026_09_24_120000_create_seeding_link_assignments_table.php');
         self::assertStringContainsString('seeding_link_assignments', $assignments);
         self::assertStringContainsString('target_per_day', $assignments);
+        $socialAccounts = (string) file_get_contents($root.'/2026_09_25_110000_create_seeding_social_accounts_table.php');
+        self::assertStringContainsString('seeding_social_accounts', $socialAccounts);
+        self::assertStringContainsString('username_encrypted', $socialAccounts);
     }
 }

@@ -56,7 +56,8 @@ export function filterTopics(topics, filters) {
 
 /**
  * Client-side Network prune against allowed Topic ids.
- * Keeps Site; Topics in allow-set; Keywords linked to a kept Topic; edges with both ends kept.
+ * Keeps Site; Topics in allow-set; DNA linked to a kept Topic; edges with both ends kept.
+ * No orphan DNA nodes.
  *
  * @param {object|null|undefined} neighborhood
  * @param {Iterable<number>|Set<number>} allowedTopicIds
@@ -74,8 +75,12 @@ export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) 
             nodes: [],
             links: [],
             truncated: Boolean(neighborhood?.truncated),
+            dna_truncated: Boolean(neighborhood?.dna_truncated),
             showing_topics: 0,
             total_topics: Number(neighborhood?.total_topics ?? 0),
+            showing_dna: 0,
+            total_dna: Number(neighborhood?.total_dna ?? 0),
+            max_mcp: Number(neighborhood?.max_mcp ?? 0),
         };
     }
 
@@ -98,10 +103,11 @@ export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) 
     for (const link of links) {
         const source = String(link.source ?? '');
         const target = String(link.target ?? '');
-        if (keep.has(source) && target.startsWith('keyword:')) {
+        // Topic → DNA (and legacy keyword: if any residual payload)
+        if (keep.has(source) && (target.startsWith('dna:') || target.startsWith('keyword:'))) {
             keep.add(target);
         }
-        if (keep.has(target) && source.startsWith('keyword:')) {
+        if (keep.has(target) && (source.startsWith('dna:') || source.startsWith('keyword:'))) {
             keep.add(source);
         }
     }
@@ -114,6 +120,17 @@ export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) 
         const id = String(n.id ?? '');
         return String(n.category || '') === 'topic' || id.startsWith('topic:');
     }).length;
+    const showingDna = filteredNodes.filter((n) => {
+        const id = String(n.id ?? '');
+        return String(n.category || '') === 'dna' || id.startsWith('dna:');
+    }).length;
+
+    let maxMcp = 0;
+    for (const n of filteredNodes) {
+        if (String(n.category || '') === 'topic' || String(n.id || '').startsWith('topic:')) {
+            maxMcp = Math.max(maxMcp, clampMcp(n.mcp));
+        }
+    }
 
     return {
         ...neighborhood,
@@ -121,6 +138,9 @@ export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) 
         links: filteredLinks,
         showing_topics: showingTopics,
         total_topics: Number(neighborhood?.total_topics ?? showingTopics),
+        showing_dna: showingDna,
+        total_dna: Number(neighborhood?.total_dna ?? showingDna),
+        max_mcp: maxMcp,
     };
 }
 
@@ -134,8 +154,13 @@ export function readFilterQuery(search = window.location.search) {
     const showUntagged = params.get('untagged') === '1';
     const tagFilterAll = selectedTagIds.length === 0 && !showUntagged;
     const viewRaw = String(params.get('view') || 'tree').toLowerCase();
-    // Legacy bookmarks: sunburst → treemap (no blank view).
-    const view = viewRaw === 'sunburst' ? 'treemap' : viewRaw;
+    // Legacy bookmarks: sunburst → treemap; structure → tree (route key stays tree).
+    let view = viewRaw;
+    if (viewRaw === 'sunburst') {
+        view = 'treemap';
+    } else if (viewRaw === 'structure') {
+        view = 'tree';
+    }
     const renderer = ['tree', 'network', 'treemap'].includes(view) ? view : 'tree';
     const { mcpMin, mcpMax } = normalizeMcpRange(
         params.has('mcp_min') ? params.get('mcp_min') : 0,
@@ -154,6 +179,11 @@ export function readFilterQuery(search = window.location.search) {
 
 export function writeFilterQuery(filters) {
     const params = new URLSearchParams(window.location.search);
+    // Network no longer stores drill/focus state in the URL.
+    params.delete('focused_topic');
+    params.delete('root');
+    params.delete('drill');
+
     if (filters.tagFilterAll) {
         params.delete('tags');
         params.delete('untagged');

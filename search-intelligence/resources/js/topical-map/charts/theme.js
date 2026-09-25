@@ -25,8 +25,22 @@ export const TOPIC_PALETTE = [
 /** Fixed keyword leaf size — never scales with MCP. */
 export const KEYWORD_SYMBOL_SIZE = 8;
 
+/** Fixed Network DNA satellite size — never scales with MCP / counts. */
+export const NETWORK_DNA_SYMBOL_SIZE = 6;
+
+/** Fixed Network Site node — structural, not MCP-scaled. */
+export const NETWORK_SITE_SYMBOL_SIZE = 24;
+
 export const MCP_SYMBOL_MIN = 12;
 export const MCP_SYMBOL_MAX = 30;
+
+/** Network Topic size — deliberately exaggerated MCP share differences. */
+export const NETWORK_TOPIC_SYMBOL_MIN = 10;
+export const NETWORK_TOPIC_SYMBOL_MAX = 78;
+export const NETWORK_MCP_SIZE_EXPONENT = 1.35;
+
+/** Defensive full-graph DNA cap (never silent). */
+export const NETWORK_MAX_DNA_NODES = 1500;
 
 export function clampMcp(value) {
     const n = Number(value);
@@ -41,10 +55,35 @@ export function clampMcp(value) {
  * Mild sqrt curve so low-MCP Topics (typical 0–30%) still separate visually.
  *
  * size = MIN + (MAX - MIN) * sqrt(mcp / 100)
+ * @deprecated Network uses networkTopicSymbolSize (relative + exaggerated).
  */
 export function mcpToSymbolSize(mcp) {
     const t = Math.sqrt(clampMcp(mcp) / 100);
     return Math.round(MCP_SYMBOL_MIN + t * (MCP_SYMBOL_MAX - MCP_SYMBOL_MIN));
+}
+
+/**
+ * Network Topic diameter from MCP share relative to the max visible Topic MCP.
+ * zero-MCP → MIN (still visible). Displayed MCP stays real.
+ *
+ * symbolSize = MIN + (MAX - MIN) * pow(clamp(mcp / maxMcp, 0, 1), EXPONENT)
+ *
+ * @param {unknown} mcp
+ * @param {unknown} maxMcp
+ * @returns {number}
+ */
+export function networkTopicSymbolSize(mcp, maxMcp) {
+    const real = clampMcp(mcp);
+    const peak = clampMcp(maxMcp);
+    if (peak <= 0) {
+        return NETWORK_TOPIC_SYMBOL_MIN;
+    }
+    const normalized = Math.max(0, Math.min(1, real / peak));
+    const t = normalized ** NETWORK_MCP_SIZE_EXPONENT;
+    return Math.round(
+        NETWORK_TOPIC_SYMBOL_MIN
+        + (NETWORK_TOPIC_SYMBOL_MAX - NETWORK_TOPIC_SYMBOL_MIN) * t,
+    );
 }
 
 /** Stable color from topic id (reload-safe). */
@@ -68,16 +107,42 @@ export function tintHex(hex, amount = 0.45) {
 }
 
 /**
- * Primary tree label — Topic name + MCP (+ DNA). No article count.
+ * Compact Structure Topic leaf label (rotated BT leaves).
+ * Prefer single-line "Name · 23%" — DNA/articles stay in tooltip.
+ *
+ * @param {object} topic
+ * @param {(mcp: unknown) => string} [formatMcp]
  */
+export function topicStructureLabel(topic, formatMcp) {
+    const raw = String(topic?.name || '').trim() || 'Topic';
+    const name = raw.length > 36 ? `${raw.slice(0, 35)}…` : raw;
+    const pct = typeof formatMcp === 'function'
+        ? formatMcp(topic?.mcp)
+        : `${clampMcp(topic?.mcp).toFixed(0)}%`;
+    return `${name} · ${pct}`;
+}
+
+/** @deprecated use topicStructureLabel — Structure no longer shows DNA on-node */
 export function topicTreeLabel(topic) {
-    const name = String(topic?.name || '').trim() || 'Topic';
-    const mcp = clampMcp(topic?.mcp);
-    const dna = Number(topic?.dna_count ?? 0);
-    if (Number.isFinite(dna) && dna > 0) {
-        return `${name}\n${mcp.toFixed(0)}% · DNA ${dna}`;
-    }
-    return `${name}\n${mcp.toFixed(0)}%`;
+    return topicStructureLabel(topic);
+}
+
+/** Fixed Structure node diameter — never scales by MCP / counts. */
+export const STRUCTURE_SYMBOL_SIZE = 8;
+
+/** @deprecated Structure no longer MCP-scales symbol size */
+export const STRUCTURE_TOPIC_SYMBOL_MIN = STRUCTURE_SYMBOL_SIZE;
+/** @deprecated Structure no longer MCP-scales symbol size */
+export const STRUCTURE_TOPIC_SYMBOL_MAX = STRUCTURE_SYMBOL_SIZE;
+
+/** @deprecated use STRUCTURE_SYMBOL_SIZE — MCP must not affect Structure node size */
+export function structureTopicSymbolSize(_mcp) {
+    return STRUCTURE_SYMBOL_SIZE;
+}
+
+/** Deterministic Tag color (identification only — not metric meaning). */
+export function tagColorById(tagId) {
+    return topicColorById(tagId);
 }
 
 /** Unicode-safe word count: trim + collapse whitespace + split. */
@@ -114,21 +179,4 @@ export function sortKeywordsByWordCount(children) {
         }
         return Number(a?.id ?? 0) - Number(b?.id ?? 0);
     });
-}
-
-/**
- * Inflate Tree series bottom so sibling Topics get readable vertical gaps.
- * Content may extend past viewport; roam/pan + Fit handle navigation.
- *
- * @param {number} topicCount
- * @returns {string} CSS-like percent for series.bottom (may be negative)
- */
-export function treeSeriesBottomExtent(topicCount) {
-    const n = Math.max(0, Number(topicCount) || 0);
-    // ~10 Topics fit comfortably in default viewport height with 2-line labels.
-    const comfortable = 10;
-    const extra = Math.max(0, n - comfortable);
-    // Each extra Topic adds layout height without packing siblings.
-    const bottomPct = -(extra * 8);
-    return `${Math.max(-400, bottomPct)}%`;
 }

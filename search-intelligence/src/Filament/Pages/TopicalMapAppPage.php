@@ -76,7 +76,7 @@ final class TopicalMapAppPage extends Page
     }
 
     /**
-     * Canonical app URL with site query (for Keywords nav _blank entry).
+     * Canonical app URL with site query (Topics heading / legacy redirect entry).
      */
     public static function appUrl(?int $siteId = null): string
     {
@@ -138,9 +138,12 @@ final class TopicalMapAppPage extends Page
                 'tags' => (string) __('seo-content-ai::filament.keyword.topical_map_tags_label'),
                 'tagsAll' => (string) __('seo-content-ai::filament.keyword.topical_map_tags_all'),
                 'untagged' => (string) __('seo-content-ai::filament.keyword.topical_map_tags_untagged'),
+                'structureUntaggedBucket' => (string) __('seo-content-ai::filament.keyword.topical_map_structure_untagged_bucket'),
+                'structureUntaggedTooltip' => (string) __('seo-content-ai::filament.keyword.topical_map_structure_untagged_tooltip'),
                 'tree' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_tree'),
                 'network' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_network'),
                 'treemap' => (string) __('seo-content-ai::filament.keyword.topical_map_mode_treemap'),
+                'treemapByMcp' => (string) __('seo-content-ai::filament.keyword.topical_map_treemap_by_mcp'),
                 'empty' => (string) __('seo-content-ai::filament.keyword.topical_map_empty'),
                 'needSite' => (string) __('seo-content-ai::filament.keyword.topical_map_need_site'),
                 'aiAction' => (string) __('seo-content-ai::filament.keyword.ai_audit_tags_action'),

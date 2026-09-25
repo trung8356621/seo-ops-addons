@@ -26,18 +26,27 @@ class SeedingReport extends Model
         'proof_mime',
         'proof_meta',
         'reported_at',
+        'approved_at',
+        'approved_by',
     ];
 
     protected $casts = [
         'topic_id' => 'integer',
         'user_id' => 'integer',
+        'approved_by' => 'integer',
         'proof_meta' => 'array',
         'reported_at' => 'datetime',
+        'approved_at' => 'datetime',
     ];
 
     /** @return BelongsTo<SeedingTopic, $this> */
     public function topic(): BelongsTo
     {
         return $this->belongsTo(SeedingTopic::class, 'topic_id');
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->approved_at !== null;
     }
 }

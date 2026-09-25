@@ -100,6 +100,106 @@ export async function cancelManagerTopic(topicId) {
     return seedingApiFetch(`/api/seeding/manager/topics/${topicId}/cancel`, { method: 'POST' });
 }
 
+/**
+ * Manager-only: historical seeding_reports (inspection + approve).
+ * @param {{
+ *   user_id?: number|string,
+ *   topic_id?: number|string,
+ *   social?: string,
+ *   search?: string,
+ *   date_from?: string,
+ *   date_to?: string,
+ *   status?: 'pending'|'approved'|string,
+ * }} [params]
+ */
+export async function fetchManagerReports(params = {}) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+        if (v != null && String(v) !== '') qs.set(k, String(v));
+    });
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return seedingApiFetch(`/api/seeding/manager/reports${suffix}`, { method: 'GET' });
+}
+
+/** Absolute-ish URL for proof bytes (auth cookie + manager gate). */
+export function managerReportProofUrl(reportId) {
+    return `/api/seeding/manager/reports/${Number(reportId)}/proof`;
+}
+
+/** Manager-only: mark report proof as reviewed. Idempotent. */
+export async function approveManagerReport(reportId) {
+    return seedingApiFetch(`/api/seeding/manager/reports/${Number(reportId)}/approve`, {
+        method: 'POST',
+    });
+}
+
+/** Manager-only: social login accounts catalog. */
+export async function fetchSocialAccounts() {
+    return seedingApiFetch('/api/seeding/manager/social-accounts', { method: 'GET' });
+}
+
+/**
+ * @param {{
+ *   site_id?: number,
+ *   domain?: string,
+ *   platform: string,
+ *   label?: string|null,
+ *   username?: string|null,
+ *   password?: string|null,
+ *   status?: string,
+ * }} payload
+ */
+export async function createSocialAccount(payload) {
+    return seedingApiFetch('/api/seeding/manager/social-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/**
+ * @param {number|string} accountId
+ * @param {Record<string, unknown>} payload
+ */
+export async function updateSocialAccount(accountId, payload) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function lockSocialAccount(accountId) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}/lock`, {
+        method: 'POST',
+    });
+}
+
+export async function unlockSocialAccount(accountId) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}/unlock`, {
+        method: 'POST',
+    });
+}
+
+export async function deleteSocialAccount(accountId) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}`, {
+        method: 'DELETE',
+    });
+}
+
+/** Explicit Manager copy — returns plaintext once for clipboard; never render. */
+export async function copySocialAccountUsername(accountId) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}/copy-username`, {
+        method: 'POST',
+    });
+}
+
+export async function copySocialAccountPassword(accountId) {
+    return seedingApiFetch(`/api/seeding/manager/social-accounts/${Number(accountId)}/copy-password`, {
+        method: 'POST',
+    });
+}
+
 export async function fetchWebsiteShareFeed(filter = 'all') {
     const qs = filter && filter !== 'all' ? `?filter=${encodeURIComponent(filter)}` : '';
     return seedingApiFetch(`/api/seeding/website-share${qs}`, { method: 'GET' });

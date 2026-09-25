@@ -334,11 +334,416 @@
     align-items: center;
 }
 
+.seeding-ws__reports-table .seeding-ws__report-row {
+    cursor: pointer;
+}
+
+.seeding-ws__reports-table .seeding-ws__report-row:hover {
+    background: #fffbeb;
+}
+
+.seeding-ws__report-comment-cell {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__report-topic {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__report-link-cell {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__report-link-cell a {
+    color: #c2410c;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.seeding-ws__report-proof-btn {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    display: inline-flex;
+}
+
+.seeding-ws__report-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    width: fit-content;
+}
+
+.seeding-ws__report-status-pill.is-pending {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #fde68a;
+}
+
+.seeding-ws__report-status-pill.is-approved {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.seeding-ws__report-status-pill--table {
+    font-size: 0.6875rem;
+    padding: 0.15rem 0.45rem;
+}
+
+.seeding-ws__modal-backdrop--report-review {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0.4rem;
+}
+
+.seeding-ws__modal.seeding-ws__modal--report-review,
+.seeding-ws__modal--report-review {
+    width: calc(100vw - 0.8rem);
+    max-width: none;
+    height: calc(100vh - 0.8rem);
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    gap: 0;
+    border-radius: 0.65rem;
+}
+
+.seeding-ws__report-review-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+    flex-shrink: 0;
+}
+
+.seeding-ws__report-review-counter {
+    text-align: left;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.seeding-ws__report-review-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.seeding-ws__report-review-close {
+    margin-left: 0.15rem;
+}
+
+.seeding-ws__report-review-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    /* Proof-first: ~78% image / ~22% compact sidebar */
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 22vw);
+    background: #111827;
+}
+
+.seeding-ws__report-review-proof {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0.5rem;
+    background: #0f172a;
+}
+
+.seeding-ws__report-review-img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 0.35rem;
+}
+
+.seeding-ws__report-review-proof-empty {
+    color: #9ca3af;
+    font-size: 0.875rem;
+}
+
+.seeding-ws__report-review-side {
+    min-width: 0;
+    min-height: 0;
+    max-width: 360px;
+    width: 100%;
+    overflow: auto;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    justify-self: stretch;
+}
+
+.seeding-ws__report-review-meta {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.seeding-ws__report-review-meta > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.seeding-ws__report-review-meta dt {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6b7280;
+}
+
+.seeding-ws__report-review-meta dd {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #111827;
+    word-break: break-word;
+}
+
+.seeding-ws__report-review-comment {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    max-height: 10rem;
+    overflow: auto;
+    background: #f9fafb;
+    border: 1px solid #f3f4f6;
+    border-radius: 0.4rem;
+    padding: 0.5rem 0.55rem;
+}
+
+.seeding-ws__report-review-url {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #c2410c;
+    font-size: 0.75rem;
+}
+
+.seeding-ws__report-review-proof-meta {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: #9ca3af;
+}
+
+.seeding-ws__report-approve-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    width: 100%;
+    margin-top: auto;
+}
+
+.seeding-ws__report-approve-done {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin-top: auto;
+    padding: 0.55rem 0.65rem;
+    border-radius: 0.5rem;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 860px) {
+    .seeding-ws__modal-backdrop--report-review {
+        padding: 0;
+    }
+
+    .seeding-ws__modal.seeding-ws__modal--report-review,
+    .seeding-ws__modal--report-review {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    .seeding-ws__report-review-body {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(48vh, 1fr) auto;
+    }
+
+    .seeding-ws__report-review-side {
+        border-left: 0;
+        border-top: 1px solid #e5e7eb;
+        max-width: none;
+        max-height: 42vh;
+    }
+
+    .seeding-ws__report-review-img {
+        max-height: 100%;
+    }
+
+    .seeding-ws__report-review-head {
+        flex-wrap: wrap;
+    }
+}
+
+.seeding-ws__nowrap {
+    white-space: nowrap;
+}
+
+.seeding-ws__muted {
+    color: #9ca3af;
+}
+
 .seeding-ws__manager-subtabs {
     display: flex;
     gap: 0.35rem;
     margin-bottom: 0.75rem;
     flex-wrap: wrap;
+}
+
+.seeding-ws__social-acct-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+.seeding-ws__social-acct-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.seeding-ws__social-acct-domain {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.seeding-ws__social-acct-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.seeding-ws__social-acct-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.75rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.seeding-ws__social-acct-card.is-locked {
+    background: #f9fafb;
+    border-color: #e5e7eb;
+    opacity: 0.92;
+}
+
+.seeding-ws__social-acct-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.seeding-ws__social-acct-platform {
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+
+.seeding-ws__social-acct-label {
+    font-size: 0.75rem;
+}
+
+.seeding-ws__social-acct-creds {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.seeding-ws__social-acct-cred-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.seeding-ws__social-acct-cred-label {
+    width: 4.5rem;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.seeding-ws__social-acct-cred-value {
+    flex: 1;
+    min-width: 8rem;
+    font-size: 0.8125rem;
+    word-break: break-all;
+}
+
+.seeding-ws__social-acct-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.seeding-ws__social-acct-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0 0.25rem 0.5rem;
+}
+
+.seeding-ws__social-acct-form .seeding-ws__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.seeding-ws__social-acct-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
 }
 
 .seeding-ws__ws-card {

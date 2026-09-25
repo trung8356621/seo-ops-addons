@@ -53,9 +53,28 @@
         ])
 
         <header class="topic-index-section-heading">
-            <h2 class="topic-index-section-heading__title">
-                {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
-            </h2>
+            <div class="topic-index-section-heading__row">
+                <h2 class="topic-index-section-heading__title">
+                    {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
+                </h2>
+                @php $topicalMapUrl = $this->getTopicalMapUrl(); @endphp
+                @if (is_string($topicalMapUrl) && $topicalMapUrl !== '')
+                    <x-filament::button
+                        tag="a"
+                        size="sm"
+                        color="gray"
+                        :href="$topicalMapUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="topic-index-section-heading__map-link"
+                    >
+                        <span class="inline-flex items-center gap-1.5">
+                            {{ __('seo-content-ai::filament.keyword.workspace_nav_topical_map') }}
+                            <x-filament::icon icon="heroicon-o-arrow-top-right-on-square" class="h-4 w-4" />
+                        </span>
+                    </x-filament::button>
+                @endif
+            </div>
             <p class="topic-index-section-heading__subtitle">
                 {{ __('seo-content-ai::filament.keyword.topic_section_subtitle') }}
             </p>

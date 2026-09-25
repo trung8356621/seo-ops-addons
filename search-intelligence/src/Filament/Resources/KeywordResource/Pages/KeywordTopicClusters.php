@@ -10,6 +10,7 @@ use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
+use Omnichannel\Addons\SearchIntelligence\Filament\Pages\TopicalMapAppPage;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ExcludesTopicsFromMcp;
@@ -331,6 +332,19 @@ final class KeywordTopicClusters extends Page
     protected function getActiveKeywordWorkspaceKey(): string
     {
         return 'clusters';
+    }
+
+    /**
+     * Standalone Topical Map entrypoint (new tab) — not a Keyword workspace tab.
+     */
+    public function getTopicalMapUrl(): ?string
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            return null;
+        }
+
+        return TopicalMapAppPage::appUrl($siteId);
     }
 
     /**

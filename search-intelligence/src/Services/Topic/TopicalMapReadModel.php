@@ -13,13 +13,17 @@ use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 /**
  * Keywords / Topical Map presentation boundary over Keyword Landscape SSOT.
  *
- * Does not invent Pillar hierarchy. Hierarchy = Site → Topic → Keyword (lazy).
- * Network edges = Topic membership only (canonical).
- * Lazy keyword leaves omit McpExcluded keywords (SEO/MCP surface, not raw inventory).
+ * Does not invent Pillar hierarchy.
+ * Structure = Site → Tag → Topic. Network = Site → Topic → DNA (canonical phrases).
+ * Network edges = Site→Topic and Topic→DNA only (no invented semantics).
+ * Lazy keyword children remain available for non-Network consumers.
  */
 final class TopicalMapReadModel
 {
     public const MAX_TOPIC_NODES = 500;
+
+    /** Defensive full-graph DNA cap (per-Topic Landscape DNA_LIMIT still applies). */
+    public const MAX_NETWORK_DNA_NODES = 1500;
 
     public function __construct(
         private readonly KeywordLandscapeGateway $landscape,
@@ -39,8 +43,8 @@ final class TopicalMapReadModel
             return new TopicalMapOverview($siteId, [], 0, 0, 0, null);
         }
 
-        // Topic shell without DNA payload — DNA available on findTopic / children path.
-        $landscape = $this->landscape->forSite($siteId, false);
+        // Include canonical Topic DNA phrases so Network can render Site→Topic→DNA immediately.
+        $landscape = $this->landscape->forSite($siteId, true);
         $topics = $landscape->topics;
         $truncated = false;
         if (count($topics) > self::MAX_TOPIC_NODES) {
@@ -74,6 +78,7 @@ final class TopicalMapReadModel
                 'name' => $topic->name,
                 'mcp' => $topic->mcp,
                 'dna_count' => $topic->dnaCount,
+                'dna' => $topic->dna,
                 'article_count' => $topic->articleCount,
                 'keyword_count' => $kwCount,
                 'coverage' => $topic->coverage,
@@ -178,19 +183,22 @@ final class TopicalMapReadModel
     }
 
     /**
-     * Canonical membership edges for Network view (Topic ↔ Keyword).
-     * Only includes children already loaded for focus topics — not a full-site dump.
+     * Full-site Network graph: Site → Topic → canonical DNA phrases.
+     * No Keyword children, no Topic focus / drill neighborhood.
      *
-     * @param  list<int>  $topicIds
+     * @param  list<int>  $topicIds  Empty = all overview Topics.
      * @return array{
-     *   nodes: list<array{id: string, name: string, category: string, value: float}>,
+     *   nodes: list<array<string, mixed>>,
      *   links: list<array{source: string, target: string}>,
      *   truncated: bool,
+     *   dna_truncated: bool,
      *   showing_topics: int,
-     *   total_topics: int
+     *   total_topics: int,
+     *   showing_dna: int,
+     *   total_dna: int
      * }
      */
-    public function membershipNeighborhood(int $siteId, array $topicIds = [], int $maxTopics = 40, int $maxKeywordsPerTopic = 25): array
+    public function membershipNeighborhood(int $siteId, array $topicIds = [], int $maxTopics = self::MAX_TOPIC_NODES, int $maxDnaNodes = self::MAX_NETWORK_DNA_NODES): array
     {
         $overview = $this->overview($siteId);
         $allTopics = $overview->topics;
@@ -203,10 +211,18 @@ final class TopicalMapReadModel
                 static fn (array $t): bool => isset($wanted[(int) $t['id']]),
             ));
         } else {
-            // Prefer high MCP topics first for readable default neighborhood.
-            usort($allTopics, static fn (array $a, array $b): int => ($b['mcp'] <=> $a['mcp']) ?: strcmp($a['name'], $b['name']));
-            $focus = array_slice($allTopics, 0, max(1, $maxTopics));
+            $focus = $allTopics;
+            if (count($focus) > max(1, $maxTopics)) {
+                $focus = array_slice($focus, 0, max(1, $maxTopics));
+            }
         }
+
+        // Prefer high-MCP Topics first so a defensive DNA cap keeps the important branches.
+        usort(
+            $focus,
+            static fn (array $a, array $b): int => (((float) $b['mcp']) <=> ((float) $a['mcp']))
+                ?: strcmp((string) $a['name'], (string) $b['name']),
+        );
 
         $nodes = [
             [
@@ -217,47 +233,61 @@ final class TopicalMapReadModel
             ],
         ];
         $links = [];
-        $seen = ['site:'.$siteId => true];
+        $dnaBudget = max(1, $maxDnaNodes);
+        $totalDna = 0;
+        $showingDna = 0;
 
         foreach ($focus as $topic) {
             $tid = (int) $topic['id'];
             $topicNodeId = 'topic:'.$tid;
-            if (! isset($seen[$topicNodeId])) {
-                $nodes[] = [
-                    'id' => $topicNodeId,
-                    'name' => (string) $topic['name'],
-                    'category' => 'topic',
-                    'value' => max(1.0, (float) $topic['mcp']),
-                ];
-                $seen[$topicNodeId] = true;
-            }
+            $nodes[] = [
+                'id' => $topicNodeId,
+                'name' => (string) $topic['name'],
+                'category' => 'topic',
+                'value' => max(0.0, (float) $topic['mcp']),
+                'mcp' => (float) $topic['mcp'],
+                'dna_count' => (int) ($topic['dna_count'] ?? 0),
+                'article_count' => (int) ($topic['article_count'] ?? 0),
+                'keyword_count' => (int) ($topic['keyword_count'] ?? 0),
+                'tags' => is_array($topic['tags'] ?? null) ? $topic['tags'] : [],
+            ];
             $links[] = ['source' => 'site:'.$siteId, 'target' => $topicNodeId];
 
-            $children = $this->topicChildren($siteId, $tid, $maxKeywordsPerTopic);
-            if ($children === null) {
-                continue;
-            }
-            foreach ($children->children as $child) {
-                $kid = 'keyword:'.(int) $child['id'];
-                if (! isset($seen[$kid])) {
-                    $nodes[] = [
-                        'id' => $kid,
-                        'name' => (string) $child['name'],
-                        'category' => 'keyword',
-                        'value' => 1.0,
-                    ];
-                    $seen[$kid] = true;
+            $dnaRows = is_array($topic['dna'] ?? null) ? $topic['dna'] : [];
+            $totalDna += count($dnaRows);
+            foreach ($dnaRows as $index => $row) {
+                if ($showingDna >= $dnaBudget) {
+                    break;
                 }
-                $links[] = ['source' => $topicNodeId, 'target' => $kid];
+                $phrase = trim((string) ($row['phrase'] ?? ''));
+                if ($phrase === '') {
+                    continue;
+                }
+                $dnaId = 'dna:'.$tid.':'.$index;
+                $nodes[] = [
+                    'id' => $dnaId,
+                    'name' => $phrase,
+                    'category' => 'dna',
+                    'value' => 1.0,
+                    'topic_id' => $tid,
+                    'topic_name' => (string) $topic['name'],
+                ];
+                $links[] = ['source' => $topicNodeId, 'target' => $dnaId];
+                $showingDna++;
             }
         }
+
+        $dnaTruncated = $totalDna > $showingDna;
 
         return [
             'nodes' => $nodes,
             'links' => $links,
-            'truncated' => $totalTopics > count($focus),
+            'truncated' => $dnaTruncated || $totalTopics > count($focus),
+            'dna_truncated' => $dnaTruncated,
             'showing_topics' => count($focus),
             'total_topics' => $totalTopics,
+            'showing_dna' => $showingDna,
+            'total_dna' => $totalDna,
         ];
     }
 

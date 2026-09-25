@@ -1,6 +1,6 @@
 /**
  * Zoom in / out / Fit for ECharts tree & graph roam.
- * Treemap: scale +/- disabled; Fit restores overview root.
+ * Not shown in Treemap mode (fixed full-site overview — no scale/drill).
  */
 export default function ZoomControls({
     zoomPercent = 100,
@@ -18,20 +18,20 @@ export default function ZoomControls({
                 className="tm-zoom__btn"
                 onClick={onZoomOut}
                 disabled={noScale}
-                title={scaleDisabled && !disabled ? 'Scale not used in Treemap — use Fit / breadcrumb' : 'Zoom out'}
+                title="Zoom out"
                 aria-label="Zoom out"
             >
                 −
             </button>
             <span className="tm-zoom__indicator" aria-live="polite">
-                {scaleDisabled && !disabled ? '—' : `${Math.round(zoomPercent)}%`}
+                {`${Math.round(zoomPercent)}%`}
             </span>
             <button
                 type="button"
                 className="tm-zoom__btn"
                 onClick={onZoomIn}
                 disabled={noScale}
-                title={scaleDisabled && !disabled ? 'Scale not used in Treemap — use Fit / breadcrumb' : 'Zoom in'}
+                title="Zoom in"
                 aria-label="Zoom in"
             >
                 +
@@ -41,7 +41,7 @@ export default function ZoomControls({
                 className="tm-zoom__btn tm-zoom__btn--reset"
                 onClick={onReset}
                 disabled={disabled}
-                title={scaleDisabled ? 'Back to full Treemap overview' : 'Reset zoom'}
+                title="Reset zoom"
                 aria-label="Fit"
             >
                 Fit

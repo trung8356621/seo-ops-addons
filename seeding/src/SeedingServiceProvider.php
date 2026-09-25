@@ -29,6 +29,8 @@ use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkAssignmentController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewImageController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerReportsController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerSocialAccountsController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerTopicsController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingReportController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
@@ -45,6 +47,7 @@ use Omnichannel\Addons\Seeding\Services\SeedingLinkAssignmentService;
 use Omnichannel\Addons\Seeding\Services\SeedingLinkPreviewService;
 use Omnichannel\Addons\Seeding\Services\SeedingReportService;
 use Omnichannel\Addons\Seeding\Services\SeedingSharedTopicService;
+use Omnichannel\Addons\Seeding\Services\SeedingSocialAccountService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialPlatformDetector;
 use Omnichannel\Addons\Seeding\Services\WebsiteShareJobService;
 use Omnichannel\Addons\Seeding\Settings\SeedingSettingsSectionContributor;
@@ -70,6 +73,7 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingTargetCalculator::class);
         $this->app->singleton(SeedingSharedTopicService::class);
         $this->app->singleton(SeedingLinkAssignmentService::class);
+        $this->app->singleton(SeedingSocialAccountService::class);
         $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(WebsiteShareJobService::class);
         $this->app->singleton(SeedingCommentPromptService::class);
@@ -333,6 +337,38 @@ final class SeedingServiceProvider extends ServiceProvider
                 Route::post('/manager/topics/{topicId}/cancel', [SeedingManagerTopicsController::class, 'cancel'])
                     ->whereNumber('topicId')
                     ->name('seeding.manager.topics.cancel');
+
+                Route::get('/manager/reports', [SeedingManagerReportsController::class, 'index'])
+                    ->name('seeding.manager.reports');
+                Route::get('/manager/reports/{reportId}/proof', [SeedingManagerReportsController::class, 'proof'])
+                    ->whereNumber('reportId')
+                    ->name('seeding.manager.reports.proof');
+                Route::post('/manager/reports/{reportId}/approve', [SeedingManagerReportsController::class, 'approve'])
+                    ->whereNumber('reportId')
+                    ->name('seeding.manager.reports.approve');
+
+                Route::get('/manager/social-accounts', [SeedingManagerSocialAccountsController::class, 'index'])
+                    ->name('seeding.manager.social-accounts.index');
+                Route::post('/manager/social-accounts', [SeedingManagerSocialAccountsController::class, 'store'])
+                    ->name('seeding.manager.social-accounts.store');
+                Route::put('/manager/social-accounts/{accountId}', [SeedingManagerSocialAccountsController::class, 'update'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.update');
+                Route::post('/manager/social-accounts/{accountId}/lock', [SeedingManagerSocialAccountsController::class, 'lock'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.lock');
+                Route::post('/manager/social-accounts/{accountId}/unlock', [SeedingManagerSocialAccountsController::class, 'unlock'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.unlock');
+                Route::delete('/manager/social-accounts/{accountId}', [SeedingManagerSocialAccountsController::class, 'destroy'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.destroy');
+                Route::post('/manager/social-accounts/{accountId}/copy-username', [SeedingManagerSocialAccountsController::class, 'copyUsername'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.copy-username');
+                Route::post('/manager/social-accounts/{accountId}/copy-password', [SeedingManagerSocialAccountsController::class, 'copyPassword'])
+                    ->whereNumber('accountId')
+                    ->name('seeding.manager.social-accounts.copy-password');
 
                 Route::get('/website-share', [WebsiteShareFeedController::class, 'index'])
                     ->name('seeding.website-share.index');

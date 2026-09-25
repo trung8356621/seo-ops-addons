@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto;
 
 /**
- * Site-level Topical Map overview (Topic nodes only — keyword leaves are lazy).
+ * Site-level Topical Map overview (Topic nodes + canonical DNA phrases for Network).
  *
  * @phpstan-type TopicTag array{id: int, name: string}
  * @phpstan-type TagFacet array{id: int, name: string, topic_count: int}
+ * @phpstan-type DnaRow array{phrase: string, weight: int}
  * @phpstan-type TopicNode array{
  *   id: int,
  *   name: string,
  *   mcp: float,
  *   dna_count: int,
+ *   dna: list<DnaRow>,
  *   article_count: int,
  *   keyword_count: int,
  *   coverage: string,

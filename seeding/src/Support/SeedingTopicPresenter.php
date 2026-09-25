@@ -172,4 +172,108 @@ final class SeedingTopicPresenter
             'created_at' => $report->created_at?->toIso8601String(),
         ];
     }
+
+    /**
+     * Manager inspection read-model — never exposes raw filesystem proof_path.
+     *
+     * @return array<string, mixed>
+     */
+    public static function managerReport(SeedingReport $report, ?string $assignmentTitle = null): array
+    {
+        $topic = $report->relationLoaded('topic') ? $report->topic : null;
+        $comment = (string) $report->comment_text;
+        $seedUrl = self::nullableTrim($report->seed_url);
+        $seedLinkId = self::nullableTrim($report->seed_link_id);
+        $hasProof = self::nullableTrim($report->proof_path) !== null
+            && str_starts_with((string) ($report->proof_mime ?? 'image/'), 'image/');
+
+        $proofMeta = is_array($report->proof_meta) ? $report->proof_meta : [];
+        $safeMeta = [];
+        foreach (['original_name', 'size', 'stored_at'] as $key) {
+            if (array_key_exists($key, $proofMeta) && $proofMeta[$key] !== null && $proofMeta[$key] !== '') {
+                $safeMeta[$key] = $proofMeta[$key];
+            }
+        }
+
+        $title = $topic instanceof SeedingTopic
+            ? self::nullableTrim($topic->title)
+            : null;
+        $preview = $topic instanceof SeedingTopic ? $topic->preview(80) : null;
+
+        return [
+            'id' => (int) $report->id,
+            'reported_at' => $report->reported_at?->toIso8601String(),
+            'reported_at_label' => $report->reported_at?->format('d/m/Y H:i') ?? '—',
+            'user_id' => (int) $report->user_id,
+            'user_display_name' => self::nullableTrim($report->user_display_name)
+                ?? ('#'.(int) $report->user_id),
+            'topic_id' => (int) $report->topic_id,
+            'topic_title' => $title,
+            'topic_preview' => $preview,
+            'social_platform' => $topic?->social_platform?->value,
+            'social_platform_label' => $topic?->social_platform?->label(),
+            'social_url' => $topic instanceof SeedingTopic
+                ? self::nullableTrim($topic->social_url)
+                : null,
+            'comment_text' => $comment,
+            'comment_excerpt' => self::excerpt($comment, 100),
+            'seed_link_id' => $seedLinkId,
+            'seed_url' => $seedUrl,
+            'seed_link_title' => self::nullableTrim($assignmentTitle),
+            'seed_link_label' => self::seedLinkLabel($assignmentTitle, $seedUrl, $seedLinkId),
+            'has_proof' => $hasProof,
+            'proof_mime' => self::nullableTrim($report->proof_mime),
+            'proof_meta' => $safeMeta !== [] ? $safeMeta : null,
+            'proof_url' => $hasProof
+                ? '/api/seeding/manager/reports/'.(int) $report->id.'/proof'
+                : null,
+            'is_approved' => $report->approved_at !== null,
+            'approval_status' => $report->approved_at !== null ? 'approved' : 'pending',
+            'approval_status_label' => $report->approved_at !== null ? 'Đã duyệt' : 'Chờ duyệt',
+            'approved_at' => $report->approved_at?->toIso8601String(),
+            'approved_at_label' => $report->approved_at?->format('d/m/Y H:i'),
+            'approved_by' => $report->approved_by !== null ? (int) $report->approved_by : null,
+        ];
+    }
+
+    private static function excerpt(string $text, int $max): string
+    {
+        $normalized = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        if ($normalized === '') {
+            return '—';
+        }
+        if (mb_strlen($normalized) <= $max) {
+            return $normalized;
+        }
+
+        return mb_substr($normalized, 0, $max).'…';
+    }
+
+    private static function seedLinkLabel(?string $assignmentTitle, ?string $seedUrl, ?string $seedLinkId): string
+    {
+        $title = self::nullableTrim($assignmentTitle);
+        if ($title !== null) {
+            return $title;
+        }
+        if ($seedUrl !== null) {
+            $host = parse_url($seedUrl, PHP_URL_HOST);
+            if (is_string($host) && $host !== '') {
+                return $host;
+            }
+
+            return self::excerpt($seedUrl, 40);
+        }
+
+        return $seedLinkId ?? '—';
+    }
+
+    private static function nullableTrim(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $text = trim((string) $value);
+
+        return $text === '' ? null : $text;
+    }
 }

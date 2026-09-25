@@ -178,19 +178,25 @@ final class TopicUiRestoreContractTest extends TestCase
             self::assertStringNotContainsString('KeywordClusterService', $src, basename($file));
             self::assertStringNotContainsString('seo_topic_cluster_meta', $src, basename($file));
             self::assertStringNotContainsString('seo_topic_cluster_aliases', $src, basename($file));
-            self::assertStringNotContainsString('TopicalMap', $src, basename($file));
+            // Allow Topics entrypoint URL helper + manual AI Audit trait; ban Topical Map runtime/read-model.
+            $scrubbed = str_replace([
+                'TopicalMapAppPage',
+                'getTopicalMapUrl',
+                'RunsTopicalMapAuditAndTags',
+            ], 'ALLOWED', $src);
+            self::assertStringNotContainsString('TopicalMap', $scrubbed, basename($file));
             self::assertStringNotContainsString('KeywordClusterQuery', $src, basename($file));
             self::assertStringNotContainsString('CreateManualTopicClusterService', $src, basename($file));
         }
     }
 
-    public function test_nav_exposes_topics_and_topical_map_tabs(): void
+    public function test_nav_exposes_topics_without_topical_map_tab(): void
     {
         $nav = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php');
         self::assertStringContainsString("'key' => 'clusters'", $nav);
         self::assertStringContainsString("getUrl('clusters')", $nav);
-        self::assertStringContainsString("'key' => 'topical-map'", $nav);
-        self::assertStringContainsString("getUrl('topical-map')", $nav);
+        self::assertStringNotContainsString("'key' => 'topical-map'", $nav);
+        self::assertStringNotContainsString("getUrl('topical-map')", $nav);
         $resource = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource.php');
         self::assertStringContainsString("getUrl('clusters')", $resource);
         self::assertStringContainsString('isKeywordsClustersNav', $resource);
@@ -203,6 +209,9 @@ final class TopicUiRestoreContractTest extends TestCase
         foreach ([
             'keyword-workspace-shell',
             'topic-index-section-heading',
+            'topic-index-section-heading__row',
+            'topic-index-section-heading__map-link',
+            'getTopicalMapUrl()',
             'topic-index-compact-stats',
             'topic-index-context',
             'topic-index-context-card',
@@ -237,7 +246,7 @@ final class TopicUiRestoreContractTest extends TestCase
             'keyword-item-table-cell',
             'fi-ta-actions-cell',
             'keyword-item-actions',
-            'CONTEXT_DICTIONARY',
+            'CONTEXT_CLUSTER',
             'keyword-detail-drawer',
             'saveTopicName',
             '@dblclick',
