@@ -113,6 +113,30 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         self::assertNotEquals($viRows, $enRows);
     }
 
+    public function test_dictionary_rows_and_all_inventory_counters_share_the_same_language_ids(): void
+    {
+        $dictionary = app(KeywordDictionaryQuery::class);
+        $inventory = app(KeywordUiInventoryQuery::class);
+        $assignmentStats = app(KeywordTopicAssignmentStats::class);
+
+        foreach ([['vi'], ['en']] as $variants) {
+            $visibleRowIds = $dictionary->keywordIds(self::SITE_A, $variants);
+            $counterInventoryIds = $inventory->keywordIds(self::SITE_A, $variants);
+            sort($visibleRowIds);
+            sort($counterInventoryIds);
+
+            $stats = $assignmentStats->forSite(self::SITE_A, $variants);
+
+            self::assertSame($visibleRowIds, $counterInventoryIds);
+            self::assertSame(count($visibleRowIds), $inventory->count(self::SITE_A, $variants));
+            self::assertSame(count($visibleRowIds), $stats['inventory_total']);
+            self::assertSame(
+                count($visibleRowIds),
+                $stats['assigned'] + $stats['unassigned'],
+            );
+        }
+    }
+
     public function test_null_language_variants_keep_site_wide_topic_count_contract(): void
     {
         $stats = app(KeywordTopicAssignmentStats::class)->forSite(self::SITE_A, null);
