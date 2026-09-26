@@ -247,7 +247,6 @@ final class SeoPanelRoutes
     {
         return self::check($route,
             'filament.seo.pages.performance-hub',
-            'filament.seo.pages.social',
         );
     }
 
@@ -256,9 +255,12 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.pages.performance-hub');
     }
 
+    /**
+     * @deprecated SEO Social Profiles page retired — social accounts live in Seeding.
+     */
     public static function isSocialNav(?string $route = null): bool
     {
-        return self::check($route, 'filament.seo.pages.social');
+        return false;
     }
 
     /**

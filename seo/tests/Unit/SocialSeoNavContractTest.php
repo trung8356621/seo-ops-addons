@@ -11,20 +11,23 @@ use ReflectionClass;
 
 final class SocialSeoNavContractTest extends TestCase
 {
-    public function test_seo_module_nav_includes_social_child(): void
+    public function test_seo_module_nav_no_longer_includes_social_profiles_page(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(SeoPerformanceHub::class))->getFileName()
         );
-        self::assertStringContainsString('SocialProfilesPage', $source);
-        self::assertStringContainsString('isSocialNav', $source);
+        self::assertStringNotContainsString('SocialProfilesPage', $source);
+        self::assertStringNotContainsString('isSocialNav', $source);
+        self::assertFileDoesNotExist(
+            dirname(__DIR__, 3).'/social/src/Filament/Pages/SocialProfilesPage.php'
+        );
     }
 
-    public function test_seo_module_route_helpers_include_social(): void
+    public function test_seo_module_route_helpers_exclude_retired_social_page(): void
     {
-        self::assertTrue(SeoPanelRoutes::isSocialNav('filament.seo.pages.social'));
-        self::assertTrue(SeoPanelRoutes::isSeoModule('filament.seo.pages.social'));
-        self::assertFalse(SeoPanelRoutes::isSeoPerformanceNav('filament.seo.pages.social'));
+        self::assertFalse(SeoPanelRoutes::isSocialNav('filament.seo.pages.social'));
+        self::assertFalse(SeoPanelRoutes::isSeoModule('filament.seo.pages.social'));
+        self::assertTrue(SeoPanelRoutes::isSeoModule('filament.seo.pages.performance-hub'));
         self::assertFalse(method_exists(SeoPanelRoutes::class, 'isMcpIntelligenceNav'));
     }
 
@@ -37,5 +40,6 @@ final class SocialSeoNavContractTest extends TestCase
         self::assertStringNotContainsString('IdeaCandidate', $builder);
         self::assertStringNotContainsString('VocabularySuggest', $builder);
         self::assertStringNotContainsString('DraftProject', $builder);
+        self::assertStringNotContainsString('SocialProfile', $builder);
     }
 }

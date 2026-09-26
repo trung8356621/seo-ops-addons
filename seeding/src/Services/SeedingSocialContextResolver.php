@@ -62,8 +62,8 @@ final class SeedingSocialContextResolver
             $raw = '';
         }
 
-        // 'manual', 'comment', 'share', 'topic' are UI/topic metadata, not source_type
-        if (in_array($raw, ['manual', 'comment', 'share', 'topic', 'seeding_v1', 'other'], true)) {
+        // 'manual', 'comment', 'share', 'topic', 'other' are UI/topic metadata, not source_type
+        if (in_array($raw, ['manual', 'comment', 'share', 'topic', 'other'], true)) {
             $raw = '';
         }
 

@@ -302,16 +302,6 @@
                                         >
                                             {{ __('seo-content-ai::filament.projects.archive_preview_item') }}
                                         </button>
-                                        <button
-                                            type="button"
-                                            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
-                                            x-on:click="
-                                                closeMenu();
-                                                $wire.mountAction('linkShare', { itemId: article.item_id, articleId: article.id });
-                                            "
-                                        >
-                                            {{ __('seo-content-ai::filament.projects.archive_preview_col_social') }}
-                                        </button>
                                     </div>
                                 </div>
                             </div>

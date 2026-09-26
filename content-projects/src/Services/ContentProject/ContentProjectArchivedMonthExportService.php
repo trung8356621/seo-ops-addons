@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchivedMonthExportAssembler;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchiveSocialExportRowExpander;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelHyperlinkHelper;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelSheetColumnAutoSizer;
@@ -14,7 +13,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\Arch
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDataLayoutMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDetailColumnRegistry;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDetailRowValueResolver;
-use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
 use App\Support\RuntimeLogger;
 use OpenSpout\Common\Entity\Row;
@@ -33,10 +31,8 @@ final class ContentProjectArchivedMonthExportService
     public function __construct(
         private readonly ContentProjectArchivedMonthlyWorkloadService $workload,
         private readonly ContentProjectArchivedMonthExportAssembler $assembler,
-        private readonly ArticleSocialLinkService $socialLinks,
         private readonly ContentProjectExcelTemplateSettingsService $templateSettings,
         private readonly ContentProjectArchivedMonthTemplateExportService $templateExport,
-        private readonly ContentProjectArchiveSocialExportRowExpander $socialRowExpander = new ContentProjectArchiveSocialExportRowExpander(),
     ) {}
 
     /**
@@ -114,7 +110,6 @@ final class ContentProjectArchivedMonthExportService
             $domainsBySiteId,
             $summarySheetName !== '' ? $summarySheetName : 'Summary',
         );
-        $assembled = $this->appendSocialEvidenceRows($assembled);
         $sqlSummary = $this->workload->summary($normalized);
 
         // Summary sheet uses the same SQL aggregation as the Archived Projects UI.
@@ -122,52 +117,6 @@ final class ContentProjectArchivedMonthExportService
         $assembled['by_writer'] = $sqlSummary['by_writer'];
         $assembled['month'] = $sqlSummary['month'] !== '' ? substr($sqlSummary['month'], 0, 7) : $normalized;
         $assembled['month_label'] = $sqlSummary['month_label'];
-
-        return $assembled;
-    }
-
-    /**
-     * @param  array<string, mixed>  $assembled
-     * @return array<string, mixed>
-     */
-    private function appendSocialEvidenceRows(array $assembled): array
-    {
-        $articleIds = [];
-
-        foreach ($assembled['writer_sheets'] ?? [] as $sheet) {
-            if (! is_array($sheet)) {
-                continue;
-            }
-
-            foreach ($sheet['rows'] ?? [] as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-
-                $articleId = (int) ($row['article_id'] ?? 0);
-                if ($articleId > 0) {
-                    $articleIds[$articleId] = $articleId;
-                }
-            }
-        }
-
-        if ($articleIds === []) {
-            return $assembled;
-        }
-
-        $linksByArticle = $this->socialLinks->linksGroupedByArticle(array_values($articleIds));
-
-        foreach ($assembled['writer_sheets'] as $index => $sheet) {
-            if (! is_array($sheet)) {
-                continue;
-            }
-
-            $rows = is_array($sheet['rows'] ?? null) ? $sheet['rows'] : [];
-            $assembled['writer_sheets'][$index]['rows'] = $this->socialRowExpander->expandWriterSheetRows(
-                $rows,
-                $linksByArticle,
-            );
-        }
 
         return $assembled;
     }

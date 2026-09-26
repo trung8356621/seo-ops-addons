@@ -92,13 +92,16 @@ final class SocialShareActionsTest extends TestCase
         self::assertStringNotContainsString('navigator.clipboard.writeText', $blade);
     }
 
-    public function test_social_profile_model_remains_for_future_automation(): void
+    public function test_legacy_social_profile_storage_is_retired(): void
     {
-        $source = (string) file_get_contents(
-            dirname(__DIR__, 2).'/src/Models/SocialProfile.php'
+        $root = dirname(__DIR__, 2);
+        self::assertFileDoesNotExist($root.'/src/Models/SocialProfile.php');
+        self::assertFileDoesNotExist($root.'/src/Support/SocialProfileReadService.php');
+        self::assertFileDoesNotExist($root.'/src/Filament/Pages/SocialProfilesPage.php');
+        self::assertFileDoesNotExist($root.'/src/Models/SeoArticleSocialLink.php');
+        self::assertFileDoesNotExist($root.'/src/Services/ArticleSocialLinkService.php');
+        self::assertFileExists(
+            $root.'/database/migrations/2026_09_26_170000_drop_legacy_seo_social_profiles_and_article_social_links.php'
         );
-        self::assertStringContainsString("protected \$table = 'seo_social_profiles'", $source);
-        self::assertStringContainsString('function scopeForSite', $source);
-        self::assertStringNotContainsString('browser_profile_id', $source);
     }
 }

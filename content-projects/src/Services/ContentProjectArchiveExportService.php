@@ -10,7 +10,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItem
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelHyperlinkHelper;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
-use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -61,13 +60,11 @@ final class ContentProjectArchiveExportService
         'primary_keyword' => 'Từ khóa chính',
         'seo_score' => 'SEO',
         'index_status' => 'Index',
-        'social_links_count' => 'Social',
         'reviewed_at' => 'Reviewed at',
     ];
 
     public function __construct(
         private readonly ContentProjectItemDomainResolver $domainResolver,
-        private readonly ArticleSocialLinkService $socialLinks,
         private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
     ) {}
 
@@ -182,21 +179,6 @@ final class ContentProjectArchiveExportService
             $headerStyle,
         ));
 
-        $articleIds = [];
-        foreach ($archive->items as $item) {
-            if (! $item instanceof SeoProjectArchiveItem) {
-                continue;
-            }
-            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
-            $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
-            if ($articleId > 0) {
-                $articleIds[$articleId] = $articleId;
-            }
-        }
-
-        $socialCounts = $this->socialLinks->countsForArticles(array_values($articleIds));
-        $socialLinksByArticle = $this->socialLinks->linksGroupedByArticle(array_values($articleIds));
-
         foreach ($archive->items as $item) {
             if (! $item instanceof SeoProjectArchiveItem) {
                 continue;
@@ -206,8 +188,6 @@ final class ContentProjectArchiveExportService
                 $this->resolveArticleData($item),
                 $item,
             );
-            $articleId = (int) ($item->article_id ?? ($data['article_id'] ?? 0));
-            $socialCount = (int) ($socialCounts[$articleId] ?? 0);
             $row = [];
 
             foreach (array_keys(self::ARTICLE_LIST_COLUMNS) as $column) {
@@ -228,12 +208,6 @@ final class ContentProjectArchiveExportService
                     continue;
                 }
 
-                if ($column === 'social_links_count') {
-                    $row[] = (string) $socialCount;
-
-                    continue;
-                }
-
                 if ($column === 'reviewed_at') {
                     $row[] = $this->formatReportDate(
                         $this->reviewedAtResolver->resolve($data, $item->article),
@@ -246,30 +220,6 @@ final class ContentProjectArchiveExportService
             }
 
             $writer->addRow(Row::fromValues(ExcelHyperlinkHelper::escapeRowPreservingFormulas($row)));
-
-            if ($articleId <= 0 || $socialCount <= 0) {
-                continue;
-            }
-
-            foreach ($socialLinksByArticle[$articleId] ?? [] as $link) {
-                $url = trim((string) ($link['url'] ?? ''));
-                $domain = trim((string) ($link['domain'] ?? ''));
-                if ($url === '') {
-                    continue;
-                }
-
-                $label = '↳ '.($domain !== '' ? $domain.' — ' : '').$url;
-                $childRow = [
-                    '',
-                    ExcelHyperlinkHelper::formula($url, $label),
-                    '',
-                    '',
-                    '',
-                    '',
-                    (string) ($link['recorded_at'] ?? ''),
-                ];
-                $writer->addRow(Row::fromValues(ExcelHyperlinkHelper::escapeRowPreservingFormulas($childRow)));
-            }
         }
     }
 
@@ -280,7 +230,7 @@ final class ContentProjectArchiveExportService
     private function buildOverviewRows(SeoProjectArchive $archive, array $domainBySiteId): array
     {
         $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
-        [$indexedCount, $notIndexedCount, $totalSocialLinks] = $this->aggregateReportingCounts($archive);
+        [$indexedCount, $notIndexedCount] = $this->aggregateReportingCounts($archive);
 
         $month = $this->firstNonEmpty([
             $archive->project_month,
@@ -319,7 +269,6 @@ final class ContentProjectArchiveExportService
             ])],
             ['Đã index', $indexedCount],
             ['Chưa index', $notIndexedCount],
-            ['Tổng Social links', $totalSocialLinks],
             ['Lưu trữ lúc', $this->formatDateTime($this->firstNonEmpty([
                 $archive->archived_at,
                 $summary['archived_at'] ?? null,
@@ -333,13 +282,12 @@ final class ContentProjectArchiveExportService
     }
 
     /**
-     * @return array{0: int, 1: int, 2: int}
+     * @return array{0: int, 1: int}
      */
     private function aggregateReportingCounts(SeoProjectArchive $archive): array
     {
         $indexedCount = 0;
         $notIndexedCount = 0;
-        $articleIds = [];
 
         foreach ($archive->items as $item) {
             if (! $item instanceof SeoProjectArchiveItem) {
@@ -356,18 +304,9 @@ final class ContentProjectArchiveExportService
             } else {
                 $notIndexedCount++;
             }
-
-            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
-            $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
-            if ($articleId > 0) {
-                $articleIds[$articleId] = $articleId;
-            }
         }
 
-        $socialCounts = $this->socialLinks->countsForArticles(array_values($articleIds));
-        $totalSocialLinks = array_sum($socialCounts);
-
-        return [$indexedCount, $notIndexedCount, $totalSocialLinks];
+        return [$indexedCount, $notIndexedCount];
     }
 
     /**

@@ -153,12 +153,14 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
 
     public function test_presenter_does_not_fabricate_wordpress_url_from_slug(): void
     {
-        $source = (string) file_get_contents((new ReflectionClass(ArchivePreviewArticlePresenter::class))->getFileName());
+        $presenterSource = (string) file_get_contents((new ReflectionClass(ArchivePreviewArticlePresenter::class))->getFileName());
+        $resolverSource = (string) file_get_contents(
+            dirname((new ReflectionClass(ArchivePreviewArticlePresenter::class))->getFileName()).'/ArchiveArticleHistoricalFieldResolver.php'
+        );
 
-        self::assertStringContainsString('wp_permalink', $source);
-        self::assertStringContainsString('isPublicHttpUrl', $source);
-        self::assertStringNotContainsString('WordPressPermalinkBuilder', $source);
-        self::assertStringNotContainsString('baseUrl', $source);
+        self::assertStringContainsString('ArchiveArticleHistoricalFieldResolver', $presenterSource);
+        self::assertStringContainsString('wp_permalink', $resolverSource);
+        self::assertStringContainsString('firstPublicHttpUrl', $resolverSource);
     }
 
     public function test_presenter_reads_live_article_index_timestamps(): void
@@ -194,14 +196,15 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
         self::assertSame('08/08/2026', $row['previous_indexed_at_label']);
     }
 
-    public function test_export_includes_indexed_columns_and_formats_null_blank(): void
+    public function test_export_includes_index_status_column(): void
     {
         $ref = new ReflectionClass(ContentProjectArchiveExportService::class);
         $source = (string) file_get_contents((string) $ref->getFileName());
 
-        self::assertStringContainsString("'indexed_at' => 'Index gần nhất'", $source);
-        self::assertStringContainsString("'previous_indexed_at' => 'Index lần trước'", $source);
+        self::assertStringContainsString("'index_status' => 'Index'", $source);
         self::assertStringContainsString('overlayManualIndexFields', $source);
+        self::assertStringNotContainsString('social_links_count', $source);
+        self::assertStringNotContainsString('ArticleSocialLinkService', $source);
 
         $stringify = new ReflectionMethod(ContentProjectArchiveExportService::class, 'stringifyCellValue');
         $stringify->setAccessible(true);

@@ -1,7 +1,7 @@
 {
     "version": 1,
     "note": "Migrations relocated into peer addon folders. Laravel migration history uses basename only. No duplicate basenames; no rename compatibility map required.",
-    "total_addon_migrations": 164,
+    "total_addon_migrations": 166,
     "renamed_basenames": [],
     "duplicate_basenames": [],
     "missing_connection_property": [
@@ -1006,6 +1006,18 @@
         {
             "basename": "2026_09_26_160000_drop_monthly_mcp_snapshot_tables.php",
             "path": "addons/seo/database/migrations/2026_09_26_160000_drop_monthly_mcp_snapshot_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_09_26_170000_drop_legacy_seo_social_profiles_and_article_social_links.php",
+            "path": "addons/social/database/migrations/2026_09_26_170000_drop_legacy_seo_social_profiles_and_article_social_links.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_09_26_170100_normalize_seeding_v1_source_type_to_other.php",
+            "path": "addons/seeding/database/migrations/2026_09_26_170100_normalize_seeding_v1_source_type_to_other.php",
             "has_connection_property": true,
             "compatibility": "basename_preserved"
         }

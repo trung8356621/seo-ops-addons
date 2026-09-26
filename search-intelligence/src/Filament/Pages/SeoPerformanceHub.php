@@ -247,8 +247,9 @@ final class SeoPerformanceHub extends SeoPanelPage
     }
 
     /**
-     * WordPress-style module: SEO â†’ Performance / Social.
-     * Seeding is a peer addon â€” top-level nav owned by SeedingServiceProvider.
+     * WordPress-style module: SEO ? Performance.
+     * Seeding owns social accounts/reports; SEO Social Profiles are retired.
+     * Seeding is a peer addon — top-level nav owned by SeedingServiceProvider.
      *
      * @return array<int, \Filament\Navigation\NavigationItem>
      */
@@ -264,15 +265,6 @@ final class SeoPerformanceHub extends SeoPanelPage
                 ->url(static::getUrl())
                 ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSeoPerformanceNav()),
         ];
-
-        if (\Omnichannel\Addons\Social\Filament\Pages\SocialProfilesPage::canAccess()) {
-            $children[] = \Filament\Navigation\NavigationItem::make(
-                \Omnichannel\Addons\Social\Filament\Pages\SocialProfilesPage::getNavigationLabel()
-            )
-                ->parentItem($parentLabel)
-                ->url(\Omnichannel\Addons\Social\Filament\Pages\SocialProfilesPage::getUrl())
-                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSocialNav());
-        }
 
         return [
             \Filament\Navigation\NavigationItem::make($parentLabel)
@@ -460,7 +452,7 @@ final class SeoPerformanceHub extends SeoPanelPage
     }
 
     /**
-     * Deterministic Social Top 10 from selected-month GSC context â€” no AI.
+     * Deterministic Social Top 10 from selected-month GSC context — no AI.
      *
      * @param  array<string, mixed>  $gscPayload
      * @return array{items: list<array<string, mixed>>, unmapped_pages: int, period_key: string, excluded_no_page: int}

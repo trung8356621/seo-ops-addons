@@ -133,7 +133,6 @@
                         <th class="min-w-[16rem] w-[40%] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_title') }}</th>
                         <th class="w-20 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_avg_seo') }}</th>
                         <th class="min-w-[9rem] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_index') }}</th>
-                        <th class="w-24 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_social') }}</th>
                         <th class="w-24 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400"></th>
                     </tr>
                 </thead>
@@ -244,24 +243,6 @@
                                     @endif
                                 </div>
                             </td>
-                            <td class="px-3 py-2.5">
-                                @php
-                                    $articleId = (int) ($row['article_id'] ?? 0);
-                                    $socialCount = (int) ($row['social_links_count'] ?? 0);
-                                    $socialLabel = $socialCount > 0
-                                        ? __('seo-content-ai::filament.projects.archive_preview_social_count_value', ['count' => $socialCount])
-                                        : __('seo-content-ai::filament.projects.archive_preview_social_count_zero');
-                                @endphp
-                                <x-filament::button
-                                    color="gray"
-                                    size="sm"
-                                    tag="button"
-                                    type="button"
-                                    wire:click="mountAction('linkShare', { itemId: {{ $itemId }}, articleId: {{ $articleId }} })"
-                                >
-                                    {{ $socialLabel }}
-                                </x-filament::button>
-                            </td>
                             <td class="whitespace-nowrap px-3 py-2.5 text-right">
                                 <x-filament::button
                                     color="gray"
@@ -276,7 +257,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                            <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                                 {{ __('seo-content-ai::filament.projects.archive_preview_empty') }}
                             </td>
                         </tr>

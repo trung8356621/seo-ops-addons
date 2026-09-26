@@ -263,7 +263,9 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('labelForItem', $src);
         self::assertStringContainsString('resolveItemDomainsOverview', $src);
         self::assertStringContainsString('unresolved_item_site_id_count', $src);
-        self::assertStringContainsString('linksGroupedByArticle', $src);
+        self::assertStringNotContainsString('linksGroupedByArticle', $src);
+        self::assertStringNotContainsString('ArticleSocialLinkService', $src);
+        self::assertStringNotContainsString('social_links_count', $src);
         self::assertStringNotContainsString('$archive->site?->domain', $src);
     }
 

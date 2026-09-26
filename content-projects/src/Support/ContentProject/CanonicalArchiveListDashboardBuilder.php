@@ -75,7 +75,6 @@ final class CanonicalArchiveListDashboardBuilder
                 'has_public_wordpress_url' => (bool) ($row['has_public_wordpress_url'] ?? false),
                 'check_index_url' => $row['check_index_url'] ?? null,
                 'indexed_at_label' => $row['indexed_at_label'] ?? null,
-                'social_links_count' => (int) ($row['social_links_count'] ?? 0),
                 'seo_score' => $row['seo_score'] ?? null,
                 'article_exists' => (bool) ($row['article_exists'] ?? false),
                 'can_edit' => (bool) ($row['can_edit'] ?? false),

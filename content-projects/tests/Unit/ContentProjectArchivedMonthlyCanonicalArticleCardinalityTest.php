@@ -13,7 +13,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArc
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchivedMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskSourceKeyGenerator;
-use Omnichannel\Addons\Social\Models\SeoArticleSocialLink;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Schema;
 use ReflectionClass;
@@ -151,64 +150,6 @@ final class ContentProjectArchivedMonthlyCanonicalArticleCardinalityTest extends
             ->whereNull('archived_at')
             ->count();
         self::assertSame(3, $liveTaskCount, 'fixture still has 3 live tasks including duplicate');
-    }
-
-    public function test_social_child_rows_do_not_inflate_article_count(): void
-    {
-        $fixture = $this->seedArchivedProjectWithDuplicateArticleTask();
-
-        if (! Schema::connection('omi_seo_ai')->hasTable('seo_article_social_links')) {
-            $this->markTestSkipped('Missing seo_article_social_links');
-        }
-
-        $socialUrl = 'https://facebook.com/posts/canonical-cardinality-'.$fixture['archive_id'];
-        SeoArticleSocialLink::query()->create([
-            'article_id' => $fixture['article_b'],
-            'site_id' => $fixture['site_id'],
-            'url' => $socialUrl,
-            'url_hash' => hash('sha256', $socialUrl),
-            'domain' => 'facebook.com',
-            'source' => 'manual',
-            'recorded_at' => now(),
-            'created_by' => 1,
-        ]);
-
-        $payload = app(ContentProjectArchivedMonthExportService::class)->buildPayload('2026-07');
-
-        $articleRows = 0;
-        $socialRows = 0;
-        $seenArticleB = 0;
-        foreach ($payload['writer_sheets'] as $sheet) {
-            if ((int) ($sheet['user_id'] ?? 0) !== $fixture['writer_id']) {
-                continue;
-            }
-            foreach ($sheet['rows'] as $row) {
-                if (($row['row_kind'] ?? '') === 'social') {
-                    if (str_contains((string) ($row['hyperlink_url'] ?? ''), (string) $fixture['archive_id'])) {
-                        $socialRows++;
-                    }
-
-                    continue;
-                }
-                if ((string) ($row['project'] ?? '') !== $fixture['project_name']) {
-                    continue;
-                }
-                $articleRows++;
-                if ((int) ($row['article_id'] ?? 0) === $fixture['article_b']) {
-                    $seenArticleB++;
-                }
-            }
-        }
-
-        self::assertSame(2, $articleRows);
-        self::assertSame(1, $seenArticleB);
-        self::assertSame(1, $socialRows);
-
-        $projectArticleCount = count(array_filter(
-            app(ContentProjectArchivedMonthlyWorkloadService::class)->itemRows('2026-07'),
-            static fn (array $row): bool => (string) ($row['project_name'] ?? '') === $fixture['project_name'],
-        ));
-        self::assertSame(2, $projectArticleCount);
     }
 
     public function test_null_article_id_duplicate_task_does_not_create_phantom_row(): void
