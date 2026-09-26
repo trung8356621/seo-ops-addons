@@ -17,7 +17,7 @@ final class GscContextSource
     private array $cache = [];
 
     public function __construct(
-        private readonly GscContextGateway $gateway,
+        private readonly GscContextLoader $gateway,
     ) {}
 
     public function load(int $siteId, string $periodKey): GscContext

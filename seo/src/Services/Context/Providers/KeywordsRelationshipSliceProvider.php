@@ -11,8 +11,15 @@ use Omnichannel\Addons\Seo\Services\Context\Slice\ContextSliceKey;
 use Omnichannel\Addons\Seo\Services\Context\Slice\ContextSliceRequest;
 use Omnichannel\Addons\Seo\Services\Context\Slice\ContextView;
 use Omnichannel\Addons\Seo\Services\Context\Slice\Contracts\ContextSliceProvider;
+use Omnichannel\Addons\Seo\Services\Context\Support\KeywordRelationshipSectionFilter;
 use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGateway;
 
+/**
+ * One Context slice for keyword relationship.
+ *
+ * Sections are projected after the gateway returns a single DTO — the read model
+ * loads the graph once; independent Context slices would not avoid substantial work.
+ */
 final class KeywordsRelationshipSliceProvider implements ContextSliceProvider
 {
     public function __construct(
@@ -28,7 +35,7 @@ final class KeywordsRelationshipSliceProvider implements ContextSliceProvider
             views: [ContextView::Summary->value, ContextView::Standard->value, ContextView::Detail->value],
             defaultView: ContextView::Standard->value,
             requiredParameters: ['keyword_ref'],
-            optionalParameters: ['keyword_id'],
+            optionalParameters: ['keyword_id', 'sections'],
         );
     }
 
@@ -78,6 +85,8 @@ final class KeywordsRelationshipSliceProvider implements ContextSliceProvider
             ],
             ContextView::Detail => $full,
         };
+
+        $data = KeywordRelationshipSectionFilter::apply($data, $request->sections());
 
         return ContextSlice::make(
             ContextSliceKey::KEYWORDS_RELATIONSHIP,

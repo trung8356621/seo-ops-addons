@@ -57,6 +57,16 @@ final class SeoServiceProvider extends ServiceProvider
                 ]);
             },
         );
+        $this->app->scoped(
+            \Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterRegistry::class,
+            static function ($app): \Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterRegistry {
+                return \Omnichannel\Addons\Seo\Services\Mcp\Catalog\SeoMcpRouterCatalog::build(
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry::class),
+                );
+            },
+        );
+        $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterReader::class);
+        $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Manifest\McpManifestMarkdownPresenter::class);
     }
 
     public function boot(): void

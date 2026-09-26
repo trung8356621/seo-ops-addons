@@ -15,7 +15,7 @@ use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
  *
  * Monthly MCP source `gsc` / schema `gsc.mcp.v1` must consume this gateway.
  */
-final class GscContextGateway
+final class GscContextGateway implements GscContextLoader
 {
     public const SCHEMA = GscContext::SCHEMA;
 

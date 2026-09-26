@@ -67,4 +67,32 @@ final class ContextSliceRequest
 
         return $input;
     }
+
+    /**
+     * Optional allowlisted section filter (keywords.relationship).
+     * Null means "all sections allowed by the current view".
+     *
+     * @return list<string>|null
+     */
+    public function sections(): ?array
+    {
+        if (! array_key_exists('sections', $this->parameters)) {
+            return null;
+        }
+
+        $raw = $this->parameters['sections'];
+        if (! is_array($raw)) {
+            throw new \InvalidArgumentException('sections must be a list of strings.');
+        }
+
+        $out = [];
+        foreach ($raw as $item) {
+            if (! is_string($item) || trim($item) === '') {
+                throw new \InvalidArgumentException('sections must be a list of strings.');
+            }
+            $out[] = trim($item);
+        }
+
+        return array_values(array_unique($out));
+    }
 }
