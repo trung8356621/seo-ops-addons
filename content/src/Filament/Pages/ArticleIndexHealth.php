@@ -202,7 +202,7 @@ final class ArticleIndexHealth extends SeoPanelPage
     {
         $article = SeoArticle::query()->find($articleId);
         if (! $article instanceof SeoArticle || ! SeoAccessControl::canAccessArticle($article)) {
-            Notification::make()->danger()->title('Access denied')->send();
+            Notification::make()->danger()->title(__('Access denied'))->send();
 
             return;
         }
@@ -352,7 +352,7 @@ final class ArticleIndexHealth extends SeoPanelPage
     {
         $article = SeoArticle::query()->find($articleId);
         if (! $article instanceof SeoArticle || ! SeoAccessControl::canAccessArticle($article)) {
-            Notification::make()->danger()->title('Access denied')->send();
+            Notification::make()->danger()->title(__('Access denied'))->send();
 
             return;
         }

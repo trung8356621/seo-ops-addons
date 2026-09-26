@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { Link2, Plus } from 'lucide-react';
 
@@ -24,10 +25,10 @@ export default function FeedToolbar({
     onOpenLinkPool,
 }) {
     const tabs = [
-        { id: 'all', label: 'Tất cả', count: counts.all ?? 0 },
-        { id: 'draft', label: 'Mới', count: counts.draft ?? 0 },
-        { id: 'recent', label: 'Đã dùng gần đây', count: counts.recent ?? 0 },
-        { id: 'archived', label: 'Lưu trữ', count: counts.archived ?? 0 },
+        { id: 'all', label: auditT('audit_f7a578dcbdca'), count: counts.all ?? 0 },
+        { id: 'draft', label: auditT('audit_c2649c279276'), count: counts.draft ?? 0 },
+        { id: 'recent', label: auditT('audit_0e22e76cb248'), count: counts.recent ?? 0 },
+        { id: 'archived', label: auditT('audit_2298008b28ed'), count: counts.archived ?? 0 },
     ];
 
     return (
@@ -73,7 +74,7 @@ export default function FeedToolbar({
                 <input
                     value={search}
                     onChange={(e) => onSearch(e.target.value)}
-                    placeholder="Tìm kiếm chủ đề..."
+                    placeholder={auditT('audit_fc475f2d96dc')}
                 />
             </div>
         </div>

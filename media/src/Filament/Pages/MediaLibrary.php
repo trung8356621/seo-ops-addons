@@ -33,9 +33,9 @@ class MediaLibrary extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
-    protected static ?string $navigationLabel = 'Media library';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Media library';
+    protected static ?string $title = null;
 
     protected static ?string $navigationGroup = null;
 
@@ -737,13 +737,16 @@ class MediaLibrary extends Page
         if ($successCount > 0 && $failedLabels === []) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.media_runtime.resize_complete'))
-                ->body("{$successCount} images were updated.")
+                ->body(__('media::filament.media_runtime.resize_complete_body', ['count' => $successCount]))
                 ->success()
                 ->send();
         } elseif ($successCount > 0) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.media_runtime.resize_partial'))
-                ->body("Success: {$successCount}. Failed: ".implode(', ', array_slice($failedLabels, 0, 5)))
+                ->body(__('media::filament.media_runtime.resize_partial_body', [
+                    'success' => $successCount,
+                    'failed' => implode(', ', array_slice($failedLabels, 0, 5)),
+                ]))
                 ->warning()
                 ->send();
         } else {

@@ -72,8 +72,8 @@
                     <button
                         type="button"
                         class="underline"
-                        @click="window.alert(@js('Chi tiết: '.trim((string) ($row['last_publish_error_message'] ?? $row['last_publish_error'] ?? $row['publish_operation_key'] ?? 'Không có thêm thông tin.'))))"
-                    >Xem chi tiết</button>
+                        @click="window.alert(@js(__('Details: :detail', ['detail' => trim((string) ($row['last_publish_error_message'] ?? $row['last_publish_error'] ?? $row['publish_operation_key'] ?? __('No additional information.')))])))"
+                    >{{ __('View details') }}</button>
                 @endif
             </div>
         </div>
@@ -87,7 +87,7 @@
             @click="toggle()"
             :aria-expanded="open.toString()"
             aria-haspopup="menu"
-            aria-label="Thao tác bài"
+            aria-label="{{ __('Post manipulation') }}"
             @disabled($disabled)
         >
             <x-filament::icon icon="heroicon-o-ellipsis-vertical" class="h-4 w-4" />
@@ -114,9 +114,9 @@
                     <p class="cp-ops-menu__note">{{ __('seo-content-ai::filament.projects.publishing_queue_pending_updating') }}</p>
                 @else
                     @if (! empty($a['immediate_disabled']))
-                        <p class="cp-ops-menu__note">{{ $a['immediate_disabled_reason'] ?? 'Bài đang được xuất bản.' }}</p>
+                        <p class="cp-ops-menu__note">{{ $a['immediate_disabled_reason'] ?? __('Article is being published.') }}</p>
                     @elseif (! empty($a['publish_now']))
-                        <button role="menuitem" type="button" wire:click="publishOneNow({{ $tid }})" wire:confirm="Xuất bản ngay?" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })" class="{{ $itemClass }}">
+                        <button role="menuitem" type="button" wire:click="publishOneNow({{ $tid }})" wire:confirm="__('Publish now?')" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })" class="{{ $itemClass }}">
                             <x-filament::icon icon="heroicon-o-globe-alt" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Xuất bản ngay</span>
                         </button>
@@ -130,7 +130,7 @@
                     @if (! empty($a['has_schedule_group']))
                         <button type="button" class="{{ $itemClass }}" @click="scheduleOpen = !scheduleOpen; $nextTick(() => reposition())">
                             <x-filament::icon icon="heroicon-o-calendar-days" class="cp-ops-menu__icon" />
-                            <span class="cp-ops-menu__label">{{ ! empty($a['unschedule']) || ($a['state'] ?? '') === 'scheduled' ? 'Đổi lịch' : 'Lịch xuất bản' }}</span>
+                            <span class="cp-ops-menu__label">{{ ! empty($a['unschedule']) || ($a['state'] ?? '') === 'scheduled' ? __('Reschedule') : __('Publishing schedule') }}</span>
                         </button>
                         <div x-show="scheduleOpen" x-cloak class="border-t border-gray-100 py-1 dark:border-gray-800">
                             <p class="cp-ops-menu__note">Timezone: {{ $tz }}</p>
@@ -147,7 +147,7 @@
                     @endif
 
                     @if (! empty($a['cancel_pending_delivery']))
-                        <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Hủy yêu cầu đang chờ?" @click="open = false" class="{{ $dangerClass }}">
+                        <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="__('Cancel a pending request?')" @click="open = false" class="{{ $dangerClass }}">
                             <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Hủy yêu cầu đang chờ</span>
                         </button>
@@ -157,7 +157,7 @@
                         <button
                             role="menuitem"
                             type="button"
-                            @click="open = false; window.alert(@js(\Illuminate\Support\Str::limit((string) ($row['last_publish_error_message'] ?? $row['last_publish_error'] ?? 'Không có chi tiết lỗi'), 400)))"
+                            @click="open = false; window.alert(@js(\Illuminate\Support\Str::limit((string) ($row['last_publish_error_message'] ?? $row['last_publish_error'] ?? __('No error details.')), 400)))"
                             class="{{ $itemClass }}"
                         >
                             <x-filament::icon icon="heroicon-o-exclamation-triangle" class="cp-ops-menu__icon" />
@@ -166,14 +166,14 @@
                     @endif
 
                     @if (! empty($a['remove_from_queue']))
-                        <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Bỏ bài khỏi Publishing Queue?" @click="open = false" class="{{ $dangerClass }}">
+                        <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="__('Remove posts from Publishing Queue?')" @click="open = false" class="{{ $dangerClass }}">
                             <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Bỏ khỏi Publishing Queue</span>
                         </button>
                     @endif
 
                     @if (! empty($a['return_to_content_project']))
-                        <button role="menuitem" type="button" wire:click="returnOne({{ $tid }})" wire:confirm="Trả về Content Project? Bài trên WordPress (nếu đã xuất bản) không bị gỡ." @click="open = false" class="{{ $itemClass }}">
+                        <button role="menuitem" type="button" wire:click="returnOne({{ $tid }})" wire:confirm="__('Return Content Project? Posts on WordPress (if published) will not be removed.')" @click="open = false" class="{{ $itemClass }}">
                             <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Trả về Content Project</span>
                         </button>
@@ -184,7 +184,7 @@
                             role="menuitem"
                             type="button"
                             wire:click="forceRecoverOne({{ $tid }})"
-                            wire:confirm="Dừng xuất bản và khôi phục bài này?"
+                            wire:confirm="__('Stop publishing and restore this article?')"
                             @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })"
                             class="{{ $dangerClass }}"
                         >
@@ -197,7 +197,7 @@
                         <button
                             role="menuitem"
                             type="button"
-                            @click="open = false; window.alert(@js('Chi tiết kỹ thuật: '.trim((string) ($row['publish_operation_key'] ?? $row['last_publish_error'] ?? 'Không có thêm thông tin.'))))"
+                            @click="open = false; window.alert(@js(__('Technical details: :detail', ['detail' => trim((string) ($row['publish_operation_key'] ?? $row['last_publish_error'] ?? __('No additional information.')))])))"
                             class="{{ $itemClass }}"
                         >
                             <x-filament::icon icon="heroicon-o-information-circle" class="cp-ops-menu__icon" />
@@ -231,7 +231,7 @@
                         <button
                             role="menuitem"
                             type="button"
-                            @click="open = false; window.alert(@js('Lịch sử đồng bộ: '.trim((string) ($row['last_post_publish_sync_operation_id'] ?? $row['publish_operation_key'] ?? 'Không có operation gần đây.'))))"
+                            @click="open = false; window.alert(@js(__('Sync history: :detail', ['detail' => trim((string) ($row['last_post_publish_sync_operation_id'] ?? $row['publish_operation_key'] ?? __('No recent operation.')))])))"
                             class="{{ $itemClass }}"
                         >
                             <x-filament::icon icon="heroicon-o-clock" class="cp-ops-menu__icon" />

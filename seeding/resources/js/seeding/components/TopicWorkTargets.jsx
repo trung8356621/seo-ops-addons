@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useMemo } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { deriveTopicSocialTarget } from '../features/workspace/selectors';
@@ -38,7 +39,7 @@ export default function TopicWorkTargets({ topic }) {
                         target="_blank"
                         rel="noreferrer"
                         title={social.url}
-                        aria-label="Mở social target"
+                        aria-label={auditT('audit_3e9855fa8a13')}
                     >
                         <ExternalLink size={14} />
                     </a>

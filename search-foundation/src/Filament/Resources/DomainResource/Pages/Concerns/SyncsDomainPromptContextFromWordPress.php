@@ -38,7 +38,7 @@ trait SyncsDomainPromptContextFromWordPress
                     ->title((string) ($result['message'] ?? 'Đã đồng bộ Tiêu đề website từ WordPress.'));
 
                 if (($result['was_clamped'] ?? false) === true) {
-                    $notification->body('Giá trị đã được rút gọn xuống 80 ký tự.');
+                    $notification->body(__('The value has been reduced to 80 characters.'));
                 }
 
                 $notification->success()->send();
@@ -55,7 +55,7 @@ trait SyncsDomainPromptContextFromWordPress
             ]);
 
             Notification::make()
-                ->title('Không thể đọc thông tin website từ WordPress.')
+                ->title(__('Unable to read website information from WordPress.'))
                 ->danger()
                 ->send();
         } finally {
@@ -97,7 +97,7 @@ trait SyncsDomainPromptContextFromWordPress
             ]);
 
             Notification::make()
-                ->title('Không thể đọc thông tin website từ WordPress.')
+                ->title(__('Unable to read website information from WordPress.'))
                 ->danger()
                 ->send();
         } finally {

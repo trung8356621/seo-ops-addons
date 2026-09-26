@@ -69,11 +69,8 @@ class SeoProjectResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Projects';
 
-    protected static ?string $modelLabel = 'Content project';
 
-    protected static ?string $pluralModelLabel = 'Content projects';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROJECTS;
 
@@ -554,7 +551,7 @@ class SeoProjectResource extends SeoPanelResource
                             ->form([
                                 Forms\Components\Textarea::make('keywords_text')
                                     ->label(__('seo-content-ai::filament.projects.keywords'))
-                                    ->placeholder("non-woven bags\nhow to sew fabric bags\n- canvas bags")
+                                    ->placeholder(__("non-woven bags\nhow to sew fabric bags\n- canvas bags"))
                                     ->rows(12)
                                     ->required(),
                             ])

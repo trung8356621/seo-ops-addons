@@ -72,7 +72,7 @@ final class ViewArticlePrompts extends Page
     {
         $title = trim((string) ($this->articleRecord?->title ?? 'Bài viết'));
 
-        return __('seo-content-ai::filament.article_ai_history.page_title').' — '.$title;
+        return sprintf('%s — %s', __('seo-content-ai::filament.article_ai_history.page_title'), $title);
     }
 
     public function getMaxContentWidth(): MaxWidth|string|null
@@ -314,9 +314,11 @@ final class ViewArticlePrompts extends Page
         if (! $result->success && $result->code === 'requires_dirty_confirm') {
             $this->pendingConfirmRef = $artifactRef;
             $this->pendingConfirmAction = $target === 'outline' ? 'apply_outline' : 'apply_content';
+            $hint = __('seo-content-ai::filament.article_ai_history.dirty_confirm_hint');
+            $message = trim((string) ($result->message ?? ''));
             Notification::make()
                 ->title(__('seo-content-ai::filament.article_ai_history.dirty_confirm_title'))
-                ->body($result->message.' '.__('seo-content-ai::filament.article_ai_history.dirty_confirm_hint'))
+                ->body($message !== '' ? ($message.' '.$hint) : $hint)
                 ->warning()
                 ->send();
 

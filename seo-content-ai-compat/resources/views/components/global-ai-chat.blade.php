@@ -120,7 +120,7 @@
             if (! url || /\/seo\/?(\?|$)/.test(url)) {
                 const message = this.agentWorkspaceError
                     || this.workspaceChatI18n.agent_missing_site
-                    || 'Vui lòng chọn website trước khi mở Agent Workspace.';
+                    || @js(__('Please select a website before opening Agent Workspace.'));
                 window.alert(message);
                 return;
             }
@@ -478,13 +478,13 @@
                 return;
             }
 
-            const name = String(item.user_name || this.workspaceChatI18n.unknown_sender || 'Thành viên');
+            const name = String(item.user_name || this.workspaceChatI18n.unknown_sender || @js(__('Member')));
             let body = String(item.message || '').trim();
             if (body === '' && item.attachment_name) {
                 body = '📎 ' + String(item.attachment_name);
             }
             if (body === '') {
-                body = String(this.workspaceChatI18n.browser_fallback_body || 'Tin nhắn mới');
+                body = String(this.workspaceChatI18n.browser_fallback_body || @js(__('New message')));
             }
 
             try {
@@ -571,7 +571,7 @@
                 });
                 const data = await response.json();
                 if (! response.ok) {
-                    throw new Error(data.message || 'Không gửi được tin nhắn.');
+                    throw new Error(data.message || @js(__('Unable to send message.')));
                 }
 
                 if (data.message) {
@@ -584,7 +584,7 @@
                 if (pendingFile) {
                     this.setTeamFile(pendingFile);
                 }
-                window.alert(error.message || 'Không gửi được tin nhắn nhóm.');
+                window.alert(error.message || @js(__('Unable to send group messages.')));
             } finally {
                 this.teamSending = false;
                 this.$nextTick(() => this.$refs.messageInput?.focus());
@@ -642,7 +642,7 @@
                 );
 
             if (allowed.length > 0 && ! extensionOk) {
-                window.alert('Loại tệp không được phép.');
+                window.alert(@js(__('File type not allowed.')));
                 return false;
             }
 
@@ -729,7 +729,7 @@
             }
 
             this.attachmentLightboxUrl = String(url);
-            this.attachmentLightboxName = String(name || 'Ảnh đính kèm');
+            this.attachmentLightboxName = String(name || @js(__('Attached photo')));
             this.attachmentLightboxOpen = true;
         },
 
@@ -786,7 +786,7 @@
                 this.saveDrawSnapshot();
             };
             image.onerror = () => {
-                window.alert('Không tải được ảnh để chỉnh sửa.');
+                window.alert(@js(__('Unable to download photos for editing.')));
                 this.closeImageEditor();
             };
             image.src = sourceUrl;
@@ -924,7 +924,7 @@
 
             merged.toBlob((blob) => {
                 if (! blob) {
-                    window.alert('Không lưu được ảnh đã vẽ.');
+                    window.alert(@js(__('Unable to save drawn image.')));
                     return;
                 }
 
@@ -1014,7 +1014,7 @@
         async resolveLibraryImageUrl(payload) {
             const directUrl = String(payload?.url || '').trim();
             if (directUrl === '') {
-                throw new Error('Ảnh không có URL.');
+                throw new Error(@js(__('Photos do not have URLs.')));
             }
 
             if (Number(payload?.seoMediaId || 0) > 0) {
@@ -1033,7 +1033,7 @@
             });
             const data = await response.json();
             if (! response.ok || ! data.success || ! data.url) {
-                throw new Error(data.message || 'Không import được ảnh từ thư viện.');
+                throw new Error(data.message || @js(__('Unable to import images from gallery.')));
             }
 
             return String(data.url);
@@ -1044,12 +1044,12 @@
                 const resolvedUrl = await this.resolveLibraryImageUrl(payload);
                 const response = await fetch(resolvedUrl, { credentials: 'same-origin' });
                 if (! response.ok) {
-                    throw new Error('Không tải được file ảnh.');
+                    throw new Error(@js(__('Unable to download image file.')));
                 }
 
                 const blob = await response.blob();
                 if (! String(blob.type || '').startsWith('image/')) {
-                    throw new Error('Tệp đã chọn không phải ảnh.');
+                    throw new Error(@js(__('The selected file is not a photo.')));
                 }
 
                 const slug = String(payload?.slug || 'library-image').replace(/[^\w.-]+/g, '-') || 'library-image';
@@ -1065,7 +1065,7 @@
                 this.imageFile = new File([blob], `${slug}.${ext}`, { type: blob.type || 'image/jpeg' });
                 this.imagePreview = URL.createObjectURL(blob);
             } catch (error) {
-                window.alert(error.message || 'Không chọn được ảnh từ thư viện.');
+                window.alert(error.message || @js(__('Unable to select photo from gallery.')));
             }
         },
 
@@ -1103,7 +1103,7 @@
 
             this.messages.push({
                 role: 'user',
-                content: text || 'Hãy phân tích hình ảnh này.',
+                content: text || @js(__('Let\'s analyze this image.')),
                 image: imageUrl,
             });
             this.message = '';
@@ -1139,17 +1139,17 @@
                     const validation = data.errors
                         ? Object.values(data.errors).flat().join(' ')
                         : '';
-                    throw new Error(validation || data.message || 'Không gửi được tin nhắn.');
+                    throw new Error(validation || data.message || @js(__('Unable to send message.')));
                 }
 
                 this.messages.splice(this.messages.length - 1, 1, {
                     role: 'assistant',
-                    content: data.answer || 'AI không trả về nội dung.',
+                    content: data.answer || @js(__('AI does not return content.')),
                 });
             } catch (error) {
                 this.messages.splice(this.messages.length - 1, 1, {
                     role: 'assistant',
-                    content: error.message || 'Không thể kết nối trợ lý AI.',
+                    content: error.message || @js(__('Unable to connect AI assistant.')),
                     error: true,
                 });
             } finally {
@@ -1196,7 +1196,7 @@
         x-on:click="openPanel()"
         x-show="! openChat"
         x-transition.opacity
-        x-bind:aria-label="teamUnreadCount > 0 ? `Mở chat workspace (${teamUnreadCount} tin chưa đọc)` : 'Mở chat workspace'"
+        x-bind:aria-label="teamUnreadCount > 0 ? `Mở chat workspace (${teamUnreadCount} tin chưa đọc)` : @js(__('Open the chat workspace'))"
     >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm3.75 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm3.75 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
@@ -1263,8 +1263,8 @@
                         class="seo-global-chat__icon-button"
                         x-on:click="clearConversation()"
                         x-show="false"
-                        title="Xóa cuộc trò chuyện AI"
-                        aria-label="Xóa cuộc trò chuyện AI"
+                        title="{{ __('Delete AI chat') }}"
+                        aria-label="{{ __('Delete AI chat') }}"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673A2.25 2.25 0 0 1 15.916 21H8.084a2.25 2.25 0 0 1-2.244-1.327L4.772 5.79m14.456 0a48.1 48.1 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.1 48.1 0 0 1 3.478-.397m7.5 0V4.477c0-1.18-.91-2.164-2.09-2.201a51 51 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.7 48.7 0 0 0-7.5 0" />
@@ -1274,7 +1274,7 @@
                         type="button"
                         class="seo-global-chat__icon-button"
                         x-on:click="closePanel()"
-                        aria-label="Đóng chat"
+                        aria-label="{{ __('Close chat') }}"
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -1284,7 +1284,7 @@
             </div>
 
             @if ($canUseAiChat)
-                <div class="seo-global-chat__tabs" role="tablist" aria-label="Chọn loại chat">
+                <div class="seo-global-chat__tabs" role="tablist" aria-label="{{ __('Select chat type') }}">
                     <button
                         type="button"
                         role="tab"
@@ -1358,7 +1358,7 @@
                     </div>
                     <div class="seo-global-chat__team-bubble-wrap">
                         <div class="seo-global-chat__team-meta">
-                            <strong x-text="item.is_mine ? 'Bạn' : item.user_name"></strong>
+                            <strong x-text="item.is_mine ? @js(__('Friend')) : item.user_name"></strong>
                             <time x-text="formatTeamTime(item.created_at)"></time>
                         </div>
                         <div
@@ -1370,12 +1370,12 @@
                                     type="button"
                                     class="seo-global-chat__team-attachment-image-btn"
                                     x-on:click="openAttachmentLightbox(item.attachment_url, item.attachment_name)"
-                                    x-bind:aria-label="item.attachment_name || 'Xem ảnh full size'"
-                                    title="Xem ảnh full size"
+                                    x-bind:aria-label="item.attachment_name || @js(__('See full size photo'))"
+                                    title="{{ __('See full size photo') }}"
                                 >
                                     <img
                                         x-bind:src="item.attachment_url"
-                                        x-bind:alt="item.attachment_name || 'Ảnh đính kèm'"
+                                        x-bind:alt="item.attachment_name || @js(__('Attached photo'))"
                                         class="seo-global-chat__team-attachment-image"
                                     />
                                 </button>
@@ -1386,7 +1386,7 @@
                                     class="seo-global-chat__team-attachment-link"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    x-text="item.attachment_name || 'Tệp đính kèm'"
+                                    x-text="item.attachment_name || @js(__('Attachments'))"
                                 ></a>
                             </template>
                             <template x-if="item.message">
@@ -1419,7 +1419,7 @@
                 <div>
                     <div class="seo-global-chat__user-row" x-show="item.role === 'user'">
                         <div class="seo-global-chat__user-message">
-                            <img x-show="item.image" x-bind:src="item.image" alt="Ảnh đính kèm" />
+                            <img x-show="item.image" x-bind:src="item.image" alt="{{ __('Attached photo') }}" />
                             <span x-text="item.content"></span>
                         </div>
                     </div>
@@ -1447,17 +1447,17 @@
                     type="button"
                     class="seo-global-chat__image-preview-thumb"
                     x-on:click="openImageEditor('team')"
-                    title="Chỉnh sửa ảnh"
-                    aria-label="Chỉnh sửa ảnh"
+                    title="{{ __('Photo editing') }}"
+                    aria-label="{{ __('Photo editing') }}"
                 >
-                    <img x-bind:src="teamFilePreview" alt="Xem trước ảnh" />
+                    <img x-bind:src="teamFilePreview" alt="{{ __('Preview photos') }}" />
                     <span class="seo-global-chat__image-preview-badge">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" />
                         </svg>
                     </span>
                 </button>
-                <button type="button" class="seo-global-chat__image-preview-remove" x-on:click="clearTeamFile()" aria-label="Bỏ tệp">
+                <button type="button" class="seo-global-chat__image-preview-remove" x-on:click="clearTeamFile()" aria-label="{{ __('Drop files') }}">
                     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                         <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
                     </svg>
@@ -1465,8 +1465,8 @@
             </div>
 
             <div class="seo-global-chat__file-chip" x-show="activeTab === 'team' && teamFile && ! teamFileIsImage" x-cloak>
-                <span x-text="teamFile?.name || 'Tệp đính kèm'"></span>
-                <button type="button" x-on:click="clearTeamFile()" aria-label="Bỏ tệp">×</button>
+                <span x-text="teamFile?.name || @js(__('Attachments'))"></span>
+                <button type="button" x-on:click="clearTeamFile()" aria-label="{{ __('Drop files') }}">×</button>
             </div>
 
             <div class="seo-global-chat__image-preview" x-show="false" x-cloak>
@@ -1474,17 +1474,17 @@
                     type="button"
                     class="seo-global-chat__image-preview-thumb"
                     x-on:click="openImageEditor('ai')"
-                    title="Chỉnh sửa ảnh"
-                    aria-label="Chỉnh sửa ảnh"
+                    title="{{ __('Photo editing') }}"
+                    aria-label="{{ __('Photo editing') }}"
                 >
-                    <img x-bind:src="imagePreview" alt="Xem trước ảnh" />
+                    <img x-bind:src="imagePreview" alt="{{ __('Preview photos') }}" />
                     <span class="seo-global-chat__image-preview-badge">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" />
                         </svg>
                     </span>
                 </button>
-                <button type="button" class="seo-global-chat__image-preview-remove" x-on:click="clearImage()" aria-label="Bỏ ảnh">
+                <button type="button" class="seo-global-chat__image-preview-remove" x-on:click="clearImage()" aria-label="{{ __('Remove photos') }}">
                     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                         <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
                     </svg>
@@ -1512,7 +1512,7 @@
                     x-on:click="$refs.teamFileInput.click()"
                     x-bind:disabled="teamSending || activeTab !== 'team'"
                     x-show="activeTab === 'team'"
-                    aria-label="Đính kèm tệp"
+                    aria-label="{{ __('Attach files') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l9.724-9.724a3 3 0 0 1 4.243 4.243l-9.193 9.193a1.5 1.5 0 0 1-2.121-2.121l8.662-8.662" />
@@ -1524,7 +1524,7 @@
                     x-on:click="$refs.imageInput.click()"
                     x-bind:disabled="true"
                     x-show="false"
-                    aria-label="Đính kèm hình ảnh"
+                    aria-label="{{ __('Attach images') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l9.724-9.724a3 3 0 0 1 4.243 4.243l-9.193 9.193a1.5 1.5 0 0 1-2.121-2.121l8.662-8.662" />
@@ -1536,8 +1536,8 @@
                     x-on:click="openMediaLibrary()"
                     x-bind:disabled="true"
                     x-show="false"
-                    aria-label="Chọn ảnh từ thư viện"
-                    title="Chọn ảnh từ thư viện"
+                    aria-label="{{ __('Choose photo from gallery') }}"
+                    title="{{ __('Choose photo from gallery') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75 5.159 5.159a2.25 2.25 0 0 1 2.013-1.327h9.656a2.25 2.25 0 0 1 2.013 1.327L21.75 15.75M2.25 15.75h19.5M2.25 15.75v2.25A2.25 2.25 0 0 0 4.5 20.25h15a2.25 2.25 0 0 0 2.25-2.25v-2.25M8.25 10.5h.008v.008H8.25V10.5Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm3.75 3.75h.008v.008H12.75V14.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
@@ -1548,7 +1548,7 @@
                     x-ref="messageInput"
                     x-model="message"
                     rows="1"
-                    x-bind:placeholder="canUseAiChat ? 'Nhắn team... (@ai mở Agent Workspace)' : 'Nhắn team...'"
+                    x-bind:placeholder="canUseAiChat ? @js(__('Message team... (@ai opens Agent Workspace)')) : @js(__('Message the team...'))"
                     x-on:input="resizeInput()"
                     x-on:paste="handlePaste($event)"
                     x-on:keydown.enter.prevent="if (!$event.shiftKey) submitComposer(); else message += '\n'"
@@ -1560,7 +1560,7 @@
                     class="seo-global-chat__send"
                     x-on:click="submitComposer()"
                     x-bind:disabled="teamSending || agentLaunching || (!message.trim() && !teamFile)"
-                    aria-label="Gửi tin nhắn"
+                    aria-label="{{ __('Send a message') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.27 3.125A59.8 59.8 0 0 1 21.485 12 59.8 59.8 0 0 1 3.27 20.875L6 12Zm0 0h7.5" />
@@ -1583,7 +1583,7 @@
         x-on:keydown.escape.window="imageEditorOpen && closeImageEditor()"
     >
         <header class="seo-global-chat__image-editor-header">
-            <button type="button" class="seo-global-chat__image-editor-icon" x-on:click="closeImageEditor()" aria-label="Quay lại">
+            <button type="button" class="seo-global-chat__image-editor-icon" x-on:click="closeImageEditor()" aria-label="{{ __('Come back') }}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                 </svg>
@@ -1594,7 +1594,7 @@
                     class="seo-global-chat__image-editor-icon"
                     x-on:click="undoDrawStroke()"
                     x-bind:disabled="drawHistoryIndex <= 0"
-                    aria-label="Hoàn tác"
+                    aria-label="{{ __('Undo') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
@@ -1605,7 +1605,7 @@
                     class="seo-global-chat__image-editor-icon"
                     x-on:click="redoDrawStroke()"
                     x-bind:disabled="drawHistoryIndex >= drawHistory.length - 1"
-                    aria-label="Làm lại"
+                    aria-label="{{ __('Redo') }}"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m15 15 6-6m0 0-6-6m6 6H9a6 6 0 0 0 0 12h3" />
@@ -1633,7 +1633,7 @@
         </div>
 
         <footer class="seo-global-chat__image-editor-footer">
-            <div class="seo-global-chat__image-editor-colors" role="list" aria-label="Màu vẽ">
+            <div class="seo-global-chat__image-editor-colors" role="list" aria-label="{{ __('Coloring') }}">
                 <template x-for="color in drawColors" x-bind:key="color">
                     <button
                         type="button"
@@ -1642,7 +1642,7 @@
                         x-bind:class="{ 'is-active': drawColor === color }"
                         x-bind:style="{ backgroundColor: color }"
                         x-on:click="drawColor = color"
-                        x-bind:aria-label="`Chọn màu ${color}`"
+                        x-bind:aria-label="__('`Select color ${color}`')"
                     ></button>
                 </template>
             </div>
@@ -1665,14 +1665,14 @@
         x-on:click.self="closeAttachmentLightbox()"
         role="dialog"
         aria-modal="true"
-        x-bind:aria-label="attachmentLightboxName || 'Xem ảnh'"
+        x-bind:aria-label="attachmentLightboxName || @js(__('See photos'))"
     >
         <div class="seo-global-chat__attachment-lightbox-inner">
             <button
                 type="button"
                 class="seo-global-chat__attachment-lightbox-close"
                 x-on:click="closeAttachmentLightbox()"
-                aria-label="Đóng"
+                aria-label="{{ __('Close') }}"
             >
                 <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                     <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />

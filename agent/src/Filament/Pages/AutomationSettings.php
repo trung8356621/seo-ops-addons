@@ -29,7 +29,11 @@ class AutomationSettings extends Page implements HasForms
 
     protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Automation Settings';
+    public function getTitle(): string
+    {
+        return __('Automation Settings');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.automation-settings';
 

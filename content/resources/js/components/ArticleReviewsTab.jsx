@@ -56,45 +56,45 @@ function statusPresentation(review) {
 
     switch (status) {
         case 'pending':
-            return { label: 'Pending sync', hint: null };
+            return { label: t('reviews_status_pending_sync'), hint: null };
         case 'syncing':
-            return { label: 'Syncing to WordPress', hint: null };
+            return { label: t('reviews_status_syncing_wordpress'), hint: null };
         case 'reviewed':
-            return { label: 'Synced', hint: null };
+            return { label: t('reviews_status_synced'), hint: null };
         case 'draft':
-            return { label: 'Local draft', hint: null };
+            return { label: t('reviews_status_local_draft'), hint: null };
         case 'pending_article':
-            return { label: 'Waiting for article sync', hint: null };
+            return { label: t('reviews_status_pending_article_sync'), hint: null };
         case 'pending_publish':
-            return { label: 'Waiting for Automation', hint: null };
+            return { label: t('reviews_status_pending_automation'), hint: null };
         case 'scheduled': {
             const clock = formatClock(scheduledAt);
             if (clock) {
-                return { label: `Scheduled at ${clock}`, hint: null };
+                return { label: t('reviews_status_scheduled_at', { clock }), hint: null };
             }
-            return { label: 'Scheduled', hint: null };
+            return { label: t('reviews_status_scheduled'), hint: null };
         }
         case 'publishing':
-            return { label: 'Publishing', hint: null };
+            return { label: t('reviews_status_publishing'), hint: null };
         case 'published':
-            return { label: 'Published', hint: null };
+            return { label: t('reviews_status_published'), hint: null };
         case 'failed_dispatch':
             return {
-                label: 'Scheduling failed',
+                label: t('reviews_status_scheduling_failed'),
                 hint: errorCode || review?.last_error_message || null,
             };
         case 'failed': {
             if (nextRetryAt) {
                 const clock = formatClock(nextRetryAt);
                 return {
-                    label: 'Automatic retry pending',
-                    hint: clock ? `Retry around ${clock}` : 'Retry scheduled',
+                    label: t('reviews_status_retry_pending'),
+                    hint: clock ? t('reviews_status_retry_around', { clock }) : t('reviews_status_retry_scheduled'),
                 };
             }
-            return { label: 'Failed', hint: review?.last_error_message || null };
+            return { label: t('failed'), hint: review?.last_error_message || null };
         }
         case 'cancelled':
-            return { label: 'Cancelled', hint: null };
+            return { label: t('reviews_status_cancelled'), hint: null };
         default:
             return { label: status ? String(status) : '', hint: null };
     }
@@ -155,17 +155,17 @@ export default function ArticleReviewsTab({
     const blockReasonLabel = (reason) => {
         switch (String(reason || '')) {
             case 'wordpress_real_reviews_exist':
-                return 'WordPress đã có review thật.';
+                return t('reviews_block_wordpress_real_exists');
             case 'target_count_reached':
-                return 'Đã đủ số review mục tiêu.';
+                return t('reviews_block_target_reached');
             case 'local_pending_reviews_exist':
-                return 'Đang có review chờ đồng bộ.';
+                return t('reviews_block_local_pending_exists');
             case 'wordpress_unavailable':
-                return 'Không thể kiểm tra WordPress.';
+                return t('reviews_block_wordpress_unavailable');
             case 'not_product':
-                return 'Chỉ áp dụng cho product.';
+                return t('reviews_block_not_product');
             case 'feature_disabled':
-                return 'Tính năng tạo review đang tắt.';
+                return t('reviews_block_feature_disabled');
             default:
                 return reason ? String(reason) : null;
         }
@@ -196,7 +196,7 @@ export default function ArticleReviewsTab({
                     applicable: false,
                     status: null,
                     count: 0,
-                    warning: String(result.message ?? 'Không thể tải trạng thái đánh giá.'),
+                    warning: String(result.message ?? t('reviews_status_load_failed')),
                 }));
             }
             return null;
@@ -206,7 +206,7 @@ export default function ArticleReviewsTab({
                 applicable: false,
                 status: null,
                 count: 0,
-                warning: String(error?.message ?? 'Không thể tải trạng thái đánh giá.'),
+                warning: String(error?.message ?? t('reviews_status_load_failed')),
             }));
             return null;
         } finally {
@@ -290,12 +290,12 @@ export default function ArticleReviewsTab({
         <div className="seo-reviews-tab">
             {loading || statusLoading ? (
                 <p className="seo-reviews-tab__summary" role="status">
-                    Đang tải đánh giá từ WordPress…
+                    {t('reviews_status_loading_wordpress')}
                 </p>
             ) : null}
             {!loading && !loaded ? (
                 <p className="seo-reviews-tab__summary" role="status">
-                    {warning || 'Chưa tải được đánh giá. Bấm Refresh để thử lại.'}
+                    {warning || t('reviews_status_not_loaded_retry')}
                 </p>
             ) : null}
             {warning || status?.warning ? (
@@ -305,13 +305,13 @@ export default function ArticleReviewsTab({
             ) : null}
             {status ? (
                 <div className="seo-reviews-tab__summary" style={{ marginBottom: 12 }}>
-                    <div><strong>WordPress Reviews</strong></div>
+                    <div><strong>{t('reviews_summary_title')}</strong></div>
                     <div style={{ opacity: 0.85, marginBottom: 8 }}>
-                        Review được kiểm tra và tạo tự động khi đồng bộ WordPress.
+                        {t('reviews_summary_hint')}
                     </div>
-                    <div>Real reviews: {Number(status.wordpress_real_review_count ?? 0)}</div>
+                    <div>{t('reviews_summary_real_count', { count: Number(status.wordpress_real_review_count ?? 0) })}</div>
                     <div>
-                        Generated reviews:
+                        {t('reviews_summary_generated')}
                         {' '}
                         {Number(
                             status.generated_count
@@ -324,11 +324,11 @@ export default function ArticleReviewsTab({
                             ? (
                                 <span style={{ opacity: 0.75 }}>
                                     {' '}
-                                    (WP:
+                                    ({t('reviews_summary_wp_short')}:
                                     {' '}
                                     {Number(status.wordpress_generated_review_count ?? 0)}
                                     {' '}
-                                    · Local:
+                                    · {t('reviews_summary_local_short')}:
                                     {' '}
                                     {Number(status.local_generated_count ?? 0)}
                                     )
@@ -336,14 +336,14 @@ export default function ArticleReviewsTab({
                             )
                             : null}
                     </div>
-                    <div>Target count: {Number(status.target_count ?? 0)}</div>
-                    <div>Missing: {Number(status.missing_count ?? 0)}</div>
+                    <div>{t('reviews_summary_target_count', { count: Number(status.target_count ?? 0) })}</div>
+                    <div>{t('reviews_summary_missing_count', { count: Number(status.missing_count ?? 0) })}</div>
                     <div>
-                        Pending in Laravel:
+                        {t('reviews_summary_pending_laravel')}
                         {' '}
                         {Number(status.syncable_pending_count ?? status.local_pending_count ?? 0)}
                     </div>
-                    <div>Reviewed in Laravel: {Number(status.local_reviewed_count ?? 0)}</div>
+                    <div>{t('reviews_summary_reviewed_laravel', { count: Number(status.local_reviewed_count ?? 0) })}</div>
                     {!status.can_create_reviews && status.create_block_reason ? (
                         <div style={{ color: '#b45309', marginTop: 6 }}>
                             {blockReasonLabel(status.create_block_reason)}
@@ -351,7 +351,7 @@ export default function ArticleReviewsTab({
                     ) : null}
                     <div className="seo-reviews-tab__actions" style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button type="button" className="seo-reviews-tab__refresh" disabled={refreshing} onClick={handleRefresh}>
-                            Refresh status
+                            {t('reviews_status_refresh')}
                         </button>
                     </div>
                 </div>
@@ -427,9 +427,9 @@ export default function ArticleReviewsTab({
                                 <p className="seo-reviews-tab__content">{content}</p>
                                 {status === 'published' || status === 'reviewed' ? (
                                     <p className="seo-reviews-tab__meta">
-                                        WP Comment ID: {String(review?.wp_comment_id ?? '—')}
+                                        {t('reviews_meta_wp_comment_id')}: {String(review?.wp_comment_id ?? '—')}
                                         {review?.published_at ? ` · ${formatReviewDate(review.published_at)}` : ''}
-                                        {review?.synced_at ? ` · synced ${formatReviewDate(review.synced_at)}` : ''}
+                                        {review?.synced_at ? ` · ${t('reviews_meta_synced')} ${formatReviewDate(review.synced_at)}` : ''}
                                     </p>
                                 ) : null}
                                 {status === 'failed' && review?.last_error_message ? (

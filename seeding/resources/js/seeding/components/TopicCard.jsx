@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useCallback, memo } from 'react';
 import { MoreHorizontal, Pencil, Share2, Sparkles, Trash2 } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
@@ -134,7 +135,7 @@ function TopicCard({
             {title ? <h3 className="seeding-ws__vcard-title">{title}</h3> : null}
 
             <ContentWithLinkPreviews
-                text={String(topic.full_text || '').trim() || 'Chưa có nội dung.'}
+                text={String(topic.full_text || '').trim() || auditT('audit_286a232dd401')}
                 links={topic.links || []}
                 clampLines={3}
                 maxRichPreviews={1}
@@ -155,7 +156,7 @@ function TopicCard({
                         disabled={!canShare || sharing}
                         onClick={() => onShareDraft(topic)}
                     >
-                        <Share2 size={14} /> {sharing ? 'Đang chia sẻ…' : 'Chia sẻ'}
+                        <Share2 size={14} /> {sharing ? auditT('audit_e7cd4547341e') : auditT('audit_1cb9508032ec')}
                     </button>
                 ) : (
                     <button
@@ -165,7 +166,7 @@ function TopicCard({
                         aria-expanded={genOpen}
                         onClick={() => onGenComment(topic)}
                     >
-                        <Sparkles size={14} /> {genOpen ? 'Đóng Gen' : 'Gen comment'}
+                        <Sparkles size={14} /> {genOpen ? auditT('audit_ead937d1aeaa') : 'Gen comment'}
                     </button>
                 )}
             </div>

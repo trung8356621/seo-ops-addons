@@ -18,9 +18,9 @@ class WatermarkEditor extends SeoPanelPage
 {
     protected static ?string $navigationIcon = 'heroicon-o-paint-brush';
 
-    protected static ?string $navigationLabel = 'Watermark designer';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Watermark design suite';
+    protected static ?string $title = null;
 
     protected static ?string $navigationGroup = null;
 

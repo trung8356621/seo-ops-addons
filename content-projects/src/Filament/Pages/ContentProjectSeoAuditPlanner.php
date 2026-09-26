@@ -715,7 +715,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         if ($field !== 'post_type') {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.planner_generate_failed'))
-                ->body('Unsupported planning field.')
+                ->body(__('Unsupported planning field.'))
                 ->danger()
                 ->send();
 
@@ -737,7 +737,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
         if (! $result->success) {
             Notification::make()
-                ->title('Failed')
+                ->title(__('Failed'))
                 ->body($result->message)
                 ->danger()
                 ->send();
@@ -809,7 +809,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
         if (! $skipResult->success) {
             Notification::make()
-                ->title('Failed')
+                ->title(__('Failed'))
                 ->body($skipResult->message)
                 ->danger()
                 ->send();

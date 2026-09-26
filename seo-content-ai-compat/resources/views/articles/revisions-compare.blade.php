@@ -211,7 +211,7 @@
                 </template>
                 <template x-if="!loadingRevision && pastPreview">
                     <div>
-                        <h1 class="seo-rev-title" x-text="pastPreview.title || '(Không có tiêu đề)'"></h1>
+                        <h1 class="seo-rev-title" x-text="pastPreview.title || @js(__('(No title)'))"></h1>
                         <dl class="seo-rev-seo">
                             <dt>SEO Title</dt>
                             <dd x-text="pastPreview.seo_meta?.seo_title || '—'"></dd>
@@ -231,7 +231,7 @@
         <section class="seo-rev-panel">
             <div class="seo-rev-panel__head is-current">Phiên bản hiện tại</div>
             <div class="seo-rev-panel__body">
-                <h1 class="seo-rev-title">{{ $current['title'] !== '' ? $current['title'] : '(Không có tiêu đề)' }}</h1>
+                <h1 class="seo-rev-title">{{ $current['title'] !== '' ? $current['title'] : __('(No title)') }}</h1>
                 <dl class="seo-rev-seo">
                     <dt>SEO Title</dt>
                     <dd>{{ $current['seo_meta']['seo_title'] ?? '—' }}</dd>
@@ -307,7 +307,7 @@
                         const data = await response.json();
                         this.pastPreview = data?.revision ?? null;
                     } catch (error) {
-                        console.warn('Không tải được revision', error);
+                        console.warn(@js(__('Unable to download revision')), error);
                         this.pastPreview = null;
                     } finally {
                         this.loadingRevision = false;

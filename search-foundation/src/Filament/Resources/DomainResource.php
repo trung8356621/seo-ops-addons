@@ -36,7 +36,6 @@ class DomainResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Domains';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_DOMAINS;
 
@@ -102,28 +101,28 @@ class DomainResource extends SeoPanelResource
                     ->native(false)
                     ->hintAction(HelpUi::fieldHintAction('domain.website_type')),
                 Forms\Components\TextInput::make('seo_read_token')
-                    ->label('Read token')
+                    ->label(__('Read token'))
                     ->key('seo_read_token')
                     ->maxLength(255)
                     ->readOnly()
-                    ->helperText('Can be copied with Ctrl+C.')
+                    ->helperText(__('Can be copied with Ctrl+C.'))
                     ->visible(fn (Get $get): bool => $get('seo_platform') === 'wordpress')
                     ->suffixAction(
                         FormInputAction::make('generate_read_token')
-                            ->label('Generate')
+                            ->label(__('Generate'))
                             ->icon('heroicon-o-arrow-path')
                             ->action(fn (Set $set) => $set('seo_read_token', Str::random(60)))
                     ),
                 Forms\Components\TextInput::make('seo_migration_token')
-                    ->label('Migration / Write token')
+                    ->label(__('Migration / Write token'))
                     ->key('seo_migration_token')
                     ->maxLength(255)
                     ->readOnly()
-                    ->helperText('Used as API WRITE TOKEN in the WordPress plugin (post comment/review).')
+                    ->helperText(__('Used as API WRITE TOKEN in the WordPress plugin (post comment/review).'))
                     ->visible(fn (Get $get): bool => $get('seo_platform') === 'wordpress')
                     ->suffixAction(
                         FormInputAction::make('generate_migration_token')
-                            ->label('Generate')
+                            ->label(__('Generate'))
                             ->icon('heroicon-o-arrow-path')
                             ->action(fn (Set $set) => $set('seo_migration_token', Str::random(60)))
                     ),
@@ -265,7 +264,7 @@ class DomainResource extends SeoPanelResource
                                 ->send();
                         }),
                     Tables\Actions\DeleteAction::make()
-                        ->label('Xóa')
+                        ->label(__('Erase'))
                         ->icon('heroicon-o-trash'),
                 ])
                     ->label(__('seo-content-ai::filament.domain.actions'))

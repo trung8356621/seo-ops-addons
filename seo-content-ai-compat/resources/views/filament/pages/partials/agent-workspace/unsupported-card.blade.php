@@ -4,7 +4,7 @@
 
 <div class="seo-agent-workspace__plan-card">
     <div class="text-sm font-medium">
-        {{ $structured['summary'] ?? $message['content'] ?? 'Agent Workspace chưa có skill phù hợp.' }}
+        {{ $structured['summary'] ?? $message['content'] ?? __('Agent Workspace does not have appropriate skills.') }}
     </div>
     @if ($nearest !== [])
         <div class="mt-2 text-xs opacity-70">Các lựa chọn gần nhất:</div>

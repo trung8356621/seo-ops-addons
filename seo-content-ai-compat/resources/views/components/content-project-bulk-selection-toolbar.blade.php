@@ -38,7 +38,7 @@
         @if ($showPqBulk)
         <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                <span x-text="($store.pqOpsUi?.selectedCount() || 0) + ' đã chọn'">{{ (int) $selectedCount }} đã chọn</span>
+                <span x-text="@js(__('Selected count', ['count' => '__COUNT__'])).replace('__COUNT__', $store.pqOpsUi?.selectedCount() || 0)">{{ __('Selected count', ['count' => (int) $selectedCount]) }}</span>
             </span>
             <button
                 type="button"
@@ -76,8 +76,8 @@
                             class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
                             wire:loading.attr="disabled"
                             wire:target="bulkPublishNow"
-                            @click="$store.pqOpsUi.runBulk('bulkPublishNow', 'publishing', 'Xuất bản ngay các bài đã chọn?'); publishOpen = false"
-                        >Xuất bản ngay</button>
+                            @click="$store.pqOpsUi.runBulk('bulkPublishNow', 'publishing', @js(__('Publish the selected articles now?'))); publishOpen = false"
+                        >{{ __('Publish now') }}</button>
                         <button
                             type="button"
                             role="menuitem"
@@ -145,14 +145,14 @@
                             type="button"
                             role="menuitem"
                             class="block w-full px-3 py-2 text-left text-sm text-danger-700 hover:bg-gray-50 dark:text-danger-300 dark:hover:bg-gray-800"
-                            @click="$store.pqOpsUi.runBulk('bulkCancelPublish', 'publishing', 'Bỏ các bài đã chọn khỏi Publishing Queue?'); moreOpen = false"
-                        >Bỏ khỏi Publishing Queue</button>
+                            @click="$store.pqOpsUi.runBulk('bulkCancelPublish', 'publishing', @js(__('Remove the selected articles from the Publishing Queue?'))); moreOpen = false"
+                        >{{ __('Remove from Publishing Queue') }}</button>
                         <button
                             type="button"
                             role="menuitem"
                             class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-                            @click="$store.pqOpsUi.runBulk('bulkReturn', 'publishing', 'Trả các bài đã chọn về Content Project? Bài trên WordPress (nếu đã xuất bản) không bị gỡ.'); moreOpen = false"
-                        >Trả về Content Project</button>
+                            @click="$store.pqOpsUi.runBulk('bulkReturn', 'publishing', @js(__('Return the selected articles to Content Project? Published WordPress posts will not be removed.'))); moreOpen = false"
+                        >{{ __('Return to Content Project') }}</button>
                     </div>
                 </div>
             </div>

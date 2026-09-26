@@ -171,7 +171,7 @@ final class ContentProjectArchivePreview extends Page
     {
         return [
             Actions\Action::make('check_index_all')
-                ->label('Check Index All')
+                ->label(__('Check Index All'))
                 ->icon('heroicon-o-magnifying-glass-circle')
                 ->color('gray')
                 ->visible(fn (): bool => $this->archivePrimarySiteId() > 0 && $this->countGscInspectableArticles() > 0)

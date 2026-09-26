@@ -153,7 +153,7 @@ trait ReclustersSiteTopics
         if (! TopicReclusterService::tablesReady()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_recluster_failed_title'))
-                ->body('Topic Core tables missing')
+                ->body(__('Topic Core tables missing'))
                 ->danger()
                 ->send();
 

@@ -23,7 +23,6 @@ class EditTaskWorkflow extends Page
 
     protected static string $view = 'seo-content-ai::filament.resources.task-resource.pages.task-workflow-builder';
 
-    protected static ?string $title = 'Workflow Builder';
 
     public ?int $taskId = null;
 
@@ -69,7 +68,7 @@ class EditTaskWorkflow extends Page
                 ->color('gray')
                 ->url(TaskResource::getUrl('index')),
             Actions\Action::make('edit_task')
-                ->label('Workflow settings')
+                ->label(__('Workflow settings'))
                 ->icon('heroicon-o-cog-6-tooth')
                 ->url(fn (): string => TaskResource::getUrl('edit', ['record' => $this->record])),
         ];
@@ -82,7 +81,7 @@ class EditTaskWorkflow extends Page
 
         if ($taskName === '') {
             Notification::make()
-                ->title('Please enter workflow name')
+                ->title(__('Please enter workflow name'))
                 ->danger()
                 ->send();
 
@@ -95,7 +94,7 @@ class EditTaskWorkflow extends Page
         ]);
 
         Notification::make()
-            ->title('Workflow saved successfully')
+            ->title(__('Workflow saved successfully'))
             ->success()
             ->send();
 

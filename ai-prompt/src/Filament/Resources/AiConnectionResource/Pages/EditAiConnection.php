@@ -111,8 +111,8 @@ class EditAiConnection extends SeoEditRecord
 
                     if ($ok) {
                         Notification::make()
-                            ->title('Models synced')
-                            ->body('API model list updated. Recommended auto-map +'.$autoMapped.'.')
+                            ->title(__('Models synced'))
+                            ->body(__('API model list updated. Recommended auto-map +').$autoMapped.'.')
                             ->success()
                             ->send();
 
@@ -120,8 +120,8 @@ class EditAiConnection extends SeoEditRecord
                     }
 
                     Notification::make()
-                        ->title('Sync failed')
-                        ->body('Check API key and provider. Last-known-good catalog was preserved.')
+                        ->title(__('Sync failed'))
+                        ->body(__('Check API key and provider. Last-known-good catalog was preserved.'))
                         ->danger()
                         ->send();
                 }),

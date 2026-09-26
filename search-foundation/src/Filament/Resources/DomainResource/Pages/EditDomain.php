@@ -128,7 +128,7 @@ class EditDomain extends SeoEditRecord
             $this->siteMcpDraftPanelOpen = true;
 
             Notification::make()
-                ->title(__('Site MCP draft đã tạo'))
+                ->title(__('MCP draft site created'))
                 ->body(__('Draft only — official data unchanged.'))
                 ->success()
                 ->send();
@@ -139,7 +139,7 @@ class EditDomain extends SeoEditRecord
             ]);
 
             Notification::make()
-                ->title(__('Tạo Site MCP draft thất bại'))
+                ->title(__('Creating Site MCP draft failed'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();

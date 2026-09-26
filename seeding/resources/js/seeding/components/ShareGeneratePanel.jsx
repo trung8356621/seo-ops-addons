@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useMemo, useState } from 'react';
 import { Copy, ExternalLink, Loader2, Minus, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
@@ -96,7 +97,7 @@ export default function ShareGeneratePanel({
 
         const wrote = await writeClipboard(payload.text);
         if (!wrote.ok) {
-            notifyError('Không copy được vào clipboard. Hãy thử lại hoặc copy thủ công.');
+            notifyError(auditT('audit_a0172642cfa3'));
             return;
         }
 
@@ -113,9 +114,9 @@ export default function ShareGeneratePanel({
         onUpdateOutput(next);
 
         if (payload.softLimitReached) {
-            notifyWarning('Các link assigned hôm nay đã đủ ngưỡng');
+            notifyWarning(auditT('audit_60e31e2058c1'));
         } else {
-            notifySuccess('Đã copy comment');
+            notifySuccess(auditT('audit_4045d15c55cf'));
         }
     };
 
@@ -146,7 +147,7 @@ export default function ShareGeneratePanel({
         >
             <div className="seeding-ws__panel-head">
                 <h2>Gen comment</h2>
-                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng">
+                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label={auditT('audit_d2b73ab2ada1')}>
                     <X size={16} />
                 </button>
             </div>
@@ -195,7 +196,7 @@ export default function ShareGeneratePanel({
                 onClick={() => onGenerate(quantity)}
             >
                 {generating ? <Loader2 size={14} className="seeding-ws__spin" /> : <Sparkles size={14} />}
-                {generating ? 'Đang Gen…' : 'Gen comment'}
+                {generating ? auditT('audit_92d939564357') : 'Gen comment'}
             </button>
 
             {topicOutputs.length > 0 ? (
@@ -277,11 +278,11 @@ export default function ShareGeneratePanel({
                                                     className="seeding-ws__icon-btn"
                                                     disabled={isRegen}
                                                     onClick={() => doRegen(out)}
-                                                    aria-label="Gen lại"
+                                                    aria-label={auditT('audit_8ed244690be3')}
                                                 >
                                                     {isRegen ? <Loader2 size={14} className="seeding-ws__spin" /> : <RefreshCw size={14} />}
                                                 </button>
-                                                <button type="button" className="seeding-ws__icon-btn" onClick={() => onDeleteOutput(out)} aria-label="Xóa">
+                                                <button type="button" className="seeding-ws__icon-btn" onClick={() => onDeleteOutput(out)} aria-label={auditT('audit_aa1d94fc1675')}>
                                                     <Trash2 size={14} />
                                                 </button>
                                             </div>

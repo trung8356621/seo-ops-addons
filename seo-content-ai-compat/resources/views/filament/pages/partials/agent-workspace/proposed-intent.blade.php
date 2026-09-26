@@ -8,7 +8,7 @@
 
 <div class="seo-agent-workspace__plan-card">
     <div class="text-xs font-semibold uppercase tracking-wide opacity-70">
-        {{ $uncertain ? 'Đề xuất chưa chắc chắn' : 'Tôi hiểu bạn muốn' }}
+        {{ $uncertain ? __('Proposal is not certain') : __('I understand what you want') }}
     </div>
     <div class="mt-1 text-sm font-medium">{{ $structured['summary'] ?? $message['content'] ?? '' }}</div>
     @if ($skillKey !== '')

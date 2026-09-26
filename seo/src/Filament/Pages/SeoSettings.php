@@ -15,9 +15,7 @@ class SeoSettings extends Page
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Settings';
 
-    protected static ?string $title = 'Settings';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SETTINGS;
 

@@ -70,7 +70,7 @@
                     this.restoreBusy = true;
                     window.__seoBeginArticleHeavyActionClient?.('restore');
                     window.__seoArticleHeavyActionOverlay?.setStatusMessage?.(
-                        this.labels.restore_progress ?? 'Đang lấy nội dung từ WordPress…',
+                        this.labels.restore_progress ?? @js(__('Retrieving content from WordPress…')),
                     );
 
                     try {

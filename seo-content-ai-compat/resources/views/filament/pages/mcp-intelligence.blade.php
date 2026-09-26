@@ -333,9 +333,9 @@
                         @php
                             $health = array_key_exists('health', $siteMetrics) ? $siteMetrics['health'] : null;
                             $healthVi = match ((string) $health) {
-                                'healthy' => 'Tốt',
-                                'degraded' => 'Cần cải thiện',
-                                'unhealthy', 'error', 'failed' => 'Có vấn đề',
+                                'healthy' => __('Good'),
+                                'degraded' => __('Needs improvement'),
+                                'unhealthy', 'error', 'failed' => __('There\'s a problem'),
                                 default => ($health !== null && $health !== '') ? (string) $health : '—',
                             };
                             $indexable = array_key_exists('indexable', $siteMetrics) ? $siteMetrics['indexable'] : null;
@@ -391,12 +391,12 @@
                                 @endphp
                                 <div class="mcp-dist-list">
                                     @foreach ([
-                                        ['label' => 'Bài viết', 'value' => $posts],
+                                        ['label' => @js(__('Article')), 'value' => $posts],
                                         ['label' => 'Trang', 'value' => $pages],
-                                        ['label' => 'Danh mục', 'value' => $categories],
-                                        ['label' => 'Sản phẩm', 'value' => $products],
-                                        ['label' => 'Danh mục sản phẩm', 'value' => $productCategories],
-                                        ['label' => 'Khác', 'value' => $other],
+                                        ['label' => @js(__('Category')), 'value' => $categories],
+                                        ['label' => @js(__('Product')), 'value' => $products],
+                                        ['label' => @js(__('Product catalog')), 'value' => $productCategories],
+                                        ['label' => @js(__('Other')), 'value' => $other],
                                     ] as $row)
                                         @php
                                             $val = $row['value'];

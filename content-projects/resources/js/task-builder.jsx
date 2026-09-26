@@ -1,3 +1,4 @@
+import { auditT } from './i18n-audit.js';
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ArticleFlowBuilder from './components/ArticleFlowBuilder';
@@ -19,9 +20,9 @@ if (rootElement) {
         console.warn('Invalid flow JSON', e);
     }
 
-    const initialTaskName = rootElement.dataset.taskName || 'Quy trình SEO mới';
+    const initialTaskName = rootElement.dataset.taskName || auditT('audit_57fef64c16e6');
     const backUrl = rootElement.dataset.backUrl || '';
-    const backLabel = rootElement.dataset.backLabel || 'Quay lại';
+    const backLabel = rootElement.dataset.backLabel || auditT('audit_8a09e03d2052');
 
     const AppBridge = () => {
         const [taskName, setTaskName] = useState(initialTaskName);
@@ -39,8 +40,8 @@ if (rootElement) {
                     type,
                     message: event.detail?.message || (
                         type === 'success'
-                            ? 'Đã lưu quy trình thành công.'
-                            : 'Không thể lưu quy trình.'
+                            ? auditT('audit_e2592ea8a6bd')
+                            : auditT('audit_375c8977f76f')
                     ),
                 });
                 toastTimeoutRef.current = window.setTimeout(() => setToast(null), 3500);
@@ -77,7 +78,7 @@ if (rootElement) {
                 setSaving(false);
                 setToast({
                     type: 'error',
-                    message: 'Lưu quy trình quá lâu. Vui lòng thử lại.',
+                    message: auditT('audit_a1087ea6cb7d'),
                 });
             }, 15000);
         };

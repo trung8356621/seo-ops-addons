@@ -61,7 +61,7 @@
         <x-filament::section class="seo-domain-overview__section">
             <x-slot name="heading">{{ __('API Key') }}</x-slot>
             <x-slot name="description">
-                {{ __('Read token & Migration token. Bấm icon mắt để hiển thị; focus ô input để tự copy.') }}
+                {{ __('Read token & Migration token. Click the eye icon to display; focus the input box to copy it yourself.') }}
             </x-slot>
             <x-slot name="headerEnd">
                 <x-filament::button
@@ -71,12 +71,12 @@
                     color="gray"
                     icon="heroicon-o-pencil-square"
                 >
-                    {{ __('Chỉnh sửa') }}
+                    {{ __('Edit') }}
                 </x-filament::button>
             </x-slot>
 
             @if(($api['platform'] ?? '') !== 'wordpress')
-                <p class="text-sm text-gray-500">{{ __('Nền tảng không dùng token WordPress.') }}</p>
+                <p class="text-sm text-gray-500">{{ __('The platform does not use WordPress tokens.') }}</p>
             @else
                 <div class="seo-api-key-layout__tokens space-y-4">
                     @include('seo-content-ai::filament.resources.domain-resource.pages.partials.api-token-field', [
@@ -98,11 +98,11 @@
                 @if($this->showPasswordPrompt)
                     <div class="mt-4 max-w-md rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900">
                         <p class="mb-3 text-sm text-gray-600 dark:text-gray-300">
-                            {{ __('Nhập mật khẩu tài khoản để hiển thị token.') }}
+                            {{ __('Enter your account password to display the token.') }}
                         </p>
                         <div class="flex flex-wrap items-end gap-3">
                             <div class="min-w-[12rem] flex-1">
-                                <label class="mb-1 block text-sm font-medium">{{ __('Mật khẩu') }}</label>
+                                <label class="mb-1 block text-sm font-medium">{{ __('Password') }}</label>
                                 <input
                                     type="password"
                                     wire:model="tokenPassword"
@@ -119,14 +119,14 @@
                                 wire:click="confirmRevealTokens"
                                 class="fi-btn fi-btn-size-sm inline-flex items-center justify-center gap-1 rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
                             >
-                                {{ __('Xác nhận') }}
+                                {{ __('Confirm') }}
                             </button>
                             <button
                                 type="button"
                                 wire:click="cancelPasswordPrompt"
                                 class="fi-btn fi-btn-size-sm inline-flex items-center justify-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200"
                             >
-                                {{ __('Hủy') }}
+                                {{ __('Cancel') }}
                             </button>
                         </div>
                     </div>
@@ -152,9 +152,9 @@
 
         @if(! $synced)
             <x-filament::section class="seo-domain-overview__section border-amber-200 dark:border-amber-500/40">
-                <x-slot name="heading">{{ __('Đồng bộ') }}</x-slot>
+                <x-slot name="heading">{{ __('Synchronous') }}</x-slot>
                 <x-slot name="description">
-                    {{ __('Website chưa có dữ liệu trong kho SEO. Chạy đồng bộ từ WordPress.') }}
+                    {{ __('The website does not have data in the SEO warehouse yet. Runs synchronously from WordPress.') }}
                 </x-slot>
                 @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions')
             </x-filament::section>
@@ -162,14 +162,14 @@
             <div class="seo-domain-overview__grid seo-domain-overview__grid--2">
                 {{-- Chấm điểm SEO --}}
                 <x-filament::section class="seo-domain-overview__section">
-                    <x-slot name="heading">{{ __('Chấm điểm SEO') }}</x-slot>
+                    <x-slot name="heading">{{ __('SEO scoring') }}</x-slot>
                     <x-slot name="description">
-                        {{ __('Điểm SEO hiệu lực từ plugin (Rank Math / Yoast) — khác tiến độ chấm Workspace analyzer.') }}
+                        {{ __('Effective SEO score from plugin (Rank Math / Yoast) — different from Workspace analyzer scoring rate.') }}
                     </x-slot>
 
                     @if($scoring['scored'] === 0)
                         <p class="text-sm text-amber-700 dark:text-amber-300">
-                            {{ __('Chưa có bài được chấm. Cần Focus Keyword trên WordPress.') }}
+                            {{ __('There are no graded entries yet. Need Focus Keyword on WordPress.') }}
                         </p>
                     @else
                         @include('seo-content-ai::filament.resources.domain-resource.pages.partials.seo-score-donut-block', [
@@ -182,18 +182,18 @@
 
                 {{-- Thống kê đồng bộ + nút --}}
                 <x-filament::section class="seo-domain-overview__section">
-                    <x-slot name="heading">{{ __('Thống kê đồng bộ') }}</x-slot>
-                    <x-slot name="description">{{ __('Số lượng theo type trên kho nội dung SEO.') }}</x-slot>
+                    <x-slot name="heading">{{ __('Synchronous statistics') }}</x-slot>
+                    <x-slot name="description">{{ __('Quantity by type on SEO content warehouse.') }}</x-slot>
 
                     @php
                         $wpTypeCounts = $stats['wp_post_type_counts'] ?? [];
-                        $defaultLabels = ['post' => __('Bài viết'), 'page' => __('Trang'), 'product' => __('Sản phẩm')];
+                        $defaultLabels = ['post' => __('Article'), 'page' => __('Trang'), 'product' => __('Product')];
                         $defaultTypes = ['post', 'page', 'product'];
                         $customTypes = array_diff(array_keys($wpTypeCounts), $defaultTypes);
                     @endphp
                     <div class="space-y-3 text-sm">
                         <div>
-                            <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Nội dung WordPress') }}</p>
+                            <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('WordPress content') }}</p>
                             <div class="grid gap-1 sm:grid-cols-2">
                                 @foreach($defaultTypes as $dt)
                                     <p><span class="font-semibold">{{ $defaultLabels[$dt] ?? ucfirst($dt) }} · {{ $dt }}:</span> {{ $wpTypeCounts[$dt] ?? 0 }}</p>
@@ -205,13 +205,13 @@
                                 @endforeach
                             </div>
                             @php $contentTotal = array_sum($wpTypeCounts); @endphp
-                            <p class="mt-1 text-gray-500">{{ __('Tổng nội dung WP') }}: {{ $contentTotal > 0 ? $contentTotal : '—' }}</p>
+                            <p class="mt-1 text-gray-500">{{ __('Total WP content') }}: {{ $contentTotal > 0 ? $contentTotal : '—' }}</p>
                             @if(empty($wpTypeCounts) && ($stats['wp_articles_total'] ?? 0) > 0)
                                 <p class="text-xs text-gray-500">
                                     {{ __('WP manifest') }}: {{ $stats['wp_posts'] }} post + {{ $stats['wp_pages'] }} page
                                     @if(($stats['article_gap'] ?? 0) > 0)
                                         <span class="font-semibold text-warning-600 dark:text-warning-400">
-                                            — {{ __('thiếu') }} {{ $stats['article_gap'] }} {{ __('bài so với plugin') }}
+                                            — {{ __('lack') }} {{ $stats['article_gap'] }} {{ __('post vs plugin') }}
                                         </span>
                                     @endif
                                 </p>
@@ -221,12 +221,12 @@
                         <div>
                             <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Taxonomy') }}</p>
                             <div class="grid gap-1 sm:grid-cols-2">
-                                <p><span class="font-semibold">{{ __('Danh mục') }}:</span> {{ $stats['categories'] }}</p>
-                                <p><span class="font-semibold">{{ __('Danh mục SP') }}:</span> {{ $stats['product_categories'] }}</p>
+                                <p><span class="font-semibold">{{ __('Category') }}:</span> {{ $stats['categories'] }}</p>
+                                <p><span class="font-semibold">{{ __('Products catalog') }}:</span> {{ $stats['product_categories'] }}</p>
                             </div>
                         </div>
 
-                        <p class="text-gray-500">{{ __('Tổng bản ghi') }}: {{ $stats['total'] }}</p>
+                        <p class="text-gray-500">{{ __('Total records') }}: {{ $stats['total'] }}</p>
                     </div>
 
                     @php $seoScoring = $this->getSeoScoringProgress(); @endphp
@@ -244,7 +244,7 @@
                             </p>
                         @endif
                         <p class="text-gray-600 dark:text-gray-300">
-                            {{ $siteSyncScoringContext ?: 'Chấm SEO gắn vào nút Đồng bộ & kiểm tra website.' }}
+                            {{ $siteSyncScoringContext ?: __('The SEO dot is attached to the Sync & test website button.') }}
                         </p>
                         @if (($seoScoring['failed'] ?? 0) > 0)
                             <p class="text-warning-600 dark:text-warning-400">
@@ -260,11 +260,11 @@
             {{-- Internal link --}}
             <x-filament::section class="seo-domain-overview__section">
                 <x-slot name="heading">{{ __('Internal link') }}</x-slot>
-                <x-slot name="description">{{ __('Từ khóa và URL được trích xuất từ nội dung bài viết đã chấm SEO.') }}</x-slot>
+                <x-slot name="description">{{ __('Keywords and URLs are extracted from SEO-graded article content.') }}</x-slot>
 
                 <div class="seo-internal-tabs">
                     <a href="{{ $keywordsTabUrl }}" class="{{ $this->internalLinkTab === 'keywords' ? 'is-active' : '' }}">
-                        {{ __('Từ khóa') }}
+                        {{ __('Keywords') }}
                     </a>
                     <a href="{{ $linksTabUrl }}" class="{{ $this->internalLinkTab === 'links' ? 'is-active' : '' }}">
                         {{ __('Link') }}
@@ -275,7 +275,7 @@
                     @if($this->internalLinkTab === 'keywords')
                         @php $topKeywords = $this->getTopKeywords(); @endphp
                         @if($topKeywords->isEmpty())
-                            <p class="text-sm text-gray-500 italic">{{ __('Chưa có từ khóa gắn bài viết.') }}</p>
+                            <p class="text-sm text-gray-500 italic">{{ __('There are no keywords associated with the article.') }}</p>
                         @else
                             <ul class="seo-rank-list">
                                 @foreach($topKeywords as $row)
@@ -284,9 +284,9 @@
                                         <a
                                             href="{{ $this->getArticlesFilterUrlForKeyword((int) $row->id) }}"
                                             class="seo-rank-list__count text-primary-600 hover:underline dark:text-primary-400"
-                                            title="{{ __('Xem danh sách bài viết') }}"
+                                            title="{{ __('See article list') }}"
                                         >
-                                            {{ $row->articles_count }} {{ __('bài') }}
+                                            {{ $row->articles_count }} {{ __('post') }}
                                         </a>
                                     </li>
                                 @endforeach
@@ -295,21 +295,21 @@
                     @else
                         @php $topLinks = $this->getTopLinks(); @endphp
                         @if($topLinks->isEmpty())
-                            <p class="text-sm text-gray-500 italic">{{ __('Chưa có link được trích xuất. Chạy chấm SEO sau đồng bộ.') }}</p>
+                            <p class="text-sm text-gray-500 italic">{{ __('No links have been extracted yet. Run SEO scoring after synchronization.') }}</p>
                         @else
                             <ul class="seo-rank-list">
                                 @foreach($topLinks as $row)
                                     <li>
                                         <span class="seo-rank-list__label">
-                                            <span class="text-xs uppercase text-gray-400">{{ $row->type === 'internal' ? 'Nội bộ' : 'Ngoài' }}</span>
+                                            <span class="text-xs uppercase text-gray-400">{{ $row->type === 'internal' ? __('Internal') : __('Outside') }}</span>
                                             {{ $row->url }}
                                         </span>
                                         <a
                                             href="{{ $this->getArticlesFilterUrlForLink($row->url, $row->type) }}"
                                             class="seo-rank-list__count text-primary-600 hover:underline dark:text-primary-400"
-                                            title="{{ __('Xem danh sách bài viết') }}"
+                                            title="{{ __('See article list') }}"
                                         >
-                                            {{ $row->articles_count }} {{ __('bài') }}
+                                            {{ $row->articles_count }} {{ __('post') }}
                                         </a>
                                     </li>
                                 @endforeach
@@ -326,7 +326,7 @@
                         color="gray"
                         icon="heroicon-o-arrow-right"
                     >
-                        {{ __('Xem thêm') }}
+                        {{ __('See more') }}
                     </x-filament::button>
                 </div>
             </x-filament::section>
@@ -335,28 +335,28 @@
             <x-filament::section class="seo-domain-overview__section">
                 <x-slot name="heading">{{ __('Site MCP — Knowledge Profile') }}</x-slot>
                 <x-slot name="description">
-                    {{ __('Official Knowledge Profile (tone, mô tả, CTA, links). Generate draft + so sánh nằm ở trang Edit Domain.') }}
+                    {{ __('Official Knowledge Profile (tone, description, CTA, links). Generate draft + comparison is on the Edit Domain page.') }}
                     (@{{site_short_description}}, @{{site_cta}}).
                 </x-slot>
 
                 @if(! $technical['has_content'])
-                    <p class="text-sm text-gray-500">{{ __('Chưa cấu hình official Site MCP.') }}</p>
+                    <p class="text-sm text-gray-500">{{ __('Official Site MCP has not been configured.') }}</p>
                 @else
                     <div class="space-y-2 text-sm">
                         @if($technical['short_description_preview'] !== '')
-                            <p><span class="font-semibold">{{ __('Mô tả') }}:</span> {{ $technical['short_description_preview'] }}</p>
+                            <p><span class="font-semibold">{{ __('Describe') }}:</span> {{ $technical['short_description_preview'] }}</p>
                         @endif
                         <p>
-                            <span class="font-semibold">{{ __('CTA') }}:</span> {{ $technical['cta_count'] }} {{ __('mục') }}
+                            <span class="font-semibold">{{ __('CTA') }}:</span> {{ $technical['cta_count'] }} {{ __('item') }}
                             ·
-                            <span class="font-semibold">{{ __('Link list') }}:</span> {{ $technical['links_count'] }} {{ __('mục') }}
+                            <span class="font-semibold">{{ __('Link list') }}:</span> {{ $technical['links_count'] }} {{ __('item') }}
                         </p>
                     </div>
                 @endif
 
                 <div class="mt-4 flex flex-wrap gap-2">
                     <x-filament::button tag="a" :href="$technicalUrl" size="sm" icon="heroicon-o-cog-6-tooth">
-                        {{ __('Chỉnh sửa / Generate draft') }}
+                        {{ __('Edit / Generate draft') }}
                     </x-filament::button>
                 </div>
             </x-filament::section>
@@ -381,7 +381,7 @@
                     tip.className = 'seo-token-copy-tip';
                     document.body.appendChild(tip);
                 }
-                tip.textContent = 'Đã copy token vào clipboard';
+                tip.textContent = "{{ __('The token has been copied to the clipboard') }}";
                 tip.style.display = 'block';
                 clearTimeout(window.seoTokenCopyTipTimer);
                 window.seoTokenCopyTipTimer = setTimeout(function () {

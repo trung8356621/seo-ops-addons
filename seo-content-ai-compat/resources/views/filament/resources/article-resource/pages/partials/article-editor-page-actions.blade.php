@@ -128,14 +128,14 @@
                     const fetchError = this.contentLifecycle === 'ERROR';
                     window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                         detail: {
-                            title: fetchError ? 'Không tải được nội dung' : (loading ? 'Đang tải nội dung' : 'Chỉ đọc'),
+                            title: fetchError ? @js(__('Unable to load content')) : (loading ? __('Loading content') : __('Read only')),
                             body: fetchError
-                                ? 'Không thể tải nội dung từ WordPress. Thử lại rồi lưu.'
+                                ? @js(__('Unable to load content from WordPress. Try again then save.'))
                                 : (loading
-                                    ? 'Đang tải nội dung từ WordPress. Đợi nội dung sẵn sàng rồi lưu.'
+                                    ? @js(__('Loading content from WordPress. Wait for the content to be ready then save.'))
                                     : (this.editorLockReason
-                                        ? ('Phiên không writable: ' + this.editorLockReason)
-                                        : 'Bài viết đang ở chế độ chỉ đọc.')),
+                                        ? (@js(__('Non-writeable session:')) + this.editorLockReason)
+                                        : @js(__('The article is in read-only mode.')))),
                             status: 'warning',
                         },
                     }));

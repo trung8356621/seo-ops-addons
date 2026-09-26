@@ -62,11 +62,8 @@ class KeywordResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Keywords';
 
-    protected static ?string $modelLabel = 'Keyword';
 
-    protected static ?string $pluralModelLabel = 'Keywords';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 

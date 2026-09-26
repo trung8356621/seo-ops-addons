@@ -216,8 +216,8 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
 
     if (window.__SEO_EDITOR_NETWORK_STATUS__?.unavailable) {
         const message = normalizedAction === 'sync'
-            ? 'Không thể Sync WP khi đang mất kết nối.'
-            : 'Không thể lưu khi đang mất kết nối.';
+            ? t('article_editor_network_sync_unavailable')
+            : t('article_editor_network_save_unavailable');
         const error = new Error(message);
         error.notificationShown = false;
         throw error;
@@ -231,7 +231,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
     try {
         const collect = window.__seoCollectEditorHeavyBundle;
         if (typeof collect !== 'function') {
-            throw new Error('Editor chưa sẵn sàng — tải lại trang rồi thử lại.');
+            throw new Error(t('article_editor_not_ready'));
         }
 
         const editorBundle = await collect({
@@ -241,20 +241,20 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
         });
         const html = String(editorBundle?.html ?? '').trim();
         if (!html) {
-            throw new Error('Không thu thập được nội dung bài viết.');
+            throw new Error(t('article_editor_collect_content_failed'));
         }
         if (
             typeof window.__seoAssertEditorWhitespaceSafe === 'function'
             && window.__seoAssertEditorWhitespaceSafe(html) === false
         ) {
             throw new Error(
-                'Không thể lưu lên server vì dữ liệu editor chưa hợp lệ. Các thay đổi đã được giữ tạm trên trình duyệt.',
+                t('article_editor_invalid_editor_payload'),
             );
         }
 
         const articleId = Number(editorBundle?.articleId ?? 0);
         if (!Number.isFinite(articleId) || articleId <= 0) {
-            throw new Error('Không xác định được ID bài viết.');
+            throw new Error(t('article_editor_missing_article_id'));
         }
 
         const siteId = Number(
@@ -265,10 +265,10 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
 
         if (normalizedAction === 'sync') {
             if (window.__SEO_EDITOR_READ_ONLY__ || window.__SEO_EDITOR_SESSION_STATE__?.writable === false) {
-                throw new Error('Phiên chỉnh sửa đang chỉ đọc — không Sync được.');
+                throw new Error(t('article_editor_read_only_sync'));
             }
             window.__seoArticleHeavyActionOverlay?.setStatusMessage?.(
-                'Đang đưa vào hàng đợi…',
+                t('article_editor_queueing'),
             );
             const apiPayload = await buildCoordinatedArticleSavePayload(editorBundle, wire);
             const result = await syncArticleToWordPressViaApi(articleId, apiPayload);
@@ -278,12 +278,12 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
 
         window.__seoArticleHeavyActionOverlay?.setStatusMessage?.(
             normalizedAction === 'save-close'
-                ? 'Đang lưu rồi đóng…'
-                : 'Đang lưu bài viết…',
+                ? t('article_editor_saving_and_closing')
+                : t('article_editor_saving'),
         );
         try {
             if (window.__SEO_EDITOR_READ_ONLY__) {
-                throw new Error('Bài viết đang ở chế độ chỉ đọc — không lưu được.');
+                throw new Error(t('article_editor_read_only_save'));
             }
 
             const buildPayload = async () => {
@@ -385,13 +385,13 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
     const html = String(editorDetail.html ?? '').trim();
     if (!html) {
         window.__seoEndArticleHeavyActionClient?.();
-        throw new Error('Không thu thập được nội dung bài viết.');
+        throw new Error(t('article_editor_collect_content_failed'));
     }
 
     const articleId = Number(editorDetail.articleId ?? 0);
     if (!Number.isFinite(articleId) || articleId <= 0) {
         window.__seoEndArticleHeavyActionClient?.();
-        throw new Error('Không xác định được ID bài viết.');
+        throw new Error(t('article_editor_missing_article_id'));
     }
 
     let siteId = 0;
@@ -425,13 +425,13 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
     try {
         if (normalizedAction === 'sync') {
             window.__seoArticleHeavyActionOverlay?.setStatusMessage?.(
-                'Đang đưa bài vào hàng đợi đồng bộ WordPress…',
+                t('article_editor_queueing_wordpress_sync'),
             );
             const result = await syncArticleToWordPressViaApi(articleId, apiPayload);
             finishArticleEditorApiAction(result, articleId, siteId, 'sync');
             return;
         } else {
-            window.__seoArticleHeavyActionOverlay?.setStatusMessage?.('Đang lưu bài viết…');
+            window.__seoArticleHeavyActionOverlay?.setStatusMessage?.(t('article_editor_saving'));
             try {
                 const result = await saveArticleViaApiSingleFlight(articleId, async () => {
                     const freshHtml = String(

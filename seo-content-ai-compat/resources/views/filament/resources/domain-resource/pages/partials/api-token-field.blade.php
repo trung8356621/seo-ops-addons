@@ -26,7 +26,7 @@
             type="button"
             class="seo-token-field__toggle"
             wire:click="toggleTokenVisibility('{{ $field }}')"
-            aria-label="{{ __('Hiển thị / ẩn token') }}"
+            aria-label="{{ __('Show/hide tokens') }}"
         >
             @if($isRevealed)
                 <x-filament::icon icon="heroicon-o-eye-slash" class="h-5 w-5" />

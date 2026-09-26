@@ -1,6 +1,6 @@
 @props([
-    'title' => 'Tôi có thể giúp gì?',
-    'description' => 'Gõ / để xem tất cả kỹ năng',
+    'title' => @js(__('How can I help?')),
+    'description' => @js(__('Type / to see all skills')),
 ])
 
 <div {{ $attributes->merge(['class' => 'seo-global-chat__empty seo-agent-chat__empty']) }}>

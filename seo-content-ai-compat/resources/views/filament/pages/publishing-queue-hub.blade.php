@@ -28,14 +28,14 @@
     $stuckCount = (int) ($health['stuck_publishing'] ?? 0);
     $recoverableStuck = max($stuckCount, count($this->stuckPublishingIds));
     $kpiCards = [
-        ['key' => 'unscheduled', 'card' => 'unscheduled', 'filter' => 'unscheduled', 'label' => 'Chưa lên lịch', 'hint' => 'Trong queue, chưa có lịch', 'value' => (int) ($stats['unscheduled'] ?? 0)],
-        ['key' => 'scheduled', 'card' => 'scheduled', 'filter' => 'scheduled', 'label' => 'Đã lên lịch', 'hint' => 'Chờ tới giờ đăng', 'value' => (int) ($stats['scheduled'] ?? 0)],
-        ['key' => 'awaiting_delivery', 'card' => 'scheduled', 'filter' => 'awaiting_delivery', 'label' => 'Đang chuẩn bị', 'hint' => 'Đã gửi yêu cầu, chờ bắt đầu', 'value' => (int) ($stats['awaiting_delivery'] ?? $stats['awaiting_worker'] ?? 0)],
-        ['key' => 'publishing', 'card' => 'publishing', 'filter' => 'publishing', 'label' => 'Đang xuất bản', 'hint' => 'Đang xuất bản lên WordPress', 'value' => (int) ($stats['publishing'] ?? 0)],
-        ['key' => 'retry_wait', 'card' => 'scheduled', 'filter' => 'retry_wait', 'label' => 'Thử lại sau', 'hint' => 'Chờ auto retry', 'value' => (int) ($stats['retry_wait'] ?? 0)],
-        ['key' => 'published', 'card' => 'published', 'filter' => 'published', 'label' => 'Đã xuất bản', 'hint' => 'WordPress đã xác nhận', 'value' => (int) ($stats['published'] ?? 0)],
-        ['key' => 'failed', 'card' => 'failed', 'filter' => 'failed', 'label' => 'Không thể xuất bản', 'hint' => 'Hết lần thử / lỗi', 'value' => (int) ($stats['failed'] ?? 0)],
-        ['key' => 'needs_attention', 'card' => 'failed', 'filter' => 'needs_attention', 'label' => 'Cần xử lý', 'hint' => 'State không dự đoán được', 'value' => (int) ($stats['needs_attention'] ?? 0)],
+        ['key' => 'unscheduled', 'card' => 'unscheduled', 'filter' => 'unscheduled', 'label' => __('Not scheduled yet'), 'hint' => __('In the queue, there is no schedule yet'), 'value' => (int) ($stats['unscheduled'] ?? 0)],
+        ['key' => 'scheduled', 'card' => 'scheduled', 'filter' => 'scheduled', 'label' => __('Scheduled'), 'hint' => __('Wait until posting time'), 'value' => (int) ($stats['scheduled'] ?? 0)],
+        ['key' => 'awaiting_delivery', 'card' => 'scheduled', 'filter' => 'awaiting_delivery', 'label' => __('Preparing'), 'hint' => __('Request sent, waiting for start'), 'value' => (int) ($stats['awaiting_delivery'] ?? $stats['awaiting_worker'] ?? 0)],
+        ['key' => 'publishing', 'card' => 'publishing', 'filter' => 'publishing', 'label' => __('Publishing'), 'hint' => __('Publishing to WordPress'), 'value' => (int) ($stats['publishing'] ?? 0)],
+        ['key' => 'retry_wait', 'card' => 'scheduled', 'filter' => 'retry_wait', 'label' => __('Try again later'), 'hint' => __('Wait for auto retry'), 'value' => (int) ($stats['retry_wait'] ?? 0)],
+        ['key' => 'published', 'card' => 'published', 'filter' => 'published', 'label' => __('Published'), 'hint' => __('WordPress confirmed'), 'value' => (int) ($stats['published'] ?? 0)],
+        ['key' => 'failed', 'card' => 'failed', 'filter' => 'failed', 'label' => __('Unable to publish'), 'hint' => __('End of trial/error'), 'value' => (int) ($stats['failed'] ?? 0)],
+        ['key' => 'needs_attention', 'card' => 'failed', 'filter' => 'needs_attention', 'label' => __('Needs processing'), 'hint' => __('State is unpredictable'), 'value' => (int) ($stats['needs_attention'] ?? 0)],
     ];
     $kpiCards = array_values(array_filter(
         $kpiCards,

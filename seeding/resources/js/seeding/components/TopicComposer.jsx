@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 
@@ -56,7 +57,7 @@ export default function TopicComposer({
     return (
         <div className="seeding-ws__composer" data-composer={isEdit ? 'edit' : 'step1'}>
             <div className="seeding-ws__composer-head">
-                <h2>{isEdit ? 'Sửa chủ đề' : 'Tạo chủ đề'}</h2>
+                <h2>{isEdit ? auditT('audit_ccee26ddda4d') : auditT('audit_125baf1781f7')}</h2>
                 <span className="seeding-ws__meta-pill seeding-ws__meta-pill--ok">1 social / execution</span>
             </div>
 
@@ -66,7 +67,7 @@ export default function TopicComposer({
                     className="seeding-ws__input"
                     value={topic.title || ''}
                     disabled={!canMutate}
-                    placeholder="Túi canvas đi học"
+                    placeholder={auditT('audit_1d015d952485')}
                     onChange={(e) => onChange({ title: e.target.value })}
                 />
             </section>
@@ -77,7 +78,7 @@ export default function TopicComposer({
                     className="seeding-ws__textarea"
                     value={topic.full_text || ''}
                     disabled={!canMutate}
-                    placeholder="Nội dung chủ đề…"
+                    placeholder={auditT('audit_6efcfbcb9e6a')}
                     onPaste={onPasteContent}
                     onChange={(e) => onChange({ full_text: e.target.value })}
                     autoFocus
@@ -95,7 +96,7 @@ export default function TopicComposer({
                         onChange={(e) => onChange({ social_url: e.target.value })}
                     />
                     {topic.social_url ? (
-                        <a className="seeding-ws__icon-btn" href={topic.social_url} target="_blank" rel="noreferrer" title="Mở">
+                        <a className="seeding-ws__icon-btn" href={topic.social_url} target="_blank" rel="noreferrer" title={auditT('audit_1acfbe82a4e9')}>
                             <ExternalLink size={14} />
                         </a>
                     ) : null}
@@ -154,7 +155,7 @@ export default function TopicComposer({
                     onClick={onCreate}
                     disabled={!canSubmit}
                 >
-                    {isEdit ? 'Lưu' : 'Tạo & chia sẻ'}
+                    {isEdit ? auditT('audit_a306970e8b81') : auditT('audit_ddfaf68dce71')}
                 </button>
             </footer>
         </div>

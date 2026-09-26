@@ -13,7 +13,11 @@ class SeoSettingsPrompt extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Prompt settings';
+    public function getTitle(): string
+    {
+        return __('Prompt settings');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-redirect';
 

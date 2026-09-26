@@ -17,9 +17,7 @@ class MediaImageEditor extends Page
 {
     protected static ?string $slug = 'media-image-editor';
 
-    protected static ?string $title = 'Chỉnh sửa ảnh';
-
-    protected static bool $shouldRegisterNavigation = false;
+    protected static ?string $title = null;
 
     protected static string $view = 'seo-content-ai::filament.pages.media-image-editor';
 
@@ -82,7 +80,7 @@ class MediaImageEditor extends Page
 
     public function getTitle(): string|Htmlable
     {
-        return '';
+        return __('media::filament.media_runtime.edit_image_title');
     }
 
     public function getHeading(): string|Htmlable

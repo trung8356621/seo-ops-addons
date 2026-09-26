@@ -1,3 +1,4 @@
+import { auditT } from '../i18n-audit.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildFlowTheme,
@@ -488,8 +489,8 @@ export default function TaskWorkflowCanvas({
       >
         <button
           type="button"
-          title="Thu nhỏ"
-          aria-label="Thu nhỏ sơ đồ"
+          title={auditT('audit_a2b1f3c58451')}
+          aria-label={auditT('audit_5d000cd701c3')}
           disabled={zoom <= MIN_ZOOM}
           onClick={() => changeZoom(-ZOOM_STEP)}
           className="flex h-9 w-9 items-center justify-center border-r border-inherit transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-700"
@@ -507,7 +508,7 @@ export default function TaskWorkflowCanvas({
         </button>
         <button
           type="button"
-          title="Đặt lại 100%"
+          title={auditT('audit_cbfde1f64850')}
           onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
           className="h-9 min-w-14 border-r border-inherit px-2 text-xs font-semibold transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
         >
@@ -515,8 +516,8 @@ export default function TaskWorkflowCanvas({
         </button>
         <button
           type="button"
-          title="Phóng to"
-          aria-label="Phóng to sơ đồ"
+          title={auditT('audit_affed1defc54')}
+          aria-label={auditT('audit_24a3087ee36b')}
           disabled={zoom >= MAX_ZOOM}
           onClick={() => changeZoom(ZOOM_STEP)}
           className="flex h-9 w-9 items-center justify-center border-l border-inherit transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-700"

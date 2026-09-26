@@ -110,7 +110,7 @@
                     type="button"
                     class="article-seo-modal__icon-close"
                     data-article-seo-modal-close
-                    aria-label="Đóng"
+                    aria-label=__('Close')
                 >
                     <x-filament::icon icon="heroicon-m-x-mark" class="h-5 w-5" />
                 </button>

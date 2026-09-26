@@ -921,7 +921,7 @@ export function SharedMediaPicker({
                         <input
                             type="search"
                             className="seo-shared-media-picker__search"
-                            placeholder={t('media_picker_search_enter') || 'Nhập từ khóa rồi nhấn Enter để tìm...'}
+                            placeholder={t('media_picker_search_enter')}
                             value={active.searchInput ?? active.search ?? ''}
                             disabled={tab === 'article'}
                             onChange={(event) => setActiveSearchInput(event.target.value)}

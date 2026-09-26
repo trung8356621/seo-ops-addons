@@ -56,7 +56,7 @@
             </button>
             @foreach ($langCoverage as $row)
                 @php
-                    $roleLabel = ($row['role'] ?? '') === 'primary' ? 'Chính' : 'Phụ';
+                    $roleLabel = ($row['role'] ?? '') === 'primary' ? __('Main') : __('Extra');
                     $tabKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($row['language'] ?? '')) ?? '';
                 @endphp
                 @continue($tabKey === '')
@@ -78,7 +78,7 @@
                 <ul class="space-y-1 text-[12px] text-gray-600 dark:text-gray-300">
                     @foreach ($langCoverage as $row)
                         <li>
-                            <span class="font-medium">{{ ($row['label'] ?? $row['language']).(($row['role'] ?? '') === 'primary' ? ' · Chính' : ' · Phụ') }}</span>
+                            <span class="font-medium">{{ ($row['label'] ?? $row['language']).(($row['role'] ?? '') === 'primary' ? __('· Main') : __('· Extra')) }}</span>
                             — WP {{ number_format((int) ($row['available_on_wp'] ?? 0)) }},
                             SEO Ops {{ number_format((int) ($row['synced_to_seo'] ?? 0)) }}
                         </li>
@@ -198,7 +198,7 @@
                             </p>
                             @if (! ($row['sync_enabled'] ?? false))
                                 <p class="text-warning-700 dark:text-warning-400">
-                                    {{ $row['gate_message'] ?: ('Chưa thể đồng bộ '.$row['label'].'. Hãy hoàn tất đồng bộ ngôn ngữ chính trước.') }}
+                                    {{ $row['gate_message'] ?: (__('Unable to sync').$row['label'].__('. Please complete primary language synchronization first.')) }}
                                 </p>
                             @else
                                 <p class="text-[12px] text-gray-500 dark:text-gray-400">

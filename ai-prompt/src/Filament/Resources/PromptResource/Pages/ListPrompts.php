@@ -17,7 +17,7 @@ class ListPrompts extends ListRecords
     {
         return [
             Actions\CreateAction::make()
-                ->label('Add prompt'),
+                ->label(__('Add prompt')),
             Actions\Action::make('import_prompts')
                 ->label(__('seo-content-ai::filament.settings_transfer.import'))
                 ->icon('heroicon-o-arrow-down-tray')
@@ -29,7 +29,7 @@ class ListPrompts extends ListRecords
                 ->color('gray')
                 ->url(fn (): string => \Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer::getUrl(panel: 'admin').'?intent=export&focus=prompts'),
             Actions\Action::make('ai_settings')
-                ->label('AI settings')
+                ->label(__('AI settings'))
                 ->icon('heroicon-o-cog-6-tooth')
                 ->color('gray')
                 ->url(fn (): string => AiConnectionResource::getUrl('index', panel: 'admin')),

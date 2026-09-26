@@ -16,7 +16,7 @@ class EditTask extends SeoEditRecord
     {
         return [
             Actions\Action::make('open_builder')
-                ->label('Open workflow builder')
+                ->label(__('Open workflow builder'))
                 ->icon('heroicon-o-squares-2x2')
                 ->color('info')
                 ->url(fn (): string => TaskResource::getUrl('builder', ['record' => $this->record])),

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import { loadOutline, saveOutline } from '../utils/articleEditorStorage';
+import { t } from '../utils/i18n';
 
 export default function OutlineMarkdownPanel({ articleId, initialOutline = '', onRewriteOutline = null }) {
     const [markdown, setMarkdown] = useState('');
@@ -45,8 +46,8 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
                     new CustomEvent('seo-article-editor-notify', {
                         detail: {
                             status: 'warning',
-                            title: 'Không tạo được outline',
-                            body: String(detail.message || 'Workflow không trả về outline.'),
+                            title: t('outline_rewrite_failed_title'),
+                            body: String(detail.message || t('outline_rewrite_failed_body')),
                         },
                     }),
                 );
@@ -62,8 +63,8 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
                 new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         status: 'success',
-                        title: 'Đã tạo outline',
-                        body: String(detail.message || 'Outline đã được cập nhật.'),
+                        title: t('outline_rewrite_success_title'),
+                        body: String(detail.message || t('outline_rewrite_success_body')),
                     },
                 }),
             );
@@ -92,7 +93,7 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
 
     if (!loaded) {
         return (
-            <p className="text-gray-400 text-center py-10 italic text-sm">Đang tải dàn ý…</p>
+            <p className="text-gray-400 text-center py-10 italic text-sm">{t('outline_markdown_loading')}</p>
         );
     }
 
@@ -102,8 +103,8 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
         <div className="seo-outline-panel">
             <p className="seo-outline-panel-hint">
                 {hasOutline
-                    ? 'Markdown outline (stored locally in browser).'
-                    : 'No outline yet — you can type markdown below.'}
+                    ? t('outline_markdown_hint_has_outline')
+                    : t('outline_markdown_hint_empty')}
             </p>
             {!hasOutline ? (
                 <div className="seo-outline-actions">
@@ -113,7 +114,7 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
                         disabled={isRewriting}
                         onClick={() => handleRewrite('title')}
                     >
-                        {isRewriting ? 'Đang xử lý…' : 'Viết lại theo tiêu đề'}
+                        {isRewriting ? t('outline_markdown_rewriting') : t('outline_markdown_rewrite_by_title')}
                     </button>
                     <button
                         type="button"
@@ -121,7 +122,7 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
                         disabled={isRewriting}
                         onClick={() => handleRewrite('content')}
                     >
-                        {isRewriting ? 'Đang xử lý…' : 'Viết lại theo nội dung'}
+                        {isRewriting ? t('outline_markdown_rewriting') : t('outline_markdown_rewrite_by_content')}
                     </button>
                 </div>
             ) : null}
@@ -134,7 +135,7 @@ export default function OutlineMarkdownPanel({ articleId, initialOutline = '', o
             />
             {hasOutline ? (
                 <details className="seo-outline-preview-wrap">
-                    <summary className="seo-outline-preview-summary">Preview</summary>
+                    <summary className="seo-outline-preview-summary">{t('outline_markdown_preview')}</summary>
                     <pre className="seo-outline-preview">{markdown}</pre>
                 </details>
             ) : null}

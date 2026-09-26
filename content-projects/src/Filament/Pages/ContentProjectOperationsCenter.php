@@ -258,7 +258,7 @@ final class ContentProjectOperationsCenter extends SeoPanelPage
 
         $userId = auth()->id() !== null ? (int) auth()->id() : 0;
         if ($userId <= 0) {
-            Notification::make()->title('Unauthorized')->danger()->send();
+            Notification::make()->title(__('Unauthorized'))->danger()->send();
 
             return;
         }

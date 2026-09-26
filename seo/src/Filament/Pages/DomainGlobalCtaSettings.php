@@ -25,7 +25,11 @@ class DomainGlobalCtaSettings extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Global CTA settings';
+    public function getTitle(): string
+    {
+        return __('Global CTA settings');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.resources.domain-resource.pages.global-cta-settings';
 

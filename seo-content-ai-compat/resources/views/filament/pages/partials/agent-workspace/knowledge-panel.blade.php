@@ -111,7 +111,7 @@
                     type="button"
                     value="{{ $detail['hash_id'] ?? '' }}"
                     class="rounded-lg bg-white px-2 py-1 text-xs dark:bg-gray-700"
-                    x-on:click="window.confirm('Forget knowledge này? Không xóa business source.') && $wire.forgetKnowledge($el.value)"
+                    x-on:click="window.confirm(@js(__('Forget this knowledge item? The business source will not be deleted.'))) && $wire.forgetKnowledge($el.value)"
                 >
                     Forget
                 </button>

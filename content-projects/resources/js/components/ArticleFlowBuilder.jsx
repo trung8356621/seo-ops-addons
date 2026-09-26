@@ -1,3 +1,4 @@
+import { auditT } from '../i18n-audit.js';
 ﻿import React, { useState, useRef, useEffect } from 'react';
 import SeoSelect from '@content-addon/components/SeoSelect.jsx';
 import {
@@ -85,11 +86,11 @@ function isWriteFromOutlinePrompt(promptId) {
 
 function defaultWorkflowRoleOptions() {
   return [
-    { value: '', label: 'Không gán vai trò' },
-    { value: 'article.outline.generate', label: 'Tạo dàn ý' },
-    { value: 'article.content.generate', label: 'Viết bài' },
-    { value: 'article.content.improve', label: 'Cải thiện bài viết' },
-    { value: 'article.image.generate', label: 'Tạo hình ảnh' },
+    { value: '', label: auditT('audit_50c9716920b6') },
+    { value: 'article.outline.generate', label: auditT('audit_109e53ae6726') },
+    { value: 'article.content.generate', label: auditT('audit_82c2dbf0a17e') },
+    { value: 'article.content.improve', label: auditT('audit_9648d56af475') },
+    { value: 'article.image.generate', label: auditT('audit_5c6805fbd29f') },
   ];
 }
 
@@ -233,7 +234,7 @@ function isArticleSaveAction(actionType) {
 
 function actionTypeCanvasLabel(actionType) {
   if (isArticleSaveAction(actionType)) {
-    return 'Tạo / cập nhật bài viết';
+    return auditT('audit_6507b676a08f');
   }
   if (actionType === 'post_comment_review') {
     return 'Post comment / review';
@@ -435,7 +436,7 @@ export function normalizeFlowData(initialData = {}) {
     nodes.push({
       id: filterId,
       type: 'article_filter',
-      title: 'Lọc bài viết',
+      title: auditT('audit_ce2e6e056f80'),
       x: Number(node.x ?? 50) + 260,
       y: Number(node.y ?? 150),
       data: normalizeArticleFilterNodeData({
@@ -518,7 +519,7 @@ export default function ArticleFlowBuilder({
       data = {};
     }
     else if (type === 'article_filter') {
-      title = 'Lọc bài viết';
+      title = auditT('audit_ce2e6e056f80');
       data = { postTypes: [], taxonomies: [], actions: [] };
     }
     else if (type === 'prompt') {
@@ -651,7 +652,7 @@ export default function ArticleFlowBuilder({
           onClick={() => onSave(taskName, JSON.stringify({ nodes, edges }))}
           className={`${t.btnPrimary} px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm disabled:cursor-wait disabled:opacity-70`}
         >
-          {saving ? 'Đang lưu...' : 'Lưu Sơ Đồ Quy Trình'}
+          {saving ? auditT('audit_063670e1bf6e') : auditT('audit_f150199efd1f')}
         </button>
       </div>
 
@@ -663,7 +664,7 @@ export default function ArticleFlowBuilder({
           {[
             { type: 'article', label: 'Article (Input)', icon: <Icons.Article /> },
             { type: 'user_input', label: 'Input ({{input}})', icon: <Icons.Input /> },
-            { type: 'article_filter', label: 'Lọc bài viết', icon: <Icons.Filter /> },
+            { type: 'article_filter', label: auditT('audit_ce2e6e056f80'), icon: <Icons.Filter /> },
             { type: 'prompt', label: 'AI Prompt block', icon: <Icons.Prompt /> },
             { type: 'filter', label: 'Filter block', icon: <Icons.Filter /> },
             {
@@ -911,8 +912,8 @@ export default function ArticleFlowBuilder({
           >
             <button
               type="button"
-              title="Thu nhỏ"
-              aria-label="Thu nhỏ sơ đồ"
+              title={auditT('audit_a2b1f3c58451')}
+              aria-label={auditT('audit_5d000cd701c3')}
               disabled={zoom <= MIN_ZOOM}
               onClick={() => changeZoom(-ZOOM_STEP)}
               className="flex h-9 w-9 items-center justify-center border-r border-inherit transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-700"
@@ -921,7 +922,7 @@ export default function ArticleFlowBuilder({
             </button>
             <button
               type="button"
-              title="Đặt lại 100%"
+              title={auditT('audit_cbfde1f64850')}
               onClick={() => setZoom(1)}
               className="h-9 min-w-14 px-2 text-xs font-semibold transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
             >
@@ -929,8 +930,8 @@ export default function ArticleFlowBuilder({
             </button>
             <button
               type="button"
-              title="Phóng to"
-              aria-label="Phóng to sơ đồ"
+              title={auditT('audit_affed1defc54')}
+              aria-label={auditT('audit_24a3087ee36b')}
               disabled={zoom >= MAX_ZOOM}
               onClick={() => changeZoom(ZOOM_STEP)}
               className="flex h-9 w-9 items-center justify-center border-l border-inherit transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-700"
@@ -1081,7 +1082,7 @@ export default function ArticleFlowBuilder({
                           value={selectedNode.data.outline_prompt_id ?? ''}
                           onChange={(e) => updateNodeData(selectedNode.id, 'outline_prompt_id', e.target.value)}
                           className="w-full"
-                          options={[{ value: '', label: '— Dùng Prompt Block chính —' }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
+                          options={[{ value: '', label: auditT('audit_7028dfd41751') }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
                         />
                       </div>
                       <div>
@@ -1090,7 +1091,7 @@ export default function ArticleFlowBuilder({
                           value={selectedNode.data.vocabulary_prompt_id ?? ''}
                           onChange={(e) => updateNodeData(selectedNode.id, 'vocabulary_prompt_id', e.target.value)}
                           className="w-full"
-                          options={[{ value: '', label: '— Chọn prompt từ vựng —' }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
+                          options={[{ value: '', label: auditT('audit_5c31fd91e1a4') }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
                         />
                         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                           Bắt buộc cho flow split: Outline và Vocabulary chạy 2 provider call riêng.
@@ -1131,12 +1132,12 @@ export default function ArticleFlowBuilder({
                       onChange={(e) => updateNodeData(selectedNode.id, 'filterType', e.target.value)}
                       className="w-full"
                       options={[
-                        { value: 'extract_segment', label: '0. Bóc tách theo Tag [START...END]' },
-                        { value: 'custom', label: 'Lọc điều kiện tùy chỉnh' },
-                        { value: 'parse_outline', label: '1. Bóc tách Dàn ý (Markdown -> JSON)' },
-                        { value: 'parse_keywords', label: '2. Bóc tách Từ khóa (Markdown -> JSON)' },
-                        { value: 'parse_faq', label: '3. Bóc tách FAQ' },
-                        { value: 'score_seo', label: '4. Chấm điểm SEO (FAQ + Bảng)' },
+                        { value: 'extract_segment', label: auditT('audit_294dcf75549f') },
+                        { value: 'custom', label: auditT('audit_6ff7fd5ab1cc') },
+                        { value: 'parse_outline', label: auditT('audit_7cd3f724ca7f') },
+                        { value: 'parse_keywords', label: auditT('audit_d158cfafd9f0') },
+                        { value: 'parse_faq', label: auditT('audit_9915fb6644fc') },
+                        { value: 'score_seo', label: auditT('audit_7a8c30135183') },
                       ]}
                     />
                   </div>
@@ -1173,7 +1174,7 @@ export default function ArticleFlowBuilder({
                           value={selectedNode.data.filterTag || ''}
                           onChange={(e) => updateNodeData(selectedNode.id, 'filterTag', e.target.value)}
                           className="w-full"
-                          placeholder="Chọn tag..."
+                          placeholder={auditT('audit_64ab5110f629')}
                         >
                           {uniqueSourcePromptTags.map((tag) => (
                             <option key={tag.key} value={tag.key}>
@@ -1283,9 +1284,9 @@ export default function ArticleFlowBuilder({
                       onChange={(e) => updateNodeData(selectedNode.id, 'actionType', e.target.value)}
                       className="w-full"
                       options={[
-                        { value: ARTICLE_SAVE_ACTION, label: 'Tạo / cập nhật bài viết' },
-                        { value: 'save_vocabulary_research', label: 'Lưu nghiên cứu từ vựng (Topic Cluster)' },
-                        { value: 'post_comment_review', label: 'Đăng bình luận / review (WordPress)' },
+                        { value: ARTICLE_SAVE_ACTION, label: auditT('audit_6507b676a08f') },
+                        { value: 'save_vocabulary_research', label: auditT('audit_9cc08c0c5759') },
+                        { value: 'post_comment_review', label: auditT('audit_b82a2e8527f3') },
                       ]}
                     />
                   </div>

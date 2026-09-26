@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useState } from 'react';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { makeId } from '../services/storage';
@@ -56,7 +57,7 @@ export default function SampleComments({ topic, canMutate, onChange }) {
             });
             const incoming = Array.isArray(data?.comments) ? data.comments : [];
             if (incoming.length === 0) {
-                setError('AI không trả về bình luận.');
+                setError(auditT('audit_a0574f73db1f'));
                 return;
             }
             const next = [
@@ -74,7 +75,7 @@ export default function SampleComments({ topic, canMutate, onChange }) {
             ];
             onChange(next);
         } catch (e) {
-            setError(e?.message || 'Gen bình luận thất bại.');
+            setError(e?.message || auditT('audit_9a92ec7fcee3'));
         } finally {
             setGenerating(false);
         }
@@ -98,7 +99,7 @@ export default function SampleComments({ topic, canMutate, onChange }) {
                                 {c.source === 'ai' ? <span className="seeding-ws__chip">AI</span> : null}
                             </span>
                             {canMutate && c.state === 'available' ? (
-                                <button type="button" className="seeding-ws__icon-btn" title="Xóa" onClick={() => remove(c.id)}>
+                                <button type="button" className="seeding-ws__icon-btn" title={auditT('audit_aa1d94fc1675')} onClick={() => remove(c.id)}>
                                     <Trash2 size={12} />
                                 </button>
                             ) : null}
@@ -112,7 +113,7 @@ export default function SampleComments({ topic, canMutate, onChange }) {
                     <textarea
                         className="seeding-ws__textarea seeding-ws__textarea--sm"
                         value={draft}
-                        placeholder="Viết bình luận mẫu…"
+                        placeholder={auditT('audit_c3bf9ea0d797')}
                         onChange={(e) => setDraft(e.target.value)}
                     />
                     <div className="seeding-ws__sample-actions-row">
@@ -120,7 +121,7 @@ export default function SampleComments({ topic, canMutate, onChange }) {
                             <Plus size={14} /> Thêm bình luận
                         </button>
                         <button type="button" className="seeding-ws__btn seeding-ws__btn--primary" onClick={gen} disabled={generating}>
-                            <Sparkles size={14} /> {generating ? 'Đang gen…' : 'Gen bình luận'}
+                            <Sparkles size={14} /> {generating ? auditT('audit_fa0c2d747d07') : auditT('audit_cffb42e67b79')}
                         </button>
                     </div>
                     {error ? <div className="seeding-ws__error">{error}</div> : null}

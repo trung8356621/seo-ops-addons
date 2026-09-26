@@ -50,7 +50,7 @@
                     <span wire:loading wire:target="loadPromptPreview">…</span>
                 </x-filament::button>
                 <x-filament::button size="sm" color="danger" wire:click="discardGenerated"
-                    wire:confirm="Chỉ discard generated canary — giữ original + article + project?"
+                    wire:confirm="__('Only discard generated canary — keep original + article + project?')"
                     wire:loading.attr="disabled"
                     wire:target="discardGenerated">
                     <span wire:loading.remove wire:target="discardGenerated">Xóa kết quả canary đã generate</span>
@@ -67,7 +67,7 @@
                         <li class="flex gap-2">
                             <span class="w-28 font-mono text-xs
                                 @if ($item['status'] === 'OK') text-emerald-600
-                                @elseif ($item['status'] === 'Không hỗ trợ') text-amber-600
+                                @elseif ($item['status'] === @js(__('Not supported'))) text-amber-600
                                 @else text-rose-600 @endif">
                                 {{ $item['status'] }}
                             </span>

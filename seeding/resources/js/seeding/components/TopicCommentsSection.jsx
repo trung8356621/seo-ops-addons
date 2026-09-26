@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useState } from 'react';
 import { MoreHorizontal, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { makeId } from '../services/storage';
@@ -81,7 +82,7 @@ export default function TopicCommentsSection({
     const remove = (id) => {
         const target = all.find((c) => c.id === id);
         if (!target || !canDeleteComment(target, userId, canMutate)) return;
-        if (!window.confirm('Xóa bình luận này?')) return;
+        if (!window.confirm(auditT('audit_4c5f55c970a5'))) return;
         onChange(all.filter((c) => c.id !== id));
     };
 
@@ -97,7 +98,7 @@ export default function TopicCommentsSection({
             });
             const incoming = Array.isArray(data?.comments) ? data.comments : [];
             if (incoming.length === 0) {
-                setError('AI không trả về bình luận.');
+                setError(auditT('audit_a0574f73db1f'));
                 return;
             }
             onChange([
@@ -111,7 +112,7 @@ export default function TopicCommentsSection({
                 }, linkPreviewCache)),
             ]);
         } catch (e) {
-            setError(e?.message || 'Gen bình luận thất bại.');
+            setError(e?.message || auditT('audit_9a92ec7fcee3'));
         } finally {
             setGenerating(false);
         }
@@ -142,7 +143,7 @@ export default function TopicCommentsSection({
                         onClick={gen}
                         disabled={generating}
                     >
-                        <Sparkles size={14} /> {generating ? 'Đang gen…' : 'Gen bình luận'}
+                        <Sparkles size={14} /> {generating ? auditT('audit_fa0c2d747d07') : auditT('audit_cffb42e67b79')}
                     </button>
                 </div>
             ) : null}
@@ -152,7 +153,7 @@ export default function TopicCommentsSection({
                     <textarea
                         className="seeding-ws__textarea seeding-ws__textarea--sm"
                         value={draft}
-                        placeholder="Viết bình luận mẫu…"
+                        placeholder={auditT('audit_c3bf9ea0d797')}
                         autoFocus
                         onChange={(e) => setDraft(e.target.value)}
                     />
@@ -270,7 +271,7 @@ export default function TopicCommentsSection({
                                                     onClick={() => onClaim(c)}
                                                     disabled={!canMutate}
                                                 >
-                                                    {c.state === 'in_progress' ? 'Tiếp tục' : 'Nhận'}
+                                                    {c.state === 'in_progress' ? auditT('audit_5d92d0921faa') : auditT('audit_f7b357518e57')}
                                                 </button>
                                             ) : null}
                                         </div>

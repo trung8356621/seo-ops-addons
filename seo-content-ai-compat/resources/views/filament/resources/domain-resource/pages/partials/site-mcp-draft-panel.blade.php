@@ -19,10 +19,10 @@
     $articleContext = $preview['article_context'] ?? [];
     $keywordPreview = $preview['keyword_preview'] ?? [];
     $websiteType = mb_strtolower(trim((string) ($site['website_type'] ?? 'news')));
-    $mainTopicsEmptyHint = __('(empty — chưa có Keyword Cluster thực / planned; chạy Tách lại cluster)');
+    $mainTopicsEmptyHint = __('(empty — no real / planned Keyword Cluster yet; run Split cluster again)');
     $importantPagesEmptyHint = in_array($websiteType, ['news', ''], true)
-        ? __('Không auto-select (news).')
-        : __('Không auto-select — chưa có product_cat parent=0 đã xác minh.');
+        ? __('No auto-select (news).')
+        : __('No auto-select — no verified product_cat parent=0 yet.');
 @endphp
 
 <div
@@ -133,7 +133,7 @@
 
         <div wire:loading.remove wire:target="generateSiteMcpDraftAction" class="space-y-3">
             @if(! ($preview['has_draft'] ?? false))
-                <p class="text-gray-500">{{ __('Chưa có draft. Bấm Generate / Regenerate ở header.') }}</p>
+                <p class="text-gray-500">{{ __('There is no draft yet. Click Generate / Regenerate in the header.') }}</p>
             @else
                 {{-- Accordion 1: Full Site MCP Draft --}}
                 <div class="rounded-lg border border-gray-200 dark:border-gray-700">
@@ -207,8 +207,8 @@
                         </section>
 
                         <section class="space-y-2">
-                            <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ __('Chủ đề website') }}</h4>
-                            <p class="text-[11px] text-gray-400">{{ __('Từ Keyword Clusters (SSOT). Sửa tên / membership ở Cluster UI.') }}</p>
+                            <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ __('Website theme') }}</h4>
+                            <p class="text-[11px] text-gray-400">{{ __('From Keyword Clusters (SSOT). Edit name / membership in Cluster UI.') }}</p>
                             <ul class="space-y-1.5 text-xs">
                                 @forelse($topicalTopics as $topicRow)
                                     @php
@@ -241,7 +241,7 @@
                                             </div>
                                         @endif
                                         @if($clusterUrl)
-                                            <a href="{{ $clusterUrl }}" class="mt-1 inline-block text-[11px] text-primary-600 hover:underline">{{ __('Xem cụm') }}</a>
+                                            <a href="{{ $clusterUrl }}" class="mt-1 inline-block text-[11px] text-primary-600 hover:underline">{{ __('See cluster') }}</a>
                                         @endif
                                     </li>
                                 @empty
@@ -354,7 +354,7 @@
 
                         <div class="space-y-1">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] font-medium uppercase tracking-wide text-gray-500">{{ __('Chủ đề website') }}</span>
+                                <span class="text-[11px] font-medium uppercase tracking-wide text-gray-500">{{ __('Website theme') }}</span>
                                 <div class="flex gap-2">
                                     <button type="button" class="text-[11px] text-primary-600" @click="selectAll()">{{ __('Select all') }}</button>
                                     <button type="button" class="text-[11px] text-gray-500" @click="clearAll()">{{ __('Clear all') }}</button>

@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { approveManagerReport } from '../api';
@@ -121,15 +122,15 @@ export default function ReportReviewModal({
             const data = await approveManagerReport(report.id);
             const updated = data?.report || null;
             if (!updated) {
-                throw new Error(data?.message || 'Không duyệt được');
+                throw new Error(data?.message || auditT('audit_bc60f56746da'));
             }
-            notifySuccess(data?.message || 'Đã duyệt');
+            notifySuccess(data?.message || auditT('audit_1165d8820535'));
             onReportUpdated(updated);
             // Prefer advancing to next pending after approve (modal stays open).
             const patched = reports.map((r) => (Number(r.id) === Number(updated.id) ? { ...r, ...updated } : r));
             goNextPending(safeIndex, patched);
         } catch (e) {
-            notifyError(e?.message || 'Duyệt thất bại');
+            notifyError(e?.message || auditT('audit_c56f0f373d15'));
         } finally {
             setApproving(false);
         }
@@ -151,7 +152,7 @@ export default function ReportReviewModal({
                 className="seeding-ws__modal seeding-ws__modal--report-review"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Duyệt báo cáo"
+                aria-label={auditT('audit_71c6265a7954')}
                 data-layout="proof-first"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -165,7 +166,7 @@ export default function ReportReviewModal({
                             className="seeding-ws__btn seeding-ws__btn--ghost"
                             onClick={() => canPrev && onIndexChange(safeIndex - 1)}
                             disabled={!canPrev}
-                            aria-label="Báo cáo trước"
+                            aria-label={auditT('audit_515ee4bdbc76')}
                             data-nav="prev"
                         >
                             <ChevronLeft size={18} />
@@ -176,7 +177,7 @@ export default function ReportReviewModal({
                             className="seeding-ws__btn seeding-ws__btn--ghost"
                             onClick={() => canNext && onIndexChange(safeIndex + 1)}
                             disabled={!canNext}
-                            aria-label="Báo cáo sau"
+                            aria-label={auditT('audit_e5b160afa15b')}
                             data-nav="next"
                         >
                             <span>Sau</span>
@@ -186,7 +187,7 @@ export default function ReportReviewModal({
                             type="button"
                             className="seeding-ws__btn seeding-ws__btn--ghost seeding-ws__report-review-close"
                             onClick={onClose}
-                            aria-label="Đóng"
+                            aria-label={auditT('audit_d2b73ab2ada1')}
                         >
                             <X size={16} />
                         </button>
@@ -212,7 +213,7 @@ export default function ReportReviewModal({
                             className={`seeding-ws__report-status-pill${approved ? ' is-approved' : ' is-pending'}`}
                             data-status={approved ? 'approved' : 'pending'}
                         >
-                            {approved ? 'Đã duyệt' : 'Chờ duyệt'}
+                            {approved ? auditT('audit_1165d8820535') : auditT('audit_3352b356a4c7')}
                         </div>
 
                         <dl className="seeding-ws__report-review-meta">
@@ -239,7 +240,7 @@ export default function ReportReviewModal({
                                                     rel="noopener noreferrer"
                                                     title={String(report.social_url)}
                                                 >
-                                                    {compactUrl(report.social_url) || 'Mở'}
+                                                    {compactUrl(report.social_url) || auditT('audit_1acfbe82a4e9')}
                                                 </a>
                                             </>
                                         ) : null}
@@ -300,7 +301,7 @@ export default function ReportReviewModal({
                                 data-action="approve"
                             >
                                 <Check size={16} />
-                                {approving ? 'Đang duyệt…' : 'Duyệt'}
+                                {approving ? auditT('audit_30d82054856b') : auditT('audit_f983b01bb0b2')}
                             </button>
                         )}
                     </aside>

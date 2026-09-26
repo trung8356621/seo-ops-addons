@@ -128,33 +128,33 @@ class AutomationRuleResource extends Resource
 
         return $form
             ->schema([
-                Forms\Components\Section::make('Summary')
-                    ->description('Readonly overview. Changes apply after Save & Publish.')
+                Forms\Components\Section::make(__('Summary'))
+                    ->description(__('Readonly overview. Changes apply after Save & Publish.'))
                     ->schema([
                         Forms\Components\Placeholder::make('summary_name')
-                            ->label('Name')
+                            ->label(__('Name'))
                             ->content(fn (?AutomationRule $record): string => (string) ($record?->name ?? '—')),
                         Forms\Components\Placeholder::make('summary_code')
-                            ->label('Code')
+                            ->label(__('Code'))
                             ->content(fn (?AutomationRule $record): string => (string) ($record?->code ?? '—')),
                         Forms\Components\Placeholder::make('summary_event')
-                            ->label('Event')
+                            ->label(__('Event'))
                             ->content(fn (?AutomationRule $record): string => (string) ($record?->event_name ?? '—')),
                         Forms\Components\Placeholder::make('summary_mode')
-                            ->label('Mode')
+                            ->label(__('Mode'))
                             ->content(fn (?AutomationRule $record): string => (string) ($record?->workflow_mode ?? 'linear')),
                         Forms\Components\Placeholder::make('summary_status')
-                            ->label('Status')
+                            ->label(__('Status'))
                             ->content(fn (?AutomationRule $record): string => $record?->is_enabled ? 'Enabled' : 'Disabled'),
                         Forms\Components\Placeholder::make('summary_published')
-                            ->label('Published version')
+                            ->label(__('Published version'))
                             ->content(fn (?AutomationRule $record): string => $record?->published_version_id
                                 ? 'v'.(string) ($record->version ?? '—').' Published'
                                 : 'Unpublished'),
                     ])
                     ->columns(3)
                     ->visible(fn (?AutomationRule $record): bool => $record !== null),
-                Forms\Components\Section::make('Rule settings')
+                Forms\Components\Section::make(__('Rule settings'))
                     ->schema([
                         Forms\Components\TextInput::make('name')
                             ->required()
@@ -189,7 +189,7 @@ class AutomationRuleResource extends Resource
                             ->required()
                             ->native(false),
                         Forms\Components\Select::make('workflow_mode')
-                            ->label('Workflow mode')
+                            ->label(__('Workflow mode'))
                             ->options([
                                 AutomationWorkflowMode::Linear->value => 'Linear',
                                 AutomationWorkflowMode::Graph->value => 'Graph',
@@ -197,9 +197,9 @@ class AutomationRuleResource extends Resource
                             ->default(AutomationWorkflowMode::Linear->value)
                             ->required()
                             ->native(false)
-                            ->helperText('Linear = fixed pipeline (no Visual Builder). Graph = Open Workflow Builder.'),
+                            ->helperText(__('Linear = fixed pipeline (no Visual Builder). Graph = Open Workflow Builder.')),
                         Forms\Components\Select::make('trigger_type')
-                            ->label('Trigger type')
+                            ->label(__('Trigger type'))
                             ->options([
                                 AutomationTriggerType::Event->value => 'Event',
                                 AutomationTriggerType::Schedule->value => 'Schedule',
@@ -214,18 +214,18 @@ class AutomationRuleResource extends Resource
                         Forms\Components\Toggle::make('is_enabled')
                             ->label(__('seo-content-ai::filament.automation.is_enabled'))
                             ->default(false)
-                            ->helperText('Runtime enable. Does not publish draft.'),
+                            ->helperText(__('Runtime enable. Does not publish draft.')),
                     ])
                     ->columns(2),
-                Forms\Components\Section::make('Advanced execution settings')
+                Forms\Components\Section::make(__('Advanced execution settings'))
                     ->collapsed()
                     ->schema([
                         Forms\Components\TextInput::make('schedule_expression')
-                            ->label('Cron expression')
+                            ->label(__('Cron expression'))
                             ->placeholder('0 * * * *')
                             ->visible(fn (Forms\Get $get): bool => $get('trigger_type') === AutomationTriggerType::Schedule->value),
                         Forms\Components\Select::make('schedule_timezone')
-                            ->label('Timezone')
+                            ->label(__('Timezone'))
                             ->options([
                                 'UTC' => 'UTC',
                                 'Asia/Ho_Chi_Minh' => 'Asia/Ho_Chi_Minh',
@@ -234,28 +234,28 @@ class AutomationRuleResource extends Resource
                             ->visible(fn (Forms\Get $get): bool => $get('trigger_type') === AutomationTriggerType::Schedule->value)
                             ->native(false),
                         Forms\Components\Placeholder::make('next_run_at')
-                            ->label('Next run')
+                            ->label(__('Next run'))
                             ->content(fn (?AutomationRule $record): string => $record?->next_run_at?->toDateTimeString() ?? '—'),
                         Forms\Components\Placeholder::make('last_scheduled_at')
-                            ->label('Last run')
+                            ->label(__('Last run'))
                             ->content(fn (?AutomationRule $record): string => $record?->last_scheduled_at?->toDateTimeString() ?? '—'),
                         Forms\Components\TextInput::make('version')
-                            ->label('Draft / published version counter')
+                            ->label(__('Draft / published version counter'))
                             ->disabled()
                             ->dehydrated(false),
                         Forms\Components\Textarea::make('settings_json')
-                            ->label(__('seo-content-ai::filament.automation.settings').' (JSON)')
+                            ->label(__('Automation settings (JSON)'))
                             ->rows(3)
                             ->columnSpanFull(),
                         Forms\Components\Textarea::make('conditions_json')
-                            ->label('Raw conditions JSON')
+                            ->label(__('Raw conditions JSON'))
                             ->rows(4)
                             ->columnSpanFull()
-                            ->helperText('Advanced. Prefer Conditions builder below when possible.'),
+                            ->helperText(__('Advanced. Prefer Conditions builder below when possible.')),
                     ])
                     ->columns(2),
-                Forms\Components\Section::make('Conditions')
-                    ->description('All conditions must match.')
+                Forms\Components\Section::make(__('Conditions'))
+                    ->description(__('All conditions must match.'))
                     ->schema([
                         Forms\Components\Repeater::make('conditions_builder')
                             ->label('')
@@ -279,12 +279,12 @@ class AutomationRuleResource extends Resource
                             ])
                             ->columns(3)
                             ->defaultItems(0)
-                            ->addActionLabel('Add condition')
+                            ->addActionLabel(__('Add condition'))
                             ->columnSpanFull()
                             ->dehydrated(false)
                             ->helperText('Saved via raw JSON on submit when builder empty; builder UI for clarity — sync to conditions_json before save if you edit rows.'),
                     ]),
-                Forms\Components\Section::make('Graph nodes')
+                Forms\Components\Section::make(__('Graph nodes'))
                     ->visible(fn (Forms\Get $get): bool => $get('workflow_mode') === AutomationWorkflowMode::Graph->value)
                     ->schema([
                         Forms\Components\Repeater::make('graph_nodes')
@@ -296,15 +296,15 @@ class AutomationRuleResource extends Resource
                                     ->required()
                                     ->native(false),
                                 Forms\Components\Select::make('action_code')->options($actionOptions)->searchable()->native(false),
-                                Forms\Components\Textarea::make('config_json')->label('Config (JSON)')->rows(2)->columnSpanFull(),
-                                Forms\Components\Textarea::make('input_mapping_json')->label('Input mapping (JSON)')->rows(2)->columnSpanFull(),
-                                Forms\Components\Textarea::make('settings_json')->label('Settings (JSON)')->rows(2)->columnSpanFull(),
+                                Forms\Components\Textarea::make('config_json')->label(__('Config (JSON)'))->rows(2)->columnSpanFull(),
+                                Forms\Components\Textarea::make('input_mapping_json')->label(__('Input mapping (JSON)'))->rows(2)->columnSpanFull(),
+                                Forms\Components\Textarea::make('settings_json')->label(__('Settings (JSON)'))->rows(2)->columnSpanFull(),
                                 Forms\Components\Toggle::make('is_enabled')->default(true),
                             ])
                             ->columns(2)
                             ->columnSpanFull(),
                     ]),
-                Forms\Components\Section::make('Graph edges')
+                Forms\Components\Section::make(__('Graph edges'))
                     ->visible(fn (Forms\Get $get): bool => $get('workflow_mode') === AutomationWorkflowMode::Graph->value)
                     ->schema([
                         Forms\Components\Repeater::make('graph_edges')
@@ -320,15 +320,15 @@ class AutomationRuleResource extends Resource
                             ->columns(2)
                             ->columnSpanFull(),
                     ]),
-                Forms\Components\Section::make('Workflow (Linear)')
-                    ->description('Actions run top-to-bottom. Fixed pipeline — do not reorder/add/remove required steps. Product reviews sync inside wordpress.article.sync.')
+                Forms\Components\Section::make(__('Workflow (Linear)'))
+                    ->description(__('Actions run top-to-bottom. Fixed pipeline — do not reorder/add/remove required steps. Product reviews sync inside wordpress.article.sync.'))
                     ->visible(fn (Forms\Get $get): bool => $get('workflow_mode') !== AutomationWorkflowMode::Graph->value)
                     ->schema([
                         Forms\Components\Repeater::make('actions_data')
                             ->label('')
                             ->schema([
                                 Forms\Components\Select::make('action_code')
-                                    ->label('Action')
+                                    ->label(__('Action'))
                                     ->options($actionOptions)
                                     ->searchable()
                                     ->required()
@@ -347,13 +347,13 @@ class AutomationRuleResource extends Resource
                                 Forms\Components\Toggle::make('continue_on_failure')
                                     ->default(false),
                                 Forms\Components\Textarea::make('input_mapping_json')
-                                    ->label('Input mapping (JSON)')
+                                    ->label(__('Input mapping (JSON)'))
                                     ->rows(2)
                                     ->columnSpanFull(),
                                 Forms\Components\Textarea::make('settings_json')
-                                    ->label('Settings (JSON)')
+                                    ->label(__('Settings (JSON)'))
                                     ->rows(2)
-                                    ->helperText('Product sync: content + media + pending product reviews.')
+                                    ->helperText(__('Product sync: content + media + pending product reviews.'))
                                     ->columnSpanFull(),
                             ])
                             ->columns(2)
@@ -375,7 +375,7 @@ class AutomationRuleResource extends Resource
                     ->sortable()
                     ->description(fn (AutomationRule $record): string => (string) $record->code),
                 Tables\Columns\TextColumn::make('code')
-                    ->label('Code')
+                    ->label(__('Code'))
                     ->searchable()
                     ->sortable()
                     ->copyable()
@@ -391,7 +391,7 @@ class AutomationRuleResource extends Resource
                     ])
                     ->sortable(),
                 Tables\Columns\TextColumn::make('workflow_mode')
-                    ->label('Mode')
+                    ->label(__('Mode'))
                     ->badge()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('event_name')
@@ -403,7 +403,7 @@ class AutomationRuleResource extends Resource
                     ->boolean()
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_published')
-                    ->label('Published')
+                    ->label(__('Published'))
                     ->boolean()
                     ->getStateUsing(fn (AutomationRule $record): bool => $record->published_version_id !== null),
                 Tables\Columns\TextColumn::make('priority')
@@ -423,10 +423,10 @@ class AutomationRuleResource extends Resource
             ->defaultSort('priority')
             ->groups([
                 Tables\Grouping\Group::make('event_name')
-                    ->label('Source event')
+                    ->label(__('Source event'))
                     ->collapsible(),
                 Tables\Grouping\Group::make('classification')
-                    ->label('Classification')
+                    ->label(__('Classification'))
                     ->collapsible(),
             ])
             ->defaultGroup('event_name')
@@ -464,7 +464,7 @@ class AutomationRuleResource extends Resource
                         static::toggleEnabled($record, false);
                     }),
                 Tables\Actions\Action::make('openWorkflow')
-                    ->label('Open workflow')
+                    ->label(__('Open workflow'))
                     ->icon('heroicon-o-squares-2x2')
                     ->visible(fn (AutomationRule $record): bool => (string) ($record->workflow_mode ?? 'linear') === AutomationWorkflowMode::Graph->value)
                     ->url(fn (AutomationRule $record): string => \Omnichannel\Addons\Agent\Filament\Pages\AutomationWorkflowBuilder::getUrl([
@@ -714,8 +714,8 @@ class AutomationRuleResource extends Resource
         );
 
         Notification::make()
-            ->title('Rule duplicated')
-            ->body("New code: {$copy->code}")
+            ->title(__('Rule duplicated'))
+            ->body(__('New code: {$copy->code}'))
             ->success()
             ->send();
     }

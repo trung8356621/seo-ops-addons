@@ -24,7 +24,11 @@ class SeoSettingsDateTime extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Date & Time';
+    public function getTitle(): string
+    {
+        return __('Date & Time');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-date-time';
 

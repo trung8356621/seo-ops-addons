@@ -208,7 +208,7 @@
                     .then(async (result) => {
                         if (! result || result.ok !== true) {
                             this.restartKeywordBusy = false;
-                            this.restartKeywordError = String(result?.message || 'Không bắt đầu được generation.');
+                            this.restartKeywordError = String(result?.message || @js(__('Generation failed to start.')));
                             $dispatch('cp-ops-row-processing-clear', { taskId: id });
                             return;
                         }
@@ -224,14 +224,14 @@
                         }
                         this.restartKeywordBusy = false;
                         this.restartKeywordError = terminal === 'timeout'
-                            ? 'Generation quá lâu — kiểm tra trạng thái item trên bảng.'
-                            : 'Generation thất bại. Từ khóa cũ được giữ nguyên.';
+                            ? @js(__('Generation too long — check item status on the board.'))
+                            : @js(__('Generation failed. The old keyword remains the same.'));
                         $dispatch('cp-ops-row-processing-clear', { taskId: id });
                         try { await this.doLazyRefresh(true); } catch (e) {}
                     })
                     .catch(() => {
                         this.restartKeywordBusy = false;
-                        this.restartKeywordError = 'Không bắt đầu được generation.';
+                        this.restartKeywordError = @js(__('Generation failed to start.'));
                         $dispatch('cp-ops-row-processing-clear', { taskId: id });
                     });
             },
@@ -323,7 +323,9 @@
             counterAria(key, label) {
                 const n = this.displayCount(key);
                 if (key === 'needs_review') {
-                    return (label || 'Needs Review') + ' cÃ²n ' + n + ' bÃ i';
+                    return @js(__(':label has :count articles remaining', ['label' => '__LABEL__', 'count' => '__COUNT__']))
+                        .replace('__LABEL__', label || 'Needs Review')
+                        .replace('__COUNT__', n);
                 }
                 return (label || key) + ': ' + n;
             },
@@ -848,10 +850,10 @@
     >
         @if ($this->settingsOpen)
             <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
-                <p class="text-gray-600 dark:text-gray-300">{{ $project?->description ?: 'â€”' }}</p>
+                <p class="text-gray-600 dark:text-gray-300">{{ $project?->description ?: '—' }}</p>
                 @if ($payload['last_execution_at'] ?? null)
                     <p class="mt-2 text-xs text-gray-500">
-                        Last execution: {{ $payload['last_execution_at'] }}
+                        {{ __('Last execution: :time', ['time' => $payload['last_execution_at']]) }}
                         @if ($payload['last_execution_status'] ?? null)
                             Â· {{ $payload['last_execution_status'] }}
                         @endif
@@ -1511,7 +1513,7 @@
                     @forelse ($this->executionDetailsRows as $exec)
                         <div class="mb-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
                             <div class="font-medium">Run #{{ $exec['run_id'] }} Â· #{{ $exec['id'] }} Â· {{ $exec['status'] }}</div>
-                            <div class="text-gray-500">{{ $exec['action'] }} Â· {{ $exec['started_at'] ?? 'â€”' }} â†’ {{ $exec['finished_at'] ?? 'â€”' }}</div>
+                            <div class="text-gray-500">{{ $exec['action'] }} · {{ $exec['started_at'] ?? '—' }} → {{ $exec['finished_at'] ?? '—' }}</div>
                             @if ($exec['error'] !== '')
                                 <div class="mt-1 text-danger-600">{{ $exec['error'] }}</div>
                             @endif

@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { notifyError, notifyWarning } from '../services/toast';
@@ -58,7 +59,7 @@ export default function ReportModal({
                 break;
             }
             if (!found) {
-                notifyWarning('Không tìm thấy ảnh trong clipboard');
+                notifyWarning(auditT('audit_a8aa06b40388'));
             }
         };
         window.addEventListener('paste', onPaste);
@@ -71,7 +72,7 @@ export default function ReportModal({
 
     const confirm = async () => {
         if (!proofBlob) {
-            notifyError('Hãy Ctrl+V ảnh proof trước');
+            notifyError(auditT('audit_e71fab4d4601'));
             return;
         }
         await onConfirm({ proof: proofBlob, previewUrl });
@@ -82,7 +83,7 @@ export default function ReportModal({
             <div className="seeding-ws__modal" ref={panelRef}>
                 <div className="seeding-ws__panel-head">
                     <h2>Báo cáo</h2>
-                    <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng" disabled={submitting}>
+                    <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label={auditT('audit_d2b73ab2ada1')} disabled={submitting}>
                         <X size={16} />
                     </button>
                 </div>
@@ -112,7 +113,7 @@ export default function ReportModal({
                     onClick={confirm}
                 >
                     {submitting ? <Loader2 size={14} className="seeding-ws__spin" /> : null}
-                    {submitting ? 'Đang gửi…' : 'Xác nhận báo cáo'}
+                    {submitting ? auditT('audit_f04c8be3377a') : auditT('audit_e26b86647f7d')}
                 </button>
             </div>
         </div>

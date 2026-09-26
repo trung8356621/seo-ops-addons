@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { relativeTime } from '../features/workspace/selectors';
 
@@ -9,10 +10,10 @@ import { relativeTime } from '../features/workspace/selectors';
 export default function TopicActivity({ topic }) {
     const state = topic.state || 'draft';
     const events = [
-        topic.created_at ? { id: 'created', text: 'Tạo chủ đề (local)', time: topic.created_at } : null,
-        topic.shared_at ? { id: 'shared', text: 'Đẩy chia sẻ (local prototype)', time: topic.shared_at } : null,
-        topic.updated_at ? { id: 'updated', text: 'Cập nhật nội dung', time: topic.updated_at } : null,
-        topic.archived_at ? { id: 'archived', text: 'Lưu trữ', time: topic.archived_at } : null,
+        topic.created_at ? { id: 'created', text: auditT('audit_73f96c6a4c30'), time: topic.created_at } : null,
+        topic.shared_at ? { id: 'shared', text: auditT('audit_7c497c06e568'), time: topic.shared_at } : null,
+        topic.updated_at ? { id: 'updated', text: auditT('audit_bef6b79c2950'), time: topic.updated_at } : null,
+        topic.archived_at ? { id: 'archived', text: auditT('audit_2298008b28ed'), time: topic.archived_at } : null,
     ].filter(Boolean);
 
     return (

@@ -50,7 +50,7 @@ final class EditAutomationRule extends SeoEditRecord
     protected function getSavedNotification(): ?Notification
     {
         return Notification::make()
-            ->title('Automation rule updated')
+            ->title(__('Automation rule updated'))
             ->success();
     }
 
@@ -66,7 +66,7 @@ final class EditAutomationRule extends SeoEditRecord
         // Linear = fixed pipeline — no Visual Builder.
         if ((string) ($record->workflow_mode ?? 'linear') === AutomationWorkflowMode::Graph->value) {
             array_unshift($actions, Actions\Action::make('visualBuilder')
-                ->label('Open Workflow Builder')
+                ->label(__('Open Workflow Builder'))
                 ->icon('heroicon-o-squares-2x2')
                 ->url(fn (): string => AutomationWorkflowBuilder::getUrl(['rule' => $record->getKey()])));
         }

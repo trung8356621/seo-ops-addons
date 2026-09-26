@@ -125,14 +125,14 @@ class AutomationExecutionResource extends Resource
                                 ? AutomationRuleResource::getUrl('view', ['record' => $record->rule])
                                 : null),
                         Infolists\Components\TextEntry::make('rule.code')
-                            ->label(__('seo-content-ai::filament.automation.rule').' code')
+                            ->label(__('Automation rule code'))
                             ->placeholder('—'),
                         Infolists\Components\TextEntry::make('businessEvent.event_name')
                             ->label(__('seo-content-ai::filament.automation.event')),
                         Infolists\Components\TextEntry::make('subject_display')
                             ->label(__('seo-content-ai::filament.automation.subject'))
                             ->state(fn (AutomationExecution $record): string => self::formatSubject($record)),
-                        Infolists\Components\TextEntry::make('businessEvent.event_uuid')->label('Event UUID')->copyable(),
+                        Infolists\Components\TextEntry::make('businessEvent.event_uuid')->label(__('Event UUID'))->copyable(),
                         Infolists\Components\TextEntry::make('error_code')
                             ->label(__('seo-content-ai::filament.automation.error_code'))
                             ->placeholder('—'),
@@ -149,7 +149,7 @@ class AutomationExecutionResource extends Resource
                             ->label(__('seo-content-ai::filament.automation.duration'))
                             ->state(fn (AutomationExecution $record): string => self::formatDuration($record)),
                         Infolists\Components\TextEntry::make('context_json')
-                            ->label('Context')
+                            ->label(__('Context'))
                             ->state(fn (AutomationExecution $record): string => self::jsonPreview($record->context))
                             ->markdown()
                             ->columnSpanFull(),
@@ -171,19 +171,19 @@ class AutomationExecutionResource extends Resource
                                     ->columnSpanFull()
                                     ->placeholder('—'),
                                 Infolists\Components\TextEntry::make('input_snapshot_json')
-                                    ->label('Input snapshot')
+                                    ->label(__('Input snapshot'))
                                     ->state(fn ($record): string => self::jsonPreview($record->input_snapshot ?? null))
                                     ->markdown()
                                     ->columnSpanFull(),
                                 Infolists\Components\TextEntry::make('output_snapshot_json')
-                                    ->label('Output snapshot')
+                                    ->label(__('Output snapshot'))
                                     ->state(fn ($record): string => self::jsonPreview($record->output_snapshot ?? null))
                                     ->markdown()
                                     ->columnSpanFull(),
                             ])
                             ->columns(3),
                     ]),
-                Infolists\Components\Section::make('Node executions')
+                Infolists\Components\Section::make(__('Node executions'))
                     ->schema([
                         Infolists\Components\RepeatableEntry::make('nodeExecutions')
                             ->schema([
@@ -195,7 +195,7 @@ class AutomationExecutionResource extends Resource
                                 Infolists\Components\TextEntry::make('error_code')->placeholder('—'),
                                 Infolists\Components\TextEntry::make('error_message')->columnSpanFull()->placeholder('—'),
                                 Infolists\Components\TextEntry::make('duration_node')
-                                    ->label('Duration')
+                                    ->label(__('Duration'))
                                     ->state(fn ($record): string => $record->started_at && $record->finished_at
                                         ? $record->started_at->diffInSeconds($record->finished_at).'s'
                                         : '—'),
@@ -264,7 +264,7 @@ class AutomationExecutionResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('execution_uuid')
-                    ->label('UUID')
+                    ->label(__('UUID'))
                     ->searchable()
                     ->copyable()
                     ->limit(12),

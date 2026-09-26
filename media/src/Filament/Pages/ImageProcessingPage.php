@@ -24,9 +24,9 @@ class ImageProcessingPage extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-sparkles';
 
-    protected static ?string $navigationLabel = 'Image processing';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Image processing';
+    protected static ?string $title = null;
 
     protected static ?string $navigationGroup = null;
 

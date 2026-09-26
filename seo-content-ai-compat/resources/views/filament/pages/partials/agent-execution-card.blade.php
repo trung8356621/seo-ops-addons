@@ -15,7 +15,7 @@
 
 @if ($hideEnvelope && in_array($messageType, ['execution_result', 'execution_error'], true))
     <div class="mt-2 whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-100">
-        {{ $userFacingSummary !== '' ? $userFacingSummary : 'Hoàn tất.' }}
+        {{ $userFacingSummary !== '' ? $userFacingSummary : __('Completed.') }}
     </div>
 @else
 <div class="mt-2 rounded-xl border border-gray-200 bg-white p-3 text-sm dark:border-gray-700 dark:bg-gray-950">

@@ -39,11 +39,8 @@ class PromptResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Prompts';
 
-    protected static ?string $modelLabel = 'Prompt';
 
-    protected static ?string $pluralModelLabel = 'Prompts';
 
     protected static ?int $navigationSort = SeoUserNavigation::SORT_PROMPTS;
 
@@ -315,12 +312,7 @@ class PromptResource extends SeoPanelResource
                                                 'undo',
                                                 'redo',
                                             ])
-                                            ->placeholder(
-                                                "# Role\nYou are an expert...\n\n"
-                                                ."# Context\nSystem...\n\n"
-                                                ."# Task: Main image\nCapture product image...\n\n"
-                                                ."# Sub-task: Side shot\n..."
-                                            ),
+                                            ->placeholder(__("# Role\nYou are an expert...\n\n# Context\nSystem...\n\n# Task: Main image\nCapture product image...\n\n# Sub-task: Side shot\n...")),
                                     ]),
 
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.runtime_rules_title'))

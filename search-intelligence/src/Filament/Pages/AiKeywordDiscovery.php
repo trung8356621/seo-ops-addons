@@ -23,7 +23,6 @@ final class AiKeywordDiscovery extends SeoPanelPage
 
     protected static ?string $navigationParentItem = 'Keyword Intelligence';
 
-    protected static ?string $navigationLabel = 'AI Keyword Discovery';
 
     protected static ?int $navigationSort = 2;
 

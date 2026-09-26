@@ -73,7 +73,7 @@ final class ViewAutomationRule extends ViewRecord
                                     ->boolean(),
                                 Infolists\Components\TextEntry::make('delay_seconds'),
                                 Infolists\Components\TextEntry::make('input_mapping_json')
-                                    ->label('Input mapping')
+                                    ->label(__('Input mapping'))
                                     ->state(fn ($record): string => self::jsonPreview($record->input_mapping ?? null))
                                     ->columnSpanFull(),
                                 Infolists\Components\TextEntry::make('settings_json')

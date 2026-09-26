@@ -38,7 +38,11 @@ class SeoSettingsWorkflows extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Workflows';
+    public function getTitle(): string
+    {
+        return __('Workflows');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-workflows';
 

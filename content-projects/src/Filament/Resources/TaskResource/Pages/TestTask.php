@@ -40,7 +40,6 @@ class TestTask extends Page implements HasForms
 
     protected static string $view = 'seo-content-ai::filament.resources.task-resource.pages.test-task';
 
-    protected static ?string $title = 'Test workflow';
 
     public const INPUT_TYPE_ARTICLE = 'article';
 
@@ -113,8 +112,8 @@ class TestTask extends Page implements HasForms
                     ->live()
                     ->required(),
                 Forms\Components\Select::make('article_id')
-                    ->label('Article')
-                    ->placeholder('Choose article from list...')
+                    ->label(__('Article'))
+                    ->placeholder(__('Choose article from list...'))
                     ->searchable()
                     ->searchPrompt('Search by title or ID...')
                     ->getSearchResultsUsing(fn (string $search): array => $this->searchArticles($search))
@@ -123,11 +122,11 @@ class TestTask extends Page implements HasForms
                     ))
                     ->live()
                     ->visible(fn (Get $get): bool => $get('input_type') === self::INPUT_TYPE_ARTICLE)
-                    ->helperText('All domains under your account. When an article is selected, title/keyword is ignored.'),
+                    ->helperText(__('All domains under your account. When an article is selected, title/keyword is ignored.')),
                 Forms\Components\TextInput::make('title_or_keyword')
-                    ->label('Title or keyword')
+                    ->label(__('Title or keyword'))
                     ->maxLength(500)
-                    ->placeholder('Enter article title or focus keyword')
+                    ->placeholder(__('Enter article title or focus keyword'))
                     ->disabled(fn (Get $get): bool => filled($get('article_id')))
                     ->visible(fn (Get $get): bool => $get('input_type') === self::INPUT_TYPE_ARTICLE)
                     ->helperText('Used when no article selected: find existing by title first, then keyword; create new article if no match.'),
@@ -154,7 +153,7 @@ class TestTask extends Page implements HasForms
                 ->color('gray')
                 ->url(TaskResource::getUrl('index')),
             Actions\Action::make('builder')
-                ->label('Open builder')
+                ->label(__('Open builder'))
                 ->icon('heroicon-o-squares-2x2')
                 ->url(fn (): string => TaskResource::getUrl('builder', ['record' => $this->getRecord()])),
         ];
@@ -231,13 +230,13 @@ class TestTask extends Page implements HasForms
             $this->errorMessage = $exception->getMessage();
 
             Notification::make()
-                ->title('Unable to run test')
+                ->title(__('Unable to run test'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
         } catch (AiModelsNotReadyException $exception) {
             Notification::make()
-                ->title('AI model sync required')
+                ->title(__('AI model sync required'))
                 ->body($exception->getMessage())
                 ->warning()
                 ->send();
@@ -251,7 +250,7 @@ class TestTask extends Page implements HasForms
             unset($this->taskTestResults);
 
             Notification::make()
-                ->title('Test failed')
+                ->title(__('Test failed'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
@@ -264,8 +263,8 @@ class TestTask extends Page implements HasForms
     {
         if ($this->resolvedContext === null || $this->stepResults === []) {
             Notification::make()
-                ->title('No result yet')
-                ->body('Run workflow test first or select a run from history.')
+                ->title(__('No result yet'))
+                ->body(__('Run workflow test first or select a run from history.'))
                 ->warning()
                 ->send();
 
@@ -330,7 +329,7 @@ class TestTask extends Page implements HasForms
             $status = (string) ($step['status'] ?? '');
 
             $notification = Notification::make()
-                ->title('Re-ran step #'.($stepIndex + 1));
+                ->title(__('Re-ran step #').($stepIndex + 1));
 
             if ($status === 'failed') {
                 $notification->body((string) ($step['message'] ?? 'Step failed.'))->warning();
@@ -343,7 +342,7 @@ class TestTask extends Page implements HasForms
             $notification->send();
         } catch (AiModelsNotReadyException $exception) {
             Notification::make()
-                ->title('AI model sync required')
+                ->title(__('AI model sync required'))
                 ->body($exception->getMessage())
                 ->warning()
                 ->send();
@@ -351,7 +350,7 @@ class TestTask extends Page implements HasForms
             $this->redirect($exception->overviewUrl(), navigate: true);
         } catch (\Throwable $exception) {
             Notification::make()
-                ->title('Step rerun failed')
+                ->title(__('Step rerun failed'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
@@ -392,7 +391,7 @@ class TestTask extends Page implements HasForms
         }
 
         Notification::make()
-            ->title('Test run deleted')
+            ->title(__('Test run deleted'))
             ->success()
             ->send();
     }

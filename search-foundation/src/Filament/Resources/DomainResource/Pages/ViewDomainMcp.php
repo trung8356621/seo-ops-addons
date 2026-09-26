@@ -91,7 +91,7 @@ final class ViewDomainMcp extends Page
     {
         return [
             Action::make('back')
-                ->label('Back')
+                ->label(__('Back'))
                 ->url(fn (): string => DomainResource::getUrl('general', ['record' => $this->getRecord()])),
         ];
     }

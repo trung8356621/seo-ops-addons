@@ -20,7 +20,7 @@
             >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
-            <span x-text="seoFieldsOpen ? 'Ẩn trường SEO' : 'Chỉnh sửa trường SEO'"></span>
+            <span x-text="seoFieldsOpen ? @js(__('Hide the SEO field')) : @js(__('Edit the SEO field'))"></span>
         </button>
 
         <div class="wp-seo-fields-toolbar-end">
@@ -38,7 +38,7 @@
             <input
                 type="text"
                 wire:model.live.debounce.300ms="focusKeyword"
-                placeholder="Nhập từ khóa chính cho bài viết..."
+                placeholder="{{ __('Enter the main keyword for the article...') }}"
                 class="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900"
             />
         </div>

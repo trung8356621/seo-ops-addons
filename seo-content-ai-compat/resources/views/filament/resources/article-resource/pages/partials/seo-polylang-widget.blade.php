@@ -43,7 +43,7 @@
                                             wire:loading.attr="disabled"
                                             wire:target="requestQuickTranslate,quickTranslateLinkedArticle"
                                             class="rounded border border-violet-300 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-200 dark:hover:bg-violet-950"
-                                            title="Dịch nhanh sang {{ $connection['label'] ?? $connection['lang'] }}"
+                                            title="{{ __('Quick translate to :language', ['language' => $connection['label'] ?? $connection['lang']]) }}"
                                         >
                                             <span wire:loading.remove wire:target="requestQuickTranslate,quickTranslateLinkedArticle">Dịch</span>
                                             <span wire:loading wire:target="requestQuickTranslate,quickTranslateLinkedArticle">…</span>
@@ -52,8 +52,8 @@
                                     <a
                                         href="{{ $connection['edit_url'] }}"
                                         class="inline-flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-                                        title="Mở bản dịch"
-                                        aria-label="Mở bản dịch {{ $connection['label'] ?? $connection['lang'] }}"
+                                        title="{{ __('Open translation') }}"
+                                        aria-label="{{ __('Open :language translation', ['language' => $connection['label'] ?? $connection['lang']]) }}"
                                     >
                                         ↗
                                     </a>

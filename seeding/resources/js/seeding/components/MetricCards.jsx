@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 
 /**
@@ -14,10 +15,10 @@ import React from 'react';
  */
 export default function MetricCards({ metrics }) {
     const cards = [
-        { key: 'topics', label: 'Chủ đề', value: metrics.topics, hint: 'Đang trên feed' },
-        { key: 'gen', label: 'Lượt Gen hôm nay', value: metrics.genToday, hint: 'Theo batch' },
-        { key: 'contents', label: 'Nội dung đã tạo', value: metrics.contentsToday, hint: 'Theo output' },
-        { key: 'topicsUsed', label: 'Topic đã dùng', value: metrics.topicsUsedToday, hint: 'Distinct hôm nay' },
+        { key: 'topics', label: auditT('audit_95f745575c44'), value: metrics.topics, hint: auditT('audit_52c95f3935f4') },
+        { key: 'gen', label: auditT('audit_3f27f0b8fb6d'), value: metrics.genToday, hint: 'Theo batch' },
+        { key: 'contents', label: auditT('audit_3be3e0db45cc'), value: metrics.contentsToday, hint: 'Theo output' },
+        { key: 'topicsUsed', label: auditT('audit_697a5f602ef9'), value: metrics.topicsUsedToday, hint: auditT('audit_5af103e1e7c7') },
     ];
 
     return (

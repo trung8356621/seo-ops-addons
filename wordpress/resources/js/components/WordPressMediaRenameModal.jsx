@@ -2,6 +2,7 @@
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
 import { t } from '@content-addon/utils/i18n.js';
+import { wpT } from '../utils/wordpressI18n.js';
 
 function basenameFromUrl(url) {
     const raw = String(url || '').trim();
@@ -63,7 +64,7 @@ export default function WordPressMediaRenameModal() {
                 }),
             });
             if (!response.ok || data?.success === false) {
-                throw new Error(String(data?.message ?? data?.block_reason ?? 'Không quét được usage.'));
+                throw new Error(String(data?.message ?? data?.block_reason ?? wpT('wp_media_rename_preview_failed_scan')));
             }
             setPreview(data);
             if (!slug && data.filename) {
@@ -110,29 +111,29 @@ export default function WordPressMediaRenameModal() {
 
     const disableReason = useMemo(() => {
         if (loading) {
-            return 'Đang quét usage…';
+            return wpT('wp_media_rename_loading_usage_scan');
         }
         if (submitting) {
-            return 'Đang đổi tên…';
+            return wpT('wp_media_rename_submitting_rename');
         }
         if (!preview) {
-            return error || 'Chưa có kết quả usage scan.';
+            return error || wpT('wp_media_rename_no_usage_scan_result');
         }
         if (preview.scan_complete !== true) {
             return String(
                 preview.block_reason
                 || preview.message
-                || 'Usage scan WordPress chưa hoàn thành — không đổi tên được.',
+                || wpT('wp_media_rename_scan_incomplete_block'),
             );
         }
         if (!String(newSlug).trim()) {
-            return 'Nhập filename/slug mới.';
+            return wpT('wp_media_rename_new_slug_required');
         }
         if (!ack) {
-            return 'Cần tick xác nhận URL sẽ đổi.';
+            return wpT('wp_media_rename_ack_required');
         }
         if (phrase.trim() !== 'RENAME') {
-            return 'Nhập chính xác RENAME.';
+            return wpT('wp_media_rename_phrase_required');
         }
         return '';
     }, [loading, submitting, preview, error, newSlug, ack, phrase]);
@@ -259,7 +260,7 @@ export default function WordPressMediaRenameModal() {
                     </label>
                     {loading ? (
                         <p className="seo-wp-rename-modal__loading">
-                            <Loader2 size={14} className="animate-spin" /> Scanning usage…
+                            <Loader2 size={14} className="animate-spin" /> {wpT('wp_media_rename_scanning_usage')}
                         </p>
                     ) : null}
                     {error ? <p className="seo-wp-rename-modal__error">{error}</p> : null}

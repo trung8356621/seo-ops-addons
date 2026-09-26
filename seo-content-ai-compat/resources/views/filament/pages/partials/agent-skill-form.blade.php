@@ -97,7 +97,7 @@
 
     @if ($previewPayload)
         <div class="mt-4 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-gray-700 dark:bg-gray-950">
-            <div class="font-semibold">{{ ($previewPayload['ok'] ?? false) ? 'Xem trước' : 'Không sẵn sàng' }}</div>
+            <div class="font-semibold">{{ ($previewPayload['ok'] ?? false) ? __('Preview') : __('Not ready') }}</div>
             <div class="mt-1 text-gray-600 dark:text-gray-300">{{ $previewPayload['message'] ?? '' }}</div>
             @foreach (($previewPayload['warnings'] ?? []) as $warning)
                 <div class="mt-1 text-amber-700">⚠ {{ $warning }}</div>

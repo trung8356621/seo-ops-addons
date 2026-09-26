@@ -57,7 +57,11 @@ class SeoSettingsAiCenter extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'AI Center';
+    public function getTitle(): string
+    {
+        return __('AI Center');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-ai-center';
 

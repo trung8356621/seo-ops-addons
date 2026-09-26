@@ -41,7 +41,11 @@ class AutomationOperationsDashboard extends Page implements HasTable
 
     protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Automation Operations';
+    public function getTitle(): string
+    {
+        return __('Automation Operations');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.automation-operations-dashboard';
 
@@ -185,7 +189,7 @@ class AutomationOperationsDashboard extends Page implements HasTable
         $this->refreshCounters();
 
         Notification::make()
-            ->title('Stale recovery finished')
+            ->title(__('Stale recovery finished'))
             ->body(sprintf(
                 'Executions: %d · Nodes: %d · Scheduled: %d · Missed: %d',
                 $stats['executions'],
@@ -212,12 +216,12 @@ class AutomationOperationsDashboard extends Page implements HasTable
             $this->refreshCounters();
 
             Notification::make()
-                ->title('Retry queued')
+                ->title(__('Retry queued'))
                 ->success()
                 ->send();
         } catch (\Throwable $e) {
             Notification::make()
-                ->title('Retry failed')
+                ->title(__('Retry failed'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
@@ -233,12 +237,12 @@ class AutomationOperationsDashboard extends Page implements HasTable
             $this->refreshCounters();
 
             Notification::make()
-                ->title('Cancellation requested')
+                ->title(__('Cancellation requested'))
                 ->success()
                 ->send();
         } catch (\Throwable $e) {
             Notification::make()
-                ->title('Cancel failed')
+                ->title(__('Cancel failed'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
@@ -253,7 +257,7 @@ class AutomationOperationsDashboard extends Page implements HasTable
             ->columns([
                 Tables\Columns\TextColumn::make('id')->sortable(),
                 Tables\Columns\TextColumn::make('execution_uuid')->limit(12)->tooltip(fn ($record) => $record->execution_uuid),
-                Tables\Columns\TextColumn::make('rule.code')->label('Rule')->searchable(),
+                Tables\Columns\TextColumn::make('rule.code')->label(__('Rule'))->searchable(),
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
                     ->color(fn (?string $state): string => match ($state) {

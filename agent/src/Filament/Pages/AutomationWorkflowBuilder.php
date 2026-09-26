@@ -325,7 +325,7 @@ class AutomationWorkflowBuilder extends Page
 
         $graph = $payload['graph'] ?? null;
         if (! is_array($graph) || ! is_array($graph['nodes'] ?? null)) {
-            Notification::make()->title('Invalid graph payload')->danger()->send();
+            Notification::make()->title(__('Invalid graph payload'))->danger()->send();
 
             return;
         }

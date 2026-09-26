@@ -91,7 +91,7 @@
                             </div>
                             <div class="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
                                 <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                                <span>{{ $card['checked_at'] ? 'Đã kiểm tra '.$card['checked_at'] : 'Chưa kiểm tra' }}</span>
+                                <span>{{ $card['checked_at'] ? __('Checked').$card['checked_at'] : __('Not checked yet') }}</span>
                             </div>
                         </div>
 

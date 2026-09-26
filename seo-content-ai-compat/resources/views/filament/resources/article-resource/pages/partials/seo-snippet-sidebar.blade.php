@@ -21,14 +21,14 @@
     <div class="wp-postbox wp-seo-preview-box">
         <div class="wp-postbox-header">
             <h2>Xem trước Google</h2>
-            <div class="wp-seo-preview-devices" role="group" aria-label="Chế độ xem trước">
+            <div class="wp-seo-preview-devices" role="group" aria-label="{{ __('Preview mode') }}">
                 <button
                     type="button"
                     class="wp-seo-preview-device-btn"
                     x-bind:class="{ 'is-active': seoPreviewDevice === 'desktop' }"
                     x-on:click="seoPreviewDevice = 'desktop'"
                     title="Desktop"
-                    aria-label="Xem trước desktop"
+                    aria-label="{{ __('Desktop preview') }}"
                     x-bind:aria-pressed="seoPreviewDevice === 'desktop'"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -42,7 +42,7 @@
                     x-bind:class="{ 'is-active': seoPreviewDevice === 'mobile' }"
                     x-on:click="seoPreviewDevice = 'mobile'"
                     title="Mobile"
-                    aria-label="Xem trước mobile"
+                    aria-label="{{ __('Mobile preview') }}"
                     x-bind:aria-pressed="seoPreviewDevice === 'mobile'"
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
@@ -58,7 +58,7 @@
                 x-bind:class="seoPreviewDevice === 'mobile' ? 'wp-seo-snippet--mobile' : 'wp-seo-snippet--desktop'"
             >
                 <p class="wp-seo-snippet__title line-clamp-1">
-                    {{ $previewTitle !== '' ? $previewTitle : 'Tiêu đề SEO sẽ hiển thị ở đây' }}
+                    {{ $previewTitle !== '' ? $previewTitle : __('The SEO title will show up here') }}
                 </p>
 
                 <p class="wp-seo-snippet__url line-clamp-1">
@@ -99,7 +99,7 @@
                 @endif
 
                 <p class="wp-seo-snippet__desc line-clamp-2">
-                    {{ $previewDescription !== '' ? $previewDescription : 'Mô tả meta sẽ hiển thị tại đây.' }}
+                    {{ $previewDescription !== '' ? $previewDescription : __('The meta description will display here.') }}
                 </p>
             </div>
         </div>

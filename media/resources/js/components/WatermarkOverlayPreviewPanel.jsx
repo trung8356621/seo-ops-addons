@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SeoSelect from '@content-addon/components/SeoSelect.jsx';
 import { OVERLAY_EXPORT_MAX, resolveBestVariantKey } from './overlayRatioPresets';
+import { mediaT } from '../utils/mediaI18n';
 
 /**
  * @typedef {{ key: string, label: string, url: string, width: number, height: number }} OverlayPreviewItem
@@ -86,10 +87,9 @@ export default function WatermarkOverlayPreviewPanel({ variants = [], sampleImag
     if (variants.length === 0) {
         return (
             <div className="wm-overlay-preview wm-overlay-preview--empty">
-                <p>Chưa có overlay đã lưu.</p>
+                <p>{mediaT('wm_overlay_empty')}</p>
                 <p className="wm-hint">
-                    Bấm <strong>Lưu cấu hình</strong> để xuất 8 file PNG (~{OVERLAY_EXPORT_MAX}px cạnh dài) theo
-                    tỉ lệ, rồi xem lại tại đây.
+                    {mediaT('wm_overlay_save_hint', { max: OVERLAY_EXPORT_MAX })}
                 </p>
             </div>
         );
@@ -118,27 +118,27 @@ export default function WatermarkOverlayPreviewPanel({ variants = [], sampleImag
                 </div>
                 <div className="wm-overlay-preview__controls">
                     <label>
-                        <span>Xem</span>
+                        <span>{mediaT('wm_overlay_view')}</span>
                         <SeoSelect
                             value={viewMode}
                             onChange={(e) => setViewMode(e.target.value)}
                             size="compact"
                             options={[
-                                { value: 'composite', label: 'Ghép lên ảnh mẫu' },
-                                { value: 'overlay', label: 'Chỉ overlay (nền caro)' },
+                                { value: 'composite', label: mediaT('wm_overlay_mode_composite') },
+                                { value: 'overlay', label: mediaT('wm_overlay_mode_overlay_only') },
                             ]}
                         />
                     </label>
                     <label>
-                        <span>Thu phóng</span>
+                        <span>{mediaT('wm_overlay_zoom')}</span>
                         <SeoSelect
                             value={zoom}
                             onChange={(e) => setZoom(e.target.value)}
                             size="compact"
                             options={[
-                                { value: 'fit', label: 'Vừa khung' },
-                                { value: '50', label: '50% kích thước thật' },
-                                { value: '100', label: '100% (1:1 pixel)' },
+                                { value: 'fit', label: mediaT('wm_overlay_zoom_fit') },
+                                { value: '50', label: mediaT('wm_overlay_zoom_half') },
+                                { value: '100', label: mediaT('wm_overlay_zoom_full') },
                             ]}
                         />
                     </label>
@@ -153,12 +153,12 @@ export default function WatermarkOverlayPreviewPanel({ variants = [], sampleImag
                     {viewMode === 'composite' && sampleImg ? (
                         <>
                             {' · '}
-                            ảnh mẫu {sampleImg.naturalWidth}×{sampleImg.naturalHeight}px
+                            {mediaT('wm_overlay_sample_image')} {sampleImg.naturalWidth}×{sampleImg.naturalHeight}px
                             {bestKey ? (
                                 <>
                                     {' · '}
                                     <span className="wm-overlay-preview__match">
-                                        Ghép dùng <strong>{bestKey}</strong>
+                                        {mediaT('wm_overlay_composite_using')} <strong>{bestKey}</strong>
                                     </span>
                                 </>
                             ) : null}
@@ -169,9 +169,10 @@ export default function WatermarkOverlayPreviewPanel({ variants = [], sampleImag
 
             {ratioMismatch && compositeVariant ? (
                 <p className="wm-hint wm-hint--warn">
-                    Tab <strong>{activeKey}</strong> không khớp tỉ lệ ảnh mẫu — chế độ ghép tự dùng{' '}
-                    <strong>{compositeVariant.key}</strong> (giống khi đóng dấu ảnh thật). Chọn tab khớp hoặc xem
-                    「Chỉ overlay」 cho {activeKey}.
+                    {mediaT('wm_overlay_ratio_mismatch', {
+                        activeKey,
+                        bestKey: compositeVariant.key,
+                    })}
                 </p>
             ) : null}
 
@@ -190,8 +191,7 @@ export default function WatermarkOverlayPreviewPanel({ variants = [], sampleImag
             </div>
 
             <p className="wm-hint">
-                Khi đóng dấu, hệ thống chọn overlay có tỉ lệ gần ảnh nhất rồi scale full khung — preview ghép làm
-                tương tự để không bị méo watermark.
+                {mediaT('wm_overlay_footer_hint')}
             </p>
         </div>
     );

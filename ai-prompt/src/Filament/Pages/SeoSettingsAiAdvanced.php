@@ -34,7 +34,11 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'AI Advanced';
+    public function getTitle(): string
+    {
+        return __('AI Advanced');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-ai-advanced';
 

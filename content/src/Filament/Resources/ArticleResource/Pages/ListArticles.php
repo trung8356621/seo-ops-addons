@@ -568,16 +568,16 @@ class ListArticles extends ListRecords
     {
         return [
             Actions\Action::make('create_from_keywords')
-                ->label('Create new articles')
+                ->label(__('Create new articles'))
                 ->icon('heroicon-o-plus')
                 ->color('success')
                 ->form([
                     Forms\Components\Placeholder::make('main_domain')
-                        ->label('Main domain')
+                        ->label(__('Main domain'))
                         ->content(fn (SeoMainDomainService $mainDomain): string => $mainDomain->resolveMainSiteLabel()),
                     Forms\Components\Textarea::make('keywords')
-                        ->label('Keywords')
-                        ->placeholder("One keyword per line\nExample:\nmen leather backpack\nnon-woven bags")
+                        ->label(__('Keywords'))
+                        ->placeholder(__("One keyword per line\nExample:\nmen leather backpack\nnon-woven bags"))
                         ->rows(8)
                         ->required()
                         ->columnSpanFull(),
@@ -602,7 +602,7 @@ class ListArticles extends ListRecords
                         }
 
                         $notification = Notification::make()
-                            ->title('Keywords processed')
+                            ->title(__('Keywords processed'))
                             ->body($body);
 
                         if ($result['failed'] > 0 && $result['created'] === 0) {
@@ -616,17 +616,17 @@ class ListArticles extends ListRecords
                         $notification->send();
                     } catch (\InvalidArgumentException $exception) {
                         Notification::make()
-                            ->title('Unable to create articles')
+                            ->title(__('Unable to create articles'))
                             ->body($exception->getMessage())
                             ->danger()
                             ->send();
                     }
                 })
-                ->modalHeading('Auto create articles')
-                ->modalDescription('Enter keyword list. System will run configured "Publish article" workflow in SEO -> Settings.')
-                ->modalSubmitActionLabel('Run workflow & create'),
+                ->modalHeading(__('Auto create articles'))
+                ->modalDescription(__('Enter keyword list. System will run configured "Publish article" workflow in SEO -> Settings.'))
+                ->modalSubmitActionLabel(__('Run workflow & create')),
             Actions\Action::make('trash')
-                ->label('Trash')
+                ->label(__('Trash'))
                 ->icon('heroicon-o-trash')
                 ->color('gray')
                 ->url(fn (): string => ArticleResource::getUrl('trash')),

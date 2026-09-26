@@ -1727,7 +1727,7 @@ final class AgentWorkspacePage extends SeoPanelPage
         );
 
         if (($result['ok'] ?? false) === true) {
-            Notification::make()->title('Đã lưu kế hoạch — chưa chạy bước nào.')->success()->send();
+            Notification::make()->title(__('Plan saved — no steps yet.'))->success()->send();
         } else {
             Notification::make()->title((string) ($result['message'] ?? 'Không lưu được plan.'))->danger()->send();
         }
@@ -1740,7 +1740,7 @@ final class AgentWorkspacePage extends SeoPanelPage
     {
         $this->proposedPlan = null;
         $this->clarificationAnswers = [];
-        Notification::make()->title('Đã hủy đề xuất.')->success()->send();
+        Notification::make()->title(__('Proposal canceled.'))->success()->send();
     }
 
     public function openProposedIntentForm(string $skillKey): void
@@ -2036,7 +2036,7 @@ final class AgentWorkspacePage extends SeoPanelPage
             ['automation_ref' => $hashId],
         );
         $this->refreshAutomationsList();
-        Notification::make()->title('Automation queued')->success()->send();
+        Notification::make()->title(__('Automation queued'))->success()->send();
     }
 
     public function pauseAutomation(string $hashId): void

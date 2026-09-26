@@ -30,7 +30,7 @@ class ListDomains extends ListRecords
                 ->color('gray')
                 ->url(DomainGlobalCtaSettings::getUrl()),
             Actions\CreateAction::make()
-                ->label('Add domain')
+                ->label(__('Add domain'))
                 ->icon('heroicon-o-plus'),
         ];
     }

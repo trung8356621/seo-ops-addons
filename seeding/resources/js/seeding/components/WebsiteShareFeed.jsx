@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useState } from 'react';
 import {
     fetchWebsiteShareFeed,
@@ -11,12 +12,12 @@ import WebsiteShareCard from './WebsiteShareCard';
 import WebsiteShareGeneratePanel from './WebsiteShareGeneratePanel';
 
 const FILTERS = [
-    { id: 'all', label: 'Tất cả' },
-    { id: 'scheduled', label: 'Chờ tạo nhiệm vụ' },
-    { id: 'pending_content', label: 'Chờ tạo nội dung' },
-    { id: 'has_content', label: 'Có nội dung' },
-    { id: 'sharing', label: 'Đang chia sẻ' },
-    { id: 'completed', label: 'Đã hoàn thành' },
+    { id: 'all', label: auditT('audit_f7a578dcbdca') },
+    { id: 'scheduled', label: auditT('audit_a03e9c945267') },
+    { id: 'pending_content', label: auditT('audit_e0e999f1b566') },
+    { id: 'has_content', label: auditT('audit_891ef7c8d7ac') },
+    { id: 'sharing', label: auditT('audit_d1c54f98d50c') },
+    { id: 'completed', label: auditT('audit_ae639c37b294') },
 ];
 
 /**
@@ -37,7 +38,7 @@ export default function WebsiteShareFeed({ canMutate }) {
             const data = await fetchWebsiteShareFeed(filter);
             setJobs(Array.isArray(data?.jobs) ? data.jobs : []);
         } catch (e) {
-            notifyError(e?.message || 'Không tải được Bài từ Website');
+            notifyError(e?.message || auditT('audit_fa33146c98be'));
         } finally {
             setLoading(false);
         }
@@ -54,10 +55,10 @@ export default function WebsiteShareFeed({ canMutate }) {
         setBusyId(job.id);
         try {
             const updated = await generateWebsiteShareContent(job.id);
-            notifySuccess('Đã tạo nội dung');
+            notifySuccess(auditT('audit_45ec01253919'));
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
         } catch (e) {
-            notifyError(e?.message || 'Gen thất bại');
+            notifyError(e?.message || auditT('audit_f2981c392d8e'));
         } finally {
             setBusyId(null);
         }
@@ -67,11 +68,11 @@ export default function WebsiteShareFeed({ canMutate }) {
         setBusyId(job.id);
         try {
             const updated = await updateWebsiteShareTargetContent(job.id, target.id, draft);
-            notifySuccess('Đã lưu nội dung');
+            notifySuccess(auditT('audit_157f98ec42b5'));
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
             setEditingTargetId(null);
         } catch (e) {
-            notifyError(e?.message || 'Không lưu được');
+            notifyError(e?.message || auditT('audit_542811fc4ac4'));
         } finally {
             setBusyId(null);
         }
@@ -80,15 +81,15 @@ export default function WebsiteShareFeed({ canMutate }) {
     const onCopy = async (target) => {
         const text = String(target.share_content || '').trim();
         if (!text) {
-            notifyError('Chưa có nội dung');
+            notifyError(auditT('audit_bdd3db004085'));
             return;
         }
         try {
             const result = await writeClipboard(text);
-            if (result.ok) notifySuccess('Đã copy');
-            else notifyError(result.error || 'Copy thất bại');
+            if (result.ok) notifySuccess(auditT('audit_a4d46c3b06b1'));
+            else notifyError(result.error || auditT('audit_1cdc97b3a598'));
         } catch {
-            notifyError('Copy thất bại');
+            notifyError(auditT('audit_1cdc97b3a598'));
         }
     };
 
@@ -99,10 +100,10 @@ export default function WebsiteShareFeed({ canMutate }) {
             const updated = await reportWebsiteShare(job.id, {
                 social: target.social,
             });
-            notifySuccess('Đã báo cáo share');
+            notifySuccess(auditT('audit_1836afcb4f7d'));
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
         } catch (e) {
-            notifyError(e?.message || 'Báo cáo thất bại');
+            notifyError(e?.message || auditT('audit_8902b7e36887'));
         } finally {
             setBusyId(null);
         }

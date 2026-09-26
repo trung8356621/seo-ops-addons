@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import TopicCard from './TopicCard';
 import ShareGeneratePanel from './ShareGeneratePanel';
@@ -87,7 +88,7 @@ export default function SeederQuickFeed({
         } catch (e) {
             // Soft fail — topic feed still usable
             if (e?.name !== 'AbortError') {
-                notifyError(e?.message || 'Không tải được Website Share');
+                notifyError(e?.message || auditT('audit_95bfe594faba'));
             }
         } finally {
             setLoadingJobs(false);
@@ -126,10 +127,10 @@ export default function SeederQuickFeed({
         setBusyId(job.id);
         try {
             const updated = await generateWebsiteShareContent(job.id);
-            notifySuccess('Đã tạo nội dung');
+            notifySuccess(auditT('audit_45ec01253919'));
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
         } catch (e) {
-            notifyError(e?.message || 'Gen thất bại');
+            notifyError(e?.message || auditT('audit_f2981c392d8e'));
         } finally {
             setBusyId(null);
         }
@@ -139,11 +140,11 @@ export default function SeederQuickFeed({
         setBusyId(job.id);
         try {
             const updated = await updateWebsiteShareTargetContent(job.id, target.id, draft);
-            notifySuccess('Đã lưu nội dung');
+            notifySuccess(auditT('audit_157f98ec42b5'));
             setJobs((prev) => prev.map((j) => (j.id === job.id ? (updated?.job || j) : j)));
             setEditingTargetId(null);
         } catch (e) {
-            notifyError(e?.message || 'Không lưu được');
+            notifyError(e?.message || auditT('audit_542811fc4ac4'));
         } finally {
             setBusyId(null);
         }
@@ -152,15 +153,15 @@ export default function SeederQuickFeed({
     const onCopy = async (target) => {
         const text = String(target.share_content || '').trim();
         if (!text) {
-            notifyError('Chưa có nội dung');
+            notifyError(auditT('audit_bdd3db004085'));
             return;
         }
         try {
             const result = await writeClipboard(text);
-            if (result.ok) notifySuccess('Đã copy');
-            else notifyError(result.error || 'Copy thất bại');
+            if (result.ok) notifySuccess(auditT('audit_a4d46c3b06b1'));
+            else notifyError(result.error || auditT('audit_1cdc97b3a598'));
         } catch {
-            notifyError('Copy thất bại');
+            notifyError(auditT('audit_1cdc97b3a598'));
         }
     };
 
@@ -171,7 +172,7 @@ export default function SeederQuickFeed({
             const updated = await reportWebsiteShare(job.id, {
                 social: target.social,
             });
-            notifySuccess('Đã báo cáo share');
+            notifySuccess(auditT('audit_1836afcb4f7d'));
             const next = updated?.job || job;
             if (!isWebsiteShareActionable(next)) {
                 setJobs((prev) => prev.filter((j) => j.id !== job.id));
@@ -179,7 +180,7 @@ export default function SeederQuickFeed({
                 setJobs((prev) => prev.map((j) => (j.id === job.id ? next : j)));
             }
         } catch (e) {
-            notifyError(e?.message || 'Báo cáo thất bại');
+            notifyError(e?.message || auditT('audit_8902b7e36887'));
         } finally {
             setBusyId(null);
         }
@@ -188,7 +189,7 @@ export default function SeederQuickFeed({
     if (items.length === 0) {
         return (
             <div className="seeding-ws__empty-feed" data-seeder-quick-feed-empty>
-                <p>{loadingJobs ? 'Đang tải…' : 'Chưa có việc seeding sẵn sàng.'}</p>
+                <p>{loadingJobs ? auditT('audit_577a1d591051') : auditT('audit_900d4c9de367')}</p>
             </div>
         );
     }

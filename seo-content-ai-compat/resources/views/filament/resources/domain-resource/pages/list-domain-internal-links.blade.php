@@ -18,7 +18,7 @@
                 color="gray"
                 icon="heroicon-o-arrow-left"
             >
-                {{ __('Quay lại tổng quan') }}
+                {{ __('Back to overview') }}
             </x-filament::button>
         </div>
 
@@ -27,7 +27,7 @@
                 {{ __('Link') }}
             </a>
             <a href="{{ $this->getTabUrl('keywords') }}" class="{{ $this->activeTab === 'keywords' ? 'is-active' : '' }}">
-                {{ __('Từ khóa') }}
+                {{ __('Keywords') }}
             </a>
         </div>
 
@@ -35,9 +35,9 @@
             @if($paginator->total() === 0)
                 <p class="text-sm text-gray-500 italic">
                     @if($isKeywords)
-                        {{ __('Chưa có từ khóa gắn bài viết.') }}
+                        {{ __('There are no keywords associated with the article.') }}
                     @else
-                        {{ __('Chưa có link được trích xuất. Chạy đồng bộ và chấm điểm SEO trước.') }}
+                        {{ __('No links have been extracted yet. Run synchronously and score SEO first.') }}
                     @endif
                 </p>
             @else
@@ -46,14 +46,14 @@
                         <thead class="bg-gray-50 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
                             <tr>
                                 @if($isKeywords)
-                                    <th class="px-4 py-3 font-semibold">{{ __('Từ khóa') }}</th>
-                                    <th class="px-4 py-3 font-semibold">{{ __('Loại') }}</th>
-                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Viết chính') }}</th>
-                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Bài liên kết') }}</th>
+                                    <th class="px-4 py-3 font-semibold">{{ __('Keywords') }}</th>
+                                    <th class="px-4 py-3 font-semibold">{{ __('Type') }}</th>
+                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Main writing') }}</th>
+                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Linked post') }}</th>
                                 @else
                                     <th class="px-4 py-3 font-semibold">{{ __('URL') }}</th>
-                                    <th class="px-4 py-3 font-semibold">{{ __('Loại') }}</th>
-                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Số bài viết') }}</th>
+                                    <th class="px-4 py-3 font-semibold">{{ __('Type') }}</th>
+                                    <th class="px-4 py-3 font-semibold text-right">{{ __('Number of articles') }}</th>
                                 @endif
                             </tr>
                         </thead>
@@ -93,7 +93,7 @@
                                         </td>
                                         <td class="px-4 py-3">
                                             <span class="inline-flex rounded-md px-2 py-0.5 text-xs font-medium {{ $row->type === 'internal' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' }}">
-                                                {{ $row->type === 'internal' ? __('Nội bộ') : __('Ngoài') }}
+                                                {{ $row->type === 'internal' ? __('Internal') : __('Outside') }}
                                             </span>
                                         </td>
                                     @endif
@@ -102,7 +102,7 @@
                                         <a
                                             href="{{ $this->getArticlesFilterUrlForLink($row) }}"
                                             class="text-primary-600 hover:underline dark:text-primary-400"
-                                            title="{{ __('Xem danh sách bài viết') }}"
+                                            title="{{ __('See article list') }}"
                                         >
                                             {{ $row->articles_count }}
                                         </a>

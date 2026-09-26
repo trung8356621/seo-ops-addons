@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { Copy, ExternalLink, X } from 'lucide-react';
 import { extractImageFromClipboard } from '../services/proofStore';
@@ -55,7 +56,7 @@ export default function GlobalWorkDrawer({
                 });
                 await onProofImage(file);
             } catch (e) {
-                setError(e?.message || 'Không lưu được proof.');
+                setError(e?.message || auditT('audit_76389f77bbdd'));
             } finally {
                 setBusy(false);
             }
@@ -71,7 +72,7 @@ export default function GlobalWorkDrawer({
         <aside className="seeding-ws__drawer" data-drawer="global-work">
             <div className="seeding-ws__drawer-head">
                 <h2>Đang thực hiện</h2>
-                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} title="Thu nhỏ">
+                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} title={auditT('audit_a2b1f3c58451')}>
                     <X size={16} />
                 </button>
             </div>

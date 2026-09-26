@@ -24,7 +24,11 @@ class SeoSettingsEditor extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Article editor';
+    public function getTitle(): string
+    {
+        return __('Article editor');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-editor';
 

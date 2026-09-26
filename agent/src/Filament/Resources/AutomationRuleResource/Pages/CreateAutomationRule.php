@@ -33,7 +33,7 @@ final class CreateAutomationRule extends CreateRecord
     protected function getCreatedNotification(): ?Notification
     {
         return Notification::make()
-            ->title('Automation rule created')
+            ->title(__('Automation rule created'))
             ->success();
     }
 

@@ -42,7 +42,7 @@ final class ArticleAccessDenied extends Page
     {
         return [
             Actions\Action::make('back_to_articles')
-                ->label('Quay lại danh sách bài viết')
+                ->label(__('Return to article list'))
                 ->icon('heroicon-o-arrow-left')
                 ->color('gray')
                 ->url(ArticleResource::getUrl('index')),

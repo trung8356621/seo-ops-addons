@@ -37,9 +37,7 @@ final class ArticlesOptimal extends SeoPanelPage
 
     protected static ?string $navigationIcon = 'heroicon-o-magnifying-glass-circle';
 
-    protected static ?string $navigationLabel = 'Article SEO audit';
 
-    protected static ?string $title = 'Article SEO audit';
 
     protected static ?string $navigationGroup = null;
 

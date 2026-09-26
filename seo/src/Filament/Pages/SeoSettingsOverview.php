@@ -22,7 +22,11 @@ class SeoSettingsOverview extends Page implements HasForms
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Overview';
+    public function getTitle(): string
+    {
+        return __('Overview');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-overview';
 

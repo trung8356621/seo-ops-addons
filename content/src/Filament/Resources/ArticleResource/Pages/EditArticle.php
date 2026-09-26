@@ -340,7 +340,7 @@ class EditArticle extends SeoEditRecord
         $restoredMessage = session()->pull('seo_revision_restored');
         if (is_string($restoredMessage) && $restoredMessage !== '') {
             Notification::make()
-                ->title('Khôi phục phiên bản thành công')
+                ->title(__('Restore version successfully'))
                 ->body($restoredMessage)
                 ->success()
                 ->send();
@@ -974,7 +974,7 @@ class EditArticle extends SeoEditRecord
 
         if ($result->success) {
             Notification::make()
-                ->title('Đã hoàn tác')
+                ->title(__('Undone'))
                 ->body($result->message)
                 ->success()
                 ->send();
@@ -988,7 +988,7 @@ class EditArticle extends SeoEditRecord
         }
 
         Notification::make()
-            ->title('Không hoàn tác được')
+            ->title(__('Cannot be undone'))
             ->body($result->message)
             ->danger()
             ->send();
@@ -1299,8 +1299,8 @@ class EditArticle extends SeoEditRecord
     ): void {
         if (! $this->supportsProductGallery()) {
             Notification::make()
-                ->title('Không áp dụng album sản phẩm')
-                ->body('Chỉ bài sản phẩm WooCommerce mới có album hình ảnh.')
+                ->title(__('Does not apply to product albums'))
+                ->body(__('Only WooCommerce product posts can have image albums.'))
                 ->warning()
                 ->send();
 
@@ -1310,8 +1310,8 @@ class EditArticle extends SeoEditRecord
         $url = trim($url);
         if ($url === '') {
             Notification::make()
-                ->title('Thiếu URL ảnh')
-                ->body('Không thể thêm ảnh vào album vì thiếu đường dẫn.')
+                ->title(__('Missing image URL'))
+                ->body(__('Cannot add photos to the album because the link is missing.'))
                 ->warning()
                 ->send();
 
@@ -1329,8 +1329,8 @@ class EditArticle extends SeoEditRecord
 
         if ($localRefId <= 0) {
             Notification::make()
-                ->title('Không thể thêm vào album')
-                ->body('Ảnh chưa có ID thư viện (WP hoặc Laravel). Hãy chọn ảnh từ thư viện hoặc đồng bộ WordPress trước.')
+                ->title(__('Cannot add to album'))
+                ->body(__('The image does not have a library ID (WP or Laravel). Choose photos from your library or sync to WordPress first.'))
                 ->warning()
                 ->send();
 
@@ -1344,7 +1344,7 @@ class EditArticle extends SeoEditRecord
 
         if ($afterCount <= $beforeCount) {
             Notification::make()
-                ->title('Ảnh đã có trong album')
+                ->title(__('Photos are in the album'))
                 ->info()
                 ->send();
 
@@ -1401,8 +1401,8 @@ class EditArticle extends SeoEditRecord
     {
         if ($mode !== 'editor-block' && (int) ($this->record->wordpressLink?->wp_post_id ?? 0) <= 0) {
             Notification::make()
-                ->title('WordPress not linked')
-                ->body('Sync article from domain before selecting WordPress images.')
+                ->title(__('WordPress not linked'))
+                ->body(__('Sync article from domain before selecting WordPress images.'))
                 ->warning()
                 ->send();
 
@@ -1418,7 +1418,7 @@ class EditArticle extends SeoEditRecord
                 $this->mediaPickerOpen = false;
 
                 Notification::make()
-                    ->title('Unable to identify image block')
+                    ->title(__('Unable to identify image block'))
                     ->warning()
                     ->send();
 
@@ -1799,7 +1799,7 @@ class EditArticle extends SeoEditRecord
 
         if ($mediaType !== 'image') {
             Notification::make()
-                ->title('Featured image only supports image files')
+                ->title(__('Featured image only supports image files'))
                 ->warning()
                 ->send();
 
@@ -1835,8 +1835,8 @@ class EditArticle extends SeoEditRecord
         $items = array_values(array_filter($items, static fn (mixed $row): bool => is_array($row)));
         if (! $this->supportsProductGallery()) {
             Notification::make()
-                ->title('Album not applicable')
-                ->body('Category only supports featured image.')
+                ->title(__('Album not applicable'))
+                ->body(__('Category only supports featured image.'))
                 ->warning()
                 ->send();
 
@@ -1845,8 +1845,8 @@ class EditArticle extends SeoEditRecord
 
         if ($items === []) {
             Notification::make()
-                ->title('Chưa chọn ảnh')
-                ->body('Hãy chọn ít nhất một ảnh trước khi thêm vào album.')
+                ->title(__('No photo selected yet'))
+                ->body(__('Please select at least one photo before adding it to the album.'))
                 ->warning()
                 ->send();
 
@@ -1923,7 +1923,7 @@ class EditArticle extends SeoEditRecord
 
         if ($added <= 0) {
             Notification::make()
-                ->title('Không thêm được ảnh mới')
+                ->title(__('Unable to add new photos'))
                 ->body($skipped > 0
                     ? 'Các ảnh đã chọn có thể đã có trong album hoặc thiếu ID thư viện.'
                     : 'Không có ảnh hợp lệ để thêm.')
@@ -2145,7 +2145,7 @@ class EditArticle extends SeoEditRecord
     {
         if (! SeoAccessControl::canMutateInSeoPanel()) {
             Notification::make()
-                ->title('Không có quyền cập nhật WP ID')
+                ->title(__('No permission to update WP ID'))
                 ->danger()
                 ->send();
 
@@ -2155,8 +2155,8 @@ class EditArticle extends SeoEditRecord
         $wpPostId = $this->normalizeManualWpPostId();
         if ($wpPostId <= 0) {
             Notification::make()
-                ->title('WP ID không hợp lệ')
-                ->body('Nhập ID bài viết WordPress dạng số, ví dụ 1234.')
+                ->title(__('Invalid WP ID'))
+                ->body(__('Enter a numeric WordPress post ID, for example 1234.'))
                 ->warning()
                 ->send();
 
@@ -2177,7 +2177,7 @@ class EditArticle extends SeoEditRecord
             ];
 
             Notification::make()
-                ->title('WP ID đã được nối với bài khác')
+                ->title(__('WP ID has been linked to another post'))
                 ->body(sprintf('Article #%d: %s', (int) $blockingDuplicate['id'], Str::limit((string) $blockingDuplicate['title'], 80)))
                 ->danger()
                 ->send();
@@ -2197,8 +2197,8 @@ class EditArticle extends SeoEditRecord
             ];
 
             Notification::make()
-                ->title('WP ID đã thuộc bài hiện tại')
-                ->body('Article hiện tại đang liên kết với WordPress #'.$wpPostId.'.')
+                ->title(__('WP ID belongs to the current post'))
+                ->body(__('This article is currently linked to WordPress #').$wpPostId.'.')
                 ->success()
                 ->send();
 
@@ -2226,8 +2226,8 @@ class EditArticle extends SeoEditRecord
             ]);
 
             Notification::make()
-                ->title('Không nối được WP ID')
-                ->body('Không fetch được bài WordPress với ID này. Kiểm tra đúng domain, token bridge và WP ID rồi thử lại.')
+                ->title(__('Unable to connect WP ID'))
+                ->body(__('Unable to fetch WordPress posts with this ID. Check the correct domain, bridge token and WP ID and try again.'))
                 ->danger()
                 ->send();
 
@@ -2258,8 +2258,8 @@ class EditArticle extends SeoEditRecord
         ]);
 
         Notification::make()
-            ->title('Đã nối WP ID')
-            ->body('Article đã liên kết lại với bài WordPress #'.$wpPostId.'.')
+            ->title(__('Connected WP ID'))
+            ->body(__('Article linked back to WordPress post #').$wpPostId.'.')
             ->success()
             ->send();
     }
@@ -2540,7 +2540,7 @@ class EditArticle extends SeoEditRecord
         $record->unsetRelation('wordpressLink');
         $record->load('wordpressLink');
         Notification::make()
-            ->title('Kiểm tra lại trạng thái')
+            ->title(__('Check the status again'))
             ->body((string) ($result['message'] ?? 'Đã lưu observed WordPress state.'))
             ->success()
             ->send();
@@ -2785,7 +2785,7 @@ class EditArticle extends SeoEditRecord
 
         if (! ($result['success'] ?? false)) {
             Notification::make()
-                ->title('Import bản dịch')
+                ->title(__('Import translations'))
                 ->body((string) ($result['message'] ?? 'Thất bại.'))
                 ->danger()
                 ->send();
@@ -2801,7 +2801,7 @@ class EditArticle extends SeoEditRecord
         }
 
         Notification::make()
-            ->title('Import bản dịch')
+            ->title(__('Import translations'))
             ->body((string) ($result['message'] ?? 'Đã import.'))
             ->success()
             ->send();
@@ -2815,8 +2815,8 @@ class EditArticle extends SeoEditRecord
         );
 
         Notification::make()
-            ->title('Tạo bản dịch')
-            ->body('Chưa có bản «'.$label.'» trên WordPress. Tạo bản dịch trong WP/Polylang hoặc chạy Quy trình SEO để sinh nội dung.')
+            ->title(__('Create translations'))
+            ->body(__('No version yet «').$label.'» trên WordPress. Tạo bản dịch trong WP/Polylang hoặc chạy Quy trình SEO để sinh nội dung.')
             ->warning()
             ->send();
     }
@@ -3145,19 +3145,19 @@ class EditArticle extends SeoEditRecord
             if (! $automationEnabled) {
                 Notification::make()
                     ->title(__('seo-content-ai::filament.article_list.quick_create_reviews_success'))
-                    ->body("Đã tạo {$count} review nhưng Automation đăng review đang tắt. Review hiện được lưu cục bộ.")
+                    ->body(__('{$count} review created but Review Posting Automation is off. Reviews are now saved locally.'))
                     ->warning()
                     ->send();
             } elseif (! $hasWpPostId) {
                 Notification::make()
                     ->title(__('seo-content-ai::filament.article_list.quick_create_reviews_success'))
-                    ->body("Đã tạo {$count} review. Review sẽ tự động được đăng sau khi bài viết đồng bộ WordPress.")
+                    ->body(__('Created {$count} review. Reviews will automatically be posted after the article syncs with WordPress.'))
                     ->success()
                     ->send();
             } else {
                 Notification::make()
                     ->title(__('seo-content-ai::filament.article_list.quick_create_reviews_success'))
-                    ->body("Đã tạo {$count} review. Hệ thống sẽ tự động đăng lên WordPress trong vòng 5 phút.")
+                    ->body(__('Created {$count} review. The system will automatically post to WordPress within 5 minutes.'))
                     ->success()
                     ->send();
             }
@@ -3392,8 +3392,8 @@ class EditArticle extends SeoEditRecord
         if (! $user instanceof \App\Models\User) {
             if ($notify) {
                 Notification::make()
-                    ->title('Không lưu được nội dung')
-                    ->body('Phiên đăng nhập không hợp lệ.')
+                    ->title(__('Unable to save content'))
+                    ->body(__('Invalid login session.'))
                     ->warning()
                     ->send();
                 $this->cancelHeavyArticleAction();
@@ -3417,7 +3417,7 @@ class EditArticle extends SeoEditRecord
         if ($rejectedEmpty !== null) {
             if ($notify) {
                 Notification::make()
-                    ->title('Nội dung chưa được đồng bộ')
+                    ->title(__('Content is not synchronized'))
                     ->body((string) ($rejectedEmpty['message'] ?? 'Đồng bộ từ WordPress trước khi lưu.'))
                     ->warning()
                     ->send();
@@ -3430,8 +3430,8 @@ class EditArticle extends SeoEditRecord
         if (strlen(trim($html)) < 50 && $this->articleHadSubstantialContent()) {
             if ($notify) {
                 Notification::make()
-                    ->title('Không lưu được nội dung')
-                    ->body('Editor trả về nội dung rỗng. Hãy thử lại hoặc dùng Lấy từ WordPress / Restore trước khi lưu.')
+                    ->title(__('Unable to save content'))
+                    ->body(__('Editor returns empty content. Please try again or use Retrieve from WordPress / Restore before saving.'))
                     ->warning()
                     ->send();
                 $this->cancelHeavyArticleAction();
@@ -3506,8 +3506,8 @@ class EditArticle extends SeoEditRecord
 
         if ($notify) {
             Notification::make()
-                ->title('Article saved')
-                ->body('Content is saved only in SEO system. Use "Sync" to push to WordPress.')
+                ->title(__('Article saved'))
+                ->body(__('Content is saved only in SEO system. Use "Sync" to push to WordPress.'))
                 ->success()
                 ->send();
             $this->cancelHeavyArticleAction();
@@ -3519,7 +3519,7 @@ class EditArticle extends SeoEditRecord
     private function notifyEditorSessionWriteBlocked(ArticleEditorSessionException $exception): void
     {
         Notification::make()
-            ->title('Không lưu được nội dung')
+            ->title(__('Unable to save content'))
             ->body($exception->getMessage())
             ->warning()
             ->send();
@@ -3659,7 +3659,7 @@ class EditArticle extends SeoEditRecord
             if ($html === null) {
                 Notification::make()
                     ->title(__('seo-content-ai::filament.automation.wp_sync_blocked_title'))
-                    ->body('Không lưu local được — thiếu editor session hoặc bài đang bị khóa.')
+                    ->body(__('Unable to save locally — missing editor session or post is locked.'))
                     ->danger()
                     ->send();
                 $this->cancelHeavyArticleAction();
@@ -3727,8 +3727,8 @@ class EditArticle extends SeoEditRecord
         $article = $this->record;
         if (! $article instanceof SeoArticle) {
             Notification::make()
-                ->title('Không thể viết lại bài')
-                ->body('Thiếu bài viết.')
+                ->title(__('Cannot rewrite post'))
+                ->body(__('Missing articles.'))
                 ->danger()
                 ->send();
 
@@ -3741,8 +3741,8 @@ class EditArticle extends SeoEditRecord
             ->exists();
         if ($activeWriting) {
             Notification::make()
-                ->title('Không thể viết lại bài')
-                ->body('Bài đang thuộc Content Project run đang chạy. Chờ xong hoặc hủy run trước khi viết lại từ editor.')
+                ->title(__('Cannot rewrite post'))
+                ->body(__('The article is in the running Content Project run. Wait for it to finish or cancel run before rewriting from the editor.'))
                 ->warning()
                 ->send();
 
@@ -3778,7 +3778,7 @@ class EditArticle extends SeoEditRecord
         } catch (\Throwable $exception) {
             $this->pipelineRerunBusy = false;
             Notification::make()
-                ->title('Không thể viết lại bài')
+                ->title(__('Cannot rewrite post'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
@@ -3790,7 +3790,7 @@ class EditArticle extends SeoEditRecord
 
         if (! $result->success) {
             Notification::make()
-                ->title('Không thể viết lại bài')
+                ->title(__('Cannot rewrite post'))
                 ->body($result->message)
                 ->danger()
                 ->send();
@@ -3800,7 +3800,7 @@ class EditArticle extends SeoEditRecord
 
         if ($result->persistStatus === ArticleWritingExecutionResult::PERSIST_IGNORED_STALE) {
             Notification::make()
-                ->title('Đã bỏ qua kết quả cũ')
+                ->title(__('Old results have been ignored'))
                 ->body($result->message)
                 ->warning()
                 ->send();
@@ -3850,7 +3850,7 @@ class EditArticle extends SeoEditRecord
 
         if (! ($result['success'] ?? false)) {
             Notification::make()
-                ->title('Không thể chạy lại quy trình')
+                ->title(__('The process cannot be rerun'))
                 ->body((string) ($result['message'] ?? 'Yêu cầu bị từ chối.'))
                 ->danger()
                 ->send();
@@ -3859,7 +3859,7 @@ class EditArticle extends SeoEditRecord
         }
 
         Notification::make()
-            ->title('Chạy lại quy trình thành công')
+            ->title(__('Rerun the process successfully'))
             ->body((string) ($this->pipelineRerunMessage ?: 'Đã áp dụng kết quả mới. Đang tải lại editor…'))
             ->success()
             ->persistent()
@@ -3917,8 +3917,8 @@ class EditArticle extends SeoEditRecord
         $markdown = trim($markdown);
         if ($markdown === '') {
             Notification::make()
-                ->title('Markdown trống')
-                ->body('Dán markdown FAQ (AI output) để thử bóc tách vào panel FAQ.')
+                ->title(__('Markdown is empty'))
+                ->body(__('Paste the FAQ markdown (AI output) to try to dissect into the FAQ panel.'))
                 ->warning()
                 ->send();
             $this->dispatch('article-faq-markdown-import-finished', success: false);
@@ -3936,7 +3936,7 @@ class EditArticle extends SeoEditRecord
             $treatAllCount = count($parser->parseFaqsFromContent($markdown, true));
 
             Notification::make()
-                ->title('Không tách được FAQ từ markdown')
+                ->title(__('Unable to separate FAQ from markdown'))
                 ->body(sprintf(
                     'standalone=%s, parse=%d, parse_all=%d. Kiểm tra định dạng (## FAQ hoặc ### 1. Câu hỏi? …).',
                     $standalone ? 'yes' : 'no',
@@ -3965,8 +3965,8 @@ class EditArticle extends SeoEditRecord
                 $written = $this->persistArticleLocalSilent($newHtml);
                 if ($written === null) {
                     Notification::make()
-                        ->title('Không cập nhật body FAQ')
-                        ->body('Cần phiên chỉnh sửa hợp lệ để ghi body.')
+                        ->title(__('Do not update the FAQ body'))
+                        ->body(__('A valid edit session is required to record the body.'))
                         ->warning()
                         ->send();
                 }
@@ -3984,7 +3984,7 @@ class EditArticle extends SeoEditRecord
         );
 
         Notification::make()
-            ->title('Đã import FAQ từ markdown (debug)')
+            ->title(__('Imported FAQ from markdown (debug)'))
             ->body(sprintf(
                 'Tách được %d FAQ vào panel. Nội dung editor giữ nguyên, chỉ chèn/cập nhật khối [omi_faq].',
                 $faqCount,
@@ -4752,7 +4752,7 @@ class EditArticle extends SeoEditRecord
             $this->dispatch('article-faq-extract-debug', debug: $exception->debug);
 
             Notification::make()
-                ->title('Unable to extract FAQ')
+                ->title(__('Unable to extract FAQ'))
                 ->body($exception->getMessage())
                 ->warning()
                 ->send();
@@ -4760,7 +4760,7 @@ class EditArticle extends SeoEditRecord
             return;
         } catch (\InvalidArgumentException $exception) {
             Notification::make()
-                ->title('Unable to extract FAQ')
+                ->title(__('Unable to extract FAQ'))
                 ->body($exception->getMessage())
                 ->warning()
                 ->send();
@@ -4780,8 +4780,8 @@ class EditArticle extends SeoEditRecord
         $this->dispatch('article-faqs-extracted', faqs: $faqs, editorHtml: $editorHtml);
 
         Notification::make()
-            ->title('FAQ extracted and saved')
-            ->body('FAQ items: '.count($faqs).'. FAQ content in editor has been replaced with [omi_faq].')
+            ->title(__('FAQ extracted and saved'))
+            ->body(__('FAQ items: :count. FAQ content in the editor has been replaced with [omi_faq].', ['count' => count($faqs)]))
             ->success()
             ->send();
     }
@@ -4833,8 +4833,8 @@ class EditArticle extends SeoEditRecord
             }
 
             Notification::make()
-                ->title('FAQ not saved')
-                ->body('Each FAQ needs a question and a non-empty answer.')
+                ->title(__('FAQ not saved'))
+                ->body(__('Each FAQ needs a question and a non-empty answer.'))
                 ->warning()
                 ->send();
 
@@ -4867,7 +4867,7 @@ class EditArticle extends SeoEditRecord
                 }
 
                 Notification::make()
-                    ->title('FAQ deleted')
+                    ->title(__('FAQ deleted'))
                     ->body((string) ($restore['message'] ?? 'Article content has been restored from WordPress.'))
                     ->success()
                     ->send();
@@ -4888,7 +4888,7 @@ class EditArticle extends SeoEditRecord
             }
 
             Notification::make()
-                ->title('FAQ deleted')
+                ->title(__('FAQ deleted'))
                 ->body((string) ($restore['message'] ?? 'FAQ has been removed from SEO system.'))
                 ->warning()
                 ->send();
@@ -4922,7 +4922,7 @@ class EditArticle extends SeoEditRecord
                 }
 
                 Notification::make()
-                    ->title('FAQ deleted')
+                    ->title(__('FAQ deleted'))
                     ->body((string) ($restore['message'] ?? 'Article content has been restored from WordPress.'))
                     ->success()
                     ->send();
@@ -4944,8 +4944,8 @@ class EditArticle extends SeoEditRecord
         }
 
         Notification::make()
-            ->title('FAQ saved')
-            ->body('FAQ is saved in SEO system. Sync to WordPress when clicking "Sync".')
+            ->title(__('FAQ saved'))
+            ->body(__('FAQ is saved in SEO system. Sync to WordPress when clicking "Sync".'))
             ->success()
             ->send();
 
@@ -5294,7 +5294,7 @@ class EditArticle extends SeoEditRecord
             );
         } catch (\InvalidArgumentException $exception) {
             Notification::make()
-                ->title('Unable to refresh FAQ')
+                ->title(__('Unable to refresh FAQ'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
@@ -5899,7 +5899,7 @@ class EditArticle extends SeoEditRecord
             app(SeoMediaUrlReplacementService::class)->rewriteArticleReferences($this->record, $urlMap);
         } catch (ArticleEditorSessionException $exception) {
             Notification::make()
-                ->title('Không rewrite URL media')
+                ->title(__('Do not rewrite media URLs'))
                 ->body($exception->getMessage())
                 ->warning()
                 ->send();
@@ -6179,8 +6179,8 @@ class EditArticle extends SeoEditRecord
 
         if ($deleted === 0) {
             Notification::make()
-                ->title('Không có lịch sử')
-                ->body('Bài viết chưa có phiên bản lịch sử nào.')
+                ->title(__('No history'))
+                ->body(__('This article has no historical version yet.'))
                 ->info()
                 ->send();
 
@@ -6188,8 +6188,8 @@ class EditArticle extends SeoEditRecord
         }
 
         Notification::make()
-            ->title('Đã dọn dẹp lịch sử')
-            ->body("Đã xóa {$deleted} phiên bản lịch sử.")
+            ->title(__('Cleaned up history'))
+            ->body(__('Deleted {$deleted} historical version.'))
             ->success()
             ->send();
 

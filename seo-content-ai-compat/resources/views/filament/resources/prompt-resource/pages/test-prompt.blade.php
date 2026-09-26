@@ -20,7 +20,7 @@
                         class="seo-prompt-test-editor"
                         rows="22"
                         spellcheck="false"
-                        placeholder="Prompt template — còn placeholder @verbatim{{biến}}@endverbatim…"
+                        placeholder="{{ __('Prompt template — still contains placeholder @verbatim{{variable}}@endverbatim…') }}"
                     ></textarea>
 
                     <div class="seo-prompt-test-col__actions">
@@ -31,9 +31,9 @@
                             wire:target="runTest"
                         >
                             <span wire:loading.remove wire:target="runTest">
-                                {{ $this->usesStepByStepChain() ? 'Chạy prompt cha' : 'Chạy thử' }}
+                                {{ $this->usesStepByStepChain() ? __('Run parent prompt') : __('Test run') }}
                             </span>
-                            <span wire:loading wire:target="runTest">Đang gọi AI…</span>
+                            <span wire:loading wire:target="runTest">{{ __('Calling AI…') }}</span>
                         </x-filament::button>
                     </div>
                 </form>
@@ -147,9 +147,9 @@
                             <button
                                 type="button"
                                 class="seo-history-delete"
-                                title="Xóa lần chạy thử"
+                                title="{{ __('Delete test run') }}"
                                 wire:click.stop="deleteResult({{ $result->id }})"
-                                wire:confirm="Xóa lần chạy thử này? Hành động không thể hoàn tác."
+                                wire:confirm="{{ __('Delete this test run? This action cannot be undone.') }}"
                                 wire:loading.attr="disabled"
                                 wire:target="deleteResult({{ $result->id }})"
                             >
@@ -171,7 +171,7 @@
     {{-- Kết quả AI + đăng thử — full width bên dưới --}}
     <div class="seo-prompt-test-output">
         @if (filled($errorMessage))
-            <x-filament::section heading="Lỗi">
+            <x-filament::section heading="{{ __('Error') }}">
                 <p class="text-sm text-danger-600 dark:text-danger-400">{{ $errorMessage }}</p>
 
                 @if ($errorRetryable)

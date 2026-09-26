@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { Copy, Loader2, Sparkles, X } from 'lucide-react';
 
@@ -30,7 +31,7 @@ export default function WebsiteShareGeneratePanel({
         <section className="seeding-ws__panel seeding-ws__panel--inline seeding-ws__panel--website-share" data-panel="website-share-generate">
             <div className="seeding-ws__panel-head">
                 <h2>Gen share</h2>
-                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng Gen share">
+                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label={auditT('audit_a92bd53b48ad')}>
                     <X size={16} />
                 </button>
             </div>
@@ -63,7 +64,7 @@ export default function WebsiteShareGeneratePanel({
                 onClick={() => onGenerate?.(job)}
             >
                 {busy ? <Loader2 size={14} className="seeding-ws__spin" /> : <Sparkles size={14} />}
-                {busy ? 'Đang Gen…' : (hasContent ? 'Gen lại' : 'Gen share')}
+                {busy ? auditT('audit_92d939564357') : (hasContent ? auditT('audit_8ed244690be3') : 'Gen share')}
             </button>
 
             {hasTargets ? (
@@ -78,7 +79,7 @@ export default function WebsiteShareGeneratePanel({
                                 {editing ? (
                                     <textarea className="seeding-ws__textarea" value={draft} onChange={(event) => onDraftChange?.(event.target.value)} rows={5} />
                                 ) : (
-                                    <p>{content || 'Chưa có nội dung'}</p>
+                                    <p>{content || auditT('audit_bdd3db004085')}</p>
                                 )}
                                 <div className="seeding-ws__output-actions">
                                     {editing ? (

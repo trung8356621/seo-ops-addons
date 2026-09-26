@@ -13,7 +13,7 @@
             <div>
                 <p class="seo-run-history-summary__eyebrow">ARTICLE #{{ $articleId }}</p>
                 <h2 class="seo-run-history-summary__title">
-                    {{ $articleTitle !== '' ? $articleTitle : 'Bài viết' }}
+                    {{ $articleTitle !== '' ? $articleTitle : __('Article') }}
                 </h2>
                 <p class="seo-run-history-summary__description">
                     Tổng hợp mọi bước và prompt AI đã được lưu cho bài viết này.
@@ -43,7 +43,7 @@
                 <header class="seo-run-history-group__header">
                     <div>
                         <p class="seo-run-history-group__eyebrow">
-                            {{ $runId ? 'RUN #'.$runId : 'PROMPT KHÁC' }}
+                            {{ $runId ? 'RUN #'.$runId : __('OTHER PROMPT') }}
                             @if ($projectName !== '')
                                 · {{ $projectName }}
                             @endif
@@ -133,11 +133,11 @@
 
                                 <div class="seo-run-history-columns">
                                     <x-seo-content-ai::ai-result label="Prompt" max-height="32rem">
-                                        {{ $promptText !== '' ? $promptText : 'Không còn dữ liệu prompt cho lần chạy này.' }}
+                                        {{ $promptText !== '' ? $promptText : __('There is no more prompt data for this run.') }}
                                     </x-seo-content-ai::ai-result>
 
-                                    <x-seo-content-ai::ai-result label="Kết quả" max-height="32rem">
-                                        {{ $resultText !== '' ? $resultText : 'Không có kết quả được lưu.' }}
+                                    <x-seo-content-ai::ai-result label="{{ __('Result') }}" max-height="32rem">
+                                        {{ $resultText !== '' ? $resultText : __('No results saved.') }}
                                     </x-seo-content-ai::ai-result>
                                 </div>
                             </div>

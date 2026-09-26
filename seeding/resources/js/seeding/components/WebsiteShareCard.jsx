@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { ExternalLink, Sparkles } from 'lucide-react';
 
@@ -38,7 +39,7 @@ export default function WebsiteShareCard({
             <div>
                 <strong>
                     <span className="seeding-ws__type-badge">Website Share</span>{' '}
-                    {job.title || 'Bài website'}
+                    {job.title || auditT('audit_cd67767ee641')}
                 </strong>
                 <div className="seeding-ws__page-sub">{job.domain || '—'}</div>
             </div>
@@ -58,10 +59,10 @@ export default function WebsiteShareCard({
 
             {!scheduled ? (
                 <div className="seeding-ws__vcard-foot">
-                    <span className="seeding-ws__time">{job.share_content || hasTargetContent ? 'Có nội dung' : 'Chờ tạo nội dung'}</span>
+                    <span className="seeding-ws__time">{job.share_content || hasTargetContent ? auditT('audit_891ef7c8d7ac') : auditT('audit_e0e999f1b566')}</span>
                     <div className="seeding-ws__page-head-actions">
                         {job.article_url ? (
-                            <a className="seeding-ws__icon-btn" href={job.article_url} target="_blank" rel="noreferrer" aria-label="Mở bài">
+                            <a className="seeding-ws__icon-btn" href={job.article_url} target="_blank" rel="noreferrer" aria-label={auditT('audit_e3fb752bdcb4')}>
                                 <ExternalLink size={14} />
                             </a>
                         ) : null}
@@ -72,7 +73,7 @@ export default function WebsiteShareCard({
                             aria-expanded={genOpen}
                             onClick={() => onGenToggle?.(job)}
                         >
-                            <Sparkles size={14} /> {genOpen ? 'Đóng Gen' : 'Gen share'}
+                            <Sparkles size={14} /> {genOpen ? auditT('audit_ead937d1aeaa') : 'Gen share'}
                         </button>
                     </div>
                 </div>

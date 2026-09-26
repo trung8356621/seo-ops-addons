@@ -186,7 +186,7 @@
                             type="search"
                             wire:model="filterSearchInput"
                             class="seo-media-library-search"
-                            placeholder="{{ $activeTab === 'original' ? 'Nhập slug/alt/caption rồi nhấn Enter để tìm...' : 'Nhập slug/alt/title rồi nhấn Enter để tìm...' }}"
+                            placeholder="{{ $activeTab === 'original' ? __('Enter slug/alt/caption, then press Enter to search...') : __('Enter slug/alt/title, then press Enter to search...') }}"
                             autocomplete="off"
                         />
                         @if (filled($filterSearch) || filled($filterSearchInput))
@@ -697,7 +697,7 @@
                         <button
                             type="button"
                             class="seo-media-preview-btn"
-                            title="Đổi tên file và cập nhật các tham chiếu được phát hiện."
+                            title="{{ __('Rename files and update detected references.') }}"
                             data-seo-wp-rename-b64="{{ base64_encode(json_encode($wpRenamePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}"
                             onclick="(function (el) {
                                 try {

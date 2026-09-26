@@ -26,7 +26,6 @@ class AutomationFlowsPage extends Page
 
     protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Automation Flows';
 
     protected static string $view = 'seo-content-ai::filament.pages.automation-flows';
 

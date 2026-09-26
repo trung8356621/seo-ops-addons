@@ -1427,6 +1427,8 @@ return [
         'best_for_searchapi' => 'Rank + Allintitle',
         'best_for_keywords_everywhere' => 'Volume + CPC + trend',
         'best_for_seranking' => 'Rank platform + keyword metrics',
+            'sync_all_done_title' => 'Model synchronization is complete',
+        'sync_all_models' => 'Synchronize all models',
     ],
     'ai_connection' => [
         'model' => 'AI connection',
@@ -2148,6 +2150,8 @@ return [
         'no_connections' => 'No AI connections yet.',
         'no_models' => 'No models to show.',
         'seo_providers_link' => 'SEO / GSC connections',
+            'sync_all_done_title' => 'Model synchronization is complete',
+        'sync_coverage_body' => 'Updated coverage routing (+:count).',
     ],
     'settings_ai_routing' => [
         'title' => 'AI Routing',

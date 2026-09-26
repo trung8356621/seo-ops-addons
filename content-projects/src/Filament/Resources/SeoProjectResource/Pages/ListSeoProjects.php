@@ -293,7 +293,7 @@ class ListSeoProjects extends ListRecords
                     }
                 }),
             Actions\Action::make('product_gallery_canary')
-                ->label('PG Canary fixture')
+                ->label(__('PG Canary fixture'))
                 ->icon('heroicon-o-beaker')
                 ->color('warning')
                 ->visible(fn (): bool => \Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryCanaryAccess::allowsUi())

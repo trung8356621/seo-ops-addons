@@ -28,14 +28,14 @@
             type="button"
             class="seo-article-media-modal__backdrop"
             x-on:click="closePicker()"
-            aria-label="Đóng"
+            aria-label="{{ __('Close') }}"
         ></button>
         <div class="seo-article-media-modal__panel">
             <div class="seo-article-media-modal__header">
                 <h2 id="seo-workspace-media-modal-title" class="seo-article-media-modal__title">
                     Chọn image/video từ thư viện
                 </h2>
-                <button type="button" class="seo-article-media-modal__close" x-on:click="closePicker()" aria-label="Đóng">
+                <button type="button" class="seo-article-media-modal__close" x-on:click="closePicker()" aria-label="{{ __('Close') }}">
                     ×
                 </button>
             </div>
@@ -82,8 +82,8 @@
                     class="seo-article-media-modal__reload"
                     x-on:click="applyPickerSearch()"
                     x-bind:disabled="pickerLoading || pickerSearching"
-                    title="Nhấn Enter để tìm"
-                    aria-label="Tìm"
+                    title="{{ __('Press Enter to search') }}"
+                    aria-label="{{ __('Find') }}"
                 >
                     <x-filament::icon icon="heroicon-m-magnifying-glass" class="h-4 w-4" />
                 </button>
@@ -92,8 +92,8 @@
                     class="seo-article-media-modal__reload"
                     x-on:click="reloadPickerImages()"
                     x-bind:disabled="pickerLoading"
-                    title="Tải lại thư viện"
-                    aria-label="Tải lại thư viện"
+                    title="{{ __('Reload the library') }}"
+                    aria-label="{{ __('Reload the library') }}"
                 >
                     <span x-show="!pickerLoading">
                         <x-filament::icon icon="heroicon-o-arrow-path" class="h-4 w-4" />
@@ -110,7 +110,7 @@
                     x-cloak
                     class="seo-article-media-modal__skeleton-grid"
                     aria-busy="true"
-                    aria-label="Đang tải thư viện ảnh"
+                    aria-label="{{ __('Loading photo gallery') }}"
                 >
                     @for ($i = 0; $i < 12; $i++)
                         <div class="seo-article-media-modal__skeleton"></div>

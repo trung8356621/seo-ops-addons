@@ -73,7 +73,7 @@
                 if (payload?.success) {
                     this.openTwoCol(payload.title, payload.prompt, payload.output, payload.meta ?? '');
                 } else {
-                    this.openTwoCol('AI Call', payload?.message ?? 'Không tìm thấy AI call.', '', '');
+                    this.openTwoCol('AI Call', payload?.message ?? @js(__('AI call not found.')), '', '');
                 }
                 this.drawerOpen = true;
             },
@@ -133,7 +133,7 @@
             <div>
                 <p class="seo-run-history-summary__eyebrow">ARTICLE #{{ $articleId }}</p>
                 <h2 class="seo-run-history-summary__title">
-                    {{ $articleTitle !== '' ? $articleTitle : 'Bài viết' }}
+                    {{ $articleTitle !== '' ? $articleTitle : __('Article') }}
                 </h2>
                 <p class="seo-run-history-summary__description">
                     {{ __('seo-content-ai::filament.article_ai_history.page_description') }}
@@ -834,14 +834,14 @@
                             <span>Prompt</span>
                             <button type="button" class="underline" x-on:click="copyText(drawerPrompt)">Copy</button>
                         </div>
-                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerPrompt || 'Không còn dữ liệu prompt.'"></pre>
+                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerPrompt || @js(__('No more prompt data.'))"></pre>
                     </div>
                     <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                         <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2 text-xs font-semibold dark:border-gray-700">
                             <span>Kết quả</span>
                             <button type="button" class="underline" x-on:click="copyText(drawerResult)">Copy</button>
                         </div>
-                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerResult || 'Không có kết quả được lưu.'"></pre>
+                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerResult || @js(__('No results saved.'))"></pre>
                     </div>
                 </div>
             </aside>

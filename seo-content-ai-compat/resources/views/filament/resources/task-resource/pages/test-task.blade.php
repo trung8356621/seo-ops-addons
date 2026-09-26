@@ -1,7 +1,7 @@
 <x-filament-panels::page>
     <div class="seo-prompt-test-layout">
         <div class="seo-prompt-test-main seo-task-test space-y-6">
-            <x-filament::section heading="Đầu vào test">
+            <x-filament::section heading="{{ __('Test input') }}">
                 @if (($testInput['input_type'] ?? 'article') === 'input')
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
                         Quy trình bắt đầu bằng node <strong>Input (@{{input}})</strong>.
@@ -31,13 +31,13 @@
             </x-filament::section>
 
             @if (filled($errorMessage))
-                <x-filament::section heading="Lỗi">
+                <x-filament::section heading="{{ __('Error') }}">
                     <p class="text-sm text-danger-600 dark:text-danger-400">{{ $errorMessage }}</p>
                 </x-filament::section>
             @endif
 
             @if (is_array($resolvedContext))
-                <x-filament::section heading="Ngữ cảnh đã giải quyết">
+                <x-filament::section heading="{{ __('Context resolved') }}">
                     <p class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">{{ $resolvedContext['summary'] ?? '' }}</p>
                     @if (! empty($resolvedContext['variables']))
                         <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
@@ -50,7 +50,7 @@
             @endif
 
             @if ($stepResults !== [])
-                <x-filament::section heading="Các bước quy trình">
+                <x-filament::section heading="{{ __('Process steps') }}">
                     <ul class="space-y-4">
                         @foreach ($stepResults as $index => $step)
                             @php
@@ -70,7 +70,7 @@
                             <li class="rounded-lg border border-gray-200 dark:border-gray-700 p-4" wire:key="task-step-{{ $index }}-{{ $step['node_id'] ?? $index }}">
                                 <div class="flex flex-wrap items-center gap-2 mb-2">
                                     <span class="text-xs font-bold text-gray-500">#{{ $index + 1 }}</span>
-                                    <span class="font-semibold text-gray-900 dark:text-gray-100">{{ $step['title'] ?? 'Bước' }}</span>
+                                    <span class="font-semibold text-gray-900 dark:text-gray-100">{{ $step['title'] ?? __('Step') }}</span>
                                     <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full {{ $badgeClass }}">{{ $status }}</span>
                                     @if (! empty($step['prompt_name']))
                                         <span class="text-xs text-violet-600 dark:text-violet-400">{{ $step['prompt_name'] }}</span>
@@ -114,7 +114,7 @@
                                     </div>
                                 @elseif (! empty($step['output']))
                                     <x-seo-content-ai::ai-result
-                                        :label="'Kết quả bước ' . ($index + 1)"
+                                        :label="__('Step result :number', ['number' => $index + 1])"
                                     >{{ $step['output'] }}</x-seo-content-ai::ai-result>
                                 @endif
                             </li>
@@ -174,9 +174,9 @@
                             <button
                                 type="button"
                                 class="seo-history-delete"
-                                title="Xóa lần chạy thử"
+                                title="{{ __('Delete test run') }}"
                                 wire:click.stop="deleteResult({{ $result->id }})"
-                                wire:confirm="Xóa lần chạy thử này? Hành động không thể hoàn tác."
+                                wire:confirm="__('Delete this test run? Action cannot be undone.')"
                                 wire:loading.attr="disabled"
                                 wire:target="deleteResult({{ $result->id }})"
                             >

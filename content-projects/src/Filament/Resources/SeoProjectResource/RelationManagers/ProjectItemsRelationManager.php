@@ -30,7 +30,11 @@ final class ProjectItemsRelationManager extends RelationManager
 {
     protected static string $relationship = 'tasks';
 
-    protected static ?string $title = 'Project Items';
+    public static function getTitle(Model $ownerRecord, string $pageClass): string
+    {
+        return __('Project Items');
+    }
+
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
@@ -281,7 +285,7 @@ final class ProjectItemsRelationManager extends RelationManager
     private function dispatchGenerate(SeoProject $project, array $taskIds): void
     {
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -327,8 +331,8 @@ final class ProjectItemsRelationManager extends RelationManager
         $fromStep = ContentProjectRerunFromStep::tryFromMixed($action);
         if (! $fromStep instanceof ContentProjectRerunFromStep) {
             Notification::make()
-                ->title('Failed')
-                ->body('Unsupported step action.')
+                ->title(__('Failed'))
+                ->body(__('Unsupported step action.'))
                 ->danger()
                 ->send();
 

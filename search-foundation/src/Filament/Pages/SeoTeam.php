@@ -33,9 +33,7 @@ class SeoTeam extends SeoPanelPage implements HasTable
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Members';
 
-    protected static ?string $title = 'Team management';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_TEAM;
 
@@ -165,8 +163,8 @@ class SeoTeam extends SeoPanelPage implements HasTable
                     ->label(__('seo-content-ai::filament.team.member_settings'))
                     ->icon('heroicon-o-cog-6-tooth')
                     ->modalHeading(__('seo-content-ai::filament.team.member_settings'))
-                    ->modalSubmitActionLabel(__('Lưu'))
-                    ->modalCancelActionLabel(__('Huỷ'))
+                    ->modalSubmitActionLabel(__('Save'))
+                    ->modalCancelActionLabel(__('Cancel'))
                     ->modalWidth('md')
                     ->fillForm(function (User $record): array {
                         $settings = app(ContentProjectWriterCapacitySettingsService::class);

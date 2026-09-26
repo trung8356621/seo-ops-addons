@@ -10,11 +10,11 @@
     $langCoverage = method_exists($this, 'getSiteSyncLanguageCoverage') ? $this->getSiteSyncLanguageCoverage() : [];
     $isMultilingual = method_exists($this, 'isOverviewMultilingual') && $this->isOverviewMultilingual();
     $primaryRow = collect($langCoverage)->firstWhere('role', 'primary');
-    $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? 'ngôn ngữ chính') : null;
+    $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? __('main language')) : null;
     // Single-language: generic sync → primary confirm. Multilingual idle: actions only in language tabs (hide all-language UI).
     $primarySyncLabel = $primaryLabel
-        ? 'Đồng bộ & kiểm tra '.$primaryLabel
-        : 'Đồng bộ & kiểm tra website';
+        ? __('Synchronize & check').$primaryLabel
+        : __('Synchronize & check website');
     $showOuterSyncButton = ! $isMultilingual || $useResume || ($siteSyncV2Running ?? false);
 @endphp
 
@@ -62,7 +62,7 @@
                         wire:click="cancelSiteSyncV2Action"
                         wire:loading.attr="disabled"
                         wire:target="cancelSiteSyncV2Action"
-                        wire:confirm="Hủy lần đồng bộ hiện tại? Dữ liệu đã đối soát thành công được giữ."
+                        wire:confirm="__('Cancel the current sync? Successfully reconciled data is kept.')"
                     >
                         <span wire:loading.remove wire:target="cancelSiteSyncV2Action">{{ __('seo-content-ai::filament.domain.site_sync_cancel') }}</span>
                         <span wire:loading wire:target="cancelSiteSyncV2Action">{{ __('seo-content-ai::filament.domain.site_sync_canceling') }}</span>

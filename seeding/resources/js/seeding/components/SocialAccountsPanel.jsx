@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Lock, Pencil, Plus, Unlock, X } from 'lucide-react';
 import {
@@ -44,7 +45,7 @@ export default function SocialAccountsPanel() {
             setSites(Array.isArray(data?.sites) ? data.sites : []);
             setPlatforms(Array.isArray(data?.platforms) ? data.platforms : []);
         } catch (e) {
-            notifyError(e?.message || 'Không tải được tài khoản social');
+            notifyError(e?.message || auditT('audit_a621f31754ba'));
         } finally {
             setLoading(false);
         }
@@ -104,7 +105,7 @@ export default function SocialAccountsPanel() {
     const onSave = async (e) => {
         e?.preventDefault?.();
         if (!form.site_id && !String(form.domain || '').trim()) {
-            notifyError('Chọn Domain/Site');
+            notifyError(auditT('audit_d2e8cbf8d0f2'));
             return;
         }
         setSaving(true);
@@ -125,15 +126,15 @@ export default function SocialAccountsPanel() {
 
             if (editingId) {
                 await updateSocialAccount(editingId, payload);
-                notifySuccess('Đã cập nhật tài khoản');
+                notifySuccess(auditT('audit_3250ac3ede1f'));
             } else {
                 await createSocialAccount(payload);
-                notifySuccess('Đã tạo tài khoản');
+                notifySuccess(auditT('audit_9e0be2688c4e'));
             }
             closeForm();
             await load();
         } catch (err) {
-            notifyError(err?.message || 'Lưu thất bại');
+            notifyError(err?.message || auditT('audit_62191805517f'));
         } finally {
             setSaving(false);
         }
@@ -143,14 +144,14 @@ export default function SocialAccountsPanel() {
         try {
             if (row.status === 'locked') {
                 await unlockSocialAccount(row.id);
-                notifySuccess('Đã mở khóa');
+                notifySuccess(auditT('audit_2f47212eb4b6'));
             } else {
                 await lockSocialAccount(row.id);
-                notifySuccess('Đã khóa tài khoản');
+                notifySuccess(auditT('audit_afb07025bddc'));
             }
             await load();
         } catch (err) {
-            notifyError(err?.message || 'Thao tác thất bại');
+            notifyError(err?.message || auditT('audit_941196265df9'));
         }
     };
 
@@ -160,10 +161,10 @@ export default function SocialAccountsPanel() {
         }
         try {
             await deleteSocialAccount(row.id);
-            notifySuccess('Đã xóa');
+            notifySuccess(auditT('audit_3947afd7c08c'));
             await load();
         } catch (err) {
-            notifyError(err?.message || 'Xóa thất bại');
+            notifyError(err?.message || auditT('audit_acbc2cf74ab2'));
         }
     };
 
@@ -174,18 +175,18 @@ export default function SocialAccountsPanel() {
                 : await copySocialAccountUsername(accountId);
             const value = String(data?.value ?? '');
             if (!value) {
-                notifyError(kind === 'password' ? 'Chưa có password' : 'Chưa có username');
+                notifyError(kind === 'password' ? auditT('audit_0abec7692f17') : auditT('audit_b8ee40c1a03e'));
                 return;
             }
             const wrote = await writeClipboard(value);
             // Discard plaintext immediately — never keep in component state / never render.
             if (!wrote.ok) {
-                notifyError(wrote.error || 'Không copy được vào clipboard');
+                notifyError(wrote.error || auditT('audit_3c2cdeeee00d'));
                 return;
             }
-            notifySuccess(kind === 'password' ? 'Đã copy password' : 'Đã copy ID');
+            notifySuccess(kind === 'password' ? auditT('audit_f56f048ebe7e') : auditT('audit_8d03cab7d74a'));
         } catch (err) {
-            notifyError(err?.message || 'Copy thất bại');
+            notifyError(err?.message || auditT('audit_1cdc97b3a598'));
         }
     };
 
@@ -207,7 +208,7 @@ export default function SocialAccountsPanel() {
                     onClick={load}
                     disabled={loading}
                 >
-                    {loading ? 'Đang tải…' : 'Làm mới'}
+                    {loading ? auditT('audit_577a1d591051') : auditT('audit_61b0561227b1')}
                 </button>
             </div>
 
@@ -333,12 +334,12 @@ export default function SocialAccountsPanel() {
                         className="seeding-ws__modal"
                         role="dialog"
                         aria-modal="true"
-                        aria-label={editingId ? 'Sửa tài khoản social' : 'Thêm tài khoản social'}
+                        aria-label={editingId ? auditT('audit_0e8ff1ac03ec') : auditT('audit_920699a57507')}
                         data-form="social-account"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="seeding-ws__modal-head">
-                            <h3>{editingId ? 'Sửa tài khoản social' : 'Thêm tài khoản social'}</h3>
+                            <h3>{editingId ? auditT('audit_0e8ff1ac03ec') : auditT('audit_920699a57507')}</h3>
                             <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={closeForm}>
                                 <X size={16} />
                             </button>
@@ -449,7 +450,7 @@ export default function SocialAccountsPanel() {
                                     className="seeding-ws__btn seeding-ws__btn--primary"
                                     disabled={saving}
                                 >
-                                    {saving ? 'Đang lưu…' : 'Lưu'}
+                                    {saving ? auditT('audit_b98712c006c4') : auditT('audit_a306970e8b81')}
                                 </button>
                             </div>
                         </form>

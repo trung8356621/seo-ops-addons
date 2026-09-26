@@ -53,7 +53,6 @@ class TestPrompt extends Page implements HasForms
 
     protected static string $view = 'seo-content-ai::filament.resources.prompt-resource.pages.test-prompt';
 
-    protected static ?string $title = 'Test prompt';
 
     /** @var array<string, string> */
     public array $variableValues = [];
@@ -218,8 +217,8 @@ class TestPrompt extends Page implements HasForms
     {
         if (! filled($this->outputText)) {
             Notification::make()
-                ->title('No AI result yet')
-                ->body('Run prompt test before publishing.')
+                ->title(__('No AI result yet'))
+                ->body(__('Run prompt test before publishing.'))
                 ->warning()
                 ->send();
 
@@ -284,8 +283,8 @@ class TestPrompt extends Page implements HasForms
         $this->editablePrompt = (string) ($this->compiledPreview ?? '');
 
         Notification::make()
-            ->title('Đã đưa bản ghép sang cột Prompt')
-            ->body('Cột Prompt không còn raw — dùng khi muốn chạy thử nhanh không thay biến tay.')
+            ->title(__('The composite copy has been moved to the Prompt column'))
+            ->body(__('The Prompt column is no longer raw — used when you want to run a quick test without changing hands.'))
             ->success()
             ->send();
     }
@@ -294,8 +293,8 @@ class TestPrompt extends Page implements HasForms
     {
         if ($this->publishArticleId === null || $this->publishArticleId <= 0) {
             Notification::make()
-                ->title('Choose target article')
-                ->body('Select an article/product already synced from WordPress.')
+                ->title(__('Choose target article'))
+                ->body(__('Select an article/product already synced from WordPress.'))
                 ->warning()
                 ->send();
 
@@ -312,7 +311,7 @@ class TestPrompt extends Page implements HasForms
 
         if ($article === null) {
             Notification::make()
-                ->title('Article not found')
+                ->title(__('Article not found'))
                 ->danger()
                 ->send();
         }
@@ -358,7 +357,7 @@ class TestPrompt extends Page implements HasForms
         }
 
         Notification::make()
-            ->title('Test run deleted')
+            ->title(__('Test run deleted'))
             ->success()
             ->send();
     }
@@ -425,15 +424,15 @@ class TestPrompt extends Page implements HasForms
     {
         return [
             Actions\Action::make('edit')
-                ->label('Edit prompt')
+                ->label(__('Edit prompt'))
                 ->icon('heroicon-o-pencil-square')
                 ->url(fn (): string => PromptResource::getUrl('edit', ['record' => $this->getRecord()])),
             Actions\Action::make('back')
-                ->label('List')
+                ->label(__('List'))
                 ->icon('heroicon-o-arrow-left')
                 ->url(PromptResource::getUrl('index')),
             Actions\Action::make('refresh_preview')
-                ->label('Refresh preview')
+                ->label(__('Refresh preview'))
                 ->icon('heroicon-o-arrow-path')
                 ->action(function (): void {
                     $this->refreshRawPrompt();
@@ -451,7 +450,7 @@ class TestPrompt extends Page implements HasForms
         }
 
         Notification::make()
-            ->title('AI model sync required')
+            ->title(__('AI model sync required'))
             ->body($readiness->blockMessage())
             ->warning()
             ->send();
@@ -468,7 +467,7 @@ class TestPrompt extends Page implements HasForms
         }
 
         Notification::make()
-            ->title('AI model sync required')
+            ->title(__('AI model sync required'))
             ->body($exception->getMessage())
             ->warning()
             ->send();
@@ -522,7 +521,7 @@ class TestPrompt extends Page implements HasForms
                 $this->outputText = (string) ($hookResult['output'] ?? '');
                 $this->isRunning = false;
                 Notification::make()
-                    ->title('Test Hook successful')
+                    ->title(__('Test Hook successful'))
                     ->body(
                         $hookResult['hook_key'].'@'.$hookResult['hook_version']
                         .' · '.$hookResult['duration_ms'].'ms'
@@ -552,8 +551,8 @@ class TestPrompt extends Page implements HasForms
             $this->isRunning = false;
 
             Notification::make()
-                ->title('Prompt trống')
-                ->body('Nhập nội dung prompt ở cột trái trước khi chạy thử.')
+                ->title(__('The prompt is empty'))
+                ->body(__('Enter the prompt content in the left column before testing.'))
                 ->warning()
                 ->send();
 
@@ -616,7 +615,7 @@ class TestPrompt extends Page implements HasForms
             }
 
             Notification::make()
-                ->title('Test failed')
+                ->title(__('Test failed'))
                 ->body($exception->userMessage())
                 ->danger()
                 ->send();
@@ -673,7 +672,7 @@ class TestPrompt extends Page implements HasForms
                 ->applyIfConfigured($media, $this->getPrompt());
         } catch (\Throwable $exception) {
             Notification::make()
-                ->title('Hậu kỳ ảnh thất bại')
+                ->title(__('Photo post-production failed'))
                 ->body(mb_substr($exception->getMessage(), 0, 500))
                 ->warning()
                 ->send();
@@ -684,7 +683,7 @@ class TestPrompt extends Page implements HasForms
         if (! $result->applied) {
             if ($result->message !== null && $result->message !== '') {
                 Notification::make()
-                    ->title('Hậu kỳ ảnh')
+                    ->title(__('Photo post-production'))
                     ->body($result->message)
                     ->warning()
                     ->send();
@@ -706,7 +705,7 @@ class TestPrompt extends Page implements HasForms
         }
 
         Notification::make()
-            ->title('Hậu kỳ ảnh')
+            ->title(__('Photo post-production'))
             ->body($result->message ?? 'Đã xử lý ảnh sau khi tạo.')
             ->success()
             ->send();
@@ -764,8 +763,8 @@ class TestPrompt extends Page implements HasForms
 
         if (! $this->usesStepByStepChain()) {
             Notification::make()
-                ->title('This prompt does not require sub-prompts')
-                ->body('Image prompt renders directly in one run.')
+                ->title(__('This prompt does not require sub-prompts'))
+                ->body(__('Image prompt renders directly in one run.'))
                 ->warning()
                 ->send();
 
@@ -774,8 +773,8 @@ class TestPrompt extends Page implements HasForms
 
         if (! $this->chainParentCompleted || ! $this->hasMoreSubTasksToRun()) {
             Notification::make()
-                ->title('Cannot run next step')
-                ->body('Run parent prompt first, or no sub-prompts remain.')
+                ->title(__('Cannot run next step'))
+                ->body(__('Run parent prompt first, or no sub-prompts remain.'))
                 ->warning()
                 ->send();
 
@@ -784,8 +783,8 @@ class TestPrompt extends Page implements HasForms
 
         if (blank($this->chainLastOutput)) {
             Notification::make()
-                ->title('Missing previous step result')
-                ->body('Run parent prompt again.')
+                ->title(__('Missing previous step result'))
+                ->body(__('Run parent prompt again.'))
                 ->warning()
                 ->send();
 
@@ -821,7 +820,7 @@ class TestPrompt extends Page implements HasForms
             $hasMore = $this->hasMoreSubTasksToRun();
 
             Notification::make()
-                ->title('Completed '.($this->dependentSubTaskSteps[$subTaskIndex]['name'] ?? 'sub-prompt'))
+                ->title(__('Completed ').($this->dependentSubTaskSteps[$subTaskIndex]['name'] ?? 'sub-prompt'))
                 ->body($hasMore ? 'Click button below to run next sub-prompt.' : 'Prompt chain completed.')
                 ->success()
                 ->send();
@@ -837,7 +836,7 @@ class TestPrompt extends Page implements HasForms
             $this->errorMessage = $exception->getMessage();
 
             Notification::make()
-                ->title('Sub-prompt failed')
+                ->title(__('Sub-prompt failed'))
                 ->body($exception->getMessage())
                 ->danger()
                 ->send();
@@ -1292,8 +1291,8 @@ class TestPrompt extends Page implements HasForms
         $siteId = $this->testResultSiteId();
         if ($siteId === null || $siteId <= 0) {
             Notification::make()
-                ->title('Domain not selected')
-                ->body('Select a domain or target article before editing image.')
+                ->title(__('Domain not selected'))
+                ->body(__('Select a domain or target article before editing image.'))
                 ->warning()
                 ->send();
 
@@ -1302,7 +1301,7 @@ class TestPrompt extends Page implements HasForms
 
         $site = Site::query()->find($siteId);
         if (! $site instanceof Site) {
-            Notification::make()->title('Domain not found')->danger()->send();
+            Notification::make()->title(__('Domain not found'))->danger()->send();
 
             return;
         }
@@ -1310,8 +1309,8 @@ class TestPrompt extends Page implements HasForms
         $media = $this->testResultSeoMedia();
         if ($media === null) {
             Notification::make()
-                ->title('Image file not found')
-                ->body('Image is not saved on server yet - run prompt again.')
+                ->title(__('Image file not found'))
+                ->body(__('Image is not saved on server yet - run prompt again.'))
                 ->warning()
                 ->send();
 
@@ -1332,7 +1331,7 @@ class TestPrompt extends Page implements HasForms
                 ->resolve($site, $imageRow);
         } catch (\Throwable $e) {
             Notification::make()
-                ->title('Unable to open editor')
+                ->title(__('Unable to open editor'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
@@ -1368,8 +1367,8 @@ class TestPrompt extends Page implements HasForms
         $siteId = $this->testResultSiteId();
         if ($siteId === null || $siteId <= 0) {
             Notification::make()
-                ->title('Domain not selected')
-                ->body('Select domain in product-category variables or choose a synced target article before assigning image to library.')
+                ->title(__('Domain not selected'))
+                ->body(__('Select domain in product-category variables or choose a synced target article before assigning image to library.'))
                 ->warning()
                 ->send();
 
@@ -1379,8 +1378,8 @@ class TestPrompt extends Page implements HasForms
         $media = $this->testResultSeoMedia();
         if ($media === null) {
             Notification::make()
-                ->title('Image file not found')
-                ->body('AI image is not saved on server yet - rerun prompt or check /storage/ path.')
+                ->title(__('Image file not found'))
+                ->body(__('AI image is not saved on server yet - rerun prompt or check /storage/ path.'))
                 ->warning()
                 ->send();
 
@@ -1389,7 +1388,7 @@ class TestPrompt extends Page implements HasForms
 
         if ((int) ($media->site_id ?? 0) === $siteId) {
             Notification::make()
-                ->title('Image already belongs to this domain library')
+                ->title(__('Image already belongs to this domain library'))
                 ->success()
                 ->send();
 
@@ -1399,8 +1398,8 @@ class TestPrompt extends Page implements HasForms
         $media->update(['site_id' => $siteId]);
 
         Notification::make()
-            ->title('Image assigned to library')
-            ->body('You can now apply watermark or open media library.')
+            ->title(__('Image assigned to library'))
+            ->body(__('You can now apply watermark or open media library.'))
             ->success()
             ->send();
     }
@@ -1410,8 +1409,8 @@ class TestPrompt extends Page implements HasForms
         $siteId = $this->testResultSiteId();
         if ($siteId === null || $siteId <= 0) {
             Notification::make()
-                ->title('Domain not selected')
-                ->body('Select domain or target article before watermarking. For AI-generated images, click "Assign to library" first.')
+                ->title(__('Domain not selected'))
+                ->body(__('Select domain or target article before watermarking. For AI-generated images, click "Assign to library" first.'))
                 ->warning()
                 ->send();
 
@@ -1420,7 +1419,7 @@ class TestPrompt extends Page implements HasForms
 
         $site = Site::query()->find($siteId);
         if (! $site instanceof Site) {
-            Notification::make()->title('Domain not found')->danger()->send();
+            Notification::make()->title(__('Domain not found'))->danger()->send();
 
             return;
         }
@@ -1434,8 +1433,8 @@ class TestPrompt extends Page implements HasForms
         $imageRow = $this->testResultImageRow();
         if (($imageRow['kind'] ?? '') === 'generated') {
             Notification::make()
-                ->title('AI-generated image has no domain yet')
-                ->body('Click "Assign to library" then try watermark again.')
+                ->title(__('AI-generated image has no domain yet'))
+                ->body(__('Click "Assign to library" then try watermark again.'))
                 ->warning()
                 ->send();
 
@@ -1585,7 +1584,7 @@ class TestPrompt extends Page implements HasForms
             return [
                 Forms\Components\Placeholder::make('no_variables')
                     ->label('')
-                    ->content('This prompt does not declare @{{name}} variables. You can test it directly.'),
+                    ->content(__('This prompt does not declare @{{name}} variables. You can test it directly.')),
             ];
         }
 
@@ -1677,11 +1676,11 @@ class TestPrompt extends Page implements HasForms
     {
         $options = app(PromptLoaiSanPhamOptionsService::class);
 
-        return Forms\Components\Section::make('Product category (product_cat)')
-            ->description('Applies only when post_type = product. Select a domain, then choose product_cat or fill Custom (either one is enough).')
+        return Forms\Components\Section::make(__('Product category (product_cat)'))
+            ->description(__('Applies only when post_type = product. Select a domain, then choose product_cat or fill Custom (either one is enough).'))
             ->schema([
                 Forms\Components\Select::make(PromptLoaiSanPhamVariable::SITE_FIELD)
-                    ->label('Domain')
+                    ->label(__('Domain'))
                     ->options(fn (): array => $options->siteOptionsForUser())
                     ->searchable()
                     ->required()
@@ -1691,7 +1690,7 @@ class TestPrompt extends Page implements HasForms
                         $set(PromptLoaiSanPhamVariable::CATEGORY_FIELD, null);
                     }),
                 Forms\Components\Select::make(PromptLoaiSanPhamVariable::CATEGORY_FIELD)
-                    ->label('Product category (product_cat)')
+                    ->label(__('Product category (product_cat)'))
                     ->options(fn (Get $get): array => $options->productCategoryOptionsForSite(
                         (int) $get(PromptLoaiSanPhamVariable::SITE_FIELD),
                     ))
@@ -1702,14 +1701,14 @@ class TestPrompt extends Page implements HasForms
                     ->hidden(fn (Get $get): bool => blank($get(PromptLoaiSanPhamVariable::SITE_FIELD)))
                     ->live(),
                 Forms\Components\TextInput::make(PromptLoaiSanPhamVariable::CUSTOM_FIELD)
-                    ->label('Custom')
-                    ->placeholder('e.g. tote bag, laptop backpack, school bag...')
-                    ->helperText('Can be used instead of product_cat during testing.')
+                    ->label(__('Custom'))
+                    ->placeholder(__('e.g. tote bag, laptop backpack, school bag...'))
+                    ->helperText(__('Can be used instead of product_cat during testing.'))
                     ->maxLength(500)
                     ->live(debounce: 400),
                 Forms\Components\Placeholder::make('loai_san_pham_preview')
                     ->dehydrated(false)
-                    ->label('Value sent to {{loai_san_pham}} / {{LOAI_SAN_PHAM}}')
+                    ->label(__('Value sent to {{loai_san_pham}} / {{LOAI_SAN_PHAM}}'))
                     ->content(function (Get $get) use ($options): HtmlString {
                         $text = $options->buildCompositeValue(
                             (int) $get(PromptLoaiSanPhamVariable::SITE_FIELD),
@@ -1723,7 +1722,7 @@ class TestPrompt extends Page implements HasForms
                                 : '<span class="text-sm text-gray-500">—</span>',
                         );
                     })
-                    ->helperText('Automatically composed from category + custom during test.'),
+                    ->helperText(__('Automatically composed from category + custom during test.')),
             ])
             ->columnSpanFull();
     }

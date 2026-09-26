@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApi } from '../api/client';
 import {
@@ -362,11 +363,11 @@ export default function SiteTopicalMapPage({ config }) {
                         untaggedBucketLabel={
                             labels.structureUntaggedBucket
                             || labels.untagged
-                            || 'Chưa gắn tag'
+                            || auditT('audit_f85aa84dfa41')
                         }
                         untaggedBucketTooltip={
                             labels.structureUntaggedTooltip
-                            || 'Các Topic chưa được gắn tag'
+                            || auditT('audit_e779488cf01c')
                         }
                         onZoomChange={onZoomChange}
                         meta={meta}

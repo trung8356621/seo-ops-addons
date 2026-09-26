@@ -1,3 +1,4 @@
+import { auditT } from '../i18n-audit.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toaster } from 'sonner';
 import MetricCards from './components/MetricCards';
@@ -428,12 +429,12 @@ export default function SeedingWorkspace({
             const createdCount = Array.isArray(data?.topics) ? data.topics.length : 1;
             notifySuccess(createdCount > 1
                 ? `Đã tạo ${createdCount} topic execution`
-                : 'Đã chia sẻ chủ đề');
+                : auditT('audit_a723fc6953c7'));
             setComposerOpen(false);
             setComposer(null);
             await refreshFeed();
         } catch (e) {
-            notifyError(e?.message || 'Tạo chủ đề thất bại');
+            notifyError(e?.message || auditT('audit_b61260373785'));
         } finally {
             setSharingTopicKey(null);
         }
@@ -444,7 +445,7 @@ export default function SeedingWorkspace({
         const key = String(composer.localId || composer.id);
         const target = topicsRef.current.find((t) => topicKeyOf(t) === key);
         if (!target || !canEditTopic(target, userId, canMutate)) {
-            notifyError('Không có quyền sửa chủ đề này.');
+            notifyError(auditT('audit_ca516fe78556'));
             return;
         }
         const fullText = String(composer.full_text || '').trim();
@@ -463,7 +464,7 @@ export default function SeedingWorkspace({
         }));
         setComposerOpen(false);
         setComposer(null);
-        notifySuccess('Đã cập nhật chủ đề');
+        notifySuccess(auditT('audit_4cbe2a406b3d'));
     };
 
     const cancelComposer = () => {
@@ -519,7 +520,7 @@ export default function SeedingWorkspace({
             const optimistic = removeDraftTopic(topicsRef.current, key);
             applyDoc({ topics: optimistic }, false);
             writer.current.flush(() => persistNow({ topics: optimistic }));
-            notifySuccess('Đã chia sẻ chủ đề');
+            notifySuccess(auditT('audit_a723fc6953c7'));
             await refreshFeed();
         } catch (e) {
             // Failure: draft remains / is restored for the creating user.
@@ -529,7 +530,7 @@ export default function SeedingWorkspace({
                 applyDoc({ topics: rolled }, false);
                 writer.current.flush(() => persistNow({ topics: rolled }));
             }
-            notifyError(e?.message || 'Chia sẻ thất bại');
+            notifyError(e?.message || auditT('audit_f1ca20a1a5ec'));
         } finally {
             setSharingTopicKey(null);
         }
@@ -539,21 +540,21 @@ export default function SeedingWorkspace({
         if (!topic || !canMutate) return;
         const extra = { seed_batches: seedBatchesRef.current, seed_outputs: seedOutputsRef.current };
         if (!canDeleteTopic(topic, userId, canMutate, reportsRef.current, topicHasWorkHistory, extra)) {
-            notifyError('Không có quyền xóa.');
+            notifyError(auditT('audit_67f31a32c0be'));
             return;
         }
-        if (!window.confirm('Xóa chủ đề này?')) return;
+        if (!window.confirm(auditT('audit_6f925a8050bf'))) return;
         const key = topicKeyOf(topic);
         const nextTopics = topicsRef.current.filter((t) => topicKeyOf(t) !== key);
         applyDoc({ topics: nextTopics });
         if (detailId === key) setDetailId(null);
         if (activeGenTopicId === key) setActiveGenTopicId(null);
-        notifySuccess('Đã xóa chủ đề');
+        notifySuccess(auditT('audit_09ca0c041eb7'));
     };
 
     const editTopic = (topic) => {
         if (!canEditTopic(topic, userId, canMutate)) {
-            notifyError('Chỉ sửa được nháp local của bạn.');
+            notifyError(auditT('audit_3ddb26ccb11b'));
             return;
         }
         setComposer({
@@ -609,7 +610,7 @@ export default function SeedingWorkspace({
             }));
             notifySuccess(`Đã Gen ${outputs.length} comment`);
         } catch (e) {
-            notifyError(e?.message || 'Gen thất bại');
+            notifyError(e?.message || auditT('audit_f2981c392d8e'));
         } finally {
             setGenerating(false);
         }
@@ -635,9 +636,9 @@ export default function SeedingWorkspace({
             ));
             applyDoc({ seed_outputs: next }, false);
             writer.current.flush(() => persistNow({ seed_outputs: next }));
-            notifySuccess('Đã Gen lại');
+            notifySuccess(auditT('audit_5e129df2b4d7'));
         } catch (e) {
-            notifyError(e?.message || 'Gen lại thất bại');
+            notifyError(e?.message || auditT('audit_dbfa21e6dbdd'));
         }
     };
 
@@ -699,12 +700,12 @@ export default function SeedingWorkspace({
             setReportTarget(null);
             if (local.completed) {
                 setActiveGenTopicId(null);
-                notifySuccess('Đã hoàn thành chủ đề');
+                notifySuccess(auditT('audit_7daf773629a9'));
             } else {
-                notifySuccess('Đã báo cáo');
+                notifySuccess(auditT('audit_f94c45936959'));
             }
         } catch (e) {
-            notifyError(e?.message || 'Upload proof lỗi');
+            notifyError(e?.message || auditT('audit_6d73b336ef3b'));
         } finally {
             setReporting(false);
         }
@@ -781,7 +782,7 @@ export default function SeedingWorkspace({
                                 <p className="seeding-ws__page-sub">
                                     {isSeederQuickFeed
                                         ? 'Quick feed — comment & share website'
-                                        : 'Feed comment · Bài website · Quản lý (Manager)'}
+                                        : auditT('audit_b80ccd1e64bf')}
                                 </p>
                             </div>
                         </header>

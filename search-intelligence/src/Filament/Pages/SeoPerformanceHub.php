@@ -46,7 +46,6 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     protected static ?string $navigationParentItem = null;
 
-    protected static ?string $navigationLabel = 'SEO Performance';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SEO;
 

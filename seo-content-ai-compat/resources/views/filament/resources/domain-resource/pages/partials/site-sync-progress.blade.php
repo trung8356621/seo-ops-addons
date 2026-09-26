@@ -41,7 +41,7 @@
         $completed => __('seo-content-ai::filament.domain.site_sync_completed_title'),
         $canceled => __('seo-content-ai::filament.domain.site_sync_canceled_title'),
         // Active run identity comes from run meta (scope_label), never the selected language tab.
-        $running && filled($siteSyncScopeLabel ?? null) => 'Đang đồng bộ '.$siteSyncScopeLabel,
+        $running && filled($siteSyncScopeLabel ?? null) => __('Synchronizing').$siteSyncScopeLabel,
         $running && filled($activeUserLabel) => $activeUserLabel,
         $running => __('seo-content-ai::filament.domain.site_sync_running_title'),
         default => null,
@@ -211,7 +211,7 @@
             <div class="mt-1 text-gray-600 dark:text-gray-300">
                 ~{{ $siteSyncBootstrapPreview['articles_remote'] ?? 0 }} bài remote ·
                 {{ $siteSyncBootstrapPreview['estimated_batches'] ?? '?' }} batch ·
-                Provider: {{ $siteSyncBootstrapPreview['provider_label'] ?? 'Không phát hiện' }}
+                Provider: {{ $siteSyncBootstrapPreview['provider_label'] ?? __('Not detected') }}
             </div>
             @foreach (($siteSyncBootstrapPreview['warnings'] ?? []) as $w)
                 <div class="mt-1 text-amber-800 dark:text-amber-300">{{ $w }}</div>

@@ -67,11 +67,8 @@ class ArticleResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Articles';
 
-    protected static ?string $modelLabel = 'Article';
 
-    protected static ?string $pluralModelLabel = 'Articles';
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_ARTICLES;
 
@@ -326,12 +323,12 @@ class ArticleResource extends SeoPanelResource
                         $query->where('articles.site_id', $siteId);
                     }),
                 SelectFilter::make('language')
-                    ->label('Ngôn ngữ')
+                    ->label(__('Language'))
                     ->visible(fn (): bool => app(SitePolylangService::class)->anyAccessibleSiteHasPolylang())
                     ->options(fn (): array => app(SitePolylangService::class)->defaultLanguageOptions())
                     ->default('vi')
                     ->native(false)
-                    ->placeholder('Tất cả ngôn ngữ')
+                    ->placeholder(__('All languages'))
                     ->indicator('Ngôn ngữ')
                     ->query(function (Builder $query, array $data): void {
                         $lang = trim((string) ($data['value'] ?? ''));

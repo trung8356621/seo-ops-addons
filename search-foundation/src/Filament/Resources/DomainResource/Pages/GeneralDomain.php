@@ -497,7 +497,7 @@ class GeneralDomain extends Page
         try {
             $flags = app(SiteSyncFeatureFlags::class);
             if (! $flags->orchestratorEnabled() || ! $flags->uiEnabled()) {
-                Notification::make()->title('Site Sync đang tắt')->warning()->send();
+                Notification::make()->title(__('Site Sync is off'))->warning()->send();
 
                 return;
             }
@@ -697,7 +697,7 @@ class GeneralDomain extends Page
                     'reason' => 'flags_disabled',
                 ]);
                 $notification = Notification::make()
-                    ->title('Site Sync V2 đang tắt');
+                    ->title(__('Site Sync V2 is turned off'));
                 $notification->warning();
                 $notification->send();
 
@@ -805,7 +805,7 @@ class GeneralDomain extends Page
 
             $flags = app(SiteSyncFeatureFlags::class);
             if (! $flags->orchestratorEnabled() || ! $flags->uiEnabled()) {
-                $notification = Notification::make()->title('Site Sync V2 đang tắt');
+                $notification = Notification::make()->title(__('Site Sync V2 is turned off'));
                 $notification->warning();
                 $notification->send();
 
@@ -1195,7 +1195,7 @@ class GeneralDomain extends Page
         $this->getSite()->load('metas');
         $ok = (bool) ($result['ok'] ?? false);
         $notification = Notification::make()
-            ->title('Kiểm tra lại trạng thái')
+            ->title(__('Check the status again'))
             ->body((string) ($result['message'] ?? ($ok ? 'Đã cập nhật heartbeat.' : 'WordPress offline/degraded')));
         if ($ok) {
             $notification->success()->send();
@@ -1209,8 +1209,8 @@ class GeneralDomain extends Page
         $run = app(\Omnichannel\Addons\SiteSync\Services\LinkAnalysis\LinkAnalysisRunService::class)
             ->start($this->getSite());
         Notification::make()
-            ->title('Phân tích lại')
-            ->body('Đã xếp hàng Link Analysis #'.$run->id)
+            ->title(__('Analyze again'))
+            ->body(__('Queued Link Analysis #').$run->id)
             ->success()
             ->send();
     }
@@ -1270,7 +1270,7 @@ class GeneralDomain extends Page
     {
         return [
             Action::make('view_mcp')
-                ->label('MCP Markdown')
+                ->label(__('MCP Markdown'))
                 ->icon('heroicon-o-code-bracket')
                 ->color('gray')
                 ->url(DomainResource::getUrl('mcp', ['record' => $this->getRecord()]))

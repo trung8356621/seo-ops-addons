@@ -19,7 +19,11 @@ class TaskWorkflowBuilder extends Page
 
     protected static string $view = 'seo-content-ai::filament.resources.task-resource.pages.task-workflow-builder';
 
-    protected static ?string $title = 'Create workflow';
+    public function getTitle(): string
+    {
+        return __('Create workflow');
+    }
+
 
     public ?int $taskId = null;
 
@@ -47,7 +51,7 @@ class TaskWorkflowBuilder extends Page
     {
         if ($taskName === '') {
             Notification::make()
-                ->title('Please enter workflow name')
+                ->title(__('Please enter workflow name'))
                 ->danger()
                 ->send();
 
@@ -65,7 +69,7 @@ class TaskWorkflowBuilder extends Page
         $this->taskId = (int) $task->id;
 
         Notification::make()
-            ->title('Workflow saved successfully')
+            ->title(__('Workflow saved successfully'))
             ->success()
             ->send();
 

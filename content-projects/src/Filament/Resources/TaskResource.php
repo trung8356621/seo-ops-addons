@@ -30,11 +30,8 @@ class TaskResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Task workflows';
 
-    protected static ?string $modelLabel = 'Workflow';
 
-    protected static ?string $pluralModelLabel = 'Task workflows';
 
     protected static ?int $navigationSort = SeoUserNavigation::SORT_WORKFLOWS;
 

@@ -26,7 +26,11 @@ class SeoSettingsConfigurationTransfer extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $title = 'Import / Export';
+    public function getTitle(): string
+    {
+        return __('Import / Export');
+    }
+
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-configuration-transfer';
 

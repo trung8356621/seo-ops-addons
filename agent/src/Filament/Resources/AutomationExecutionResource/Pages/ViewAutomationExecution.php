@@ -31,15 +31,15 @@ final class ViewAutomationExecution extends ViewRecord
     {
         return [
             Actions\Action::make('cancel')
-                ->label('Cancel')
+                ->label(__('Cancel'))
                 ->color('danger')
                 ->visible(fn (): bool => in_array((string) $this->getRecord()->status, ['pending', 'processing', 'scheduled'], true))
                 ->action(function (): void {
                     app(AutomationGraphExecutionService::class)->cancelExecution((int) $this->getRecord()->id);
-                    Notification::make()->title('Cancellation requested')->success()->send();
+                    Notification::make()->title(__('Cancellation requested'))->success()->send();
                 }),
             Actions\Action::make('retry_execution')
-                ->label('Retry execution')
+                ->label(__('Retry execution'))
                 ->visible(fn (): bool => in_array((string) $this->getRecord()->status, ['failed', 'partial'], true))
                 ->action(function (): void {
                     $execution = $this->getRecord();
@@ -49,10 +49,10 @@ final class ViewAutomationExecution extends ViewRecord
                         app(\Omnichannel\Addons\Agent\Automation\BusinessHook\Services\AutomationExecutionService::class)
                             ->retry((int) $execution->id);
                     }
-                    Notification::make()->title('Retry queued')->success()->send();
+                    Notification::make()->title(__('Retry queued'))->success()->send();
                 }),
             Actions\Action::make('view_rule')
-                ->label('View rule')
+                ->label(__('View rule'))
                 ->icon('heroicon-o-bolt')
                 ->url(fn (): ?string => $this->getRecord()->rule
                     ? AutomationRuleResource::getUrl('view', ['record' => $this->getRecord()->rule])

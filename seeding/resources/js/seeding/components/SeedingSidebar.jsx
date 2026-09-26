@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useMemo } from 'react';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { derivePersonalSeedingStats, deriveSharedAssignmentRows } from '../features/workspace/selectors';
@@ -69,8 +70,8 @@ export default function SeedingSidebar({
                     type="button"
                     className="seeding-ws__icon-btn"
                     onClick={onToggleCollapse}
-                    title="Mở panel"
-                    aria-label="Mở panel"
+                    title={auditT('audit_3cb427dd059b')}
+                    aria-label={auditT('audit_3cb427dd059b')}
                     data-sidebar-reopen
                 >
                     <PanelRightOpen size={18} />
@@ -84,7 +85,7 @@ export default function SeedingSidebar({
             <div className="seeding-ws__sidebar-stack">
                 <div className="seeding-ws__sidebar-head">
                     <h2>Seeding hôm nay</h2>
-                    <button type="button" className="seeding-ws__icon-btn" onClick={onToggleCollapse} title="Thu gọn">
+                    <button type="button" className="seeding-ws__icon-btn" onClick={onToggleCollapse} title={auditT('audit_b12331680800')}>
                         <PanelRightClose size={16} />
                     </button>
                 </div>
@@ -119,7 +120,7 @@ export default function SeedingSidebar({
                                         <span className="seeding-ws__topic-work-title">{row.title}</span>
                                         <span className="seeding-ws__topic-work-url" title={row.url}>{row.urlShort}</span>
                                     </div>
-                                    <span className="seeding-ws__topic-work-count" title="local hôm nay / target/ngày">
+                                    <span className="seeding-ws__topic-work-count" title={auditT('audit_154a56120601')}>
                                         {row.localDone}
                                         {' / '}
                                         {row.targetPerDay > 0 ? row.targetPerDay : '—'}

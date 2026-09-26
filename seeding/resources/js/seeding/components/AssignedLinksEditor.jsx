@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { fetchLinkAssignments } from '../api';
@@ -139,7 +140,7 @@ export default function AssignedLinksEditor({
                             className="seeding-ws__input"
                             value={row.title || row.label || ''}
                             disabled={!canMutate}
-                            placeholder="Tiêu đề"
+                            placeholder={auditT('audit_6bf2f1a186ad')}
                             onChange={(e) => updateSelected(index, { title: e.target.value, label: e.target.value })}
                         />
                         <input
@@ -156,8 +157,8 @@ export default function AssignedLinksEditor({
                             max={10000}
                             value={row.target_per_day > 0 ? row.target_per_day : 5}
                             disabled={!canMutate}
-                            title="Target / ngày"
-                            aria-label="Target mỗi ngày"
+                            title={auditT('audit_512ba5e5dbeb')}
+                            aria-label={auditT('audit_d58183c6be82')}
                             onChange={(e) => updateSelected(index, {
                                 target_per_day: Math.max(1, Number(e.target.value) || 1),
                             })}
@@ -168,8 +169,8 @@ export default function AssignedLinksEditor({
                                 type="button"
                                 className="seeding-ws__icon-btn"
                                 onClick={() => removeSelected(index)}
-                                title="Bỏ khỏi Topic"
-                                aria-label="Bỏ khỏi Topic"
+                                title={auditT('audit_c926e111457e')}
+                                aria-label={auditT('audit_c926e111457e')}
                             >
                                 <Trash2 size={14} />
                             </button>

@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import {
@@ -14,23 +15,23 @@ import ReportReviewModal from './ReportReviewModal';
 import SocialAccountsPanel from './SocialAccountsPanel';
 
 const STATUS_FILTERS = [
-    { id: 'all', label: 'Tất cả' },
-    { id: 'running', label: 'Đang chạy' },
-    { id: 'pending', label: 'Chờ bắt đầu' },
-    { id: 'done', label: 'Đã hoàn thành' },
-    { id: 'paused', label: 'Tạm dừng' },
+    { id: 'all', label: auditT('audit_f7a578dcbdca') },
+    { id: 'running', label: auditT('audit_b091a3002a71') },
+    { id: 'pending', label: auditT('audit_09f930fa5406') },
+    { id: 'done', label: auditT('audit_ae639c37b294') },
+    { id: 'paused', label: auditT('audit_b8d3bf311087') },
 ];
 
 const SUB_TABS = [
-    { id: 'topics', label: 'Chủ đề' },
-    { id: 'reports', label: 'Báo cáo' },
-    { id: 'social-accounts', label: 'Tài khoản Social' },
-    { id: 'members', label: 'Thành viên' },
-    { id: 'summary', label: 'Tổng kết' },
+    { id: 'topics', label: auditT('audit_95f745575c44') },
+    { id: 'reports', label: auditT('audit_7013ca8bfd15') },
+    { id: 'social-accounts', label: auditT('audit_3614416a9d97') },
+    { id: 'members', label: auditT('audit_cd264c4a8f28') },
+    { id: 'summary', label: auditT('audit_e2550a9edab1') },
 ];
 
 const SOCIAL_OPTIONS = [
-    { value: '', label: 'Tất cả social' },
+    { value: '', label: auditT('audit_6c674584ffb4') },
     { value: 'facebook', label: 'Facebook' },
     { value: 'threads', label: 'Threads' },
     { value: 'tiktok', label: 'TikTok' },
@@ -39,14 +40,14 @@ const SOCIAL_OPTIONS = [
 ];
 
 const REPORT_APPROVAL_FILTERS = [
-    { id: 'all', label: 'Tất cả' },
-    { id: 'pending', label: 'Chờ duyệt' },
-    { id: 'approved', label: 'Đã duyệt' },
+    { id: 'all', label: auditT('audit_f7a578dcbdca') },
+    { id: 'pending', label: auditT('audit_3352b356a4c7') },
+    { id: 'approved', label: auditT('audit_1165d8820535') },
 ];
 
 function statusLabel(status) {
-    if (status === 'success') return 'Thành công';
-    if (status === 'failed') return 'Thất bại';
+    if (status === 'success') return auditT('audit_9a7d70370906');
+    if (status === 'failed') return auditT('audit_471434ca3944');
     return status || '—';
 }
 
@@ -107,7 +108,7 @@ export default function ManagerPanel({ websiteStats = null }) {
             setTopics(Array.isArray(data?.topics) ? data.topics : []);
             setStats(data?.stats || null);
         } catch (e) {
-            notifyError(e?.message || 'Không tải được bảng quản lý');
+            notifyError(e?.message || auditT('audit_c0550c95458b'));
         } finally {
             setLoading(false);
         }
@@ -132,7 +133,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                 return prev < list.length ? prev : (list.length > 0 ? list.length - 1 : null);
             });
         } catch (e) {
-            notifyError(e?.message || 'Không tải được báo cáo');
+            notifyError(e?.message || auditT('audit_cf300b29eeff'));
         } finally {
             setReportsLoading(false);
         }
@@ -148,7 +149,7 @@ export default function ManagerPanel({ websiteStats = null }) {
             setPromptHookKey(String(data?.hook_key ?? 'seeding.comment.generate'));
             setHistory(Array.isArray(data?.history) ? data.history : []);
         } catch (e) {
-            const message = e?.message || 'Không tải được Prompt Gen Comment';
+            const message = e?.message || auditT('audit_d2b71ced57f1');
             setPromptError(message);
             notifyError(message);
             // Keep sections visible — empty prompt/history + error banner.
@@ -175,18 +176,18 @@ export default function ManagerPanel({ websiteStats = null }) {
             if (action === 'pause') await pauseManagerTopic(topic.id);
             if (action === 'resume') await resumeManagerTopic(topic.id);
             if (action === 'cancel') {
-                if (!window.confirm('Hủy chủ đề này?')) return;
+                if (!window.confirm(auditT('audit_d8a5a62c3d61'))) return;
                 await cancelManagerTopic(topic.id);
             }
-            notifySuccess('Đã cập nhật');
+            notifySuccess(auditT('audit_d696b7919768'));
             await load();
         } catch (e) {
-            notifyError(e?.message || 'Thao tác thất bại');
+            notifyError(e?.message || auditT('audit_941196265df9'));
         }
     };
 
     const onSavePrompt = async () => {
-        notifyError('Prompt Gen Comment được chỉnh trong Prompt Management — không lưu tại đây.');
+        notifyError(auditT('audit_6df41db9f763'));
     };
 
     const onViewHistory = async (row) => {
@@ -197,7 +198,7 @@ export default function ManagerPanel({ websiteStats = null }) {
             const data = await fetchCommentPromptHistoryDetail(row.slot);
             setDetail(data?.log || null);
         } catch (e) {
-            notifyError(e?.message || 'Không tải được chi tiết log');
+            notifyError(e?.message || auditT('audit_40b60bc9783e'));
             setDetailOpen(false);
         } finally {
             setDetailLoading(false);
@@ -294,10 +295,10 @@ export default function ManagerPanel({ websiteStats = null }) {
                                         <tr>
                                             <td colSpan={7}>
                                                 {promptLoading
-                                                    ? 'Đang tải…'
+                                                    ? auditT('audit_577a1d591051')
                                                     : promptError
-                                                        ? 'Không tải được lịch sử. Thử lại sau.'
-                                                        : 'Chưa có lần Gen nào.'}
+                                                        ? auditT('audit_c9318c2c8834')
+                                                        : auditT('audit_249b56aed3d6')}
                                             </td>
                                         </tr>
                                     ) : history.map((row) => (
@@ -360,7 +361,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             onKeyDown={(e) => { if (e.key === 'Enter') load(); }}
                         />
                         <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={load} disabled={loading}>
-                            {loading ? 'Đang tải…' : 'Lọc'}
+                            {loading ? auditT('audit_577a1d591051') : auditT('audit_d0242d1abc66')}
                         </button>
                     </div>
 
@@ -383,7 +384,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             <tbody>
                                 {topics.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10}>{loading ? 'Đang tải…' : 'Chưa có chủ đề.'}</td>
+                                        <td colSpan={10}>{loading ? auditT('audit_577a1d591051') : auditT('audit_a0d54fa5af55')}</td>
                                     </tr>
                                 ) : topics.map((topic, idx) => (
                                     <tr key={topic.id}>
@@ -435,7 +436,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             style={{ maxWidth: '12rem' }}
                             value={reportUserId}
                             onChange={(e) => setReportUserId(e.target.value)}
-                            aria-label="Thành viên"
+                            aria-label={auditT('audit_cd264c4a8f28')}
                         >
                             <option value="">Tất cả thành viên</option>
                             {reportMembers.map((m) => (
@@ -458,7 +459,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                         <input
                             className="seeding-ws__input"
                             style={{ maxWidth: '14rem' }}
-                            placeholder="Tìm comment / URL / chủ đề"
+                            placeholder={auditT('audit_206910e5b613')}
                             value={reportSearch}
                             onChange={(e) => setReportSearch(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') loadReports(); }}
@@ -469,7 +470,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             style={{ maxWidth: '10rem' }}
                             value={reportDateFrom}
                             onChange={(e) => setReportDateFrom(e.target.value)}
-                            aria-label="Từ ngày"
+                            aria-label={auditT('audit_ea7c92c61e95')}
                         />
                         <input
                             type="date"
@@ -477,7 +478,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             style={{ maxWidth: '10rem' }}
                             value={reportDateTo}
                             onChange={(e) => setReportDateTo(e.target.value)}
-                            aria-label="Đến ngày"
+                            aria-label={auditT('audit_fe67ba88ffb9')}
                         />
                         <button
                             type="button"
@@ -485,7 +486,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                             onClick={loadReports}
                             disabled={reportsLoading}
                         >
-                            {reportsLoading ? 'Đang tải…' : 'Lọc'}
+                            {reportsLoading ? auditT('audit_577a1d591051') : auditT('audit_d0242d1abc66')}
                         </button>
                     </div>
 
@@ -508,7 +509,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                                 {reports.length === 0 ? (
                                     <tr>
                                         <td colSpan={9}>
-                                            {reportsLoading ? 'Đang tải…' : 'Chưa có báo cáo.'}
+                                            {reportsLoading ? auditT('audit_577a1d591051') : auditT('audit_3fd7ca3e628e')}
                                         </td>
                                     </tr>
                                 ) : reports.map((row, idx) => (
@@ -531,7 +532,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                                                 className={`seeding-ws__report-status-pill seeding-ws__report-status-pill--table${reportIsApproved(row) ? ' is-approved' : ' is-pending'}`}
                                                 data-status={reportIsApproved(row) ? 'approved' : 'pending'}
                                             >
-                                                {row.approval_status_label || (reportIsApproved(row) ? 'Đã duyệt' : 'Chờ duyệt')}
+                                                {row.approval_status_label || (reportIsApproved(row) ? auditT('audit_1165d8820535') : auditT('audit_3352b356a4c7'))}
                                             </span>
                                         </td>
                                         <td>{row.user_display_name || '—'}</td>
@@ -629,7 +630,7 @@ export default function ManagerPanel({ websiteStats = null }) {
                         className="seeding-ws__modal seeding-ws__modal--wide"
                         role="dialog"
                         aria-modal="true"
-                        aria-label="Chi tiết Gen Comment"
+                        aria-label={auditT('audit_36c84b951102')}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="seeding-ws__modal-head">

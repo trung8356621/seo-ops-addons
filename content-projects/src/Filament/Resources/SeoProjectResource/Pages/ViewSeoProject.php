@@ -740,13 +740,13 @@ final class ViewSeoProject extends Page
                 ])
                 ->visible(fn (): bool => $this->headerShowsRuntimeControls()),
             Actions\Action::make('emergency_stop_generation')
-                ->label('Dừng khẩn cấp')
+                ->label(__('Emergency stop'))
                 ->icon('heroicon-o-stop-circle')
                 ->color('danger')
                 ->requiresConfirmation()
-                ->modalHeading('Dừng khẩn cấp Generate')
-                ->modalDescription('Dừng execution đang chạy, hủy step active và giữ các item chưa chạy ở trạng thái pending.')
-                ->modalSubmitActionLabel('Dừng ngay')
+                ->modalHeading(__('Generate emergency stop'))
+                ->modalDescription(__('Stop the running execution, cancel the active step and keep items that have not been run in pending status.'))
+                ->modalSubmitActionLabel(__('Stop now'))
                 ->extraAttributes([
                     'data-cp-runtime-epoch' => (string) $this->runtimeUiEpoch,
                 ])
@@ -780,7 +780,7 @@ final class ViewSeoProject extends Page
                         ]);
 
                         Notification::make()
-                            ->title('Không dừng được execution')
+                            ->title(__('Cannot stop execution'))
                             ->body($exception->getMessage())
                             ->danger()
                             ->send();
@@ -1023,7 +1023,7 @@ final class ViewSeoProject extends Page
                     fn (): array => ['generate_post_images' => $this->generatePostImages],
                 ),
             ])
-                ->label('More')
+                ->label(__('More'))
                 ->icon('heroicon-m-ellipsis-vertical')
                 ->color('gray')
                 ->button()
@@ -1646,7 +1646,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -1658,7 +1658,7 @@ final class ViewSeoProject extends Page
         if (! $task instanceof SeoProjectTask) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
-                ->body('Item not found.')
+                ->body(__('Item not found.'))
                 ->danger()
                 ->send();
 
@@ -1678,7 +1678,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -1732,7 +1732,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -1751,7 +1751,7 @@ final class ViewSeoProject extends Page
         if (! $task instanceof SeoProjectTask) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
-                ->body('Item not found.')
+                ->body(__('Item not found.'))
                 ->danger()
                 ->send();
             $this->closeMissingArticleConfirm();
@@ -1800,7 +1800,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -1843,7 +1843,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return ['ok' => false, 'message' => 'Forbidden'];
         }
@@ -1882,7 +1882,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return ['ok' => false, 'message' => 'Forbidden'];
         }
@@ -1921,7 +1921,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return [
                 'ok' => false,
@@ -1960,7 +1960,7 @@ final class ViewSeoProject extends Page
         if (! $task instanceof SeoProjectTask) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
-                ->body('Item not found.')
+                ->body(__('Item not found.'))
                 ->danger()
                 ->send();
 
@@ -2093,8 +2093,8 @@ final class ViewSeoProject extends Page
     public function finalizeRestartWithKeywordSuccess(): void
     {
         Notification::make()
-            ->title('Đã tạo lại bài với từ khóa mới')
-            ->body('Từ khóa chính đã được cập nhật.')
+            ->title(__('Recreated the post with new keywords'))
+            ->body(__('The main keyword has been updated.'))
             ->success()
             ->send();
         $this->invalidateOpsCache();
@@ -2150,7 +2150,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2169,7 +2169,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2185,7 +2185,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2268,7 +2268,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2325,7 +2325,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2345,7 +2345,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2375,7 +2375,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2442,8 +2442,8 @@ final class ViewSeoProject extends Page
                 $at = Carbon::parse($scheduledAt);
             } catch (Throwable) {
                 Notification::make()
-                    ->title('Failed')
-                    ->body('Invalid schedule datetime.')
+                    ->title(__('Failed'))
+                    ->body(__('Invalid schedule datetime.'))
                     ->danger()
                     ->send();
 
@@ -2467,7 +2467,7 @@ final class ViewSeoProject extends Page
         $ids = $this->selectedItemIds();
         if ($ids === []) {
             Notification::make()
-                ->title('Failed')
+                ->title(__('Failed'))
                 ->body((string) __('seo-content-ai::filament.projects.queue_select_required'))
                 ->danger()
                 ->send();
@@ -2481,8 +2481,8 @@ final class ViewSeoProject extends Page
                 $at = Carbon::parse($scheduledAt);
             } catch (Throwable) {
                 Notification::make()
-                    ->title('Failed')
-                    ->body('Invalid schedule datetime.')
+                    ->title(__('Failed'))
+                    ->body(__('Invalid schedule datetime.'))
                     ->danger()
                     ->send();
 
@@ -2546,7 +2546,7 @@ final class ViewSeoProject extends Page
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
-            Notification::make()->title('Forbidden')->danger()->send();
+            Notification::make()->title(__('Forbidden'))->danger()->send();
 
             return;
         }
@@ -2654,8 +2654,8 @@ final class ViewSeoProject extends Page
         $fromStep = ContentProjectRerunFromStep::tryFromMixed($action);
         if (! $fromStep instanceof ContentProjectRerunFromStep) {
             Notification::make()
-                ->title('Failed')
-                ->body('Unsupported step action.')
+                ->title(__('Failed'))
+                ->body(__('Unsupported step action.'))
                 ->danger()
                 ->send();
 
@@ -2683,7 +2683,7 @@ final class ViewSeoProject extends Page
 
         if (! $result->success) {
             Notification::make()
-                ->title('Failed')
+                ->title(__('Failed'))
                 ->body($result->message)
                 ->danger()
                 ->send();

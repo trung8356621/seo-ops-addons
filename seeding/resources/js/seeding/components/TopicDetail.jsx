@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { ArrowLeft, ExternalLink, Pencil, Share2, Sparkles, Trash2 } from 'lucide-react';
 import ResourceLinks from './ResourceLinks';
@@ -59,7 +60,7 @@ export default function TopicDetail({
                         disabled={!primaryEnabled}
                     >
                         {isDraft ? <Share2 size={14} /> : <Sparkles size={14} />}
-                        {isDraft ? 'Chia sẻ' : 'Gen comment'}
+                        {isDraft ? auditT('audit_1cb9508032ec') : 'Gen comment'}
                     </button>
                 </div>
             </div>
@@ -77,7 +78,7 @@ export default function TopicDetail({
                 </header>
 
                 <ContentWithLinkPreviews
-                    text={String(topic.full_text || '').trim() || 'Chưa có nội dung.'}
+                    text={String(topic.full_text || '').trim() || auditT('audit_286a232dd401')}
                     links={topic.links || []}
                     maxRichPreviews={2}
                     variant="topic"

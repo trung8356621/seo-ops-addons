@@ -17,6 +17,7 @@ import { slugFromUrl } from '../utils/articleImagesUtils';
 import { installBrokenImageGuard } from '../utils/brokenImageGuard';
 import { openMediaPicker } from '@content-addon/editor/runtime/editorMediaPickerStore.js';
 import { executeEditorCommand, getEditorCommandHost } from '@content-addon/utils/editorCommands/index.js';
+import { mediaT } from '../utils/mediaI18n';
 
 const ALIGN_OPTIONS = [
     { id: 'left', icon: AlignLeft, title: t('toolbar_align_left') },
@@ -792,7 +793,7 @@ export default function ImageBlockEditor({
                         <button
                             type="button"
                             className="seo-image-toolbar-btn"
-                            title="Mở trong tab Hình ảnh"
+                            title={mediaT('open_in_images_tab')}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={handleJumpToImagesTab}
                         >

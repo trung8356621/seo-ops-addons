@@ -22,6 +22,11 @@ final class MediaServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $lang = dirname(__DIR__).DIRECTORY_SEPARATOR.'resources'.DIRECTORY_SEPARATOR.'lang';
+        if (is_dir($lang)) {
+            $this->loadTranslationsFrom($lang, self::SLUG);
+        }
+
         // Routes/migrations attach as extraction progresses.
     }
 

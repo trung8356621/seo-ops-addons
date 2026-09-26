@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React from 'react';
 import { visibleWorkComments } from '../features/workspace/selectors';
 
@@ -32,7 +33,7 @@ export default function CommentWorkList({ comments, userId, onClaim }) {
                         >
                             <span className="seeding-ws__work-text">{c.text}</span>
                             <span className="seeding-ws__work-action">
-                                {c.state === 'in_progress' ? 'Tiếp tục' : 'Nhận'}
+                                {c.state === 'in_progress' ? auditT('audit_5d92d0921faa') : auditT('audit_f7b357518e57')}
                             </span>
                         </button>
                     ))}

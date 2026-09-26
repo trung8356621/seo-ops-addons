@@ -1,5 +1,5 @@
 @props([
-    'placeholder' => 'Nhập / để xem lệnh hoặc mô tả việc cần làm…',
+    'placeholder' => @js(__('Type / to see the command or description of what to do…')),
     'disabled' => false,
 ])
 
@@ -43,7 +43,7 @@
             wire:loading.attr="disabled"
             wire:target="selectTemplate"
             @disabled($disabled)
-            aria-label="Gửi"
+            aria-label="{{ __('Send') }}"
         >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" x-show="!(composerSubmitting || $wire.composerSubmitting)">
                 <path d="M3.4 20.4 20.85 12.8a.75.75 0 0 0 0-1.35L3.4 3.85a.75.75 0 0 0-1.07.86l2.5 7.04a.75.75 0 0 0 .54.5l8.06 1.9-8.06 1.9a.75.75 0 0 0-.54.5l-2.5 7.04a.75.75 0 0 0 1.07.86Z" />

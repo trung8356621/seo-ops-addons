@@ -66,7 +66,7 @@ class WatermarkSettingsPage extends SeoPanelPage
     public function applyBatchToCurrentSite(): void
     {
         if ($this->siteId === null) {
-            Notification::make()->title('Select domain')->warning()->send();
+            Notification::make()->title(__('media::filament.watermark_settings.select_domain'))->warning()->send();
 
             return;
         }
@@ -93,33 +93,31 @@ class WatermarkSettingsPage extends SeoPanelPage
         }
 
         $modeLabel = $this->batchApplyWatermark
-            ? 'Watermark + optimize (WebP)'
-            : 'Optimize only (skip .webp files)';
+            ? __('media::filament.watermark_settings.mode_watermark_and_optimize')
+            : __('media::filament.watermark_settings.mode_optimize_only');
 
         $body = $modeLabel."\n";
-        $body .= sprintf(
-            'Local - watermarked: %d · optimized: %d · skipped: %d.',
-            (int) ($result['local_watermark'] ?? 0),
-            (int) ($result['local_optimize'] ?? 0),
-            (int) ($result['local_skipped'] ?? 0),
-        );
-        $body .= "\n".sprintf(
-            'WordPress - watermarked: %d · optimized: %d · skipped: %d.',
-            (int) ($result['wp_watermark'] ?? 0),
-            (int) ($result['wp_optimize'] ?? 0),
-            (int) ($result['wp_skipped'] ?? 0),
-        );
+        $body .= __('media::filament.watermark_settings.local_summary', [
+            'watermarked' => (int) ($result['local_watermark'] ?? 0),
+            'optimized' => (int) ($result['local_optimize'] ?? 0),
+            'skipped' => (int) ($result['local_skipped'] ?? 0),
+        ]);
+        $body .= "\n".__('media::filament.watermark_settings.wordpress_summary', [
+            'watermarked' => (int) ($result['wp_watermark'] ?? 0),
+            'optimized' => (int) ($result['wp_optimize'] ?? 0),
+            'skipped' => (int) ($result['wp_skipped'] ?? 0),
+        ]);
 
         if ((int) ($result['wp_errors'] ?? 0) > 0) {
-            $body .= "\nWP errors: ".(int) $result['wp_errors'].'.';
+            $body .= "\n".__('media::filament.watermark_settings.wordpress_errors', ['count' => (int) $result['wp_errors']]);
         }
 
         if ($this->batchApplyWatermark) {
-            $body .= "\nOriginal WordPress images are backed up on Laravel (first run).";
+            $body .= "\n".__('media::filament.watermark_settings.wordpress_backup_note');
         }
 
         Notification::make()
-            ->title('Batch processing completed')
+            ->title(__('media::filament.watermark_settings.batch_completed'))
             ->body($body)
             ->success()
             ->duration(15000)
@@ -130,23 +128,18 @@ class WatermarkSettingsPage extends SeoPanelPage
     {
         return [
             Action::make('open_designer')
-                ->label('Open visual designer')
+                ->label(__('media::filament.watermark_settings.open_visual_designer'))
                 ->icon('heroicon-o-paint-brush')
                 ->url(fn (): string => WatermarkEditor::getUrl([
                     'siteId' => $this->siteId,
                 ])),
             Action::make('batch_watermark')
-                ->label('Apply to all images')
+                ->label(__('media::filament.watermark_settings.apply_to_all_images'))
                 ->icon('heroicon-o-photo')
                 ->color('warning')
                 ->requiresConfirmation()
-                ->modalHeading('Apply to all images')
-                ->modalDescription(
-                    'Optimize images (resize, WebP based on "Image optimization settings"). '
-                    .'If watermark is enabled: apply watermark before optimization. '
-                    .'Optimize-only mode skips files already in .webp format. '
-                    .'WordPress images are backed up on Laravel when edited.'
-                )
+                ->modalHeading(__('media::filament.watermark_settings.apply_to_all_images'))
+                ->modalDescription(__('media::filament.watermark_settings.apply_modal_description'))
                 ->action('applyBatchToCurrentSite')
                 ->visible(fn (): bool => $this->siteId !== null),
         ];

@@ -1102,7 +1102,7 @@ trait InteractsWithSeoAuditSuggestions
                 'command' => $command::class,
             ]);
             Notification::make()
-                ->title('Failed')
+                ->title(__('Failed'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();

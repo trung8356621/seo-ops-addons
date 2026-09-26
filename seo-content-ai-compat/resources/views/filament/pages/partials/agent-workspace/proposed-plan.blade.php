@@ -5,7 +5,7 @@
 
 <div class="seo-agent-workspace__plan-card">
     <div class="text-xs font-semibold uppercase tracking-wide opacity-70">
-        {{ $uncertain ? 'Kế hoạch đề xuất (cần xác nhận ý định)' : 'Kế hoạch đề xuất' }}
+        {{ $uncertain ? __('Proposed plan (need confirmation of intent)') : __('Proposed plan') }}
     </div>
     <div class="mt-1 text-sm">{{ $structured['summary'] ?? $message['content'] ?? '' }}</div>
     <ol class="mt-2 list-decimal space-y-1 pl-4 text-xs">

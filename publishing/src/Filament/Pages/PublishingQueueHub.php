@@ -516,7 +516,7 @@ final class PublishingQueueHub extends SeoPanelPage
     {
         $ids = $this->selectedItemIds();
         if ($ids === []) {
-            Notification::make()->title('Chọn ít nhất một bài.')->warning()->send();
+            Notification::make()->title(__('publishing::filament.queue_hub.select_at_least_one'))->warning()->send();
 
             return;
         }
@@ -535,8 +535,11 @@ final class PublishingQueueHub extends SeoPanelPage
         }
 
         Notification::make()
-            ->title('Kiểm tra lại trạng thái')
-            ->body('Đã đối soát '.$ok.'/'.count($ids).' bài với WordPress (không reload).')
+            ->title(__('publishing::filament.queue_hub.recheck_status_title'))
+            ->body(__('publishing::filament.queue_hub.recheck_status_body', [
+                'ok' => $ok,
+                'total' => count($ids),
+            ]))
             ->success()
             ->send();
         $this->refreshQueueHealth();
@@ -843,7 +846,7 @@ final class PublishingQueueHub extends SeoPanelPage
         if (! $project instanceof SeoProject || ! SeoProjectResource::canAccessPublishingQueueProject($project)) {
             Notification::make()
                 ->danger()
-                ->title('Project not found')
+                ->title(__('publishing::filament.queue_hub.project_not_found'))
                 ->send();
 
             throw new Halt;

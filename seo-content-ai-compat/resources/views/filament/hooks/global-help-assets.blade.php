@@ -104,7 +104,7 @@
             if (document.body?.classList?.contains('article-editor-page')) return contexts.articleEditor;
             return contexts.system || {
                 id: 'system',
-                modalTitle: 'Hướng dẫn hệ thống',
+                modalTitle: @js(__('System instructions')),
                 defaultGroupId: 'overview',
                 groupIds: ['overview'],
             };
@@ -218,7 +218,7 @@
                 get modalTitle() {
                     const group = this.activeGroup;
                     if (group && group.modalTitle) return group.modalTitle;
-                    return (this.context && this.context.modalTitle) || 'Hướng dẫn hệ thống';
+                    return (this.context && this.context.modalTitle) || @js(__('System instructions'));
                 },
                 get groups() {
                     return groupsForContext(this.context);

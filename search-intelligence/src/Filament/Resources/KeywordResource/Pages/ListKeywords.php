@@ -523,8 +523,8 @@ class ListKeywords extends ListRecords
                     ->preload()
                     ->native(false),
                 Forms\Components\Textarea::make('phrases')
-                    ->label('Keywords')
-                    ->helperText('Mỗi dòng là một keyword free (type=free), không tự gắn vào bài viết.')
+                    ->label(__('Keywords'))
+                    ->helperText(__('Each line is a free keyword (type=free), not automatically attached to the article.'))
                     ->rows(12)
                     ->required(),
             ])
@@ -575,7 +575,7 @@ class ListKeywords extends ListRecords
                 }
 
                 Notification::make()
-                    ->title("Đã thêm {$created} keyword free")
+                    ->title(__('Added {$created} keyword free'))
                     ->body(collect([
                         $invalid > 0 ? "Bỏ qua {$invalid} dòng không hợp lệ." : null,
                         $blocked > 0 ? "Bỏ qua {$blocked} dòng thuộc CTA blacklist." : null,

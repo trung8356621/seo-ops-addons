@@ -1,3 +1,4 @@
+import { auditT } from '../../i18n-audit.js';
 import React, { useEffect, useState } from 'react';
 import { Link2, Pause, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
@@ -82,7 +83,7 @@ export default function LinkPoolPanel({
             setDraftLabel('');
             setDraftLimit(DEFAULT_DAILY_LIMIT);
         } catch (e) {
-            window.alert(e?.message || 'Không thêm được link');
+            window.alert(e?.message || auditT('audit_10f2a5511bfa'));
         } finally {
             setSaving(false);
         }
@@ -118,7 +119,7 @@ export default function LinkPoolPanel({
             }
             setEditingId(null);
         } catch (e) {
-            window.alert(e?.message || 'Không cập nhật được link');
+            window.alert(e?.message || auditT('audit_d501bb128003'));
         } finally {
             setSaving(false);
         }
@@ -142,7 +143,7 @@ export default function LinkPoolPanel({
                 await reload();
             }
         } catch (e) {
-            window.alert(e?.message || 'Không đổi trạng thái link');
+            window.alert(e?.message || auditT('audit_a3f5d9f2efe9'));
         } finally {
             setSaving(false);
         }
@@ -150,7 +151,7 @@ export default function LinkPoolPanel({
 
     const removeLink = async (link) => {
         if (!canManage || saving) return;
-        if (!window.confirm('Xóa link khỏi danh sách seeding?')) return;
+        if (!window.confirm(auditT('audit_b58729070524'))) return;
         const numericId = assignmentNumericId(link.id);
         if (!numericId) return;
         setSaving(true);
@@ -160,7 +161,7 @@ export default function LinkPoolPanel({
             setAssignments(next);
             onAssignmentsChange?.(next);
         } catch (e) {
-            window.alert(e?.message || 'Không xóa được link');
+            window.alert(e?.message || auditT('audit_35eb2d4a60d8'));
         } finally {
             setSaving(false);
         }
@@ -170,7 +171,7 @@ export default function LinkPoolPanel({
         if (!canManage || saving) return;
         const locals = Array.isArray(legacySeedLinks) ? legacySeedLinks : [];
         if (locals.length === 0) {
-            window.alert('Không có link local để import.');
+            window.alert(auditT('audit_396451138d82'));
             return;
         }
         if (!window.confirm(`Import ${locals.length} link local vào DB? (bỏ qua URL trùng)`)) return;
@@ -187,7 +188,7 @@ export default function LinkPoolPanel({
             onAssignmentsChange?.(rows);
             window.alert(data?.message || 'Import xong');
         } catch (e) {
-            window.alert(e?.message || 'Import thất bại');
+            window.alert(e?.message || auditT('audit_6723253994fc'));
         } finally {
             setSaving(false);
         }
@@ -197,7 +198,7 @@ export default function LinkPoolPanel({
         <div className="seeding-ws__panel seeding-ws__panel--link-pool" data-panel="link-pool">
             <div className="seeding-ws__panel-head">
                 <h2>Danh sách link</h2>
-                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng">
+                <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label={auditT('audit_d2b73ab2ada1')}>
                     <X size={16} />
                 </button>
             </div>
@@ -210,7 +211,7 @@ export default function LinkPoolPanel({
                     <input
                         className="seeding-ws__input"
                         value={draftLabel}
-                        placeholder="Tiêu đề (Shopee 1…)"
+                        placeholder={auditT('audit_25e3e07a18f5')}
                         onChange={(e) => setDraftLabel(e.target.value)}
                     />
                     <input
@@ -243,7 +244,7 @@ export default function LinkPoolPanel({
                             className="seeding-ws__btn seeding-ws__btn--ghost"
                             onClick={importLegacy}
                             disabled={saving}
-                            title="Import một lần từ seed_links local cũ"
+                            title={auditT('audit_a01be2cd96aa')}
                         >
                             <Upload size={14} /> Import local
                         </button>
@@ -268,7 +269,7 @@ export default function LinkPoolPanel({
                                             className="seeding-ws__input"
                                             value={editLabel}
                                             onChange={(e) => setEditLabel(e.target.value)}
-                                            placeholder="Tiêu đề"
+                                            placeholder={auditT('audit_6bf2f1a186ad')}
                                         />
                                         <input
                                             className="seeding-ws__input"
@@ -301,18 +302,18 @@ export default function LinkPoolPanel({
                                         </div>
                                         {canManage ? (
                                             <div className="seeding-ws__link-pool-actions">
-                                                <button type="button" className="seeding-ws__icon-btn" title="Sửa" onClick={() => startEdit(link)}>
+                                                <button type="button" className="seeding-ws__icon-btn" title={auditT('audit_0963749f2cd9')} onClick={() => startEdit(link)}>
                                                     <Pencil size={14} />
                                                 </button>
                                                 <button
                                                     type="button"
                                                     className="seeding-ws__icon-btn"
-                                                    title={link.is_active ? 'Tạm dừng' : 'Bật lại'}
+                                                    title={link.is_active ? auditT('audit_b8d3bf311087') : auditT('audit_63ee2edea30a')}
                                                     onClick={() => toggleActive(link)}
                                                 >
                                                     {link.is_active ? <Pause size={14} /> : <Play size={14} />}
                                                 </button>
-                                                <button type="button" className="seeding-ws__icon-btn is-danger" title="Xóa" onClick={() => removeLink(link)}>
+                                                <button type="button" className="seeding-ws__icon-btn is-danger" title={auditT('audit_aa1d94fc1675')} onClick={() => removeLink(link)}>
                                                     <Trash2 size={14} />
                                                 </button>
                                             </div>

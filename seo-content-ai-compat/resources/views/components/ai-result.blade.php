@@ -1,5 +1,5 @@
 @props([
-    'label' => 'Kết quả AI',
+    'label' => @js(__('AI results')),
     'maxHeight' => '28rem',
 ])
 
@@ -51,7 +51,7 @@
             type="button"
             class="seo-ai-result__copy"
             x-on:click="copyResult"
-            x-bind:aria-label="copied ? 'Đã sao chép' : 'Sao chép kết quả'"
+            x-bind:aria-label="copied ? @js(__('Copied')) : @js(__('Copy the results'))"
         >
             <svg x-show="! copied" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path d="M6.5 2.75A1.75 1.75 0 0 0 4.75 4.5v8A1.75 1.75 0 0 0 6.5 14.25h1v-1.5h-1a.25.25 0 0 1-.25-.25v-8a.25.25 0 0 1 .25-.25h6a.25.25 0 0 1 .25.25v1h1.5v-1A1.75 1.75 0 0 0 12.5 2.75h-6Z" />
@@ -60,7 +60,7 @@
             <svg x-cloak x-show="copied" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fill-rule="evenodd" d="M16.704 5.292a1 1 0 0 1 .004 1.414l-7.25 7.292a1 1 0 0 1-1.42 0l-3.746-3.77a1 1 0 1 1 1.416-1.41l3.04 3.058 6.542-6.58a1 1 0 0 1 1.414-.004Z" clip-rule="evenodd" />
             </svg>
-            <span x-text="copied ? 'Đã copy' : 'Copy'">Copy</span>
+            <span x-text="copied ? @js(__('Copied')) : 'Copy'">Copy</span>
         </button>
     </div>
 

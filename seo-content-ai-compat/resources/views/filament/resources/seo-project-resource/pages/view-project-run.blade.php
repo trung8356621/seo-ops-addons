@@ -186,39 +186,39 @@
                         class="inline-flex flex-col items-start rounded-md bg-white px-2.5 py-1.5 text-left text-xs font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-600"
                         x-bind:disabled="bulkBusy || !canBulkAction('regenerate_outline')"
                         x-on:click="openBulkRerunPreview('regenerate_outline')"
-                        x-bind:title="!canBulkAction('regenerate_outline') ? 'Workflow thiếu role outline' : ''"
+                        x-bind:title="!canBulkAction('regenerate_outline') ? @js(__('Workflow lacks the outline role')) : ''"
                     >
-                        <span x-text="config.labels?.bulkActionOutline ?? 'Tạo lại dàn ý'"></span>
-                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionOutlineHelp ?? 'Chạy lại node outline. Không chạy lại bài viết.'"></span>
+                        <span x-text="config.labels?.bulkActionOutline ?? @js(__('Recreate the outline'))"></span>
+                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionOutlineHelp ?? @js(__('Run node outline again. Do not rerun the article.'))"></span>
                     </button>
                     <button
                         type="button"
                         class="inline-flex flex-col items-start rounded-md bg-white px-2.5 py-1.5 text-left text-xs font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-600"
                         x-bind:disabled="bulkBusy || !canBulkAction('regenerate_article')"
                         x-on:click="openBulkRerunPreview('regenerate_article')"
-                        x-bind:title="!canBulkAction('regenerate_article') ? 'Workflow thiếu role viết bài' : ''"
+                        x-bind:title="!canBulkAction('regenerate_article') ? @js(__('Workflow lacks the writing role')) : ''"
                     >
-                        <span x-text="config.labels?.bulkActionArticle ?? 'Tạo lại bài từ dàn ý'"></span>
-                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionArticleHelp ?? 'Dùng dàn ý hiện tại, chỉ chạy node viết bài.'"></span>
+                        <span x-text="config.labels?.bulkActionArticle ?? @js(__('Recreate the lesson from the outline'))"></span>
+                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionArticleHelp ?? @js(__('Use the current outline, only run the writing node.'))"></span>
                     </button>
                     <button
                         type="button"
                         class="inline-flex flex-col items-start rounded-md bg-white px-2.5 py-1.5 text-left text-xs font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-600"
                         x-bind:disabled="bulkBusy || !canBulkAction('regenerate_outline_and_article')"
                         x-on:click="openBulkRerunPreview('regenerate_outline_and_article')"
-                        x-bind:title="!canBulkAction('regenerate_outline_and_article') ? 'Workflow thiếu role outline hoặc viết bài' : ''"
+                        x-bind:title="!canBulkAction('regenerate_outline_and_article') ? @js(__('Workflow lacks the outline or writing role')) : ''"
                     >
-                        <span x-text="config.labels?.bulkActionOutlineAndArticle ?? 'Tạo lại dàn ý và bài viết'"></span>
-                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionOutlineAndArticleHelp ?? 'Tạo outline mới rồi viết bài từ artifact đó.'"></span>
+                        <span x-text="config.labels?.bulkActionOutlineAndArticle ?? @js(__('Recreate your outline and article'))"></span>
+                        <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400" x-text="config.labels?.bulkActionOutlineAndArticleHelp ?? @js(__('Create a new outline and then write the article from that artifact.'))"></span>
                     </button>
                     <button
                         type="button"
                         class="inline-flex flex-col items-start rounded-md bg-white px-2.5 py-1.5 text-left text-xs font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-600"
                         x-bind:disabled="bulkBusy || !(config.genericPickerSteps || []).length"
                         x-on:click="openGenericStepPicker()"
-                        x-bind:title="(config.genericPickerSteps || []).length ? 'Chọn bước khác từ workflow' : 'Không có bước generic'"
+                        x-bind:title="(config.genericPickerSteps || []).length ? @js(__('Select another step from the workflow')) : @js(__('There are no generic steps'))"
                     >
-                        <span x-text="config.labels?.bulkActionGenericStep ?? 'Chạy lại bước...'"></span>
+                        <span x-text="config.labels?.bulkActionGenericStep ?? @js(__('Run back...'))"></span>
                         <span class="mt-0.5 font-normal text-[11px] text-gray-500 dark:text-gray-400">Chỉ bước này, không chạy bước sau</span>
                     </button>
                 </div>
@@ -508,7 +508,7 @@
                                                             const root = $el.closest('[data-seo-run-queue]');
                                                             const queue = root ? Alpine.$data(root) : null;
                                                             if (! queue || typeof queue.runSingleTask !== 'function') {
-                                                                window.alert('Queue UI chưa sẵn sàng — Ctrl+F5 rồi thử lại.');
+                                                                window.alert(@js(__('Queue UI is not ready — Ctrl+F5 and try again.')));
                                                                 return;
                                                             }
                                                             queue.runSingleTask({{ $taskId }});
@@ -544,8 +544,8 @@
                                                             $stepBusy = (bool) ($step['busy'] ?? false) && ! $runIsTerminal;
                                                             $stepLabel = (string) ($step['label'] ?? $step['title'] ?? '');
                                                             $stepMeta = $stepBusy
-                                                                ? 'Đang chạy'
-                                                                : (filled($step['last_finished_at'] ?? null) ? 'Lần cuối: '.$step['last_finished_at'] : '');
+                                                                ? __('Running')
+                                                                : (filled($step['last_finished_at'] ?? null) ? __('Last time:').$step['last_finished_at'] : '');
                                                         @endphp
                                                         @if ($stepBusy)
                                                             <button
@@ -556,7 +556,7 @@
                                                                     const root = $el.closest('[data-seo-run-queue]');
                                                                     const queue = root ? Alpine.$data(root) : null;
                                                                     if (! queue || typeof queue.cancelWorkflowStep !== 'function') {
-                                                                        window.alert('Queue UI chưa sẵn sàng — Ctrl+F5 rồi thử lại.');
+                                                                        window.alert(@js(__('Queue UI is not ready — Ctrl+F5 and try again.')));
                                                                         return;
                                                                     }
                                                                     queue.cancelWorkflowStep({{ $taskId }}, @js($step['node_id']));
@@ -576,7 +576,7 @@
                                                                     const root = $el.closest('[data-seo-run-queue]');
                                                                     const queue = root ? Alpine.$data(root) : null;
                                                                     if (! queue || typeof queue.retryWorkflowStep !== 'function') {
-                                                                        window.alert('Queue UI chưa sẵn sàng — Ctrl+F5 rồi thử lại.');
+                                                                        window.alert(@js(__('Queue UI is not ready — Ctrl+F5 and try again.')));
                                                                         return;
                                                                     }
                                                                     queue.retryWorkflowStep({{ $taskId }}, @js($step['node_id']));
@@ -598,7 +598,7 @@
                                                         type="button"
                                                         class="seo-run-actions-dropdown__item"
                                                         wire:click="markItemFixed({{ $taskId }}, {{ $articleId }})"
-                                                        wire:confirm="Xác nhận bài viết đã được sửa lỗi thủ công?"
+                                                        wire:confirm="__('Confirm the article has been manually corrected?')"
                                                         wire:loading.attr="disabled"
                                                         wire:target="markItemFixed({{ $taskId }}, {{ $articleId }})"
                                                         @click="open = false"
@@ -706,7 +706,7 @@
                                 </template>
                             </ul>
                             <template x-if="(genericPreview.invalid || []).length > 5">
-                                <p class="mt-1" x-text="'+ ' + ((genericPreview.invalid || []).length - 5) + ' lỗi khác'"></p>
+                                <p class="mt-1" x-text="'+' + ((genericPreview.invalid || []).length - 5) + ' ' + @js(__('other errors'))"></p>
                             </template>
                         </div>
                     </template>
@@ -722,7 +722,7 @@
                         class="fi-btn relative grid-flow-col items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm outline-none transition duration-75 hover:bg-primary-500 focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-70"
                         x-bind:disabled="bulkBusy || genericStepLoading || !(genericPreview?.can_execute)"
                         x-on:click="confirmGenericStepRerun()"
-                        x-text="(genericPreview?.invalid_count > 0) ? ('Chạy ' + (genericPreview?.valid_count || 0) + ' bài hợp lệ') : 'Chạy lại bước'"
+                        x-text="(genericPreview?.invalid_count > 0) ? (@js(__('Run')) + (genericPreview?.valid_count || 0) + @js(__('valid post'))) : @js(__('Rerun the steps'))"
                     ></button>
                 </div>
             </div>
@@ -752,7 +752,7 @@
                     <h3
                         id="seo-bulk-retry-title"
                         class="text-base font-semibold text-gray-950 dark:text-white"
-                        x-text="config.labels?.bulkConfirmHeading ?? 'Xác nhận chạy lại prompt'"
+                        x-text="config.labels?.bulkConfirmHeading ?? @js(__('Confirm and run the prompt again'))"
                     ></h3>
                 </div>
                 <div class="space-y-3 px-6 py-5">
@@ -786,14 +786,14 @@
                         type="button"
                         class="fi-btn relative grid-flow-col items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 outline-none transition duration-75 hover:bg-gray-100 focus-visible:ring-2 dark:text-gray-200 dark:hover:bg-white/5"
                         x-on:click="bulkConfirmOpen = false"
-                        x-text="config.labels?.runSettingsCancel ?? 'Hủy'"
+                        x-text="config.labels?.runSettingsCancel ?? @js(__('Cancel'))"
                     ></button>
                     <button
                         type="button"
                         class="fi-btn relative grid-flow-col items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow-sm outline-none transition duration-75 hover:bg-primary-500 focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-70"
                         x-bind:disabled="bulkBusy || !(bulkPreview?.can_execute)"
                         x-on:click="confirmBulkRetry()"
-                        x-text="config.labels?.bulkExecute ?? 'Thực hiện'"
+                        x-text="config.labels?.bulkExecute ?? @js(__('Perform'))"
                     ></button>
                 </div>
             </div>

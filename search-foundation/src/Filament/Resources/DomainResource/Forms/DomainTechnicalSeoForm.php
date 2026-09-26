@@ -248,10 +248,10 @@ final class DomainTechnicalSeoForm
     private static function linkListSection(): Forms\Components\Section
     {
         return Forms\Components\Section::make(__('seo-content-ai::filament.domain.link_list'))
-            ->description('Tóm tắt catalog đồng bộ từ WordPress + liên kết thủ công. Không tải toàn bộ URL WordPress vào form.')
+            ->description(__('Synchronized catalog summary from WordPress + manual links. Do not load the entire WordPress URL into the form.'))
             ->schema([
                 Forms\Components\Placeholder::make('site_link_catalog_summary')
-                    ->label('Catalog website')
+                    ->label(__('Catalog website'))
                     ->content(function (Forms\Components\Placeholder $component): string {
                         $livewire = $component->getLivewire();
                         $site = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
@@ -263,8 +263,8 @@ final class DomainTechnicalSeoForm
                             ->catalogSummary($site)['label'];
                     }),
                 Forms\Components\Repeater::make('links')
-                    ->label('Liên kết thủ công (prompt / override)')
-                    ->helperText('Chỉ liên kết thủ công. Catalog WordPress không hiển thị ở đây.')
+                    ->label(__('Manual link (prompt / override)'))
+                    ->helperText(__('Manual linking only. The WordPress catalog is not displayed here.'))
                     ->schema([
                         Forms\Components\TextInput::make('keyword')
                             ->label(__('seo-content-ai::filament.domain.link_keyword'))

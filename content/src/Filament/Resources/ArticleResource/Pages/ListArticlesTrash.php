@@ -17,9 +17,17 @@ class ListArticlesTrash extends ListRecords
 {
     protected static string $resource = ArticleResource::class;
 
-    protected static ?string $navigationLabel = 'Trash';
+    public static function getNavigationLabel(): string
+    {
+        return __('Trash');
+    }
 
-    protected static ?string $title = 'Article trash';
+
+    public function getTitle(): string
+    {
+        return __('Article trash');
+    }
+
 
     protected static bool $shouldRegisterNavigation = false;
 
@@ -50,14 +58,14 @@ class ListArticlesTrash extends ListRecords
     {
         return [
             Actions\Action::make('emptyTrash')
-                ->label('Empty')
+                ->label(__('Empty'))
                 ->icon('heroicon-o-trash')
                 ->color('danger')
                 ->visible(fn (): bool => SeoAccessControl::canMutateInSeoPanel())
                 ->requiresConfirmation()
-                ->modalHeading('Empty trash')
-                ->modalDescription('Permanently delete all articles in trash. This cannot be undone.')
-                ->modalSubmitActionLabel('Delete all')
+                ->modalHeading(__('Empty trash'))
+                ->modalDescription(__('Permanently delete all articles in trash. This cannot be undone.'))
+                ->modalSubmitActionLabel(__('Delete all'))
                 ->disabled(fn (): bool => ! $this->getTableQuery()->exists())
                 ->action(function (): void {
                     $query = $this->getTableQuery();
@@ -75,7 +83,7 @@ class ListArticlesTrash extends ListRecords
                         ->send();
                 }),
             Actions\Action::make('backToList')
-                ->label('Article list')
+                ->label(__('Article list'))
                 ->icon('heroicon-o-arrow-left')
                 ->url(ArticleResource::getUrl('index')),
         ];

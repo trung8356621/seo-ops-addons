@@ -61,7 +61,7 @@
         <div class="site-sync-confirm__shell">
             <div class="border-b border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">
                 <h3 id="site-sync-confirm-title" class="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
-                    {{ $confirm['title'] ?? 'Xác nhận đồng bộ' }}
+                    {{ $confirm['title'] ?? __('Confirm synchronization') }}
                 </h3>
                 <p class="mt-1 text-[13px] leading-relaxed text-gray-600 dark:text-gray-300">
                     {{ $confirm['body'] ?? '' }}
@@ -111,7 +111,7 @@
                         wire:target="cancelSiteSyncConfirm,confirmSiteSyncConfirm"
                     >
                         <span wire:loading.remove wire:target="confirmSiteSyncConfirm">
-                            {{ $confirm['confirm_label'] ?? 'Xác nhận đồng bộ' }}
+                            {{ $confirm['confirm_label'] ?? __('Confirm synchronization') }}
                         </span>
                         <span wire:loading wire:target="confirmSiteSyncConfirm">Đang xếp hàng…</span>
                     </x-filament::button>

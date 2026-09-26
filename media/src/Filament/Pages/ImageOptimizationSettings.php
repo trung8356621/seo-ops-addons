@@ -17,13 +17,13 @@ class ImageOptimizationSettings extends SeoPanelPage
 {
     protected static ?string $navigationIcon = 'heroicon-o-adjustments-horizontal';
 
-    protected static ?string $navigationLabel = 'Image optimization';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Image optimization settings';
+    protected static ?string $title = null;
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationParentItem = 'Media library';
+    protected static ?string $navigationParentItem = null;
 
     protected static ?int $navigationSort = 8;
 
@@ -181,16 +181,16 @@ class ImageOptimizationSettings extends SeoPanelPage
 
     public static function getNavigationLabel(): string
     {
-        return __('seo-content-ai::filament.nav.image_optimization');
-    }
-
-    public static function getNavigationParentItem(): ?string
-    {
-        return __('seo-content-ai::filament.nav.media_library');
+        return __('media::filament.nav.image_optimization');
     }
 
     public function getTitle(): string
     {
-        return __('seo-content-ai::filament.nav.image_optimization_settings');
+        return __('media::filament.nav.image_optimization_settings');
+    }
+
+    public static function getNavigationParentItem(): ?string
+    {
+        return MediaLibrary::getNavigationLabel();
     }
 }

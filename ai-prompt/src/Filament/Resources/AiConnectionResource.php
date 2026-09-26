@@ -32,9 +32,17 @@ class AiConnectionResource extends SeoPanelResource
 
     protected static ?string $slug = 'settings/api';
 
-    protected static ?string $modelLabel = 'API connection';
+    public static function getModelLabel(): string
+    {
+        return __('API connection');
+    }
 
-    protected static ?string $pluralModelLabel = 'API Connections';
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('API Connections');
+    }
+
 
     protected static ?string $navigationIcon = 'heroicon-o-cpu-chip';
 

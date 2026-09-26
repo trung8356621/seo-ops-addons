@@ -3,7 +3,7 @@
 @endphp
 
 <div class="seo-agent-workspace__plan-card" x-data="{ answers: {} }">
-    <div class="text-sm font-medium">{{ $structured['summary'] ?? $message['content'] ?? 'Cần thêm thông tin' }}</div>
+    <div class="text-sm font-medium">{{ $structured['summary'] ?? $message['content'] ?? __('Need more information') }}</div>
     <div class="mt-2 space-y-3">
         @foreach ($questions as $q)
             @php

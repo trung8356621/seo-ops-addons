@@ -29,9 +29,9 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
 
     protected static ?string $navigationIcon = 'heroicon-o-beaker';
 
-    protected static ?string $navigationLabel = 'PG Canary';
+    protected static ?string $navigationLabel = null;
 
-    protected static ?string $title = 'Product Gallery Canary';
+    protected static ?string $title = null;
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SYSTEM + 1;
 
@@ -93,11 +93,11 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('Tạo dự án sản phẩm thử nghiệm')
-                    ->description('Tạo Content Project + product article shell. Operator chọn 2–3 ảnh original từ Media Library (ID). Không sinh ảnh AI.')
+                Forms\Components\Section::make(__('commerce::filament.product_gallery_canary.section_title'))
+                    ->description(__('commerce::filament.product_gallery_canary.section_description'))
                     ->schema([
                         Forms\Components\Select::make('site_id')
-                            ->label('Domain / site')
+                            ->label(__('commerce::filament.product_gallery_canary.site_label'))
                             ->options(fn (): array => SeoAccessControl::accessibleSitesQuery()
                                 ->orderBy('domain')
                                 ->pluck('domain', 'id')
@@ -106,23 +106,27 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
                             ->required()
                             ->native(false),
                         Forms\Components\TextInput::make('title')
-                            ->label('Product title')
+                            ->label(__('commerce::filament.product_gallery_canary.title_label'))
                             ->required()
                             ->maxLength(200),
                         Forms\Components\TextInput::make('media_ids')
-                            ->label('Original SeoMedia IDs')
-                            ->helperText('Ví dụ: 101,102,103 — tối thiểu 2 ID từ Media Library.')
+                            ->label(__('commerce::filament.product_gallery_canary.media_ids_label'))
+                            ->helperText(__('commerce::filament.product_gallery_canary.media_ids_hint'))
                             ->required()
                             ->placeholder('101,102,103'),
                         Forms\Components\Placeholder::make('requirements')
-                            ->label('Input requirements')
+                            ->label(__('commerce::filament.product_gallery_canary.requirements_label'))
                             ->content(function (): HtmlString {
                                 $req = ProductGalleryCanaryFixtureService::inputRequirements();
-                                $html = '<div class="text-sm space-y-2"><p><strong>Bắt buộc</strong></p><ul class="list-disc pl-5">';
+                                $html = '<div class="text-sm space-y-2"><p><strong>'
+                                    .e(__('commerce::filament.product_gallery_canary.required_heading'))
+                                    .'</strong></p><ul class="list-disc pl-5">';
                                 foreach ($req['required'] as $k => $v) {
                                     $html .= '<li><code>'.e($k).'</code> — '.e($v).'</li>';
                                 }
-                                $html .= '</ul><p><strong>Tuỳ chọn</strong></p><ul class="list-disc pl-5">';
+                                $html .= '</ul><p><strong>'
+                                    .e(__('commerce::filament.product_gallery_canary.optional_heading'))
+                                    .'</strong></p><ul class="list-disc pl-5">';
                                 foreach ($req['optional'] as $k => $v) {
                                     $html .= '<li><code>'.e($k).'</code> — '.e($v).'</li>';
                                 }
@@ -154,7 +158,7 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
                 ],
             );
         } catch (\Throwable $exception) {
-            Notification::make()->danger()->title('Tạo canary thất bại')->body($exception->getMessage())->send();
+            Notification::make()->danger()->title(__('commerce::filament.product_gallery_canary.create_failed_title'))->body($exception->getMessage())->send();
 
             return;
         }
@@ -165,11 +169,11 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
 
         Notification::make()
             ->success()
-            ->title('Canary fixture sẵn sàng')
-            ->body('Article #'.$result['article_id'].' — mở editor để chạy Product Gallery modal.')
+            ->title(__('commerce::filament.product_gallery_canary.fixture_ready_title'))
+            ->body(__('commerce::filament.product_gallery_canary.fixture_ready_body', ['id' => $result['article_id']]))
             ->actions([
                 \Filament\Notifications\Actions\Action::make('edit')
-                    ->label('Mở editor')
+                    ->label(__('commerce::filament.product_gallery_canary.open_editor'))
                     ->url($result['editor_url']),
             ])
             ->send();
@@ -219,7 +223,7 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
     {
         $article = $this->resolveArticle();
         if (! $article instanceof SeoArticle) {
-            Notification::make()->warning()->title('Chưa có article canary')->send();
+            Notification::make()->warning()->title(__('commerce::filament.product_gallery_canary.missing_article_title'))->send();
 
             return;
         }
@@ -237,7 +241,7 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
         try {
             $result = $cleanup->discardGenerated($article);
         } catch (\Throwable $exception) {
-            Notification::make()->danger()->title('Cleanup thất bại')->body($exception->getMessage())->send();
+            Notification::make()->danger()->title(__('commerce::filament.product_gallery_canary.cleanup_failed_title'))->body($exception->getMessage())->send();
 
             return;
         }
@@ -245,9 +249,22 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
         $this->refreshReadiness();
         Notification::make()
             ->success()
-            ->title('Đã discard generated canary')
-            ->body('Discarded media: '.count($result['discarded_media_ids']).'; originals kept: '.count($result['original_media_ids']))
+            ->title(__('commerce::filament.product_gallery_canary.cleanup_done_title'))
+            ->body(__('commerce::filament.product_gallery_canary.cleanup_done_body', [
+                'discarded' => count($result['discarded_media_ids']),
+                'originals' => count($result['original_media_ids']),
+            ]))
             ->send();
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return __('commerce::filament.product_gallery_canary.nav_label');
+    }
+
+    public function getTitle(): string
+    {
+        return __('commerce::filament.product_gallery_canary.title');
     }
 
     public function editorUrl(): ?string

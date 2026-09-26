@@ -1,5 +1,5 @@
 @props([
-    'text' => 'Agent chỉ thực thi capability qua xác nhận. Không tự publish.',
+    'text' => @js(__('Agents only enforce capabilities through authentication. Do not self-publish.')),
 ])
 
 <p {{ $attributes->merge(['class' => 'seo-global-chat__hint seo-agent-chat__disclaimer']) }}>
