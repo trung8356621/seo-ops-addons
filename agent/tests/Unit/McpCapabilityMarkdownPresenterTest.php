@@ -26,6 +26,11 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         return dirname((new ReflectionClass(McpCapabilityMarkdownPresenter::class))->getFileName(), 5);
     }
 
+    private function domainView(string $relativePath): string
+    {
+        return ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/'.$relativePath;
+    }
+
     private function addonView(string $relativePath): string
     {
         return $this->addonRoot().'/resources/views/'.$relativePath;
@@ -36,7 +41,7 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         $generalSource = (string) file_get_contents(
             (new ReflectionClass(GeneralDomain::class))->getFileName(),
         );
-        $domainGeneralView = (string) file_get_contents($this->addonView(
+        $domainGeneralView = (string) file_get_contents($this->domainView(
             'filament/resources/domain-resource/pages/general-domain.blade.php',
         ));
 
@@ -46,43 +51,31 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         self::assertStringNotContainsString('MCP Markdown', $domainGeneralView);
         self::assertStringNotContainsString('mcpCapabilityDoc', $domainGeneralView);
 
-        // Button on General → /domains/{id}/mcp
-        self::assertStringContainsString("getUrl('mcp'", $generalSource);
-        self::assertStringContainsString('view_mcp', $generalSource);
+        // Raw MCP Domain UX removed — no navigation to /domains/{id}/mcp
+        self::assertStringNotContainsString("getUrl('mcp'", $generalSource);
+        self::assertStringNotContainsString('view_mcp', $generalSource);
 
-        // Site-specific Domain General surface still present.
-        self::assertStringContainsString('seo-domain-overview', $domainGeneralView);
-        self::assertStringContainsString('domain-sync-actions', $domainGeneralView);
-        self::assertStringContainsString('Chấm điểm SEO', $domainGeneralView);
-        self::assertStringContainsString('Thống kê đồng bộ', $domainGeneralView);
-    }
-
-    public function test_domain_mcp_page_renders_mcp_markdown(): void
-    {
-        $pageSource = (string) file_get_contents(
-            (new ReflectionClass(\Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp::class))->getFileName(),
-        );
         $resourceSource = (string) file_get_contents(
             (new ReflectionClass(DomainResource::class))->getFileName(),
         );
-        $view = (string) file_get_contents($this->addonView(
-            'filament/resources/domain-resource/pages/view-domain-mcp.blade.php',
-        ));
+        self::assertStringNotContainsString("route('/{record}/mcp')", $resourceSource);
+        self::assertFalse(class_exists(\Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp::class));
 
-        self::assertStringContainsString("route('/{record}/mcp')", $resourceSource);
-        self::assertStringContainsString('McpCapabilityMarkdownPresenter', $pageSource);
-        self::assertStringContainsString('SimpleMarkdownHtmlConverter', $pageSource);
-        self::assertStringContainsString('mcpCapabilityDoc', $pageSource);
-        self::assertStringContainsString('mcpHtml', $pageSource);
-        self::assertStringContainsString('Developer MCP Reference', $pageSource);
-        self::assertStringContainsString('Global MCP system-action catalog', $view);
-        self::assertStringContainsString('{!! $mcpHtml !!}', $view);
-        self::assertStringContainsString('View raw Markdown', $view);
-        self::assertStringContainsString('seo-mcp-doc', $view);
-        self::assertStringNotContainsString('filtered()', $view);
-        self::assertStringNotContainsString('toggle(row.key)', $view);
-        self::assertStringContainsString('canAccessManagerFeatures', $pageSource);
-        self::assertFileExists($this->addonView(
+        // Site-specific Domain General surface still present.
+        self::assertNotSame('', $domainGeneralView);
+        self::assertStringContainsString('seo-domain-overview', $domainGeneralView);
+        self::assertStringContainsString('domain-sync-actions', $domainGeneralView);
+    }
+
+    public function test_domain_mcp_page_is_removed_from_domain_ux(): void
+    {
+        $resourceSource = (string) file_get_contents(
+            (new ReflectionClass(DomainResource::class))->getFileName(),
+        );
+        self::assertStringNotContainsString("route('/{record}/mcp')", $resourceSource);
+        self::assertStringNotContainsString('ViewDomainMcp', $resourceSource);
+        self::assertFalse(class_exists(\Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp::class));
+        self::assertFileDoesNotExist($this->domainView(
             'filament/resources/domain-resource/pages/view-domain-mcp.blade.php',
         ));
     }
@@ -92,7 +85,7 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         $opsSource = (string) file_get_contents(
             (new ReflectionClass(ContentProjectOperationsCenter::class))->getFileName(),
         );
-        $opsView = (string) file_get_contents($this->addonView(
+        $opsView = (string) file_get_contents($this->domainView(
             'filament/pages/content-project-operations-center.blade.php',
         ));
 
@@ -445,7 +438,8 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         self::assertNotNull($sync);
         self::assertFalse((bool) ($sync['confirmation_requirement'] ?? true));
         self::assertContains('force_full', $sync['confirmation_modes'] ?? []);
-        self::assertSame('Có khi dùng `force_full`', $sync['confirmation_note'] ?? null);
+        self::assertIsString($sync['confirmation_note'] ?? null);
+        self::assertStringContainsString('force_full', (string) ($sync['confirmation_note'] ?? ''));
         self::assertSame(['site_ref'], $sync['required_context'] ?? null);
         self::assertStringContainsString('explicitly supplied WordPress site', (string) ($sync['description'] ?? ''));
     }
@@ -480,16 +474,17 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
         self::assertStringNotContainsString('mcpCapabilityDoc', $agentPageSource);
 
         self::assertStringNotContainsString('viewMcpCapabilitiesAction', $generalSource);
-        self::assertStringContainsString("'mcp'", $resourceSource);
+        self::assertStringNotContainsString("'mcp'", $resourceSource);
+        self::assertStringNotContainsString('ViewDomainMcp', $resourceSource);
         self::assertStringNotContainsString('McpCapabilityMarkdownPresenter', $generalSource);
         self::assertStringNotContainsString('mcpCapabilityDoc', $generalSource);
-        self::assertStringContainsString('view_mcp', $generalSource);
+        self::assertStringNotContainsString('view_mcp', $generalSource);
 
-        self::assertFileExists($this->addonView(
+        self::assertFileDoesNotExist($this->domainView(
             'filament/resources/domain-resource/pages/view-domain-mcp.blade.php',
         ));
 
-        $domainGeneralView = (string) file_get_contents($this->addonView(
+        $domainGeneralView = (string) file_get_contents($this->domainView(
             'filament/resources/domain-resource/pages/general-domain.blade.php',
         ));
         self::assertStringNotContainsString('MCP Markdown', $domainGeneralView);

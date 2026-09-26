@@ -250,6 +250,16 @@ final class ContextSliceArchitectureContractTest extends TestCase
                 public function definition(): ContextSliceDefinition
                 {
                     $required = $this->key === ContextSliceKey::KEYWORDS_RELATIONSHIP ? ['keyword_ref'] : [];
+                    $optional = match (true) {
+                        str_starts_with($this->key, 'gsc.') => ['period', 'period_key', 'limit'],
+                        $this->key === ContextSliceKey::KEYWORDS_RELATIONSHIP => ['keyword_id'],
+                        in_array($this->key, [
+                            ContextSliceKey::SEO_FINDINGS,
+                            ContextSliceKey::SEO_INTERNAL_LINKS,
+                            ContextSliceKey::KEYWORDS_LANDSCAPE,
+                        ], true) => ['limit'],
+                        default => [],
+                    };
 
                     return new ContextSliceDefinition(
                         key: $this->key,
@@ -258,7 +268,7 @@ final class ContextSliceArchitectureContractTest extends TestCase
                         views: ['summary', 'standard', 'detail'],
                         defaultView: 'summary',
                         requiredParameters: $required,
-                        optionalParameters: str_starts_with($this->key, 'gsc.') ? ['period', 'limit'] : ['limit'],
+                        optionalParameters: $optional,
                         periodAware: str_starts_with($this->key, 'gsc.'),
                     );
                 }

@@ -318,7 +318,6 @@ class DomainResource extends SeoPanelResource
             'edit' => Pages\EditDomain::route('/{record}/edit'),
             'info' => Pages\RedirectDomainInfoToEdit::route('/{record}/info'),
             'general' => Pages\GeneralDomain::route('/{record}/general'),
-            'mcp' => Pages\ViewDomainMcp::route('/{record}/mcp'),
             'internal-links' => Pages\ListDomainInternalLinks::route('/{record}/internal-links'),
         ];
     }

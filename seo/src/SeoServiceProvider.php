@@ -36,8 +36,8 @@ final class SeoServiceProvider extends ServiceProvider
                 ]);
             },
         );
-        $this->app->singleton(\Omnichannel\Addons\Seo\Services\GscContext\GscContextSource::class);
-        $this->app->singleton(
+        $this->app->scoped(\Omnichannel\Addons\Seo\Services\GscContext\GscContextSource::class);
+        $this->app->scoped(
             \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry::class,
             static function ($app): \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry {
                 return new \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry([

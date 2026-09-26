@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\Seo\Services\GscContext;
 use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
 
 /**
- * Request-scoped GSC load memoization so multiple GSC slices share one load.
+ * Request/job-scoped GSC load memoization so multiple GSC slices share one load.
+ *
+ * Registered via container `scoped()` — cache must not survive across requests/jobs.
  */
 final class GscContextSource
 {

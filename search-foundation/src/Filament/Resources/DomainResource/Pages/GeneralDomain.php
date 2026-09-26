@@ -1269,12 +1269,6 @@ class GeneralDomain extends Page
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('view_mcp')
-                ->label(__('MCP Markdown'))
-                ->icon('heroicon-o-code-bracket')
-                ->color('gray')
-                ->url(DomainResource::getUrl('mcp', ['record' => $this->getRecord()]))
-                ->visible(fn (): bool => SeoAccessControl::canAccessManagerFeatures()),
             $this->deleteDomainAction(),
         ];
     }

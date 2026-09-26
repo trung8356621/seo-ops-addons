@@ -9,7 +9,6 @@ use Tests\Support\LegacyAddonPath;
 use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\GeneralDomain;
-use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Cli\AgentCliCommandCatalog;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Cli\AgentCliCommandParser;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\DefaultAgentExecutionOrchestrator;
@@ -175,25 +174,23 @@ final class AgentSlashCommandRestoreTest extends TestCase
         self::assertStringContainsString('whitespace-pre-wrap', $blade);
     }
 
-    public function test_mcp_page_is_developer_global_reference(): void
+    public function test_mcp_page_is_removed_from_domain_ux(): void
     {
-        $page = (string) file_get_contents((new ReflectionClass(ViewDomainMcp::class))->getFileName());
-        $view = (string) file_get_contents(
-            LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/view-domain-mcp.blade.php')
-        );
+        self::assertFalse(class_exists(
+            \Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp::class
+        ));
         $resource = (string) file_get_contents((new ReflectionClass(DomainResource::class))->getFileName());
         $general = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
         $generalView = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/general-domain.blade.php')
         );
 
-        self::assertStringContainsString("route('/{record}/mcp')", $resource);
-        self::assertStringContainsString('canAccessManagerFeatures', $page);
-        self::assertStringContainsString('Developer MCP Reference', $page);
-        self::assertStringContainsString('Global MCP system-action catalog', $view);
-        self::assertStringContainsString('Not WordPress site-feature', $view);
+        self::assertStringNotContainsString("route('/{record}/mcp')", $resource);
+        self::assertStringNotContainsString('ViewDomainMcp', $resource);
+        self::assertStringNotContainsString('view_mcp', $general);
         self::assertStringNotContainsString('McpCapabilityMarkdownPresenter', $general);
         self::assertStringNotContainsString('mcpCapabilityDoc', $generalView);
+        self::assertStringNotContainsString('MCP Markdown', $generalView);
     }
 
     public function test_mcp_list_projects_metadata_is_read_only(): void

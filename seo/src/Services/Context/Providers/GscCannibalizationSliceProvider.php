@@ -28,7 +28,7 @@ final class GscCannibalizationSliceProvider implements ContextSliceProvider
             scope: 'site',
             views: [ContextView::Summary->value, ContextView::Standard->value, ContextView::Detail->value],
             defaultView: ContextView::Summary->value,
-            optionalParameters: ['period', 'limit'],
+            optionalParameters: ['period', 'period_key', 'limit'],
             periodAware: true,
         );
     }

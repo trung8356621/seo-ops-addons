@@ -10,12 +10,18 @@ enum ContextView: string
     case Standard = 'standard';
     case Detail = 'detail';
 
-    public static function tryFromInput(mixed $value, self $default = self::Summary): self
+    /**
+     * Absent / empty input → definition default. Explicit invalid → null (caller rejects).
+     */
+    public static function tryParse(mixed $value): ?self
     {
-        if (! is_string($value) || $value === '') {
-            return $default;
+        if ($value === null) {
+            return null;
+        }
+        if (! is_string($value) || trim($value) === '') {
+            return null;
         }
 
-        return self::tryFrom($value) ?? $default;
+        return self::tryFrom(trim($value));
     }
 }

@@ -57,7 +57,6 @@ final class KeywordsLandscapeSliceProvider implements ContextSliceProvider
         $data = [
             'topic_count' => $landscape->topicCount(),
             'topics' => ContextListSlice::fromAll($topics, $limit),
-            'source_updated_at' => $landscape->sourceUpdatedAt,
         ];
 
         return ContextSlice::make(

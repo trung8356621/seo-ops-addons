@@ -16,6 +16,7 @@ use Omnichannel\Addons\Seo\Services\Context\Slice\Contracts\ContextSliceProvider
 /**
  * Read-only registry of allowlisted context slices.
  *
+ * Strict capability boundary: unknown keys/params/views reject.
  * Not an AI planner. Future planner may only select registered keys.
  */
 final class ContextRegistry
@@ -74,14 +75,12 @@ final class ContextRegistry
     public function get(
         int $siteId,
         string $key,
-        ContextView|string $view = ContextView::Summary,
+        ContextView|string|null $view = null,
         array $parameters = [],
     ): ContextSlice {
         $provider = $this->requireProvider($key);
         $definition = $provider->definition();
-        $resolvedView = $view instanceof ContextView
-            ? $view
-            : ContextView::tryFromInput($view, ContextView::tryFrom($definition->defaultView) ?? ContextView::Summary);
+        $resolvedView = $this->resolveView($definition, $view);
 
         $this->assertParameters($definition, $parameters);
 
@@ -98,7 +97,7 @@ final class ContextRegistry
     public function format(
         int $siteId,
         string $key,
-        ContextView|string $view = ContextView::Summary,
+        ContextView|string|null $view = null,
         array $parameters = [],
     ): array {
         return $this->formatter->format($this->get($siteId, $key, $view, $parameters));
@@ -113,30 +112,53 @@ final class ContextRegistry
         return $this->providers[$key];
     }
 
+    private function resolveView(ContextSliceDefinition $definition, ContextView|string|null $view): ContextView
+    {
+        if ($view === null) {
+            $default = ContextView::tryParse($definition->defaultView)
+                ?? ContextView::Summary;
+            if (! $definition->allowsView($default->value)) {
+                throw new InvalidArgumentException(
+                    'Invalid default view for '.$definition->key.': '.$default->value
+                );
+            }
+
+            return $default;
+        }
+
+        if ($view instanceof ContextView) {
+            if (! $definition->allowsView($view->value)) {
+                throw new InvalidArgumentException(
+                    'View not allowed for '.$definition->key.': '.$view->value
+                );
+            }
+
+            return $view;
+        }
+
+        $parsed = ContextView::tryParse($view);
+        if ($parsed === null || ! $definition->allowsView($parsed->value)) {
+            throw new InvalidArgumentException(
+                'Invalid context view for '.$definition->key.': '.(string) $view
+            );
+        }
+
+        return $parsed;
+    }
+
     /**
      * @param  array<string, mixed>  $parameters
      */
     private function assertParameters(ContextSliceDefinition $definition, array $parameters): void
     {
-        $allowed = array_flip([
-            ...$definition->requiredParameters,
-            ...$definition->optionalParameters,
-            // Convenience aliases always allowed when period-aware / keyword slices.
-            'period_key',
-            'keyword_id',
-        ]);
         foreach (array_keys($parameters) as $name) {
-            if (! is_string($name)) {
+            if (! is_string($name) || $name === '') {
                 throw new InvalidArgumentException('Invalid context parameter name.');
             }
-            if ($name === 'period' || $name === 'period_key') {
-                if (! $definition->periodAware && ! in_array('period', $definition->optionalParameters, true)) {
-                    throw new InvalidArgumentException('Parameter not allowed for '.$definition->key.': '.$name);
-                }
-                continue;
-            }
-            if (! isset($allowed[$name])) {
-                throw new InvalidArgumentException('Parameter not allowed for '.$definition->key.': '.$name);
+            if (! $definition->allowsParameter($name)) {
+                throw new InvalidArgumentException(
+                    'Parameter not allowed for '.$definition->key.': '.$name
+                );
             }
         }
 
@@ -144,13 +166,18 @@ final class ContextRegistry
             if ($required === 'keyword_ref') {
                 $hasRef = isset($parameters['keyword_ref']) && is_string($parameters['keyword_ref']) && $parameters['keyword_ref'] !== '';
                 $hasId = isset($parameters['keyword_id']) && is_numeric($parameters['keyword_id']);
+                // keyword_id is an optional compatibility alias declared on the slice.
                 if (! $hasRef && ! $hasId) {
-                    throw new InvalidArgumentException('Missing required parameter for '.$definition->key.': keyword_ref');
+                    throw new InvalidArgumentException(
+                        'Missing required parameter for '.$definition->key.': keyword_ref'
+                    );
                 }
                 continue;
             }
             if (! array_key_exists($required, $parameters) || $parameters[$required] === null || $parameters[$required] === '') {
-                throw new InvalidArgumentException('Missing required parameter for '.$definition->key.': '.$required);
+                throw new InvalidArgumentException(
+                    'Missing required parameter for '.$definition->key.': '.$required
+                );
             }
         }
     }

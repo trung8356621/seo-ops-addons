@@ -9,7 +9,7 @@ namespace Omnichannel\Addons\Agent\Tests\Unit;
 use Tests\Support\ProjectRoot;
 use Tests\Support\LegacyAddonPath;
 use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
-use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp;
+use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentMessageOutputSanitizer;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Cli\AgentCliCommandCatalog;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Cli\AgentCliCommandParser;
@@ -21,25 +21,14 @@ use ReflectionClass;
 
 final class AgentMcpSiteCliFixTest extends TestCase
 {
-    public function test_mcp_page_is_simple_markdown_documentation(): void
+    public function test_mcp_page_is_removed_from_domain_ux(): void
     {
-        $page = (string) file_get_contents((new ReflectionClass(ViewDomainMcp::class))->getFileName());
-        $blade = (string) file_get_contents(
-            LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/view-domain-mcp.blade.php')
-        );
-
-        self::assertStringContainsString('McpCapabilityMarkdownPresenter', $page);
-        self::assertStringContainsString('SimpleMarkdownHtmlConverter', $page);
-        self::assertStringContainsString('mcpCapabilityDoc', $page);
-        self::assertStringContainsString('mcpHtml', $page);
-        self::assertStringContainsString('{!! $mcpHtml !!}', $blade);
-        self::assertStringContainsString('View raw Markdown', $blade);
-        self::assertStringContainsString('Global MCP system-action catalog', $blade);
-        self::assertStringNotContainsString('filtered()', $blade);
-        self::assertStringNotContainsString('toggle(row.key)', $blade);
-        self::assertStringNotContainsString('McpCapabilityCatalogPresenter', $page);
-        // Primary view is HTML docs â€” raw <pre> only behind optional toggle.
-        self::assertStringContainsString('x-show="showRaw"', $blade);
+        self::assertFalse(class_exists(
+            \Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\ViewDomainMcp::class
+        ));
+        $resource = (string) file_get_contents((new ReflectionClass(DomainResource::class))->getFileName());
+        self::assertStringNotContainsString("route('/{record}/mcp')", $resource);
+        self::assertStringNotContainsString('ViewDomainMcp', $resource);
     }
 
     public function test_sanitizer_removes_livewire_block_markers(): void
