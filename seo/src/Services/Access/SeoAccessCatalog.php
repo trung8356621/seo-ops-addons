@@ -19,15 +19,11 @@ class SeoAccessCatalog
         return [
             [
                 'key' => 'site',
-                'description' => 'Business identity and writing context for this website.',
-            ],
-            [
-                'key' => 'content',
-                'description' => 'Content-type and taxonomy distribution.',
+                'description' => 'Business identity, writing context, important pages, and content distribution.',
             ],
             [
                 'key' => 'keywords',
-                'description' => 'Keyword landscape and keyword relationship intelligence.',
+                'description' => 'Keyword landscape, topic detail, and keyword relationship intelligence.',
             ],
             [
                 'key' => 'gsc',

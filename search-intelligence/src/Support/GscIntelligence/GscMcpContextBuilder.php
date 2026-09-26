@@ -58,6 +58,12 @@ final class GscMcpContextBuilder
         [$prevFrom, $prevTo] = $this->periodBounds($previousKey);
 
         $currentRows = $this->factsInRange((int) $property->id, $currentFrom, $currentTo);
+        if ($currentRows === []) {
+            // Property exists but this period has no persisted daily facts.
+            // Must stay distinct from measured-zero aggregation.
+            return $this->emptyPayload($domain, $periodKey, $property->public_ref, 'no_synced_data');
+        }
+
         $previousRows = ($prevFrom !== null && $prevTo !== null)
             ? $this->factsInRange((int) $property->id, $prevFrom, $prevTo)
             : [];
@@ -106,6 +112,10 @@ final class GscMcpContextBuilder
         bool $partial = false,
         ?string $sourceUpdatedAt = null,
     ): array {
+        if ($currentRows === []) {
+            return $this->emptyPayload($domain, $periodKey, $propertyRef, 'no_synced_data');
+        }
+
         $totals = $this->aggregation->aggregate($currentRows);
         $prevTotals = $this->aggregation->aggregate($previousRows);
         $comparison = $this->aggregation->comparePeriods($totals, $prevTotals);

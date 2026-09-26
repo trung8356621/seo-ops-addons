@@ -531,12 +531,29 @@ HTML;
         self::assertFalse($article['has_unresolved']);
         self::assertStringContainsString('ARTICLE CONTEXT PREVIEW', $article['text']);
         self::assertStringNotContainsString('[phone]', $article['text']);
+        self::assertStringNotContainsString("\nTone\n", $article['text']);
+        self::assertArrayNotHasKey('tone', $draft['content_context']);
         self::assertStringContainsString('KEYWORD CONTEXT PREVIEW', $keyword['text']);
         self::assertStringContainsString('Topical profile:', $keyword['text']);
-        self::assertStringContainsString('balo laptop — 100%', $keyword['text']);
         self::assertStringNotContainsString('https://', (string) json_encode($preview['ai_context']));
         self::assertStringContainsString('https://', (string) ($draft['important_pages'][0]['url'] ?? ''));
         self::assertFalse($preview['official_fields_modified']);
+    }
+
+    public function test_generator_does_not_write_site_tone_into_content_context(): void
+    {
+        $draft = $this->generator()->buildFromDiscovery($this->catalogFixture(
+            websiteType: 'e-commerce',
+            strategy: 'ecommerce_catalog',
+            productCategories: [
+                $this->cat('balo laptop', 'balo-laptop', 50, 0, 'balo laptop'),
+            ],
+        ));
+
+        self::assertArrayNotHasKey('tone', $draft['content_context']);
+        self::assertArrayHasKey('business_summary', $draft['content_context']);
+        self::assertArrayHasKey('cta_instructions', $draft['content_context']);
+        self::assertArrayNotHasKey('tone', SiteMcpDraft::empty()['content_context']);
     }
 
     public function test_contact_discovery_from_json_ld_and_links(): void

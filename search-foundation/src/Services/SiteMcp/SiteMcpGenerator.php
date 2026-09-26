@@ -93,7 +93,6 @@ final class SiteMcpGenerator
 
         $shortDescription = trim((string) ($official['short_description'] ?? ''));
         $companyShort = trim((string) ($official['company_short_identity'] ?? ''));
-        $tone = trim((string) ($official['tone'] ?? ''));
         $ctaInstructions = trim((string) ($official['cta_intro'] ?? ''));
 
         $productCategories = is_array($discovered['product_categories'] ?? null)
@@ -228,8 +227,8 @@ final class SiteMcpGenerator
 
         $warnings[] = 'Main Topics are site-scoped Topic Core (search.topic); product_cat roots seed Topics separately, not via this draft profile.';
 
+        // Site/domain tone is retired from writing resolution — do not generate it.
         $draft['content_context'] = [
-            'tone' => $tone,
             'business_summary' => $shortDescription,
             'cta_instructions' => $ctaInstructions,
         ];

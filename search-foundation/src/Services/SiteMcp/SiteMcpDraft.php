@@ -70,7 +70,6 @@ final class SiteMcpDraft
                 'short_description' => '',
             ],
             'content_context' => [
-                'tone' => '',
                 'business_summary' => '',
                 'cta_instructions' => '',
             ],

@@ -8,9 +8,10 @@ namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 /**
  * Build final prompt context blocks for Site Knowledge Profile consumers.
  *
- * Naming: this is Site Knowledge / AI prompt profile (tone, CTA, contacts) —
+ * Naming: this is Site Knowledge / AI prompt profile (CTA, contacts) —
  * NOT Site Intelligence Context (`site.mcp.v1` / SiteContextGateway).
  *
+ * Site/domain tone is retired from writing resolution and is not assembled here.
  * Never injects URLs / product lists / discovery statistics into AI prompts.
  * Never leaves unresolved [phone]/[email]/[facebook] placeholders.
  */
@@ -47,7 +48,6 @@ final class SiteMcpContextAssembler
      * @param  array{
      *     company_short_identity?: string,
      *     short_description?: string,
-     *     tone?: string,
      *     cta_instructions?: string,
      *     resolved_contacts?: array<string, string>,
      * }  $officialOverlay
@@ -65,7 +65,6 @@ final class SiteMcpContextAssembler
             ?? $site['short_description']
             ?? $content['business_summary']
             ?? ''));
-        $tone = trim((string) ($officialOverlay['tone'] ?? $content['tone'] ?? ''));
         $cta = trim((string) ($officialOverlay['cta_instructions']
             ?? $content['cta_instructions']
             ?? ''));
@@ -83,9 +82,6 @@ final class SiteMcpContextAssembler
             '',
             'Business Context',
             $short !== '' ? $short : '(empty)',
-            '',
-            'Tone',
-            $tone !== '' ? $tone : '(empty)',
             '',
             'CTA',
             $cta !== '' ? $cta : '(empty)',

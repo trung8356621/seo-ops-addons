@@ -8,7 +8,6 @@ use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoAccessController;
 use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\TemporarySeoAccessController;
 use Omnichannel\Addons\Seo\Http\Middleware\EnsureSeoServiceApi;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessCatalog;
-use Omnichannel\Addons\Seo\Services\Access\SeoAccessContentComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessGscComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessKeywordsComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessSiteKnowledgeComposer;
@@ -59,16 +58,15 @@ final class SeoAccessHttpArchitectureGuardContractTest extends TestCase
         );
     }
 
-    public function test_catalog_is_exactly_four_public_resources(): void
+    public function test_catalog_is_exactly_three_public_resources(): void
     {
         $keys = array_column(SeoAccessCatalog::resources(), 'key');
-        self::assertSame(['site', 'content', 'keywords', 'gsc'], $keys);
+        self::assertSame(['site', 'keywords', 'gsc'], $keys);
     }
 
     public function test_composers_reuse_gateways_not_http_loopback(): void
     {
         foreach ([
-            SeoAccessContentComposer::class,
             SeoAccessKeywordsComposer::class,
             SeoAccessGscComposer::class,
             SeoAccessSiteKnowledgeComposer::class,
@@ -84,11 +82,16 @@ final class SeoAccessHttpArchitectureGuardContractTest extends TestCase
         );
         self::assertStringContainsString('KeywordLandscapeGateway', $keywords);
         self::assertStringContainsString('KeywordRelationshipGateway', $keywords);
+        self::assertStringContainsString('topicDetail', $keywords);
 
         $gsc = (string) file_get_contents(
             (string) (new ReflectionClass(SeoAccessGscComposer::class))->getFileName()
         );
         self::assertStringContainsString('GscContextSource', $gsc);
+
+        $tempRoutes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/api-access-temporary.php');
+        self::assertStringNotContainsString('{token}/content', $tempRoutes);
+        self::assertStringContainsString('keywords/topics/{topicRef}', $tempRoutes);
     }
 
     public function test_internal_mcp_reader_still_delegates_to_context_registry(): void

@@ -11,7 +11,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessCatalog;
-use Omnichannel\Addons\Seo\Services\Access\SeoAccessContentComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessGscComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessKeywordsComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessSiteKnowledgeComposer;
@@ -24,7 +23,6 @@ final class TemporarySeoAccessController
 {
     public function __construct(
         private readonly SeoAccessSiteKnowledgeComposer $site,
-        private readonly SeoAccessContentComposer $content,
         private readonly SeoAccessKeywordsComposer $keywords,
         private readonly SeoAccessGscComposer $gsc,
     ) {}
@@ -60,16 +58,6 @@ final class TemporarySeoAccessController
         return $this->jsonData($this->site->compose($context->siteId), true);
     }
 
-    public function content(Request $request, string $token): JsonResponse
-    {
-        $context = $this->requireContext($request);
-        if ($context instanceof JsonResponse) {
-            return $context;
-        }
-
-        return $this->jsonData($this->content->compose($context->siteId), true);
-    }
-
     public function keywords(Request $request, string $token): JsonResponse
     {
         $context = $this->requireContext($request);
@@ -77,9 +65,36 @@ final class TemporarySeoAccessController
             return $context;
         }
 
+        $query = [
+            'page' => $request->query('page'),
+            'per_page' => $request->query('per_page'),
+            'sort' => $request->query('sort'),
+            'direction' => $request->query('direction'),
+            'coverage' => $request->query('coverage'),
+            'status' => $request->query('status'),
+            'has_focus_article' => $request->query('has_focus_article'),
+        ];
+
         return $this->runReadSafely(
-            fn (): array => $this->keywords->landscape($context->siteId)
+            fn (): array => $this->keywords->landscape($context->siteId, $query, $token)
         );
+    }
+
+    public function keywordsTopic(Request $request, string $token, string $topicRef): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) {
+            return $context;
+        }
+
+        return $this->runReadSafely(function () use ($context, $token, $topicRef): array {
+            $detail = $this->keywords->topicDetail($context->siteId, $topicRef, $token);
+            if ($detail === null) {
+                throw new SeoAccessNotFoundException('Topic not found for this site.');
+            }
+
+            return $detail;
+        });
     }
 
     public function keywordsQuery(Request $request, string $token): JsonResponse
@@ -230,6 +245,8 @@ final class TemporarySeoAccessController
             $result = $callback();
 
             return $this->jsonData($result, true);
+        } catch (SeoAccessNotFoundException $e) {
+            return ServiceApiError::notFound($e->getMessage());
         } catch (InvalidArgumentException $e) {
             return ServiceApiError::validationFailed($e->getMessage());
         } catch (Throwable $e) {

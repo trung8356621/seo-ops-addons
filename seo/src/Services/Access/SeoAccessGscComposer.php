@@ -11,6 +11,8 @@ use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
 
 /**
  * Composed GSC resource for SEO Access — one load via GscContextSource.
+ *
+ * Missing synced data must never look like measured-zero performance.
  */
 class SeoAccessGscComposer
 {
@@ -20,6 +22,13 @@ class SeoAccessGscComposer
     public const INCLUDE_ALLOWLIST = ['performance', 'opportunities', 'cannibalization'];
 
     private const LIST_LIMIT = 10;
+
+    /** @var array<string, string> */
+    private const ABSENCE_MESSAGES = [
+        'no_gsc_property' => 'No active GSC property is configured for this site.',
+        'no_synced_data' => 'No GSC Search Performance data is synchronized for this site and period.',
+        'invalid_period' => 'Invalid GSC period. Expected YYYY-MM.',
+    ];
 
     public function __construct(
         private readonly GscContextSource $source,
@@ -36,15 +45,35 @@ class SeoAccessGscComposer
         $ctx = $this->source->load($siteId, $periodKey);
         $summary = $ctx->summary;
         $metrics = $ctx->metrics;
-        $limit = self::LIST_LIMIT;
 
+        $absent = ($metrics['absent'] ?? false) === true || $ctx->available !== true;
+        if ($absent) {
+            $reason = trim((string) ($metrics['absent_reason'] ?? 'no_synced_data'));
+            if ($reason === '') {
+                $reason = 'no_synced_data';
+            }
+
+            return [
+                'schema' => self::SCHEMA,
+                'site_ref' => 'site:'.$siteId,
+                'period' => $periodKey,
+                'available' => false,
+                'reason' => $reason,
+                'message' => self::ABSENCE_MESSAGES[$reason]
+                    ?? 'No GSC Search Performance data is available for this site and period.',
+                'generated_at' => $ctx->generatedAt,
+                'source_updated_at' => $ctx->sourceUpdatedAt,
+            ];
+        }
+
+        $limit = self::LIST_LIMIT;
         $payload = [
             'schema' => self::SCHEMA,
             'site_ref' => 'site:'.$siteId,
             'period' => $periodKey,
             'generated_at' => $ctx->generatedAt,
             'source_updated_at' => $ctx->sourceUpdatedAt,
-            'available' => $ctx->available,
+            'available' => true,
             'stale' => $ctx->stale,
         ];
 
@@ -55,7 +84,6 @@ class SeoAccessGscComposer
                 'comparison' => $summary['comparison'] ?? null,
                 'clicks' => $metrics['clicks'] ?? 0,
                 'impressions' => $metrics['impressions'] ?? 0,
-                'absent' => ($metrics['absent'] ?? false) === true,
                 'top_queries' => ContextListSlice::fromAll(
                     is_array($summary['top_queries'] ?? null) ? $summary['top_queries'] : [],
                     $limit,
@@ -78,7 +106,6 @@ class SeoAccessGscComposer
                     'content_decay' => (int) ($metrics['content_decay_count'] ?? 0),
                     'new_content' => (int) ($metrics['new_content_opportunity_count'] ?? 0),
                 ],
-                'absent' => ($metrics['absent'] ?? false) === true,
             ];
             foreach ([
                 'rising_queries',
@@ -103,7 +130,6 @@ class SeoAccessGscComposer
             $payload['cannibalization'] = [
                 'period' => $periodKey,
                 'count' => (int) ($metrics['possible_cannibalization_count'] ?? count($items)),
-                'absent' => ($metrics['absent'] ?? false) === true,
                 'items' => ContextListSlice::fromAll($items, $limit),
             ];
         }

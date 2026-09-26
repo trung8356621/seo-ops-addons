@@ -122,6 +122,51 @@ final class TopicLinkedArticleCounter
     }
 
     /**
+     * Distinct Focus Article bindings for member keywords of one Topic on this site.
+     *
+     * @param  array<int, true>|list<int>|null  $excludeKeywordIds
+     * @return list<array{article_id: int, keyword_id: int}>
+     */
+    public function listFocusArticleBindingsForTopic(int $siteId, int $topicId, array|null $excludeKeywordIds = null): array
+    {
+        if ($siteId <= 0 || $topicId <= 0) {
+            return [];
+        }
+
+        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $keywordIds = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('topic_id', $topicId)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0 && ! isset($exclude[$id]))
+            ->values()
+            ->all();
+
+        $map = $this->focusArticleIdMap($siteId, $keywordIds);
+        /** @var array<int, int> $articleToKeyword first keyword wins */
+        $articleToKeyword = [];
+        foreach ($map as $keywordId => $articleId) {
+            if ($articleId <= 0) {
+                continue;
+            }
+            if (! isset($articleToKeyword[$articleId])) {
+                $articleToKeyword[$articleId] = (int) $keywordId;
+            }
+        }
+
+        $out = [];
+        foreach ($articleToKeyword as $articleId => $keywordId) {
+            $out[] = [
+                'article_id' => $articleId,
+                'keyword_id' => $keywordId,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  list<int>  $keywordIds
      * @return list<int> distinct focus article ids
      */

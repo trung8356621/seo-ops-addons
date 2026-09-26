@@ -10,6 +10,8 @@ use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\TemporarySeoAccessControl
 | Temporary site-bound SEO Access URLs (read-only).
 | No permanent Bearer / AuthenticateServiceApi.
 | Auth: ResolveTemporaryServiceAccess only.
+|
+| Canonical public resources: site, keywords, gsc.
 */
 
 Route::middleware([
@@ -24,13 +26,14 @@ Route::middleware([
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->name('api.v1.access.site');
 
-    Route::get('{token}/content', [TemporarySeoAccessController::class, 'content'])
-        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
-        ->name('api.v1.access.content');
-
     Route::get('{token}/keywords', [TemporarySeoAccessController::class, 'keywords'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->name('api.v1.access.keywords');
+
+    Route::get('{token}/keywords/topics/{topicRef}', [TemporarySeoAccessController::class, 'keywordsTopic'])
+        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
+        ->where('topicRef', 'topic:\d+|\d+')
+        ->name('api.v1.access.keywords.topic');
 
     Route::post('{token}/keywords', [TemporarySeoAccessController::class, 'keywordsQuery'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
