@@ -1576,13 +1576,11 @@ class KeywordResource extends SeoPanelResource
      */
     public static function assignKeywordsToContentProject(Collection $records, int $projectId, int $targetSiteId): array
     {
-        return app(\Omnichannel\Addons\Agent\Automation\Migration\AssignmentCallerBridge::class)
-            ->assignKeywordsToContentProject(
-                $records,
-                $projectId,
-                $targetSiteId,
-                auth()->id() !== null ? (int) auth()->id() : null,
-            );
+        return app(KeywordProjectAssignmentService::class)->assignKeywords(
+            $records,
+            $projectId,
+            $targetSiteId,
+        );
     }
 
     /**

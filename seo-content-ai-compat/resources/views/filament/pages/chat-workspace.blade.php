@@ -1,6 +1,6 @@
 <x-filament-panels::page full-height>
     @php
-        $tab = $chatTab ?? 'agent';
+        $tab = $chatTab ?? 'group';
         $hash = is_string(request()->route('connection_hash'))
             ? (string) request()->route('connection_hash')
             : (string) (session('seo_current_connection_hash') ?? '');
@@ -39,7 +39,9 @@
     <div class="seo-chat-workspace flex h-full min-h-0 flex-col">
         <div class="seo-chat-workspace__body min-h-0 flex-1 overflow-hidden">
             @if ($tab === 'agent')
-                @include('seo-content-ai::filament.pages.agent-workspace')
+                <div class="flex h-full items-center justify-center p-6 text-sm text-gray-600 dark:text-gray-300">
+                    Agent Workspace đã được tách khỏi runtime hiện tại (reference-only). Dùng Group Chat hoặc Support Ticket.
+                </div>
             @elseif ($tab === 'group')
                 @vite(['addons/content/resources/js/chat/groupChatApp.js', 'addons/ai-prompt/resources/css/global-ai-chat.css'])
                 <div

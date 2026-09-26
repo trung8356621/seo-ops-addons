@@ -17,7 +17,10 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryCanni
 use Throwable;
 
 /**
- * Compact GSC monthly MCP payload. Reads persisted daily facts — never live GSC API.
+ * Compact GSC monthly context payload builder (implementation detail).
+ *
+ * Canonical application boundary: Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway.
+ * Reads persisted daily facts — never live GSC API.
  */
 final class GscMcpContextBuilder
 {

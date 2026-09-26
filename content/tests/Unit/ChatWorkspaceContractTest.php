@@ -4,23 +4,21 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
+use Omnichannel\Addons\Content\Filament\Pages\ChatWorkspacePage;
 use App\Addons\SeoContentAi\Providers\SeoPanelProvider;
-use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspaceLegacyRedirect;
-use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
-use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceDeepLink;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
 use Tests\Support\ProjectRoot;
 
 /**
- * Contract: Chat Workspace Agent/Group; Support Ticket is global client header (not SEO-owned).
+ * Contract: Chat Workspace Group/Ticket; Agent tab isolated (reference-only).
  */
 final class ChatWorkspaceContractTest extends TestCase
 {
     public function test_chat_page_slug_and_round_launcher_modes(): void
     {
-        $reflection = new ReflectionClass(AgentWorkspacePage::class);
+        $reflection = new ReflectionClass(ChatWorkspacePage::class);
         self::assertSame('chat', $reflection->getStaticPropertyValue('slug'));
         self::assertSame(
             'seo-content-ai::filament.pages.chat-workspace',
@@ -39,6 +37,7 @@ final class ChatWorkspaceContractTest extends TestCase
         self::assertStringNotContainsString("tabUrl('agent')", $source);
         self::assertStringNotContainsString('seo-chat-workspace__nav', $source);
         self::assertStringNotContainsString('telegram', strtolower($source));
+        self::assertStringNotContainsString('agent-workspace', $source);
     }
 
     public function test_mode_launcher_reuses_round_global_chat_button(): void
@@ -47,38 +46,30 @@ final class ChatWorkspaceContractTest extends TestCase
         self::assertFileExists($launcher);
         $source = (string) file_get_contents($launcher);
         self::assertStringContainsString('seo-global-chat__launcher', $source);
-        self::assertStringContainsString("\$modeUrl('agent')", $source);
+        self::assertStringContainsString('ChatWorkspacePage::getUrl', $source);
         self::assertStringContainsString("\$modeUrl('group')", $source);
         self::assertStringContainsString("\$modeUrl('ticket')", $source);
+        self::assertStringContainsString('openAgentMode', $source);
+        self::assertStringNotContainsString('AgentWorkspacePage', $source);
+        self::assertStringNotContainsString('AgentWorkspaceDeepLink', $source);
         self::assertStringNotContainsString('ChatModeV2', $source);
     }
 
-    public function test_legacy_agent_route_is_redirect_only(): void
-    {
-        $reflection = new ReflectionClass(AgentWorkspaceLegacyRedirect::class);
-        self::assertSame('agent', $reflection->getStaticPropertyValue('slug'));
-        self::assertFalse($reflection->getStaticPropertyValue('shouldRegisterNavigation'));
-
-        $source = (string) file_get_contents((string) $reflection->getFileName());
-        self::assertStringContainsString("'tab' => 'agent'", $source);
-        self::assertStringContainsString('AgentWorkspacePage::getUrl', $source);
-    }
-
-    public function test_deep_link_targets_chat_agent_tab_and_preserves_project_ref(): void
+    public function test_chat_page_does_not_land_on_agent_tab(): void
     {
         $source = (string) file_get_contents(
-            (string) (new ReflectionClass(AgentWorkspaceDeepLink::class))->getFileName(),
+            (string) (new ReflectionClass(ChatWorkspacePage::class))->getFileName(),
         );
-        self::assertStringContainsString("'tab' => 'agent'", $source);
-        self::assertStringContainsString('project_ref', $source);
-        self::assertStringContainsString('AgentWorkspacePage::getUrl', $source);
+        self::assertStringContainsString("\$tab === 'agent'", $source);
+        self::assertStringContainsString("\$tab = 'group'", $source);
     }
 
-    public function test_seo_panel_does_not_mount_duplicate_ticket_header(): void
+    public function test_seo_panel_does_not_discover_agent_filament(): void
     {
         $source = (string) file_get_contents(
             (string) (new ReflectionClass(SeoPanelProvider::class))->getFileName(),
         );
+        self::assertStringNotContainsString("'agent' => 'Agent'", $source);
         self::assertStringNotContainsString("view('seo-content-ai::components.global-ai-chat')", $source);
         self::assertStringNotContainsString("view('seo-content-ai::filament.hooks.support-ticket-header')", $source);
         self::assertStringContainsString("view('seo-content-ai::components.chat-unread-badge')", $source);

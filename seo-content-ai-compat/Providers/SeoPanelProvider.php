@@ -821,7 +821,9 @@ class SeoPanelProvider extends PanelProvider
             'wordpress' => 'WordPress',
             'publishing' => 'Publishing',
             'site-sync' => 'SiteSync',
-            'agent' => 'Agent',
+            // agent Filament (Agent Workspace + legacy Automation UI under SEO panel) is
+            // intentionally omitted — Agent Workspace is reference-only / not discovered.
+            // Admin panel may still register Automation* resources explicitly when needed.
             'commerce' => 'Commerce',
             'social' => 'Social',
             // Seeding owns its own Filament panel at /seeding — not discovered into SEO.

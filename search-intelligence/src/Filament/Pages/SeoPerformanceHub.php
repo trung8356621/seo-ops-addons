@@ -22,7 +22,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\SeoSerpProviderConnectionServ
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderCapabilityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
 use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMonthlyPeriod;
-use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMcpContextBuilder;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscSocialTop10Builder;
 use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Models\SeoMcpSourceSnapshot;
@@ -471,23 +471,24 @@ final class SeoPerformanceHub extends SeoPanelPage
             return;
         }
 
-        $built = app(GscMcpContextBuilder::class)->build($siteId, $periodKey);
-        $metrics = is_array($built['metrics'] ?? null) ? $built['metrics'] : [];
+        $builtCtx = app(GscContextGateway::class)->forSite($siteId, $periodKey);
+        $built = $builtCtx->toMonthlyParts();
+        $metrics = $builtCtx->metrics;
         $absent = ($metrics['absent'] ?? false) === true;
 
         $this->gscMcpPreview = [
             'status' => $absent ? 'absent' : 'live',
             'period_key' => $periodKey,
             'period_label' => GscMonthlyPeriod::label($periodKey),
-            'generated_at' => now()->toIso8601String(),
-            'source_updated_at' => $built['source_updated_at'] ?? null,
+            'generated_at' => $builtCtx->generatedAt(),
+            'source_updated_at' => $builtCtx->sourceUpdatedAt(),
             'source_period' => [
                 'start' => GscMonthlyPeriod::bounds($periodKey)[0],
                 'end' => GscMonthlyPeriod::bounds($periodKey)[1],
             ],
             'metrics' => $metrics,
-            'summary' => is_array($built['summary'] ?? null) ? $built['summary'] : [],
-            'context' => is_array($built['context'] ?? null) ? $built['context'] : [],
+            'summary' => $builtCtx->summary,
+            'context' => $builtCtx->context,
             'social_top10' => $absent ? ['items' => [], 'unmapped_pages' => 0, 'period_key' => $periodKey, 'excluded_no_page' => 0] : $this->buildGscSocialTop10($siteId, $periodKey, $built),
             'absent_reason' => $metrics['absent_reason'] ?? null,
             'raw_json' => (string) json_encode($built, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),

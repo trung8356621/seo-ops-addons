@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Tests\Unit;
 
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\GeneralDomain;
 use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
@@ -502,11 +500,7 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
 
     private function presenter(): McpCapabilityMarkdownPresenter
     {
-        $registry = new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        );
+        $registry = new CanonicalCapabilityRegistry(new ContentProjectCapabilityRegistry);
 
         return new McpCapabilityMarkdownPresenter(
             $registry,

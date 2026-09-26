@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Tests\Unit;
 
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillAvailabilityService;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentSkillAvailability;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentSkillDefinition;
@@ -21,11 +19,9 @@ final class AgentSkillAvailabilityTest extends TestCase
     {
         parent::setUp();
 
-        $this->service = new AgentSkillAvailabilityService(new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        ));
+        $this->service = new AgentSkillAvailabilityService(
+            new CanonicalCapabilityRegistry(new ContentProjectCapabilityRegistry),
+        );
     }
 
     public function test_meta_capability_with_status_override_is_available(): void

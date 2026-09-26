@@ -200,6 +200,7 @@ final class GscPhase8aContractTest extends TestCase
             (new ReflectionClass(GscMcpContextBuilder::class))->getFileName(),
             (new ReflectionClass(GscPlanningSignalNormalizer::class))->getFileName(),
             (new ReflectionClass(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class))->getFileName(),
+            (new ReflectionClass(\Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway::class))->getFileName(),
         ];
         foreach ($files as $file) {
             $src = (string) file_get_contents((string) $file);
@@ -207,10 +208,25 @@ final class GscPhase8aContractTest extends TestCase
             self::assertStringNotContainsString('urlInspection', $src);
             self::assertStringNotContainsString('seo_article_index_health', $src);
             self::assertStringNotContainsString('ArticleIndexHealthRecorder', $src);
+            self::assertStringNotContainsString('Http::', $src);
+        }
+
+        $monthlySrc = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class))->getFileName(),
+        );
+        self::assertStringContainsString('GscContextGateway', $monthlySrc);
+        self::assertStringNotContainsString('GscMcpContextBuilder', $monthlySrc);
+
+        $ingestClass = '\\Omnichannel\\Addons\\SearchIntelligence\\Services\\KeywordIntelligence\\GscKeywordIntelligenceIngestionService';
+        if (! class_exists($ingestClass)) {
+            // KI ingestion retired — gateway boundary assertions above remain authoritative.
+            self::assertTrue(true);
+
+            return;
         }
 
         $ingestSrc = (string) file_get_contents(
-            (string) (new ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\GscKeywordIntelligenceIngestionService::class))->getFileName(),
+            (string) (new ReflectionClass($ingestClass))->getFileName(),
         );
         self::assertStringNotContainsString('UrlInspection', $ingestSrc);
         self::assertStringNotContainsString('seo_article_index_health', $ingestSrc);
@@ -225,8 +241,13 @@ final class GscPhase8aContractTest extends TestCase
 
     public function test_ki_ingestion_source_does_not_reference_focus_overwrite(): void
     {
+        $ingestClass = '\\Omnichannel\\Addons\\SearchIntelligence\\Services\\KeywordIntelligence\\GscKeywordIntelligenceIngestionService';
+        if (! class_exists($ingestClass)) {
+            self::markTestSkipped('GscKeywordIntelligenceIngestionService retired with Keyword Intelligence.');
+        }
+
         $src = (string) file_get_contents(
-            (string) (new ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\GscKeywordIntelligenceIngestionService::class))->getFileName(),
+            (string) (new ReflectionClass($ingestClass))->getFileName(),
         );
         self::assertStringContainsString('SEARCH_CONSOLE', $src);
         self::assertStringContainsString('never write article.focus_keyword', $src);

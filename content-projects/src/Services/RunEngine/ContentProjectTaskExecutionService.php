@@ -31,7 +31,7 @@ final class ContentProjectTaskExecutionService
     public function __construct(
         private readonly Application $app,
         private readonly SeoProjectRunItemService $runItemService,
-        private readonly \Omnichannel\Addons\Agent\Automation\Migration\ProjectTaskCallerBridge $taskCallerBridge,
+        private readonly \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskArticleBinder $taskArticleBinder,
     ) {}
 
     /**
@@ -228,7 +228,7 @@ final class ContentProjectTaskExecutionService
             return;
         }
 
-        $this->taskCallerBridge->attachArticle(
+        $this->taskArticleBinder->attachArticle(
             $task,
             $linkedArticleId,
             auth()->id() !== null ? (int) auth()->id() : null,

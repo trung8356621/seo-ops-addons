@@ -78,14 +78,15 @@ final class ExtensionArchitectureFreezeTest extends TestCase
         self::assertStringNotContainsString('use App\\Addons\\SeoContentAi\\Extension\\Registry\\ExtensionCapabilityRegistry;', $source);
     }
 
-    public function test_domain_events_bridge_to_versioned_extension_event_envelope(): void
+    public function test_domain_events_dispatch_via_laravel_event_without_extension_bridge(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(ContentProjectDomainEvents::class))->getFileName(),
         );
 
-        self::assertStringContainsString('ExtensionEventEnvelope', $source);
-        self::assertStringContainsString('ExtensionEvents::', $source);
+        self::assertStringNotContainsString('ExtensionEventBus', $source);
+        self::assertStringNotContainsString('ExtensionEventEnvelope', $source);
+        self::assertStringContainsString('event($event)', $source);
 
         self::assertStringEndsWith('.v1', ExtensionEvents::PROJECT_CREATED);
         self::assertStringEndsWith('.v1', ExtensionEvents::ITEMS_GENERATED);

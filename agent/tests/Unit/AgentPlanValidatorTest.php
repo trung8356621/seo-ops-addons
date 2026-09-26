@@ -18,8 +18,6 @@ use Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Data\AgentProposed
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DefaultAgentPlanValidator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry;
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use PHPUnit\Framework\TestCase;
 
 final class AgentPlanValidatorTest extends TestCase
@@ -60,11 +58,9 @@ final class AgentPlanValidatorTest extends TestCase
             ],
         ]);
 
-        $availability = new AgentSkillAvailabilityService(new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        ));
+        $availability = new AgentSkillAvailabilityService(
+            new CanonicalCapabilityRegistry(new ContentProjectCapabilityRegistry),
+        );
 
         $this->validator = new DefaultAgentPlanValidator(
             $skills,

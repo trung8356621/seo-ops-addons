@@ -6,7 +6,10 @@ namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
 
 /**
- * Build final prompt context blocks for Site MCP consumers.
+ * Build final prompt context blocks for Site Knowledge Profile consumers.
+ *
+ * Naming: this is Site Knowledge / AI prompt profile (tone, CTA, contacts) —
+ * NOT Site Intelligence Context (`site.mcp.v1` / SiteContextGateway).
  *
  * Never injects URLs / product lists / discovery statistics into AI prompts.
  * Never leaves unresolved [phone]/[email]/[facebook] placeholders.

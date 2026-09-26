@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
-use Omnichannel\Addons\Agent\Automation\Migration\ProjectTaskCallerBridge;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskArticleBinder;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -21,7 +21,7 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use InvalidArgumentException;
 
 /**
- * Validate + attach Existing Article via ProjectTaskCallerBridge (AttachArticleToProjectTaskAction).
+ * Validate + attach Existing Article via ContentProjectTaskArticleBinder.
  * Never starts generation.
  */
 final class SelectExistingArticleForProjectItemHandler extends AbstractPublishingHandler
@@ -31,7 +31,7 @@ final class SelectExistingArticleForProjectItemHandler extends AbstractPublishin
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
         private readonly ContentProjectExistingArticleReconciler $articleReconciler,
-        private readonly ProjectTaskCallerBridge $taskCallerBridge,
+        private readonly ContentProjectTaskArticleBinder $taskArticleBinder,
         private readonly ContentProjectGenerationCapabilityResolver $capabilityResolver,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
@@ -148,7 +148,7 @@ final class SelectExistingArticleForProjectItemHandler extends AbstractPublishin
                     }
 
                     // Canonical attach path only — no second direct DB writer.
-                    $this->taskCallerBridge->attachArticle(
+                    $this->taskArticleBinder->attachArticle(
                         $task,
                         $articleId,
                         $actor->actorId,

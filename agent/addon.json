@@ -1,11 +1,11 @@
 {
-    "name":  "Agent",
+    "name":  "Agent (legacy / reference-only)",
     "slug":  "agent",
     "version":  "0.1.0",
-    "description":  "Peer addon — Agent. Equal-level; no parent/child ownership.",
+    "description":  "LEGACY/REFERENCE-ONLY — old Agent Workspace. Not canonical runtime. Skipped from discovery by default.",
     "provider":  "Omnichannel\\Addons\\Agent\\AgentServiceProvider",
     "register_early":  false,
-    "legacy":  false,
+    "legacy":  true,
     "provides":  [
                      "agent.workspace",
                      "agent.mcp"

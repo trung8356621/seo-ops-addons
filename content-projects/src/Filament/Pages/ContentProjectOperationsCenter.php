@@ -191,21 +191,6 @@ final class ContentProjectOperationsCenter extends SeoPanelPage
     {
         abort_unless(SeoAccessControl::canAccessContentOperations(), 403);
 
-        try {
-            app(\Omnichannel\Addons\Agent\Extension\ExtensionHealthService::class)->runAll();
-            Notification::make()
-                ->title(__('seo-content-ai::filament.extensions.health_refreshed'))
-                ->success()
-                ->send();
-        } catch (Throwable $e) {
-            RuntimeLogger::report($e, ['endpoint' => 'content_project.ops.runtime_health']);
-            Notification::make()
-                ->title(__('seo-content-ai::filament.extensions.health_failed'))
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
-        }
-
         $this->runtimeRows = SeoExtensions::buildRuntimeSnapshot();
         $this->loadMcpCapabilityDoc();
     }
@@ -444,8 +429,7 @@ final class ContentProjectOperationsCenter extends SeoPanelPage
     {
         $user = auth()->user();
         $scopes = $user instanceof \App\Models\User
-            ? app(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceContextService::class)
-                ->scopesForAuthenticatedUser($user)
+            ? $this->contentProjectScopesForUser($user)
             : [];
 
         return AgentExecutionContext::fromArray([
@@ -670,5 +654,14 @@ final class ContentProjectOperationsCenter extends SeoPanelPage
             'action' => $this->auditAction !== '' ? $this->auditAction : null,
             'limit' => 50,
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function contentProjectScopesForUser(\App\Models\User $user): array
+    {
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentScopeEvaluator::class)
+            ->scopesForAuthenticatedUser($user);
     }
 }

@@ -17,8 +17,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\Con
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\ContentProjectCanonicalPlanValidator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\ContentProjectPlanTemplateRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\RuleBasedContentProjectPlanGenerator;
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\ContentProjectMetricKeys;
@@ -143,11 +141,8 @@ final class ContentProjectAgentPlannerTest extends TestCase
 
     public function test_mcp_catalog_exposes_canonical_plan_tools(): void
     {
-        $catalog = new ContentProjectMcpToolCatalog(new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        ));
+        $core = new ContentProjectCapabilityRegistry;
+        $catalog = new ContentProjectMcpToolCatalog(new CanonicalCapabilityRegistry($core));
         $names = array_map(static fn (array $t): string => (string) $t['name'], $catalog->listTools());
 
         self::assertContains('content_project.plan', $names);

@@ -7,9 +7,11 @@ namespace Omnichannel\Addons\Seo\Services\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
+use Omnichannel\Addons\Seo\Enums\McpSourceKey;
+use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
 
 /**
- * Canonical application boundary for site-level Keyword Landscape (Keyword MCP type-1).
+ * Canonical application boundary for site-level Keyword Landscape (context type-1).
  *
  * Approved consumers only:
  * 1. SEO Audit
@@ -19,11 +21,16 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadMod
  * Also backs capability `domain.keyword_landscape` and monthly snapshot source `keywords`.
  * Not a general-purpose Agent/ACL surface — do not wire unrelated modules here.
  *
- * HTTP MCP and in-process consumers share this gateway (no HTTP loopback).
+ * Domain Context ≠ MCP transport. In-process consumers share this gateway (no HTTP loopback).
+ * Future HTTP `/api/v1/contexts/sites/{site_ref}/keywords` wraps this class.
  */
 final class KeywordLandscapeGateway
 {
     public const DNA_LIMIT = KeywordLandscapeReadModel::DNA_LIMIT;
+
+    public const SCHEMA = 'keywords.mcp.v2';
+
+    public const VERSION = 2;
 
     public function __construct(
         private readonly KeywordLandscapeReadModel $readModel,
@@ -42,6 +49,25 @@ final class KeywordLandscapeGateway
     public function sourceUpdatedAt(int $siteId): ?string
     {
         return $this->readModel->sourceUpdatedAt($siteId);
+    }
+
+    /**
+     * Future API / MCP-ready outer envelope (persisted schema id unchanged).
+     *
+     * @return array<string, mixed>
+     */
+    public function envelope(int $siteId, bool $includeDna = true): array
+    {
+        $landscape = $this->forSite($siteId, $includeDna);
+
+        return ContextEnvelopeBuilder::make(
+            McpSourceKey::Keywords->schema(),
+            self::VERSION,
+            $siteId,
+            $landscape->sourceUpdatedAt,
+            true,
+            $landscape->toArray(),
+        );
     }
 
     /**

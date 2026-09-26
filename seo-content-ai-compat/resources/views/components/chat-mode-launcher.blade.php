@@ -1,6 +1,5 @@
 @php
-    use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
-    use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceDeepLink;
+    use Omnichannel\Addons\Content\Filament\Pages\ChatWorkspacePage;
     use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 
     $activeTab = $activeTab ?? null;
@@ -16,7 +15,7 @@
         }
 
         try {
-            $url = AgentWorkspacePage::getUrl(
+            $url = ChatWorkspacePage::getUrl(
                 parameters: ['connection_hash' => $hash],
                 panel: 'seo',
             );
@@ -27,10 +26,12 @@
         return $url.(str_contains($url, '?') ? '&' : '?').http_build_query(['tab' => $tab]);
     };
 
-    $agentUrl = $modeUrl('agent');
+    // Agent Workspace runtime is isolated — no live deep-link.
+    $agentUrl = null;
     $groupUrl = $modeUrl('group');
     $ticketUrl = $modeUrl('ticket');
-    $missingSite = AgentWorkspaceDeepLink::MISSING_SITE_MESSAGE;
+    $missingSite = 'Vui lòng chọn website trong SEO panel.';
+    $agentModeUnavailable = 'Agent Workspace đã tách khỏi runtime (reference-only).';
 @endphp
 
 @vite('addons/ai-prompt/resources/css/global-ai-chat.css')
@@ -43,6 +44,7 @@
         groupUrl: @js($groupUrl),
         ticketUrl: @js($ticketUrl),
         missingSite: @js($missingSite),
+        agentModeUnavailable: @js($agentModeUnavailable),
         toggle() { this.menuOpen = ! this.menuOpen; },
         close() { this.menuOpen = false; },
         go(url) {
@@ -52,6 +54,10 @@
                 return;
             }
             window.location.assign(url);
+        },
+        openAgentMode() {
+            this.close();
+            window.alert(this.agentModeUnavailable);
         },
     }"
     x-on:keydown.escape.window="close()"
@@ -64,7 +70,7 @@
         role="menu"
         aria-label="{{ __('seo-content-ai::filament.chat_workspace.mode_menu') }}"
     >
-        <button type="button" role="menuitem" class="seo-chat-mode-launcher__item {{ $activeTab === 'agent' ? 'is-active' : '' }}" x-on:click="go(agentUrl)">
+        <button type="button" role="menuitem" class="seo-chat-mode-launcher__item {{ $activeTab === 'agent' ? 'is-active' : '' }} opacity-50" x-on:click="openAgentMode()" aria-disabled="true">
             {{ __('seo-content-ai::filament.chat_workspace.tab_agent') }}
         </button>
         <button type="button" role="menuitem" class="seo-chat-mode-launcher__item {{ $activeTab === 'group' ? 'is-active' : '' }}" x-on:click="go(groupUrl)">
@@ -91,14 +97,6 @@
             class="seo-global-chat__launcher-badge"
             data-chat-unread-badge
             hidden
-            aria-hidden="true"
         ></span>
     </button>
-
-    <div
-        class="seo-chat-mode-launcher__scrim"
-        x-show="menuOpen"
-        x-cloak
-        x-on:click="close()"
-    ></div>
 </div>

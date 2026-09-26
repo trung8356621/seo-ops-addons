@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent;
 
-use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceContextService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -28,10 +28,6 @@ final class AgentScopeEvaluator
         'content-project:admin',
     ];
 
-    public function __construct(
-        private readonly AgentWorkspaceContextService $workspaceContext,
-    ) {}
-
     /**
      * @return list<string>
      */
@@ -48,18 +44,14 @@ final class AgentScopeEvaluator
             return $this->scopesFromPersonalAccessToken($token);
         }
 
-        // TransientToken / session cookie — not PAT abilities semantics.
         if ($token instanceof TransientToken || $token === null) {
-            return $this->workspaceContext->scopesForAuthenticatedUser($user);
+            return $this->scopesForAuthenticatedUser($user);
         }
 
-        // Unknown token type: fail closed for Agent API write surface.
         return [];
     }
 
     /**
-     * Trusted system/queue actor — never invent admin; caller must pass exact scopes.
-     *
      * @param  list<string>  $explicitScopes
      * @return list<string>
      */
@@ -101,8 +93,37 @@ final class AgentScopeEvaluator
     }
 
     /**
-     * Normalize scopes stored on a plan — never elevate.
-     *
+     * @return list<string>
+     */
+    public function scopesForAuthenticatedUser(User $user): array
+    {
+        unset($user);
+
+        $scopes = ['content-project:read'];
+
+        if (SeoAccessControl::canMutateContentProjects()) {
+            $scopes[] = 'content-project:write';
+            $scopes[] = 'content-project:generate';
+            $scopes[] = 'content-project:review';
+            $scopes[] = 'content-project:schedule';
+        }
+
+        if (SeoAccessControl::canSyncArticlesToWordPress() || SeoAccessControl::canAccessManagerFeatures()) {
+            $scopes[] = 'content-project:publish';
+        }
+
+        if (SeoAccessControl::canArchiveContentProjects()) {
+            $scopes[] = 'content-project:archive';
+        }
+
+        if (SeoAccessControl::canAccessManagerFeatures()) {
+            $scopes[] = 'content-project:admin';
+        }
+
+        return array_values(array_unique($scopes));
+    }
+
+    /**
      * @param  mixed  $raw
      * @return list<string>
      */

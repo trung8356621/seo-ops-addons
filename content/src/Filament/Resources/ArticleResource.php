@@ -2352,18 +2352,16 @@ class ArticleResource extends SeoPanelResource
         ?string $titleOverride = null,
         bool $ignoreMonthlyCapacity = false,
     ): array {
-        return app(\Omnichannel\Addons\Agent\Automation\Migration\AssignmentCallerBridge::class)
-            ->assignArticlesToContentProject(
-                $records,
-                $projectId,
-                $taskType,
-                $rewriteMode,
-                $rewriteNotes,
-                auth()->id() !== null ? (int) auth()->id() : null,
-                $keywordOverride,
-                $titleOverride,
-                $ignoreMonthlyCapacity,
-            );
+        return app(SeoIssueProjectTaskAssignmentService::class)->assignArticles(
+            $records,
+            $projectId,
+            $taskType,
+            $rewriteMode,
+            $rewriteNotes,
+            $keywordOverride,
+            $titleOverride,
+            ignoreMonthlyCapacity: $ignoreMonthlyCapacity,
+        );
     }
 
     /**

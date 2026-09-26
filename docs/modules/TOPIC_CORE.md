@@ -88,4 +88,5 @@ Topic Core backs:
 - **Type 2 — Relationship** (`keyword.relationship` / `keyword.relationship.v1`) — **CLOSED — v1**; one-keyword on-demand graph; does not write `seo_mcp_source_snapshots`
 
 Canonical contract (client): `omnichannel-client/docs/contracts/KEYWORD_MCP.md`.  
+Application boundaries (client): `omnichannel-client/docs/contracts/CONTEXT_GATEWAYS.md`.  
 Deferred Type 2 items: `omnichannel-client/bugs/keyword-mcp-type-2-deferred.md`.

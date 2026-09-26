@@ -38,7 +38,6 @@ use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
-use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceDeepLink;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDebugLifecycleOverrideService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationReadStateStore;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier;
@@ -720,13 +719,6 @@ final class ViewSeoProject extends Page
         $project = $this->requireProject();
 
         return [
-            Actions\Action::make('open_in_agent')
-                ->label(__('seo-content-ai::filament.agent_workspace.open_workspace'))
-                ->icon('heroicon-o-cpu-chip')
-                ->color('gray')
-                ->url(fn (): string => AgentWorkspaceDeepLink::url([
-                    'project_ref' => ContentProjectPublicRef::project((int) $project->getKey()),
-                ])),
             Actions\Action::make('running_items_indicator')
                 ->label(fn (): string => __('seo-content-ai::filament.projects.ops_running_items_indicator', [
                     'count' => $this->headerRunningItemsCount(),

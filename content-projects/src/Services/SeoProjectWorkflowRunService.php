@@ -41,7 +41,7 @@ final class SeoProjectWorkflowRunService
         private readonly PromptResultLinkService $promptResultLinks,
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
         private readonly ArticleEditorReadinessService $editorReadiness,
-        private readonly \Omnichannel\Addons\Agent\Automation\Migration\ProjectTaskCallerBridge $taskCallerBridge,
+        private readonly ContentProject\ContentProjectTaskArticleBinder $taskArticleBinder,
         private readonly SeoProjectRunItemService $runItemService,
         private readonly SeoProjectTaskEventRecorder $eventRecorder,
         private readonly \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPostRunPipeline $postRunPipeline,
@@ -1715,7 +1715,7 @@ final class SeoProjectWorkflowRunService
     private function markTaskCompleted(SeoProjectTask $task, int $articleId): void
     {
         $task->loadMissing('project');
-        $this->taskCallerBridge->markCompleted(
+        $this->taskArticleBinder->markCompleted(
             $task,
             $articleId,
             auth()->id() !== null ? (int) auth()->id() : null,

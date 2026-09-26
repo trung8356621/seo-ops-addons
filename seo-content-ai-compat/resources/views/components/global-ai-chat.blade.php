@@ -1,9 +1,7 @@
 @php
-    use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceDeepLink;
     use Omnichannel\Addons\Content\Services\TeamChatAttachmentService;
     use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
-    // Orphan Global AI Chat API disabled — Agent Workspace owns AI. Keep empty URLs so dead Alpine helpers do not call route().
     $modelsUrl = '';
     $chatUrl = '';
     $teamMessagesUrl = route('seo.team-messages.index');
@@ -11,13 +9,12 @@
     $storageKey = 'seo_global_ai_chat_'.((int) auth()->id());
     $currentUserId = (int) auth()->id();
     $isContentManager = SeoAccessControl::isContentManager();
-    // Star tab is Agent Workspace launcher — not in-popup AI runtime.
-    $canUseAiChat = ! $isContentManager;
+    $showAgentWorkspaceEntry = false;
+    $canUseAiChat = false;
     // Long-lived SSE holds an HTTP worker. On php artisan serve (single-thread) that
     // freezes every Filament navigation (blank publishing-queue / Livewire hang).
     // Local + cli-server always use short JSON poll; SSE only outside local.
     $teamSseEnabled = PHP_SAPI !== 'cli-server' && ! app()->environment('local');
-    $agentDeepLink = AgentWorkspaceDeepLink::forCurrentRequest();
     $teamChatConfig = app(TeamChatAttachmentService::class)->clientConfig();
     $mediaImportUrl = route('seo.media.import-url');
     $teamAccept = implode(',', array_map(
@@ -27,8 +24,7 @@
     $workspaceChatI18n = [
         'browser_fallback_body' => __('seo-content-ai::filament.workspace_chat.browser_notification_body'),
         'unknown_sender' => __('seo-content-ai::filament.workspace_chat.notify_unknown_sender'),
-        'open_agent_workspace' => __('seo-content-ai::filament.agent_workspace.open_workspace'),
-        'agent_missing_site' => AgentWorkspaceDeepLink::MISSING_SITE_MESSAGE,
+        'agent_unavailable' => 'Chế độ Agent tạm không khả dụng.',
     ];
 @endphp
 
@@ -55,8 +51,7 @@
         teamFileIsImage: false,
         teamChatConfig: @js($teamChatConfig),
         canUseAiChat: @js($canUseAiChat),
-        agentWorkspaceUrl: @js($agentDeepLink['url']),
-        agentWorkspaceError: @js($agentDeepLink['message']),
+        showAgentWorkspaceEntry: @js($showAgentWorkspaceEntry),
         agentLaunching: false,
         teamAccept: @js($teamAccept),
         lastTeamMessageId: 0,
@@ -112,22 +107,10 @@
         },
 
         openAgentWorkspace() {
-            if (this.agentLaunching) {
+            if (! this.showAgentWorkspaceEntry) {
+                window.alert(this.workspaceChatI18n.agent_unavailable || @js(__('Agent Workspace is not available.')));
                 return;
             }
-
-            const url = String(this.agentWorkspaceUrl || '').trim();
-            if (! url || /\/seo\/?(\?|$)/.test(url)) {
-                const message = this.agentWorkspaceError
-                    || this.workspaceChatI18n.agent_missing_site
-                    || @js(__('Please select a website before opening Agent Workspace.'));
-                window.alert(message);
-                return;
-            }
-
-            this.agentLaunching = true;
-            this.closePanel();
-            window.location.assign(url);
         },
 
         destroy() {
@@ -611,7 +594,7 @@
             const text = this.message.trim();
 
             // @ai in Team composer launches Agent Workspace — never popup AI API.
-            if (this.canUseAiChat && this.isAiInvocation(text)) {
+            if (this.showAgentWorkspaceEntry && this.isAiInvocation(text)) {
                 this.openAgentWorkspace();
                 return;
             }
@@ -1246,18 +1229,6 @@
                 </div>
 
                 <div class="seo-global-chat__header-actions">
-                    @if ($canUseAiChat)
-                        <button
-                            type="button"
-                            class="seo-global-chat__ai-shortcut seo-global-chat__ai-shortcut--icon"
-                            x-bind:disabled="agentLaunching"
-                            x-on:click="openAgentWorkspace()"
-                            title="{{ __('seo-content-ai::filament.agent_workspace.open_workspace') }}"
-                            aria-label="{{ __('seo-content-ai::filament.agent_workspace.open_workspace') }}"
-                        >
-                            <x-seo-content-ai::seo-agent-chat.star-icon />
-                        </button>
-                    @endif
                     <button
                         type="button"
                         class="seo-global-chat__icon-button"
@@ -1283,33 +1254,6 @@
                 </div>
             </div>
 
-            @if ($canUseAiChat)
-                <div class="seo-global-chat__tabs" role="tablist" aria-label="{{ __('Select chat type') }}">
-                    <button
-                        type="button"
-                        role="tab"
-                        class="seo-global-chat__tab"
-                        x-bind:class="{ 'is-active': activeTab === 'team' }"
-                        x-bind:aria-selected="activeTab === 'team'"
-                        x-on:click="switchTab('team')"
-                    >
-                        Team
-                    </button>
-                    <button
-                        type="button"
-                        role="tab"
-                        class="seo-global-chat__tab"
-                        x-bind:class="{ 'is-active': false, 'is-launching': agentLaunching }"
-                        x-bind:aria-selected="false"
-                        x-bind:disabled="agentLaunching"
-                        x-on:click="openAgentWorkspace()"
-                        title="{{ __('seo-content-ai::filament.agent_workspace.open_workspace') }}"
-                        aria-label="{{ __('seo-content-ai::filament.agent_workspace.open_workspace') }}"
-                    >
-                        <x-seo-content-ai::seo-agent-chat.star-icon />
-                    </button>
-                </div>
-            @endif
         </header>
 
         <div class="seo-global-chat__model-row" x-show="false" x-cloak>
@@ -1548,7 +1492,7 @@
                     x-ref="messageInput"
                     x-model="message"
                     rows="1"
-                    x-bind:placeholder="canUseAiChat ? @js(__('Message team... (@ai opens Agent Workspace)')) : @js(__('Message the team...'))"
+                    x-bind:placeholder="@js(__('Message the team...'))"
                     x-on:input="resizeInput()"
                     x-on:paste="handlePaste($event)"
                     x-on:keydown.enter.prevent="if (!$event.shiftKey) submitComposer(); else message += '\n'"
@@ -1568,7 +1512,7 @@
                 </button>
             </div>
             <p class="seo-global-chat__hint" x-show="canUseAiChat">
-                Team chat đồng bộ qua SSE. Gõ <code>@ai</code> hoặc bấm ngôi sao để mở Agent Workspace. Hỗ trợ Ctrl+V ảnh và đính kèm file.
+                Team chat đồng bộ qua SSE. Hỗ trợ Ctrl+V ảnh và đính kèm file.
             </p>
             <p class="seo-global-chat__hint" x-show="! canUseAiChat">
                 Team chat đồng bộ qua SSE (Server-Sent Events). Hỗ trợ Ctrl+V ảnh và đính kèm file.

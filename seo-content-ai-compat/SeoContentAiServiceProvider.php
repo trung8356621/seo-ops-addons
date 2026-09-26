@@ -240,8 +240,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry::class, function ($app): \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry {
             return new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry(
                 $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry::class),
-                $app->make(\Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry::class),
-                $app->make(\Omnichannel\Addons\Agent\Extension\ExtensionStateStore::class),
             );
         });
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectReadModelService::class);
@@ -263,214 +261,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentSessionService::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentGateway::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentGateway::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackRegistry::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackCache::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackEventEmitter::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackDiscoveryService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackLoader::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackStateService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackCompatibilityService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackManifestValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackSafeSchemaValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackSafeMappingValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackCapabilityBinder::class, function ($app) {
-            $caps = $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry::class);
-
-            return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackCapabilityBinder(
-                static fn (string $name): ?array => $caps->get($name),
-            );
-        });
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackCompiler::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackOrchestrator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackImportExportService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\V1\AgentCapabilityCoverageAuditService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\V1\AgentV1ReadinessService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\V1\AgentSkillGroupCatalog::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillRegistry::class, function ($app) {
-            return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillRegistry(
-                null,
-                $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackRegistry::class),
-            );
-        });
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentChatTemplateRegistry::class, function ($app) {
-            return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentChatTemplateRegistry(
-                null,
-                $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Packs\AgentPackRegistry::class),
-            );
-        });
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceQuotaService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillAvailabilityService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentExecutionPlanService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentIntentRouter::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillRecommendationService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentConversationService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillInputResolver::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentErrorPresentation::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceContextService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentExecutionStateMachine::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentConfirmationTokenService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentExecutionIdempotencyFactory::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentExecutionContextUpdater::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentPlanOutputBinder::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\Rendering\AgentResultRendererRegistry::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentPlanStepRunner::class);
-
-        // Phase 6 — Observability / evaluation / governance (side-channel)
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentObservabilityRedactor::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentObservabilityEventBus::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentPlanningVersionRegistry::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentTraceService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricRecorder::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricAggregator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentCostUsageTracker::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentGovernancePolicyService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentReviewService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentFeedbackService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentPolicyViolationDetector::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentRetentionService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentObservabilityExportService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentOperationsDashboardService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentPlanningEvaluator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentExecutionOutcomeEvaluator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentGroundingEvaluator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentAutomationHealthEvaluator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentQualityGateService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Evaluation\AgentEvaluationRunner::class);
-
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\DefaultAgentExecutionOrchestrator::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\AgentExecutionOrchestrator::class,
-            function ($app) {
-                $inner = $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Execution\DefaultAgentExecutionOrchestrator::class);
-
-                return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Decorators\ObservingAgentExecutionOrchestrator(
-                    $inner,
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentTraceService::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricRecorder::class),
-                );
-            },
-        );
-        // Phase 3 — AI planning / guarded copilot
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Security\AgentUntrustedContentMarker::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Security\AgentPlanningInputSanitizer::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Security\AgentPlanningOutputSanitizer::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\AgentContextBudgetManager::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\AgentSkillCatalogPresenter::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\AgentPlanningContextAssembler::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DeterministicAgentPlanRepairer::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\AgentPlanningPersistence::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentPlanValidator::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DefaultAgentPlanValidator::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentModelRouter::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\RegistryAgentModelRouter::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentModelGateway::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\ProviderAgentModelGateway::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentConversationSummarizer::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DefaultAgentConversationSummarizer::class,
-        );
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DefaultAgentPlanningOrchestrator::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentPlanningOrchestrator::class,
-            function ($app) {
-                return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Decorators\ObservingAgentPlanningOrchestrator(
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services\DefaultAgentPlanningOrchestrator::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentTraceService::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricRecorder::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentPolicyViolationDetector::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentCostUsageTracker::class),
-                );
-            },
-        );
-
-        // Phase 4 — scoped knowledge & memory
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Security\AgentKnowledgeContentSanitizer::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentKnowledgeChunker::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentKnowledgeConflictResolver::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentKnowledgeFreshnessService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentKnowledgeCitationPresenter::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentMemoryCandidateExtractor::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\AgentMemoryProposalService::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentKnowledgeSourceRegistry::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DefaultAgentKnowledgeSourceRegistry::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentKnowledgeRepository::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\EloquentAgentKnowledgeRepository::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentKnowledgeIndex::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DatabaseAgentKnowledgeIndex::class,
-        );
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DefaultAgentKnowledgeRetriever::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentKnowledgeRetriever::class,
-            function ($app) {
-                return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Decorators\ObservingAgentKnowledgeRetriever(
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DefaultAgentKnowledgeRetriever::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentTraceService::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricRecorder::class),
-                );
-            },
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentGroundingContextProvider::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DefaultAgentGroundingContextProvider::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Contracts\AgentKnowledgeOrchestrator::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Knowledge\Services\DefaultAgentKnowledgeOrchestrator::class,
-        );
-
-        // Phase 5 — Agent Workspace scheduled automations / proactive monitoring
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationQuotaService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationLockService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationRunStateMachine::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationApprovalTokenService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationDefinitionValidator::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\AgentAutomationDispatcher::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationScheduleResolver::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationScheduleResolver::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationConditionEvaluator::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationConditionEvaluator::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationRepository::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\EloquentAgentAutomationRepository::class,
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationNotificationService::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationNotificationService::class,
-        );
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationRunner::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationRunner::class,
-            function ($app) {
-                return new \Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\Decorators\ObservingAgentAutomationRunner(
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationRunner::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentTraceService::class),
-                    $app->make(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Observability\AgentMetricRecorder::class),
-                );
-            },
-        );
-        $this->app->singleton(
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Contracts\AgentAutomationOrchestrator::class,
-            \Omnichannel\Addons\Agent\Services\AgentWorkspace\Automation\Services\DefaultAgentAutomationOrchestrator::class,
-        );
-
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceApplicationService::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentCapabilityDiagnosticsService::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\ContentProjectPlanTemplateRegistry::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\RuleBasedContentProjectPlanGenerator::class);
         $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Planner\LlmContentProjectPlanGenerator::class);
@@ -630,6 +420,8 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleContentCallerBridge::class);
         $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleSeoMetaCallerBridge::class);
         $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ArticleCreateOriginResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectTaskArticleBinder::class);
         $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard::class);
 
         // Đăng ký console ở register() — không phụ thuộc $booted guard trong boot().
@@ -745,21 +537,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\Publishing\Console\RepairUnprojectedPublishingCommand::class,
             ];
 
-            // Agent Workspace commands — optional so partial deploy never kills publish cron (exit 255).
-            foreach ([
-                \Omnichannel\Addons\Agent\Console\DispatchDueAgentAutomationsCommand::class,
-                \Omnichannel\Addons\Agent\Console\AgentEvaluateCommand::class,
-                \Omnichannel\Addons\Agent\Console\InstallBuiltinAgentEvaluationsCommand::class,
-                \Omnichannel\Addons\Agent\Console\AgentCapabilitiesAuditCommand::class,
-                \Omnichannel\Addons\Agent\Console\AgentV1DoctorCommand::class,
-                \Omnichannel\Addons\Agent\Console\AgentMetricsAggregateCommand::class,
-                \Omnichannel\Addons\ContentProjects\Console\AgentObservabilityPruneCommand::class,
-            ] as $optionalCommand) {
-                if (class_exists($optionalCommand)) {
-                    $commands[] = $optionalCommand;
-                }
-            }
-
             $this->commands($commands);
         }
     }
@@ -862,10 +639,9 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->withoutOverlapping();
             }
 
-            // Three automation owners — distinct tables, must not claim same occurrence:
+            // Two automation owners — distinct tables, must not claim same occurrence:
             // 1) automation:dispatch-scheduled → automation_rules (Business Hook)
-            // 2) agent:automations:dispatch-due → seo_agent_automations (Agent Workspace)
-            // 3) seo-content-ai:dispatch-automation-policies → seo_content_project_automation_policies (CP plans)
+            // 2) seo-content-ai:dispatch-automation-policies → seo_content_project_automation_policies (CP plans)
             $automationScheduleName = 'seo-content-ai:automation-dispatch-scheduled';
             $automationScheduleRegistered = collect($schedule->events())
                 ->contains(static fn ($event): bool => $event->description === $automationScheduleName);
@@ -874,49 +650,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->command(\Omnichannel\Addons\Publishing\Console\AutomationDispatchScheduledCommand::class)
                     ->everyMinute()
                     ->name($automationScheduleName)
-                    ->withoutOverlapping();
-            }
-
-            $agentAutomationDispatchName = 'seo-content-ai:agent-automations-dispatch-due';
-            $agentAutomationDispatchRegistered = collect($schedule->events())
-                ->contains(static fn ($event): bool => $event->description === $agentAutomationDispatchName);
-            if (
-                ! $agentAutomationDispatchRegistered
-                && class_exists(\Omnichannel\Addons\Agent\Console\DispatchDueAgentAutomationsCommand::class)
-            ) {
-                $schedule
-                    ->command(\Omnichannel\Addons\Agent\Console\DispatchDueAgentAutomationsCommand::class)
-                    ->everyMinute()
-                    ->name($agentAutomationDispatchName)
-                    ->withoutOverlapping();
-            }
-
-            $agentMetricsAggName = 'seo-content-ai:agent-metrics-aggregate';
-            $agentMetricsAggRegistered = collect($schedule->events())
-                ->contains(static fn ($event): bool => $event->description === $agentMetricsAggName);
-            if (
-                ! $agentMetricsAggRegistered
-                && class_exists(\Omnichannel\Addons\Agent\Console\AgentMetricsAggregateCommand::class)
-            ) {
-                // Flag options are VALUE_NONE — do not pass ['--sync' => true] (becomes --sync=1 and fails).
-                $schedule
-                    ->command('agent:metrics:aggregate --sync')
-                    ->hourly()
-                    ->name($agentMetricsAggName)
-                    ->withoutOverlapping();
-            }
-
-            $agentObsPruneName = 'seo-content-ai:agent-observability-prune';
-            $agentObsPruneRegistered = collect($schedule->events())
-                ->contains(static fn ($event): bool => $event->description === $agentObsPruneName);
-            if (
-                ! $agentObsPruneRegistered
-                && class_exists(\Omnichannel\Addons\ContentProjects\Console\AgentObservabilityPruneCommand::class)
-            ) {
-                $schedule
-                    ->command('agent:observability:prune --sync')
-                    ->dailyAt('03:40')
-                    ->name($agentObsPruneName)
                     ->withoutOverlapping();
             }
 

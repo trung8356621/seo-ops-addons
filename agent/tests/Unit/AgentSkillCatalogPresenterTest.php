@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Tests\Unit;
 
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillAvailabilityService;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentSkillRegistry;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentSkillAvailability;
@@ -46,11 +44,9 @@ final class AgentSkillCatalogPresenterTest extends TestCase
             ],
         ]);
 
-        $availability = new AgentSkillAvailabilityService(new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        ));
+        $availability = new AgentSkillAvailabilityService(
+            new CanonicalCapabilityRegistry(new ContentProjectCapabilityRegistry),
+        );
 
         $presenter = new AgentSkillCatalogPresenter($skills, $availability, maxSkills: 1);
         $context = new AgentWorkspaceContext(

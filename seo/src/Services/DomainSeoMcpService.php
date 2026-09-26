@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services;
 
 use App\Models\Site;
-use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
@@ -14,14 +13,21 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\Seo\Models\SeoArticleProfile;
 use Omnichannel\Addons\Seo\Models\SeoFinding;
 use Omnichannel\Addons\SiteSync\Services\LinkAnalysis\LinkAnalysisRunService;
 use Omnichannel\Addons\SiteSync\Services\LinkHealth\LinkHealthRunService;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
 
 /**
- * MCP reads prepared snapshots/findings. Never crawls.
+ * Legacy domain capability facade — NOT the future unified context API.
+ *
+ * Prefer canonical gateways:
+ * - KeywordLandscapeGateway (domain.keyword_landscape)
+ * - SiteContextGateway (site intelligence / indexability / link health)
+ * - GscContextGateway (GSC)
+ * - KeywordRelationshipGateway (keyword.relationship)
+ *
+ * Reads prepared snapshots/findings. Never crawls. No HTTP loopback.
  */
 final class DomainSeoMcpService
 {
@@ -43,6 +49,7 @@ final class DomainSeoMcpService
         private readonly KeywordTagQuery $keywordTagQuery,
         private readonly \Omnichannel\Addons\Seo\Services\MonthlyMcp\DomainMonthlyIntelligenceService $monthlyIntelligence,
         private readonly KeywordLandscapeGateway $landscapeGateway,
+        private readonly \Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway $siteContextGateway,
     ) {}
 
     /**
@@ -127,24 +134,34 @@ final class DomainSeoMcpService
      */
     private function seoBrief(Site $site, array $freshness): array
     {
-        $open = SeoFinding::query()->where('site_id', (int) $site->id)->where('status', SeoFinding::STATUS_OPEN)->get();
-        $critical = $open->where('severity', 'critical');
-        $high = $open->where('severity', 'high');
+        $periodKey = now()->format('Y-m');
+        $ctx = $this->siteContextGateway->forSite($site, $periodKey);
+        $findings = is_array($ctx->summary['findings'] ?? null) ? $ctx->summary['findings'] : [];
+        $top = is_array($findings['top'] ?? null) ? $findings['top'] : [];
         $lines = ['SEO Overview — '.(string) $site->domain, ''];
         $lines[] = 'Critical';
-        if ($critical->isEmpty() && $high->isEmpty()) {
+        $criticalHigh = array_values(array_filter(
+            $top,
+            static fn (mixed $row): bool => is_array($row)
+                && in_array((string) ($row['severity'] ?? ''), ['critical', 'high'], true),
+        ));
+        if ($criticalHigh === []) {
             $lines[] = '- None';
         } else {
-            foreach ($critical->concat($high) as $finding) {
-                $count = (int) (($finding->evidence['count'] ?? 0));
-                $lines[] = '- '.$count.' '.$finding->type;
+            foreach ($criticalHigh as $row) {
+                $lines[] = '- '.(string) ($row['type'] ?? 'finding');
             }
         }
         $lines[] = '';
         $lines[] = 'Quick wins';
-        $opps = $open->where('type', 'internal_link_opportunity')->first();
-        $lines[] = $opps instanceof SeoFinding
-            ? '- '.(int) ($opps->evidence['count'] ?? 0).' internal-link opportunities'
+        $opps = 0;
+        foreach (is_array($ctx->context['opportunities'] ?? null) ? $ctx->context['opportunities'] : [] as $opp) {
+            if (is_array($opp) && ($opp['key'] ?? '') === 'internal_link_opportunity') {
+                $opps = (int) ($opp['count'] ?? 0);
+            }
+        }
+        $lines[] = $opps > 0
+            ? '- '.$opps.' internal-link opportunities'
             : '- None prepared';
         $gaps = $this->gapStats(self::EMPTY_LANDSCAPE);
         $lines[] = '';
@@ -163,7 +180,7 @@ final class DomainSeoMcpService
             'text' => implode("\n", $lines),
             'generated_at' => $freshness['generated_at'],
             'data_freshness' => $freshness['data_freshness'],
-            'stale' => $freshness['stale'],
+            'stale' => $freshness['stale'] || $ctx->stale(),
         ];
     }
 
@@ -202,14 +219,16 @@ final class DomainSeoMcpService
      */
     private function linkSnapshot(Site $site, array $freshness, string $field): array
     {
-        $snap = SiteSyncSiteMeta::getJson($site, 'seo_link_analysis_snapshot') ?? [];
+        $periodKey = now()->format('Y-m');
+        $ctx = $this->siteContextGateway->forSite($site, $periodKey);
+        $linkHealth = is_array($ctx->summary['link_health'] ?? null) ? $ctx->summary['link_health'] : [];
 
         return [
-            'count' => (int) ($snap[$field] ?? 0),
-            'snapshot' => $snap,
+            'count' => (int) ($linkHealth[$field] ?? 0),
+            'snapshot' => $linkHealth,
             'generated_at' => $freshness['generated_at'],
             'data_freshness' => $freshness['data_freshness'],
-            'stale' => $freshness['stale'],
+            'stale' => $freshness['stale'] || $ctx->stale(),
         ];
     }
 
@@ -219,18 +238,11 @@ final class DomainSeoMcpService
      */
     private function indexability(Site $site, array $freshness): array
     {
-        if (! Schema::connection('omi_seo_ai')->hasTable('seo_article_profiles')) {
-            return [
-                'text' => 'Typed SEO snapshot unavailable.',
-                'stale' => true,
-                'generated_at' => $freshness['generated_at'],
-                'data_freshness' => $freshness['data_freshness'],
-            ];
-        }
-
-        $siteId = (int) $site->id;
-        $indexable = SeoArticleProfile::query()->whereHas('article', static fn ($q) => $q->where('site_id', $siteId))->where('is_indexable', true)->count();
-        $noindex = SeoArticleProfile::query()->whereHas('article', static fn ($q) => $q->where('site_id', $siteId))->where('is_indexable', false)->count();
+        $periodKey = now()->format('Y-m');
+        $ctx = $this->siteContextGateway->forSite($site, $periodKey);
+        $indexability = is_array($ctx->summary['indexability'] ?? null) ? $ctx->summary['indexability'] : [];
+        $indexable = (int) ($indexability['indexable'] ?? 0);
+        $noindex = (int) ($indexability['noindex'] ?? 0);
 
         return [
             'indexable' => $indexable,
@@ -238,7 +250,7 @@ final class DomainSeoMcpService
             'unexpected_noindex' => $noindex,
             'generated_at' => $freshness['generated_at'],
             'data_freshness' => $freshness['data_freshness'],
-            'stale' => $freshness['stale'],
+            'stale' => $freshness['stale'] || $ctx->stale(),
         ];
     }
 

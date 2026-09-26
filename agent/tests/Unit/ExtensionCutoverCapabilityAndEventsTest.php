@@ -6,8 +6,6 @@ namespace Omnichannel\Addons\Agent\Tests\Unit;
 
 use Omnichannel\Addons\Agent\Extension\ExtensionEventBus;
 use Omnichannel\Addons\Agent\Extension\ExtensionEvents;
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentGateway;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry;
@@ -18,7 +16,7 @@ use RuntimeException;
 
 final class ExtensionCutoverCapabilityAndEventsTest extends TestCase
 {
-    public function test_canonical_capability_registry_exists_and_merges_extension_capabilities(): void
+    public function test_canonical_capability_registry_delegates_to_core_registry(): void
     {
         self::assertTrue(class_exists(CanonicalCapabilityRegistry::class));
 
@@ -26,21 +24,15 @@ final class ExtensionCutoverCapabilityAndEventsTest extends TestCase
             (new ReflectionClass(CanonicalCapabilityRegistry::class))->getFileName(),
         );
 
-        self::assertStringContainsString('ExtensionCapabilityRegistry', $source);
-        self::assertStringContainsString('capability_conflict', $source);
+        self::assertStringContainsString('ContentProjectCapabilityRegistry', $source);
         self::assertStringContainsString('function conflicts(', $source);
         self::assertStringContainsString('function isAgentWriteExposed(', $source);
     }
 
-    public function test_canonical_registry_merges_and_reports_conflicts_without_laravel_boot(): void
+    public function test_canonical_registry_exposes_core_capabilities_without_laravel_boot(): void
     {
-        $registry = new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        );
+        $registry = new CanonicalCapabilityRegistry(new ContentProjectCapabilityRegistry);
 
-        // No contributors registered — pure passthrough of core caps, no conflicts.
         self::assertNotEmpty($registry->all());
         self::assertSame([], $registry->conflicts());
         self::assertNotNull($registry->get('content_project.generate'));
@@ -60,14 +52,15 @@ final class ExtensionCutoverCapabilityAndEventsTest extends TestCase
         self::assertStringNotContainsString('use App\\Addons\\SeoContentAi\\Services\\ContentProject\\Application\\Capabilities\\ContentProjectCapabilityRegistry;', $source);
     }
 
-    public function test_domain_events_bridge_uses_event_envelope(): void
+    public function test_domain_events_dispatch_via_laravel_event_helper_only(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(ContentProjectDomainEvents::class))->getFileName(),
         );
 
-        self::assertStringContainsString('ExtensionEventEnvelope', $source);
-        self::assertStringContainsString('ExtensionEventEnvelope::make', $source);
+        self::assertStringNotContainsString('ExtensionEventBus', $source);
+        self::assertStringNotContainsString('ExtensionEventEnvelope', $source);
+        self::assertStringContainsString('event($event)', $source);
     }
 
     public function test_extension_events_constants_are_versioned(): void

@@ -12,8 +12,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProj
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectNaturalLanguageAdapter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Mcp\ContentProjectMcpServer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Mcp\ContentProjectMcpToolCatalog;
-use Omnichannel\Addons\Agent\Extension\ExtensionStateStore;
-use Omnichannel\Addons\Agent\Extension\Registry\ExtensionCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\CanonicalCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
@@ -86,11 +84,8 @@ final class ContentProjectAgentGatewayTest extends TestCase
 
     public function test_mcp_catalog_excludes_internal_tools(): void
     {
-        $catalog = new ContentProjectMcpToolCatalog(new CanonicalCapabilityRegistry(
-            new ContentProjectCapabilityRegistry,
-            new ExtensionCapabilityRegistry,
-            new ExtensionStateStore,
-        ));
+        $core = new ContentProjectCapabilityRegistry;
+        $catalog = new ContentProjectMcpToolCatalog(new CanonicalCapabilityRegistry($core));
         $names = array_map(static fn (array $t): string => (string) $t['name'], $catalog->listTools());
 
         self::assertContains('content_project.create', $names);

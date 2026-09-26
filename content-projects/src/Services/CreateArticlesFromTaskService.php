@@ -8,14 +8,9 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 use Omnichannel\Addons\Content\Services\ArticleImproveExecutionService;
 use Omnichannel\Addons\Content\Services\ArticleOutlineResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
-use Omnichannel\Addons\Agent\Automation\Data\ActionContext;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
-use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
-use Omnichannel\Addons\Agent\Automation\Migration\AutomationMigrationWriteException;
-use Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleCreateCallerBridge;
-use Omnichannel\Addons\Agent\Automation\Runtime\ActionRunner;
-use Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver;
+use Omnichannel\Addons\ContentProjects\Services\ArticleCreateOriginResolver;
 use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
 use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
 use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
@@ -57,8 +52,6 @@ class CreateArticlesFromTaskService
         private readonly SystemWorkflowClient $workflows,
         private readonly SeoMainDomainService $mainDomain,
         private readonly DomainLinkListKeywordSyncService $linkListSync,
-        private readonly ProjectArticleCreateCallerBridge $articleCreateBridge,
-        private readonly ActionRunner $actionRunner,
         private readonly ArticleCreateOriginResolver $originResolver,
         private readonly ArticleWritingExecutionService $articleWriting,
         private readonly ArticleImproveExecutionService $articleImprove,
@@ -1186,20 +1179,6 @@ class CreateArticlesFromTaskService
         $focusKeyword = ContentProjectItemIdentity::normalize(
             isset($variables['focus_keyword']) ? (string) $variables['focus_keyword'] : null,
         );
-        $correlationId = Str::uuid()->toString();
-
-        $input = [
-            'site_id' => $siteId,
-            'title' => $title !== '' ? $title : $keyword,
-            'keyword' => $focusKeyword,
-            'post_type' => $postType,
-            'language' => 'vi',
-            'origin_type' => $originType,
-            'origin_id' => $originId,
-            'focus_keyword' => $focusKeyword,
-            'steps_count' => count($steps),
-        ];
-
         $existingByOrigin = null;
         $skipOriginReuse = false;
         if ($originType === ArticleCreateOriginResolver::ORIGIN_SEO_PROJECT_TASK && $originId !== null) {
@@ -1217,97 +1196,23 @@ class CreateArticlesFromTaskService
             );
         }
 
-        try {
-            $normalized = $this->articleCreateBridge->run(
-                input: $input,
-                legacyWrite: function () use (
-                    $siteId,
-                    $keyword,
-                    $title,
-                    $postType,
-                    $focusKeyword,
-                    $steps,
-                    $originType,
-                    $originId,
-                    $existingByOrigin,
-                ): array {
-                    if (is_array($existingByOrigin)) {
-                        return $existingByOrigin;
-                    }
-
-                    return $this->legacyCreateDraftArticle(
-                        $siteId,
-                        $keyword,
-                        $title,
-                        $postType,
-                        $focusKeyword,
-                        $steps,
-                        $originType,
-                        $originId,
-                    );
-                },
-                actionWrite: function () use (
-                    $siteId,
-                    $keyword,
-                    $title,
-                    $postType,
-                    $focusKeyword,
-                    $steps,
-                    $originType,
-                    $originId,
-                    $correlationId,
-                ): ActionResult {
-                    $result = $this->actionRunner->run(
-                        'article.create',
-                        ActionContext::fromArray([
-                            'origin' => 'migration.project_article_create',
-                            'actor_id' => auth()->id() !== null ? (int) auth()->id() : null,
-                            'site_id' => $siteId,
-                            'correlation_id' => $correlationId,
-                        ]),
-                        [
-                            'site_id' => $siteId,
-                            'title' => $title,
-                            'keyword' => $keyword !== '' ? $keyword : $focusKeyword,
-                            'post_type' => $postType,
-                            'language' => 'vi',
-                            'origin_type' => $originType,
-                            'origin_id' => $originId,
-                        ],
-                    );
-
-                    if (! $result->success) {
-                        return $result;
-                    }
-
-                    $articleId = (int) ($result->output['article_id'] ?? 0);
-                    $deduplicated = (bool) ($result->output['deduplicated'] ?? false);
-                    if ($articleId > 0 && ! $deduplicated) {
-                        $article = SeoArticle::query()->find($articleId);
-                        if ($article instanceof SeoArticle) {
-                            $this->stampCreateArticleTaskRunMeta($article, $keyword, $steps);
-                            if ($focusKeyword !== '' && $focusKeyword !== $keyword) {
-                                $article->articleMetas()->updateOrCreate(
-                                    ['meta_key' => 'seo_focus_keyword'],
-                                    ['meta_value' => $focusKeyword],
-                                );
-                            }
-                        }
-                    }
-
-                    return $result;
-                },
-                existingByOrigin: $existingByOrigin,
-                correlationId: $correlationId,
+        $normalized = is_array($existingByOrigin)
+            ? $existingByOrigin
+            : $this->legacyCreateDraftArticle(
+                $siteId,
+                $keyword,
+                $title,
+                $postType,
+                $focusKeyword,
+                $steps,
+                $originType,
+                $originId,
             );
-        } catch (AutomationMigrationWriteException $exception) {
-            throw new \InvalidArgumentException($exception->getMessage(), 0, $exception);
-        }
 
-        $articleId = (int) (is_array($normalized) ? ($normalized['article_id'] ?? 0) : 0);
+        $articleId = (int) ($normalized['article_id'] ?? 0);
         $article = SeoArticle::query()->find($articleId);
         if (! $article instanceof SeoArticle) {
-            throw new \RuntimeException('Article create bridge returned invalid article_id.');
+            throw new \RuntimeException('Article create returned invalid article_id.');
         }
 
         return $article;

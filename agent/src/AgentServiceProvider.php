@@ -8,8 +8,13 @@ use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * Peer addon skeleton: registers capabilities into Client Core.
- * Implementation still migrating out of SeoContentAi legacy monolith.
+ * LEGACY / REFERENCE-ONLY peer provider.
+ *
+ * Agent Workspace product runtime is isolated: this provider is skipped from
+ * discovery by default (`addons.skip_slugs` includes `agent`). Source under
+ * this addon remains for behavioral reference for a future Agent rewrite.
+ *
+ * Do not re-enable production registration without an explicit rewrite plan.
  */
 final class AgentServiceProvider extends ServiceProvider
 {
@@ -17,50 +22,14 @@ final class AgentServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        // Intentionally minimal — Agent Workspace must not own active business execution.
+        // Capability markers only when this provider is explicitly loaded (non-default).
         $this->registerCapabilities();
-        $this->registerAutomationRuntime();
-        $this->registerSystemAgentSurface();
-    }
-
-    private function registerSystemAgentSurface(): void
-    {
-        if (! class_exists(\App\System\Capability\SystemCapabilityRegistry::class)) {
-            return;
-        }
-
-        $this->app->singleton(System\AgentEchoCapabilityHandler::class);
-        $this->app->singleton(System\AgentKernelSkillContributor::class);
-
-        /** @var \App\System\Capability\SystemCapabilityRegistry $caps */
-        $caps = $this->app->make(\App\System\Capability\SystemCapabilityRegistry::class);
-        if (! $caps->has(System\AgentEchoCapabilityHandler::KEY)) {
-            $caps->register(new \App\System\Capability\SystemCapabilityDefinition(
-                key: System\AgentEchoCapabilityHandler::KEY,
-                owner: self::SLUG,
-                handler: System\AgentEchoCapabilityHandler::class,
-                sideEffectFree: true,
-            ));
-        }
-
-        if ($this->app->bound(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)) {
-            $this->app->make(\App\System\Agent\Skills\SystemAgentSkillRegistry::class)
-                ->registerContributor($this->app->make(System\AgentKernelSkillContributor::class));
-        }
     }
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
-    }
-
-    private function registerAutomationRuntime(): void
-    {
-        $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Support\SensitivePayloadRedactor::class);
-        $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Runtime\ActionExecutionLogger::class);
-        $this->app->bind(
-            \Omnichannel\Addons\Agent\Automation\Contracts\ActionExecutionLoggerContract::class,
-            \Omnichannel\Addons\Agent\Automation\Runtime\ActionExecutionLogger::class,
-        );
+        // No routes, schedules, Filament, or listeners — reference-only.
     }
 
     private function registerCapabilities(): void
@@ -82,7 +51,7 @@ final class AgentServiceProvider extends ServiceProvider
     /** @return list<string> */
     private function providedCapabilityIds(): array
     {
-        $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'addon.json';
+        $path = dirname(__DIR__).DIRECTORY_SEPARATOR.'addon.json';
         if (! is_file($path)) {
             return [];
         }
