@@ -26,16 +26,6 @@ final class SeoServiceProvider extends ServiceProvider
         $this->registerCapabilities();
         $this->app->singleton(SeoSettingsSectionContributor::class);
         $this->app->singleton(SeoMembersSectionContributor::class);
-        $this->app->singleton(
-            \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry::class,
-            static function ($app): \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry {
-                return new \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry([
-                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource::class),
-                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource::class),
-                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class),
-                ]);
-            },
-        );
         $this->app->bind(
             \Omnichannel\Addons\Seo\Services\GscContext\GscContextLoader::class,
             \Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway::class,

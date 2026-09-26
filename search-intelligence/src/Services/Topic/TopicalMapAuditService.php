@@ -16,14 +16,13 @@ use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultTopicalMapAuditP
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpAiContextBuilder;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpPeriodService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use Throwable;
 
 /**
- * AI Topical Map Audit — Prompt registry + MCP bundle (site + keywords + gsc)
+ * AI Topical Map Audit — Prompt registry + live canonical context
+ * (Site Knowledge + Keyword Landscape + GSC when available)
  * + structural Topical Map projection + existing Topic Tags.
  * One execution = audit findings + tag suggestions. Does not create Topics or articles.
  * Does not auto-run after Recluster.
@@ -38,8 +37,7 @@ final class TopicalMapAuditService
 
     public function __construct(
         private readonly TopicalMapReadModel $topicalMap,
-        private readonly McpAiContextBuilder $mcpContext,
-        private readonly McpPeriodService $periods,
+        private readonly TopicalMapAuditContextBuilder $auditContext,
         private readonly PromptHookCallerBridge $promptHookBridge,
         private readonly PromptRunnerService $promptRunner,
         private readonly SeoCreateArticleSettingsService $workflowSettings,
@@ -106,9 +104,8 @@ final class TopicalMapAuditService
             $existingTagsJson = '[]';
         }
 
-        $period = $this->periods->currentOpenOrLatestFinalized() ?? $this->periods->ensureCurrentMonth();
-        $periodKey = $period->periodKey();
-        $mcpMarkdown = $this->mcpContext->build($siteId, $periodKey);
+        $periodKey = now()->format('Y-m');
+        $mcpMarkdown = $this->auditContext->buildMarkdown($site, $periodKey);
 
         $language = $this->resolveEffectivePromptLanguage($site, $languageCode);
 

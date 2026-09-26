@@ -46,4 +46,20 @@ final class GscMcpContextBuilderAbsenceContractTest extends TestCase
         self::assertSame('no_synced_data', $payload['metrics']['absent_reason'] ?? null);
         self::assertArrayNotHasKey('performance', $payload);
     }
+
+    public function test_latest_synced_period_resolver_exists_and_is_row_based(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(GscMcpContextBuilder::class))->getFileName()
+        );
+
+        self::assertTrue(method_exists(GscMcpContextBuilder::class, 'latestSyncedPeriodOnOrBefore'));
+        self::assertStringContainsString('max(\'metric_date\')', $src);
+        self::assertStringContainsString('seo_gsc_daily_metrics', $src);
+        self::assertStringNotContainsString('last_synced_at', explode(
+            'function latestSyncedPeriodOnOrBefore',
+            $src,
+            2
+        )[1] ?? '');
+    }
 }

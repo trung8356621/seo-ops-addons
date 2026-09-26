@@ -12,13 +12,11 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
-use Omnichannel\Addons\Seo\Models\SeoMcpPeriod;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Tests\TestCase;
 
 /**
- * Runtime Keyword Landscape SSOT + Keyword MCP source restore.
+ * Runtime Keyword Landscape SSOT (read model + gateway schema).
  * Requires SEO_TEST_USE_MYSQL=true + migrated omi_seo_ai Topic tables.
  */
 final class KeywordLandscapeReadModelIntegrationTest extends TestCase
@@ -88,31 +86,8 @@ final class KeywordLandscapeReadModelIntegrationTest extends TestCase
         self::assertGreaterThanOrEqual(1, $first['metrics']['topic_count']);
         self::assertNotSame([], $first['context']['topics']);
 
-        $site = new \App\Models\Site;
-        $site->id = $siteId;
-        $site->domain = 'landscape-test.example';
-
-        $period = new SeoMcpPeriod([
-            'year' => 2026,
-            'month' => 9,
-            'status' => 'open',
-        ]);
-
-        $source = app(KeywordMonthlyMcpSource::class);
-        self::assertSame('v2', $source->schemaVersion());
-        self::assertSame(McpSourceKey::Keywords->value, $source->key());
-        self::assertSame('keywords.mcp.v2', McpSourceKey::Keywords->schema());
-
-        $payload = $source->build($site, $period);
-        self::assertSame('keywords.mcp.v2', $payload->schema);
-        self::assertNotSame([], $payload->metrics);
-        self::assertArrayHasKey('topic_count', $payload->metrics);
-        self::assertNotSame([], $payload->context['topics'] ?? []);
-        self::assertNotSame('', $payload->contentHash);
-
-        $again = $source->build($site, $period);
-        self::assertSame($payload->contentHash, $again->contentHash);
-        self::assertNotNull($source->sourceUpdatedAt($site));
+        self::assertSame('keywords.mcp.v2', KeywordLandscapeGateway::SCHEMA);
+        self::assertFalse(class_exists('Omnichannel\\Addons\\Seo\\Services\\MonthlyMcp\\Sources\\KeywordMonthlyMcpSource'));
     }
 
     public function test_empty_site_yields_empty_landscape(): void

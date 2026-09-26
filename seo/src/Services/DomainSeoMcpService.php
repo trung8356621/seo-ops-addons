@@ -47,7 +47,6 @@ final class DomainSeoMcpService
         private readonly KeywordGenerationContextBuilder $generationContext,
         private readonly KeywordTagResolver $keywordTags,
         private readonly KeywordTagQuery $keywordTagQuery,
-        private readonly \Omnichannel\Addons\Seo\Services\MonthlyMcp\DomainMonthlyIntelligenceService $monthlyIntelligence,
         private readonly KeywordLandscapeGateway $landscapeGateway,
         private readonly \Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway $siteContextGateway,
     ) {}
@@ -65,9 +64,6 @@ final class DomainSeoMcpService
 
         if ($capability === 'domain.run_analysis') {
             return $this->runAnalysis($site, $input);
-        }
-        if ($capability === 'domain.monthly_intelligence') {
-            return $this->monthlyIntelligence->read((int) $site->id, $input);
         }
 
         $this->findings->syncFromSnapshots($site);

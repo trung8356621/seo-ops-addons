@@ -5,30 +5,25 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Services\DomainSeoMcpService;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
 
 final class KeywordLandscapeMcpBoundaryContractTest extends TestCase
 {
-    public function test_snapshot_source_is_keywords_and_schema_version_is_v2(): void
+    public function test_landscape_schema_is_keywords_mcp_v2(): void
     {
-        self::assertSame('keywords', McpSourceKey::Keywords->value);
-        self::assertNotSame('keywords.mcp.v2', McpSourceKey::Keywords->value);
-        self::assertSame('keywords.mcp.v2', McpSourceKey::Keywords->schema());
+        self::assertSame('keywords.mcp.v2', KeywordLandscapeGateway::SCHEMA);
 
         $src = (string) file_get_contents(
-            (string) (new ReflectionClass(KeywordMonthlyMcpSource::class))->getFileName(),
+            (string) (new ReflectionClass(KeywordLandscapeGateway::class))->getFileName(),
         );
-        self::assertStringContainsString("return 'v2'", $src);
-        self::assertStringContainsString('KeywordLandscapeGateway', $src);
-        self::assertStringNotContainsString('KeywordLandscapeReadModel', $src);
-        self::assertStringNotContainsString('cluster context builder retired', $src);
-        self::assertStringNotContainsString('emits empty payload', $src);
+        self::assertStringContainsString('keywords.mcp.v2', $src);
+        self::assertStringContainsString('KeywordLandscapeReadModel', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+        self::assertStringNotContainsString('SeoMcpSourceSnapshot', $src);
     }
 
     public function test_domain_keyword_landscape_uses_gateway_not_read_model(): void

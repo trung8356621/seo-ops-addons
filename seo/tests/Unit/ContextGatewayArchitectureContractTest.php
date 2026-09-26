@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMcpContextBuilder;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
 use Omnichannel\Addons\Seo\Services\Context\Contracts\ContextEnvelope;
 use Omnichannel\Addons\Seo\Services\DomainSeoMcpService;
@@ -13,10 +12,6 @@ use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
 use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGateway;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\SiteMcpContextBuilder;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextAssembler;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway;
@@ -29,17 +24,15 @@ use ReflectionMethod;
  */
 final class ContextGatewayArchitectureContractTest extends TestCase
 {
-    public function test_keyword_landscape_monthly_uses_gateway_not_read_model(): void
+    public function test_keyword_landscape_gateway_schema_and_no_http_in_gateway(): void
     {
         $src = (string) file_get_contents(
-            (string) (new ReflectionClass(KeywordMonthlyMcpSource::class))->getFileName(),
+            (string) (new ReflectionClass(KeywordLandscapeGateway::class))->getFileName(),
         );
         self::assertStringContainsString('KeywordLandscapeGateway', $src);
-        self::assertStringNotContainsString('KeywordLandscapeReadModel', $src);
+        self::assertStringContainsString('KeywordLandscapeReadModel', $src);
         self::assertStringNotContainsString('Http::', $src);
-        self::assertStringNotContainsString('file_get_contents(\'http', $src);
-        self::assertSame('keywords.mcp.v2', McpSourceKey::Keywords->schema());
-        self::assertSame(KeywordLandscapeGateway::SCHEMA, McpSourceKey::Keywords->schema());
+        self::assertSame('keywords.mcp.v2', KeywordLandscapeGateway::SCHEMA);
     }
 
     public function test_keyword_relationship_never_writes_monthly_snapshots(): void
@@ -50,55 +43,37 @@ final class ContextGatewayArchitectureContractTest extends TestCase
         self::assertStringContainsString('never writes seo_mcp_source_snapshots', $gatewaySrc);
         self::assertStringNotContainsString('MonthlyMcpSource', $gatewaySrc);
         self::assertStringNotContainsString('SeoMcpSourceSnapshot', $gatewaySrc);
-
-        $keys = array_map(static fn (McpSourceKey $k): string => $k->value, McpSourceKey::cases());
-        self::assertNotContains('keyword.relationship', $keys);
         self::assertSame('keyword.relationship.v1', KeywordRelationshipGateway::SCHEMA);
-        self::assertNotSame(McpSourceKey::Keywords->schema(), KeywordRelationshipGateway::SCHEMA);
+        self::assertNotSame(KeywordLandscapeGateway::SCHEMA, KeywordRelationshipGateway::SCHEMA);
     }
 
-    public function test_gsc_monthly_uses_gsc_context_gateway(): void
+    public function test_gsc_context_gateway_uses_builder_and_schema(): void
     {
-        $src = (string) file_get_contents(
-            (string) (new ReflectionClass(GscMonthlyMcpSource::class))->getFileName(),
-        );
-        self::assertStringContainsString('GscContextGateway', $src);
-        self::assertStringNotContainsString('GscMcpContextBuilder', $src);
-        self::assertStringNotContainsString('Http::', $src);
-        self::assertSame('gsc.mcp.v1', McpSourceKey::Gsc->schema());
+        self::assertSame('gsc.mcp.v1', GscContext::SCHEMA);
         self::assertSame(GscContextGateway::SCHEMA, GscContext::SCHEMA);
 
         $gatewaySrc = (string) file_get_contents(
             (string) (new ReflectionClass(GscContextGateway::class))->getFileName(),
         );
         self::assertStringContainsString('GscMcpContextBuilder', $gatewaySrc);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $gatewaySrc);
         self::assertTrue(
             str_contains(strtolower($gatewaySrc), 'never live gsc')
             || str_contains(strtolower($gatewaySrc), 'never live'),
         );
     }
 
-    public function test_site_monthly_uses_site_context_gateway(): void
+    public function test_site_context_gateway_schema_and_assembler(): void
     {
-        $src = (string) file_get_contents(
-            (string) (new ReflectionClass(SiteMonthlyMcpSource::class))->getFileName(),
-        );
-        self::assertStringContainsString('SiteContextGateway', $src);
-        self::assertStringNotContainsString('SiteMcpContextBuilder', $src);
-        self::assertStringNotContainsString('Http::', $src);
-        self::assertSame('site.mcp.v1', McpSourceKey::Site->schema());
+        self::assertSame('site.mcp.v1', SiteContext::SCHEMA);
         self::assertSame(SiteContextGateway::SCHEMA, SiteContext::SCHEMA);
-    }
 
-    public function test_site_mcp_context_builder_is_thin_gateway_adapter(): void
-    {
-        $src = (string) file_get_contents(
-            (string) (new ReflectionClass(SiteMcpContextBuilder::class))->getFileName(),
+        $gatewaySrc = (string) file_get_contents(
+            (string) (new ReflectionClass(SiteContextGateway::class))->getFileName(),
         );
-        self::assertStringContainsString('SiteContextGateway', $src);
-        self::assertStringContainsString('@deprecated', $src);
-        self::assertStringNotContainsString('SeoFinding::', $src);
-        self::assertStringNotContainsString('SeoArticle::', $src);
+        self::assertStringNotContainsString('SiteMcpContextBuilder', $gatewaySrc);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $gatewaySrc);
+        self::assertStringNotContainsString('Http::', $gatewaySrc);
     }
 
     public function test_gateways_have_no_http_loopback(): void
@@ -109,9 +84,6 @@ final class ContextGatewayArchitectureContractTest extends TestCase
             GscContextGateway::class,
             SiteContextGateway::class,
             SiteContextAssembler::class,
-            KeywordMonthlyMcpSource::class,
-            SiteMonthlyMcpSource::class,
-            GscMonthlyMcpSource::class,
         ];
         foreach ($classes as $class) {
             $src = (string) file_get_contents((string) (new ReflectionClass($class))->getFileName());

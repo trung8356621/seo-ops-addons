@@ -13,7 +13,11 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\TopicalMapOverview;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditContracts;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditResultParser;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditContextBuilder;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
+use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -115,21 +119,46 @@ final class TopicalMapAuditContractTest extends TestCase
         );
     }
 
-    public function test_audit_service_uses_mcp_domain_structural_projection_not_direct_provider(): void
+    public function test_audit_service_uses_context_builder_and_structural_projection_not_monthly_mcp(): void
     {
         $src = (string) file_get_contents((string) (new ReflectionClass(TopicalMapAuditService::class))->getFileName());
-        self::assertStringContainsString('McpAiContextBuilder', $src);
+        self::assertStringContainsString('TopicalMapAuditContextBuilder', $src);
+        self::assertStringContainsString('auditContext', $src);
+        self::assertStringContainsString('buildMarkdown', $src);
         self::assertStringContainsString('SiteDomainPromptContextService', $src);
         self::assertStringContainsString('structuralProjection', $src);
         self::assertStringContainsString('EMPTY_MAP_MESSAGE', $src);
         self::assertStringContainsString('PromptHookCallerBridge', $src);
-        self::assertStringContainsString('company_short_identity', $src);
         self::assertStringContainsString('resolveEffectivePromptLanguage', $src);
         self::assertStringContainsString('?string $languageCode = null', $src);
+        self::assertStringNotContainsString('McpAiContextBuilder', $src);
+        self::assertStringNotContainsString('McpPeriodService', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+        self::assertStringNotContainsString('SeoMcpSourceSnapshot', $src);
         self::assertStringNotContainsString('OpenAI', $src);
         self::assertStringNotContainsString('Anthropic', $src);
         self::assertStringNotContainsString('Http::', $src);
         self::assertStringNotContainsString('echarts', strtolower($src));
+    }
+
+    public function test_audit_context_builder_uses_canonical_gateways(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(TopicalMapAuditContextBuilder::class))->getFileName(),
+        );
+        self::assertStringContainsString('SiteContextGateway', $src);
+        self::assertStringContainsString('KeywordLandscapeGateway', $src);
+        self::assertStringContainsString('GscContextGateway', $src);
+        self::assertStringNotContainsString('McpAiContextBuilder', $src);
+        self::assertStringNotContainsString('McpPeriodService', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+
+        $ctor = (new ReflectionClass(TopicalMapAuditContextBuilder::class))->getConstructor();
+        self::assertNotNull($ctor);
+        $types = array_map(static fn ($p) => $p->getType()?->getName(), $ctor->getParameters());
+        self::assertContains(SiteContextGateway::class, $types);
+        self::assertContains(KeywordLandscapeGateway::class, $types);
+        self::assertContains(GscContextGateway::class, $types);
     }
 
     public function test_structural_projection_adds_topic_ref_and_omits_chart_fields(): void

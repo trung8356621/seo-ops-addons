@@ -14,24 +14,27 @@ final class SeoAccessGscComposerTest extends TestCase
 {
     public function test_absent_property_returns_unavailable_without_fake_zeros(): void
     {
-        $composer = $this->composerWith(new GscContext(
-            siteId: 7,
-            periodKey: '2026-09',
-            metrics: [
-                'absent' => true,
-                'absent_reason' => 'no_gsc_property',
-                'clicks' => 0,
-                'impressions' => 0,
-            ],
-            summary: [],
-            context: [],
-            sourceUpdatedAt: null,
-            generatedAt: '2026-09-26T00:00:00+00:00',
-            available: false,
-            stale: false,
-        ));
+        $composer = $this->composerWith(
+            new GscContext(
+                siteId: 7,
+                periodKey: '2026-09',
+                metrics: [
+                    'absent' => true,
+                    'absent_reason' => 'no_gsc_property',
+                    'clicks' => 0,
+                    'impressions' => 0,
+                ],
+                summary: [],
+                context: [],
+                sourceUpdatedAt: null,
+                generatedAt: '2026-09-26T00:00:00+00:00',
+                available: false,
+                stale: false,
+            ),
+            latestSynced: '2026-07',
+        );
 
-        $payload = $composer->compose(7, '2026-09');
+        $payload = $composer->compose(7, '2026-09', null, 'access_tmp_test');
 
         self::assertFalse($payload['available']);
         self::assertSame('no_gsc_property', $payload['reason']);
@@ -39,6 +42,7 @@ final class SeoAccessGscComposerTest extends TestCase
         self::assertArrayNotHasKey('opportunities', $payload);
         self::assertArrayNotHasKey('cannibalization', $payload);
         self::assertArrayNotHasKey('clicks', $payload);
+        self::assertArrayNotHasKey('latest_available', $payload);
         self::assertStringContainsString('No active GSC property', $payload['message']);
     }
 
@@ -67,60 +71,102 @@ final class SeoAccessGscComposerTest extends TestCase
         self::assertFalse($payload['available']);
         self::assertSame('no_synced_data', $payload['reason']);
         self::assertArrayNotHasKey('performance', $payload);
+        self::assertArrayNotHasKey('latest_available', $payload);
         self::assertStringNotContainsString('"clicks":0', json_encode($payload) ?: '');
     }
 
-    public function test_real_zero_metrics_remain_available(): void
+    public function test_no_synced_data_exposes_latest_available_when_earlier_period_exists(): void
     {
-        $composer = $this->composerWith(new GscContext(
-            siteId: 7,
-            periodKey: '2026-07',
-            metrics: [
-                'absent' => false,
-                'clicks' => 0,
-                'impressions' => 0,
-                'rising_count' => 0,
-                'falling_count' => 0,
-                'ctr_opportunity_count' => 0,
-                'near_page_one_count' => 0,
-                'content_decay_count' => 0,
-                'new_content_opportunity_count' => 0,
-                'possible_cannibalization_count' => 0,
-            ],
-            summary: [
-                'period' => ['current' => '2026-07'],
-                'totals' => ['clicks' => 0, 'impressions' => 0],
-                'comparison' => [],
-                'top_queries' => [],
-                'top_pages' => [],
-                'rising_queries' => [],
-                'falling_queries' => [],
-                'high_impression_low_ctr' => [],
-                'near_page_one' => [],
-                'content_decay' => [],
-                'new_content_opportunities' => [],
-                'possible_cannibalization' => [],
-            ],
-            context: [],
-            sourceUpdatedAt: '2026-07-31T00:00:00+00:00',
-            generatedAt: '2026-09-26T00:00:00+00:00',
-            available: true,
-            stale: false,
-        ));
+        $composer = $this->composerWith(
+            new GscContext(
+                siteId: 7,
+                periodKey: '2026-09',
+                metrics: [
+                    'absent' => true,
+                    'absent_reason' => 'no_synced_data',
+                    'clicks' => 0,
+                    'impressions' => 0,
+                ],
+                summary: [],
+                context: [],
+                sourceUpdatedAt: null,
+                generatedAt: '2026-09-26T00:00:00+00:00',
+                available: false,
+                stale: false,
+            ),
+            latestSynced: '2026-07',
+        );
 
-        $payload = $composer->compose(7, '2026-07');
+        $payload = $composer->compose(7, '2026-09', null, 'access_tmp_abc');
+
+        self::assertSame('2026-09', $payload['period']);
+        self::assertFalse($payload['available']);
+        self::assertSame('no_synced_data', $payload['reason']);
+        self::assertArrayNotHasKey('performance', $payload);
+        self::assertSame('2026-07', $payload['latest_available']['period']);
+        self::assertStringContainsString('period=2026-07', $payload['latest_available']['href']);
+        self::assertStringContainsString('access_tmp_abc', $payload['latest_available']['href']);
+        self::assertStringContainsString('2026-07', $payload['latest_available']['message']);
+    }
+
+    public function test_real_zero_metrics_remain_available_without_latest_available(): void
+    {
+        $composer = $this->composerWith(
+            new GscContext(
+                siteId: 7,
+                periodKey: '2026-07',
+                metrics: [
+                    'absent' => false,
+                    'clicks' => 0,
+                    'impressions' => 0,
+                    'rising_count' => 0,
+                    'falling_count' => 0,
+                    'ctr_opportunity_count' => 0,
+                    'near_page_one_count' => 0,
+                    'content_decay_count' => 0,
+                    'new_content_opportunity_count' => 0,
+                    'possible_cannibalization_count' => 0,
+                ],
+                summary: [
+                    'period' => ['current' => '2026-07'],
+                    'totals' => ['clicks' => 0, 'impressions' => 0],
+                    'comparison' => [],
+                    'top_queries' => [],
+                    'top_pages' => [],
+                    'rising_queries' => [],
+                    'falling_queries' => [],
+                    'high_impression_low_ctr' => [],
+                    'near_page_one' => [],
+                    'content_decay' => [],
+                    'new_content_opportunities' => [],
+                    'possible_cannibalization' => [],
+                ],
+                context: [],
+                sourceUpdatedAt: '2026-07-31T00:00:00+00:00',
+                generatedAt: '2026-09-26T00:00:00+00:00',
+                available: true,
+                stale: false,
+            ),
+            latestSynced: '2026-06',
+        );
+
+        $payload = $composer->compose(7, '2026-07', null, 'access_tmp_abc');
 
         self::assertTrue($payload['available']);
         self::assertSame(0, $payload['performance']['clicks']);
         self::assertSame(0, $payload['performance']['impressions']);
         self::assertArrayNotHasKey('reason', $payload);
+        self::assertArrayNotHasKey('latest_available', $payload);
     }
 
-    private function composerWith(GscContext $context): SeoAccessGscComposer
+    private function composerWith(GscContext $context, ?string $latestSynced = null): SeoAccessGscComposer
     {
-        $loader = new class($context) implements GscContextLoader
+        $loader = new class($context, $latestSynced) implements GscContextLoader
         {
-            public function __construct(private GscContext $context) {}
+            public function __construct(
+                private GscContext $context,
+                private ?string $latestSynced,
+            ) {}
 
             public function forSite(int $siteId, string $periodKey): GscContext
             {
@@ -130,6 +176,11 @@ final class SeoAccessGscComposerTest extends TestCase
             public function sourceUpdatedAt(int $siteId): ?string
             {
                 return $this->context->sourceUpdatedAt;
+            }
+
+            public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string
+            {
+                return $this->latestSynced;
             }
         };
 

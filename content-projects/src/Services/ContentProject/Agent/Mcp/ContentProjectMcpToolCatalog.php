@@ -131,7 +131,6 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('domain.broken_links', 'Prepared broken-link counts from Link Health snapshot.', ['site_ref']),
             $this->readTool('domain.indexability', 'Indexability summary from typed SEO snapshots.', ['site_ref']),
             $this->readTool('domain.action_plan', 'Deterministic action plan from open SEO findings.', ['site_ref']),
-            $this->readTool('domain.monthly_intelligence', 'Stored monthly MCP report AI context. Does not rebuild source modules.', ['site_ref']),
             $this->readTool('domain.run_analysis', 'Dispatch link_health, link_opportunities, or keyword_refresh. Does not wait.', ['site_ref']),
 
             // Keyword MCP type-2 — on-demand one-keyword relationship (not keywords.mcp.v2 landscape).

@@ -23,10 +23,6 @@ use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
 use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGateway;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Dto\MonthlyMcpSourcePayload;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
 use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteSeoHealthReader;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextAssembler;
@@ -81,21 +77,6 @@ final class ContextSliceArchitectureContractTest extends TestCase
         $gscSrc = (string) file_get_contents((string) (new ReflectionClass(GscContext::class))->getFileName());
         self::assertStringNotContainsString('MonthlyMcpSourcePayload', $siteSrc);
         self::assertStringNotContainsString('MonthlyMcpSourcePayload', $gscSrc);
-    }
-
-    public function test_monthly_adapters_depend_on_context_not_reverse(): void
-    {
-        foreach ([SiteMonthlyMcpSource::class, GscMonthlyMcpSource::class, KeywordMonthlyMcpSource::class] as $class) {
-            $src = (string) file_get_contents((string) (new ReflectionClass($class))->getFileName());
-            self::assertStringContainsString('MonthlyMcpSourcePayload::make', $src);
-        }
-        $site = (string) file_get_contents((string) (new ReflectionClass(SiteMonthlyMcpSource::class))->getFileName());
-        self::assertStringContainsString('SiteContextGateway', $site);
-        self::assertStringNotContainsString('toMonthlyPayload', $site);
-
-        $gsc = (string) file_get_contents((string) (new ReflectionClass(GscMonthlyMcpSource::class))->getFileName());
-        self::assertStringContainsString('GscContextGateway', $gsc);
-        self::assertStringNotContainsString('toMonthlyParts', $gsc);
     }
 
     public function test_schemas_remain_compatible(): void

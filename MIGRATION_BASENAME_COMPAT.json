@@ -1,7 +1,7 @@
 {
     "version": 1,
     "note": "Migrations relocated into peer addon folders. Laravel migration history uses basename only. No duplicate basenames; no rename compatibility map required.",
-    "total_addon_migrations": 163,
+    "total_addon_migrations": 164,
     "renamed_basenames": [],
     "duplicate_basenames": [],
     "missing_connection_property": [
@@ -1000,6 +1000,12 @@
         {
             "basename": "2026_07_22_120000_widen_business_events_event_uuid.php",
             "path": "addons/_legacy-obsolete/database/migrations/2026_07_22_120000_widen_business_events_event_uuid.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_09_26_160000_drop_monthly_mcp_snapshot_tables.php",
+            "path": "addons/seo/database/migrations/2026_09_26_160000_drop_monthly_mcp_snapshot_tables.php",
             "has_connection_property": true,
             "compatibility": "basename_preserved"
         }

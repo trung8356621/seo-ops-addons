@@ -79,10 +79,7 @@ final class SeoPanelNavActiveStateTest extends TestCase
 
             // SEO
             ['filament.seo-main.pages.performance-hub', 'seoPerformance', true],
-            ['filament.seo-main.pages.performance-hub', 'mcpIntelligence', false],
-            ['filament.seo-main.pages.mcp-intelligence', 'mcpIntelligence', true],
-            ['filament.seo-main.pages.mcp-intelligence', 'seoPerformance', false],
-            ['filament.seo-main.pages.mcp-intelligence', 'seoModule', true],
+            ['filament.seo-main.pages.social', 'seoPerformance', false],
 
             // Hệ thống
             ['filament.seo-main.pages.content-operations', 'operationCenter', true],
@@ -182,6 +179,11 @@ final class SeoPanelNavActiveStateTest extends TestCase
         self::assertSame(1, count(array_filter($flags)));
     }
 
+    public function test_mcp_intelligence_nav_helper_retired(): void
+    {
+        self::assertFalse(method_exists(SeoPanelRoutes::class, 'isMcpIntelligenceNav'));
+    }
+
     private function evaluate(string $route, string $flag): bool
     {
         return match ($flag) {
@@ -201,7 +203,6 @@ final class SeoPanelNavActiveStateTest extends TestCase
             'keywordsBrokenLinks' => SeoPanelRoutes::isKeywordsBrokenLinksNav($route),
             'seoModule' => SeoPanelRoutes::isSeoModule($route),
             'seoPerformance' => SeoPanelRoutes::isSeoPerformanceNav($route),
-            'mcpIntelligence' => SeoPanelRoutes::isMcpIntelligenceNav($route),
             'systemModule' => SeoPanelRoutes::isSystemModule($route),
             'operationCenter' => SeoPanelRoutes::isOperationCenterNav($route),
             'pgCanary' => SeoPanelRoutes::isPgCanaryNav($route),

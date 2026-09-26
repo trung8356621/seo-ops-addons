@@ -19,7 +19,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapAuditService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -74,13 +73,10 @@ final class TopicMcpExclusionContractTest extends TestCase
         self::assertStringContainsString('Eligibility = Topic NOT mcp_excluded', $src);
     }
 
-    public function test_gateway_monthly_audit_discover_inherit_landscape(): void
+    public function test_gateway_audit_discover_inherit_landscape(): void
     {
         $gateway = (string) file_get_contents(
             (string) (new ReflectionClass(KeywordLandscapeGateway::class))->getFileName(),
-        );
-        $monthly = (string) file_get_contents(
-            (string) (new ReflectionClass(KeywordMonthlyMcpSource::class))->getFileName(),
         );
         $audit = (string) file_get_contents(
             (string) (new ReflectionClass(AuditNoteClusterSuggestionQuery::class))->getFileName(),
@@ -90,9 +86,10 @@ final class TopicMcpExclusionContractTest extends TestCase
         );
 
         self::assertStringContainsString('readModel->forSite', $gateway);
-        self::assertStringContainsString('landscape->forSite', $monthly);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $gateway);
         self::assertStringContainsString('landscape->forSite', $audit);
         self::assertStringContainsString('landscape->forSite', $discover);
+        self::assertFalse(class_exists('Omnichannel\\Addons\\Seo\\Services\\MonthlyMcp\\Sources\\KeywordMonthlyMcpSource'));
     }
 
     public function test_topical_map_and_audit_use_filtered_overview(): void

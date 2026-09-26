@@ -11,7 +11,6 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pag
 use Omnichannel\Addons\ContentProjects\Filament\Widgets\ContentProjectQueueHealthWidget;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\ListKeywords;
-use Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence;
 use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 use Omnichannel\Addons\Seo\Livewire\GlobalSeoBar;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -92,22 +91,16 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ListArticles::class) ?: []);
     }
 
-    public function test_mcp_page_hides_global_domain_picker(): void
+    public function test_monthly_mcp_intelligence_ui_retired(): void
     {
-        $source = (string) file_get_contents((string) (new ReflectionClass(SeoAccessControl::class))->getFileName());
+        $this->assertFalse(class_exists('Omnichannel\\Addons\\Seo\\Filament\\Pages\\McpIntelligence'));
 
-        $this->assertStringContainsString("SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')", $source);
-    }
+        $access = (string) file_get_contents((string) (new ReflectionClass(SeoAccessControl::class))->getFileName());
+        $this->assertStringNotContainsString('mcp-intelligence', $access);
+        $this->assertStringNotContainsString('McpIntelligence', $access);
 
-    public function test_mcp_page_uses_local_domain_picker(): void
-    {
-        $mcp = (string) file_get_contents((string) (new ReflectionClass(McpIntelligence::class))->getFileName());
-        $blade = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/pages/mcp-intelligence.blade.php');
-
-        $this->assertStringContainsString('resolveInitialSiteId', $mcp);
-        $this->assertStringNotContainsString('syncSiteFromGlobalContext', $mcp);
-        $this->assertStringContainsString('wire:model.live="siteId"', $blade);
-        $this->assertStringContainsString('mcp-report__filter-bar', $blade);
+        $blade = dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/pages/mcp-intelligence.blade.php';
+        $this->assertFileDoesNotExist($blade);
     }
 
     public function test_keyword_pages_follow_global_domain_without_local_selector(): void

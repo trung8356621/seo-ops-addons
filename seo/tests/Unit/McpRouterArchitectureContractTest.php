@@ -346,6 +346,11 @@ final class McpRouterArchitectureContractTest extends TestCase
             {
                 return null;
             }
+
+            public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string
+            {
+                return null;
+            }
         };
 
         $source = new GscContextSource($gateway);

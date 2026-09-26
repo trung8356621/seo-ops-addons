@@ -24,10 +24,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
 use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMonthlyPeriod;
 use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscSocialTop10Builder;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
-use Omnichannel\Addons\Seo\Models\SeoMcpSourceSnapshot;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpPeriodService;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSnapshotService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use Omnichannel\Addons\SearchIntelligence\Support\SerpProviderKeys;
@@ -103,8 +99,6 @@ final class SeoPerformanceHub extends SeoPanelPage
     public ?array $gscMcpPreview = null;
 
     public bool $gscMcpShowRaw = false;
-
-    public bool $gscMcpRebuilding = false;
 
     public string $dateRange = '28d';
 
@@ -253,7 +247,7 @@ final class SeoPerformanceHub extends SeoPanelPage
     }
 
     /**
-     * WordPress-style module: SEO → Performance / MCP Intelligence / Social.
+     * WordPress-style module: SEO → Performance / Social.
      * Seeding is a peer addon — top-level nav owned by SeedingServiceProvider.
      *
      * @return array<int, \Filament\Navigation\NavigationItem>
@@ -270,15 +264,6 @@ final class SeoPerformanceHub extends SeoPanelPage
                 ->url(static::getUrl())
                 ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSeoPerformanceNav()),
         ];
-
-        if (\Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::canAccess()) {
-            $children[] = \Filament\Navigation\NavigationItem::make(
-                \Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::getNavigationLabel()
-            )
-                ->parentItem($parentLabel)
-                ->url(\Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::getUrl())
-                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isMcpIntelligenceNav());
-        }
 
         if (\Omnichannel\Addons\Social\Filament\Pages\SocialProfilesPage::canAccess()) {
             $children[] = \Filament\Navigation\NavigationItem::make(
@@ -437,40 +422,6 @@ final class SeoPerformanceHub extends SeoPanelPage
             return;
         }
 
-        $period = app(McpPeriodService::class)->find(
-            (int) substr($periodKey, 0, 4),
-            (int) substr($periodKey, 5, 2),
-        );
-
-        $stored = null;
-        if ($period !== null) {
-            $stored = app(MonthlyMcpSnapshotService::class)->find($period, $siteId, McpSourceKey::Gsc);
-        }
-
-        if ($stored instanceof SeoMcpSourceSnapshot && $stored->isUsable()) {
-            $payload = $stored->preparedPayload();
-            $this->gscMcpPreview = [
-                'status' => 'stored',
-                'period_key' => $periodKey,
-                'period_label' => GscMonthlyPeriod::label($periodKey),
-                'generated_at' => $payload['generated_at'] ?? null,
-                'source_updated_at' => $payload['source_updated_at'] ?? null,
-                'source_period' => [
-                    'start' => GscMonthlyPeriod::bounds($periodKey)[0],
-                    'end' => GscMonthlyPeriod::bounds($periodKey)[1],
-                ],
-                'metrics' => $payload['metrics'] ?? [],
-                'summary' => $payload['summary'] ?? [],
-                'context' => $payload['context'] ?? [],
-                'social_top10' => $this->buildGscSocialTop10($siteId, $periodKey, $payload),
-                'raw_json' => (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
-                'has_stored_snapshot' => true,
-            ];
-            $this->gscMcpDrawerLoading = false;
-
-            return;
-        }
-
         $builtCtx = app(GscContextGateway::class)->forSite($siteId, $periodKey);
         $built = [
             'metrics' => $builtCtx->metrics,
@@ -479,10 +430,10 @@ final class SeoPerformanceHub extends SeoPanelPage
             'source_updated_at' => $builtCtx->sourceUpdatedAt,
         ];
         $metrics = $builtCtx->metrics;
-        $absent = ($metrics['absent'] ?? false) === true;
+        $absent = ! $builtCtx->available();
 
         $this->gscMcpPreview = [
-            'status' => $absent ? 'absent' : 'live',
+            'status' => $absent ? 'absent' : 'ready',
             'period_key' => $periodKey,
             'period_label' => GscMonthlyPeriod::label($periodKey),
             'generated_at' => $builtCtx->generatedAt(),
@@ -494,53 +445,13 @@ final class SeoPerformanceHub extends SeoPanelPage
             'metrics' => $metrics,
             'summary' => $builtCtx->summary,
             'context' => $builtCtx->context,
-            'social_top10' => $absent ? ['items' => [], 'unmapped_pages' => 0, 'period_key' => $periodKey, 'excluded_no_page' => 0] : $this->buildGscSocialTop10($siteId, $periodKey, $built),
+            'social_top10' => $absent
+                ? ['items' => [], 'unmapped_pages' => 0, 'period_key' => $periodKey, 'excluded_no_page' => 0]
+                : $this->buildGscSocialTop10($siteId, $periodKey, $built),
             'absent_reason' => $metrics['absent_reason'] ?? null,
             'raw_json' => (string) json_encode($built, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
-            'has_stored_snapshot' => false,
         ];
         $this->gscMcpDrawerLoading = false;
-    }
-
-    public function rebuildGscMcpSnapshot(): void
-    {
-        if ($this->gscMcpRebuilding || ! SeoAccessControl::canMutateInSeoPanel()) {
-            return;
-        }
-
-        $siteId = (int) ($this->resolveSiteId() ?? 0);
-        if ($siteId <= 0) {
-            return;
-        }
-
-        $site = Site::query()->find($siteId);
-        if (! $site instanceof Site) {
-            return;
-        }
-
-        $periodKey = GscMonthlyPeriod::normalize($this->gscMonth);
-        [$year, $month] = GscMonthlyPeriod::parse($periodKey);
-
-        $this->gscMcpRebuilding = true;
-
-        try {
-            $period = app(McpPeriodService::class)->create($year, $month);
-            app(MonthlyMcpSnapshotService::class)->capture($period, $site, McpSourceKey::Gsc->value);
-            Notification::make()
-                ->title(__('seo-content-ai::filament.performance_hub.gsc_mcp_rebuilt'))
-                ->success()
-                ->send();
-        } catch (\Throwable $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.performance_hub.gsc_mcp_rebuild_failed'))
-                ->body(mb_substr($exception->getMessage(), 0, 240))
-                ->danger()
-                ->send();
-        }
-
-        $this->gscMcpRebuilding = false;
-        $this->gscMcpDrawerLoading = true;
-        $this->loadGscMcpPreview();
     }
 
     public function toggleGscMcpRaw(): void
@@ -549,15 +460,15 @@ final class SeoPerformanceHub extends SeoPanelPage
     }
 
     /**
-     * Deterministic Social Top 10 from selected-month GSC MCP — no AI.
+     * Deterministic Social Top 10 from selected-month GSC context — no AI.
      *
-     * @param  array<string, mixed>  $mcpPayload
+     * @param  array<string, mixed>  $gscPayload
      * @return array{items: list<array<string, mixed>>, unmapped_pages: int, period_key: string, excluded_no_page: int}
      */
-    private function buildGscSocialTop10(int $siteId, string $periodKey, array $mcpPayload): array
+    private function buildGscSocialTop10(int $siteId, string $periodKey, array $gscPayload): array
     {
         try {
-            return app(GscSocialTop10Builder::class)->build($siteId, $periodKey, $mcpPayload);
+            return app(GscSocialTop10Builder::class)->build($siteId, $periodKey, $gscPayload);
         } catch (\Throwable) {
             return [
                 'items' => [],

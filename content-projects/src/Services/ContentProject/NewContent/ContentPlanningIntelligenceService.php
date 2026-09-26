@@ -13,11 +13,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNotePromptSectionBuilder;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
-use Omnichannel\Addons\Seo\Models\SeoMcpPeriod;
-use Omnichannel\Addons\Seo\Models\SeoMcpSourceSnapshot;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpPeriodService;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSnapshotService;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Throwable;
 
 /**
@@ -57,8 +54,8 @@ use Throwable;
 final class ContentPlanningIntelligenceService
 {
     public function __construct(
-        private readonly ?McpPeriodService $periods = null,
-        private readonly ?MonthlyMcpSnapshotService $snapshots = null,
+        private readonly ?KeywordLandscapeGateway $landscape = null,
+        private readonly ?GscContextGateway $gsc = null,
     ) {}
 
     /**
@@ -577,146 +574,81 @@ final class ContentPlanningIntelligenceService
     }
 
     /**
+     * Keyword planning signals from live Keyword Landscape (deterministic, 0 AI).
+     *
      * @return array{0: list<array{type: string, label: string}>, 1: string|null, 2: list<array{topic: string, signal: string}>}
      */
     private function mcpSignals(int $siteId): array
     {
-        $periods = $this->periods ?? (app()->bound(McpPeriodService::class) ? app(McpPeriodService::class) : null);
-        $snapshots = $this->snapshots ?? (app()->bound(MonthlyMcpSnapshotService::class) ? app(MonthlyMcpSnapshotService::class) : null);
-        if (! $periods instanceof McpPeriodService || ! $snapshots instanceof MonthlyMcpSnapshotService) {
+        $gateway = $this->landscape ?? (app()->bound(KeywordLandscapeGateway::class) ? app(KeywordLandscapeGateway::class) : null);
+        if (! $gateway instanceof KeywordLandscapeGateway) {
             return [[], null, []];
         }
 
-        $periodKey = null;
-        $period = null;
-        $ym = now()->format('Y-m');
-        if (preg_match('/^(\d{4})-(\d{2})$/', $ym, $m) === 1) {
-            $period = $periods->find((int) $m[1], (int) $m[2]);
-        }
+        $periodKey = now()->format('Y-m');
 
-        // Prefer current month; fall back to latest usable Keywords MCP snapshot.
-        $snap = $period instanceof SeoMcpPeriod
-            ? $snapshots->find($period, $siteId, McpSourceKey::Keywords)
-            : null;
-        if ($snap instanceof SeoMcpSourceSnapshot && $period instanceof SeoMcpPeriod) {
-            $periodKey = $period->periodKey();
-        }
-
-        if (! $snap instanceof SeoMcpSourceSnapshot) {
-            try {
-                $latest = SeoMcpSourceSnapshot::query()
-                    ->where('site_id', $siteId)
-                    ->where('source', McpSourceKey::Keywords->value)
-                    ->orderByDesc('id')
-                    ->first();
-                if ($latest instanceof SeoMcpSourceSnapshot) {
-                    $snap = $latest;
-                    $periodRel = $latest->period;
-                    if ($periodRel instanceof SeoMcpPeriod) {
-                        $periodKey = $periodRel->periodKey();
-                    }
-                }
-            } catch (Throwable) {
-                return [[], null, []];
-            }
-        }
-
-        if (! $snap instanceof SeoMcpSourceSnapshot) {
+        try {
+            $landscape = $gateway->forSite($siteId, true);
+        } catch (Throwable) {
             return [[], null, []];
         }
-
-        $summary = is_array($snap->summary_json) ? $snap->summary_json : [];
-        $context = is_array($snap->context_json) ? $snap->context_json : [];
-        if ($context === [] && is_array($summary['context'] ?? null)) {
-            $context = $summary['context'];
-        }
-        $generation = is_array($context['generation_context'] ?? null) ? $context['generation_context'] : [];
 
         $signals = [];
         $missing = [];
 
-        foreach ((array) ($generation['missing_directions'] ?? $context['gaps'] ?? []) as $item) {
+        foreach ($landscape->topics as $topic) {
             if (count($signals) >= ContentPlanningIntelligenceCaps::MCP_SIGNALS) {
                 break;
             }
-            if (is_string($item) && trim($item) !== '') {
-                $label = trim($item);
-                $signals[] = ['type' => 'missing_direction', 'label' => $label];
-                $missing[] = ['topic' => $label, 'signal' => 'mcp_signal'];
-            } elseif (is_array($item)) {
-                $label = trim((string) ($item['direction'] ?? $item['topic'] ?? $item['label'] ?? $item['cluster'] ?? ''));
-                if ($label === '') {
-                    continue;
-                }
-                $signals[] = ['type' => 'missing_direction', 'label' => $label];
-                $missing[] = ['topic' => $label, 'signal' => 'mcp_signal'];
-            }
-        }
-
-        foreach ((array) ($generation['weak_topics'] ?? $summary['weak_clusters'] ?? []) as $item) {
-            if (count($signals) >= ContentPlanningIntelligenceCaps::MCP_SIGNALS) {
-                break;
-            }
-            $label = is_string($item)
-                ? trim($item)
-                : trim((string) ($item['topic'] ?? $item['name'] ?? $item['cluster'] ?? ''));
+            $label = trim($topic->name);
             if ($label === '') {
                 continue;
             }
-            $signals[] = ['type' => 'weak_cluster', 'label' => $label];
+
+            $coverage = $topic->coverage;
+            if ($coverage === 'weak') {
+                $signals[] = ['type' => 'weak_cluster', 'label' => $label];
+                continue;
+            }
+
+            if ($coverage === 'unknown' || $topic->articleCount <= 0) {
+                $signals[] = ['type' => 'missing_direction', 'label' => $label];
+                $missing[] = ['topic' => $label, 'signal' => 'mcp_signal'];
+            }
         }
 
         return [$signals, $periodKey, $missing];
     }
 
     /**
-     * Read GSC MCP snapshot planning signals. Absent GSC → empty list (non-blocking).
+     * Read GSC planning signals from GscContextGateway. Absent GSC → empty list (non-blocking).
      *
      * @return array{0: list<array{type: string, label: string, query?: string, lane?: string}>, 1: string|null, 2: list<array{topic: string, signal: string}>}
      */
     private function gscSignals(int $siteId, ?string $preferredPeriod): array
     {
-        $snapshots = $this->snapshots ?? (app()->bound(MonthlyMcpSnapshotService::class) ? app(MonthlyMcpSnapshotService::class) : null);
-        $periods = $this->periods ?? (app()->bound(McpPeriodService::class) ? app(McpPeriodService::class) : null);
-        if (! $snapshots instanceof MonthlyMcpSnapshotService) {
+        $gateway = $this->gsc ?? (app()->bound(GscContextGateway::class) ? app(GscContextGateway::class) : null);
+        if (! $gateway instanceof GscContextGateway) {
             return [[], null, []];
         }
 
         $periodKey = $preferredPeriod;
-        $snap = null;
-
-        if ($periodKey !== null && $periods instanceof McpPeriodService && preg_match('/^(\d{4})-(\d{2})$/', $periodKey, $m) === 1) {
-            $period = $periods->find((int) $m[1], (int) $m[2]);
-            if ($period instanceof SeoMcpPeriod) {
-                $snap = $snapshots->find($period, $siteId, McpSourceKey::Gsc);
-            }
+        if ($periodKey === null || preg_match('/^\d{4}-\d{2}$/', $periodKey) !== 1) {
+            $periodKey = now()->format('Y-m');
         }
 
-        if (! $snap instanceof SeoMcpSourceSnapshot) {
-            try {
-                $latest = SeoMcpSourceSnapshot::query()
-                    ->where('site_id', $siteId)
-                    ->where('source', McpSourceKey::Gsc->value)
-                    ->orderByDesc('id')
-                    ->first();
-                if ($latest instanceof SeoMcpSourceSnapshot) {
-                    $snap = $latest;
-                    $periodRel = $latest->period;
-                    if ($periodRel instanceof SeoMcpPeriod) {
-                        $periodKey = $periodRel->periodKey();
-                    }
-                }
-            } catch (Throwable) {
-                return [[], null, []];
-            }
-        }
-
-        if (! $snap instanceof SeoMcpSourceSnapshot) {
+        try {
+            $ctx = $gateway->forSite($siteId, $periodKey);
+        } catch (Throwable) {
             return [[], null, []];
         }
 
-        $context = is_array($snap->context_json) ? $snap->context_json : [];
-        $summary = is_array($snap->summary_json) ? $snap->summary_json : [];
+        if (! $ctx->available()) {
+            return [[], null, []];
+        }
+
+        $context = $ctx->context;
+        $summary = $ctx->summary;
         $raw = is_array($context['planning_signals'] ?? null) ? $context['planning_signals'] : [];
         if ($raw === []) {
             foreach (['falling_queries', 'rising_queries', 'high_impression_low_ctr', 'near_page_one', 'content_decay', 'possible_cannibalization', 'new_content_opportunities'] as $bucket) {

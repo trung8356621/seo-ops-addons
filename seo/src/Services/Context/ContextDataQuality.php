@@ -6,8 +6,6 @@ namespace Omnichannel\Addons\Seo\Services\Context;
 
 /**
  * Neutral site-context data-quality warnings (facts only).
- *
- * Monthly MCP may wrap this; Context must not depend on MonthlyMcp.
  */
 final class ContextDataQuality
 {

@@ -13,6 +13,8 @@ use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
  * Composed GSC resource for SEO Access — one load via GscContextSource.
  *
  * Missing synced data must never look like measured-zero performance.
+ * When a requested period has no rows, expose latest_available (if any)
+ * without substituting that period into the requested response.
  */
 class SeoAccessGscComposer
 {
@@ -38,8 +40,12 @@ class SeoAccessGscComposer
      * @param  list<string>|null  $include
      * @return array<string, mixed>
      */
-    public function compose(int $siteId, ?string $period = null, ?array $include = null): array
-    {
+    public function compose(
+        int $siteId,
+        ?string $period = null,
+        ?array $include = null,
+        ?string $accessToken = null,
+    ): array {
         $periodKey = $this->normalizePeriod($period);
         $sections = $this->normalizeInclude($include);
         $ctx = $this->source->load($siteId, $periodKey);
@@ -53,7 +59,7 @@ class SeoAccessGscComposer
                 $reason = 'no_synced_data';
             }
 
-            return [
+            $payload = [
                 'schema' => self::SCHEMA,
                 'site_ref' => 'site:'.$siteId,
                 'period' => $periodKey,
@@ -64,6 +70,15 @@ class SeoAccessGscComposer
                 'generated_at' => $ctx->generatedAt,
                 'source_updated_at' => $ctx->sourceUpdatedAt,
             ];
+
+            if ($reason === 'no_synced_data') {
+                $latest = $this->source->latestSyncedPeriodOnOrBefore($siteId, $periodKey);
+                if (is_string($latest) && $latest !== '') {
+                    $payload['latest_available'] = $this->composeLatestAvailable($latest, $accessToken);
+                }
+            }
+
+            return $payload;
         }
 
         $limit = self::LIST_LIMIT;
@@ -135,6 +150,23 @@ class SeoAccessGscComposer
         }
 
         return $payload;
+    }
+
+    /**
+     * @return array{period: string, message: string, href: string}
+     */
+    private function composeLatestAvailable(string $period, ?string $accessToken): array
+    {
+        $token = is_string($accessToken) ? trim($accessToken) : '';
+        $href = $token !== ''
+            ? '/api/v1/access/'.$token.'/gsc?period='.$period
+            : '/api/v1/access/{token}/gsc?period='.$period;
+
+        return [
+            'period' => $period,
+            'message' => 'Latest synchronized GSC data is available for '.$period.'.',
+            'href' => $href,
+        ];
     }
 
     private function normalizePeriod(?string $period): string

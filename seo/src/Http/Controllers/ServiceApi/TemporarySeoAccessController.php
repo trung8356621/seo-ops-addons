@@ -44,6 +44,7 @@ final class TemporarySeoAccessController
                 'domain' => $identity['domain'] ?? null,
                 'title' => $identity['site_title'] ?? null,
             ],
+            'usage' => SeoAccessCatalog::usage(),
             'resources' => SeoAccessCatalog::resourcesWithHrefs('/api/v1/access/'.$token),
         ], true);
     }
@@ -140,6 +141,7 @@ final class TemporarySeoAccessController
                 $context->siteId,
                 is_string($period) ? $period : null,
                 $include,
+                $token,
             )
         );
     }
@@ -178,7 +180,7 @@ final class TemporarySeoAccessController
         }
 
         return $this->runReadSafely(
-            fn (): array => $this->gsc->compose($context->siteId, $period, $include)
+            fn (): array => $this->gsc->compose($context->siteId, $period, $include, $token)
         );
     }
 

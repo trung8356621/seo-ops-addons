@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\Seo\Tests\Unit;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordRelationship;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\RelationshipListSlice;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordRelationshipReadModel;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
+use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
 use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGateway;
 use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGraphPresenter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentGateway;
@@ -24,11 +24,7 @@ final class KeywordRelationshipMcpBoundaryContractTest extends TestCase
         self::assertSame('keyword.relationship.v1', KeywordRelationship::SCHEMA);
         self::assertSame('keyword.relationship.v1', KeywordRelationshipGateway::SCHEMA);
         self::assertNotSame('keywords.mcp.v2', KeywordRelationship::SCHEMA);
-        self::assertSame('keywords.mcp.v2', McpSourceKey::Keywords->schema());
-        self::assertNotContains('keyword.relationship', array_map(
-            static fn (McpSourceKey $k): string => $k->value,
-            McpSourceKey::cases(),
-        ));
+        self::assertSame('keywords.mcp.v2', KeywordLandscapeGateway::SCHEMA);
     }
 
     public function test_limits_are_explicit(): void
@@ -87,7 +83,9 @@ final class KeywordRelationshipMcpBoundaryContractTest extends TestCase
         );
         self::assertStringContainsString("'keyword.relationship'", $catalogSrc);
         self::assertStringContainsString('keyword.relationship.v1', $catalogSrc);
-        self::assertStringContainsString('seo_mcp_source_snapshots', $catalogSrc);
+        self::assertStringContainsString('Does not write seo_mcp_source_snapshots', $catalogSrc);
+        self::assertStringNotContainsString('SeoMcpSourceSnapshot', $catalogSrc);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $catalogSrc);
         self::assertStringNotContainsString('keyword_intelligence.', $catalogSrc);
 
         $policySrc = (string) file_get_contents(

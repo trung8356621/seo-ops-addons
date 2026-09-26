@@ -53,9 +53,10 @@ final class ContentPlanningIntelligenceContractTest extends TestCase
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentPlanningIntelligenceService::class))->getFileName(),
         );
-        self::assertStringContainsString("is_seo_keyword", $src);
-        self::assertStringContainsString('MIN_KEYWORD_SCORE', $src);
-        self::assertStringContainsString('EXCLUDED_PHRASE_KINDS', $src);
+        self::assertStringContainsString('seo_keyword_classifications / cluster scoring retired', $src);
+        self::assertStringContainsString('ContentPlanningIntelligenceCaps::', $src);
+        self::assertStringContainsString('function principalKeywords', $src);
+        self::assertStringContainsString('function mcpSignals', $src);
         self::assertStringNotContainsString("where('language'", $src);
         self::assertStringNotContainsString('where("language"', $src);
         self::assertStringNotContainsString('KeywordPersistenceService', $src);
@@ -65,8 +66,12 @@ final class ContentPlanningIntelligenceContractTest extends TestCase
         self::assertStringNotContainsString('PromptHookCallerBridge', $src);
         self::assertStringContainsString('gsc_signals', $src);
         self::assertStringContainsString('gscSignals', $src);
-        self::assertStringContainsString('McpSourceKey::Gsc', $src);
+        self::assertStringContainsString('GscContextGateway', $src);
+        self::assertStringContainsString('KeywordLandscapeGateway', $src);
         self::assertStringContainsString('improvement_signal', $src);
+        self::assertStringNotContainsString('McpSourceKey', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+        self::assertStringNotContainsString('SeoMcpSourceSnapshot', $src);
     }
 
     public function test_planning_absent_gsc_is_non_blocking_contract(): void

@@ -13,7 +13,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscPlanningSi
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscPositionSemantics;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryCannibalizationDetector;
 use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMcpContextBuilder;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
+use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway;
 use Omnichannel\Addons\Seo\Services\IndexHealth\ArticleIndexHealthRecorder;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -23,10 +24,17 @@ use ReflectionClass;
  */
 final class GscPhase8aContractTest extends TestCase
 {
-    public function test_mcp_source_key_includes_gsc(): void
+    public function test_gsc_context_gateway_schema_is_gsc_mcp_v1(): void
     {
-        self::assertSame('gsc', McpSourceKey::Gsc->value);
-        self::assertSame('gsc.mcp.v1', McpSourceKey::Gsc->schema());
+        self::assertSame('gsc.mcp.v1', GscContext::SCHEMA);
+        self::assertSame(GscContextGateway::SCHEMA, GscContext::SCHEMA);
+
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(GscContextGateway::class))->getFileName(),
+        );
+        self::assertStringContainsString('GscMcpContextBuilder', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+        self::assertStringNotContainsString('McpSourceKey', $src);
     }
 
     public function test_position_semantics_lower_is_better(): void
@@ -199,8 +207,7 @@ final class GscPhase8aContractTest extends TestCase
         $files = [
             (new ReflectionClass(GscMcpContextBuilder::class))->getFileName(),
             (new ReflectionClass(GscPlanningSignalNormalizer::class))->getFileName(),
-            (new ReflectionClass(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class))->getFileName(),
-            (new ReflectionClass(\Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway::class))->getFileName(),
+            (new ReflectionClass(GscContextGateway::class))->getFileName(),
         ];
         foreach ($files as $file) {
             $src = (string) file_get_contents((string) $file);
@@ -211,11 +218,11 @@ final class GscPhase8aContractTest extends TestCase
             self::assertStringNotContainsString('Http::', $src);
         }
 
-        $monthlySrc = (string) file_get_contents(
-            (string) (new ReflectionClass(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class))->getFileName(),
+        $gatewaySrc = (string) file_get_contents(
+            (string) (new ReflectionClass(GscContextGateway::class))->getFileName(),
         );
-        self::assertStringContainsString('GscContextGateway', $monthlySrc);
-        self::assertStringNotContainsString('GscMcpContextBuilder', $monthlySrc);
+        self::assertStringContainsString('GscMcpContextBuilder', $gatewaySrc);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $gatewaySrc);
 
         $ingestClass = '\\Omnichannel\\Addons\\SearchIntelligence\\Services\\KeywordIntelligence\\GscKeywordIntelligenceIngestionService';
         if (! class_exists($ingestClass)) {

@@ -21,7 +21,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicalMapReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicTagMetricsResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter;
 use Omnichannel\Addons\Seo\Services\KeywordLandscape\KeywordLandscapeGateway;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -81,20 +80,16 @@ final class McpExcludedQuarantineContractTest extends TestCase
         self::assertStringContainsString('loadDnaByTopic($siteId, $topicIds, $excludedKeywordIds)', $src);
     }
 
-    public function test_gateway_and_monthly_mcp_remain_landscape_consumers(): void
+    public function test_gateway_remains_landscape_consumer_without_monthly_mcp(): void
     {
         $gateway = (string) file_get_contents(
             (string) (new ReflectionClass(KeywordLandscapeGateway::class))->getFileName(),
         );
-        $monthly = (string) file_get_contents(
-            (string) (new ReflectionClass(KeywordMonthlyMcpSource::class))->getFileName(),
-        );
 
         self::assertStringContainsString('KeywordLandscapeReadModel', $gateway);
         self::assertStringContainsString('readModel->forSite', $gateway);
-        self::assertStringContainsString('KeywordLandscapeGateway', $monthly);
-        self::assertStringContainsString('landscape->forSite', $monthly);
-        self::assertStringNotContainsString('KeywordLandscapeReadModel', $monthly);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $gateway);
+        self::assertFalse(class_exists('Omnichannel\\Addons\\Seo\\Services\\MonthlyMcp\\Sources\\KeywordMonthlyMcpSource'));
     }
 
     public function test_seo_audit_and_discover_consume_gateway_only(): void
@@ -136,7 +131,9 @@ final class McpExcludedQuarantineContractTest extends TestCase
 
         self::assertStringContainsString('topicalMap->overview', $src);
         self::assertStringContainsString('structuralProjection', $src);
-        self::assertStringContainsString('mcpContext->build', $src);
+        self::assertStringContainsString('auditContext->buildMarkdown', $src);
+        self::assertStringNotContainsString('McpAiContextBuilder', $src);
+        self::assertStringNotContainsString('McpPeriodService', $src);
     }
 
     public function test_topic_list_share_and_coverage_exclude_mcp_quarantine(): void

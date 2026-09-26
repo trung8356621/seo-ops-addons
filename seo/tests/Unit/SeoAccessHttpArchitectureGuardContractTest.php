@@ -62,6 +62,21 @@ final class SeoAccessHttpArchitectureGuardContractTest extends TestCase
     {
         $keys = array_column(SeoAccessCatalog::resources(), 'key');
         self::assertSame(['site', 'keywords', 'gsc'], $keys);
+
+        $usage = SeoAccessCatalog::usage();
+        self::assertArrayHasKey('purpose', $usage);
+        self::assertArrayHasKey('recommended_flow', $usage);
+
+        $byKey = [];
+        foreach (SeoAccessCatalog::resources() as $resource) {
+            $byKey[$resource['key']] = $resource;
+            self::assertArrayHasKey('when_to_use', $resource);
+            self::assertArrayHasKey('method', $resource);
+        }
+
+        self::assertArrayHasKey('usage', $byKey['keywords']);
+        self::assertSame('?sort=mcp&direction=asc', $byKey['keywords']['usage']['weakest_topics']);
+        self::assertStringContainsString('zero traffic', $byKey['gsc']['usage']['missing_data']);
     }
 
     public function test_composers_reuse_gateways_not_http_loopback(): void

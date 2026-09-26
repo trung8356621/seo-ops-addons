@@ -254,10 +254,6 @@ final class SeoAccessControl
             return false;
         }
 
-        if (SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')) {
-            return false;
-        }
-
         if (SeoPanelRoutes::isProjectsModule() || SeoPanelRoutes::isProjectsModulePath()) {
             return false;
         }

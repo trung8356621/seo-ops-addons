@@ -81,7 +81,6 @@ final class ContentProjectAgentGateway
         'domain.broken_links',
         'domain.indexability',
         'domain.action_plan',
-        'domain.monthly_intelligence',
 
         // Keyword MCP type-2 — one-keyword relationship (on-demand, no snapshots).
         'keyword.relationship',

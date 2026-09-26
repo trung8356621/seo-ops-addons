@@ -92,6 +92,53 @@ final class GscMcpContextBuilder
     }
 
     /**
+     * Latest YYYY-MM with persisted Search Performance rows on or before $onOrBeforePeriod.
+     *
+     * Null when no active property exists or no rows exist in range.
+     * Never inferred from property existence alone.
+     */
+    public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string
+    {
+        $property = $this->resolveProperty($siteId);
+        if ($property === null) {
+            return null;
+        }
+
+        $onOrBefore = GscMonthlyPeriod::normalize($onOrBeforePeriod);
+        [, $to] = GscMonthlyPeriod::bounds($onOrBefore);
+
+        try {
+            if (! Schema::connection('omi_seo_ai')->hasTable('seo_gsc_daily_metrics')) {
+                return null;
+            }
+
+            $maxDate = SeoGscDailyMetric::query()
+                ->where('property_id', (int) $property->id)
+                ->where('metric_date', '<=', $to)
+                ->max('metric_date');
+
+            if ($maxDate === null || $maxDate === '') {
+                return null;
+            }
+
+            if ($maxDate instanceof \DateTimeInterface) {
+                $period = $maxDate->format('Y-m');
+            } else {
+                $period = substr((string) $maxDate, 0, 7);
+            }
+
+            if (preg_match('/^\d{4}-\d{2}$/', $period) !== 1) {
+                return null;
+            }
+
+            // Guard: never point past the requested time context.
+            return $period <= $onOrBefore ? $period : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $currentRows
      * @param  list<array<string, mixed>>  $previousRows
      * @return array{

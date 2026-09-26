@@ -85,7 +85,7 @@ Always filter link maps by `sourceArticle.site_id`. Never `WHERE keyword_id IN (
 Topic Core backs:
 
 - **Type 1 — Landscape** (`keywords.mcp.v2` / `KeywordLandscapeGateway`) — site Topic landscape for approved consumers only  
-- **Type 2 — Relationship** (`keyword.relationship` / `keyword.relationship.v1`) — **CLOSED — v1**; one-keyword on-demand graph; does not write `seo_mcp_source_snapshots`
+- **Type 2 — Relationship** (`keyword.relationship` / `keyword.relationship.v1`) — **CLOSED — v1**; one-keyword on-demand graph; Monthly MCP snapshot tables are retired (do not reintroduce writes)
 
 Canonical contract (client): `omnichannel-client/docs/contracts/KEYWORD_MCP.md`.  
 Application boundaries (client): `omnichannel-client/docs/contracts/CONTEXT_GATEWAYS.md`.  

@@ -12,8 +12,6 @@ use Omnichannel\Addons\Seo\Services\GscContext\Dto\GscContext;
  *
  * Implementation currently delegates to GscMcpContextBuilder (compatibility detail —
  * reads persisted GSC facts only; never live GSC API / HTTP loopback).
- *
- * Monthly MCP source `gsc` / schema `gsc.mcp.v1` must consume this gateway.
  */
 final class GscContextGateway implements GscContextLoader
 {
@@ -33,6 +31,11 @@ final class GscContextGateway implements GscContextLoader
     public function sourceUpdatedAt(int $siteId): ?string
     {
         return $this->builder->sourceUpdatedAt($siteId);
+    }
+
+    public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string
+    {
+        return $this->builder->latestSyncedPeriodOnOrBefore($siteId, $onOrBeforePeriod);
     }
 
     /**

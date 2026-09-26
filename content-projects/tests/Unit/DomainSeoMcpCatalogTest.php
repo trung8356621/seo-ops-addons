@@ -31,12 +31,13 @@ final class DomainSeoMcpCatalogTest extends TestCase
             'domain.broken_links',
             'domain.indexability',
             'domain.action_plan',
-            'domain.monthly_intelligence',
             'domain.run_analysis',
         ] as $tool) {
             self::assertStringContainsString($tool, $catalog);
             self::assertStringContainsString($tool, $gateway);
         }
+        self::assertStringNotContainsString('domain.monthly_intelligence', $catalog);
+        self::assertStringNotContainsString('domain.monthly_intelligence', $gateway);
         self::assertStringContainsString('Analysis queued', $gateway);
     }
 }

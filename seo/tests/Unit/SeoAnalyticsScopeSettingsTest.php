@@ -10,7 +10,7 @@ use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsGeneral;
 use Omnichannel\Addons\Seo\Services\SeoAnalyticsScopeSettingsService;
 use Omnichannel\Addons\Seo\Services\Statistics\DomainStatisticsReadModel;
 use Omnichannel\Addons\Seo\Support\SeoAnalyticsArticleScope;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpEligibleContentScope;
+use Omnichannel\Addons\Seo\Services\SiteContext\Support\EligibleContentScope;
 use Tests\TestCase;
 
 final class SeoAnalyticsScopeSettingsTest extends TestCase
@@ -81,14 +81,12 @@ final class SeoAnalyticsScopeSettingsTest extends TestCase
         $this->assertStringContainsString('page_exclusion', $src);
     }
 
-    public function test_mcp_eligible_scope_still_hardcodes_post_product_allowlist(): void
+    public function test_eligible_content_scope_hardcodes_post_product_allowlist(): void
     {
-        $aliasSrc = (string) file_get_contents((string) (new \ReflectionClass(McpEligibleContentScope::class))->getFileName());
-        $this->assertStringContainsString('EligibleContentScope', $aliasSrc);
-
         $src = (string) file_get_contents(
-            (string) (new \ReflectionClass(\Omnichannel\Addons\Seo\Services\SiteContext\Support\EligibleContentScope::class))->getFileName(),
+            (string) (new \ReflectionClass(EligibleContentScope::class))->getFileName(),
         );
+        $this->assertStringNotContainsString('McpEligibleContentScope', $src);
         $this->assertStringNotContainsString('SeoAnalyticsArticleScope', $src);
         $this->assertStringNotContainsString('exclude_pages_from_statistics', $src);
         $this->assertStringContainsString('ContentType::Post', $src);

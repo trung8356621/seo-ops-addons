@@ -25,7 +25,7 @@ final class SocialSeoNavContractTest extends TestCase
         self::assertTrue(SeoPanelRoutes::isSocialNav('filament.seo.pages.social'));
         self::assertTrue(SeoPanelRoutes::isSeoModule('filament.seo.pages.social'));
         self::assertFalse(SeoPanelRoutes::isSeoPerformanceNav('filament.seo.pages.social'));
-        self::assertFalse(SeoPanelRoutes::isMcpIntelligenceNav('filament.seo.pages.social'));
+        self::assertFalse(method_exists(SeoPanelRoutes::class, 'isMcpIntelligenceNav'));
     }
 
     public function test_gsc_social_stays_out_of_seo_audit_and_planner(): void

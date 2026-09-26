@@ -50,20 +50,10 @@
                     @if (($preview['absent_reason'] ?? '') !== '')
                         <p class="text-sm text-gray-500">{{ $preview['absent_reason'] }}</p>
                     @endif
-                    <button
-                        type="button"
-                        wire:click="rebuildGscMcpSnapshot"
-                        wire:loading.attr="disabled"
-                        wire:target="rebuildGscMcpSnapshot"
-                        class="performance-hub-action-btn mt-3"
-                    >
-                        <span wire:loading.remove wire:target="rebuildGscMcpSnapshot">{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_build') }}</span>
-                        <span wire:loading wire:target="rebuildGscMcpSnapshot">{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_building') }}</span>
-                    </button>
                 </div>
             @else
                 <dl class="performance-hub-gsc-mcp-drawer__metrics">
-                    <div><dt>{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_status') }}</dt><dd>{{ ($preview['status'] ?? '') === 'stored' ? __('seo-content-ai::filament.performance_hub.gsc_mcp_status_ready') : __('seo-content-ai::filament.performance_hub.gsc_mcp_status_live') }}</dd></div>
+                    <div><dt>{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_status') }}</dt><dd>{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_status_ready') }}</dd></div>
                     <div><dt>{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_generated_at') }}</dt><dd>{{ \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($preview['generated_at'] ?? null) ?? '—' }}</dd></div>
                     <div><dt>{{ __('seo-content-ai::filament.performance_hub.kpi_clicks') }}</dt><dd>{{ number_format((int) ($metrics['clicks'] ?? 0)) }}</dd></div>
                     <div><dt>{{ __('seo-content-ai::filament.performance_hub.kpi_impressions') }}</dt><dd>{{ number_format((int) ($metrics['impressions'] ?? 0)) }}</dd></div>
@@ -151,16 +141,6 @@
                 <div class="performance-hub-gsc-mcp-drawer__actions">
                     <button type="button" wire:click="toggleGscMcpRaw" class="performance-hub-action-btn performance-hub-action-btn--secondary">
                         {{ $this->gscMcpShowRaw ? __('seo-content-ai::filament.performance_hub.gsc_mcp_hide_raw') : __('seo-content-ai::filament.performance_hub.gsc_mcp_show_raw') }}
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="rebuildGscMcpSnapshot"
-                        wire:loading.attr="disabled"
-                        wire:target="rebuildGscMcpSnapshot"
-                        class="performance-hub-action-btn"
-                    >
-                        <span wire:loading.remove wire:target="rebuildGscMcpSnapshot">{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_build') }}</span>
-                        <span wire:loading wire:target="rebuildGscMcpSnapshot">{{ __('seo-content-ai::filament.performance_hub.gsc_mcp_building') }}</span>
                     </button>
                 </div>
 

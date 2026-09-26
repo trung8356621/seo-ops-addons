@@ -9,8 +9,6 @@ use Omnichannel\Addons\Content\Support\SystemDateTime;
 
 /**
  * Neutral freshness / staleness policy for domain context.
- *
- * Monthly MCP may delegate here; Context must not depend on MonthlyMcp.
  */
 final class ContextFreshness
 {

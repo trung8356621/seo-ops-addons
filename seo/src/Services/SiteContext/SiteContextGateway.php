@@ -15,7 +15,7 @@ use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
  *
  * Distinct from Site Knowledge Profile (prompt tone/CTA/links — search-foundation SiteMcp*).
  *
- * Monthly MCP source `site` / schema `site.mcp.v1` adapts this gateway.
+ * Schema id `site.mcp.v1` is a stable compatibility contract id.
  * Future HTTP wraps this class or ContextRegistry (no HTTP loopback internally).
  */
 final class SiteContextGateway

@@ -14,4 +14,13 @@ interface GscContextLoader
     public function forSite(int $siteId, string $periodKey): GscContext;
 
     public function sourceUpdatedAt(int $siteId): ?string;
+
+    /**
+     * Latest YYYY-MM period with persisted Search Performance rows for the site,
+     * constrained to periods on or before $onOrBeforePeriod.
+     *
+     * Null when no active GSC property exists or no rows exist in range.
+     * Never inferred from property existence alone.
+     */
+    public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string;
 }

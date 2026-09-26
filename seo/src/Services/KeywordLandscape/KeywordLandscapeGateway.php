@@ -17,7 +17,7 @@ use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
  * 2. Prompt Generator
  * 3. Keywords / Topical Map
  *
- * Also backs capability `domain.keyword_landscape` and monthly snapshot source `keywords`.
+ * Also backs capability `domain.keyword_landscape`.
  * Not a general-purpose Agent/ACL surface — do not wire unrelated modules here.
  *
  * Domain Context ≠ MCP transport. In-process consumers share this gateway (no HTTP loopback).

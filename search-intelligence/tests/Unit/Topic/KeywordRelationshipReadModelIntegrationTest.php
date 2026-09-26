@@ -23,7 +23,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordRelationshipRead
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
-use Omnichannel\Addons\Seo\Models\SeoMcpSourceSnapshot;
 use PHPUnit\Framework\Attributes\Group;
 use ReflectionClass;
 use Tests\TestCase;
@@ -152,19 +151,17 @@ final class KeywordRelationshipReadModelIntegrationTest extends TestCase
     {
         $fx = $this->seedHappyPathFixture();
 
-        $before = 0;
-        $tableReady = Schema::connection('omi_seo_ai')->hasTable('seo_mcp_source_snapshots');
-        if ($tableReady) {
-            $before = (int) SeoMcpSourceSnapshot::query()->count();
-        }
-
         $dto = app(KeywordRelationshipReadModel::class)->relationship($fx['site_id'], $fx['keyword_id']);
         self::assertInstanceOf(KeywordRelationship::class, $dto);
 
-        if ($tableReady) {
-            $after = (int) SeoMcpSourceSnapshot::query()->count();
-            self::assertSame($before, $after);
-        }
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(KeywordRelationshipReadModel::class))->getFileName(),
+        );
+        self::assertStringContainsString('never writes seo_mcp_source_snapshots', $src);
+        self::assertStringNotContainsString('SeoMcpSourceSnapshot', $src);
+        self::assertStringNotContainsString('Services\\MonthlyMcp', $src);
+        self::assertFalse(class_exists('Omnichannel\\Addons\\Seo\\Models\\SeoMcpSourceSnapshot'));
+        self::assertFalse(Schema::connection('omi_seo_ai')->hasTable('seo_mcp_source_snapshots'));
     }
 
     public function test_internal_link_semantics_exclude_external_and_wiki_trust(): void

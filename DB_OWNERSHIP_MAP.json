@@ -34,7 +34,7 @@
     ],
     "commerce": ["article_product_reviews", "seo_product_gallery_*"],
     "social": [],
-    "legacy-obsolete": ["seo_database_connections", "seo_connection_users", "seeding_database_connections", "seo_extension_states", "link_resources", "seeding_topic_links", "entities*", "article_keyword", "automation_v2/v3 no-ops", "drop_* intermediates"]
+    "legacy-obsolete": ["seo_database_connections", "seo_connection_users", "seeding_database_connections", "seo_extension_states", "link_resources", "seeding_topic_links", "entities*", "article_keyword", "automation_v2/v3 no-ops", "drop_* intermediates", "seo_mcp_periods", "seo_mcp_source_snapshots", "seo_mcp_reports"]
   },
   "canonical_keyword": {
     "table": "keywords",
@@ -47,6 +47,7 @@
     "credentials": "Canonical Service DB credentials: Core service_database_connections (1:1). Legacy seo_database_connections / seeding_database_connections retired (tombstone migration).",
     "extension_state": "Extension enabled/status/health SoT is Cache via ExtensionStateStore — seo_extension_states permanently retired.",
     "agent_workspace_retirement": "Legacy Agent Workspace tables seo_agent_* dropped by 2026_09_26_100000_retire_legacy_agent_workspace_seo_agent_tables. Distinct from ACTIVE seo_content_project_agent_* (Content Project MCP/planner).",
-    "agent_extension_debt": "Omnichannel\\Addons\\Agent\\Extension\\* is transitional shared infrastructure and is NOT part of the retired Agent Workspace product. Namespace extraction is a separate future task."
+    "agent_extension_debt": "Omnichannel\\Addons\\Agent\\Extension\\* is transitional shared infrastructure and is NOT part of the retired Agent Workspace product. Namespace extraction is a separate future task.",
+    "monthly_mcp_retirement": "Monthly MCP tables seo_mcp_periods / seo_mcp_source_snapshots / seo_mcp_reports dropped by 2026_09_26_160000_drop_monthly_mcp_snapshot_tables. Consumers read live KeywordLandscapeGateway / SiteContextGateway / GscContextGateway. Real GSC facts remain seo_gsc_*."
   }
 }
