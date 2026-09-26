@@ -3,30 +3,22 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
-use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoMcpController;
+use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoAccessController;
 use Omnichannel\Addons\Seo\Http\Middleware\EnsureSeoServiceApi;
 
 /*
-| SEO Service API — MCP discovery + selective read + temporary access mint.
+| SEO Service API — Access index + temporary site-bound access mint.
 | Included by Core routes/api-services.php under service.api + throttle:service-api.
-| Auth plane: service_api_credentials only. Scope: mcp:read.
+| Auth plane: service_api_credentials only. Scope: seo:read.
 */
 
 Route::middleware([
     EnsureSeoServiceApi::class,
-    'service.api.scope:mcp:read',
+    'service.api.scope:seo:read',
 ])->group(function (): void {
-    Route::get('{service}/mcp', [SeoMcpController::class, 'index'])
-        ->name('api.v1.services.mcp.index');
+    Route::get('{service}/access', [SeoAccessController::class, 'index'])
+        ->name('api.v1.services.access.index');
 
-    Route::post('{service}/mcp/access', [SeoMcpController::class, 'mintAccess'])
-        ->name('api.v1.services.mcp.access.mint');
-
-    Route::get('{service}/mcp/{router}', [SeoMcpController::class, 'show'])
-        ->where('router', '[A-Za-z0-9_\\-]+')
-        ->name('api.v1.services.mcp.show');
-
-    Route::post('{service}/mcp/{router}/read', [SeoMcpController::class, 'read'])
-        ->where('router', '[A-Za-z0-9_\\-]+')
-        ->name('api.v1.services.mcp.read');
+    Route::post('{service}/access', [SeoAccessController::class, 'mint'])
+        ->name('api.v1.services.access.mint');
 });

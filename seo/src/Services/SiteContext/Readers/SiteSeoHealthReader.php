@@ -9,7 +9,10 @@ use Omnichannel\Addons\Seo\Models\SeoArticleProfile;
 use Omnichannel\Addons\Seo\Models\SeoFinding;
 
 /**
- * SEO findings + indexability for Site Intelligence Context.
+ * SEO findings + local article indexability flags for Site Intelligence Context (human/UI workflows).
+ *
+ * indexability() is internal workflow state (seo_article_profiles.is_indexable) — not Google
+ * index coverage. It must not be registered as an AI/MCP Context slice.
  */
 final class SiteSeoHealthReader
 {

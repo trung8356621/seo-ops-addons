@@ -11,8 +11,6 @@ final class ContextSliceKey
 {
     public const SITE_HEALTH = 'site.health';
 
-    public const SITE_INDEXABILITY = 'site.indexability';
-
     public const SITE_SYNC = 'site.sync';
 
     public const CONTENT_INVENTORY = 'content.inventory';
@@ -42,7 +40,6 @@ final class ContextSliceKey
     {
         return [
             self::SITE_HEALTH,
-            self::SITE_INDEXABILITY,
             self::SITE_SYNC,
             self::CONTENT_INVENTORY,
             self::CONTENT_DISTRIBUTION,

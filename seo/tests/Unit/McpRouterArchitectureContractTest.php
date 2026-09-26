@@ -45,7 +45,7 @@ final class McpRouterArchitectureContractTest extends TestCase
         );
 
         $expected = [
-            'site' => ['health' => ContextSliceKey::SITE_HEALTH, 'indexability' => ContextSliceKey::SITE_INDEXABILITY, 'sync' => ContextSliceKey::SITE_SYNC],
+            'site' => ['health' => ContextSliceKey::SITE_HEALTH, 'sync' => ContextSliceKey::SITE_SYNC],
             'content' => ['inventory' => ContextSliceKey::CONTENT_INVENTORY, 'distribution' => ContextSliceKey::CONTENT_DISTRIBUTION],
             'seo' => ['findings' => ContextSliceKey::SEO_FINDINGS, 'internal_links' => ContextSliceKey::SEO_INTERNAL_LINKS],
             'publishing' => ['status' => ContextSliceKey::PUBLISHING_STATUS],
@@ -96,7 +96,7 @@ final class McpRouterArchitectureContractTest extends TestCase
             scope: 'site',
             parts: [
                 new McpPartDefinition('health', ContextSliceKey::SITE_HEALTH, 'when', McpSizeHint::Small),
-                new McpPartDefinition('health', ContextSliceKey::SITE_INDEXABILITY, 'when', McpSizeHint::Small),
+                new McpPartDefinition('health', ContextSliceKey::SITE_SYNC, 'when', McpSizeHint::Small),
             ],
         );
     }
@@ -184,14 +184,45 @@ final class McpRouterArchitectureContractTest extends TestCase
         self::assertSame('site', $one['router']);
         self::assertSame(['health'], array_keys($one['parts']));
         self::assertSame(ContextSliceKey::SITE_HEALTH, $one['parts']['health']['key']);
-        self::assertArrayNotHasKey('indexability', $one['parts']);
+        self::assertArrayNotHasKey('sync', $one['parts']);
 
         $two = $reader->read(new McpReadRequest(7, 'site', [
             'health' => new McpPartReadSpec,
-            'indexability' => new McpPartReadSpec('detail'),
+            'sync' => new McpPartReadSpec('detail'),
         ]));
-        self::assertSame(['health', 'indexability'], array_keys($two['parts']));
-        self::assertArrayNotHasKey('sync', $two['parts']);
+        self::assertSame(['health', 'sync'], array_keys($two['parts']));
+        self::assertSame(ContextSliceKey::SITE_SYNC, $two['parts']['sync']['key']);
+    }
+
+    public function test_indexability_part_is_unknown_and_rejected(): void
+    {
+        $registry = $this->routerRegistry();
+        $reader = new McpRouterReader($registry);
+
+        $site = $registry->router('site');
+        self::assertNull($site->part('indexability'));
+        self::assertSame(['health', 'sync'], $site->partKeys());
+
+        $manifest = $registry->manifest();
+        $siteManifest = null;
+        foreach ($manifest['routers'] as $router) {
+            if (($router['key'] ?? '') === 'site') {
+                $siteManifest = $router;
+                break;
+            }
+        }
+        self::assertIsArray($siteManifest);
+        self::assertSame(['health', 'sync'], array_column($siteManifest['parts'], 'key'));
+        self::assertStringNotContainsString('indexability', json_encode($manifest, JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString('site.indexability', (string) file_get_contents(
+            (string) (new ReflectionClass(SeoMcpRouterCatalog::class))->getFileName(),
+        ));
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown MCP part');
+        $reader->read(new McpReadRequest(7, 'site', [
+            'indexability' => new McpPartReadSpec('summary'),
+        ]));
     }
 
     public function test_part_specific_parameters_do_not_bleed(): void
@@ -373,6 +404,10 @@ final class McpRouterArchitectureContractTest extends TestCase
     public function test_service_provider_keeps_scoped_bindings(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 2).'/src/SeoServiceProvider.php');
+        self::assertMatchesRegularExpression(
+            '/->bind\(\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextLoader::class\s*,\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextGateway::class/',
+            $src,
+        );
         self::assertMatchesRegularExpression(
             '/->scoped\(\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextSource::class/',
             $src,

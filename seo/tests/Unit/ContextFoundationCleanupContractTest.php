@@ -148,6 +148,10 @@ final class ContextFoundationCleanupContractTest extends TestCase
             (string) (new ReflectionClass(SeoServiceProvider::class))->getFileName(),
         );
         self::assertMatchesRegularExpression(
+            '/->bind\(\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextLoader::class\s*,\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextGateway::class/',
+            $src,
+        );
+        self::assertMatchesRegularExpression(
             '/->scoped\(\s*\\\\?Omnichannel\\\\Addons\\\\Seo\\\\Services\\\\GscContext\\\\GscContextSource::class/',
             $src,
         );
@@ -175,9 +179,10 @@ final class ContextFoundationCleanupContractTest extends TestCase
         self::assertStringContainsString('sourceUpdatedAt', $src);
     }
 
-    public function test_all_thirteen_registry_keys_remain_registered(): void
+    public function test_all_twelve_registry_keys_remain_registered(): void
     {
-        self::assertCount(13, ContextSliceKey::all());
+        self::assertCount(12, ContextSliceKey::all());
+        self::assertNotContains('site.indexability', ContextSliceKey::all());
         $registry = $this->stubRegistry();
         self::assertSame(ContextSliceKey::all(), $registry->keys());
     }

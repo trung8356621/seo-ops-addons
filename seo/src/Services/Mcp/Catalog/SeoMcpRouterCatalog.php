@@ -30,20 +30,14 @@ final class SeoMcpRouterCatalog
             new McpRouterDefinition(
                 key: 'site',
                 title: 'Site',
-                description: 'Site health, indexability and synchronization context.',
-                whenToUse: 'Use when evaluating site readiness, crawl/index issues, or WordPress sync state before recommendations.',
+                description: 'Site health and synchronization context.',
+                whenToUse: 'Use when evaluating site readiness or WordPress sync state before recommendations.',
                 scope: 'site',
                 parts: [
                     new McpPartDefinition(
                         key: 'health',
                         contextKey: ContextSliceKey::SITE_HEALTH,
                         whenToUse: 'When evaluating overall SEO/site health before making recommendations.',
-                        sizeHint: McpSizeHint::Small,
-                    ),
-                    new McpPartDefinition(
-                        key: 'indexability',
-                        contextKey: ContextSliceKey::SITE_INDEXABILITY,
-                        whenToUse: 'When checking crawl/indexability status that may block ranking.',
                         sizeHint: McpSizeHint::Small,
                     ),
                     new McpPartDefinition(

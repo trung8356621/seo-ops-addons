@@ -11,7 +11,7 @@ use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
 use Omnichannel\Addons\Seo\Services\Context\Projection\ContextFormatter;
 use Omnichannel\Addons\Seo\Services\Context\Projection\ContextListSlice;
 use Omnichannel\Addons\Seo\Services\Context\Projection\ContextProjection;
-use Omnichannel\Addons\Seo\Services\Context\Providers\SiteIndexabilitySliceProvider;
+use Omnichannel\Addons\Seo\Services\Context\Providers\SiteHealthSliceProvider;
 use Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry;
 use Omnichannel\Addons\Seo\Services\Context\Slice\ContextSlice;
 use Omnichannel\Addons\Seo\Services\Context\Slice\ContextSliceDefinition;
@@ -28,8 +28,10 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
+use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteSeoHealthReader;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextAssembler;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway;
+use Omnichannel\Addons\Seo\SeoServiceProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -108,11 +110,40 @@ final class ContextSliceArchitectureContractTest extends TestCase
     {
         $registry = $this->stubRegistry();
         self::assertSame(ContextSliceKey::all(), $registry->keys());
-        self::assertTrue($registry->has(ContextSliceKey::SITE_INDEXABILITY));
+        self::assertTrue($registry->has(ContextSliceKey::SITE_HEALTH));
+        self::assertTrue($registry->has(ContextSliceKey::SITE_SYNC));
+        self::assertFalse($registry->has('site.indexability'));
+        self::assertNotContains('site.indexability', ContextSliceKey::all());
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Unknown context slice key');
         $registry->get(1, 'planning.strategy');
+    }
+
+    public function test_site_indexability_is_not_registered_for_ai_mcp(): void
+    {
+        self::assertFalse(defined(ContextSliceKey::class.'::SITE_INDEXABILITY'));
+        self::assertFileDoesNotExist(
+            dirname(__DIR__, 2).'/src/Services/Context/Providers/SiteIndexabilitySliceProvider.php',
+        );
+
+        $providerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoServiceProvider::class))->getFileName(),
+        );
+        self::assertStringNotContainsString('SiteIndexabilitySliceProvider', $providerSrc);
+        self::assertStringNotContainsString('site.indexability', $providerSrc);
+
+        self::assertTrue(method_exists(SiteSeoHealthReader::class, 'indexability'));
+        $readerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(SiteSeoHealthReader::class))->getFileName(),
+        );
+        self::assertStringContainsString('function indexability', $readerSrc);
+        self::assertStringContainsString('not Google', $readerSrc);
+
+        $assemblerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(SiteContextAssembler::class))->getFileName(),
+        );
+        self::assertStringContainsString('->indexability(', $assemblerSrc);
     }
 
     public function test_parameterized_slice_validates_required_parameters(): void
@@ -123,18 +154,16 @@ final class ContextSliceArchitectureContractTest extends TestCase
         $registry->get(1, ContextSliceKey::KEYWORDS_RELATIONSHIP);
     }
 
-    public function test_indexability_provider_does_not_assemble_full_site_context(): void
+    public function test_health_provider_does_not_assemble_full_site_context(): void
     {
         $src = (string) file_get_contents(
-            (string) (new ReflectionClass(SiteIndexabilitySliceProvider::class))->getFileName(),
+            (string) (new ReflectionClass(SiteHealthSliceProvider::class))->getFileName(),
         );
-        self::assertStringContainsString('SiteSeoHealthReader', $src);
-        self::assertStringContainsString('indexability', $src);
         self::assertStringNotContainsString('SiteContextAssembler', $src);
         self::assertStringNotContainsString('SiteContextGateway', $src);
-        self::assertStringNotContainsString('heartbeat', $src);
         self::assertStringNotContainsString('distribution', $src);
         self::assertStringNotContainsString('internalLinking', $src);
+        self::assertStringNotContainsString('indexability', $src);
     }
 
     public function test_assembler_uses_neutral_context_helpers(): void

@@ -36,13 +36,16 @@ final class SeoServiceProvider extends ServiceProvider
                 ]);
             },
         );
+        $this->app->bind(
+            \Omnichannel\Addons\Seo\Services\GscContext\GscContextLoader::class,
+            \Omnichannel\Addons\Seo\Services\GscContext\GscContextGateway::class,
+        );
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\GscContext\GscContextSource::class);
         $this->app->scoped(
             \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry::class,
             static function ($app): \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry {
                 return new \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry([
                     $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteHealthSliceProvider::class),
-                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteIndexabilitySliceProvider::class),
                     $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteSyncSliceProvider::class),
                     $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\ContentInventorySliceProvider::class),
                     $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\ContentDistributionSliceProvider::class),
@@ -67,7 +70,6 @@ final class SeoServiceProvider extends ServiceProvider
         );
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterReader::class);
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Manifest\McpManifestMarkdownPresenter::class);
-        $this->app->scoped(\Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoMcpHttpSupport::class);
     }
 
     public function boot(): void
