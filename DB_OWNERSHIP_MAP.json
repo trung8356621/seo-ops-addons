@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "connections": {
     "mysql": "Client Core — users, sites, services, service_database_connections, wallets, automation_*",
     "omi_seo_ai": "Peer addon business tables (credentials via service_database_connections)",
@@ -12,12 +12,26 @@
     "search-intelligence": ["keyword_rank_*", "seo_gsc_* facts", "seo_gsc_url_inspection_runs", "seo_gsc_url_inspection_run_items", "seo_serp_* (without cluster evidence)", "seo_site_keywords", "seo_topics", "seo_topic_keywords", "seo_topic_keyword_dna", "seo_topic_tags", "seo_topic_tag_assignments"],
     "ai-prompt": ["prompts", "prompt_results", "hook bindings"],
     "content": ["articles", "article_meta", "article_editor_sessions", "seo_article_revisions", "seo_faqs"],
-    "content-projects": ["seo_projects", "seo_project_tasks", "seo_project_runs*", "seo_content_project_*", "seo_content_project_planner_runs", "source_draft_project_id"],
+    "content-projects": [
+      "seo_projects",
+      "seo_project_tasks",
+      "seo_project_runs*",
+      "seo_content_project_*",
+      "seo_content_project_agent_sessions (ACTIVE — Content Project MCP)",
+      "seo_content_project_agent_plans (ACTIVE — Content Project planner)",
+      "seo_content_project_agent_plan_steps (ACTIVE — Content Project planner)",
+      "seo_content_project_agent_approvals (ACTIVE — Content Project planner)",
+      "seo_content_project_planner_runs",
+      "source_draft_project_id"
+    ],
     "publishing": ["publish handoff/lease columns on seo_project_tasks", "publish_attempts"],
     "media": ["seo_media", "seo_media_meta", "watermark", "image_optimization", "seo_wp_media_*"],
     "wordpress": ["wordpress_side_effect_attempts", "seo_article_wp_sync_jobs", "seo_article_remote_snapshots"],
     "site-sync": ["seo_site_sync_*", "seo_site_capabilities"],
-    "agent": ["seo_agent_*"],
+    "agent": [
+      "seo_agent_* (RETIRED)",
+      "note: Omnichannel\\Addons\\Agent\\Automation Business Hook + Extension SDK are transitional shared infra still namespaced here — not Agent Workspace DB"
+    ],
     "commerce": ["article_product_reviews", "seo_product_gallery_*"],
     "social": [],
     "legacy-obsolete": ["seo_database_connections", "seo_connection_users", "seeding_database_connections", "seo_extension_states", "link_resources", "seeding_topic_links", "entities*", "article_keyword", "automation_v2/v3 no-ops", "drop_* intermediates"]
@@ -31,6 +45,8 @@
   },
   "notes": {
     "credentials": "Canonical Service DB credentials: Core service_database_connections (1:1). Legacy seo_database_connections / seeding_database_connections retired (tombstone migration).",
-    "extension_state": "Extension enabled/status/health SoT is Cache via ExtensionStateStore — seo_extension_states permanently retired."
+    "extension_state": "Extension enabled/status/health SoT is Cache via ExtensionStateStore — seo_extension_states permanently retired.",
+    "agent_workspace_retirement": "Legacy Agent Workspace tables seo_agent_* dropped by 2026_09_26_100000_retire_legacy_agent_workspace_seo_agent_tables. Distinct from ACTIVE seo_content_project_agent_* (Content Project MCP/planner).",
+    "agent_extension_debt": "Omnichannel\\Addons\\Agent\\Extension\\* is transitional shared infrastructure and is NOT part of the retired Agent Workspace product. Namespace extraction is a separate future task."
   }
 }

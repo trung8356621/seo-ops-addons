@@ -5,48 +5,35 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\MonthlyMcp;
 
 use Carbon\Carbon;
-use Omnichannel\Addons\Content\Support\SystemDateTime;
+use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
 
+/**
+ * Compatibility facade — delegates to ContextFreshness.
+ *
+ * @deprecated Prefer ContextFreshness for new Context-layer code.
+ */
 final class MonthlyMcpFreshness
 {
-    public const STALE_HOURS = 48;
+    public const STALE_HOURS = ContextFreshness::STALE_HOURS;
 
     public static function isNewer(?string $sourceUpdatedAt, ?string $snapshotUpdatedAt): bool
     {
-        $source = self::parse($sourceUpdatedAt);
-        $snap = self::parse($snapshotUpdatedAt);
-        if ($source === null || $snap === null) {
-            return false;
-        }
-
-        return $source->gt($snap);
+        return ContextFreshness::isNewer($sourceUpdatedAt, $snapshotUpdatedAt);
     }
 
     public static function isSourceStale(?string $sourceUpdatedAt, int $hours = self::STALE_HOURS): bool
     {
-        $parsed = self::parse($sourceUpdatedAt);
-        if ($parsed === null) {
-            return true;
-        }
-
-        return $parsed->lt(now()->subHours($hours));
+        return ContextFreshness::isSourceStale($sourceUpdatedAt, $hours);
     }
 
     public static function relative(?string $value): ?string
     {
-        return SystemDateTime::formatRelative($value);
+        return ContextFreshness::relative($value);
     }
 
     public static function parse(?string $value): ?Carbon
     {
-        if ($value === null || trim($value) === '') {
-            return null;
-        }
-        try {
-            return Carbon::parse($value);
-        } catch (\Throwable) {
-            return null;
-        }
+        return ContextFreshness::parse($value);
     }
 
     /**
@@ -54,17 +41,6 @@ final class MonthlyMcpFreshness
      */
     public static function maxIso(array $candidates): ?string
     {
-        $best = null;
-        foreach ($candidates as $candidate) {
-            $parsed = self::parse(is_string($candidate) ? $candidate : null);
-            if ($parsed === null) {
-                continue;
-            }
-            if ($best === null || $parsed->gt($best)) {
-                $best = $parsed;
-            }
-        }
-
-        return $best?->toIso8601String();
+        return ContextFreshness::maxIso($candidates);
     }
 }

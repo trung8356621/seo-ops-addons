@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\SiteContext\Readers;
 
 use App\Models\Site;
+use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SiteSync\Services\Heartbeat\WordPressHeartbeatPollService;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
-use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -46,7 +46,7 @@ final class SiteSyncContextReader
             $runFinished = $run?->finished_at?->toIso8601String();
         }
 
-        return MonthlyMcpFreshness::maxIso([
+        return ContextFreshness::maxIso([
             is_string($articleSync) ? $articleSync : null,
             $runFinished,
         ]);

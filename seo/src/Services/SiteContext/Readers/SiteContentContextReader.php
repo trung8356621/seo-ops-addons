@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\Seo\Services\SiteContext\Readers;
 
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\SiteMcpContentDistributionAggregator;
+use Omnichannel\Addons\Seo\Services\SiteContext\Aggregators\SiteContentDistributionAggregator;
 
 /**
  * Article / content distribution for Site Intelligence Context.
@@ -14,7 +14,7 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\SiteMcpContentDistributionAggrega
 final class SiteContentContextReader
 {
     public function __construct(
-        private readonly SiteMcpContentDistributionAggregator $contentDistribution,
+        private readonly SiteContentDistributionAggregator $contentDistribution,
         private readonly SitePublishingContextReader $publishing,
     ) {}
 

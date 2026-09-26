@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\MonthlyMcp;
 
 use App\Models\Site;
+use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\Dto\MonthlyMcpSourcePayload;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway;
 
@@ -21,7 +22,15 @@ final class SiteMcpContextBuilder
 
     public function build(Site $site, string $periodKey): MonthlyMcpSourcePayload
     {
-        return $this->gateway->forSite($site, $periodKey)->toMonthlyPayload();
+        $ctx = $this->gateway->forSite($site, $periodKey);
+
+        return MonthlyMcpSourcePayload::make(
+            McpSourceKey::Site,
+            $ctx->metrics,
+            $ctx->summary,
+            $ctx->context,
+            $ctx->sourceUpdatedAt,
+        );
     }
 
     public function sourceUpdatedAt(Site $site): ?string

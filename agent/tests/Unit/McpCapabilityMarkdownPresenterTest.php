@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\Agent\Tests\Unit;
 
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\GeneralDomain;
-use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
 use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectOperationsCenter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentErrorCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\Mcp\ContentProjectMcpToolCatalog;
@@ -18,6 +17,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capab
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use Tests\Support\ProjectRoot;
 
 final class McpCapabilityMarkdownPresenterTest extends TestCase
 {
@@ -465,9 +465,10 @@ final class McpCapabilityMarkdownPresenterTest extends TestCase
 
     public function test_agent_general_block_guards_and_presenter_wiring(): void
     {
-        $agentPageSource = (string) file_get_contents(
-            (new ReflectionClass(AgentWorkspacePage::class))->getFileName(),
-        );
+        // Legacy Agent Workspace page remains on disk as reference-only (not discovered).
+        $agentPagePath = ProjectRoot::addonsPath().'/agent/src/Filament/Pages/AgentWorkspacePage.php';
+        self::assertFileExists($agentPagePath);
+        $agentPageSource = (string) file_get_contents($agentPagePath);
         $generalSource = (string) file_get_contents(
             (new ReflectionClass(GeneralDomain::class))->getFileName(),
         );

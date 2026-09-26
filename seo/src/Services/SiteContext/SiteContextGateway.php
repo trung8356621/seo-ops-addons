@@ -10,10 +10,13 @@ use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
 /**
  * Canonical application boundary for site-level runtime / intelligence context.
  *
+ * Preset composition of site/content/seo/publishing slices (not the only read path —
+ * prefer ContextRegistry for individual slices).
+ *
  * Distinct from Site Knowledge Profile (prompt tone/CTA/links — search-foundation SiteMcp*).
  *
- * Monthly MCP source `site` / schema `site.mcp.v1` must consume this gateway.
- * Future HTTP `/api/v1/contexts/sites/{site_ref}` wraps this class (no HTTP loopback internally).
+ * Monthly MCP source `site` / schema `site.mcp.v1` adapts this gateway.
+ * Future HTTP wraps this class or ContextRegistry (no HTTP loopback internally).
  */
 final class SiteContextGateway
 {

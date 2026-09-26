@@ -4,17 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services\SiteContext\Dto;
 
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
+use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
 use Omnichannel\Addons\Seo\Services\Context\Contracts\ContextEnvelope;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\Dto\MonthlyMcpSourcePayload;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
 
 /**
- * Site Intelligence / runtime context (health, content, links, publishing, sync).
+ * Site Intelligence preset composition (health, content, links, publishing, sync).
  *
- * Distinct from Site Knowledge Profile (tone/CTA/links prompt draft under search-foundation SiteMcp*).
- * Persisted monthly schema remains site.mcp.v1 for compatibility.
+ * Distinct from Site Knowledge Profile. Schema id `site.mcp.v1` is a stable
+ * compatibility contract id — not MCP transport ownership.
  */
 final class SiteContext implements ContextEnvelope
 {
@@ -106,19 +104,8 @@ final class SiteContext implements ContextEnvelope
         );
     }
 
-    public function toMonthlyPayload(): MonthlyMcpSourcePayload
-    {
-        return MonthlyMcpSourcePayload::make(
-            McpSourceKey::Site,
-            $this->metrics,
-            $this->summary,
-            $this->context,
-            $this->sourceUpdatedAt,
-        );
-    }
-
     public static function computeStale(?string $sourceUpdatedAt): bool
     {
-        return MonthlyMcpFreshness::isSourceStale($sourceUpdatedAt);
+        return ContextFreshness::isSourceStale($sourceUpdatedAt);
     }
 }

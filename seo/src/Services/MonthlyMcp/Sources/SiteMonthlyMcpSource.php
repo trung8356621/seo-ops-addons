@@ -12,10 +12,7 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\Dto\MonthlyMcpSourcePayload;
 use Omnichannel\Addons\Seo\Services\SiteContext\SiteContextGateway;
 
 /**
- * Site monthly MCP source — runtime Site Intelligence via canonical gateway.
- *
- * Snapshot: source = site, schema_version = v1 (payload schema site.mcp.v1).
- * Does not own business logic — adapts SiteContextGateway → snapshot.
+ * Site monthly MCP source — adapts SiteContextGateway → snapshot (owns MCP conversion).
  */
 final class SiteMonthlyMcpSource implements MonthlyMcpSource
 {
@@ -35,7 +32,15 @@ final class SiteMonthlyMcpSource implements MonthlyMcpSource
 
     public function build(Site $site, SeoMcpPeriod $period): MonthlyMcpSourcePayload
     {
-        return $this->gateway->forSite($site, $period->periodKey())->toMonthlyPayload();
+        $ctx = $this->gateway->forSite($site, $period->periodKey());
+
+        return MonthlyMcpSourcePayload::make(
+            McpSourceKey::Site,
+            $ctx->metrics,
+            $ctx->summary,
+            $ctx->context,
+            $ctx->sourceUpdatedAt,
+        );
     }
 
     public function sourceUpdatedAt(Site $site): ?string

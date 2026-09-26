@@ -472,7 +472,12 @@ final class SeoPerformanceHub extends SeoPanelPage
         }
 
         $builtCtx = app(GscContextGateway::class)->forSite($siteId, $periodKey);
-        $built = $builtCtx->toMonthlyParts();
+        $built = [
+            'metrics' => $builtCtx->metrics,
+            'summary' => $builtCtx->summary,
+            'context' => $builtCtx->context,
+            'source_updated_at' => $builtCtx->sourceUpdatedAt,
+        ];
         $metrics = $builtCtx->metrics;
         $absent = ($metrics['absent'] ?? false) === true;
 

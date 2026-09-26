@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\SiteContext;
 
 use App\Models\Site;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpDataQualityGuard;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
+use Omnichannel\Addons\Seo\Services\Context\ContextDataQuality;
+use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
 use Omnichannel\Addons\Seo\Services\SiteContext\Dto\SiteContext;
 use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteContentContextReader;
 use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteLinkContextReader;
@@ -16,8 +15,9 @@ use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteSeoHealthReader;
 use Omnichannel\Addons\Seo\Services\SiteContext\Readers\SiteSyncContextReader;
 
 /**
- * Assembles Site Intelligence Context from domain-owned readers.
+ * Assembles Site Intelligence preset from domain-owned readers.
  *
+ * Preset composition only — individual slices use the same readers via ContextRegistry.
  * Reads current stored state; never syncs or HTTP-loopbacks.
  */
 final class SiteContextAssembler
@@ -28,7 +28,7 @@ final class SiteContextAssembler
         private readonly SiteContentContextReader $content,
         private readonly SiteLinkContextReader $links,
         private readonly SitePublishingContextReader $publishing,
-        private readonly McpDataQualityGuard $dataQuality,
+        private readonly ContextDataQuality $dataQuality,
     ) {}
 
     public function assemble(Site $site, string $periodKey): SiteContext
@@ -43,7 +43,7 @@ final class SiteContextAssembler
         $linking = $this->links->internalLinking($site);
         $publishing = $this->publishing->status($siteId);
         $lastSync = $this->sync->lastSyncAt($siteId);
-        $sourceUpdatedAt = MonthlyMcpFreshness::maxIso([
+        $sourceUpdatedAt = ContextFreshness::maxIso([
             is_string($heartbeat['observed_at'] ?? null) ? (string) $heartbeat['observed_at'] : null,
             is_string($link['last_analyzed_at'] ?? null) ? (string) $link['last_analyzed_at'] : null,
             $lastSync,
@@ -106,7 +106,7 @@ final class SiteContextAssembler
             'indexability' => $indexability,
             'seo_freshness' => [
                 'last_sync_at' => $lastSync,
-                'source_stale' => MonthlyMcpFreshness::isSourceStale($sourceUpdatedAt),
+                'source_stale' => ContextFreshness::isSourceStale($sourceUpdatedAt),
             ],
             'link_health' => [
                 'internal_links' => $linking['total_internal_links'],
@@ -136,7 +136,7 @@ final class SiteContextAssembler
             'articles' => $articles,
         ];
         $context = [
-            'schema' => McpSourceKey::Site->schema(),
+            'schema' => SiteContext::SCHEMA,
             'period' => $periodKey,
             'site_id' => $siteId,
             'risks' => $risks,
@@ -161,7 +161,7 @@ final class SiteContextAssembler
         $heartbeat = $this->sync->heartbeat($site);
         $link = $this->links->analysisSnapshot($site);
 
-        return MonthlyMcpFreshness::maxIso([
+        return ContextFreshness::maxIso([
             is_string($heartbeat['observed_at'] ?? null) ? (string) $heartbeat['observed_at'] : null,
             is_string($link['last_analyzed_at'] ?? null) ? (string) $link['last_analyzed_at'] : null,
             $this->sync->lastSyncAt((int) $site->id),

@@ -12,7 +12,9 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\Contracts\MonthlyMcpSource;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\Dto\MonthlyMcpSourcePayload;
 
 /**
- * GSC monthly MCP source — adapts GscContextGateway → snapshot (no parallel build path).
+ * GSC monthly MCP source — adapts GscContextGateway → snapshot (owns MCP conversion).
+ *
+ * Compatibility: preserves ai_lines from builder context for report/UI consumers.
  */
 final class GscMonthlyMcpSource implements MonthlyMcpSource
 {
@@ -32,14 +34,14 @@ final class GscMonthlyMcpSource implements MonthlyMcpSource
 
     public function build(Site $site, SeoMcpPeriod $period): MonthlyMcpSourcePayload
     {
-        $parts = $this->gateway->forSite((int) $site->id, $period->periodKey())->toMonthlyParts();
+        $ctx = $this->gateway->forSite((int) $site->id, $period->periodKey());
 
         return MonthlyMcpSourcePayload::make(
             McpSourceKey::Gsc,
-            $parts['metrics'],
-            $parts['summary'],
-            $parts['context'],
-            $parts['source_updated_at'],
+            $ctx->metrics,
+            $ctx->summary,
+            $ctx->context,
+            $ctx->sourceUpdatedAt,
         );
     }
 

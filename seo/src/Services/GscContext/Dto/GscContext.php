@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\GscContext\Dto;
 
 use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
+use Omnichannel\Addons\Seo\Services\Context\ContextFreshness;
 use Omnichannel\Addons\Seo\Services\Context\Contracts\ContextEnvelope;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
 
 /**
  * Typed GSC intelligence context (persisted facts — never live GSC API).
  *
- * Persisted monthly schema remains gsc.mcp.v1 for compatibility.
+ * Schema id `gsc.mcp.v1` is a stable compatibility contract id.
  */
 final class GscContext implements ContextEnvelope
 {
@@ -61,7 +61,7 @@ final class GscContext implements ContextEnvelope
             sourceUpdatedAt: $sourceUpdatedAt,
             generatedAt: now()->toIso8601String(),
             available: ! $absent,
-            stale: MonthlyMcpFreshness::isSourceStale($sourceUpdatedAt),
+            stale: ContextFreshness::isSourceStale($sourceUpdatedAt),
         );
     }
 
@@ -130,25 +130,5 @@ final class GscContext implements ContextEnvelope
             $this->generatedAt,
             $this->stale,
         );
-    }
-
-    /**
-     * Fragments for monthly MCP snapshot adapter (schema-compatible).
-     *
-     * @return array{
-     *   metrics: array<string, mixed>,
-     *   summary: array<string, mixed>,
-     *   context: array<string, mixed>,
-     *   source_updated_at: ?string
-     * }
-     */
-    public function toMonthlyParts(): array
-    {
-        return [
-            'metrics' => $this->metrics,
-            'summary' => $this->summary,
-            'context' => $this->context,
-            'source_updated_at' => $this->sourceUpdatedAt,
-        ];
     }
 }

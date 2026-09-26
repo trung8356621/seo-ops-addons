@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\Seo\Services\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordLandscapeReadModel;
-use Omnichannel\Addons\Seo\Enums\McpSourceKey;
 use Omnichannel\Addons\Seo\Services\Context\ContextEnvelopeBuilder;
 
 /**
@@ -61,7 +60,7 @@ final class KeywordLandscapeGateway
         $landscape = $this->forSite($siteId, $includeDna);
 
         return ContextEnvelopeBuilder::make(
-            McpSourceKey::Keywords->schema(),
+            self::SCHEMA,
             self::VERSION,
             $siteId,
             $landscape->sourceUpdatedAt,

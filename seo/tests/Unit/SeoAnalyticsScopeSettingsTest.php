@@ -83,7 +83,12 @@ final class SeoAnalyticsScopeSettingsTest extends TestCase
 
     public function test_mcp_eligible_scope_still_hardcodes_post_product_allowlist(): void
     {
-        $src = (string) file_get_contents((string) (new \ReflectionClass(McpEligibleContentScope::class))->getFileName());
+        $aliasSrc = (string) file_get_contents((string) (new \ReflectionClass(McpEligibleContentScope::class))->getFileName());
+        $this->assertStringContainsString('EligibleContentScope', $aliasSrc);
+
+        $src = (string) file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\Seo\Services\SiteContext\Support\EligibleContentScope::class))->getFileName(),
+        );
         $this->assertStringNotContainsString('SeoAnalyticsArticleScope', $src);
         $this->assertStringNotContainsString('exclude_pages_from_statistics', $src);
         $this->assertStringContainsString('ContentType::Post', $src);

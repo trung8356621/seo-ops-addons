@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services\Context;
 
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
-
 /**
  * Neutral helpers for context envelope metadata (not MCP-owned).
  */
@@ -47,7 +45,7 @@ final class ContextEnvelopeBuilder
             ],
             'generated_at' => $generatedAt ?? now()->toIso8601String(),
             'source_updated_at' => $sourceUpdatedAt,
-            'stale' => $stale ?? MonthlyMcpFreshness::isSourceStale($sourceUpdatedAt),
+            'stale' => $stale ?? ContextFreshness::isSourceStale($sourceUpdatedAt),
             'available' => $available,
             'data' => $data,
         ];

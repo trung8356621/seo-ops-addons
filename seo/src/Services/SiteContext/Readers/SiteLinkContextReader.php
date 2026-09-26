@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\SiteContext\Readers;
 
 use App\Models\Site;
-use Omnichannel\Addons\Seo\Services\MonthlyMcp\SiteMcpInternalLinkingAggregator;
+use Omnichannel\Addons\Seo\Services\SiteContext\Aggregators\SiteInternalLinkingAggregator;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
 
 /**
@@ -14,7 +14,7 @@ use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
 final class SiteLinkContextReader
 {
     public function __construct(
-        private readonly SiteMcpInternalLinkingAggregator $linkingAggregator,
+        private readonly SiteInternalLinkingAggregator $linkingAggregator,
     ) {}
 
     /**

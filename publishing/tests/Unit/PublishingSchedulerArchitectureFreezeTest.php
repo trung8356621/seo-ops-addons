@@ -69,16 +69,15 @@ final class PublishingSchedulerArchitectureFreezeTest extends TestCase
         self::assertStringContainsString('catch (Throwable', $source);
     }
 
-    public function test_agent_optional_commands_guarded_by_class_exists(): void
+    public function test_legacy_agent_workspace_optional_commands_are_not_registered(): void
     {
         $provider = (string) file_get_contents(
             (new ReflectionClass(SeoContentAiServiceProvider::class))->getFileName(),
         );
 
-        self::assertStringContainsString(
-            'DispatchDueAgentAutomationsCommand::class)',
-            $provider,
-        );
-        self::assertStringContainsString('class_exists($optionalCommand)', $provider);
+        self::assertStringNotContainsString('DispatchDueAgentAutomationsCommand', $provider);
+        self::assertStringNotContainsString('agent-automations-dispatch-due', $provider);
+        self::assertStringNotContainsString('agent-metrics-aggregate', $provider);
+        self::assertStringNotContainsString('agent-observability-prune', $provider);
     }
 }

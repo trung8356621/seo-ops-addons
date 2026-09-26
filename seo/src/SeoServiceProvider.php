@@ -36,6 +36,27 @@ final class SeoServiceProvider extends ServiceProvider
                 ]);
             },
         );
+        $this->app->singleton(\Omnichannel\Addons\Seo\Services\GscContext\GscContextSource::class);
+        $this->app->singleton(
+            \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry::class,
+            static function ($app): \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry {
+                return new \Omnichannel\Addons\Seo\Services\Context\Registry\ContextRegistry([
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteHealthSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteIndexabilitySliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SiteSyncSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\ContentInventorySliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\ContentDistributionSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SeoFindingsSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\SeoInternalLinksSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\PublishingStatusSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\KeywordsLandscapeSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\KeywordsRelationshipSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\GscPerformanceSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\GscOpportunitiesSliceProvider::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Context\Providers\GscCannibalizationSliceProvider::class),
+                ]);
+            },
+        );
     }
 
     public function boot(): void
