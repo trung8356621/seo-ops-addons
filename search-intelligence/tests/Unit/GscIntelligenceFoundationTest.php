@@ -30,7 +30,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Providers\Man
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscDailyMetric;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\KeywordIntelligencePublicRef;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpUrlNormalizationService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -44,7 +43,7 @@ final class GscIntelligenceFoundationTest extends TestCase
 
     public function test_query_normalization_keeps_vietnamese_diacritics(): void
     {
-        $service = new GscQueryNormalizationService(new KeywordNormalizationService);
+        $service = new GscQueryNormalizationService;
         $normalized = $service->normalize('  Dá»‹ch Vá»¥ SEO  ');
 
         self::assertSame('dá»‹ch vá»¥ seo', $normalized);
@@ -120,7 +119,7 @@ CSV;
 
     public function test_query_keyword_mapper_blocks_near_duplicate_with_different_intent(): void
     {
-        $mapper = new GscQueryKeywordMapper(new GscQueryNormalizationService(new KeywordNormalizationService));
+        $mapper = new GscQueryKeywordMapper(new GscQueryNormalizationService);
         $candidates = [
             ['site_id' => '1', 'keyword_ref' => 'kw_1', 'normalized' => 'seo lÃ  gÃ¬'],
         ];
@@ -219,7 +218,7 @@ CSV;
 
     public function test_brand_classifier(): void
     {
-        $classifier = new GscBrandQueryClassifier(new GscQueryNormalizationService(new KeywordNormalizationService));
+        $classifier = new GscBrandQueryClassifier(new GscQueryNormalizationService);
         self::assertSame(GscBrandQueryType::Unknown, $classifier->classify('dá»‹ch vá»¥ seo'));
         self::assertSame(GscBrandQueryType::Brand, $classifier->classify('omi seo tool', ['omi']));
     }
@@ -283,7 +282,7 @@ CSV;
 
     private function importPreviewService(): GscImportPreviewService
     {
-        $queryNormalizer = new GscQueryNormalizationService(new KeywordNormalizationService);
+        $queryNormalizer = new GscQueryNormalizationService;
         $pageNormalizer = new GscPageNormalizationService(new SerpUrlNormalizationService);
 
         return new GscImportPreviewService($queryNormalizer, $pageNormalizer, new GscFactHashService);

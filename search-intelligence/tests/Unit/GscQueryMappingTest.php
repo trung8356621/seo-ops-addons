@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit;
 
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryKeywordMapper;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryNormalizationService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService;
 use PHPUnit\Framework\TestCase;
 
 final class GscQueryMappingTest extends TestCase
@@ -16,7 +15,7 @@ final class GscQueryMappingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->mapper = new GscQueryKeywordMapper(new GscQueryNormalizationService(new KeywordNormalizationService));
+        $this->mapper = new GscQueryKeywordMapper(new GscQueryNormalizationService);
     }
 
     public function test_exact_normalized_match_maps_keyword(): void

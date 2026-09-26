@@ -8,7 +8,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscFactHashSe
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscImportPreviewService;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscPageNormalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryNormalizationService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpUrlNormalizationService;
 use PHPUnit\Framework\TestCase;
 
@@ -20,7 +19,7 @@ final class GscImportTest extends TestCase
     {
         parent::setUp();
         $this->service = new GscImportPreviewService(
-            new GscQueryNormalizationService(new KeywordNormalizationService),
+            new GscQueryNormalizationService,
             new GscPageNormalizationService(new SerpUrlNormalizationService),
             new GscFactHashService,
         );

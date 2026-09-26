@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoMcpController;
+use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoMcpHttpSupport;
+use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\TemporaryMcpAccessController;
 use Omnichannel\Addons\Seo\Http\Middleware\EnsureSeoServiceApi;
 use Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterReader;
 use PHPUnit\Framework\TestCase;
@@ -19,12 +21,19 @@ final class SeoMcpHttpArchitectureGuardContractTest extends TestCase
         $controller = (string) file_get_contents(
             (string) (new ReflectionClass(SeoMcpController::class))->getFileName()
         );
+        $support = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoMcpHttpSupport::class))->getFileName()
+        );
+        $temporary = (string) file_get_contents(
+            (string) (new ReflectionClass(TemporaryMcpAccessController::class))->getFileName()
+        );
         $middleware = (string) file_get_contents(
             (string) (new ReflectionClass(EnsureSeoServiceApi::class))->getFileName()
         );
         $routes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/api-services.php');
+        $tempRoutes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/api-mcp-temporary.php');
 
-        foreach ([$controller, $middleware, $routes] as $src) {
+        foreach ([$controller, $support, $temporary, $middleware, $routes, $tempRoutes] as $src) {
             $code = preg_replace('#/\*.*?\*/#s', '', $src) ?? $src;
             $code = preg_replace('#//.*$#m', '', $code) ?? $code;
 
@@ -39,12 +48,20 @@ final class SeoMcpHttpArchitectureGuardContractTest extends TestCase
             self::assertStringNotContainsString('Agent\\Extension', $code);
         }
 
-        self::assertStringContainsString('Site::query()', $controller);
-        self::assertStringContainsString('McpRouterReader', $controller);
-        self::assertStringContainsString('McpRouterRegistry', $controller);
-        self::assertStringNotContainsString('Article::', $controller);
-        self::assertStringNotContainsString('Keyword::', $controller);
-        self::assertStringNotContainsString('SeoFinding', $controller);
+        self::assertStringContainsString('Site::query()', $support);
+        self::assertStringContainsString('McpRouterReader', $support);
+        self::assertStringContainsString('McpRouterRegistry', $support);
+        self::assertStringContainsString('SeoMcpHttpSupport', $controller);
+        self::assertStringContainsString('SeoMcpHttpSupport', $temporary);
+        self::assertStringContainsString('mintAccess', $controller);
+        self::assertStringNotContainsString('Article::', $controller.$support.$temporary);
+        self::assertStringNotContainsString('Keyword::', $controller.$support.$temporary);
+        self::assertStringNotContainsString('SeoFinding', $controller.$support.$temporary);
+        self::assertStringNotContainsString('AuthenticateServiceApi', $temporary);
+        self::assertDoesNotMatchRegularExpression(
+            "/middleware:\\s*\\[[^\\]]*AuthenticateServiceApi/",
+            $tempRoutes,
+        );
     }
 
     public function test_reader_still_delegates_to_context_registry(): void

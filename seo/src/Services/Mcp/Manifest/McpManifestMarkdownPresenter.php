@@ -11,16 +11,20 @@ use Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterRegistry;
  */
 final class McpManifestMarkdownPresenter
 {
-    public function present(McpRouterRegistry $registry): string
+    public function present(McpRouterRegistry $registry, ?string $siteRef = null): string
     {
         $manifest = $registry->manifest();
         $lines = [
             '# SEO MCP',
             '',
-            'Discover routers, then select only the parts needed for this turn.',
-            'Views control detail (`summary` / `standard` / `detail`); parts control which context areas load.',
-            '',
         ];
+        if ($siteRef !== null && $siteRef !== '') {
+            $lines[] = 'Site: '.$siteRef;
+            $lines[] = '';
+        }
+        $lines[] = 'Discover routers, then select only the parts needed for this turn.';
+        $lines[] = 'Views control detail (`summary` / `standard` / `detail`); parts control which context areas load.';
+        $lines[] = '';
 
         $routers = is_array($manifest['routers'] ?? null) ? $manifest['routers'] : [];
         foreach ($routers as $router) {

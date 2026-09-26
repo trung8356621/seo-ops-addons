@@ -13,7 +13,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscProviderRe
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscQueryNormalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Providers\FakeLocalGscProvider;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Providers\ManualImportGscProvider;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpUrlNormalizationService;
 use PHPUnit\Framework\TestCase;
 
@@ -26,7 +25,7 @@ final class GscProviderResolutionTest extends TestCase
         parent::setUp();
 
         $importPreview = new GscImportPreviewService(
-            new GscQueryNormalizationService(new KeywordNormalizationService),
+            new GscQueryNormalizationService,
             new GscPageNormalizationService(new SerpUrlNormalizationService),
             new GscFactHashService,
         );
@@ -41,7 +40,7 @@ final class GscProviderResolutionTest extends TestCase
     public function test_manual_import_provider_key(): void
     {
         $provider = new ManualImportGscProvider(new GscImportPreviewService(
-            new GscQueryNormalizationService(new KeywordNormalizationService),
+            new GscQueryNormalizationService,
             new GscPageNormalizationService(new SerpUrlNormalizationService),
             new GscFactHashService,
         ));

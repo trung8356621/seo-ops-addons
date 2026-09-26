@@ -23,7 +23,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscSyncLockSe
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscSyncOperationService;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Providers\FakeLocalGscProvider;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Providers\ManualImportGscProvider;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordNormalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpUrlNormalizationService;
 use PHPUnit\Framework\TestCase;
 
@@ -37,7 +36,7 @@ final class GscSyncOperationTest extends TestCase
         GscDailyMetricPersistService::resetFacts();
         GscSyncOperationService::resetOperations();
 
-        $queryNormalizer = new GscQueryNormalizationService(new KeywordNormalizationService);
+        $queryNormalizer = new GscQueryNormalizationService;
         $pageNormalizer = new GscPageNormalizationService(new SerpUrlNormalizationService);
         $importPreview = new GscImportPreviewService($queryNormalizer, $pageNormalizer, new GscFactHashService);
 

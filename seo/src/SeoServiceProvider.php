@@ -67,6 +67,7 @@ final class SeoServiceProvider extends ServiceProvider
         );
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterReader::class);
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Manifest\McpManifestMarkdownPresenter::class);
+        $this->app->scoped(\Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SeoMcpHttpSupport::class);
     }
 
     public function boot(): void
