@@ -28,7 +28,9 @@ Global is not `site_id = 0` and not a null site. Global retrieval is unsupported
 
 ## Decision models
 
-Jev and Laya are registered in AI Settings as the **Decision Models** group (`ai-prompt`). Agent Runtime only asks `DecisionModelSource` / `DecisionModelGateway`.
+Decision Models is the AI Settings area. Jev is discovered from supported provider catalogs (currently OpenRouter `typesafe/jev-*`). Laya is not currently callable or discoverable through existing AI Connections. Laya support requires a dedicated Jev-compatible/self-host Decisions connection transport.
+
+Agent Runtime only asks `DecisionModelSource` / `DecisionModelGateway`.
 
 ## SEO Access
 
