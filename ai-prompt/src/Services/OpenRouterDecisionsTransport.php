@@ -40,7 +40,7 @@ final class OpenRouterDecisionsTransport implements DecisionTransport
             ->withToken((string) $connection->api_key)
             ->acceptJson()
             ->post(self::ENDPOINT, [
-                'model' => ltrim(trim($model), '~'),
+                'model' => trim($model),
                 'state' => $state,
                 'questions' => self::routingQuestions(),
             ]);

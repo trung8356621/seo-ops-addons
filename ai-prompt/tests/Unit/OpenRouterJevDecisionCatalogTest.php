@@ -95,16 +95,24 @@ final class OpenRouterJevDecisionCatalogTest extends TestCase
 
     public function test_discovery_classifies_openrouter_jev_as_decision_and_lists_it(): void
     {
-        Http::fake([
-            'openrouter.ai/*' => Http::response([
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'output_modalities=decisions')) {
+                return Http::response([
+                    'data' => [
+                        ['id' => 'typesafe/jev-latest', 'name' => 'Jev Latest', 'architecture' => ['modality' => 'text->decisions', 'output_modalities' => ['decisions']]],
+                        ['id' => 'typesafe/jev-1.13', 'name' => 'Jev 1.13', 'architecture' => ['modality' => 'text->decisions', 'output_modalities' => ['decisions']]],
+                        ['id' => 'respan/span-01', 'name' => 'Span', 'architecture' => ['modality' => 'text->decisions', 'output_modalities' => ['decisions']]],
+                    ],
+                ], 200);
+            }
+
+            return Http::response([
                 'data' => [
-                    ['id' => 'typesafe/jev-latest', 'name' => 'Jev Latest', 'architecture' => ['modality' => 'text->decision']],
-                    ['id' => 'typesafe/jev-1.13', 'name' => 'Jev 1.13', 'architecture' => ['modality' => 'text->decision']],
-                    ['id' => 'typesafe/jev-router', 'name' => 'Jev Router', 'architecture' => ['modality' => 'text->decision']],
+                    ['id' => 'typesafe/jev-router', 'name' => 'Jev Router', 'architecture' => ['modality' => 'text->text', 'output_modalities' => ['text']]],
                     ['id' => 'deepseek/deepseek-chat', 'name' => 'DeepSeek Chat', 'architecture' => ['modality' => 'text->text']],
                 ],
-            ], 200),
-        ]);
+            ], 200);
+        });
 
         $connection = ApiConnection::query()->create([
             'user_id' => 1,
@@ -127,14 +135,20 @@ final class OpenRouterJevDecisionCatalogTest extends TestCase
             'deepseek/deepseek-chat',
         ));
 
+        $this->assertNull(SeoAiModel::query()->where('raw_model_name', 'respan/span-01')->first());
+        $routerRow = SeoAiModel::query()->where('raw_model_name', 'typesafe/jev-router')->first();
+        $this->assertNotNull($routerRow);
+        $routerCaps = is_array($routerRow->capabilities) ? $routerRow->capabilities : [];
+        $this->assertNotSame(AiModelArea::Decision->value, $routerCaps[AiModelArea::PRIMARY_TYPE_KEY] ?? null);
+
         $presenter = new AiCenterModelPresenter();
         $decision = $presenter->availablePage(1, (int) $connection->id, [
             'area' => 'decision',
             'status' => 'available',
             'provider' => 'openrouter',
         ]);
-        $this->assertSame(3, $decision['total']);
-        $this->assertSame(3, $presenter->areaCounts(1)['decision']['available']);
+        $this->assertSame(2, $decision['total']);
+        $this->assertSame(2, $presenter->areaCounts(1)['decision']['available']);
         $raws = [];
         foreach ($decision['rows'] as $row) {
             $this->assertSame('decision.jev', $row['family_key']);
@@ -169,7 +183,18 @@ final class OpenRouterJevDecisionCatalogTest extends TestCase
                 $decisionRaws[] = (string) ($release['raw'] ?? '');
             }
         }
+        $this->assertNotContains('typesafe/jev-router', $decisionRaws);
         $this->assertNotContains('deepseek/deepseek-chat', $decisionRaws);
+
+        $mapped = (new \Omnichannel\Addons\AiPrompt\Services\AiRecommendedModelMapper())->mapForUser(1);
+        $this->assertGreaterThan(0, $mapped->enabled);
+        $enabledAny = false;
+        foreach (['typesafe/jev-latest', 'typesafe/jev-1.13'] as $raw) {
+            $model = SeoAiModel::query()->where('raw_model_name', $raw)->first();
+            $caps = is_array($model?->capabilities) ? $model->capabilities : [];
+            $enabledAny = $enabledAny || (bool) ($caps['omi_areas']['decision']['enabled'] ?? false);
+        }
+        $this->assertTrue($enabledAny);
     }
 
     public function test_decision_model_without_transport_is_not_available(): void

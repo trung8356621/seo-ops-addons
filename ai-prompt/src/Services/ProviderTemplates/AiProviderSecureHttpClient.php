@@ -26,6 +26,7 @@ final class AiProviderSecureHttpClient
         array $extraHeaders = [],
         ?array $jsonBody = null,
         int $timeoutSeconds = 20,
+        array $extraQuery = [],
     ): Response {
         $endpoint = $template->endpoints[$endpointKey] ?? null;
         if (! is_array($endpoint) || empty($endpoint['enabled'])) {
@@ -46,7 +47,7 @@ final class AiProviderSecureHttpClient
             $headers[strtolower((string) $name)] = (string) $value;
         }
 
-        $query = [];
+        $query = $extraQuery;
         $pending = Http::timeout($timeoutSeconds)
             ->withOptions(['allow_redirects' => false])
             ->acceptJson();

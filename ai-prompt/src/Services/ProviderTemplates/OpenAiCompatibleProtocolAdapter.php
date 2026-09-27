@@ -24,12 +24,13 @@ final class OpenAiCompatibleProtocolAdapter
     }
 
     /**
+     * @param  array<string, scalar>  $query
      * @return list<array{id: string, display_name: string, metadata: array<string, mixed>}>
      */
-    public function listModels(ApiConnection $connection): array
+    public function listModels(ApiConnection $connection, array $query = []): array
     {
         $template = $this->templateForConnection($connection);
-        $response = $this->http->request($template, 'models', (string) $connection->api_key);
+        $response = $this->http->request($template, 'models', (string) $connection->api_key, [], null, 20, $query);
         if (! $response->successful()) {
             throw new PromptRunException(
                 'Model discovery failed ('.$response->status().'): '.AiProviderSecureHttpClient::redact($response->body()),

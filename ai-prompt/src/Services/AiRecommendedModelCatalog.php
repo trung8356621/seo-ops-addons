@@ -51,6 +51,9 @@ final class AiRecommendedModelCatalog
             $this->entry('nano_banana_pro', AiModelArea::Image, 20),
             $this->entry('imagen', AiModelArea::Image, 30),
             $this->entry('veo', AiModelArea::Video, 10),
+
+            // Decision. Enables one discovered Jev family row. Does not insert models.
+            $this->entry('decision.jev', AiModelArea::Decision, 10),
         ];
     }
 

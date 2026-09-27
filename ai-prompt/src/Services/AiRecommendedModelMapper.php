@@ -148,6 +148,7 @@ final class AiRecommendedModelMapper
             AiModelArea::TextReasoning,
             AiModelArea::Image,
             AiModelArea::Video,
+            AiModelArea::Decision,
         ];
     }
 

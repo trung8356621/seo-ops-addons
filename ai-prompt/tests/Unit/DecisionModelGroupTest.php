@@ -22,7 +22,6 @@ final class DecisionModelGroupTest extends TestCase
             '~typesafe/jev-latest',
             'typesafe/jev-1.13',
             'typesafe/jev-1.13-20260917',
-            'typesafe/jev-router',
         ] as $model) {
             $caps = $registry->capabilitiesFor('openrouter', $model);
             self::assertContains(AiModelCapability::DecisionChoice->value, $caps, $model);
@@ -32,7 +31,7 @@ final class DecisionModelGroupTest extends TestCase
             self::assertNotContains(AiModelCapability::TextReasoning->value, $caps, $model);
         }
 
-        foreach (['jev', 'laya', 'vendor/laya', 'openai/gpt-4o'] as $model) {
+        foreach (['jev', 'laya', 'vendor/laya', 'openai/gpt-4o', 'typesafe/jev-router'] as $model) {
             $caps = $registry->capabilitiesFor('openrouter', $model);
             self::assertNotContains(AiModelCapability::DecisionChoice->value, $caps, $model);
         }
@@ -58,7 +57,8 @@ final class DecisionModelGroupTest extends TestCase
     {
         $catalog = new AiModelFamilyCatalog();
         self::assertSame('decision', $catalog->familyForModelId('typesafe/jev-latest')?->modality);
-        self::assertSame('decision.jev', $catalog->familyForModelId('typesafe/jev-router')?->familyKey);
+        self::assertSame('decision.jev', $catalog->familyForModelId('typesafe/jev-1.13')?->familyKey);
+        self::assertNotSame('decision', $catalog->familyForModelId('typesafe/jev-router')?->modality);
         self::assertNull($catalog->familyForModelId('laya'));
         self::assertNull($catalog->familyForModelId('vendor/laya'));
         self::assertNotSame('decision', $catalog->aggregatorFamily('openai/gpt-4o')?->modality);

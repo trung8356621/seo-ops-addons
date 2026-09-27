@@ -2614,8 +2614,25 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 ? app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
                 : new \Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter();
             $catalog = new AiModelFamilyCatalog();
+            $rows = $adapter->listModels($connection);
+            $decisionCatalogOk = true;
+            if ($provider === ApiConnectionProviders::OPENROUTER) {
+                try {
+                    foreach ($adapter->listModels($connection, ['output_modalities' => 'decisions']) as $decisionRow) {
+                        if (\Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog::isOpenRouterJev((string) ($decisionRow['id'] ?? ''))) {
+                            $rows[] = $decisionRow;
+                        }
+                    }
+                } catch (\Throwable $exception) {
+                    $decisionCatalogOk = false;
+                    logger()->warning('openrouter decision catalog discovery failed', [
+                        'connection_id' => $connectionId,
+                        'message' => \Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderSecureHttpClient::redact($exception->getMessage()),
+                    ]);
+                }
+            }
             $seenRaw = [];
-            foreach ($adapter->listModels($connection) as $row) {
+            foreach ($rows as $row) {
                 $rawName = (string) ($row['id'] ?? '');
                 if ($rawName === '' || MalformedAiModelRepairService::isMalformedProviderModelId($rawName)) {
                     continue;
@@ -2663,6 +2680,13 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             if ($provider === ApiConnectionProviders::OPENROUTER) {
                 $this->upsertOpenRouterFreeRouter($connection);
                 $seenRaw[] = OpenRouterModelEconomics::FREE_ROUTER_ID;
+                if (! $decisionCatalogOk) {
+                    foreach (SeoAiModel::query()->where('api_connection_id', $connectionId)->pluck('raw_model_name') as $existingRaw) {
+                        if (\Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog::isOpenRouterJev((string) $existingRaw)) {
+                            $seenRaw[] = (string) $existingRaw;
+                        }
+                    }
+                }
                 $seenRaw = array_values(array_unique($seenRaw));
             }
             if ($seenRaw === []) {

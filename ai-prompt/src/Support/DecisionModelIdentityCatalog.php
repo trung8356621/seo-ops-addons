@@ -16,7 +16,8 @@ use Omnichannel\Addons\AiPrompt\Services\OpenRouterModelEconomics;
 final class DecisionModelIdentityCatalog
 {
     /**
-     * Pinned OpenRouter family members. Dated 1.13 releases match {@see isOpenRouterJev()}.
+     * Pinned OpenRouter Decisions models. `typesafe/jev-router` is text output on the
+     * default catalog and is not a member. Dated 1.13 releases match {@see isOpenRouterJev()}.
      *
      * @return list<string>
      */
@@ -25,7 +26,6 @@ final class DecisionModelIdentityCatalog
         return [
             'typesafe/jev-latest',
             'typesafe/jev-1.13',
-            'typesafe/jev-router',
         ];
     }
 
@@ -57,7 +57,7 @@ final class DecisionModelIdentityCatalog
     {
         $id = strtolower(ltrim(trim($model), '~'));
 
-        return preg_match('#^typesafe/jev-(?:latest|router|1\.13(?:-\d{8})?)$#', $id) === 1;
+        return preg_match('#^typesafe/jev-(?:latest|1\.13(?:-\d{8})?)$#', $id) === 1;
     }
 
     /**
