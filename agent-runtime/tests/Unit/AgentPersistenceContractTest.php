@@ -30,6 +30,7 @@ final class AgentPersistenceContractTest extends TestCase
         }
     }
 
+
     public function test_app_registration_is_idempotent(): void
     {
         $this->artisan('migrate', ['--path' => 'D:\work\omnichannel-addons\agent-runtime\database\migrations', '--realpath' => true]);
@@ -73,16 +74,17 @@ final class AgentPersistenceContractTest extends TestCase
         self::assertSame(1, $list->total());
     }
 
-    private function turnRequest(array $payload, int $userId = 1): Request
+    private function turnRequest(array $payload, int $userId = 1, ?\App\Models\User $user = null): Request
     {
         $request = Request::create('/agent-runtime/turns', 'POST', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ACCEPT' => 'application/json',
         ], json_encode($payload, JSON_THROW_ON_ERROR));
 
-        $user = new class($userId) {
-            public function __construct(public int $id) {}
-        };
+        if ($user === null) {
+            $user = new \App\Models\User();
+            $user->id = $userId;
+        }
         $request->setUserResolver(fn () => $user);
 
         return $request;
@@ -260,5 +262,43 @@ final class AgentPersistenceContractTest extends TestCase
         self::assertSame('site', $thread->scope_type);
         self::assertSame('site:7', $thread->scope_ref);
         self::assertSame(2, $thread->messages()->count());
+    }
+    public function test_thread_owner_uses_accountOwnerId(): void
+    {
+        // 1. Staff user with parent_id: canonical accountOwnerId resolves to parent_id
+        $ownerId = 888;
+        $staff = new \App\Models\User();
+        $staff->id = 101;
+        $staff->role = \App\Models\User::ROLE_STAFF;
+        $staff->parent_id = $ownerId;
+
+        self::assertSame($ownerId, $staff->accountOwnerId());
+
+        // 2. Owner user: canonical accountOwnerId resolves to own id
+        $owner = new \App\Models\User();
+        $owner->id = $ownerId;
+        $owner->role = \App\Models\User::ROLE_OWNER;
+
+        self::assertSame($ownerId, $owner->accountOwnerId());
+
+        [$sites, $coordinator] = $this->setupRunDependencies();
+        $result = new \Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnResult(
+            new \Omnichannel\Addons\AgentRuntime\Response\AgentResponse('Owner Test', [], [], []),
+            $this->createMock(\Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput::class),
+            $this->createMock(\Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput::class),
+            true
+        );
+        $coordinator->method('send')->willReturn($result);
+
+        $controller = new AgentRuntimeController();
+        $request = $this->turnRequest([
+            'scope' => ['type' => 'global'],
+            'message' => 'Test owner',
+        ], $staff->id, $staff);
+        $controller->turn($request, $coordinator, $sites, app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
+
+        $thread = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::latest('id')->first();
+        self::assertNotNull($thread);
+        self::assertSame($ownerId, $thread->owner_id);
     }
 }

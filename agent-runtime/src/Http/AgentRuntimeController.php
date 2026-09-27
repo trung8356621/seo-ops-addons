@@ -87,7 +87,7 @@ final class AgentRuntimeController
 
         $principalType = 'user';
         $principalRef = (string) $userId;
-        $ownerId = isset($user->parent_id) ? (int) $user->parent_id : $userId;
+        $ownerId = (method_exists($user, 'accountOwnerId') ? $user->accountOwnerId() : null) ?? $userId;
 
         $threadUlid = $payload['thread_ulid'] ?? null;
         if ($threadUlid) {
@@ -214,7 +214,7 @@ final class AgentRuntimeController
 
         $principalType = 'user';
         $principalRef = (string) $userId;
-        $ownerId = isset($user->parent_id) ? (int) $user->parent_id : $userId;
+        $ownerId = (method_exists($user, 'accountOwnerId') ? $user->accountOwnerId() : null) ?? $userId;
 
         $scopeType = $payload['scope_type'] ?? 'global';
         $scopeRef = $payload['scope_ref'] ?? 'global';
