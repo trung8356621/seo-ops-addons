@@ -1,5 +1,5 @@
 @props([
-    'label' => @js(__('AI results')),
+    'label' => __('AI results'),
     'maxHeight' => '28rem',
 ])
 

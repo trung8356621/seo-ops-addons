@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowCapability;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\ContentProjects\Services\CreateArticlesFromTaskService;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptHookPresentationService;

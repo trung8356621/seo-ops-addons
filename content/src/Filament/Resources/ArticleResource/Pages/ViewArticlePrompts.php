@@ -8,7 +8,7 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryActionResult;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
@@ -23,7 +23,6 @@ class TaskWorkflowBuilder extends Page
     {
         return __('Create workflow');
     }
-
 
     public ?int $taskId = null;
 

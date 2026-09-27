@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 

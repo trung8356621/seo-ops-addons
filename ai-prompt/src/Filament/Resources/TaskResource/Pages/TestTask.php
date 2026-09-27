@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 
 use Omnichannel\Addons\Seo\Exceptions\AiModelsNotReadyException;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Models\TaskTestResult;
@@ -743,5 +743,4 @@ class TestTask extends Page implements HasForms
             ? self::INPUT_TYPE_RAW
             : self::INPUT_TYPE_ARTICLE;
     }
-
 }

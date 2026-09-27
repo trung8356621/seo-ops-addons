@@ -83,6 +83,35 @@ final class AiPromptServiceProvider extends ServiceProvider
             \Omnichannel\Addons\AiPrompt\Services\AnswerTextCompletionService::class,
         );
         $this->registerSystemPorts();
+        $this->registerLegacyAliases();
+    }
+
+    private function registerLegacyAliases(): void
+    {
+        $aliases = [
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\ListTasks' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\ListTasks::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\CreateTask' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\CreateTask::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\EditTask' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTask::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\EditTaskWorkflow' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TaskWorkflowBuilder::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TestTask' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask::class,
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow' =>
+                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow::class,
+        ];
+
+        foreach ($aliases as $legacy => $canonical) {
+            if (! class_exists($legacy, false) && ! trait_exists($legacy, false)) {
+                class_alias($canonical, $legacy);
+            }
+        }
     }
 
     private function registerSystemPorts(): void

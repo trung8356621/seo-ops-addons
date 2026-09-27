@@ -517,6 +517,12 @@ final class PromptVersionAndHistoryStorageTest extends TestCase
             $table->string('failure_scope', 64)->nullable();
             $table->string('health_mutation', 64)->nullable();
             $table->unsignedInteger('duration_ms')->nullable();
+            $table->string('addon', 32)->nullable();
+            $table->string('module', 64)->nullable();
+            $table->string('action', 64)->nullable();
+            $table->unsignedInteger('input_tokens')->nullable();
+            $table->unsignedInteger('output_tokens')->nullable();
+            $table->unsignedInteger('total_tokens')->nullable();
             $table->json('token_usage')->nullable();
             $table->json('raw')->nullable();
             $table->timestamps();

@@ -20,7 +20,7 @@
             id="seo-task-workflow-builder-root"
             data-task-id="{{ $this->taskId }}"
             data-task-name="{{ $this->getTaskName() }}"
-            data-back-url="{{ \Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource::getUrl('index') }}"
+            data-back-url="{{ \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource::getUrl('index') }}"
             data-back-label="{{ __('seo-content-ai::filament.task.back_to_tasks') }}"
             class="w-full h-full"
         ></div>

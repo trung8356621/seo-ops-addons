@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Filament\Facades\Filament;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\TestTask;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use ReflectionClass;

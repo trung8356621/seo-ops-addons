@@ -19,6 +19,35 @@ final class ContentProjectsServiceProvider extends ServiceProvider
     {
         $this->registerCapabilities();
         $this->registerWorkspaceCleanup();
+        $this->registerLegacyAliases();
+    }
+
+    private function registerLegacyAliases(): void
+    {
+        $aliases = [
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\ListTasks' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\ListTasks',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\CreateTask' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\CreateTask',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\EditTask' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\EditTask',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\EditTaskWorkflow' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\EditTaskWorkflow',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TestTask' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\TestTask',
+            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow' =>
+                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow',
+        ];
+
+        foreach ($aliases as $legacy => $canonical) {
+            if (! class_exists($legacy, false) && ! trait_exists($legacy, false) && (class_exists($canonical) || trait_exists($canonical))) {
+                class_alias($canonical, $legacy);
+            }
+        }
     }
 
     public function boot(): void

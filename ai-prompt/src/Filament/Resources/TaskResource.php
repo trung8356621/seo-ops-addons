@@ -2,13 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources;
-
-
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources;
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -29,9 +27,6 @@ class TaskResource extends SeoPanelResource
     protected static ?string $navigationIcon = 'heroicon-o-queue-list';
 
     protected static ?string $navigationGroup = null;
-
-
-
 
     protected static ?int $navigationSort = SeoUserNavigation::SORT_WORKFLOWS;
 

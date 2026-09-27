@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\Concerns;
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBinding;

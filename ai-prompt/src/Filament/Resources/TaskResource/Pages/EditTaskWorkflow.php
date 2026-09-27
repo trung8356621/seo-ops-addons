@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages;
+namespace Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -22,7 +22,6 @@ class EditTaskWorkflow extends Page
     protected static string $resource = TaskResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.task-resource.pages.task-workflow-builder';
-
 
     public ?int $taskId = null;
 
