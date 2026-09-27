@@ -11,4 +11,10 @@ Route::middleware(['web', 'auth'])
         Route::get('/projects', [AgentRuntimeController::class, 'projects'])->name('agent-runtime.projects');
         Route::post('/turns', [AgentRuntimeController::class, 'turn'])->name('agent-runtime.turns');
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');
+
+        // Thread management
+        Route::post('/threads', [AgentRuntimeController::class, 'createThread'])->name('agent-runtime.threads.create');
+        Route::get('/threads', [AgentRuntimeController::class, 'listThreads'])->name('agent-runtime.threads.list');
+        Route::get('/threads/{ulid}', [AgentRuntimeController::class, 'showThread'])->name('agent-runtime.threads.show');
+        Route::post('/threads/{ulid}/turns', [AgentRuntimeController::class, 'threadTurn'])->name('agent-runtime.threads.turn');
     });

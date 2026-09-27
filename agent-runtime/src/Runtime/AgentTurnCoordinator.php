@@ -48,7 +48,7 @@ final class AgentTurnResult
  * Routing then retrieval then answer. Copy uses the same PreparedModelInput
  * objects and does not call the answer model.
  */
-final class AgentTurnCoordinator
+class AgentTurnCoordinator
 {
     public function __construct(
         private readonly AgentModelInputBuilder $inputs,

@@ -30,10 +30,21 @@ use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 
 final class AgentRuntimeContractTest extends TestCase
 {
+    use DatabaseTransactions;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        if (!\Illuminate\Support\Facades\Schema::hasTable('agent_apps')) {
+            $this->artisan('migrate', ['--path' => 'D:\work\omnichannel-addons\agent-runtime\database\migrations', '--realpath' => true]);
+        }
+    }
+
     public function test_runtime_does_not_import_legacy_agent_workspace(): void
     {
         $root = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'src';
@@ -262,7 +273,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'What is the traffic situation?',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(1, $answers->calls);
 
@@ -292,7 +303,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'What is the traffic situation?',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(403, $response->getStatusCode());
         self::assertSame(0, $answers->calls);
 
@@ -302,7 +313,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'What is the traffic situation?',
         ], userId: 1);
 
-        $response2 = $controller->turn($request2, $coordinator, $sites);
+        $response2 = $controller->turn($request2, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(403, $response2->getStatusCode());
         self::assertSame(0, $answers->calls);
     }
@@ -322,7 +333,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'What is the traffic situation?',
         ], userId: null);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(401, $response->getStatusCode());
         self::assertSame(0, $answers->calls);
     }
@@ -344,7 +355,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Compare all sites',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(0, $answers->calls);
         self::assertSame([], $transport->calls);
@@ -370,12 +381,12 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Summarize status',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         $data = $response->getData(true)['data'];
 
         $keys = array_keys($data);
         sort($keys);
-        self::assertSame(['actions', 'blocks', 'message', 'sources'], $keys);
+        self::assertSame(['actions', 'blocks', 'message', 'sources', 'thread_ulid'], $keys);
 
         $raw = (string) $response->getContent();
         self::assertStringNotContainsString('svc_live_secret_value', $raw);
@@ -401,7 +412,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Thang 9 traffic co van de gi?',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(200, $response->getStatusCode());
 
         $data = $response->getData(true)['data'];
@@ -443,7 +454,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertArrayHasKey('answer', $copyData['copy']);
         self::assertNotEmpty($copyData['copy']['answer']);
 
-        $turnResponse = $controller->turn($request, $coordinator, $sites);
+        $turnResponse = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(200, $turnResponse->getStatusCode());
         self::assertSame(1, $answers->calls);
 
@@ -527,7 +538,7 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Test message',
         ], userId: 1);
 
-        $response = $controller->turn($request, $coordinator, $sites);
+        $response = $controller->turn($request, $coordinator, $sites, $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class), $this->createMock(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class));
         self::assertSame(200, $response->getStatusCode());
     }
 

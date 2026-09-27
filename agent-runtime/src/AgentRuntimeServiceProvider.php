@@ -81,6 +81,7 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'agent-runtime');
+        $this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');
         if (! $this->app->routesAreCached()) {
             $this->loadRoutesFrom(dirname(__DIR__).'/routes/web.php');
         }

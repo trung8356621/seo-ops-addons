@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\AgentRuntime\Model;
 /**
  * Single model-visible input. Send and Copy both read this object.
  */
-final readonly class PreparedModelInput
+readonly class PreparedModelInput
 {
     /**
      * @param  list<array{role: string, content: string}>  $messages
