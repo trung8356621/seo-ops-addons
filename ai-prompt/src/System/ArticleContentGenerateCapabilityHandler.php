@@ -40,7 +40,7 @@ final class ArticleContentGenerateCapabilityHandler implements SystemCapabilityH
         /** @var SeoPrompt|null $prompt */
         $prompt = SeoPrompt::query()->find($promptId);
         if (! $prompt instanceof SeoPrompt) {
-            throw new RuntimeException("SeoPrompt [{$promptId}] not found on omi_seo_ai.");
+            throw new RuntimeException("SeoPrompt [{$promptId}] not found.");
         }
 
         $variables = is_array($input['variables'] ?? null) ? $input['variables'] : [];

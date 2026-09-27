@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
-use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SeoTask extends Model
 {
-    use BelongsToOnDefaultConnection;
-
-    protected $connection = 'omi_seo_ai';
+    use UsesCoreDatabaseConnection;
 
     protected $table = 'seo_tasks';
 
@@ -26,6 +24,6 @@ class SeoTask extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsToOnDefaultConnection(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

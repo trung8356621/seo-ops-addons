@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,9 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PromptVersion extends Model
 {
-    use \Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
-
-    protected $connection = 'omi_seo_ai';
+    use UsesCoreDatabaseConnection;
 
     protected $table = 'prompt_versions';
 
@@ -45,7 +44,7 @@ class PromptVersion extends Model
 
     public function creator(): BelongsTo
     {
-        return $this->belongsToOnDefaultConnection(User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     /**

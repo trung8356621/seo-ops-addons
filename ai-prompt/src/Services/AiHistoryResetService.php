@@ -35,37 +35,38 @@ final class AiHistoryResetService
             'prompt_versions_preserved' => 0,
         ];
 
-        $db = DB::connection(self::CONNECTION);
+        $coreConn = (new PromptResult())->getConnectionName() ?: (string) config('database.core_connection', config('database.default', 'mysql'));
+        $seoConn = 'omi_seo_ai';
 
-        if (Schema::connection(self::CONNECTION)->hasTable('prompt_result_routing_attempts')) {
+        if (Schema::connection($coreConn)->hasTable('prompt_result_routing_attempts')) {
             $counts['prompt_result_routing_attempts'] = (int) PromptResultRoutingAttempt::query()->count();
             PromptResultRoutingAttempt::query()->delete();
         }
 
-        if (Schema::connection(self::CONNECTION)->hasTable('seo_prompt_result_links')) {
+        if (Schema::connection($seoConn)->hasTable('seo_prompt_result_links')) {
             $counts['seo_prompt_result_links'] = (int) SeoPromptResultLink::query()->count();
             SeoPromptResultLink::query()->delete();
         }
 
-        if (Schema::connection(self::CONNECTION)->hasTable('prompt_results')) {
+        if (Schema::connection($coreConn)->hasTable('prompt_results')) {
             $counts['prompt_results'] = (int) PromptResult::query()->count();
             PromptResult::query()->delete();
         }
 
-        if (Schema::connection(self::CONNECTION)->hasTable('task_test_results')) {
+        if (Schema::connection($coreConn)->hasTable('task_test_results')) {
             $counts['task_test_results'] = (int) TaskTestResult::query()->count();
             TaskTestResult::query()->delete();
         }
 
-        if (Schema::connection(self::CONNECTION)->hasTable('articles')
-            && Schema::connection(self::CONNECTION)->hasColumn('articles', 'prompt_result_id')) {
-            $db->table('articles')->whereNotNull('prompt_result_id')->update(['prompt_result_id' => null]);
+        if (Schema::connection($seoConn)->hasTable('articles')
+            && Schema::connection($seoConn)->hasColumn('articles', 'prompt_result_id')) {
+            DB::connection($seoConn)->table('articles')->whereNotNull('prompt_result_id')->update(['prompt_result_id' => null]);
         }
 
-        $counts['prompts_preserved'] = Schema::connection(self::CONNECTION)->hasTable('prompts')
+        $counts['prompts_preserved'] = Schema::connection($coreConn)->hasTable('prompts')
             ? (int) Prompt::query()->count()
             : 0;
-        $counts['prompt_versions_preserved'] = Schema::connection(self::CONNECTION)->hasTable('prompt_versions')
+        $counts['prompt_versions_preserved'] = Schema::connection($coreConn)->hasTable('prompt_versions')
             ? (int) PromptVersion::query()->count()
             : 0;
 

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
-use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
 use App\Models\ApiConnection;
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,10 +14,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Prompt extends Model
 {
-    use BelongsToOnDefaultConnection;
+    use UsesCoreDatabaseConnection;
     use SoftDeletes;
-
-    protected $connection = 'omi_seo_ai';
 
     /** @var string Bảng vật lý là `prompts` (không phải `seo_prompts`). */
     protected $table = 'prompts';
@@ -43,12 +41,12 @@ class Prompt extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsToOnDefaultConnection(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function aiConnection(): BelongsTo
     {
-        return $this->belongsToOnDefaultConnection(ApiConnection::class, 'ai_connection_id');
+        return $this->belongsTo(ApiConnection::class, 'ai_connection_id');
     }
 
     public function promptResults(): HasMany

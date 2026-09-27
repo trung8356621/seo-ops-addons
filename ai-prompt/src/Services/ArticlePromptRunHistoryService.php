@@ -1032,7 +1032,7 @@ final class ArticlePromptRunHistoryService
     private function promptResultHotQuery(): Builder
     {
         $query = PromptResult::query();
-        $schema = Schema::connection('omi_seo_ai');
+        $schema = Schema::connection((new PromptResult())->getConnectionName());
         $available = array_values(array_filter(
             PromptResult::HOT_COLUMNS,
             static fn (string $column): bool => $column === 'id' || $schema->hasColumn('prompt_results', $column),

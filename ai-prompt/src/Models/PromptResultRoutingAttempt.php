@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PromptResultRoutingAttempt extends Model
 {
-    protected $connection = 'omi_seo_ai';
+    use UsesCoreDatabaseConnection;
 
     protected $table = 'prompt_result_routing_attempts';
 

@@ -16,7 +16,12 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
  */
 final class PromptExecutionPersistence
 {
-    public const CONNECTION = 'omi_seo_ai';
+    public const CONNECTION = 'mysql';
+
+    public static function connection(): string
+    {
+        return (new PromptResult())->getConnectionName() ?: (string) config('database.core_connection', config('database.default', 'mysql'));
+    }
 
     public function __construct(
         private readonly PromptVersionService $versions,
@@ -25,7 +30,7 @@ final class PromptExecutionPersistence
     public function normalizeBeforeSave(PromptResult $result): void
     {
         $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
-        $canHashCompiled = Schema::connection(self::CONNECTION)->hasColumn('prompt_results', 'compiled_prompt_hash');
+        $canHashCompiled = Schema::connection(self::connection())->hasColumn('prompt_results', 'compiled_prompt_hash');
         $compiled = trim((string) ($snapshot['compiled_prompt'] ?? ''));
         $retainExact = $this->shouldRetainExactCompiledPrompt($snapshot);
 
@@ -70,7 +75,7 @@ final class PromptExecutionPersistence
      */
     public function fillExecutionColumns(PromptResult $result, array $snapshot): void
     {
-        if (! Schema::connection(self::CONNECTION)->hasColumn('prompt_results', 'prompt_version_id')) {
+        if (! Schema::connection(self::connection())->hasColumn('prompt_results', 'prompt_version_id')) {
             return;
         }
 
@@ -180,7 +185,7 @@ final class PromptExecutionPersistence
 
     public function syncRoutingAttempts(PromptResult $result): void
     {
-        if (! Schema::connection(self::CONNECTION)->hasTable('prompt_result_routing_attempts')) {
+        if (! Schema::connection(self::connection())->hasTable('prompt_result_routing_attempts')) {
             return;
         }
 
@@ -273,7 +278,7 @@ final class PromptExecutionPersistence
      */
     public function recordRoutingAttempts(array $attempts, array $context = [], ?int $promptResultId = null): void
     {
-        if (! Schema::connection(self::CONNECTION)->hasTable('prompt_result_routing_attempts') || $attempts === []) {
+        if (! Schema::connection(self::connection())->hasTable('prompt_result_routing_attempts') || $attempts === []) {
             return;
         }
 

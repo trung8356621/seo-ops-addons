@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PromptPart extends Model
 {
-    protected $connection = 'omi_seo_ai';
+    use UsesCoreDatabaseConnection;
 
     /** @deprecated Bảng đã drop; chỉ dùng instance không lưu DB. */
     protected $table = 'prompt_parts';

@@ -16,7 +16,12 @@ use Omnichannel\Addons\AiPrompt\Models\PromptVersion;
  */
 final class PromptVersionService
 {
-    public const CONNECTION = 'omi_seo_ai';
+    public const CONNECTION = 'mysql';
+
+    public static function connection(): string
+    {
+        return (new Prompt())->getConnectionName() ?: (string) config('database.core_connection', config('database.default', 'mysql'));
+    }
 
     /**
      * Fields that change compiled prompt / execution behavior.
@@ -34,8 +39,10 @@ final class PromptVersionService
 
     public function tablesReady(): bool
     {
-        return Schema::connection(self::CONNECTION)->hasTable('prompt_versions')
-            && Schema::connection(self::CONNECTION)->hasColumn('prompts', 'current_prompt_version_id');
+        $conn = self::connection();
+
+        return Schema::connection($conn)->hasTable('prompt_versions')
+            && Schema::connection($conn)->hasColumn('prompts', 'current_prompt_version_id');
     }
 
     /**

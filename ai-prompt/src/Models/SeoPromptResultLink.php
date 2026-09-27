@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SeoPromptResultLink extends Model
 {
+    use BelongsToOnDefaultConnection;
+
     protected $connection = 'omi_seo_ai';
 
     protected $table = 'seo_prompt_result_links';
@@ -21,7 +24,7 @@ class SeoPromptResultLink extends Model
 
     public function promptResult(): BelongsTo
     {
-        return $this->belongsTo(SeoPromptResult::class, 'prompt_result_id');
+        return $this->belongsToOnDefaultConnection(PromptResult::class, 'prompt_result_id');
     }
 
     public function article(): BelongsTo

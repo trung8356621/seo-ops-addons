@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PromptResult extends Model
 {
+    use UsesCoreDatabaseConnection;
+
     /** @var list<string> Columns for History list — never hydrates output_text. */
     public const HOT_COLUMNS = [
         'id',
@@ -39,8 +42,6 @@ class PromptResult extends Model
         'user_id',
         'site_id',
     ];
-
-    protected $connection = 'omi_seo_ai';
 
     protected $guarded = [];
 

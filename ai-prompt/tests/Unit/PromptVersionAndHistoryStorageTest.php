@@ -20,13 +20,14 @@ use Tests\TestCase;
 
 final class PromptVersionAndHistoryStorageTest extends TestCase
 {
-    private string $connection = 'omi_seo_ai';
+    private string $connection;
 
     private PromptVersionService $versions;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->connection = (new SeoPrompt())->getConnectionName() ?: (string) config('database.core_connection', 'sqlite');
         $this->createSchema();
         $this->versions = app(PromptVersionService::class);
     }
