@@ -31,8 +31,14 @@ return [
 
     /*
     | Internal standalone host / development harness navigation in Filament panels.
-    | Set to false to hide the harness from user-facing sidebar navigation while
-    | preserving direct route access (/seo/agent-runtime) for dev and tests.
+    | Default is false to hide the harness from user-facing sidebar navigation.
     */
-    'standalone_harness_navigation' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_NAVIGATION', true),
+    'standalone_harness_navigation' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_NAVIGATION', false),
+
+    /*
+    | Internal standalone host direct route access (/seo/agent-runtime).
+    | Default is false so normal end-users cannot directly access the harness.
+    | When true (or for owner/admin accounts), direct access is permitted.
+    */
+    'standalone_harness_enabled' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_ENABLED', false),
 ];

@@ -535,15 +535,87 @@ final class AgentRuntimeContractTest extends TestCase
     {
         $container = new \Illuminate\Container\Container();
         $config = new \Illuminate\Config\Repository([
-            'agent-runtime' => ['standalone_harness_navigation' => true],
+            'agent-runtime' => ['standalone_harness_navigation' => false],
         ]);
         $container->instance('config', $config);
         \Illuminate\Container\Container::setInstance($container);
 
-        self::assertTrue(AgentRuntimePage::shouldRegisterNavigation());
-
-        $config->set('agent-runtime.standalone_harness_navigation', false);
+        // Default: false (not registered in sidebar navigation)
         self::assertFalse(AgentRuntimePage::shouldRegisterNavigation());
+
+        $config->set('agent-runtime.standalone_harness_navigation', true);
+        self::assertTrue(AgentRuntimePage::shouldRegisterNavigation());
+    }
+
+    public function test_standalone_harness_can_access_blocks_normal_users_unless_permitted(): void
+    {
+        $container = new \Illuminate\Container\Container();
+        $config = new \Illuminate\Config\Repository([
+            'agent-runtime' => ['standalone_harness_enabled' => false],
+        ]);
+        $container->instance('config', $config);
+
+        $staffUser = new class extends \App\Models\User {
+            public function __construct() { $this->role = 'staff'; }
+            public function canAccessSeoPanel(): bool { return true; }
+            public function hasRole($r, $guard = null): bool { return $r === 'staff'; }
+        };
+        $adminUser = new class extends \App\Models\User {
+            public function __construct() { $this->role = 'admin'; }
+            public function canAccessSeoPanel(): bool { return true; }
+            public function hasRole($r, $guard = null): bool { return $r === 'admin'; }
+        };
+        $ownerUser = new class extends \App\Models\User {
+            public function __construct() { $this->role = 'owner'; }
+            public function canAccessSeoPanel(): bool { return true; }
+            public function hasRole($r, $guard = null): bool { return $r === 'owner'; }
+        };
+
+        $guard = new class($staffUser) implements \Illuminate\Contracts\Auth\Guard {
+            public function __construct(public $user) {}
+            public function check(): bool { return true; }
+            public function guest(): bool { return false; }
+            public function user() { return $this->user; }
+            public function id(): int { return 1; }
+            public function validate(array $credentials = []): bool { return true; }
+            public function hasUser(): bool { return true; }
+            public function setUser(\Illuminate\Contracts\Auth\Authenticatable $user): void { $this->user = $user; }
+        };
+        $authMock = new class($guard) implements \Illuminate\Contracts\Auth\Factory {
+            public function __construct(public $guard) {}
+            public function guard($name = null) { return $this->guard; }
+            public function shouldUse($name): void {}
+            public function user() { return $this->guard->user(); }
+            public function check(): bool { return true; }
+        };
+        $container->instance('auth', $authMock);
+        $container->instance(\Illuminate\Contracts\Auth\Factory::class, $authMock);
+        \Illuminate\Container\Container::setInstance($container);
+
+        // 1. Staff user when harness disabled -> blocked
+        self::assertFalse(AgentRuntimePage::canAccess());
+
+        // 2. Staff user when harness explicitly enabled -> permitted
+        $config->set('agent-runtime.standalone_harness_enabled', true);
+        self::assertTrue(AgentRuntimePage::canAccess());
+
+        // 3. Admin user when harness disabled -> permitted
+        $config->set('agent-runtime.standalone_harness_enabled', false);
+        $guard->user = $adminUser;
+        self::assertTrue(AgentRuntimePage::canAccess());
+
+        // 4. Owner user when harness disabled -> permitted
+        $guard->user = $ownerUser;
+        self::assertTrue(AgentRuntimePage::canAccess());
+    }
+
+    public function test_service_provider_registers_global_header_and_drawer_hooks(): void
+    {
+        $spSource = file_get_contents(dirname(__DIR__, 2).'/src/AgentRuntimeServiceProvider.php');
+        self::assertStringContainsString('PanelsRenderHook::USER_MENU_BEFORE', $spSource);
+        self::assertStringContainsString('PanelsRenderHook::BODY_END', $spSource);
+        self::assertStringContainsString('agent-launcher', $spSource);
+        self::assertStringContainsString('agent-drawer', $spSource);
     }
 
     /**

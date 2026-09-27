@@ -6,16 +6,16 @@ import { buildProjectItems, scopePayload, switchProject } from '../projects/proj
 export { AgentWidget, mountAgentWidget, normalizeHostContext, buildProjectItems, scopePayload, switchProject };
 export const AgentApp = AgentWidget;
 
-function readRoot() {
+function readStandaloneRoot() {
     return document.getElementById('agent-runtime-root');
 }
 
-function parseHostContext(root) {
-    if (!root) {
+function parseHostContext(element) {
+    if (!element) {
         return normalizeHostContext({ appKey: 'standalone' });
     }
     try {
-        const raw = root.dataset.hostContext ? JSON.parse(root.dataset.hostContext) : {};
+        const raw = element.dataset.hostContext ? JSON.parse(element.dataset.hostContext) : {};
         return normalizeHostContext(raw);
     } catch {
         return normalizeHostContext({ appKey: 'standalone' });
@@ -23,23 +23,63 @@ function parseHostContext(root) {
 }
 
 // Standalone harness auto-mount on internal Filament harness page
-const root = readRoot();
-if (root) {
-    const hostContext = parseHostContext(root);
-    mountAgentWidget(root, {
+const standaloneRoot = readStandaloneRoot();
+if (standaloneRoot) {
+    const hostContext = parseHostContext(standaloneRoot);
+    mountAgentWidget(standaloneRoot, {
         hostContext,
-        projectsUrl: root.dataset.projectsUrl,
-        turnUrl: root.dataset.turnUrl,
-        copyUrl: root.dataset.copyUrl,
-        csrf: root.dataset.csrf || '',
+        projectsUrl: standaloneRoot.dataset.projectsUrl,
+        turnUrl: standaloneRoot.dataset.turnUrl,
+        copyUrl: standaloneRoot.dataset.copyUrl,
+        csrf: standaloneRoot.dataset.csrf || '',
         mode: 'standalone',
     });
+}
+
+// Canonical drawer mounting
+let drawerHandle = null;
+
+export function mountDrawer() {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+    const drawerRoot = document.getElementById('agent-drawer-root');
+    if (!drawerRoot) {
+        return null;
+    }
+    if (drawerHandle) {
+        return drawerHandle;
+    }
+    const hostContext = parseHostContext(drawerRoot);
+    drawerHandle = mountAgentWidget(drawerRoot, {
+        hostContext,
+        projectsUrl: drawerRoot.dataset.projectsUrl,
+        turnUrl: drawerRoot.dataset.turnUrl,
+        copyUrl: drawerRoot.dataset.copyUrl,
+        csrf: drawerRoot.dataset.csrf || '',
+        mode: 'drawer',
+        onClose: () => {
+            window.dispatchEvent(new CustomEvent('agent-drawer:close'));
+        },
+    });
+    return drawerHandle;
+}
+
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            mountDrawer();
+        });
+    } else {
+        mountDrawer();
+    }
 }
 
 // Global browser window registry for embeddable hosts (drawers, WordPress, modals)
 if (typeof window !== 'undefined') {
     window.AgentRuntime = {
         mount: mountAgentWidget,
+        mountDrawer,
         AgentWidget,
         normalizeHostContext,
     };

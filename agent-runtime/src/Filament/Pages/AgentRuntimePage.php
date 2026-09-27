@@ -30,13 +30,13 @@ class AgentRuntimePage extends Page
     {
         if (function_exists('config')) {
             try {
-                return (bool) config('agent-runtime.standalone_harness_navigation', true);
+                return (bool) config('agent-runtime.standalone_harness_navigation', false);
             } catch (\Throwable) {
-                return true;
+                return false;
             }
         }
 
-        return true;
+        return false;
     }
 
     public static function getNavigationLabel(): string
@@ -56,10 +56,32 @@ class AgentRuntimePage extends Page
 
     public static function canAccess(): bool
     {
-        if (class_exists(SeoAccessControl::class)) {
-            return SeoAccessControl::canAccessSeoPanel();
+        if (class_exists(SeoAccessControl::class) && ! SeoAccessControl::canAccessSeoPanel()) {
+            return false;
         }
 
-        return auth()->check();
+        $user = auth()->user();
+        if (! $user) {
+            return false;
+        }
+
+        // Explicitly permitted via config (e.g. tests or internal dev flag)
+        if (function_exists('config') && (bool) config('agent-runtime.standalone_harness_enabled', false)) {
+            return true;
+        }
+
+        // Role-based authorization: only owners/admins can directly access the internal harness
+        $role = $user->role ?? null;
+        if ($role === 'owner' || $role === 'admin') {
+            return true;
+        }
+
+        if (method_exists($user, 'hasRole')) {
+            if ($user->hasRole('owner') || $user->hasRole('admin')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

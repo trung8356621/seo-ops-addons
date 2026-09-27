@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, Loader2, Send } from 'lucide-react';
+import { Copy, Loader2, Send, Sparkles, X } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -36,6 +36,7 @@ export function AgentWidget({
     copyUrl: propCopyUrl,
     csrf = '',
     mode = 'standalone',
+    onClose = null,
     className = '',
 }) {
     const hostContext = normalizeHostContext(rawHostContext);
@@ -103,7 +104,8 @@ export function AgentWidget({
 
     const selected = switchProject(projects, selectedKey);
     const globalUnsupported = selected.retrieval === 'unsupported';
-    const showSidebar = mode !== 'embedded' || !initialScope || initialScope.type === 'global';
+    const isDrawer = mode === 'drawer';
+    const showSidebar = !isDrawer && (mode !== 'embedded' || !initialScope || initialScope.type === 'global');
 
     async function copyText(text) {
         await navigator.clipboard.writeText(text);
@@ -184,11 +186,53 @@ export function AgentWidget({
     const shellClass = [
         'agent-shell',
         mode === 'embedded' ? 'agent-shell--embedded' : '',
+        isDrawer ? 'agent-shell--drawer' : '',
         className,
     ].filter(Boolean).join(' ');
 
     return (
         <div className={shellClass}>
+            {isDrawer ? (
+                <div className="agent-drawer-header">
+                    <div className="agent-drawer-header__title">
+                        <Sparkles size={18} className="agent-sparkles-icon" />
+                        <span>AI Agent</span>
+                    </div>
+                    <div className="agent-drawer-header__controls">
+                        <select
+                            className="agent-project-select"
+                            value={selected.key}
+                            onChange={(event) => {
+                                const nextKey = event.target.value;
+                                const next = switchProject(projects, nextKey);
+                                setSelectedKey(next.key);
+                                setMessages([]);
+                                setLastCopy(null);
+                                setError('');
+                            }}
+                            aria-label="Select Project"
+                        >
+                            {projects.map((project) => (
+                                <option key={project.key} value={project.key}>
+                                    {project.label} {project.retrieval === 'unsupported' ? '(No global API)' : ''}
+                                </option>
+                            ))}
+                        </select>
+                        {onClose ? (
+                            <button
+                                type="button"
+                                className="agent-drawer-close-btn"
+                                onClick={onClose}
+                                aria-label="Close Agent drawer"
+                                title="Close"
+                            >
+                                <X size={18} />
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
             {showSidebar ? (
                 <aside className="agent-projects">
                     <p className="agent-kicker">Projects</p>
@@ -224,11 +268,11 @@ export function AgentWidget({
             ) : null}
 
             <section className="agent-workspace">
-                <header>
-                    <h1>{selected.label}</h1>
+                <header className="agent-workspace-header">
+                    {!isDrawer ? <h1>{selected.label}</h1> : null}
                     {globalUnsupported ? (
                         <p className="agent-warning">
-                            All Sites retrieval is unsupported until a global SEO Access API is agreed. Sending a message will not scan every site.
+                            All Sites retrieval is unsupported until a global SEO Access API is agreed. Select a site project to send requests.
                         </p>
                     ) : null}
                 </header>
@@ -256,6 +300,16 @@ export function AgentWidget({
                         onChange={(event) => setDraft(event.target.value)}
                     />
                     <div className="agent-composer__actions">
+                        {isDrawer ? (
+                            <label className="agent-diagnostics agent-diagnostics--drawer">
+                                <input
+                                    type="checkbox"
+                                    checked={diagnostics}
+                                    onChange={(event) => setDiagnostics(event.target.checked)}
+                                />
+                                Diag
+                            </label>
+                        ) : null}
                         {diagnostics && lastCopy?.routing ? (
                             <button type="button" onClick={() => copyText(lastCopy.routing)}>
                                 Copy routing input

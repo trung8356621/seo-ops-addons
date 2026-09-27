@@ -87,3 +87,39 @@ test('response blocks component preserves structured blocks, actions, and source
     assert.equal(source.includes('block.data'), true);
     assert.equal(source.includes('source.status === \'unavailable\''), true);
 });
+
+test('canonical agent widget supports drawer mode with compact select and close button', () => {
+    const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
+    assert.equal(source.includes("mode === 'drawer'"), true);
+    assert.equal(source.includes('agent-shell--drawer'), true);
+    assert.equal(source.includes('agent-drawer-header'), true);
+    assert.equal(source.includes('agent-project-select'), true);
+    assert.equal(source.includes('agent-drawer-close-btn'), true);
+    assert.equal(source.includes('onClose'), true);
+    // When isDrawer, showSidebar is false
+    assert.equal(source.includes('!isDrawer'), true);
+});
+
+test('main entry point exports mountDrawer and hooks up onClose to agent-drawer:close event', () => {
+    const source = readFileSync(new URL('../app/main.jsx', import.meta.url), 'utf8');
+    assert.equal(source.includes('export function mountDrawer'), true);
+    assert.equal(source.includes('agent-drawer:close'), true);
+    assert.equal(source.includes('mountDrawer,'), true);
+    assert.equal(source.includes('mode: \'drawer\''), true);
+});
+
+test('blade views define global launcher and right-side drawer hook', () => {
+    const launcherSource = readFileSync(new URL('../../views/filament/hooks/agent-launcher.blade.php', import.meta.url), 'utf8');
+    assert.equal(launcherSource.includes('agent-drawer:toggle'), true);
+    assert.equal(launcherSource.includes('global-agent-launcher-trigger'), true);
+    assert.equal(launcherSource.includes('aria-haspopup="dialog"'), true);
+
+    const drawerSource = readFileSync(new URL('../../views/filament/hooks/agent-drawer.blade.php', import.meta.url), 'utf8');
+    assert.equal(drawerSource.includes('agent-drawer-root'), true);
+    assert.equal(drawerSource.includes('agent-drawer-container'), true);
+    assert.equal(drawerSource.includes('agent-drawer-scrim'), true);
+    assert.equal(drawerSource.includes('agent-drawer:toggle'), true);
+    assert.equal(drawerSource.includes('agent-drawer:close'), true);
+    assert.equal(drawerSource.includes('DomainContextResolver'), true);
+});
+

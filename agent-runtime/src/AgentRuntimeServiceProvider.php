@@ -23,6 +23,10 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AiPrompt\Contracts\AnswerTextCompletion;
 use Omnichannel\Addons\AiPrompt\Contracts\DecisionModelCompletion;
 use Omnichannel\Addons\AiPrompt\Contracts\DecisionModelSource;
+use Filament\Facades\Filament;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Support\HtmlString;
 
 final class AgentRuntimeServiceProvider extends ServiceProvider
 {
@@ -80,6 +84,68 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         if (! $this->app->routesAreCached()) {
             $this->loadRoutesFrom(dirname(__DIR__).'/routes/web.php');
         }
+        $this->registerGlobalHeaderLauncherHook();
+        $this->registerGlobalDrawerHook();
+    }
+
+    private function registerGlobalHeaderLauncherHook(): void
+    {
+        if (! class_exists(FilamentView::class) || ! class_exists(PanelsRenderHook::class)) {
+            return;
+        }
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
+            static function (): HtmlString {
+                if (! auth()->check()) {
+                    return new HtmlString('');
+                }
+
+                try {
+                    $panelId = Filament::getCurrentPanel()?->getId();
+                } catch (\Throwable) {
+                    return new HtmlString('');
+                }
+
+                if (! is_string($panelId) || ! in_array($panelId, ['admin', 'seo', 'seo-main', 'seeding'], true)) {
+                    return new HtmlString('');
+                }
+
+                return new HtmlString(
+                    view('agent-runtime::filament.hooks.agent-launcher')->render()
+                );
+            },
+        );
+    }
+
+    private function registerGlobalDrawerHook(): void
+    {
+        if (! class_exists(FilamentView::class) || ! class_exists(PanelsRenderHook::class)) {
+            return;
+        }
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::BODY_END,
+            static function (): HtmlString {
+                if (! auth()->check()) {
+                    return new HtmlString('');
+                }
+
+                try {
+                    $panelId = Filament::getCurrentPanel()?->getId();
+                } catch (\Throwable) {
+                    return new HtmlString('');
+                }
+
+                if (! is_string($panelId) || ! in_array($panelId, ['admin', 'seo', 'seo-main', 'seeding'], true)) {
+                    return new HtmlString('');
+                }
+
+                return new HtmlString(
+                    view('agent-runtime::filament.hooks.agent-drawer')->render()
+                );
+            },
+        );
     }
 
     private function registerCapabilities(): void
