@@ -457,6 +457,17 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertFalse($directory->isSiteVisible(-1, 1));
     }
 
+    public function test_eloquent_site_directory_is_fail_closed_on_invalid_user_and_site(): void
+    {
+        $directory = new EloquentSiteDirectory();
+        self::assertFalse($directory->isSiteVisible(0, 1));
+        self::assertFalse($directory->isSiteVisible(-5, 1));
+        self::assertFalse($directory->isSiteVisible(1, 0));
+        self::assertFalse($directory->isSiteVisible(1, -1));
+        self::assertSame([], $directory->listActiveSites(0));
+        self::assertSame([], $directory->listActiveSites(-1));
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */

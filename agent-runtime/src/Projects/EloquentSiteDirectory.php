@@ -25,14 +25,19 @@ final class EloquentSiteDirectory implements SiteDirectory
             if ($userId <= 0) {
                 return [];
             }
+            $user = User::query()->find($userId);
+            if (! $user instanceof User) {
+                return [];
+            }
             if (app()->bound(SiteAccess::class)) {
-                $user = User::query()->find($userId);
                 $query = app(SiteAccess::class)->accessibleSitesQuery($user);
             } else {
                 $query = Site::query();
                 if (Schema::hasColumn('sites', 'user_id')) {
-                    $user = User::query()->find($userId);
-                    $ownerId = $user instanceof User ? ($user->accountOwnerId() ?? (int) $user->id) : $userId;
+                    $ownerId = $user->accountOwnerId() ?? (int) $user->id;
+                    if ($ownerId <= 0) {
+                        return [];
+                    }
                     $query->where('user_id', $ownerId);
                 }
             }
@@ -78,15 +83,17 @@ final class EloquentSiteDirectory implements SiteDirectory
             if ($userId <= 0) {
                 return false;
             }
+            $user = User::query()->find($userId);
+            if (! $user instanceof User) {
+                return false;
+            }
             if (app()->bound(SiteAccess::class)) {
-                $user = User::query()->find($userId);
                 if (! app(SiteAccess::class)->canAccessSite($siteId, $user)) {
                     return false;
                 }
             } elseif (Schema::hasColumn('sites', 'user_id')) {
-                $user = User::query()->find($userId);
-                $ownerId = $user instanceof User ? ($user->accountOwnerId() ?? (int) $user->id) : $userId;
-                if (! Site::query()->whereKey($siteId)->where('user_id', $ownerId)->exists()) {
+                $ownerId = $user->accountOwnerId() ?? (int) $user->id;
+                if ($ownerId <= 0 || ! Site::query()->whereKey($siteId)->where('user_id', $ownerId)->exists()) {
                     return false;
                 }
             }
