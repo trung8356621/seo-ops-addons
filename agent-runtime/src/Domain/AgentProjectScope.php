@@ -43,7 +43,15 @@ final readonly class AgentProjectScope
             return self::global();
         }
         if ($type === 'site') {
-            return self::site((int) ($payload['siteId'] ?? $payload['site_id'] ?? 0));
+            $siteId = (int) ($payload['siteId'] ?? $payload['site_id'] ?? 0);
+            if ($siteId <= 0) {
+                $ref = (string) ($payload['ref'] ?? $payload['siteRef'] ?? $payload['site_ref'] ?? '');
+                if (preg_match('/^site:(\d+)$/', $ref, $matches)) {
+                    $siteId = (int) $matches[1];
+                }
+            }
+
+            return self::site($siteId);
         }
 
         throw new InvalidArgumentException('Project scope type must be global or site.');

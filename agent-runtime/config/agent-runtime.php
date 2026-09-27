@@ -28,4 +28,11 @@ return [
     | the executor may call. Empty means the current application URL.
     */
     'seo_access_base_url' => env('AGENT_RUNTIME_SEO_ACCESS_BASE_URL'),
+
+    /*
+    | Internal standalone host / development harness navigation in Filament panels.
+    | Set to false to hide the harness from user-facing sidebar navigation while
+    | preserving direct route access (/seo/agent-runtime) for dev and tests.
+    */
+    'standalone_harness_navigation' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_NAVIGATION', true),
 ];

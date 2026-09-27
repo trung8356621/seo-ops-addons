@@ -48,18 +48,31 @@ test('global retrieval stays unsupported', () => {
     assert.equal(items[0].retrieval, 'unsupported');
 });
 
-test('react shell does not offer add website', () => {
-    const source = readFileSync(new URL('../app/main.jsx', import.meta.url), 'utf8');
+test('canonical agent widget does not offer add website', () => {
+    const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
     assert.equal(/add website/i.test(source), false);
     assert.equal(source.includes('buildProjectItems'), true);
     assert.equal(source.includes('scopePayload'), true);
 });
 
-test('react shell blocks global turn execution and displays clear unsupported feedback', () => {
-    const source = readFileSync(new URL('../app/main.jsx', import.meta.url), 'utf8');
+test('canonical agent widget blocks global turn execution and displays clear unsupported feedback', () => {
+    const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
     assert.equal(source.includes('globalUnsupported'), true);
     assert.equal(source.includes('All Sites retrieval is unsupported'), true);
     assert.equal(source.includes('setError'), true);
+    assert.equal(source.includes('normalizeHostContext'), true);
+});
+
+test('main entry point exports canonical widget, mount adapter, and sets window.AgentRuntime', () => {
+    const mainSource = readFileSync(new URL('../app/main.jsx', import.meta.url), 'utf8');
+    assert.equal(mainSource.includes('mountAgentWidget'), true);
+    assert.equal(mainSource.includes('AgentWidget'), true);
+    assert.equal(mainSource.includes('window.AgentRuntime'), true);
+
+    const mountSource = readFileSync(new URL('../widget/mountAgentWidget.js', import.meta.url), 'utf8');
+    assert.equal(mountSource.includes('createRoot'), true);
+    assert.equal(mountSource.includes('AgentWidget'), true);
+    assert.equal(mountSource.includes('unmount'), true);
 });
 
 test('response blocks component preserves structured blocks, actions, and sources', () => {

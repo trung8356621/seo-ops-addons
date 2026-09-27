@@ -64,7 +64,7 @@ final class AgentRuntimeController
         if (! is_array($payload)) {
             return new JsonResponse(['message' => 'Invalid payload.'], 422);
         }
-        $scopeRaw = $payload['scope'] ?? null;
+        $scopeRaw = $payload['scope'] ?? ($payload['hostContext']['scope'] ?? null);
         if (! is_array($scopeRaw)) {
             return new JsonResponse(['message' => 'Scope is required.'], 422);
         }

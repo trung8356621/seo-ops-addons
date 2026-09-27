@@ -23,6 +23,8 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
 use Illuminate\Http\Request;
+use Omnichannel\Addons\AgentRuntime\Domain\AgentHostContext;
+use Omnichannel\Addons\AgentRuntime\Filament\Pages\AgentRuntimePage;
 use Omnichannel\Addons\AgentRuntime\Http\AgentRuntimeController;
 use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
@@ -466,6 +468,82 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertFalse($directory->isSiteVisible(1, -1));
         self::assertSame([], $directory->listActiveSites(0));
         self::assertSame([], $directory->listActiveSites(-1));
+    }
+
+    public function test_agent_host_context_normalizes_and_roundtrips(): void
+    {
+        $ctx = AgentHostContext::fromArray([
+            'appKey' => 'seo-ops',
+            'scope' => ['type' => 'site', 'ref' => 'site:3'],
+            'capabilities' => ['turn', 'model-input'],
+        ]);
+
+        self::assertSame('seo-ops', $ctx->appKey);
+        self::assertTrue($ctx->scope->isSite());
+        self::assertSame(3, $ctx->scope->siteId);
+        self::assertSame('site:3', $ctx->scope->siteRef);
+        self::assertSame(['turn', 'model-input'], $ctx->capabilities);
+
+        $array = $ctx->toArray();
+        self::assertSame('seo-ops', $array['appKey']);
+        self::assertSame('site', $array['scope']['type']);
+        self::assertSame('site:3', $array['scope']['ref']);
+    }
+
+    public function test_agent_host_context_defaults_to_standalone(): void
+    {
+        $ctx = AgentHostContext::fromArray([]);
+        self::assertSame('standalone', $ctx->appKey);
+        self::assertTrue($ctx->scope->isGlobal());
+        self::assertSame(['turn', 'model-input'], $ctx->capabilities);
+    }
+
+    public function test_agent_project_scope_parses_generic_ref_when_site_id_omitted(): void
+    {
+        $scope = AgentProjectScope::fromArray(['type' => 'site', 'ref' => 'site:42']);
+        self::assertTrue($scope->isSite());
+        self::assertSame(42, $scope->siteId);
+        self::assertSame('site:42', $scope->siteRef);
+
+        $serialized = $scope->toArray();
+        self::assertSame('site', $serialized['type']);
+        self::assertSame('site:42', $serialized['site_ref']);
+        self::assertSame(42, $serialized['site_id']);
+    }
+
+    public function test_controller_accepts_host_context_payload(): void
+    {
+        $controller = new AgentRuntimeController();
+        $decisions = new ScriptedDecisionGateway('{"intent":"traffic","needs":{"site":0.9}}');
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator($decisions, $answers);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+
+        $request = $this->createTurnRequest([
+            'hostContext' => [
+                'appKey' => 'seo-ops',
+                'scope' => ['type' => 'site', 'ref' => 'site:7'],
+            ],
+            'message' => 'Test message',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(200, $response->getStatusCode());
+    }
+
+    public function test_agent_runtime_page_should_register_navigation_respects_config(): void
+    {
+        $container = new \Illuminate\Container\Container();
+        $config = new \Illuminate\Config\Repository([
+            'agent-runtime' => ['standalone_harness_navigation' => true],
+        ]);
+        $container->instance('config', $config);
+        \Illuminate\Container\Container::setInstance($container);
+
+        self::assertTrue(AgentRuntimePage::shouldRegisterNavigation());
+
+        $config->set('agent-runtime.standalone_harness_navigation', false);
+        self::assertFalse(AgentRuntimePage::shouldRegisterNavigation());
     }
 
     /**
