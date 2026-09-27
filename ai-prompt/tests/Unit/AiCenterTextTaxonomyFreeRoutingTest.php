@@ -160,7 +160,11 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
             AiModelArea::TextReasoning,
             AiModelArea::Image,
             AiModelArea::Video,
+            AiModelArea::Decision,
         ], AiModelArea::uiCases());
+        $this->assertFalse(AiModelArea::Decision->isTextPrimary());
+        $this->assertSame('decision', AiModelArea::Decision->routingGroup());
+        $this->assertSame(AiModelArea::Decision, AiModelArea::fromProfile(AiExecutionProfile::DecisionRoute));
         $this->assertSame(AiModelArea::TextFast, AiModelArea::fromProfile(AiExecutionProfile::TextFast));
         $this->assertSame(AiModelArea::TextLongform, AiModelArea::fromProfile(AiExecutionProfile::TextLongform));
         $this->assertSame(AiModelArea::TextReasoning, AiModelArea::fromProfile(AiExecutionProfile::TextReasoning));

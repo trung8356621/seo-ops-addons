@@ -12,6 +12,8 @@ enum AiModelArea: string
     case TextReasoning = 'reasoning_text';
     case Image = 'image';
     case Video = 'video';
+    /** Decision / routing models. Not a text primary type. */
+    case Decision = 'decision';
     /** @deprecated Legacy Models tab. Migrated to a text primary type on sync/classify. */
     case Text = 'text';
 
@@ -35,6 +37,7 @@ enum AiModelArea: string
             self::TextReasoning,
             self::Image,
             self::Video,
+            self::Decision,
         ];
     }
 
@@ -76,6 +79,7 @@ enum AiModelArea: string
         return match ($this) {
             self::Image => 'image',
             self::Video => 'video',
+            self::Decision => 'decision',
             self::FreeModels => 'free',
             default => 'text',
         };
@@ -94,6 +98,10 @@ enum AiModelArea: string
             ],
             self::Image => [AiModelCapability::ImageGenerate->value],
             self::Video => [AiModelCapability::VideoGenerate->value],
+            self::Decision => array_map(
+                static fn (AiModelCapability $capability): string => $capability->value,
+                AiModelCapability::decision(),
+            ),
         };
     }
 
@@ -105,6 +113,7 @@ enum AiModelArea: string
             AiExecutionProfile::TextReasoning => self::TextReasoning,
             AiExecutionProfile::ImageGeneral, AiExecutionProfile::ImageTypography, AiExecutionProfile::ImageProduct => self::Image,
             AiExecutionProfile::VideoGeneral => self::Video,
+            AiExecutionProfile::DecisionRoute => self::Decision,
         };
     }
 
@@ -120,6 +129,7 @@ enum AiModelArea: string
             'text.fast', 'fast', 'fast_text' => self::TextFast,
             'text.longform', 'longform', 'long_form', 'long_form_text' => self::TextLongform,
             'text.reasoning', 'reasoning', 'reasoning_text' => self::TextReasoning,
+            'decision', 'decision_models', 'decision-models', 'decision.route' => self::Decision,
             default => self::tryFrom($raw) ?? self::TextFast,
         };
     }

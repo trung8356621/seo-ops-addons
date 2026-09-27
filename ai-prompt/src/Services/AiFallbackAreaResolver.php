@@ -43,7 +43,7 @@ final class AiFallbackAreaResolver
         return match ($primary) {
             AiModelArea::TextLongform, AiModelArea::TextReasoning => AiModelArea::TextFast,
             AiModelArea::TextFast, AiModelArea::Text => AiModelArea::TextFast,
-            AiModelArea::Image, AiModelArea::Video => null,
+            AiModelArea::Image, AiModelArea::Video, AiModelArea::Decision => null,
         };
     }
 

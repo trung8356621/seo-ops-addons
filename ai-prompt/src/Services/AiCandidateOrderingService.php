@@ -29,7 +29,7 @@ final class AiCandidateOrderingService
         AiUsageMode $mode,
         bool $preserveExplicitOrder,
     ): array {
-        if ($candidates === [] || $preserveExplicitOrder || $profile->isMedia()) {
+        if ($candidates === [] || $preserveExplicitOrder || $profile->usesDedicatedAreaLane()) {
             usort($candidates, static fn (RoutedAiCandidate $a, RoutedAiCandidate $b): int => $a->priority <=> $b->priority);
 
             return array_values($candidates);

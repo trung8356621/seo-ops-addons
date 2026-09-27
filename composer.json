@@ -19,6 +19,7 @@
             "Omnichannel\\Addons\\Publishing\\": "publishing/src/",
             "Omnichannel\\Addons\\SiteSync\\": "site-sync/src/",
             "Omnichannel\\Addons\\Agent\\": "agent/src/",
+            "Omnichannel\\Addons\\AgentRuntime\\": "agent-runtime/src/",
             "Omnichannel\\Addons\\Social\\": "social/src/",
             "Omnichannel\\Addons\\Commerce\\": "commerce/src/",
             "Omnichannel\\Addons\\Seeding\\": "seeding/src/",
@@ -38,6 +39,7 @@
             "Omnichannel\\Addons\\AiPrompt\\Tests\\": "ai-prompt/tests/",
             "Omnichannel\\Addons\\SiteSync\\Tests\\": "site-sync/tests/",
             "Omnichannel\\Addons\\Agent\\Tests\\": "agent/tests/",
+            "Omnichannel\\Addons\\AgentRuntime\\Tests\\": "agent-runtime/tests/",
             "Omnichannel\\Addons\\Social\\Tests\\": "social/tests/",
             "Omnichannel\\Addons\\Seeding\\Tests\\": "seeding/tests/"
         }

@@ -229,6 +229,7 @@ final class AiConnectionCoverageService
             AiModelArea::TextReasoning => AiExecutionProfile::TextReasoning,
             AiModelArea::Image => AiExecutionProfile::ImageGeneral,
             AiModelArea::Video => AiExecutionProfile::VideoGeneral,
+            AiModelArea::Decision => AiExecutionProfile::DecisionRoute,
             default => AiExecutionProfile::TextLongform,
         };
     }

@@ -11,6 +11,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelCapability;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog;
 
 /**
  * Assigns Models-tab primary type. Manual override in omi_areas / omi_primary_type_source wins over sync.
@@ -44,6 +45,16 @@ final class AiModelPrimaryTypeClassifier
             $caps = is_array($model->capabilities) ? $model->capabilities : [];
             $raw = (string) $model->raw_model_name;
             $isOpenRouter = OpenRouterModelEconomics::isOpenRouterProvider((string) $connection->provider);
+
+            if (DecisionModelIdentityCatalog::isDecisionModelId($raw)) {
+                if ($this->isManual($caps)) {
+                    $skippedManual++;
+                    continue;
+                }
+                $this->writeAutoPrimary($model, AiModelArea::Decision);
+                $classified++;
+                continue;
+            }
 
             if ($this->isImageOrVideo($connection, $raw, $caps)) {
                 continue;

@@ -2065,6 +2065,7 @@ return [
             'reasoning_text' => '+ Thêm Reasoning Text',
             'image' => '+ Thêm model ảnh',
             'video' => '+ Thêm model video',
+            'decision' => '+ Thêm Decision Models',
         ],
         'add_area_title' => [
             'text' => 'Thêm model text',
@@ -2074,10 +2075,12 @@ return [
             'reasoning_text' => 'Thêm Reasoning Text',
             'image' => 'Thêm model ảnh',
             'video' => 'Thêm model video',
+            'decision' => 'Thêm Decision Models',
         ],
         'automatic_help_text' => 'Dùng mọi model Text đang bật, theo thứ tự bảng AI Models.',
         'automatic_help_image' => 'Dùng model Ảnh đang bật theo thứ tự bảng, sau quy tắc tương thích ảnh.',
         'automatic_help_video' => 'Dùng model Video đang bật theo thứ tự bảng AI Models.',
+        'automatic_help_decision' => 'Dùng Decision Models đang bật theo thứ tự bảng. Nhóm này chấm điểm routing, không viết prose.',
         'manage_priority_text' => 'Quản lý thứ tự Text →',
         'manage_priority_image' => 'Quản lý thứ tự Ảnh →',
         'manage_priority_video' => 'Quản lý thứ tự Video →',
@@ -2177,6 +2180,7 @@ return [
         'tab_reasoning_text' => 'Reasoning Text',
         'tab_image' => 'Hình ảnh',
         'tab_video' => 'Video',
+        'tab_decision' => 'Decision Models',
     ],
     'settings_recommendations' => [
         'title' => 'Recommendations',

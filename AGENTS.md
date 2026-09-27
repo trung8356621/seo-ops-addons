@@ -3,7 +3,7 @@
 Peer-addon monorepo — **one Git repo**, many peer folders. No parent/child hierarchy.
 
 ## Peers
-search-foundation · seo · search-intelligence · ai-prompt · content · content-projects · media · wordpress · publishing · site-sync · agent · social · commerce · seeding · seo-content-ai-compat
+search-foundation · seo · search-intelligence · ai-prompt · content · content-projects · media · wordpress · publishing · site-sync · agent (legacy) · agent-runtime · social · commerce · seeding · seo-content-ai-compat
 
 ## Rules
 1. Addon cannot add business columns to another addon's table.
@@ -25,7 +25,9 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | **Content Project architecture (domain ownership)** | `docs/modules/CONTENT_PROJECT_ARCHITECTURE.md` — Project is domain-neutral; **item/task.site_id** is canonical site ownership |
 | AI/prompt | `ai-prompt/` |
 | Site Sync | `site-sync/` |
-| Agent/MCP | `agent/` |
+| Agent Workspace (legacy, reference-only) | `agent/` |
+| **Agent Runtime** | `agent-runtime/` — see client `docs/modules/AGENT_RUNTIME.md` |
+| Agent/MCP (Content Project compatibility) | `agent/` HTTP `/api/v1/agent/mcp/*` remains Content Project-owned |
 | Social Profile / manual share | `social/` |
 | Seeding Topic V2 / Link Intelligence | `seeding/` |
 | **Site Link Policy** (consumer composition) | `search-foundation/` — see `docs/modules/SITE_LINK_POLICY.md` |

@@ -727,6 +727,7 @@ final class AiModelPriorityService
             AiModelArea::FreeModels => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
+            AiModelArea::Decision => $family->modality === 'decision',
         };
     }
 

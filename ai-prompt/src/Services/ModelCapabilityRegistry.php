@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiCapabilitySource;
 use Omnichannel\Addons\AiPrompt\Support\AiModelCapability;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\AiPrompt\Support\BuiltInModelCapabilityCatalog;
+use Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog;
 use Omnichannel\Addons\Media\Support\ImageCapability;
 use Omnichannel\Addons\Media\Support\ImageCapabilityResolver;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
@@ -46,6 +47,11 @@ final class ModelCapabilityRegistry
             .'|'.$model;
         if (isset($this->memo[$cacheKey])) {
             return $this->memo[$cacheKey];
+        }
+
+        $decision = DecisionModelIdentityCatalog::capabilitiesFor($model);
+        if ($decision !== null) {
+            return $this->memo[$cacheKey] = $this->applyManualOverlay($connection, $model, $decision);
         }
 
         $base = BuiltInModelCapabilityCatalog::forProviderModel($provider, $model)

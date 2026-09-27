@@ -177,7 +177,7 @@ final class AiRoutingTargetService
     {
         $this->lastEligibilityDiagnostics = [];
 
-        if (! $profile->isMedia()) {
+        if (! $profile->usesDedicatedAreaLane()) {
             (new AiFreeModelsAreaMigrator($this->priorities))->migrateUserIfNeeded($userId);
         }
 
@@ -193,7 +193,7 @@ final class AiRoutingTargetService
         $this->lastEligibilityDiagnostics['paid_preferred'] = $isPaidPreferred;
         $this->lastEligibilityDiagnostics['routing_mode'] = $mode->value;
 
-        if ($profile->isMedia()) {
+        if ($profile->usesDedicatedAreaLane()) {
             $canonical = $this->applyMembershipFilter(
                 $this->liveCompatibleCandidates($userId, $profile),
                 $userId,

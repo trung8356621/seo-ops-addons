@@ -109,6 +109,12 @@ final class AiModelFamilyCatalog
             new AiModelFamily('openrouter.free', OpenRouterModelEconomics::FREE_ROUTER_LABEL, ApiConnectionProviders::OPENROUTER, 'text', [
                 OpenRouterModelEconomics::FREE_ROUTER_ID,
             ], 1, 1, 2),
+            new AiModelFamily('decision.jev', 'Jev', 'decision', 'decision', [
+                'jev',
+            ], 1, 2, 3),
+            new AiModelFamily('decision.laya', 'Laya', 'decision', 'decision', [
+                'laya',
+            ], 1, 2, 3),
         ];
     }
 
@@ -218,6 +224,7 @@ final class AiModelFamilyCatalog
         $wanted = match ($profile->group()) {
             'image' => 'image',
             'video' => 'video',
+            'decision' => 'decision',
             default => 'text',
         };
 

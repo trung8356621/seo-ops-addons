@@ -561,6 +561,7 @@ final class AiRuntimeHealthService
             \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextReasoning => 'Reasoning Text',
             \Omnichannel\Addons\AiPrompt\Support\AiModelArea::Image => 'Image',
             \Omnichannel\Addons\AiPrompt\Support\AiModelArea::Video => 'Video',
+            \Omnichannel\Addons\AiPrompt\Support\AiModelArea::Decision => 'Decision Models',
             default => $area->value,
         };
     }

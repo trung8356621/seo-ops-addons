@@ -70,6 +70,18 @@ final class AiPromptServiceProvider extends ServiceProvider
                 $app->make(\Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver::class),
             ),
         );
+        $this->app->singleton(
+            \Omnichannel\Addons\AiPrompt\Contracts\DecisionModelSource::class,
+            \Omnichannel\Addons\AiPrompt\Services\DecisionModelResolver::class,
+        );
+        $this->app->singleton(
+            \Omnichannel\Addons\AiPrompt\Contracts\DecisionModelCompletion::class,
+            \Omnichannel\Addons\AiPrompt\Services\DecisionModelCompletionService::class,
+        );
+        $this->app->singleton(
+            \Omnichannel\Addons\AiPrompt\Contracts\AnswerTextCompletion::class,
+            \Omnichannel\Addons\AiPrompt\Services\AnswerTextCompletionService::class,
+        );
         $this->registerSystemPorts();
     }
 

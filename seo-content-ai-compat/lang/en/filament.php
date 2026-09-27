@@ -2066,6 +2066,7 @@ return [
             'reasoning_text' => '+ Add Reasoning Text models',
             'image' => '+ Add image models',
             'video' => '+ Add video models',
+            'decision' => '+ Add Decision Models',
         ],
         'add_area_title' => [
             'text' => 'Add text models',
@@ -2075,10 +2076,12 @@ return [
             'reasoning_text' => 'Add Reasoning Text models',
             'image' => 'Add image models',
             'video' => 'Add video models',
+            'decision' => 'Add Decision Models',
         ],
         'automatic_help_text' => 'Uses enabled Text models in AI Models priority order.',
         'automatic_help_image' => 'Uses enabled Image models in AI Models priority order, after image compatibility rules.',
         'automatic_help_video' => 'Uses enabled Video models in AI Models priority order.',
+        'automatic_help_decision' => 'Uses enabled Decision Models in AI Models priority order. These models score routing decisions and do not write prose.',
         'manage_priority_text' => 'Manage Text priority →',
         'manage_priority_image' => 'Manage Image priority →',
         'manage_priority_video' => 'Manage Video priority →',
@@ -2178,6 +2181,7 @@ return [
         'tab_reasoning_text' => 'Reasoning Text',
         'tab_image' => 'Image',
         'tab_video' => 'Video',
+        'tab_decision' => 'Decision Models',
     ],
     'settings_recommendations' => [
         'title' => 'Recommendations',

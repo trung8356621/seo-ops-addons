@@ -1,0 +1,19 @@
+{
+    "name": "Agent Runtime",
+    "slug": "agent-runtime",
+    "version": "0.1.0",
+    "description": "Peer addon — new Agent Runtime. Independent of legacy Agent Workspace.",
+    "provider": "Omnichannel\\Addons\\AgentRuntime\\AgentRuntimeServiceProvider",
+    "providers": [
+        "Omnichannel\\Addons\\AgentRuntime\\AgentRuntimeServiceProvider"
+    ],
+    "register_early": false,
+    "legacy": false,
+    "provides": [
+        "agent.runtime"
+    ],
+    "requires": [
+        "ai.prompt"
+    ],
+    "optional": []
+}

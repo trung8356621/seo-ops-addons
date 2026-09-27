@@ -13,6 +13,8 @@ enum AiExecutionProfile: string
     case ImageTypography = 'image.typography';
     case ImageProduct = 'image.product';
     case VideoGeneral = 'video.general';
+    /** Agent routing stage. Not a Prompt Admin record and not a text profile. */
+    case DecisionRoute = 'decision.route';
 
     public function group(): string
     {
@@ -20,6 +22,7 @@ enum AiExecutionProfile: string
             self::TextFast, self::TextLongform, self::TextReasoning => 'text',
             self::ImageGeneral, self::ImageTypography, self::ImageProduct => 'image',
             self::VideoGeneral => 'video',
+            self::DecisionRoute => 'decision',
         };
     }
 
@@ -33,6 +36,7 @@ enum AiExecutionProfile: string
             self::ImageTypography => 'Typography Image',
             self::ImageProduct => 'Product Image',
             self::VideoGeneral => 'General Video',
+            self::DecisionRoute => 'Decision',
         };
     }
 
@@ -46,6 +50,7 @@ enum AiExecutionProfile: string
             self::ImageTypography => 'Images that must render text/typography',
             self::ImageProduct => 'Product gallery / product photos',
             self::VideoGeneral => 'Video generation',
+            self::DecisionRoute => 'Bounded routing scores for Agent Runtime. Not prose.',
         };
     }
 
@@ -60,6 +65,7 @@ enum AiExecutionProfile: string
             self::ImageGeneral, self::ImageProduct => [AiModelCapability::ImageGenerate],
             self::ImageTypography => [AiModelCapability::ImageGenerate, AiModelCapability::ImageTypography],
             self::VideoGeneral => [AiModelCapability::VideoGenerate],
+            self::DecisionRoute => AiModelCapability::decision(),
         };
     }
 
@@ -76,7 +82,21 @@ enum AiExecutionProfile: string
 
     public function isMedia(): bool
     {
-        return $this->group() !== 'text';
+        return in_array($this->group(), ['image', 'video'], true);
+    }
+
+    public function isDecision(): bool
+    {
+        return $this->group() === 'decision';
+    }
+
+    /**
+     * Image, video, and decision profiles stay on their own area.
+     * They do not enter the free/paid text pool.
+     */
+    public function usesDedicatedAreaLane(): bool
+    {
+        return $this->isMedia() || $this->isDecision();
     }
 
     /**

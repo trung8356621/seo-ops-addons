@@ -212,7 +212,7 @@
                         wire:key="ai-center-routing"
                     >
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.tab_routing') }}">
-                            @foreach (['text', 'image', 'video'] as $group)
+                            @foreach (['text', 'image', 'video', 'decision'] as $group)
                                 <button
                                     type="button"
                                     @click="setArea('{{ $group }}')"
@@ -224,7 +224,7 @@
                             @endforeach
                         </nav>
 
-                        @foreach (['text', 'image', 'video'] as $group)
+                        @foreach (['text', 'image', 'video', 'decision'] as $group)
                             <div class="seo-ai-profile-list" x-show="activeCapability === '{{ $group }}'" x-cloak wire:key="ai-center-routing-{{ $group }}">
                                 @foreach ($this->routingCardsFor($group) as $card)
                                     <article
@@ -1027,8 +1027,8 @@
             return {
                 activeMainTab: ['routing', 'resilience', 'health'].includes(initial.tab) ? initial.tab : 'models',
                 activeCapability: (function () {
-                    const modelAreas = ['free_models', 'fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
-                    const routingGroups = ['text', 'image', 'video'];
+                    const modelAreas = ['free_models', 'fast_text', 'long_form_text', 'reasoning_text', 'image', 'video', 'decision'];
+                    const routingGroups = ['text', 'image', 'video', 'decision'];
                     if (initial.tab === 'routing') {
                         if (routingGroups.includes(initial.area)) return initial.area;
                         if (['fast_text', 'long_form_text', 'reasoning_text', 'text', 'free_models'].includes(initial.area)) return 'text';
@@ -1084,7 +1084,7 @@
                     } catch (e) {}
                 },
                 routingGroupForCapability(capability) {
-                    return ['image', 'video'].includes(capability) ? capability : 'text';
+                    return ['image', 'video', 'decision'].includes(capability) ? capability : 'text';
                 },
                 markPanelHydrated(panel) {
                     if (panel === 'routing') {

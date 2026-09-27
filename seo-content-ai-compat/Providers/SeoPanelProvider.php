@@ -814,6 +814,7 @@ class SeoPanelProvider extends PanelProvider
             'wordpress' => 'WordPress',
             'publishing' => 'Publishing',
             'site-sync' => 'SiteSync',
+            'agent-runtime' => 'AgentRuntime',
             // agent Filament (Agent Workspace + legacy Automation UI under SEO panel) is
             // intentionally omitted — Agent Workspace is reference-only / not discovered.
             // Admin panel may still register Automation* resources explicitly when needed.

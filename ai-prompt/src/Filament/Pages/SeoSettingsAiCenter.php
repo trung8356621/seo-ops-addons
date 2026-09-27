@@ -1132,7 +1132,7 @@ class SeoSettingsAiCenter extends Page
                 if ($baseline !== [] && $this->routingProfileUnchanged($item, $baseline)) {
                     continue;
                 }
-                $automatic = $profile->isMedia()
+                $automatic = $profile->usesDedicatedAreaLane()
                     ? (($item['selection_mode'] ?? 'automatic') !== 'custom')
                     : true;
                 $familyKeys = $automatic
@@ -1155,7 +1155,7 @@ class SeoSettingsAiCenter extends Page
                     $familyKeys,
                     $mode,
                     (bool) ($item['enabled'] ?? true),
-                    ! $profile->isMedia(),
+                    ! $profile->usesDedicatedAreaLane(),
                 );
             }
         } catch (\Throwable $exception) {
