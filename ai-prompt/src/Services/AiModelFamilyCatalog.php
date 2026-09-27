@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiModelFamily;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\AiPrompt\Support\BuiltInModelCapabilityCatalog;
+use Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 
 /**
@@ -109,12 +110,7 @@ final class AiModelFamilyCatalog
             new AiModelFamily('openrouter.free', OpenRouterModelEconomics::FREE_ROUTER_LABEL, ApiConnectionProviders::OPENROUTER, 'text', [
                 OpenRouterModelEconomics::FREE_ROUTER_ID,
             ], 1, 1, 2),
-            new AiModelFamily('decision.jev', 'Jev', 'decision', 'decision', [
-                'jev',
-            ], 1, 2, 3),
-            new AiModelFamily('decision.laya', 'Laya', 'decision', 'decision', [
-                'laya',
-            ], 1, 2, 3),
+            new AiModelFamily('decision.jev', 'Jev', ApiConnectionProviders::OPENROUTER, 'decision', DecisionModelIdentityCatalog::openRouterJevModelIds(), 1, 2, 3),
         ];
     }
 
@@ -134,6 +130,9 @@ final class AiModelFamilyCatalog
         $normalized = BuiltInModelCapabilityCatalog::normalizeModel($providerModelId);
         if ($normalized === '') {
             return null;
+        }
+        if (DecisionModelIdentityCatalog::isOpenRouterJev($normalized)) {
+            return $this->find('decision.jev');
         }
 
         foreach ($this->all() as $family) {
@@ -170,6 +169,9 @@ final class AiModelFamilyCatalog
 
     private function syntheticAggregatorFamily(string $normalized): ?AiModelFamily
     {
+        if (DecisionModelIdentityCatalog::isOpenRouterJev($normalized)) {
+            return $this->find('decision.jev');
+        }
         if (! str_contains($normalized, '/') || OpenRouterModelEconomics::looksLikeNonChatId($normalized)) {
             return null;
         }

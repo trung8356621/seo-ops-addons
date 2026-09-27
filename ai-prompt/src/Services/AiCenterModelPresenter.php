@@ -19,6 +19,7 @@ final class AiCenterModelPresenter
         private readonly ModelCapabilityRegistry $capabilities = new ModelCapabilityRegistry(),
         private readonly AiExecutionTargetPresenter $executionLabels = new AiExecutionTargetPresenter(),
         private readonly OpenRouterFreePoolService $freePool = new OpenRouterFreePoolService(),
+        private readonly DecisionTransportRegistry $decisionTransports = new DecisionTransportRegistry(),
     ) {}
 
     /** @var array<string, list<array<string, mixed>>> */
@@ -492,6 +493,10 @@ final class AiCenterModelPresenter
                 if ($area->isPaidText() && $isFree) {
                     continue;
                 }
+                if ($area === AiModelArea::Decision) {
+                    $this->countDecisionReleases($out, $connection, $row);
+                    continue;
+                }
                 if ($this->priorities->isAreaEnabled($model, $area, $connection)) {
                     $out[$area->value]['enabled']++;
                 } else {
@@ -608,18 +613,25 @@ final class AiCenterModelPresenter
                 continue;
             }
             $unknown = (bool) ($row['unknown'] ?? false);
+            $decisionGap = $area === AiModelArea::Decision
+                && $this->rowSupportsArea($connection, $row, $area)
+                && ! $this->decisionTransports->rowIsCallable($connection, $row);
+            if ($decisionGap) {
+                $row['decision_transport'] = 'unavailable';
+                $row['disabled_reason'] = 'decision_transport_unavailable';
+            }
             $inArea = $unknown
                 ? $this->priorities->isExplicitlyAreaEnabled($model, $area)
                 : $this->priorities->isAreaEnabled($model, $area, $connection);
             if ($status === 'available') {
-                if ($inArea || $unknown || ! $this->rowSupportsArea($connection, $row, $area)) {
+                if ($decisionGap || $inArea || $unknown || ! $this->rowSupportsArea($connection, $row, $area)) {
                     continue;
                 }
             } elseif ($status === 'unknown') {
-                if (! $unknown || $inArea) {
+                if (! $decisionGap && (! $unknown || $inArea)) {
                     continue;
                 }
-                if (! $this->unknownRowMatchesArea($connection, $row, $area)) {
+                if (! $decisionGap && ! $this->unknownRowMatchesArea($connection, $row, $area)) {
                     continue;
                 }
             } elseif ($status === 'disabled') {
@@ -663,7 +675,12 @@ final class AiCenterModelPresenter
                 $row['model_name'] = $presented['model_name'];
                 $row['full_label'] = $presented['full_label'];
             }
-            $rows[] = $row;
+            if (($row['decision_transport'] ?? '') === 'unavailable') {
+                $row['model_name'] = trim((string) ($row['model_name'] ?? $row['label'])).' · transport unavailable';
+            }
+            foreach ($this->decisionPickerRows($row) as $pickerRow) {
+                $rows[] = $pickerRow;
+            }
         }
 
         $total = count($rows);
@@ -972,7 +989,7 @@ final class AiCenterModelPresenter
             AiModelArea::TextLongform,
             AiModelArea::TextReasoning,
             AiModelArea::FreeModels => ! $hintsImage && ! $hintsVideo,
-            AiModelArea::Decision => \Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog::isDecisionModelId($hay),
+            AiModelArea::Decision => $this->releaseIsOpenRouterJev($row),
         };
     }
 
@@ -997,6 +1014,7 @@ final class AiCenterModelPresenter
             'image' => 'image',
             'video' => 'video',
             'multimodal' => 'multimodal',
+            'decision' => 'decision',
             default => 'text',
         };
     }
@@ -1012,5 +1030,76 @@ final class AiCenterModelPresenter
         }
 
         return 'text';
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function releaseIsOpenRouterJev(array $row): bool
+    {
+        foreach ($row['releases'] ?? [] as $release) {
+            if (is_array($release) && \Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog::isOpenRouterJev((string) ($release['raw'] ?? ''))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Decision models stay one capability family, but the Add modal lists each discovered id.
+     *
+     * @param  array<string, mixed>  $row
+     * @return list<array<string, mixed>>
+     */
+    private function decisionPickerRows(array $row): array
+    {
+        $releases = array_values(array_filter(
+            $row['releases'] ?? [],
+            static fn (mixed $release): bool => is_array($release) && (string) ($release['raw'] ?? '') !== '',
+        ));
+        if (($row['family_key'] ?? '') !== 'decision.jev' || count($releases) < 2) {
+            return [$row];
+        }
+
+        $rows = [];
+        foreach ($releases as $release) {
+            $copy = $row;
+            $copy['releases'] = [$release];
+            $copy['ids'] = [(int) ($release['id'] ?? 0)];
+            $copy['release_count'] = 1;
+            $copy['identity'] = (string) ($row['identity'] ?? 'decision.jev').'|'.(string) $release['raw'];
+            $copy['label'] = (string) ($release['label'] ?? $release['raw']);
+            $copy['model_name'] = (string) $release['raw'];
+            $rows[] = $copy;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, array{enabled: int, available: int}>  $out
+     * @param  array<string, mixed>  $row
+     */
+    private function countDecisionReleases(array &$out, ApiConnection $connection, array $row): void
+    {
+        foreach ($row['releases'] ?? [] as $release) {
+            if (! is_array($release)) {
+                continue;
+            }
+            $raw = (string) ($release['raw'] ?? '');
+            if ($raw === '' || $this->decisionTransports->resolve($connection, $raw) === null) {
+                continue;
+            }
+            $model = $this->modelsById[(int) ($release['id'] ?? 0)] ?? null;
+            if (! $model instanceof SeoAiModel) {
+                continue;
+            }
+            if ($this->priorities->isAreaEnabled($model, AiModelArea::Decision, $connection)) {
+                $out[AiModelArea::Decision->value]['enabled']++;
+            } else {
+                $out[AiModelArea::Decision->value]['available']++;
+            }
+        }
     }
 }

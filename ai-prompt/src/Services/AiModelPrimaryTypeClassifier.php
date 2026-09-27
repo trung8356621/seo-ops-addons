@@ -46,7 +46,7 @@ final class AiModelPrimaryTypeClassifier
             $raw = (string) $model->raw_model_name;
             $isOpenRouter = OpenRouterModelEconomics::isOpenRouterProvider((string) $connection->provider);
 
-            if (DecisionModelIdentityCatalog::isDecisionModelId($raw)) {
+            if (DecisionModelIdentityCatalog::isDecisionModel($raw, $caps)) {
                 if ($this->isManual($caps)) {
                     $skippedManual++;
                     continue;

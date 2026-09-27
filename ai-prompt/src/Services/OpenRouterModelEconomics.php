@@ -54,6 +54,9 @@ final class OpenRouterModelEconomics
         if ($raw === self::FREE_ROUTER_ID) {
             return true;
         }
+        if (\Omnichannel\Addons\AiPrompt\Support\DecisionModelIdentityCatalog::isDecisionModel($rawModelName, $capabilities)) {
+            return false;
+        }
         if (self::looksLikeNonChatId($raw)) {
             return false;
         }

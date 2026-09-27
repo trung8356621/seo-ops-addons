@@ -4,28 +4,38 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Support;
 
+use Omnichannel\Addons\AiPrompt\Services\OpenRouterModelEconomics;
+
 /**
- * Known decision-class model identities.
+ * Decision-class identities discovered from a provider catalog.
  *
- * Lives in AI Settings ownership so Agent Runtime never hardcodes model names.
- * Leaf ids are exact. Vendor prefixes (vendor/jev) resolve to the leaf.
+ * OpenRouter Jev ids are an external contract. Rows still have to arrive
+ * through model discovery on a real connection. This catalog does not insert
+ * SeoAiModel rows. Laya is not an OpenRouter model id.
  */
 final class DecisionModelIdentityCatalog
 {
     /**
+     * Pinned OpenRouter family members. Dated 1.13 releases match {@see isOpenRouterJev()}.
+     *
      * @return list<string>
      */
-    public static function knownLeaves(): array
+    public static function openRouterJevModelIds(): array
     {
-        return ['jev', 'laya'];
+        return [
+            'typesafe/jev-latest',
+            'typesafe/jev-1.13',
+            'typesafe/jev-router',
+        ];
     }
 
     /**
-     * @return list<string>|null decision capability keys, or null when the id is not a decision model
+     * @param  array<string, mixed>  $capabilities
+     * @return list<string>|null
      */
-    public static function capabilitiesFor(string $model): ?array
+    public static function capabilitiesFor(string $model, array $capabilities = []): ?array
     {
-        if (! self::isDecisionModelId($model)) {
+        if (! self::isDecisionModel($model, $capabilities)) {
             return null;
         }
 
@@ -35,26 +45,35 @@ final class DecisionModelIdentityCatalog
         );
     }
 
-    public static function isDecisionModelId(string $model): bool
+    /**
+     * @param  array<string, mixed>  $capabilities
+     */
+    public static function isDecisionModel(string $model, array $capabilities = []): bool
     {
-        $leaf = self::leaf($model);
-
-        return $leaf !== '' && in_array($leaf, self::knownLeaves(), true);
+        return self::isOpenRouterJev($model) || self::metadataDeclaresDecision($capabilities);
     }
 
-    public static function leaf(string $model): string
+    public static function isOpenRouterJev(string $model): bool
     {
-        $normalized = strtolower(BuiltInModelCapabilityCatalog::normalizeModel($model));
-        if ($normalized === '') {
-            return '';
-        }
-        if (str_contains($normalized, '/')) {
-            $normalized = substr($normalized, (int) strrpos($normalized, '/') + 1);
-        }
-        if (str_contains($normalized, ':')) {
-            $normalized = substr($normalized, 0, (int) strpos($normalized, ':'));
+        $id = strtolower(ltrim(trim($model), '~'));
+
+        return preg_match('#^typesafe/jev-(?:latest|router|1\.13(?:-\d{8})?)$#', $id) === 1;
+    }
+
+    /**
+     * Provider architecture says this row is a decision/System One model.
+     *
+     * @param  array<string, mixed>  $capabilities
+     */
+    public static function metadataDeclaresDecision(array $capabilities): bool
+    {
+        $modality = OpenRouterModelEconomics::architectureModality($capabilities);
+        if ($modality === '') {
+            return false;
         }
 
-        return $normalized;
+        return str_contains($modality, 'decision')
+            || str_contains($modality, 'systemone')
+            || str_contains($modality, 'system-one');
     }
 }

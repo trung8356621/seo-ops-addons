@@ -50,6 +50,9 @@ final class ModelCapabilityRegistry
         }
 
         $decision = DecisionModelIdentityCatalog::capabilitiesFor($model);
+        if ($decision === null && $connection instanceof ApiConnection) {
+            $decision = $this->decisionCapabilitiesFromStoredMetadata($connection, $model);
+        }
         if ($decision !== null) {
             return $this->memo[$cacheKey] = $this->applyManualOverlay($connection, $model, $decision);
         }
@@ -86,6 +89,32 @@ final class ModelCapabilityRegistry
         }
 
         return true;
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function decisionCapabilitiesFromStoredMetadata(ApiConnection $connection, string $model): ?array
+    {
+        if ((int) $connection->id <= 0) {
+            return null;
+        }
+        $row = SeoAiModel::query()
+            ->where('api_connection_id', $connection->id)
+            ->where('raw_model_name', $model)
+            ->first();
+        if (! $row instanceof SeoAiModel) {
+            return null;
+        }
+        $caps = is_array($row->capabilities) ? $row->capabilities : [];
+        if (! DecisionModelIdentityCatalog::metadataDeclaresDecision($caps)) {
+            return null;
+        }
+
+        return array_map(
+            static fn (AiModelCapability $capability): string => $capability->value,
+            AiModelCapability::decision(),
+        );
     }
 
     /**
