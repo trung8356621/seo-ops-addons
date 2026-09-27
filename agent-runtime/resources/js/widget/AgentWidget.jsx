@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react';
-import { Copy, Loader2, Send, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
+import {
+    clearStoredThreadUlid,
+    formatTimeAgo,
+    getStoredThreadUlid,
+    setStoredThreadUlid,
+} from './agentThreadState.js';
 import '../app/agent-runtime.css';
 
 async function postJson(url, csrf, body) {
@@ -33,6 +39,7 @@ export function AgentWidget({
     endpoints: rawEndpoints,
     projectsUrl: propProjectsUrl,
     turnUrl: propTurnUrl,
+    threadsUrl: propThreadsUrl,
     copyUrl: propCopyUrl,
     csrf = '',
     mode = 'standalone',
@@ -43,6 +50,7 @@ export function AgentWidget({
     const endpoints = {
         projectsUrl: propProjectsUrl || rawEndpoints?.projectsUrl || '/agent-runtime/projects',
         turnUrl: propTurnUrl || rawEndpoints?.turnUrl || '/agent-runtime/turns',
+        threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
     };
 
@@ -58,6 +66,11 @@ export function AgentWidget({
     });
 
     const [selectedKey, setSelectedKey] = useState(initialKey);
+    const [activeThreadUlid, setActiveThreadUlid] = useState(null);
+    const [threads, setThreads] = useState([]);
+    const [showHistory, setShowHistory] = useState(false);
+    const [loadingThreads, setLoadingThreads] = useState(false);
+
     const [draft, setDraft] = useState('');
     const [messages, setMessages] = useState([]);
     const [busy, setBusy] = useState(false);
@@ -103,9 +116,116 @@ export function AgentWidget({
     }, [endpoints.projectsUrl, initialKey]);
 
     const selected = switchProject(projects, selectedKey);
+    const currentScopeRef = selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global');
     const globalUnsupported = selected.retrieval === 'unsupported';
     const isDrawer = mode === 'drawer';
     const showSidebar = !isDrawer && (mode !== 'embedded' || !initialScope || initialScope.type === 'global');
+
+    // Fetch recent threads list for current scope
+    const fetchThreads = useCallback(async (scopeRef) => {
+        if (!endpoints.threadsUrl) {
+            return;
+        }
+        setLoadingThreads(true);
+        try {
+            const url = new URL(endpoints.threadsUrl, window.location.origin);
+            url.searchParams.set('appKey', hostContext.appKey || 'seo-ops');
+            if (scopeRef) {
+                url.searchParams.set('scope_ref', scopeRef);
+            }
+            const res = await fetch(url.toString(), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            });
+            if (!res.ok) {
+                return;
+            }
+            const payload = await res.json();
+            const list = Array.isArray(payload?.data)
+                ? payload.data
+                : (Array.isArray(payload) ? payload : []);
+            setThreads(list);
+        } catch {
+            // Ignore list fetch network errors
+        } finally {
+            setLoadingThreads(false);
+        }
+    }, [endpoints.threadsUrl, hostContext.appKey]);
+
+    // Hydrate thread messages from DB without running any model
+    const loadThread = useCallback(async (ulid, scopeRef) => {
+        if (!endpoints.threadsUrl || !ulid) {
+            return;
+        }
+        setBusy(true);
+        setError('');
+        try {
+            const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload.message || 'Could not load conversation.');
+            }
+            const thread = payload?.data;
+            if (!thread) {
+                return;
+            }
+
+            setActiveThreadUlid(thread.ulid);
+            const targetScope = scopeRef || thread.scope_ref || currentScopeRef;
+            setStoredThreadUlid(hostContext.appKey, targetScope, thread.ulid);
+
+            const mapped = (thread.messages || []).map((m) => {
+                if (m.role === 'assistant') {
+                    return {
+                        role: 'assistant',
+                        content: m.content || '',
+                        response: m.response_payload || {
+                            message: m.content || '',
+                            blocks: [],
+                            actions: [],
+                            sources: [],
+                        },
+                    };
+                }
+                return {
+                    role: 'user',
+                    content: m.content || '',
+                };
+            });
+            setMessages(mapped);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setBusy(false);
+        }
+    }, [endpoints.threadsUrl, hostContext.appKey, currentScopeRef]);
+
+    // New conversation action: clears active thread, messages, and saved state
+    const onNewConversation = useCallback(() => {
+        setActiveThreadUlid(null);
+        setMessages([]);
+        setError('');
+        setLastCopy(null);
+        setDraft('');
+        clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
+        setShowHistory(false);
+    }, [hostContext.appKey, currentScopeRef]);
+
+    // Scope change / initial mount effect: sync threads list and restore stored active thread
+    useEffect(() => {
+        fetchThreads(currentScopeRef);
+
+        const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef);
+        if (storedUlid) {
+            loadThread(storedUlid, currentScopeRef);
+        } else {
+            setActiveThreadUlid(null);
+            setMessages([]);
+        }
+    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey]);
 
     async function copyText(text) {
         await navigator.clipboard.writeText(text);
@@ -158,8 +278,16 @@ export function AgentWidget({
         setDraft('');
         const history = messages.map((item) => ({ role: item.role, content: item.content }));
         setMessages((current) => [...current, { role: 'user', content: message }]);
+
+        // Thread continuity:
+        // If activeThreadUlid exists, use POST /threads/{ulid}/turns to append.
+        // Otherwise, use POST /turns which creates a new thread.
+        const sendUrl = activeThreadUlid
+            ? `${endpoints.threadsUrl}/${activeThreadUlid}/turns`
+            : endpoints.turnUrl;
+
         try {
-            const payload = await postJson(endpoints.turnUrl, csrf, {
+            const payload = await postJson(sendUrl, csrf, {
                 hostContext: {
                     appKey: hostContext.appKey,
                     scope: scopePayload(selected),
@@ -170,6 +298,14 @@ export function AgentWidget({
                 history,
             });
             const response = payload?.data?.response ?? payload?.data;
+            const returnedUlid = payload?.data?.thread_ulid || response?.thread_ulid;
+
+            if (returnedUlid && returnedUlid !== activeThreadUlid) {
+                setActiveThreadUlid(returnedUlid);
+                setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
+                fetchThreads(currentScopeRef);
+            }
+
             setLastCopy(payload?.data?.copy || null);
             setMessages((current) => [...current, {
                 role: 'assistant',
@@ -199,6 +335,27 @@ export function AgentWidget({
                         <span>AI Agent</span>
                     </div>
                     <div className="agent-drawer-header__controls">
+                        <button
+                            type="button"
+                            className="agent-header-btn agent-new-btn"
+                            onClick={onNewConversation}
+                            title="New conversation"
+                            aria-label="New conversation"
+                        >
+                            <Plus size={14} />
+                            <span className="agent-btn-text">New</span>
+                        </button>
+                        <button
+                            type="button"
+                            className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
+                            onClick={() => setShowHistory((prev) => !prev)}
+                            title="Conversation history"
+                            aria-label="Conversation history"
+                            aria-expanded={showHistory}
+                        >
+                            <History size={14} />
+                            <span className="agent-btn-text">History</span>
+                        </button>
                         <select
                             className="agent-project-select"
                             value={selected.key}
@@ -206,9 +363,9 @@ export function AgentWidget({
                                 const nextKey = event.target.value;
                                 const next = switchProject(projects, nextKey);
                                 setSelectedKey(next.key);
-                                setMessages([]);
-                                setLastCopy(null);
                                 setError('');
+                                setLastCopy(null);
+                                setShowHistory(false);
                             }}
                             aria-label="Select Project"
                         >
@@ -233,6 +390,63 @@ export function AgentWidget({
                 </div>
             ) : null}
 
+            {/* Compact History Popover */}
+            {showHistory ? (
+                <div className="agent-history-popover" role="dialog" aria-label="Conversation History">
+                    <div className="agent-history-popover__header">
+                        <span className="agent-history-popover__title">History · {selected.label}</span>
+                        <div className="agent-history-popover__actions">
+                            <button
+                                type="button"
+                                className="agent-history-new-btn"
+                                onClick={onNewConversation}
+                            >
+                                <Plus size={13} />
+                                <span>New</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="agent-history-close-btn"
+                                onClick={() => setShowHistory(false)}
+                                aria-label="Close history"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+                    <div className="agent-history-popover__body">
+                        {loadingThreads ? (
+                            <div className="agent-history-empty">
+                                <Loader2 size={16} className="agent-spin" />
+                                <span>Loading conversations...</span>
+                            </div>
+                        ) : threads.length === 0 ? (
+                            <p className="agent-history-empty">No conversations for this site yet.</p>
+                        ) : (
+                            <ul className="agent-history-list">
+                                {threads.map((t) => (
+                                    <li key={t.ulid}>
+                                        <button
+                                            type="button"
+                                            className={`agent-history-item ${t.ulid === activeThreadUlid ? 'is-active' : ''}`}
+                                            onClick={() => {
+                                                loadThread(t.ulid, currentScopeRef);
+                                                setShowHistory(false);
+                                            }}
+                                        >
+                                            <span className="agent-history-item__title">{t.title || 'Untitled conversation'}</span>
+                                            <span className="agent-history-item__meta">
+                                                {formatTimeAgo(t.last_message_at || t.created_at)}
+                                            </span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                </div>
+            ) : null}
+
             {showSidebar ? (
                 <aside className="agent-projects">
                     <p className="agent-kicker">Projects</p>
@@ -245,9 +459,9 @@ export function AgentWidget({
                                     onClick={() => {
                                         const next = switchProject(projects, project.key);
                                         setSelectedKey(next.key);
-                                        setMessages([]);
-                                        setLastCopy(null);
                                         setError('');
+                                        setLastCopy(null);
+                                        setShowHistory(false);
                                     }}
                                 >
                                     <span>{project.label}</span>
@@ -269,7 +483,32 @@ export function AgentWidget({
 
             <section className="agent-workspace">
                 <header className="agent-workspace-header">
-                    {!isDrawer ? <h1>{selected.label}</h1> : null}
+                    {!isDrawer ? (
+                        <div className="agent-workspace-header__top">
+                            <h1>{selected.label}</h1>
+                            <div className="agent-workspace-actions">
+                                <button
+                                    type="button"
+                                    className="agent-header-btn agent-new-btn"
+                                    onClick={onNewConversation}
+                                    title="New conversation"
+                                >
+                                    <Plus size={14} />
+                                    <span>New</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
+                                    onClick={() => setShowHistory((prev) => !prev)}
+                                    title="Conversation history"
+                                    aria-expanded={showHistory}
+                                >
+                                    <History size={14} />
+                                    <span>History</span>
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                     {globalUnsupported ? (
                         <p className="agent-warning">
                             All Sites retrieval is unsupported until a global SEO Access API is agreed. Select a site project to send requests.

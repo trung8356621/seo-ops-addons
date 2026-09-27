@@ -85,6 +85,7 @@
             class="agent-drawer-root"
             data-projects-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/projects"
             data-turn-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/turns"
+            data-threads-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/threads"
             data-copy-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-input"
             data-csrf="{{ csrf_token() }}"
             data-host-context="{{ json_encode($hostContext) }}"
