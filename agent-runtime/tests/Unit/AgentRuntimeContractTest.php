@@ -22,6 +22,10 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
+use Illuminate\Http\Request;
+use Omnichannel\Addons\AgentRuntime\Http\AgentRuntimeController;
+use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
+use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use PHPUnit\Framework\TestCase;
@@ -239,6 +243,242 @@ final class AgentRuntimeContractTest extends TestCase
         $policy->mintUrl('http://169.254.169.254');
     }
 
+    public function test_authenticated_site_turn_success(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2},"parameters":{}}'),
+            $answers,
+        );
+        $sites = new InMemorySiteDirectory([
+            ['id' => 7, 'domain' => 'example.test', 'user_id' => 1],
+        ]);
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'What is the traffic situation?',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(1, $answers->calls);
+
+        $data = $response->getData(true)['data'];
+        self::assertArrayHasKey('message', $data);
+        self::assertArrayHasKey('blocks', $data);
+        self::assertArrayHasKey('actions', $data);
+        self::assertArrayHasKey('sources', $data);
+        self::assertNotEmpty($data['blocks']);
+    }
+
+    public function test_invalid_or_inaccessible_site_rejected(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2},"parameters":{}}'),
+            $answers,
+        );
+        $sites = new InMemorySiteDirectory([
+            ['id' => 7, 'domain' => 'example.test', 'user_id' => 2],
+        ]);
+        $controller = new AgentRuntimeController();
+
+        // User 1 trying to access site 7 belonging to user 2
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'What is the traffic situation?',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame(0, $answers->calls);
+
+        // Nonexistent site 999
+        $request2 = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 999],
+            'message' => 'What is the traffic situation?',
+        ], userId: 1);
+
+        $response2 = $controller->turn($request2, $coordinator, $sites);
+        self::assertSame(403, $response2->getStatusCode());
+        self::assertSame(0, $answers->calls);
+    }
+
+    public function test_unauthenticated_turn_rejected(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2},"parameters":{}}'),
+            $answers,
+        );
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'What is the traffic situation?',
+        ], userId: null);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame(0, $answers->calls);
+    }
+
+    public function test_global_scope_remains_unsupported_in_controller(): void
+    {
+        $transport = new RecordingTransport();
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"all","needs":{"gsc":1},"parameters":{}}'),
+            $answers,
+            $transport,
+        );
+        $sites = new InMemorySiteDirectory();
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'global'],
+            'message' => 'Compare all sites',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(0, $answers->calls);
+        self::assertSame([], $transport->calls);
+
+        $data = $response->getData(true)['data'];
+        self::assertStringContainsString('All Sites is selected', $data['message']);
+        self::assertSame('warning', $data['blocks'][1]['type']);
+        self::assertSame('global_access_unsupported', $data['blocks'][1]['text']);
+    }
+
+    public function test_turn_response_serializes_canonical_agent_response_only(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2},"parameters":{}}'),
+            $answers,
+        );
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Summarize status',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        $data = $response->getData(true)['data'];
+
+        $keys = array_keys($data);
+        sort($keys);
+        self::assertSame(['actions', 'blocks', 'message', 'sources'], $keys);
+
+        $raw = (string) $response->getContent();
+        self::assertStringNotContainsString('svc_live_secret_value', $raw);
+        self::assertStringNotContainsString('Bearer ', $raw);
+        self::assertArrayNotHasKey('copy', $data);
+        self::assertArrayNotHasKey('answer_model_called', $data);
+    }
+
+    public function test_unavailable_gsc_metadata_is_preserved_in_controller_response(): void
+    {
+        $transport = new RecordingTransport();
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            $answers,
+            $transport,
+        );
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Thang 9 traffic co van de gi?',
+        ], userId: 1);
+
+        $response = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(200, $response->getStatusCode());
+
+        $data = $response->getData(true)['data'];
+        self::assertNotEmpty($data['sources']);
+        $gscSource = null;
+        foreach ($data['sources'] as $src) {
+            if (($src['name'] ?? null) === 'gsc') {
+                $gscSource = $src;
+                break;
+            }
+        }
+        self::assertNotNull($gscSource);
+        self::assertSame('unavailable', $gscSource['status']);
+        self::assertSame('no_synced_data', $gscSource['reason']);
+        self::assertSame(['period' => '2026-07'], $gscSource['data']['latest_available']);
+    }
+
+    public function test_model_input_copy_endpoint_shares_prepared_input_without_model_completion(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            $answers,
+        );
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+
+        $request = $this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Thang 9 traffic co van de gi?',
+        ], userId: 1);
+
+        $copyResponse = $controller->modelInput($request, $coordinator, $sites);
+        self::assertSame(200, $copyResponse->getStatusCode());
+        self::assertSame(0, $answers->calls);
+
+        $copyData = $copyResponse->getData(true)['data'];
+        self::assertArrayHasKey('copy', $copyData);
+        self::assertArrayHasKey('answer', $copyData['copy']);
+        self::assertNotEmpty($copyData['copy']['answer']);
+
+        $turnResponse = $controller->turn($request, $coordinator, $sites);
+        self::assertSame(200, $turnResponse->getStatusCode());
+        self::assertSame(1, $answers->calls);
+
+        self::assertSame($copyData['copy']['answer'], $answers->lastExport);
+    }
+
+    public function test_eloquent_site_directory_handles_empty_or_missing_table_gracefully(): void
+    {
+        $directory = new EloquentSiteDirectory();
+        self::assertIsArray($directory->listActiveSites());
+        self::assertIsArray($directory->listActiveSites(1));
+        self::assertFalse($directory->isSiteVisible(0));
+        self::assertFalse($directory->isSiteVisible(-1, 1));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function createTurnRequest(array $payload, ?int $userId = 1): Request
+    {
+        $request = Request::create('/agent-runtime/turns', 'POST', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+        ], json_encode($payload, JSON_THROW_ON_ERROR));
+
+        if ($userId !== null) {
+            $user = new class($userId) {
+                public function __construct(public int $id) {}
+            };
+            $request->setUserResolver(static fn () => $user);
+        } else {
+            $request->setUserResolver(static fn () => null);
+        }
+
+        return $request;
+    }
+
     /**
      * @param  SeoAccessTransport|null  $transport
      */
@@ -335,5 +575,41 @@ final class RecordingAnswerGateway implements AnswerModelGateway
                 'text' => 'September has no synced GSC data. The latest available period is 2026-07.',
             ]],
         ], JSON_THROW_ON_ERROR);
+    }
+}
+
+final class InMemorySiteDirectory implements SiteDirectory
+{
+    /**
+     * @param  list<array{id: int, domain: string, user_id?: int}>  $sites
+     */
+    public function __construct(public array $sites = []) {}
+
+    public function listActiveSites(?int $userId = null): array
+    {
+        $out = [];
+        foreach ($this->sites as $site) {
+            if ($userId !== null && isset($site['user_id']) && $site['user_id'] !== $userId) {
+                continue;
+            }
+            $out[] = ['id' => $site['id'], 'domain' => $site['domain']];
+        }
+
+        return $out;
+    }
+
+    public function isSiteVisible(int $siteId, ?int $userId = null): bool
+    {
+        foreach ($this->sites as $site) {
+            if ($site['id'] === $siteId) {
+                if ($userId !== null && isset($site['user_id']) && $site['user_id'] !== $userId) {
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 }

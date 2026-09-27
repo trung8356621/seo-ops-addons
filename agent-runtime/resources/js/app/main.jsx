@@ -75,6 +75,10 @@ function AgentApp({ projectsUrl, turnUrl, copyUrl, csrf }) {
         if (busy || draft.trim() === '') {
             return;
         }
+        if (globalUnsupported) {
+            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project.');
+            return;
+        }
         setBusy(true);
         setError('');
         try {
@@ -83,7 +87,7 @@ function AgentApp({ projectsUrl, turnUrl, copyUrl, csrf }) {
                 message: draft,
                 history: messages.map((message) => ({ role: message.role, content: message.content })),
             });
-            const text = payload?.data?.copy?.answer || '';
+            const text = payload?.data?.copy?.answer || payload?.data?.copy || '';
             setLastCopy(payload?.data?.copy || null);
             await copyText(text);
         } catch (caught) {
@@ -98,6 +102,10 @@ function AgentApp({ projectsUrl, turnUrl, copyUrl, csrf }) {
         if (busy || message === '') {
             return;
         }
+        if (globalUnsupported) {
+            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project to send requests.');
+            return;
+        }
         setBusy(true);
         setError('');
         setDraft('');
@@ -109,7 +117,7 @@ function AgentApp({ projectsUrl, turnUrl, copyUrl, csrf }) {
                 message,
                 history,
             });
-            const response = payload?.data?.response;
+            const response = payload?.data?.response ?? payload?.data;
             setLastCopy(payload?.data?.copy || null);
             setMessages((current) => [...current, {
                 role: 'assistant',
@@ -138,6 +146,7 @@ function AgentApp({ projectsUrl, turnUrl, copyUrl, csrf }) {
                                     setSelectedKey(next.key);
                                     setMessages([]);
                                     setLastCopy(null);
+                                    setError('');
                                 }}
                             >
                                 <span>{project.label}</span>

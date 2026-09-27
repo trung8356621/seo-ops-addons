@@ -82,13 +82,63 @@ function TableBlock({ block }) {
     );
 }
 
+function ActionsBlock({ actions }) {
+    if (!actions || actions.length === 0) {
+        return null;
+    }
+    return (
+        <div className="agent-actions">
+            {actions.map((action, index) => (
+                <div key={index} className="agent-action-item">
+                    <span className="agent-action-label">{action.label || action.action}</span>
+                    {action.status ? <span className="agent-action-status">({action.status})</span> : null}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function SourcesBlock({ sources }) {
+    if (!sources || sources.length === 0) {
+        return null;
+    }
+    return (
+        <div className="agent-sources">
+            <p className="agent-sources__title">Sources</p>
+            <ul>
+                {sources.map((source, index) => (
+                    <li key={index} className={`agent-source-item is-${source.status || 'ok'}`}>
+                        <span className="agent-source-resource">{source.name || source.resource}</span>
+                        {(source.request || source.endpoint) ? (
+                            <code className="agent-source-endpoint">{source.request || source.endpoint}</code>
+                        ) : null}
+                        {source.status === 'unavailable' && source.reason ? (
+                            <span className="agent-source-reason">({source.reason})</span>
+                        ) : null}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
 export function ResponseView({ response }) {
     if (!response) {
         return null;
     }
+
+    const blocks = Array.isArray(response.blocks) ? response.blocks : [];
+    const hasMessageInBlocks = blocks.some(
+        (b) => b.type === 'markdown' && b.text && b.text.trim() === (response.message || '').trim()
+    );
+
     return (
         <div className="agent-response">
-            {(response.blocks || []).map((block, index) => {
+            {response.message && !hasMessageInBlocks ? (
+                <MarkdownBlock text={response.message} />
+            ) : null}
+
+            {blocks.map((block, index) => {
                 if (block.type === 'warning') {
                     return <div key={index} className="agent-warning">{block.text}</div>;
                 }
@@ -98,9 +148,15 @@ export function ResponseView({ response }) {
                 if (block.type === 'table') {
                     return <TableBlock key={index} block={block} />;
                 }
-                return <MarkdownBlock key={index} text={block.text || response.message} />;
+                return <MarkdownBlock key={index} text={block.text || ''} />;
             })}
-            {(response.blocks || []).length === 0 ? <MarkdownBlock text={response.message} /> : null}
+
+            {(!response.message && blocks.length === 0) ? (
+                <p className="agent-empty">No response content.</p>
+            ) : null}
+
+            <ActionsBlock actions={response.actions} />
+            <SourcesBlock sources={response.sources} />
         </div>
     );
 }

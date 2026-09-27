@@ -54,3 +54,23 @@ test('react shell does not offer add website', () => {
     assert.equal(source.includes('buildProjectItems'), true);
     assert.equal(source.includes('scopePayload'), true);
 });
+
+test('react shell blocks global turn execution and displays clear unsupported feedback', () => {
+    const source = readFileSync(new URL('../app/main.jsx', import.meta.url), 'utf8');
+    assert.equal(source.includes('globalUnsupported'), true);
+    assert.equal(source.includes('All Sites retrieval is unsupported'), true);
+    assert.equal(source.includes('setError'), true);
+});
+
+test('response blocks component preserves structured blocks, actions, and sources', () => {
+    const source = readFileSync(new URL('../response/ResponseBlocks.jsx', import.meta.url), 'utf8');
+    assert.equal(source.includes('ActionsBlock'), true);
+    assert.equal(source.includes('SourcesBlock'), true);
+    assert.equal(source.includes('ChartBlock'), true);
+    assert.equal(source.includes('TableBlock'), true);
+    assert.equal(source.includes('MarkdownBlock'), true);
+    assert.equal(source.includes('block.type === \'chart\''), true);
+    assert.equal(source.includes('block.type === \'table\''), true);
+    assert.equal(source.includes('block.data'), true);
+    assert.equal(source.includes('source.status === \'unavailable\''), true);
+});
