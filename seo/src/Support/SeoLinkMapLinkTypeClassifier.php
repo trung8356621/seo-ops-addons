@@ -4,27 +4,60 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Support;
 
-use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Illuminate\Support\Facades\Schema;
 
 final class SeoLinkMapLinkTypeClassifier
 {
+    /**
+     * Classify a link to a managed article.
+     *
+     * Returns Internal when the article belongs to the same site.
+     * Returns ManagedCrossSite when the article belongs to a different managed site.
+     */
     public static function forManagedArticle(int $sourceSiteId, SeoArticle $targetArticle): SeoLinkMapType
     {
         return (int) ($targetArticle->site_id ?? 0) === $sourceSiteId
             ? SeoLinkMapType::Internal
-            : SeoLinkMapType::External;
+            : SeoLinkMapType::ManagedCrossSite;
     }
 
+    /**
+     * Classify an unresolved (external) URL.
+     *
+     * Priority: social → wiki_trust → needs_review.
+     */
     public static function forUnresolvedUrl(string $absoluteUrl): SeoLinkMapType
     {
+        // Contact schemes
+        if (LinkDestinationClassifier::isContactScheme($absoluteUrl)) {
+            return SeoLinkMapType::Contact;
+        }
+
         $host = self::resolveHost($absoluteUrl);
 
-        return self::isWikiTrustHost($host)
-            ? SeoLinkMapType::WikiTrust
-            : SeoLinkMapType::External;
+        // Social host check (delegated to SSOT)
+        if (LinkDestinationClassifier::isSocialHost($host)) {
+            return SeoLinkMapType::Social;
+        }
+
+        // Trusted/reference host check
+        if (self::isWikiTrustHost($host)) {
+            return SeoLinkMapType::WikiTrust;
+        }
+
+        // Unknown external host — flag for review
+        return SeoLinkMapType::NeedsReview;
+    }
+
+    /**
+     * Returns true when this link type is a social or contact CTA (i.e. not content).
+     */
+    public static function isSocialOrContactType(SeoLinkMapType $type): bool
+    {
+        return $type->isCta();
     }
 
     public static function isWikiTrustHost(string $host): bool
@@ -81,7 +114,7 @@ final class SeoLinkMapLinkTypeClassifier
 
     private static function hostMatchesPattern(string $host, string $pattern): bool
     {
-        $host = self::normalizeDomainHost($host);
+        $host    = self::normalizeDomainHost($host);
         $pattern = self::normalizeDomainHost($pattern);
 
         if ($host === '' || $pattern === '') {

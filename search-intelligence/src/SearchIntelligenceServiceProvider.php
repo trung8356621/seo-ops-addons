@@ -24,6 +24,7 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapOverviewController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapTagsController;
+use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\SiteNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapVite;
@@ -91,6 +92,11 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 Route::get('/keywords/{keyword}/relationship', TopicalMapKeywordRelationshipController::class)
                     ->whereNumber('keyword')
                     ->name('seo.topical-map.api.keyword-relationship');
+                // Site Network — global cross-site graph (read-only, no Agent Runtime).
+                Route::get('/site-network', [SiteNetworkController::class, 'overview'])
+                    ->name('seo.topical-map.api.site-network');
+                Route::get('/site-network/topics', [SiteNetworkController::class, 'topics'])
+                    ->name('seo.topical-map.api.site-network.topics');
             });
     }
 

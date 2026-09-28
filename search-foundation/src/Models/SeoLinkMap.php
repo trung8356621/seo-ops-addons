@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Models;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapDestinationKind;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Illuminate\Database\Eloquent\Model;
@@ -28,16 +29,22 @@ class SeoLinkMap extends Model
         'status',
         'last_http_status',
         'last_audited_at',
+        'destination_kind',
+        'target_site_id',
+        'is_semantic_eligible',
     ];
 
     protected $casts = [
-        'keyword_id' => 'integer',
-        'source_article_id' => 'integer',
-        'target_article_id' => 'integer',
-        'link_type' => SeoLinkMapType::class,
-        'status' => SeoLinkMapStatus::class,
-        'last_http_status' => 'integer',
-        'last_audited_at' => 'datetime',
+        'keyword_id'           => 'integer',
+        'source_article_id'    => 'integer',
+        'target_article_id'    => 'integer',
+        'target_site_id'       => 'integer',
+        'link_type'            => SeoLinkMapType::class,
+        'destination_kind'     => SeoLinkMapDestinationKind::class,
+        'status'               => SeoLinkMapStatus::class,
+        'last_http_status'     => 'integer',
+        'last_audited_at'      => 'datetime',
+        'is_semantic_eligible' => 'boolean',
     ];
 
     public function keyword(): BelongsTo

@@ -6,10 +6,12 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapDestinationKind;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
+use Omnichannel\Addons\Seo\Support\LinkDestinationClassifier;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use Omnichannel\Addons\SearchFoundation\Support\SeoLinkMapExternalUrlNormalizer;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
@@ -78,6 +80,24 @@ final class ArticleLinkContextMapService
                 continue;
             }
 
+            // PHASE 1B: Classify destination BEFORE anchor filter and Keyword creation.
+            // This prevents CTA/social/contact destinations from ever creating Keywords.
+            $targetArticle = $this->linkTargetResolver->resolveTargetArticleForLinkMap(
+                $siteId,
+                $href,
+                $article,
+            );
+            $classification = $this->classifyDestinationEarly($href, $siteId, $targetArticle);
+
+            // CTA/social/contact destinations must NOT create semantic Keywords.
+            // Persist the raw link fact only (keyword_id=null is allowed by migration).
+            if ($classification['is_cta']) {
+                $this->persistNonSemanticLinkFact($article, $href, $anchorText, $anchor, $classification);
+                $saved++;
+                continue;
+            }
+
+            // Anchor text quality filter (applies only to semantic-eligible links).
             if (
                 ! InternalAnchorKeywordFilter::isUsableAnchorPhrase($anchorText, $href)
                 || $this->ctaKeywordBlacklistFilter->isBlocked($anchorText)
@@ -97,23 +117,24 @@ final class ArticleLinkContextMapService
                 ]);
             }
 
-            [$linkType, $targetArticleId, $targetExternalUrl] = $this->classifyAndResolveTarget($article, $href, $siteId);
-
             $linkMap = SeoLinkMap::query()->create([
                 'keyword_id' => (int) $keyword->id,
                 'source_article_id' => (int) $article->id,
-                'target_article_id' => $targetArticleId,
-                'target_external_url' => $targetExternalUrl,
+                'target_article_id' => $classification['target_article_id'],
+                'target_external_url' => $classification['target_external_url'],
                 'anchor_text' => $anchorText,
                 'context_before' => $anchor['context_before'] ?? null,
                 'context_after' => $anchor['context_after'] ?? null,
-                'link_type' => $linkType,
+                'link_type' => $classification['link_type']->value,
+                'destination_kind' => $classification['destination_kind']->value ?? null,
+                'target_site_id' => $classification['target_site_id'],
+                'is_semantic_eligible' => true,
                 'status' => SeoLinkMapStatus::Active,
             ]);
 
-            $resolvedTargetUrl = trim((string) ($targetExternalUrl ?? ''));
-            if ($resolvedTargetUrl === '' && $targetArticleId !== null) {
-                $target = SeoArticle::query()->find($targetArticleId);
+            $resolvedTargetUrl = trim((string) ($classification['target_external_url'] ?? ''));
+            if ($resolvedTargetUrl === '' && $classification['target_article_id'] !== null) {
+                $target = SeoArticle::query()->find($classification['target_article_id']);
                 if ($target instanceof SeoArticle) {
                     $resolvedTargetUrl = trim((string) ($this->linkTargetResolver->resolveArticlePublicUrl($target) ?? ''));
                 }
@@ -196,7 +217,96 @@ final class ArticleLinkContextMapService
     }
 
     /**
+     * Phase 1B: Classify destination early (before Keyword creation).
+     *
+     * @return array{
+     *   link_type: SeoLinkMapType,
+     *   destination_kind: SeoLinkMapDestinationKind,
+     *   target_site_id: int|null,
+     *   target_article_id: int|null,
+     *   target_external_url: string|null,
+     *   is_cta: bool,
+     *   is_semantic_eligible: bool,
+     *   host: string
+     * }
+     */
+    private function classifyDestinationEarly(string $href, int $sourceSiteId, ?SeoArticle $resolvedTargetArticle): array
+    {
+        $absoluteUrl = $this->resolveAbsoluteExternalUrl($href, $sourceSiteId);
+        $normalizedHref = $absoluteUrl !== '' ? $absoluteUrl : $href;
+
+        $isTrustHost = false;
+        if ($resolvedTargetArticle === null) {
+            $storageUrl = SeoLinkMapExternalUrlNormalizer::forStorage($normalizedHref);
+            $resolved = $storageUrl ?? $normalizedHref;
+            $host = SeoLinkMapLinkTypeClassifier::resolveHost($resolved);
+            $isTrustHost = SeoLinkMapLinkTypeClassifier::isWikiTrustHost($host);
+        }
+
+        $result = LinkDestinationClassifier::classify(
+            $normalizedHref,
+            $sourceSiteId,
+            $resolvedTargetArticle,
+            $isTrustHost,
+        );
+
+        // Resolve target article/url for persistence.
+        $targetArticleId = null;
+        $targetExternalUrl = null;
+
+        if ($resolvedTargetArticle instanceof SeoArticle) {
+            $targetArticleId = (int) $resolvedTargetArticle->id;
+        } else {
+            $storageUrl = SeoLinkMapExternalUrlNormalizer::forStorage($normalizedHref);
+            $resolved = $storageUrl ?? $normalizedHref;
+            $targetExternalUrl = $resolved !== '' ? $resolved : null;
+        }
+
+        return [
+            'link_type' => $result['link_type'],
+            'destination_kind' => $result['destination_kind'],
+            'target_site_id' => $result['target_site_id'],
+            'target_article_id' => $targetArticleId,
+            'target_external_url' => $targetExternalUrl,
+            'is_cta' => $result['is_cta'],
+            'is_semantic_eligible' => $result['is_semantic_eligible'],
+            'host' => $result['host'],
+        ];
+    }
+
+    /**
+     * Persist a raw link fact without creating a Keyword record.
+     * Used for CTA/social/contact destinations that must not pollute keyword topology.
+     *
+     * @param  array{href: string, anchor_text: string, context_before: string|null, context_after: string|null}  $anchor
+     * @param  array{link_type: SeoLinkMapType, destination_kind: SeoLinkMapDestinationKind, target_site_id: int|null, target_article_id: int|null, target_external_url: string|null, is_cta: bool, is_semantic_eligible: bool, host: string}  $classification
+     */
+    private function persistNonSemanticLinkFact(
+        SeoArticle $article,
+        string $href,
+        string $anchorText,
+        array $anchor,
+        array $classification,
+    ): void {
+        SeoLinkMap::query()->create([
+            'keyword_id' => null,
+            'source_article_id' => (int) $article->id,
+            'target_article_id' => $classification['target_article_id'],
+            'target_external_url' => $classification['target_external_url'] ?? (trim($href) ?: null),
+            'anchor_text' => $anchorText,
+            'context_before' => $anchor['context_before'] ?? null,
+            'context_after' => $anchor['context_after'] ?? null,
+            'link_type' => $classification['link_type']->value,
+            'destination_kind' => $classification['destination_kind']->value,
+            'target_site_id' => $classification['target_site_id'],
+            'is_semantic_eligible' => false,
+            'status' => SeoLinkMapStatus::Active,
+        ]);
+    }
+
+    /**
      * @return array{0: SeoLinkMapType, 1: int|null, 2: string|null}
+     * @deprecated Use classifyDestinationEarly() for new code.
      */
     private function classifyAndResolveTarget(SeoArticle $sourceArticle, string $href, int $sourceSiteId): array
     {

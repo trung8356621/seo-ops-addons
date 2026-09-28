@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Api\Middleware\ResolveTemporaryServiceAccess;
 use Illuminate\Support\Facades\Route;
+use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\SiteNetworkAccessController;
 use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\TemporarySeoAccessController;
 
 /*
@@ -46,4 +47,14 @@ Route::middleware([
     Route::post('{token}/gsc', [TemporarySeoAccessController::class, 'gscQuery'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->name('api.v1.access.gsc.query');
+
+    // Global Site Network — cross-site directional graph (read-only, no Agent Runtime).
+    // These routes work with a global-scope access token (minted without site_id).
+    Route::get('{token}/site-network', [SiteNetworkAccessController::class, 'overview'])
+        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
+        ->name('api.v1.access.site-network');
+
+    Route::get('{token}/site-network/topics', [SiteNetworkAccessController::class, 'topics'])
+        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
+        ->name('api.v1.access.site-network.topics');
 });

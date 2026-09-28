@@ -344,8 +344,12 @@ final class KeywordLinkDetailPanelPresenter
     {
         return match ($type) {
             SeoLinkMapType::Internal => __('seo-content-ai::filament.keyword.link_type_internal'),
+            SeoLinkMapType::ManagedCrossSite => __('seo-content-ai::filament.keyword.link_type_managed_cross_site', [], null) ?: 'Managed Cross-Site',
             SeoLinkMapType::External => __('seo-content-ai::filament.keyword.link_type_external'),
             SeoLinkMapType::WikiTrust => __('seo-content-ai::filament.keyword.link_type_wiki_trust'),
+            SeoLinkMapType::Social => __('seo-content-ai::filament.keyword.link_type_social', [], null) ?: 'Social / CTA',
+            SeoLinkMapType::Contact => __('seo-content-ai::filament.keyword.link_type_contact', [], null) ?: 'Contact',
+            SeoLinkMapType::NeedsReview => __('seo-content-ai::filament.keyword.link_type_needs_review', [], null) ?: 'Needs Review',
         };
     }
 
@@ -353,8 +357,12 @@ final class KeywordLinkDetailPanelPresenter
     {
         return match ($type) {
             SeoLinkMapType::Internal => 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 px-2 py-0.5 rounded text-xs font-medium',
+            SeoLinkMapType::ManagedCrossSite => 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300 px-2 py-0.5 rounded text-xs font-medium',
             SeoLinkMapType::External => 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300 px-2 py-0.5 rounded text-xs font-medium',
             SeoLinkMapType::WikiTrust => 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 px-2 py-0.5 rounded text-xs font-medium',
+            SeoLinkMapType::Social => 'bg-pink-50 text-pink-700 dark:bg-pink-500/10 dark:text-pink-300 px-2 py-0.5 rounded text-xs font-medium',
+            SeoLinkMapType::Contact => 'bg-slate-50 text-slate-600 dark:bg-slate-500/10 dark:text-slate-300 px-2 py-0.5 rounded text-xs font-medium',
+            SeoLinkMapType::NeedsReview => 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300 px-2 py-0.5 rounded text-xs font-medium',
         };
     }
 

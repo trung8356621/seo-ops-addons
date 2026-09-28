@@ -26,6 +26,22 @@ final class TopicalMapAccess
         }
     }
 
+    /**
+     * Global (cross-site) read access — read-only, no site scoping.
+     * Used by Site Network view. Agent Runtime global retrieval stays unsupported.
+     */
+    public function canAccessGlobal(): bool
+    {
+        return SeoAccessControl::canAccessPlannerFeatures();
+    }
+
+    public function assertCanAccessGlobal(): void
+    {
+        if (! $this->canAccessGlobal()) {
+            throw new AccessDeniedHttpException('Global Site Network access denied.');
+        }
+    }
+
     public function canAccessSite(int $siteId): bool
     {
         return $siteId > 0

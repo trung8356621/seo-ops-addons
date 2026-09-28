@@ -94,7 +94,7 @@ final class TopicalMapV1ClosureContractTest extends TestCase
         $status = (string) file_get_contents(
             (string) (new ReflectionClass(TopicalMapAuditStatusService::class))->getFileName()
         );
-        self::assertStringContainsString("'can_run' => \$topicCount > 0", $status);
+        self::assertStringContainsString("'can_run' => \$overview->topicCount > 0", $status);
         self::assertStringContainsString('STATUS_NEVER_RUN', $status);
         self::assertStringContainsString('STATUS_CURRENT', $status);
         self::assertStringContainsString('STATUS_STALE', $status);
@@ -102,6 +102,12 @@ final class TopicalMapV1ClosureContractTest extends TestCase
         self::assertStringContainsString('resolveAiHistoryUrl', $status);
         self::assertStringContainsString('TopicalMapAuditHistoryLinker', $status);
         self::assertStringNotContainsString('ensureSharedDraft', $status);
+
+        $access = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess::class))->getFileName()
+        );
+        self::assertStringContainsString('canAccessGlobal', $access);
+        self::assertStringContainsString('assertCanAccessGlobal', $access);
     }
 
     public function test_tag_provenance_migration_and_constants(): void

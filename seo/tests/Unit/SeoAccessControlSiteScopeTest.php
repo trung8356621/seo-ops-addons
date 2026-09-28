@@ -8,14 +8,13 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class SeoAccessControlSiteScopeTest extends TestCase
 {
-    use RefreshDatabase;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -26,6 +25,27 @@ final class SeoAccessControlSiteScopeTest extends TestCase
             'database' => ':memory:',
             'prefix' => '',
         ]);
+
+        Schema::dropIfExists('users');
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role')->default('user');
+            $table->string('status')->default('normal');
+            $table->timestamps();
+        });
+
+        Schema::dropIfExists('sites');
+        Schema::create('sites', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('domain')->nullable();
+            $table->string('status')->default('active');
+            $table->timestamps();
+            $table->softDeletes();
+        });
     }
 
     public function test_apply_accessible_site_scope_uses_resolved_ids_not_subquery(): void
