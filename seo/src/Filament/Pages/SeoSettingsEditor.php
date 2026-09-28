@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
+use Omnichannel\Addons\Seo\Support\SettingsTagNormalizer;
 use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -81,15 +82,16 @@ class SeoSettingsEditor extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_editor.wiki_trust_domains'))
                             ->placeholder(__('seo-content-ai::filament.settings_editor.trusted_domains_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_editor.wiki_trust_domains_hint'))
+                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_TRUSTED_DOMAIN))
                             ->nestedRecursiveRules([
                                 fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    if (! is_string($value) || \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern($value) === null) {
+                                    if (! is_string($value) || SettingsTagNormalizer::normalizeTrustedDomainTag($value) === null) {
                                         $fail(__('seo-content-ai::filament.settings_editor.invalid_trusted_domain', ['domain' => (string) $value]));
                                     }
                                 },
                             ])
                             ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? array_map(fn ($tag) => \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern((string) $tag) ?? $tag, $state)
+                                ? SettingsTagNormalizer::normalizeTrustedDomainTags($state)
                                 : $state
                             )
                             ->columnSpanFull(),
@@ -100,10 +102,15 @@ class SeoSettingsEditor extends Page implements HasForms
                         Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
                             ->label(__('seo-content-ai::filament.settings_overview.faq_keywords_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_editor.faq_keywords_placeholder'))
+                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_PHRASE))
                             ->nestedRecursiveRules([
                                 'string',
                                 'min:1',
                             ])
+                            ->dehydrateStateUsing(fn ($state) => is_array($state)
+                                ? SettingsTagNormalizer::normalizePhraseTags($state)
+                                : $state
+                            )
                             ->columnSpanFull(),
                     ]),
             ])
@@ -122,7 +129,7 @@ class SeoSettingsEditor extends Page implements HasForms
         }
 
         foreach ($trustDomains as $domain) {
-            if (\Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern((string) $domain) === null) {
+            if (SettingsTagNormalizer::normalizeTrustedDomainTag((string) $domain) === null) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'wiki_trust_domains' => __('seo-content-ai::filament.settings_editor.invalid_trusted_domain', ['domain' => (string) $domain]),
                 ]);

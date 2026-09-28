@@ -12,6 +12,7 @@ use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SettingsTagNormalizer;
 use Omnichannel\Addons\Social\Services\SocialSupportedDomainService;
 use App\Help\HelpUi;
 use Filament\Forms;
@@ -189,19 +190,16 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_overview.team_chat_extensions_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_general.team_chat_extensions_hint'))
+                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_EXTENSION))
                             ->nestedRecursiveRules([
                                 fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    $clean = strtolower(ltrim(trim((string) $value), '.'));
-                                    if ($clean === '' || ! preg_match('/^[a-z0-9]{1,12}$/', $clean)) {
+                                    if (! is_string($value) || SettingsTagNormalizer::normalizeExtensionTag($value) === null) {
                                         $fail(__('seo-content-ai::filament.settings_general.invalid_extension', ['extension' => (string) $value]));
                                     }
                                 },
                             ])
                             ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? array_map(function ($item) {
-                                    $val = strtolower(ltrim(trim((string) $item), '.'));
-                                    return preg_match('/^[a-z0-9]{1,12}$/', $val) ? $val : $item;
-                                }, $state)
+                                ? SettingsTagNormalizer::normalizeExtensionTags($state)
                                 : $state
                             )
                             ->columnSpanFull(),
@@ -229,15 +227,16 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_general.social_supports_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_general.social_supports_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_general.social_supports_hint'))
+                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_STRICT_DOMAIN))
                             ->nestedRecursiveRules([
                                 fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    if (! is_string($value) || \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict($value) === null) {
+                                    if (! is_string($value) || SettingsTagNormalizer::normalizeStrictDomainTag($value) === null) {
                                         $fail(__('seo-content-ai::filament.settings_general.invalid_social_domain', ['domain' => (string) $value]));
                                     }
                                 },
                             ])
                             ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? array_map(fn ($tag) => \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict((string) $tag) ?? $tag, $state)
+                                ? SettingsTagNormalizer::normalizeStrictDomainTags($state)
                                 : $state
                             )
                             ->columnSpanFull(),
@@ -296,8 +295,7 @@ class SeoSettingsGeneral extends Page implements HasForms
                 $rawExtensions = is_string($rawExtensions) ? preg_split('/\r\n|\r|\n|,/', $rawExtensions) : [];
             }
             foreach ($rawExtensions as $ext) {
-                $clean = strtolower(ltrim(trim((string) $ext), '.'));
-                if ($clean === '' || ! preg_match('/^[a-z0-9]{1,12}$/', $clean)) {
+                if (SettingsTagNormalizer::normalizeExtensionTag((string) $ext) === null) {
                     throw ValidationException::withMessages([
                         SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => __('seo-content-ai::filament.settings_general.invalid_extension', ['extension' => (string) $ext]),
                     ]);
@@ -309,7 +307,7 @@ class SeoSettingsGeneral extends Page implements HasForms
                 $rawSocialDomains = is_string($rawSocialDomains) ? preg_split('/\r\n|\r|\n/', $rawSocialDomains) : [];
             }
             foreach ($rawSocialDomains as $domain) {
-                if (\Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict((string) $domain) === null) {
+                if (SettingsTagNormalizer::normalizeStrictDomainTag((string) $domain) === null) {
                     throw ValidationException::withMessages([
                         SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => __('seo-content-ai::filament.settings_general.invalid_social_domain', ['domain' => (string) $domain]),
                     ]);
