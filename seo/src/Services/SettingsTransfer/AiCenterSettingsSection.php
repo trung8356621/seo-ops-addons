@@ -15,6 +15,8 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 
 final class AiCenterSettingsSection implements PortableSettingsSection
 {
+    public const KEY_PREFERRED_PROVIDER = 'preferred_provider';
+
     public function key(): string
     {
         return 'ai';
@@ -46,22 +48,30 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                 continue;
             }
             $meta = is_array($connection->metadata) ? $connection->metadata : [];
+            unset($meta['api_key'], $meta['token'], $meta['password'], $meta['secret']);
             $template = $meta['provider_template'] ?? null;
+
             $connections[] = [
                 'connection_ref' => [
                     'provider_key' => (string) $connection->provider,
                     'connection_key' => $this->connectionKey($connection),
                 ],
                 'name' => (string) $connection->name,
+                'is_global' => (bool) $connection->is_global,
+                'status' => (string) ($connection->status ?? 'active'),
                 'credential' => [
                     'configured' => filled($connection->api_key),
                     'exported' => false,
                 ],
                 'provider_template' => is_array($template) ? $template : null,
+                'metadata' => $meta,
             ];
         }
 
+        $preferred = $this->resolvePreferredProvider($userId, $connections);
+
         return [
+            'preferred_provider' => $preferred,
             'usage_mode' => $settings->getDefaultAiUsageMode(),
             'routing' => $profiles,
             'general_image_families' => $adapter->familiesFromSlugs(
@@ -92,6 +102,16 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             }
         }
 
+        $preferred = trim((string) ($incoming['preferred_provider'] ?? ''));
+        if ($preferred !== '') {
+            if ($preferred === ($current['preferred_provider'] ?? '')) {
+                $unchanged++;
+            } else {
+                $changed++;
+                $lines[] = 'Preferred provider: '.($current['preferred_provider'] ?? 'default').' → '.$preferred;
+            }
+        }
+
         $incomingRouting = is_array($incoming['routing'] ?? null) ? $incoming['routing'] : [];
         $catalog = new AiModelFamilyCatalog();
         foreach ($incomingRouting as $profileKey => $row) {
@@ -119,11 +139,19 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             }
             $ref = is_array($row['connection_ref'] ?? null) ? $row['connection_ref'] : [];
             $provider = (string) ($ref['provider_key'] ?? '');
+            $name = (string) ($row['name'] ?? $provider);
             $match = $this->findConnection($userId, $provider, (string) ($ref['connection_key'] ?? ''));
+
             if ($match === null) {
-                $warnings[] = 'Connection missing: '.$provider;
+                $changed++;
+                $lines[] = 'Create connection skeleton: '.$provider.' ('.$name.') (credential required)';
+                $warnings[] = 'Connection '.$provider.' requires API credentials to be configured after import.';
             } elseif (! filled($match->api_key)) {
+                $unchanged++;
                 $warnings[] = $provider.' connection exists but credential cannot be imported.';
+            } else {
+                $unchanged++;
+                $lines[] = 'Connection '.$provider.' exists (retaining existing credential).';
             }
         }
 
@@ -160,6 +188,12 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                 $this->slugList($current[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY] ?? []),
             );
         }
+
+        $preferred = trim((string) ($incoming['preferred_provider'] ?? ''));
+        if ($preferred !== '') {
+            $this->setPreferredProvider($preferred);
+        }
+
         if ($patch !== []) {
             $settings->saveSettings($patch);
         }
@@ -180,6 +214,57 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                 ! $profile->isMedia(),
             );
         }
+
+        $this->restoreConnections($userId, (array) ($incoming['connections'] ?? []));
+    }
+
+    /**
+     * @param  list<mixed>  $connections
+     */
+    public function restoreConnections(int $userId, array $connections): void
+    {
+        foreach ($connections as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $ref = is_array($row['connection_ref'] ?? null) ? $row['connection_ref'] : [];
+            $provider = strtolower(trim((string) ($ref['provider_key'] ?? '')));
+            if ($provider === '') {
+                continue;
+            }
+            $connKey = (string) ($ref['connection_key'] ?? '');
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name === '') {
+                $name = ucfirst($provider).' Connection';
+            }
+            $isGlobal = (bool) ($row['is_global'] ?? false);
+            $template = is_array($row['provider_template'] ?? null) ? $row['provider_template'] : null;
+            $meta = is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
+            unset($meta['api_key'], $meta['token'], $meta['password'], $meta['secret']);
+            if ($template !== null) {
+                $meta['provider_template'] = $template;
+            }
+
+            $existing = $this->findConnection($userId, $provider, $connKey);
+            if ($existing instanceof ApiConnection) {
+                // NEVER erase or overwrite existing secrets
+                $currentMeta = is_array($existing->metadata) ? $existing->metadata : [];
+                $existing->metadata = array_merge($currentMeta, $meta);
+                $existing->save();
+                continue;
+            }
+
+            // Create connection skeleton without secret, disabled until configured
+            $connection = new ApiConnection();
+            $connection->user_id = $userId;
+            $connection->provider = $provider;
+            $connection->name = $name;
+            $connection->api_key = null;
+            $connection->status = 'inactive';
+            $connection->is_global = $isGlobal;
+            $connection->metadata = $meta !== [] ? $meta : null;
+            $connection->save();
+        }
     }
 
     private function connectionKey(ApiConnection $connection): string
@@ -198,13 +283,38 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                 $query->where('user_id', $userId)->orWhere('is_global', true);
             })
             ->get();
+
         foreach ($rows as $row) {
             if ($this->connectionKey($row) === $connectionKey) {
                 return $row;
             }
         }
 
-        return $rows->first();
+        if ($rows->count() === 1) {
+            return $rows->first();
+        }
+
+        return null;
+    }
+
+    public function getPreferredProvider(): string
+    {
+        return (string) \App\Models\WpOption::get('seo_ai_preferred_provider', 'openrouter');
+    }
+
+    public function setPreferredProvider(string $provider): void
+    {
+        \App\Models\WpOption::set('seo_ai_preferred_provider', $provider);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $connections
+     */
+    private function resolvePreferredProvider(int $userId, array $connections): string
+    {
+        unset($userId, $connections);
+
+        return $this->getPreferredProvider();
     }
 
     /**

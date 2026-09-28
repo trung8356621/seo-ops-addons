@@ -1899,8 +1899,8 @@ return [
     ],
     'settings_transfer' => [
         'title' => 'Import / Export configuration',
-        'intro' => 'Portable SEO configuration. This is not a full backup and never includes API keys or content.',
-        'not_backup' => 'Configuration export only — articles, media, history and credentials are not included.',
+        'intro' => 'Back up or restore ops-client configuration. Includes settings, AI configuration, prompts and workflows. API keys, content, history and runtime data are never included.',
+        'not_backup' => 'Ops-client configuration package — settings, AI, prompts and workflows are included. API keys, content, history and runtime data are excluded.',
         'secrets_never' => 'Secrets are never exported.',
         'import' => 'Import',
         'export' => 'Export',

@@ -22,6 +22,19 @@
 
                 @if ($intent === 'export')
                     @if ($focus !== 'prompts')
+                        <section class="mb-4 space-y-2">
+                            <div class="flex items-center gap-4">
+                                <label class="inline-flex items-center gap-2 text-sm font-medium">
+                                    <input type="radio" wire:model.live="preset" value="full" />
+                                    {{ __('seo-content-ai::filament.settings_transfer.preset_full') }}
+                                </label>
+                                <label class="inline-flex items-center gap-2 text-sm font-medium">
+                                    <input type="radio" wire:model.live="preset" value="settings" />
+                                    {{ __('seo-content-ai::filament.settings_transfer.preset_settings') }}
+                                </label>
+                            </div>
+                        </section>
+
                         <section class="mb-4">
                             <h2 class="mb-2 font-semibold">{{ __('seo-content-ai::filament.settings_transfer.sections') }}</h2>
                             <div class="seo-ai-export-grid">
@@ -104,6 +117,14 @@
                             <dd>{{ number_format((int) ($importMeta['size'] ?? 0) / 1024, 1) }} KB</dd>
                             <dt class="text-gray-500">{{ __('seo-content-ai::filament.settings_transfer.sections') }}</dt>
                             <dd>{{ implode(', ', $importMeta['sections'] ?? []) ?: '—' }}</dd>
+                            @if (!empty($importMeta['tasks']))
+                                <dt class="text-gray-500">Workflows</dt>
+                                <dd>{{ $importMeta['tasks'] }}</dd>
+                            @endif
+                            @if (!empty($importMeta['prompts']))
+                                <dt class="text-gray-500">Prompts</dt>
+                                <dd>{{ $importMeta['prompts'] }}</dd>
+                            @endif
                         </dl>
                         <x-filament::button color="gray" wire:click="previewImport">{{ __('seo-content-ai::filament.settings_transfer.preview') }}</x-filament::button>
                     @endif
@@ -111,7 +132,12 @@
                     @if (is_array($preview))
                         <div class="mt-4 space-y-2 rounded-xl border border-gray-200 p-4 text-sm dark:border-gray-700">
                             <p>{{ count($preview['sections'] ?? []) }} {{ __('seo-content-ai::filament.settings_transfer.sections_detected') }}</p>
-                            <p>{{ count($preview['prompts'] ?? []) }} prompts</p>
+                            @if (!empty($preview['prompts']))
+                                <p>{{ count($preview['prompts']) }} prompts</p>
+                            @endif
+                            @if (!empty($preview['tasks']))
+                                <p>{{ count($preview['tasks']) }} workflows/tasks</p>
+                            @endif
                             @foreach ($preview['sections'] ?? [] as $section)
                                 <div>
                                     @if (!empty($section['key']))
@@ -126,8 +152,11 @@
                                     @endforeach
                                 </div>
                             @endforeach
+                            @foreach ($preview['tasks'] ?? [] as $t)
+                                <div>Workflow: {{ $t['name'] ?? '' }} · {{ $t['action'] ?? '' }} @if(!empty($t['conflict'])) ({{ $t['conflict'] }}) @endif</div>
+                            @endforeach
                             @foreach ($preview['prompts'] ?? [] as $row)
-                                <div>{{ $row['name'] ?? '' }} · {{ $row['action'] ?? '' }} @if(!empty($row['conflict'])) ({{ $row['conflict'] }}) @endif</div>
+                                <div>Prompt: {{ $row['name'] ?? '' }} · {{ $row['action'] ?? '' }} @if(!empty($row['conflict'])) ({{ $row['conflict'] }}) @endif</div>
                             @endforeach
                             @foreach ($preview['warnings'] ?? [] as $warning)
                                 <p class="text-amber-700">{{ $warning }}</p>

@@ -13,6 +13,9 @@ final readonly class ConfigurationImportPlan
      * @param  list<array<string, mixed>>  $prompts
      * @param  list<string>  $warnings
      * @param  array<string, mixed>  $payload
+     * @param  list<array<string, mixed>>  $tasks
+     * @param  list<array<string, mixed>>  $connections
+     * @param  list<array<string, mixed>>  $providerTemplates
      */
     public function __construct(
         public ConfigurationPackageType $type,
@@ -22,6 +25,9 @@ final readonly class ConfigurationImportPlan
         public array $prompts,
         public array $warnings,
         public array $payload,
+        public array $tasks = [],
+        public array $connections = [],
+        public array $providerTemplates = [],
     ) {}
 
     /**
@@ -35,6 +41,9 @@ final readonly class ConfigurationImportPlan
             'mode' => $this->mode,
             'sections' => $this->sections,
             'prompts' => $this->prompts,
+            'tasks' => $this->tasks,
+            'connections' => $this->connections,
+            'provider_templates' => $this->providerTemplates,
             'warnings' => $this->warnings,
         ];
     }

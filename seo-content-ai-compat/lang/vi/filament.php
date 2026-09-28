@@ -1898,8 +1898,8 @@ return [
     ],
     'settings_transfer' => [
         'title' => 'Nhập / Xuất cấu hình',
-        'intro' => 'Cấu hình SEO mang đi được. Đây không phải backup đầy đủ và không chứa API key hay nội dung.',
-        'not_backup' => 'Chỉ xuất cấu hình — không gồm bài viết, media, lịch sử hay credential.',
+        'intro' => 'Sao lưu hoặc khôi phục cấu hình ops-client. Bao gồm cài đặt, cấu hình AI, prompt và quy trình (workflow). Không bao gồm API key, nội dung bài viết, lịch sử hay dữ liệu runtime.',
+        'not_backup' => 'Gói cấu hình ops-client — bao gồm cài đặt, AI, prompt và quy trình. Không bao gồm API key, nội dung, lịch sử và dữ liệu runtime.',
         'secrets_never' => 'Secret không bao giờ được xuất.',
         'import' => 'Nhập',
         'export' => 'Xuất',

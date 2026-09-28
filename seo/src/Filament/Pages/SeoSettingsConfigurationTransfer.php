@@ -31,14 +31,13 @@ class SeoSettingsConfigurationTransfer extends Page
         return __('Import / Export');
     }
 
-
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-configuration-transfer';
 
     public string $intent = 'export';
 
     public string $focus = 'settings';
 
-    public string $preset = 'settings';
+    public string $preset = 'full';
 
     public string $mode = 'merge';
 
@@ -57,9 +56,9 @@ class SeoSettingsConfigurationTransfer extends Page
     /** @var array<string, bool> */
     public array $exportSections = [];
 
-    public bool $includePrompts = false;
+    public bool $includePrompts = true;
 
-    public bool $includeTemplates = false;
+    public bool $includeTemplates = true;
 
     /** @var list<int> */
     public array $selectedPromptIds = [];
@@ -119,6 +118,9 @@ class SeoSettingsConfigurationTransfer extends Page
                 $list = is_array($prompts['prompts'] ?? null) ? $prompts['prompts'] : $prompts;
                 $promptCount = array_is_list($list) ? count($list) : 0;
             }
+            $tasks = is_array($data['tasks'] ?? null) ? $data['tasks'] : [];
+            $taskCount = array_is_list($tasks) ? count($tasks) : 0;
+
             $this->importMeta = [
                 'filename' => (string) $this->importFile->getClientOriginalName(),
                 'package_type' => $parsed['type']->value,
@@ -126,6 +128,7 @@ class SeoSettingsConfigurationTransfer extends Page
                 'size' => (int) $this->importFile->getSize(),
                 'sections' => array_values(array_filter(array_map('strval', array_keys($settings)))),
                 'prompts' => $promptCount,
+                'tasks' => $taskCount,
             ];
         } catch (ConfigurationPackageException $exception) {
             $this->importJson = '';
@@ -139,18 +142,20 @@ class SeoSettingsConfigurationTransfer extends Page
         $userId = (int) auth()->id();
         $date = gmdate('Y-m-d');
         if ($this->focus === 'prompts') {
-            $payload = $prompts->export($userId, $this->selectedPromptIds);
+            $payload = $prompts->export($userId, $this->selectedPromptIds, includeInactive: true);
             $name = 'seo-ops-prompts-'.$date.'.json';
         } else {
             $keys = array_keys(array_filter($this->exportSections));
+            $isFull = $this->preset === 'full' || $this->includePrompts;
             $payload = $bundle->export(
                 $userId,
                 $keys,
-                $this->includePrompts || $this->preset === 'full',
-                $this->preset === 'full' || $this->includeTemplates,
+                includePrompts: $isFull,
+                includeTemplates: $this->preset === 'full' || $this->includeTemplates,
+                includeTasks: $isFull,
             );
             $name = $this->preset === 'full'
-                ? 'seo-ops-configuration-'.$date.'.json'
+                ? 'seo-ops-full-configuration-'.$date.'.json'
                 : 'seo-ops-settings-'.$date.'.json';
         }
         $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";

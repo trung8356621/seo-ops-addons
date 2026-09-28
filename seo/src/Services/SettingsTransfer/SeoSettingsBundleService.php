@@ -4,20 +4,25 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services\SettingsTransfer;
 
-use Omnichannel\Addons\AiPrompt\Services\PromptPack\PromptPackService;
-use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateCatalog;
-use Omnichannel\Addons\AiPrompt\Support\ConfigurationPackageType;
-use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
-use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
-use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
-use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
-use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
-use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Exceptions\ConfigurationPackageException;
 use Omnichannel\Addons\AiPrompt\Services\ConfigurationPackages\ConfigurationImportAuditor;
 use Omnichannel\Addons\AiPrompt\Services\ConfigurationPackages\ConfigurationImportPlan;
 use Omnichannel\Addons\AiPrompt\Services\ConfigurationPackages\ConfigurationJsonGuard;
 use Omnichannel\Addons\AiPrompt\Services\ConfigurationPackages\ConfigurationPackageLimits;
+use Omnichannel\Addons\AiPrompt\Services\PromptPack\PromptPackService;
+use Omnichannel\Addons\AiPrompt\Services\PromptPack\TaskPackService;
+use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateCatalog;
+use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateParser;
+use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateStore;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Support\ConfigurationPackageType;
+use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
+use Omnichannel\Addons\Seo\Services\SeoAnalyticsScopeSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Support\Facades\DB;
 
@@ -37,14 +42,21 @@ final class SeoSettingsBundleService
      * @param  list<string>  $sectionKeys
      * @return array<string, mixed>
      */
-    public function export(int $userId, array $sectionKeys, bool $includePrompts = false, bool $includeTemplates = false): array
-    {
+    public function export(
+        int $userId,
+        array $sectionKeys,
+        bool $includePrompts = false,
+        bool $includeTemplates = false,
+        bool $includeTasks = false,
+    ): array {
         $this->assertManager();
         $settings = [];
         $excluded = [
             'recommendations' => 'Operator best-practice docs live in Global Help topics (not stored settings).',
-            'workflow_task_ids' => 'Task/workflow numeric IDs are installation-local.',
+            'secrets' => 'API keys, tokens, and credentials are never exported.',
+            'runtime_data' => 'Articles, execution history, test results, and runtime logs are excluded.',
         ];
+
         foreach ($this->registry()->all() as $section) {
             if ($sectionKeys !== [] && ! in_array($section->key(), $sectionKeys, true)) {
                 continue;
@@ -52,7 +64,8 @@ final class SeoSettingsBundleService
             $settings[$section->key()] = $section->export($userId);
         }
 
-        $packageType = $includePrompts || $includeTemplates
+        $isFull = $includePrompts || $includeTemplates || $includeTasks;
+        $packageType = $isFull
             ? ConfigurationPackageType::SeoConfigurationBundle
             : ConfigurationPackageType::SeoSettings;
 
@@ -62,18 +75,24 @@ final class SeoSettingsBundleService
             'meta' => [
                 'app' => 'seo-ops',
                 'exported_at' => gmdate('c'),
-                'kind' => 'configuration_export',
+                'kind' => $isFull ? 'configuration_backup' : 'configuration_export',
             ],
             'scope' => ['type' => 'workspace'],
             'settings' => $settings,
             '_excluded' => $excluded,
         ];
-        if ($includePrompts) {
-            $payload['prompts'] = app(PromptPackService::class)->export($userId);
+
+        if ($includePrompts || $isFull) {
+            $payload['prompts'] = app(PromptPackService::class)->export($userId, [], includeInactive: true);
         }
-        if ($includeTemplates) {
+        if ($includeTasks || $isFull) {
+            $payload['tasks'] = app(TaskPackService::class)->export($userId, [], includeInactive: true);
+        }
+        if ($includeTemplates || $isFull) {
             $payload['provider_templates'] = $this->exportTemplates($userId);
         }
+
+        $this->assertNoSecrets($payload);
 
         return $payload;
     }
@@ -86,6 +105,7 @@ final class SeoSettingsBundleService
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         $sections = [];
         $warnings = [];
+
         foreach ($this->registry()->all() as $section) {
             $key = $section->key();
             if (! array_key_exists($key, $settings)) {
@@ -103,6 +123,7 @@ final class SeoSettingsBundleService
                 $warnings[] = $warning;
             }
         }
+
         foreach (array_keys($settings) as $unknown) {
             if ($this->registry()->get($unknown) === null) {
                 $warnings[] = 'Unknown settings module ignored: '.$unknown;
@@ -120,6 +141,20 @@ final class SeoSettingsBundleService
             $warnings = array_merge($warnings, $promptPlan->warnings);
         }
 
+        $tasks = [];
+        if (isset($data['tasks'])) {
+            $tasksRaw = is_array($data['tasks']) ? $data['tasks'] : [];
+            $tasks = app(TaskPackService::class)->plan($tasksRaw, $userId, $mode, $warnings);
+        }
+
+        $connections = [];
+        $aiSettings = is_array($settings['ai'] ?? null) ? $settings['ai'] : [];
+        if (isset($aiSettings['connections']) && is_array($aiSettings['connections'])) {
+            $connections = $aiSettings['connections'];
+        }
+
+        $providerTemplates = is_array($data['provider_templates'] ?? null) ? $data['provider_templates'] : [];
+
         return new ConfigurationImportPlan(
             type: ConfigurationPackageType::tryFrom((string) ($data['package_type'] ?? '')) ?? ConfigurationPackageType::SeoSettings,
             schemaVersion: (string) ($data['schema_version'] ?? '1.0'),
@@ -128,6 +163,9 @@ final class SeoSettingsBundleService
             prompts: $prompts,
             warnings: $warnings,
             payload: $data,
+            tasks: $tasks,
+            connections: $connections,
+            providerTemplates: $providerTemplates,
         );
     }
 
@@ -156,20 +194,21 @@ final class SeoSettingsBundleService
     {
         $this->assertManager();
         $changed = 0;
+
         DB::transaction(function () use ($plan, $userId, $selected, $promptOverrides, &$changed): void {
-            foreach ($plan->sections as $sectionPlan) {
-                $key = (string) ($sectionPlan['key'] ?? '');
-                if ($selected !== [] && ! in_array($key, $selected, true)) {
-                    continue;
+            // STEP 1: Provider templates
+            $this->applyProviderTemplates($plan->payload['provider_templates'] ?? [], $userId, $changed);
+
+            // STEP 2: Connection skeletons (before AI routing to ensure connections exist)
+            $aiPayload = $this->extractSectionPayload($plan, 'ai');
+            if ($aiPayload !== null && isset($aiPayload['connections']) && is_array($aiPayload['connections'])) {
+                $aiSection = $this->registry()->get('ai');
+                if ($aiSection instanceof AiCenterSettingsSection) {
+                    $aiSection->restoreConnections($userId, $aiPayload['connections']);
                 }
-                $section = $this->registry()->get($key);
-                if ($section === null) {
-                    continue;
-                }
-                $payload = is_array($sectionPlan['payload'] ?? null) ? $sectionPlan['payload'] : [];
-                $section->apply($userId, $payload, $plan->mode);
-                $changed += (int) ($sectionPlan['changed'] ?? 0);
             }
+
+            // STEP 3: Prompts (must be imported before tasks and workflow bindings)
             if ($plan->prompts !== []) {
                 $promptPlan = new ConfigurationImportPlan(
                     type: ConfigurationPackageType::PromptPack,
@@ -181,6 +220,48 @@ final class SeoSettingsBundleService
                     payload: [],
                 );
                 $changed += app(PromptPackService::class)->apply($promptPlan, $userId, $promptOverrides);
+            }
+
+            // STEP 4: Tasks / Workflows (resolve node prompt references to local IDs)
+            if ($plan->tasks !== []) {
+                $changed += app(TaskPackService::class)->apply($plan->tasks, $userId);
+            }
+
+            // STEP 5: Workflow bindings (resolve prompt and task bindings)
+            $workflowPayload = $this->extractSectionPayload($plan, 'workflows');
+            if ($workflowPayload !== null) {
+                $workflowSection = $this->registry()->get('workflows');
+                if ($workflowSection !== null) {
+                    $workflowSection->apply($userId, $workflowPayload, $plan->mode);
+                    $changed++;
+                }
+            }
+
+            // STEP 6: AI Center routing & preferences
+            if ($aiPayload !== null) {
+                $aiSection = $this->registry()->get('ai');
+                if ($aiSection !== null) {
+                    $aiSection->apply($userId, $aiPayload, $plan->mode);
+                    $changed++;
+                }
+            }
+
+            // STEP 7: Remaining independent settings sections
+            foreach ($plan->sections as $sectionPlan) {
+                $key = (string) ($sectionPlan['key'] ?? '');
+                if (in_array($key, ['workflows', 'ai'], true)) {
+                    continue; // already applied in dependency order
+                }
+                if ($selected !== [] && ! in_array($key, $selected, true)) {
+                    continue;
+                }
+                $section = $this->registry()->get($key);
+                if ($section === null) {
+                    continue;
+                }
+                $payload = is_array($sectionPlan['payload'] ?? null) ? $sectionPlan['payload'] : [];
+                $section->apply($userId, $payload, $plan->mode);
+                $changed += (int) ($sectionPlan['changed'] ?? 0);
             }
         });
 
@@ -196,6 +277,97 @@ final class SeoSettingsBundleService
         return $changed;
     }
 
+    public function assertNoSecrets(array $payload): void
+    {
+        $forbiddenKeys = [
+            'api_key',
+            'token',
+            'access_token',
+            'refresh_token',
+            'password',
+            'secret',
+            'client_secret',
+            'authorization',
+        ];
+        $this->walkAssertNoSecrets($payload, $forbiddenKeys);
+    }
+
+    private function walkAssertNoSecrets(mixed $node, array $forbiddenKeys): void
+    {
+        if (! is_array($node)) {
+            if (is_string($node)) {
+                $trimmed = trim($node);
+                if (preg_match('/^(sk-|sk-or-|sk-ant-|AIza)[A-Za-z0-9_\-]{8,}$/', $trimmed) === 1
+                    || preg_match('/^Bearer\s+\S{8,}/i', $trimmed) === 1) {
+                    throw ConfigurationPackageException::rejected('Security violation: secret token pattern detected in configuration export.');
+                }
+            }
+
+            return;
+        }
+
+        foreach ($node as $k => $v) {
+            if (is_string($k)) {
+                $lower = strtolower($k);
+                if (in_array($lower, $forbiddenKeys, true)) {
+                    if (is_string($v) && trim($v) !== '') {
+                        throw ConfigurationPackageException::rejected('Security violation: forbidden key "'.$k.'" with value found in configuration export.');
+                    }
+                }
+            }
+            $this->walkAssertNoSecrets($v, $forbiddenKeys);
+        }
+    }
+
+    private function applyProviderTemplates(mixed $templates, int $userId, int &$changed): void
+    {
+        if (! is_array($templates) || $templates === []) {
+            return;
+        }
+        $catalog = new AiProviderTemplateCatalog();
+        $builtins = array_keys($catalog->builtins());
+        $parser = new AiProviderTemplateParser();
+        $store = new AiProviderTemplateStore();
+
+        foreach ($templates as $raw) {
+            if (! is_array($raw)) {
+                continue;
+            }
+            $providerKey = strtolower(trim((string) ($raw['provider']['key'] ?? '')));
+            if ($providerKey === '') {
+                continue;
+            }
+            if (in_array($providerKey, $builtins, true)) {
+                continue;
+            }
+            try {
+                $encoded = json_encode($raw, JSON_THROW_ON_ERROR);
+                $normalized = $parser->parse($encoded);
+                $store->persist($userId, $normalized, false);
+                $changed++;
+            } catch (\Throwable) {
+            }
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function extractSectionPayload(ConfigurationImportPlan $plan, string $sectionKey): ?array
+    {
+        foreach ($plan->sections as $sec) {
+            if (($sec['key'] ?? '') === $sectionKey) {
+                return is_array($sec['payload'] ?? null) ? $sec['payload'] : [];
+            }
+        }
+        $settings = is_array($plan->payload['settings'] ?? null) ? $plan->payload['settings'] : [];
+        if (isset($settings[$sectionKey]) && is_array($settings[$sectionKey])) {
+            return $settings[$sectionKey];
+        }
+
+        return null;
+    }
+
     /**
      * @return list<PortableSettingsSection>
      */
@@ -207,6 +379,8 @@ final class SeoSettingsBundleService
         $keywords = app(SeoKeywordSettingsService::class);
         $scoring = app(SeoScoringSettingsService::class);
         $promptRuntime = app(SeoPromptSettingsService::class);
+        $contentLanguage = app(SeoContentLanguageSettingsService::class);
+        $analyticsScope = app(SeoAnalyticsScopeSettingsService::class);
 
         return [
             new ArrayOptionSection(
@@ -215,10 +389,23 @@ final class SeoSettingsBundleService
                     SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS,
                     SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS,
                     SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB,
+                    SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS,
+                    SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE,
+                    SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS,
                 ],
-                fn (): array => $overview->getSettings(),
-                function (array $data) use ($overview): void {
+                fn (): array => array_merge(
+                    $overview->getSettings(),
+                    $contentLanguage->getSettings(),
+                    $analyticsScope->getSettings(),
+                ),
+                function (array $data) use ($overview, $contentLanguage, $analyticsScope): void {
                     $overview->saveSettings($data);
+                    if (array_key_exists(SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE, $data)) {
+                        $contentLanguage->save($data);
+                    }
+                    if (array_key_exists(SeoAnalyticsScopeSettingsService::KEY_EXCLUDE_PAGES_FROM_STATISTICS, $data)) {
+                        $analyticsScope->save($data);
+                    }
                 },
             ),
             new ArrayOptionSection(
@@ -305,7 +492,7 @@ final class SeoSettingsBundleService
         try {
             foreach (\Omnichannel\Addons\AiPrompt\Models\AiProviderTemplate::query()->where('user_id', $userId)->get() as $stored) {
                 $config = is_array($stored->config) ? $stored->config : [];
-                unset($config['api_key'], $config['token'], $config['password']);
+                unset($config['api_key'], $config['token'], $config['password'], $config['secret']);
                 $config['package_type'] = ConfigurationPackageType::AiProviderTemplate->value;
                 $config['credential'] = ['configured' => false, 'exported' => false];
                 $out[] = $config;
