@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Filament\Pages;
 
 use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
+use Omnichannel\Addons\Seo\Filament\Forms\Components\SettingsTagsInput;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
@@ -78,39 +79,20 @@ class SeoSettingsEditor extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_editor.wiki_trust_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.editor.wiki_trust')])
                     ->schema([
-                        Forms\Components\TagsInput::make('wiki_trust_domains')
+                        SettingsTagsInput::make('wiki_trust_domains')
                             ->label(__('seo-content-ai::filament.settings_editor.wiki_trust_domains'))
                             ->placeholder(__('seo-content-ai::filament.settings_editor.trusted_domains_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_editor.wiki_trust_domains_hint'))
-                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_TRUSTED_DOMAIN))
-                            ->nestedRecursiveRules([
-                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    if (! is_string($value) || SettingsTagNormalizer::normalizeTrustedDomainTag($value) === null) {
-                                        $fail(__('seo-content-ai::filament.settings_editor.invalid_trusted_domain', ['domain' => (string) $value]));
-                                    }
-                                },
-                            ])
-                            ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? SettingsTagNormalizer::normalizeTrustedDomainTags($state)
-                                : $state
-                            )
+                            ->normalizer(SettingsTagsInput::TRUSTED_DOMAIN)
                             ->columnSpanFull(),
                     ]),
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.faq_catch'))
                     ->headerActions([HelpUi::fieldHintAction('settings.editor.faq_catch')])
                     ->schema([
-                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
+                        SettingsTagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
                             ->label(__('seo-content-ai::filament.settings_overview.faq_keywords_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_editor.faq_keywords_placeholder'))
-                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_PHRASE))
-                            ->nestedRecursiveRules([
-                                'string',
-                                'min:1',
-                            ])
-                            ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? SettingsTagNormalizer::normalizePhraseTags($state)
-                                : $state
-                            )
+                            ->normalizer(SettingsTagsInput::PHRASE)
                             ->columnSpanFull(),
                     ]),
             ])

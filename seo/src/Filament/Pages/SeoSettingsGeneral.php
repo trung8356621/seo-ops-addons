@@ -9,6 +9,7 @@ use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\Seo\Services\SeoAnalyticsScopeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
+use Omnichannel\Addons\Seo\Filament\Forms\Components\SettingsTagsInput;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -186,22 +187,11 @@ class SeoSettingsGeneral extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.team_chat_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.general.team_chat')])
                     ->schema([
-                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
+                        SettingsTagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_overview.team_chat_extensions_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_general.team_chat_extensions_hint'))
-                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_EXTENSION))
-                            ->nestedRecursiveRules([
-                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    if (! is_string($value) || SettingsTagNormalizer::normalizeExtensionTag($value) === null) {
-                                        $fail(__('seo-content-ai::filament.settings_general.invalid_extension', ['extension' => (string) $value]));
-                                    }
-                                },
-                            ])
-                            ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? SettingsTagNormalizer::normalizeExtensionTags($state)
-                                : $state
-                            )
+                            ->normalizer(SettingsTagsInput::EXTENSION)
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
@@ -223,22 +213,11 @@ class SeoSettingsGeneral extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.social_supports_section'))
                     ->description(__('seo-content-ai::filament.settings_general.social_supports_description'))
                     ->schema([
-                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)
+                        SettingsTagsInput::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)
                             ->label(__('seo-content-ai::filament.settings_general.social_supports_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_general.social_supports_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_general.social_supports_hint'))
-                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_STRICT_DOMAIN))
-                            ->nestedRecursiveRules([
-                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
-                                    if (! is_string($value) || SettingsTagNormalizer::normalizeStrictDomainTag($value) === null) {
-                                        $fail(__('seo-content-ai::filament.settings_general.invalid_social_domain', ['domain' => (string) $value]));
-                                    }
-                                },
-                            ])
-                            ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? SettingsTagNormalizer::normalizeStrictDomainTags($state)
-                                : $state
-                            )
+                            ->normalizer(SettingsTagsInput::STRICT_DOMAIN)
                             ->columnSpanFull(),
                     ])
                     ->columns(1),

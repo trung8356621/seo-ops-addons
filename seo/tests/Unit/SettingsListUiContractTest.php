@@ -5,33 +5,36 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
+use Omnichannel\Addons\Seo\Filament\Forms\Components\SettingsTagsInput;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsGeneral;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
-use PHPUnit\Framework\TestCase;
+use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
+use Omnichannel\Addons\Seo\Support\SettingsTagNormalizer;
+use Tests\TestCase;
 
 final class SettingsListUiContractTest extends TestCase
 {
-    public function test_seo_settings_editor_uses_tags_input_and_no_textarea_for_lists(): void
+    public function test_seo_settings_editor_uses_settings_tags_input_and_no_textarea_for_lists(): void
     {
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsEditor::class))->getFileName());
 
-        // Uses TagsInput for trusted domains and FAQ keywords
-        self::assertStringContainsString("Forms\Components\TagsInput::make('wiki_trust_domains')", $code);
-        self::assertStringContainsString('Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)', $code);
+        // Uses SettingsTagsInput for trusted domains and FAQ keywords
+        self::assertStringContainsString("SettingsTagsInput::make('wiki_trust_domains')", $code);
+        self::assertStringContainsString('SettingsTagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)', $code);
 
         // Does NOT use Textarea
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);
         self::assertStringNotContainsString('wiki_trust_domains_text', $code);
     }
 
-    public function test_seo_settings_general_uses_tags_input_and_no_textarea_for_lists(): void
+    public function test_seo_settings_general_uses_settings_tags_input_and_no_textarea_for_lists(): void
     {
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsGeneral::class))->getFileName());
 
-        // Uses TagsInput for team chat extensions and social supported domains
-        self::assertStringContainsString('Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)', $code);
-        self::assertStringContainsString('Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)', $code);
+        // Uses SettingsTagsInput for team chat extensions and social supported domains
+        self::assertStringContainsString('SettingsTagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)', $code);
+        self::assertStringContainsString('SettingsTagsInput::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)', $code);
 
         // Does NOT use Textarea for those list fields
         self::assertStringNotContainsString('Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)', $code);
@@ -51,109 +54,115 @@ final class SettingsListUiContractTest extends TestCase
     {
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsOverview::class))->getFileName());
 
-        self::assertStringContainsString('Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)', $code);
+        self::assertStringContainsString('SettingsTagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)', $code);
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);
     }
 
     public function test_trusted_domain_tag_normalization_and_rejection(): void
     {
         // Immediate normalization cases
-        self::assertSame('seo-ops.test', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('http://seo-ops.test/'));
-        self::assertSame('example.com', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('HTTPS://WWW.Example.COM/a'));
-        self::assertSame('*.gov', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*.GOV'));
-        self::assertSame('*.edu', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*.EDU'));
-        self::assertSame('trusted.org', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('//trusted.org/path#hash'));
+        self::assertSame('seo-ops.test', SettingsTagNormalizer::normalizeTrustedDomainTag('http://seo-ops.test/'));
+        self::assertSame('example.com', SettingsTagNormalizer::normalizeTrustedDomainTag('HTTPS://WWW.Example.COM/a'));
+        self::assertSame('*.gov', SettingsTagNormalizer::normalizeTrustedDomainTag('*.GOV'));
+        self::assertSame('*.edu', SettingsTagNormalizer::normalizeTrustedDomainTag('*.EDU'));
+        self::assertSame('trusted.org', SettingsTagNormalizer::normalizeTrustedDomainTag('//trusted.org/path#hash'));
 
         // Invalid cases rejected
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('foo bar.com'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('javascript:alert(1)'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('mailto:test@example.com'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*.'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*.*'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('*gov'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag('foo.*'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTag(null));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('foo bar.com'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('javascript:alert(1)'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('mailto:test@example.com'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('tel:123'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('@'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('://bad'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('*'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('*.'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('*.*'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('*gov'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag('foo.*'));
+        self::assertNull(SettingsTagNormalizer::normalizeTrustedDomainTag(null));
 
         // Canonical deduplication
         $rawInputs = ['example.com', 'https://www.example.com/path', 'EXAMPLE.COM'];
-        self::assertSame(['example.com'], \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeTrustedDomainTags($rawInputs));
+        self::assertSame(['example.com'], SettingsTagNormalizer::normalizeTrustedDomainTags($rawInputs));
     }
 
     public function test_social_domain_tag_normalization_and_rejection(): void
     {
         // Immediate normalization cases (strict, no wildcards)
-        self::assertSame('facebook.com', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('HTTPS://WWW.Facebook.COM/x'));
-        self::assertSame('mastodon.social', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('https://mastodon.social/@user'));
-        self::assertSame('linkedin.com', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('linkedin.com'));
+        self::assertSame('facebook.com', SettingsTagNormalizer::normalizeStrictDomainTag('HTTPS://WWW.Facebook.COM/x'));
+        self::assertSame('mastodon.social', SettingsTagNormalizer::normalizeStrictDomainTag('https://mastodon.social/@user'));
+        self::assertSame('linkedin.com', SettingsTagNormalizer::normalizeStrictDomainTag('linkedin.com'));
 
         // Wildcards and invalid rejected in strict mode
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('*.facebook.com'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('*.com'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag('foo bar.com'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTag(null));
+        self::assertNull(SettingsTagNormalizer::normalizeStrictDomainTag('*.facebook.com'));
+        self::assertNull(SettingsTagNormalizer::normalizeStrictDomainTag('*.com'));
+        self::assertNull(SettingsTagNormalizer::normalizeStrictDomainTag('foo bar.com'));
+        self::assertNull(SettingsTagNormalizer::normalizeStrictDomainTag(null));
 
         // Canonical deduplication
         $rawInputs = ['https://facebook.com', 'facebook.com', 'HTTPS://WWW.FACEBOOK.COM'];
-        self::assertSame(['facebook.com'], \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeStrictDomainTags($rawInputs));
+        self::assertSame(['facebook.com'], SettingsTagNormalizer::normalizeStrictDomainTags($rawInputs));
     }
 
     public function test_extension_tag_normalization_and_rejection(): void
     {
         // Immediate normalization cases
-        self::assertSame('jpg', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('.JPG'));
-        self::assertSame('pdf', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag(' PDF'));
-        self::assertSame('png', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('.png'));
+        self::assertSame('jpg', SettingsTagNormalizer::normalizeExtensionTag('.JPG'));
+        self::assertSame('pdf', SettingsTagNormalizer::normalizeExtensionTag(' PDF'));
+        self::assertSame('png', SettingsTagNormalizer::normalizeExtensionTag('.png'));
 
         // Invalid cases rejected
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('invalid.ext'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('bad*ext'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('toolongextensionname'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag('..'));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag(''));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTag(null));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag('invalid.ext'));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag('bad*ext'));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag('toolongextensionname'));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag('..'));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag(''));
+        self::assertNull(SettingsTagNormalizer::normalizeExtensionTag(null));
 
         // Canonical deduplication
         $rawInputs = ['.JPG', 'jpg', 'JPG'];
-        self::assertSame(['jpg'], \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizeExtensionTags($rawInputs));
+        self::assertSame(['jpg'], SettingsTagNormalizer::normalizeExtensionTags($rawInputs));
     }
 
     public function test_faq_phrase_tag_normalization(): void
     {
         // Preserves internal spaces, lowercases, trims
-        self::assertSame('faq questions', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizePhraseTag(' FAQ Questions '));
-        self::assertSame('frequently asked questions', \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizePhraseTag('Frequently Asked Questions'));
+        self::assertSame('faq questions', SettingsTagNormalizer::normalizePhraseTag(' FAQ Questions '));
+        self::assertSame('frequently asked questions', SettingsTagNormalizer::normalizePhraseTag('Frequently Asked Questions'));
 
         // Empty/null returns null
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizePhraseTag('   '));
-        self::assertNull(\Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizePhraseTag(null));
+        self::assertNull(SettingsTagNormalizer::normalizePhraseTag('   '));
+        self::assertNull(SettingsTagNormalizer::normalizePhraseTag(null));
 
         // Case-insensitive deduplication
         $rawInputs = ['FAQ Questions', 'faq questions', 'FAQ QUESTIONS'];
-        self::assertSame(['faq questions'], \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::normalizePhraseTags($rawInputs));
+        self::assertSame(['faq questions'], SettingsTagNormalizer::normalizePhraseTags($rawInputs));
     }
 
-    public function test_forms_bind_alpine_interceptor_attributes(): void
+    public function test_settings_tags_input_component_configuration_and_view(): void
     {
-        $editorCode = (string) file_get_contents((new \ReflectionClass(SeoSettingsEditor::class))->getFileName());
-        self::assertStringContainsString('SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_TRUSTED_DOMAIN)', $editorCode);
-        self::assertStringContainsString('SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_PHRASE)', $editorCode);
+        $input = SettingsTagsInput::make('test_trusted')
+            ->normalizer(SettingsTagsInput::TRUSTED_DOMAIN);
 
-        $generalCode = (string) file_get_contents((new \ReflectionClass(SeoSettingsGeneral::class))->getFileName());
-        self::assertStringContainsString('SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_EXTENSION)', $generalCode);
-        self::assertStringContainsString('SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_STRICT_DOMAIN)', $generalCode);
+        self::assertSame(SettingsTagsInput::TRUSTED_DOMAIN, $input->getNormalizerType());
 
-        $trustedAttrs = \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::alpineTagInterceptor(
-            \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::TYPE_TRUSTED_DOMAIN,
-        );
-        self::assertArrayHasKey('x-init', $trustedAttrs);
-        self::assertStringContainsString('this.createTag', $trustedAttrs['x-init']);
+        // Check view is custom settings tags input
+        $refProp = (new \ReflectionClass(SettingsTagsInput::class))->getProperty('view');
+        $refProp->setAccessible(true);
+        self::assertSame('seo::filament.forms.components.settings-tags-input', $refProp->getValue($input));
 
-        $extAttrs = \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::alpineTagInterceptor(
-            \Omnichannel\Addons\Seo\Support\SettingsTagNormalizer::TYPE_EXTENSION,
-        );
-        self::assertArrayHasKey('x-init', $extAttrs);
-        self::assertStringContainsString('this.createTag', $extAttrs['x-init']);
+        // Check Blade view file exists and references custom Alpine component
+        $bladePath = dirname(__DIR__, 2).'/resources/views/filament/forms/components/settings-tags-input.blade.php';
+        self::assertFileExists($bladePath);
+        $bladeContent = (string) file_get_contents($bladePath);
+        self::assertStringContainsString('settingsTagsInputFormComponent', $bladeContent);
+        self::assertStringContainsString('normalizeTag', $bladeContent);
+
+        // Check JS module file exists
+        $jsPath = dirname(__DIR__, 2).'/resources/js/components/settingsTagsInput.js';
+        self::assertFileExists($jsPath);
+        $jsContent = (string) file_get_contents($jsPath);
+        self::assertStringContainsString('export function normalizeTag', $jsContent);
+        self::assertStringContainsString('export default function settingsTagsInputFormComponent', $jsContent);
     }
 }
-

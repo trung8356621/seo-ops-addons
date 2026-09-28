@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Filament\Pages;
 
+use Omnichannel\Addons\Seo\Filament\Forms\Components\SettingsTagsInput;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Omnichannel\Addons\Seo\Support\SettingsTagNormalizer;
 use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -56,13 +56,9 @@ class SeoSettingsOverview extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.team_chat_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.general.team_chat')])
                     ->schema([
-                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
+                        SettingsTagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
-                            ->extraAlpineAttributes(SettingsTagNormalizer::alpineTagInterceptor(SettingsTagNormalizer::TYPE_EXTENSION))
-                            ->dehydrateStateUsing(fn ($state) => is_array($state)
-                                ? SettingsTagNormalizer::normalizeExtensionTags($state)
-                                : $state
-                            )
+                            ->normalizer(SettingsTagsInput::EXTENSION)
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
