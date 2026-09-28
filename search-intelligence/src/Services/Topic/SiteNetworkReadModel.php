@@ -129,14 +129,9 @@ final class SiteNetworkReadModel
             return [];
         }
 
-        $query = Site::query()->select(['id', 'domain'])->orderBy('id');
-
-        if (SeoAccessControl::shouldScopeToAccountOwner()) {
-            $accessible = SeoAccessControl::accessibleSiteIds();
-            if ($accessible !== []) {
-                $query->whereIn('id', $accessible);
-            }
-        }
+        $query = SeoAccessControl::accessibleSitesQuery()
+            ->select(['id', 'domain'])
+            ->orderBy('id');
 
         $sites = [];
         foreach ($query->get() as $site) {
@@ -161,10 +156,15 @@ final class SiteNetworkReadModel
      *
      * A row is a cross-site edge when:
      * - source_article belongs to site A
-     * - target_article belongs to site B (different from A)
+     * - destination site is site B (different from A), resolved via
+     *   slm.target_site_id (canonical) or ta.site_id (legacy fallback)
      * - both sites are in the managed site set
      * - link_type IN ('managed_cross_site', 'external') — 'external' retained
      *   for backward compat rows that predate this classification.
+     *
+     * Note: target_article_id may be null for un-crawled managed cross-site URLs.
+     * Such links contribute to article_link_count, source_article_count,
+     * and source_keyword_count, but NOT to target_article_count.
      *
      * @param  list<int>  $siteIdSet
      * @return list<array{
@@ -186,23 +186,35 @@ final class SiteNetworkReadModel
         $linkTypes = ['managed_cross_site', 'external'];
 
         // Raw aggregate query using subquery joins for site_id resolution.
+        // Canonical cross-site destination identity uses slm.target_site_id when available,
+        // with backward-compatible fallback to target article's site_id (ta.site_id).
         $rows = DB::connection('omi_seo_ai')
             ->table('seo_link_maps as slm')
             ->selectRaw(
-                'sa.site_id as source_site_id, ta.site_id as target_site_id, '.
+                'sa.site_id as source_site_id, '.
+                'COALESCE(slm.target_site_id, ta.site_id) as target_site_id, '.
                 'COUNT(slm.id) as article_link_count, '.
                 'COUNT(DISTINCT slm.source_article_id) as source_article_count, '.
                 'COUNT(DISTINCT slm.target_article_id) as target_article_count, '.
                 'COUNT(DISTINCT slm.keyword_id) as source_keyword_count'
             )
             ->join("{$articleTable} as sa", 'sa.id', '=', 'slm.source_article_id')
-            ->join("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
+            ->leftJoin("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
             ->whereIn('slm.link_type', $linkTypes)
-            ->whereNotNull('slm.target_article_id')
             ->whereIn('sa.site_id', $siteIdSet)
-            ->whereIn('ta.site_id', $siteIdSet)
-            ->whereRaw('sa.site_id != ta.site_id')
-            ->groupByRaw('sa.site_id, ta.site_id')
+            ->whereNotNull('slm.source_article_id')
+            ->where(function ($q) use ($siteIdSet): void {
+                $q->where(function ($sub) use ($siteIdSet): void {
+                    $sub->whereNotNull('slm.target_site_id')
+                        ->whereIn('slm.target_site_id', $siteIdSet);
+                })->orWhere(function ($sub) use ($siteIdSet): void {
+                    $sub->whereNull('slm.target_site_id')
+                        ->whereNotNull('slm.target_article_id')
+                        ->whereIn('ta.site_id', $siteIdSet);
+                });
+            })
+            ->whereRaw('sa.site_id != COALESCE(slm.target_site_id, ta.site_id)')
+            ->groupByRaw('sa.site_id, COALESCE(slm.target_site_id, ta.site_id)')
             ->get();
 
         $edges = [];
@@ -239,21 +251,28 @@ final class SiteNetworkReadModel
         $linkTypes = ['managed_cross_site', 'external'];
 
         // Find topics on source site that have keywords with cross-site links to target site.
+        // Supports managed_cross_site links even when target_article_id is unresolved (null).
         $rows = DB::connection('omi_seo_ai')
             ->table('seo_link_maps as slm')
             ->selectRaw(
                 'stk.topic_id, COUNT(slm.id) as cross_site_link_count'
             )
             ->join("{$articleTable} as sa", 'sa.id', '=', 'slm.source_article_id')
-            ->join("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
+            ->leftJoin("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
             ->join('seo_topic_keywords as stk', function ($join) use ($sourceSiteId): void {
                 $join->on('stk.keyword_id', '=', 'slm.keyword_id')
                     ->where('stk.site_id', $sourceSiteId);
             })
             ->whereIn('slm.link_type', $linkTypes)
-            ->whereNotNull('slm.target_article_id')
             ->where('sa.site_id', $sourceSiteId)
-            ->where('ta.site_id', $targetSiteId)
+            ->where(function ($q) use ($targetSiteId): void {
+                $q->where('slm.target_site_id', $targetSiteId)
+                    ->orWhere(function ($sub) use ($targetSiteId): void {
+                        $sub->whereNull('slm.target_site_id')
+                            ->where('ta.site_id', $targetSiteId);
+                    });
+            })
+            ->whereRaw('sa.site_id != COALESCE(slm.target_site_id, ta.site_id)')
             ->groupBy('stk.topic_id')
             ->orderByRaw('cross_site_link_count DESC')
             ->limit(50)

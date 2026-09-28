@@ -115,7 +115,9 @@ final class SeoAccessController
             return ServiceApiError::validationFailed($e->getMessage());
         }
 
-        $accessUrl = url('/api/v1/access/'.$issued->rawToken);
+        $accessUrl = $scope === 'global'
+            ? url('/api/v1/access/'.$issued->rawToken.'/site-network')
+            : url('/api/v1/access/'.$issued->rawToken);
 
         $responseData = [
             'access_url' => $accessUrl,
