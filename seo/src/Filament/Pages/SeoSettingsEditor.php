@@ -42,12 +42,8 @@ class SeoSettingsEditor extends Page implements HasForms
         $this->editorSettingsData = array_merge(
             $editorSettings->getSettings(),
             [
-                'wiki_trust_domains_text' => $editorSettings->domainsToTextarea(
-                    $editorSettings->getWikiTrustDomains(),
-                ),
-                SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewSettings->keywordsToTextarea(
-                    $overviewRaw[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS],
-                ),
+                'wiki_trust_domains' => $editorSettings->getWikiTrustDomains(),
+                SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewRaw[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS],
             ],
         );
 
@@ -81,19 +77,33 @@ class SeoSettingsEditor extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_editor.wiki_trust_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.editor.wiki_trust')])
                     ->schema([
-                        Forms\Components\Textarea::make('wiki_trust_domains_text')
+                        Forms\Components\TagsInput::make('wiki_trust_domains')
                             ->label(__('seo-content-ai::filament.settings_editor.wiki_trust_domains'))
-                            ->rows(8)
-                            ->required()
+                            ->placeholder(__('seo-content-ai::filament.settings_editor.trusted_domains_placeholder'))
+                            ->helperText(__('seo-content-ai::filament.settings_editor.wiki_trust_domains_hint'))
+                            ->nestedRecursiveRules([
+                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
+                                    if (! is_string($value) || \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern($value) === null) {
+                                        $fail(__('seo-content-ai::filament.settings_editor.invalid_trusted_domain', ['domain' => (string) $value]));
+                                    }
+                                },
+                            ])
+                            ->dehydrateStateUsing(fn ($state) => is_array($state)
+                                ? array_map(fn ($tag) => \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern((string) $tag) ?? $tag, $state)
+                                : $state
+                            )
                             ->columnSpanFull(),
                     ]),
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.faq_catch'))
                     ->headerActions([HelpUi::fieldHintAction('settings.editor.faq_catch')])
                     ->schema([
-                        Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
+                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
                             ->label(__('seo-content-ai::filament.settings_overview.faq_keywords_label'))
-                            ->rows(10)
-                            ->required()
+                            ->placeholder(__('seo-content-ai::filament.settings_editor.faq_keywords_placeholder'))
+                            ->nestedRecursiveRules([
+                                'string',
+                                'min:1',
+                            ])
                             ->columnSpanFull(),
                     ]),
             ])
@@ -106,18 +116,38 @@ class SeoSettingsEditor extends Page implements HasForms
     ): void {
         $data = $this->form->getState();
 
+        $trustDomains = $data['wiki_trust_domains'] ?? [];
+        if (! is_array($trustDomains)) {
+            $trustDomains = [];
+        }
+
+        foreach ($trustDomains as $domain) {
+            if (\Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPattern((string) $domain) === null) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'wiki_trust_domains' => __('seo-content-ai::filament.settings_editor.invalid_trusted_domain', ['domain' => (string) $domain]),
+                ]);
+            }
+        }
+
         $editorSettings->saveSettings([
             'history_step' => $data['history_step'] ?? ArticleEditorHistoryService::DEFAULT_HISTORY_STEP,
             'autosave_interval_seconds' => $data['autosave_interval_seconds'] ?? ArticleEditorHistoryService::DEFAULT_AUTOSAVE_INTERVAL_SECONDS,
-            'wiki_trust_domains' => $editorSettings->textareaToDomains(
-                (string) ($data['wiki_trust_domains_text'] ?? ''),
-            ),
+            'wiki_trust_domains' => $trustDomains,
         ]);
 
-        $faqRaw = (string) ($data[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS] ?? '');
+        $faqKeywords = $data[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS] ?? [];
         $overviewSettings->saveSettings([
-            SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewSettings->keywordsFromTextarea($faqRaw),
+            SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => is_array($faqKeywords) ? $faqKeywords : [],
         ]);
+
+        $this->editorSettingsData = array_merge(
+            $editorSettings->getSettings(),
+            [
+                'wiki_trust_domains' => $editorSettings->getWikiTrustDomains(),
+                SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewSettings->getFaqCatchKeywords(),
+            ],
+        );
+        $this->form->fill($this->editorSettingsData);
 
         Notification::make()
             ->title(__('seo-content-ai::filament.settings_editor.saved'))

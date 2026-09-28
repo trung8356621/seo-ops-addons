@@ -364,29 +364,27 @@ final class SeoOverviewSettingsService
     /**
      * @return list<string>
      */
-    private function normalizeSocialSupportedDomains(mixed $raw): array
+    public function normalizeSocialSupportedDomains(mixed $raw): array
     {
         if ($raw === null) {
             return [];
         }
 
         if (is_string($raw)) {
-            return app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)
-                ->domainsFromTextarea($raw);
+            $raw = preg_split('/\r\n|\r|\n/', $raw) ?: [];
         }
 
         if (! is_array($raw)) {
             return [];
         }
 
-        return app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)
-            ->normalizeDomains($raw);
+        return \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrictList($raw);
     }
 
     /**
      * @return list<string>
      */
-    private function normalizeExtensions(mixed $raw): array
+    public function normalizeExtensions(mixed $raw): array
     {
         if (is_string($raw)) {
             $raw = preg_split('/\r\n|\r|\n|,/', $raw) ?: [];
@@ -422,7 +420,7 @@ final class SeoOverviewSettingsService
     /**
      * @return list<string>
      */
-    private function normalizeKeywords(mixed $raw): array
+    public function normalizeKeywords(mixed $raw): array
     {
         if (is_string($raw)) {
             $raw = preg_split('/\r\n|\r|\n/', $raw) ?: [];

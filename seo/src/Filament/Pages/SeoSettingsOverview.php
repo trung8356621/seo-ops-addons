@@ -55,10 +55,8 @@ class SeoSettingsOverview extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.team_chat_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.general.team_chat')])
                     ->schema([
-                        Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
+                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
-                            ->rows(6)
-                            ->required()
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
@@ -78,9 +76,9 @@ class SeoSettingsOverview extends Page implements HasForms
         $data = $this->teamChatForm->getState();
 
         $overviewSettings->saveTeamChatSettings([
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => (string) (
-                $data[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? ''
-            ),
+            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => is_array($data[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? null)
+                ? $data[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS]
+                : [],
             SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $data[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
                 ?? $overviewSettings->getTeamChatMaxFileSizeMb(),
         ]);

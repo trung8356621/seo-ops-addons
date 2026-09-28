@@ -52,34 +52,7 @@ final class SocialSupportedDomainService
 
     public function normalizeDomain(string $input): ?string
     {
-        $value = trim(strtolower($input));
-        if ($value === '') {
-            return null;
-        }
-
-        if (str_contains($value, '://') || str_contains($value, '/')) {
-            if (! str_contains($value, '://')) {
-                $value = 'https://'.$value;
-            }
-
-            $host = parse_url($value, PHP_URL_HOST);
-            if (! is_string($host) || trim($host) === '') {
-                return null;
-            }
-
-            $value = strtolower(trim($host));
-        }
-
-        $value = rtrim($value, '.');
-        if (str_starts_with($value, 'www.')) {
-            $value = substr($value, 4);
-        }
-
-        if ($value === '' || ! $this->isValidDomainLabel($value)) {
-            return null;
-        }
-
-        return $value;
+        return \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict($input);
     }
 
     /**
@@ -88,19 +61,7 @@ final class SocialSupportedDomainService
      */
     public function normalizeDomains(iterable $inputs): array
     {
-        $domains = [];
-        foreach ($inputs as $input) {
-            $normalized = $this->normalizeDomain(is_string($input) ? $input : (string) $input);
-            if ($normalized === null) {
-                continue;
-            }
-
-            if (! in_array($normalized, $domains, true)) {
-                $domains[] = $normalized;
-            }
-        }
-
-        return $domains;
+        return \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrictList($inputs);
     }
 
     public function domainsToTextarea(array $domains): string

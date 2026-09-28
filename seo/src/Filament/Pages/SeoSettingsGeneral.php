@@ -65,17 +65,13 @@ class SeoSettingsGeneral extends Page implements HasForms
 
         $overview = $overviewSettings->getSettings();
         $this->teamChatSettingsData = [
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overviewSettings->extensionsToTextarea(
-                $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
-            ),
+            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
             SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
         ];
         $this->teamChatForm->fill($this->teamChatSettingsData);
 
         $this->socialSettingsData = [
-            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $socialSupportedDomains->domainsToTextarea(
-                $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
-            ),
+            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
         ];
         $this->socialSettingsForm->fill($this->socialSettingsData);
     }
@@ -189,10 +185,25 @@ class SeoSettingsGeneral extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.team_chat_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.general.team_chat')])
                     ->schema([
-                        Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
+                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
-                            ->rows(6)
-                            ->required()
+                            ->placeholder(__('seo-content-ai::filament.settings_overview.team_chat_extensions_placeholder'))
+                            ->helperText(__('seo-content-ai::filament.settings_general.team_chat_extensions_hint'))
+                            ->nestedRecursiveRules([
+                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
+                                    $clean = strtolower(ltrim(trim((string) $value), '.'));
+                                    if ($clean === '' || ! preg_match('/^[a-z0-9]{1,12}$/', $clean)) {
+                                        $fail(__('seo-content-ai::filament.settings_general.invalid_extension', ['extension' => (string) $value]));
+                                    }
+                                },
+                            ])
+                            ->dehydrateStateUsing(fn ($state) => is_array($state)
+                                ? array_map(function ($item) {
+                                    $val = strtolower(ltrim(trim((string) $item), '.'));
+                                    return preg_match('/^[a-z0-9]{1,12}$/', $val) ? $val : $item;
+                                }, $state)
+                                : $state
+                            )
                             ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
@@ -214,11 +225,21 @@ class SeoSettingsGeneral extends Page implements HasForms
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.social_supports_section'))
                     ->description(__('seo-content-ai::filament.settings_general.social_supports_description'))
                     ->schema([
-                        Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)
+                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)
                             ->label(__('seo-content-ai::filament.settings_general.social_supports_label'))
+                            ->placeholder(__('seo-content-ai::filament.settings_general.social_supports_placeholder'))
                             ->helperText(__('seo-content-ai::filament.settings_general.social_supports_hint'))
-                            ->rows(8)
-                            ->required()
+                            ->nestedRecursiveRules([
+                                fn (): \Closure => function (string $attribute, mixed $value, \Closure $fail): void {
+                                    if (! is_string($value) || \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict($value) === null) {
+                                        $fail(__('seo-content-ai::filament.settings_general.invalid_social_domain', ['domain' => (string) $value]));
+                                    }
+                                },
+                            ])
+                            ->dehydrateStateUsing(fn ($state) => is_array($state)
+                                ? array_map(fn ($tag) => \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict((string) $tag) ?? $tag, $state)
+                                : $state
+                            )
                             ->columnSpanFull(),
                     ])
                     ->columns(1),
@@ -270,18 +291,39 @@ class SeoSettingsGeneral extends Page implements HasForms
                 ),
             ]);
 
+            $rawExtensions = $teamChatData[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? [];
+            if (! is_array($rawExtensions)) {
+                $rawExtensions = is_string($rawExtensions) ? preg_split('/\r\n|\r|\n|,/', $rawExtensions) : [];
+            }
+            foreach ($rawExtensions as $ext) {
+                $clean = strtolower(ltrim(trim((string) $ext), '.'));
+                if ($clean === '' || ! preg_match('/^[a-z0-9]{1,12}$/', $clean)) {
+                    throw ValidationException::withMessages([
+                        SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => __('seo-content-ai::filament.settings_general.invalid_extension', ['extension' => (string) $ext]),
+                    ]);
+                }
+            }
+
+            $rawSocialDomains = $socialData[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? [];
+            if (! is_array($rawSocialDomains)) {
+                $rawSocialDomains = is_string($rawSocialDomains) ? preg_split('/\r\n|\r|\n/', $rawSocialDomains) : [];
+            }
+            foreach ($rawSocialDomains as $domain) {
+                if (\Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeStrict((string) $domain) === null) {
+                    throw ValidationException::withMessages([
+                        SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => __('seo-content-ai::filament.settings_general.invalid_social_domain', ['domain' => (string) $domain]),
+                    ]);
+                }
+            }
+
             $overviewSettings->saveTeamChatSettings([
-                SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => (string) (
-                    $teamChatData[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? ''
-                ),
+                SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $rawExtensions,
                 SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $teamChatData[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
                     ?? $overviewSettings->getTeamChatMaxFileSizeMb(),
             ]);
 
             $overviewSettings->saveSocialSupportedDomainsSettings([
-                SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => (string) (
-                    $socialData[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? ''
-                ),
+                SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $rawSocialDomains,
             ]);
         });
 
@@ -295,17 +337,13 @@ class SeoSettingsGeneral extends Page implements HasForms
 
         $overview = $overviewSettings->getSettings();
         $this->teamChatSettingsData = [
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overviewSettings->extensionsToTextarea(
-                $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
-            ),
+            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
             SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
         ];
         $this->teamChatForm->fill($this->teamChatSettingsData);
 
         $this->socialSettingsData = [
-            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $socialSupportedDomains->domainsToTextarea(
-                $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
-            ),
+            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
         ];
         $this->socialSettingsForm->fill($this->socialSettingsData);
 

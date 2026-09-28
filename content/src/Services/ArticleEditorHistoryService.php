@@ -109,7 +109,7 @@ class ArticleEditorHistoryService
      * @param  mixed  $raw
      * @return list<string>
      */
-    private function normalizeWikiTrustDomains(mixed $raw): array
+    public function normalizeWikiTrustDomains(mixed $raw): array
     {
         if (is_string($raw)) {
             $raw = preg_split('/\R/u', $raw) ?: [];
@@ -119,17 +119,8 @@ class ArticleEditorHistoryService
             return self::DEFAULT_WIKI_TRUST_DOMAINS;
         }
 
-        $domains = [];
-        foreach ($raw as $item) {
-            $domain = trim(strtolower((string) $item));
-            $domain = preg_replace('#^https?://#', '', $domain) ?? $domain;
-            $domain = rtrim($domain, '/');
+        $domains = \Omnichannel\Addons\SearchFoundation\Support\DomainHostNormalizer::normalizeTrustedPatternList($raw);
 
-            if ($domain !== '') {
-                $domains[] = $domain;
-            }
-        }
-
-        return $domains !== [] ? array_values(array_unique($domains)) : self::DEFAULT_WIKI_TRUST_DOMAINS;
+        return $domains !== [] ? $domains : self::DEFAULT_WIKI_TRUST_DOMAINS;
     }
 }
