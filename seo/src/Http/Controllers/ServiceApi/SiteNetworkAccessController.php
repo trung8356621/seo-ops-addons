@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Http\Controllers\ServiceApi;
 
+use App\Api\Access\TemporaryServiceAccessContext;
 use App\Api\Middleware\ResolveTemporaryServiceAccess;
 use App\Api\Services\ServiceApiError;
 use Illuminate\Http\JsonResponse;
@@ -31,6 +32,11 @@ final class SiteNetworkAccessController
 
     public function overview(Request $request, string $token): JsonResponse
     {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) {
+            return $context;
+        }
+
         $overview = $this->readModel->overview();
 
         return $this->jsonData([
@@ -43,6 +49,11 @@ final class SiteNetworkAccessController
 
     public function topics(Request $request, string $token): JsonResponse
     {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) {
+            return $context;
+        }
+
         $sourceSiteId = (int) $request->query('source_site', 0);
         $targetSiteId = (int) $request->query('target_site', 0);
 
@@ -60,6 +71,26 @@ final class SiteNetworkAccessController
             'schema' => 'seo.site_network.topics.v1',
             ...$result,
         ]);
+    }
+
+    private function requireContext(Request $request): TemporaryServiceAccessContext|JsonResponse
+    {
+        $context = $request->attributes->get(ResolveTemporaryServiceAccess::REQUEST_CONTEXT_KEY);
+        if (! $context instanceof TemporaryServiceAccessContext) {
+            $context = app()->bound(TemporaryServiceAccessContext::class)
+                ? app(TemporaryServiceAccessContext::class)
+                : null;
+        }
+
+        if (! $context instanceof TemporaryServiceAccessContext) {
+            return ServiceApiError::json(
+                ServiceApiError::TEMPORARY_ACCESS_INVALID,
+                'Temporary access is invalid or expired.',
+                401,
+            );
+        }
+
+        return $context;
     }
 
     /**

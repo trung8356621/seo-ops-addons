@@ -29,7 +29,7 @@ final class SeoLinkMapLinkTypeClassifier
      *
      * Priority: social → wiki_trust → needs_review.
      */
-    public static function forUnresolvedUrl(string $absoluteUrl): SeoLinkMapType
+    public static function forUnresolvedUrl(string $absoluteUrl, ?int $sourceSiteId = null): SeoLinkMapType
     {
         // Contact schemes
         if (LinkDestinationClassifier::isContactScheme($absoluteUrl)) {
@@ -41,6 +41,16 @@ final class SeoLinkMapLinkTypeClassifier
         // Social host check (delegated to SSOT)
         if (LinkDestinationClassifier::isSocialHost($host)) {
             return SeoLinkMapType::Social;
+        }
+
+        // Managed site check
+        $managedSiteId = LinkDestinationClassifier::resolveManagedSiteId($host);
+        if ($managedSiteId !== null && $managedSiteId > 0) {
+            if ($sourceSiteId !== null && $managedSiteId === $sourceSiteId) {
+                return SeoLinkMapType::Internal;
+            }
+
+            return SeoLinkMapType::ManagedCrossSite;
         }
 
         // Trusted/reference host check

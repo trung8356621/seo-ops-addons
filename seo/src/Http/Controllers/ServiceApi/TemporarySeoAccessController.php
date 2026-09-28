@@ -224,6 +224,10 @@ final class TemporarySeoAccessController
             );
         }
 
+        if (! $context->isSite() || $context->siteId === null || $context->siteId <= 0) {
+            return ServiceApiError::forbidden('This resource requires a site-scoped access token.');
+        }
+
         return $context;
     }
 

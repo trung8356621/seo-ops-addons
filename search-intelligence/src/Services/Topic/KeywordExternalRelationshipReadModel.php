@@ -42,6 +42,12 @@ final class KeywordExternalRelationshipReadModel
         SeoLinkMapType::Contact->value,
     ];
 
+    public function __construct(
+        private ?TargetKeywordResolver $targetKeywordResolver = null,
+    ) {
+        $this->targetKeywordResolver ??= new TargetKeywordResolver();
+    }
+
     /**
      * @param  list<string>|null  $typeFilter  null=all, or subset of 'managed_cross_site','wiki_trust','needs_review'
      * @return array{
@@ -139,13 +145,17 @@ final class KeywordExternalRelationshipReadModel
 
         $targetSiteId = null;
         $targetArticleId = null;
-        $targetKeywordPhrase = null;
 
         if ($targetArticle instanceof SeoArticle) {
             $targetSiteId = (int) ($targetArticle->site_id ?? 0);
             $targetArticleId = (int) $targetArticle->id;
         } elseif ((int) ($map->target_site_id ?? 0) > 0) {
             $targetSiteId = (int) $map->target_site_id;
+        }
+
+        $targetKeyword = null;
+        if ($targetArticle instanceof SeoArticle) {
+            $targetKeyword = $this->targetKeywordResolver->resolveForArticle((int) $targetArticle->id, $targetSiteId);
         }
 
         return [
@@ -158,7 +168,10 @@ final class KeywordExternalRelationshipReadModel
             'source_site_id' => (int) ($sourceArticle?->site_id ?? 0),
             'source_article_id' => $sourceArticle instanceof SeoArticle ? (int) $sourceArticle->id : null,
             'source_article_title' => trim((string) ($sourceArticle?->title ?? '')),
-            // Keyword
+            // Keyword (source)
+            'source_keyword_id' => $keyword instanceof Keyword ? (int) $keyword->id : null,
+            'source_keyword_ref' => $keyword instanceof Keyword ? 'keyword:'.(int) $keyword->id : null,
+            'source_keyword_phrase' => $keyword instanceof Keyword ? (string) $keyword->phrase : (string) $map->anchor_text,
             'keyword_id' => $keyword instanceof Keyword ? (int) $keyword->id : null,
             'keyword_ref' => $keyword instanceof Keyword ? 'keyword:'.(int) $keyword->id : null,
             'keyword_phrase' => $keyword instanceof Keyword ? (string) $keyword->phrase : (string) $map->anchor_text,
@@ -174,8 +187,13 @@ final class KeywordExternalRelationshipReadModel
             'target_external_url' => $targetArticle === null
                 ? trim((string) ($map->target_external_url ?? ''))
                 : null,
+            // Target Keyword
+            'target_keyword_id' => $targetKeyword instanceof Keyword ? (int) $targetKeyword->id : null,
+            'target_keyword_ref' => $targetKeyword instanceof Keyword ? 'keyword:'.(int) $targetKeyword->id : null,
+            'target_keyword_phrase' => $targetKeyword instanceof Keyword ? (string) $targetKeyword->phrase : null,
             // Resolution state
             'target_resolved' => $targetArticle instanceof SeoArticle,
+            'target_keyword_resolved' => $targetKeyword instanceof Keyword,
             'destination_kind' => $map->destination_kind?->value,
         ];
     }

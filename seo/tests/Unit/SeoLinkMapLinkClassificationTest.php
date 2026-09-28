@@ -144,4 +144,40 @@ final class SeoLinkMapLinkClassificationTest extends TestCase
     {
         $this->assertFalse(SeoLinkMapType::Contact->isSemanticEligible());
     }
+
+    public function test_needs_review_is_semantic_eligible(): void
+    {
+        $this->assertTrue(SeoLinkMapType::NeedsReview->isSemanticEligible());
+        $this->assertFalse(SeoLinkMapType::NeedsReview->isCta());
+    }
+
+    public function test_managed_cross_site_via_target_site_id_without_article(): void
+    {
+        $result = LinkDestinationClassifier::classify(
+            href: 'https://managed-partner.com/some-page',
+            sourceSiteId: 1,
+            resolvedTargetArticle: null,
+            targetSiteId: 2,
+        );
+
+        $this->assertSame(SeoLinkMapType::ManagedCrossSite, $result['link_type']);
+        $this->assertSame(2, $result['target_site_id']);
+        $this->assertTrue($result['is_semantic_eligible']);
+        $this->assertFalse($result['is_cta']);
+    }
+
+    public function test_same_site_via_target_site_id_without_article_is_internal(): void
+    {
+        $result = LinkDestinationClassifier::classify(
+            href: 'https://same-site.com/some-page',
+            sourceSiteId: 1,
+            resolvedTargetArticle: null,
+            targetSiteId: 1,
+        );
+
+        $this->assertSame(SeoLinkMapType::Internal, $result['link_type']);
+        $this->assertNull($result['target_site_id']);
+        $this->assertTrue($result['is_semantic_eligible']);
+    }
 }
+

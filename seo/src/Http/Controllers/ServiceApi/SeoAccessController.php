@@ -60,24 +60,34 @@ final class SeoAccessController
             return ServiceApiError::validationFailed('Request body must be a JSON object.');
         }
 
-        $unknown = array_diff(array_keys($payload), ['site_id']);
+        $unknown = array_diff(array_keys($payload), ['site_id', 'scope']);
         if ($unknown !== []) {
             return ServiceApiError::validationFailed(
                 'Unknown request fields: '.implode(', ', array_values($unknown))
             );
         }
 
-        if (! array_key_exists('site_id', $payload) || ! is_numeric($payload['site_id'])) {
-            return ServiceApiError::validationFailed('site_id is required and must be a positive integer.');
+        $scope = isset($payload['scope']) ? strtolower(trim((string) $payload['scope'])) : 'site';
+        if (! in_array($scope, ['site', 'global'], true)) {
+            return ServiceApiError::validationFailed("Invalid scope: {$scope}. Allowed scopes: 'site', 'global'.");
         }
 
-        $siteId = (int) $payload['site_id'];
-        if ($siteId <= 0) {
-            return ServiceApiError::validationFailed('site_id is required and must be a positive integer.');
-        }
+        $siteId = null;
+        if ($scope === 'site') {
+            if (! array_key_exists('site_id', $payload) || ! is_numeric($payload['site_id'])) {
+                return ServiceApiError::validationFailed('site_id is required and must be a positive integer.');
+            }
 
-        if (! $this->siteExists($siteId)) {
-            return ServiceApiError::validationFailed('Unknown or invalid site_id.');
+            $siteId = (int) $payload['site_id'];
+            if ($siteId <= 0) {
+                return ServiceApiError::validationFailed('site_id is required and must be a positive integer.');
+            }
+
+            if (! $this->siteExists($siteId)) {
+                return ServiceApiError::validationFailed('Unknown or invalid site_id.');
+            }
+        } elseif (array_key_exists('site_id', $payload) && $payload['site_id'] !== null) {
+            return ServiceApiError::validationFailed('site_id must not be provided when scope is global.');
         }
 
         $context = $request->attributes->get(AuthenticateServiceApi::REQUEST_CONTEXT_KEY);
@@ -91,23 +101,31 @@ final class SeoAccessController
         }
 
         try {
-            $issued = $this->temporaryAccess->issue(
-                $context->service,
-                $context->credential,
-                $siteId,
-            );
+            $issued = $scope === 'global'
+                ? $this->temporaryAccess->issueGlobal(
+                    $context->service,
+                    $context->credential,
+                )
+                : $this->temporaryAccess->issue(
+                    $context->service,
+                    $context->credential,
+                    (int) $siteId,
+                );
         } catch (InvalidArgumentException $e) {
             return ServiceApiError::validationFailed($e->getMessage());
         }
 
         $accessUrl = url('/api/v1/access/'.$issued->rawToken);
 
+        $responseData = [
+            'access_url' => $accessUrl,
+            'expires_at' => $issued->expiresAt,
+            'scope' => $issued->scope,
+            'site_ref' => $issued->siteRef(),
+        ];
+
         return response()->json([
-            'data' => [
-                'access_url' => $accessUrl,
-                'expires_at' => $issued->expiresAt,
-                'site_ref' => $issued->siteRef(),
-            ],
+            'data' => $responseData,
         ])->header('Cache-Control', 'no-store');
     }
 

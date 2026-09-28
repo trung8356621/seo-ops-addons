@@ -163,9 +163,8 @@ final class BackfillLinkClassificationCommand extends Command
             return $this->siteIdCache[$articleId];
         }
 
-        // SeoArticle is stored in the WordPress DB which is the default connection.
-        $record = DB::table('seo_articles')
-            ->where('id', $articleId)
+        $record = \Omnichannel\Addons\Content\Models\SeoArticle::query()
+            ->whereKey($articleId)
             ->value('site_id');
 
         $this->siteIdCache[$articleId] = $record !== null ? (int) $record : null;

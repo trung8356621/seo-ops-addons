@@ -75,6 +75,7 @@ final class LinkDestinationClassifier
         int $sourceSiteId,
         ?SeoArticle $resolvedTargetArticle = null,
         bool $isTrustHost = false,
+        ?int $targetSiteId = null,
     ): array {
         // --- Step 1: contact scheme check (tel:, mailto:, etc.) ---
         if (self::isContactScheme($href)) {
@@ -98,10 +99,14 @@ final class LinkDestinationClassifier
             );
         }
 
-        // --- Step 3 & 4: managed article (same-site or cross-site) ---
+        // --- Step 3 & 4: managed article or managed domain (same-site or cross-site) ---
         if ($resolvedTargetArticle !== null) {
             $targetSiteId = (int) ($resolvedTargetArticle->site_id ?? 0);
+        } elseif ($targetSiteId === null && $host !== '') {
+            $targetSiteId = self::resolveManagedSiteId($host);
+        }
 
+        if ($targetSiteId !== null && $targetSiteId > 0) {
             if ($targetSiteId === $sourceSiteId) {
                 return self::result(
                     type: SeoLinkMapType::Internal,
@@ -115,7 +120,7 @@ final class LinkDestinationClassifier
                 type: SeoLinkMapType::ManagedCrossSite,
                 kind: SeoLinkMapDestinationKind::Content,
                 host: $host,
-                targetSiteId: $targetSiteId > 0 ? $targetSiteId : null,
+                targetSiteId: $targetSiteId,
             );
         }
 
@@ -136,6 +141,31 @@ final class LinkDestinationClassifier
             host: $host,
             targetSiteId: null,
         );
+    }
+
+    public static function resolveManagedSiteId(string $host): ?int
+    {
+        $normalized = SeoLinkMapLinkTypeClassifier::normalizeDomainHost($host);
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('sites')) {
+            try {
+                $sites = \App\Models\Site::query()->get(['id', 'domain']);
+                foreach ($sites as $site) {
+                    if ($site instanceof \App\Models\Site) {
+                        $siteHost = SeoLinkMapLinkTypeClassifier::normalizeDomainHost((string) $site->domain);
+                        if ($siteHost !== '' && ($siteHost === $normalized || $normalized === 'www.'.$siteHost || 'www.'.$normalized === $siteHost)) {
+                            return (int) $site->id;
+                        }
+                    }
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return null;
     }
 
     /**

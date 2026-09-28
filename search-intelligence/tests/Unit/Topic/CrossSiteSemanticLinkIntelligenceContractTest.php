@@ -368,4 +368,64 @@ final class CrossSiteSemanticLinkIntelligenceContractTest extends TestCase
         $result = LinkDestinationClassifier::classify('https://tiktok.com/@example', 1, null, false);
         $this->assertSame(SeoLinkMapType::Social, $result['link_type']);
     }
+
+    public function test_target_keyword_resolver_rejects_non_positive_article_id(): void
+    {
+        $resolver = new \Omnichannel\Addons\SearchIntelligence\Services\Topic\TargetKeywordResolver();
+        $this->assertNull($resolver->resolveForArticle(0));
+        $this->assertNull($resolver->resolveForArticle(-1));
+    }
+
+    public function test_target_keyword_resolver_never_guesses_from_slug_or_title(): void
+    {
+        $resolverSrc = (string) file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TargetKeywordResolver::class))->getFileName()
+        );
+
+        $code = preg_replace('#/\*.*?\*/#s', '', $resolverSrc) ?? $resolverSrc;
+        $code = preg_replace('#//.*$#m', '', $code) ?? $code;
+
+        $this->assertStringNotContainsString('slug', $code);
+        $this->assertStringNotContainsString('title', $code);
+        $this->assertStringContainsString('siteMainArticleId', $resolverSrc);
+        $this->assertStringContainsString('MainArticleId', $resolverSrc);
+        $this->assertStringContainsString('seo_focus_keyword', $resolverSrc);
+    }
+
+    public function test_site_network_read_model_uses_canonical_article_table_and_connection(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\SearchIntelligence\Services\Topic\SiteNetworkReadModel::class))->getFileName()
+        );
+
+        // Must not query hardcoded seo_articles table
+        $this->assertStringNotContainsString('join(\'seo_articles\'', $src);
+        $this->assertStringNotContainsString('from(\'seo_articles\'', $src);
+        $this->assertStringNotContainsString('table(\'seo_articles\'', $src);
+        // Uses canonical SeoArticle table
+        $this->assertStringContainsString('SeoArticle', $src);
+        $this->assertStringContainsString('getTable()', $src);
+        // Exposes directional metric keys
+        $this->assertStringContainsString('source_keyword_count', $src);
+        $this->assertStringContainsString('keyword_relation_count', $src);
+        $this->assertStringContainsString('article_link_count', $src);
+        $this->assertStringContainsString('source_article_count', $src);
+        $this->assertStringContainsString('target_article_count', $src);
+    }
+
+    public function test_managed_domain_resolution_without_target_article(): void
+    {
+        $result = LinkDestinationClassifier::classify(
+            href: 'https://managed-peer.example.com/some/path',
+            sourceSiteId: 10,
+            resolvedTargetArticle: null,
+            targetSiteId: 20,
+        );
+
+        $this->assertSame(SeoLinkMapType::ManagedCrossSite, $result['link_type']);
+        $this->assertSame(20, $result['target_site_id']);
+        $this->assertTrue($result['is_semantic_eligible']);
+        $this->assertFalse($result['is_cta']);
+    }
 }
+

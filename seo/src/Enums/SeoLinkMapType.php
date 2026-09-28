@@ -24,8 +24,8 @@ enum SeoLinkMapType: string
             self::Internal,
             self::ManagedCrossSite,
             self::WikiTrust,
-            self::External   => true,   // External kept for backward compat
-            self::NeedsReview,           // unmanaged unknown — still eligible but flagged
+            self::External,
+            self::NeedsReview => true,
             self::Social,
             self::Contact    => false,
         };

@@ -55,6 +55,53 @@ return new class extends Migration
                 // Index already exists — safe to ignore.
             }
         });
+
+        // --- 4. Ensure keyword_id is nullable for raw link facts (Social, Contact) ---
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $this->dropKeywordForeignKeySafely();
+            DB::connection($this->connection)->statement(
+                'ALTER TABLE seo_link_maps MODIFY keyword_id BIGINT UNSIGNED NULL'
+            );
+            try {
+                Schema::connection($this->connection)->table('seo_link_maps', function (Blueprint $table) {
+                    $table->foreign('keyword_id')
+                        ->references('id')
+                        ->on('keywords')
+                        ->nullOnDelete();
+                });
+            } catch (\Throwable) {
+            }
+        } else {
+            try {
+                Schema::connection($this->connection)->table('seo_link_maps', function (Blueprint $table) {
+                    $table->unsignedBigInteger('keyword_id')->nullable()->change();
+                });
+            } catch (\Throwable) {
+            }
+        }
+    }
+
+    private function dropKeywordForeignKeySafely(): void
+    {
+        try {
+            $dbName = (string) DB::connection($this->connection)->getDatabaseName();
+            $rows = DB::connection($this->connection)->select(
+                'SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL',
+                [$dbName, 'seo_link_maps', 'keyword_id']
+            );
+
+            foreach ($rows as $row) {
+                $name = (string) ($row->CONSTRAINT_NAME ?? '');
+                if ($name === '') {
+                    continue;
+                }
+                DB::connection($this->connection)->statement(
+                    'ALTER TABLE seo_link_maps DROP FOREIGN KEY `'.$name.'`'
+                );
+            }
+        } catch (\Throwable) {
+        }
     }
 
     public function down(): void

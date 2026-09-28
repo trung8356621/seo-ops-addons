@@ -128,7 +128,7 @@ final class ArticleLinkContextMapService
                 'link_type' => $classification['link_type']->value,
                 'destination_kind' => $classification['destination_kind']->value ?? null,
                 'target_site_id' => $classification['target_site_id'],
-                'is_semantic_eligible' => true,
+                'is_semantic_eligible' => (bool) $classification['is_semantic_eligible'],
                 'status' => SeoLinkMapStatus::Active,
             ]);
 
@@ -236,11 +236,13 @@ final class ArticleLinkContextMapService
         $normalizedHref = $absoluteUrl !== '' ? $absoluteUrl : $href;
 
         $isTrustHost = false;
+        $targetSiteId = null;
         if ($resolvedTargetArticle === null) {
             $storageUrl = SeoLinkMapExternalUrlNormalizer::forStorage($normalizedHref);
             $resolved = $storageUrl ?? $normalizedHref;
             $host = SeoLinkMapLinkTypeClassifier::resolveHost($resolved);
             $isTrustHost = SeoLinkMapLinkTypeClassifier::isWikiTrustHost($host);
+            $targetSiteId = $this->linkTargetResolver->resolveSiteIdByHost($host);
         }
 
         $result = LinkDestinationClassifier::classify(
@@ -248,6 +250,7 @@ final class ArticleLinkContextMapService
             $sourceSiteId,
             $resolvedTargetArticle,
             $isTrustHost,
+            $targetSiteId,
         );
 
         // Resolve target article/url for persistence.
@@ -384,11 +387,6 @@ final class ArticleLinkContextMapService
         }
 
         return in_array(strtolower($scheme), [
-            'tel',
-            'mailto',
-            'sms',
-            'whatsapp',
-            'viber',
             'data',
             'cid',
         ], true);

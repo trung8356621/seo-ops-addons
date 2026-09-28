@@ -40,7 +40,8 @@ final class SiteNetworkReadModel
      */
     public function overview(): array
     {
-        if (! Schema::hasTable('seo_link_maps') || ! Schema::hasTable('seo_articles')) {
+        $articleTable = (new SeoArticle())->getTable();
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
             return ['sites' => [], 'edges' => []];
         }
 
@@ -71,6 +72,7 @@ final class SiteNetworkReadModel
                 'article_link_count' => $edge['article_link_count'],
                 'source_article_count' => $edge['source_article_count'],
                 'target_article_count' => $edge['target_article_count'],
+                'source_keyword_count' => $edge['source_keyword_count'],
                 'keyword_relation_count' => $edge['keyword_relation_count'],
             ];
         }, $edges);
@@ -96,7 +98,8 @@ final class SiteNetworkReadModel
      */
     public function topicsForSitePair(int $sourceSiteId, int $targetSiteId): ?array
     {
-        if (! Schema::hasTable('seo_link_maps') || ! Schema::hasTable('seo_articles')) {
+        $articleTable = (new SeoArticle())->getTable();
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
             return null;
         }
 
@@ -176,7 +179,8 @@ final class SiteNetworkReadModel
      */
     private function computeEdges(array $siteIdSet): array
     {
-        if ($siteIdSet === [] || ! Schema::hasTable('seo_link_maps')) {
+        $articleTable = (new SeoArticle())->getTable();
+        if ($siteIdSet === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
             return [];
         }
 
@@ -190,10 +194,10 @@ final class SiteNetworkReadModel
                 'COUNT(slm.id) as article_link_count, '.
                 'COUNT(DISTINCT slm.source_article_id) as source_article_count, '.
                 'COUNT(DISTINCT slm.target_article_id) as target_article_count, '.
-                'COUNT(DISTINCT slm.keyword_id) as keyword_relation_count'
+                'COUNT(DISTINCT slm.keyword_id) as source_keyword_count'
             )
-            ->join('seo_articles as sa', 'sa.id', '=', 'slm.source_article_id')
-            ->join('seo_articles as ta', 'ta.id', '=', 'slm.target_article_id')
+            ->join("{$articleTable} as sa", 'sa.id', '=', 'slm.source_article_id')
+            ->join("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
             ->whereIn('slm.link_type', $linkTypes)
             ->whereNotNull('slm.target_article_id')
             ->whereIn('sa.site_id', $siteIdSet)
@@ -210,13 +214,16 @@ final class SiteNetworkReadModel
                 continue;
             }
 
+            $sourceKeywordCount = (int) ($row->source_keyword_count ?? 0);
+
             $edges[] = [
                 'source_site_id' => $sourceSiteId,
                 'target_site_id' => $targetSiteId,
                 'article_link_count' => (int) ($row->article_link_count ?? 0),
                 'source_article_count' => (int) ($row->source_article_count ?? 0),
                 'target_article_count' => (int) ($row->target_article_count ?? 0),
-                'keyword_relation_count' => (int) ($row->keyword_relation_count ?? 0),
+                'source_keyword_count' => $sourceKeywordCount,
+                'keyword_relation_count' => $sourceKeywordCount,
             ];
         }
 
@@ -228,7 +235,8 @@ final class SiteNetworkReadModel
      */
     private function loadTopicsForSitePair(int $sourceSiteId, int $targetSiteId): array
     {
-        if (! Schema::hasTable('seo_topic_keywords') || ! Schema::hasTable('seo_topics')) {
+        $articleTable = (new SeoArticle())->getTable();
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_topic_keywords') || ! Schema::connection('omi_seo_ai')->hasTable('seo_topics') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
             return [];
         }
 
@@ -240,8 +248,8 @@ final class SiteNetworkReadModel
             ->selectRaw(
                 'stk.topic_id, COUNT(slm.id) as cross_site_link_count'
             )
-            ->join('seo_articles as sa', 'sa.id', '=', 'slm.source_article_id')
-            ->join('seo_articles as ta', 'ta.id', '=', 'slm.target_article_id')
+            ->join("{$articleTable} as sa", 'sa.id', '=', 'slm.source_article_id')
+            ->join("{$articleTable} as ta", 'ta.id', '=', 'slm.target_article_id')
             ->join('seo_topic_keywords as stk', function ($join) use ($sourceSiteId): void {
                 $join->on('stk.keyword_id', '=', 'slm.keyword_id')
                     ->where('stk.site_id', $sourceSiteId);
