@@ -174,6 +174,8 @@ class GeneralDomain extends Page
 
     public bool $siteSyncNeedsBootstrap = false;
 
+    public bool $siteSyncV3BaselineReady = false;
+
     /** @var array<string, mixed>|null */
     public ?array $siteSyncPreflight = null;
 
@@ -607,6 +609,7 @@ class GeneralDomain extends Page
             $this->siteSyncV2Sources = is_array($status['capability_sources'] ?? null) ? $status['capability_sources'] : [];
             $this->siteSyncV2SourceChips = app(SiteSyncSourceLabelPresenter::class)->chips($this->siteSyncV2Sources);
             $this->siteSyncNeedsBootstrap = app(SiteSyncBootstrapService::class)->needsBootstrap($site);
+            $this->siteSyncV3BaselineReady = (bool) ($status['v3_baseline_ready'] ?? $status['baseline_ready'] ?? false);
             $this->siteSyncV2ModeLabel = isset($status['mode_label']) ? (string) $status['mode_label'] : null;
             $this->siteSyncV2Counters = is_array($status['counters'] ?? null)
                 ? array_map(static fn (mixed $v): int|string => is_numeric($v) ? (int) $v : (string) $v, $status['counters'])

@@ -41,7 +41,7 @@
         $completed => __('seo-content-ai::filament.domain.site_sync_completed_title'),
         $canceled => __('seo-content-ai::filament.domain.site_sync_canceled_title'),
         // Active run identity comes from run meta (scope_label), never the selected language tab.
-        $running && filled($siteSyncScopeLabel ?? null) => __('Synchronizing').$siteSyncScopeLabel,
+        $running && filled($siteSyncScopeLabel ?? null) => 'Đang đồng bộ '.$siteSyncScopeLabel,
         $running && filled($activeUserLabel) => $activeUserLabel,
         $running => __('seo-content-ai::filament.domain.site_sync_running_title'),
         default => null,
@@ -90,6 +90,9 @@
                         <p>Lần cuối: {{ $lastSyncedLabel }}</p>
                     @elseif (!empty($siteSyncV2ElapsedLabel))
                         <p>{{ $siteSyncV2ElapsedLabel }}</p>
+                    @endif
+                    @if (! ($siteSyncV3BaselineReady ?? true))
+                        <p class="text-amber-700 dark:text-amber-300">Lần đồng bộ này sẽ khởi tạo lại dữ liệu đồng bộ.</p>
                     @endif
                 </div>
             @endif

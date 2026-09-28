@@ -21,6 +21,7 @@ use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressCopy;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressTracker;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncStepCatalog;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
+use Omnichannel\Addons\SiteSync\Services\V3\SiteSyncV3CheckpointStore;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
 use Throwable;
@@ -31,7 +32,13 @@ final class SiteSyncStatusPresenter
         private readonly SiteCapabilityResolver $capabilities,
         private readonly SiteSyncFeatureFlags $flags,
         private readonly SiteSyncCutoverReadinessService $cutover,
+        private readonly ?SiteSyncV3CheckpointStore $checkpointStore = null,
     ) {}
+
+    private function checkpointStore(): SiteSyncV3CheckpointStore
+    {
+        return $this->checkpointStore ?? new SiteSyncV3CheckpointStore();
+    }
 
     /**
      * @return array<string, mixed>
@@ -113,6 +120,8 @@ final class SiteSyncStatusPresenter
                 ],
                 'cutover' => $this->safeCutover($site),
                 'last_synced_at' => null,
+                'v3_baseline_ready' => $this->checkpointStore()->hasSuccessfulBaseline($site, ''),
+                'baseline_ready' => $this->checkpointStore()->hasSuccessfulBaseline($site, ''),
             ];
         }
 
@@ -253,6 +262,8 @@ final class SiteSyncStatusPresenter
             'cutover' => $this->safeCutover($site),
             'last_synced_at' => SystemDateTime::formatDateTime($run->finished_at ?? $run->updated_at),
             'stopping' => $this->isStoppingAfterCancel($runStatus, $meta),
+            'v3_baseline_ready' => $this->checkpointStore()->hasSuccessfulBaseline($site, ''),
+            'baseline_ready' => $this->checkpointStore()->hasSuccessfulBaseline($site, ''),
         ];
     }
 
@@ -403,6 +414,7 @@ final class SiteSyncStatusPresenter
 
         $recordsTotal = (int) ($meta['initial_expected_records_total'] ?? 0);
         $termsExpected = (int) ($meta['initial_expected_terms_total'] ?? 0);
+        $v3BaselineReady = $this->checkpointStore()->hasSuccessfulBaseline($site, $languageScope);
 
         return [
             'running' => $isActive && ! $stuck,
@@ -413,6 +425,8 @@ final class SiteSyncStatusPresenter
             'cancellable' => $isActive || ($runStatus === 'failed' && (bool) $run->resumable),
             'status' => $stuck ? 'stuck' : $runStatus,
             'protocol_version' => SiteSyncV3Schema::PROTOCOL,
+            'v3_baseline_ready' => $v3BaselineReady,
+            'baseline_ready' => $v3BaselineReady,
             'mode' => (string) $run->mode,
             'mode_label' => $forceFull
                 ? ($scopeLabel !== null ? 'Đồng bộ lại toàn bộ '.$scopeLabel : 'Đồng bộ lại toàn bộ website')

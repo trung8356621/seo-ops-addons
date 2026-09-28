@@ -88,19 +88,12 @@ final class RunSiteSyncV3Orchestrator
         $hasBaseline = $languageScope !== ''
             ? $this->checkpointStore->hasSuccessfulBaseline($site, $languageScope)
             : self::hasSuccessfulBaseline($site);
+        $autoPromoted = false;
         if (! $forceFull && ! $hasBaseline) {
-            if ($languageScope !== '') {
-                // First scoped run for this language (primary Domain sync or optional secondary):
-                // auto-promote to force_full instead of failing the UI with a baseline error.
-                $forceFull = true;
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Chưa có V3 force-full baseline — chạy Force Full trước khi dùng delta.',
-                    'protocol' => SiteSyncV3Schema::PROTOCOL,
-                    'error_code' => 'v3_baseline_required',
-                ];
-            }
+            // First run without a successful V3 baseline (unscoped or scoped language):
+            // auto-promote to force_full instead of failing the UI with a baseline error.
+            $forceFull = true;
+            $autoPromoted = true;
         }
 
         $mode = $forceFull ? SiteSyncV3Schema::MODE_FORCE_FULL : SiteSyncV3Schema::MODE_DELTA;
@@ -157,6 +150,10 @@ final class RunSiteSyncV3Orchestrator
         $runMeta[SiteSyncV3Schema::META_LANGUAGE_ROLE] = $languageRole;
         // Sticky flag: empty language_scope mid-run must fail-fast, never fall back to all languages.
         $runMeta['language_scoped'] = $languageScope !== '';
+        if ($autoPromoted) {
+            $runMeta['auto_promoted_force_full'] = true;
+            $runMeta['baseline_bootstrap'] = true;
+        }
 
         if (! $forceFull) {
             $importSince = $languageScope !== ''

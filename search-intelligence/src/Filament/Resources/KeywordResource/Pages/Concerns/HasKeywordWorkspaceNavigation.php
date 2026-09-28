@@ -139,7 +139,6 @@ trait HasKeywordWorkspaceNavigation
         $topics = 0;
         $tags = 0;
         $external = 0;
-        $risk = 0;
         if ($siteId !== null && $siteId > 0) {
             $topics = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
                 ->summary($siteId, $languageVariants)['topic_count'];
@@ -148,7 +147,6 @@ trait HasKeywordWorkspaceNavigation
             $riskCounts = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordExternalRelationshipReadModel::class)
                 ->riskCounts($siteId);
             $external = (int) $riskCounts['all'];
-            $risk = (int) $riskCounts['review'];
         }
 
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;
@@ -160,7 +158,6 @@ trait HasKeywordWorkspaceNavigation
             'topics' => $topics,
             'tags' => $tags,
             'external' => $external,
-            'risk' => $risk,
         ];
     }
 
@@ -201,12 +198,6 @@ trait HasKeywordWorkspaceNavigation
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_external'),
                 'url' => KeywordResource::getUrl('external'),
                 'count' => $counts['external'],
-            ],
-            [
-                'key' => 'risk',
-                'label' => __('seo-content-ai::filament.keyword.workspace_nav_risk'),
-                'url' => KeywordResource::getUrl('risk'),
-                'count' => $counts['risk'] ?? 0,
             ],
             [
                 'key' => 'anchor-audit',

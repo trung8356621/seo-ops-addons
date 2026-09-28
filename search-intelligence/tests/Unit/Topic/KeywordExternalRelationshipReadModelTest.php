@@ -341,26 +341,62 @@ final class KeywordExternalRelationshipReadModelTest extends TestCase
         self::assertFalse($item['target_keyword_resolved'], 'Must explicitly mark target keyword as unresolved');
     }
 
-    public function test_keyword_risk_workspace_component_defaults(): void
+    public function test_keyword_external_workspace_filter_dimensions_and_exclusivity(): void
     {
-        $workspace = new \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordRiskWorkspace();
+        $workspace = new \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\KeywordExternalWorkspace();
 
-        // Default filter must be 'review'
-        self::assertSame('review', $workspace->riskFilter);
+        // Default filter mode: all external
+        self::assertSame('all', $workspace->filter);
+        self::assertSame('', $workspace->risk);
 
-        // Setting valid filter updates state
+        // Clicking a Type filter updates filter and clears risk
+        $workspace->setTypeFilter('managed_cross_site');
+        self::assertSame('managed_cross_site', $workspace->filter);
+        self::assertSame('', $workspace->risk);
+
+        // Clicking a Risk filter updates risk and clears type filter
+        $workspace->setRiskFilter('review');
+        self::assertSame('review', $workspace->risk);
+        self::assertSame('', $workspace->filter);
+
+        // Clicking another Risk filter keeps type filter cleared
         $workspace->setRiskFilter('safe');
-        self::assertSame('safe', $workspace->riskFilter);
+        self::assertSame('safe', $workspace->risk);
+        self::assertSame('', $workspace->filter);
 
         $workspace->setRiskFilter('low');
-        self::assertSame('low', $workspace->riskFilter);
+        self::assertSame('low', $workspace->risk);
+        self::assertSame('', $workspace->filter);
 
-        $workspace->setRiskFilter('all');
-        self::assertSame('all', $workspace->riskFilter);
+        // Clicking a Type filter clears risk
+        $workspace->setTypeFilter('reference');
+        self::assertSame('reference', $workspace->filter);
+        self::assertSame('', $workspace->risk);
 
-        // Setting invalid filter is ignored
-        $workspace->setRiskFilter('unsupported_value');
-        self::assertSame('all', $workspace->riskFilter, 'Invalid filter must not change riskFilter');
+        // Invalid filter values do not corrupt state
+        $workspace->setTypeFilter('invalid_type');
+        self::assertSame('reference', $workspace->filter);
+        self::assertSame('', $workspace->risk);
+
+        $workspace->setRiskFilter('invalid_risk');
+        self::assertSame('reference', $workspace->filter);
+        self::assertSame('', $workspace->risk);
+    }
+
+    public function test_standalone_risk_workspace_no_longer_registered_and_external_exists(): void
+    {
+        $pages = \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getPages();
+
+        self::assertArrayHasKey('external', $pages);
+        self::assertArrayNotHasKey('risk', $pages);
+
+        $navigationItems = \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getNavigationItems();
+        self::assertNotEmpty($navigationItems);
+        $children = $navigationItems[0]->getChildItems();
+        $urls = array_map(fn ($item) => $item->getUrl(), $children);
+
+        self::assertContains(\Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getUrl('external'), $urls);
+        self::assertStringNotContainsString('/risk', implode(' ', $urls));
     }
 
     /**

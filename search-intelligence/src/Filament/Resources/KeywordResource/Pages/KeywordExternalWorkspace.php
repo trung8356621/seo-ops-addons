@@ -29,16 +29,35 @@ final class KeywordExternalWorkspace extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    #[Url(as: 'external')]
-    public string $externalFilter = 'all';
+    #[Url(as: 'filter')]
+    public string $filter = 'all';
+
+    #[Url(as: 'risk')]
+    public string $risk = '';
 
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->dispatchKeywordWorkspaceLanguageContext();
 
-        if (! in_array($this->externalFilter, KeywordExternalRelationshipReadModel::uiCategories(), true)) {
-            $this->externalFilter = 'all';
+        // Compatibility fallback: check legacy ?external= query parameter if present
+        $legacyExternal = request()->query('external');
+        if (is_string($legacyExternal) && $legacyExternal !== '' && $this->filter === 'all') {
+            $this->filter = $legacyExternal;
+        }
+
+        if ($this->risk !== '') {
+            if (! in_array($this->risk, KeywordExternalRelationshipReadModel::uiRiskFilters(), true)) {
+                $this->risk = '';
+            } else {
+                $this->filter = '';
+            }
+        }
+
+        if ($this->risk === '') {
+            if (! in_array($this->filter, KeywordExternalRelationshipReadModel::uiCategories(), true)) {
+                $this->filter = 'all';
+            }
         }
     }
 
@@ -57,14 +76,34 @@ final class KeywordExternalWorkspace extends Page
         return 'external';
     }
 
-    public function setExternalFilter(string $filter): void
+    public function setTypeFilter(string $category): void
     {
-        if (! in_array($filter, KeywordExternalRelationshipReadModel::uiCategories(), true)) {
+        if (! in_array($category, KeywordExternalRelationshipReadModel::uiCategories(), true)) {
             return;
         }
 
-        $this->externalFilter = $filter;
+        $this->filter = $category;
+        $this->risk = '';
         $this->resetPage();
+    }
+
+    public function setRiskFilter(string $riskLevel): void
+    {
+        if (! in_array($riskLevel, KeywordExternalRelationshipReadModel::uiRiskFilters(), true)) {
+            return;
+        }
+
+        $this->risk = $riskLevel;
+        $this->filter = '';
+        $this->resetPage();
+    }
+
+    /**
+     * Backward compatibility helper for existing callers/views.
+     */
+    public function setExternalFilter(string $filter): void
+    {
+        $this->setTypeFilter($filter);
     }
 
     public function onKeywordWorkspaceSiteFilterChanged(): void
@@ -82,15 +121,37 @@ final class KeywordExternalWorkspace extends Page
         return app(KeywordExternalRelationshipReadModel::class)->categoryCounts($siteId);
     }
 
+    /**
+     * @return array{all: int, safe: int, low: int, review: int, available: bool}
+     */
+    public function getRiskCounts(): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return app(KeywordExternalRelationshipReadModel::class)->riskCounts($siteId);
+    }
+
     public function getExternalPaginator(): LengthAwarePaginator
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        $payload = app(KeywordExternalRelationshipReadModel::class)->externalLinksForUiCategory(
-            $siteId,
-            $this->externalFilter,
-            $this->getPage(),
-            25,
-        );
+        $readModel = app(KeywordExternalRelationshipReadModel::class);
+
+        if ($this->risk !== '') {
+            $payload = $readModel->externalLinksForRiskLevel(
+                $siteId,
+                $this->risk,
+                $this->getPage(),
+                25,
+            );
+        } else {
+            $category = $this->filter !== '' ? $this->filter : 'all';
+            $payload = $readModel->externalLinksForUiCategory(
+                $siteId,
+                $category,
+                $this->getPage(),
+                25,
+            );
+        }
 
         $items = $this->withAccessibleSiteDomains($payload['items']);
 

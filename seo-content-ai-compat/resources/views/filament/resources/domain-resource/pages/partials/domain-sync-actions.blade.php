@@ -13,8 +13,8 @@
     $primaryLabel = is_array($primaryRow) ? (string) ($primaryRow['label'] ?? __('main language')) : null;
     // Single-language: generic sync → primary confirm. Multilingual idle: actions only in language tabs (hide all-language UI).
     $primarySyncLabel = $primaryLabel
-        ? __('Synchronize & check').$primaryLabel
-        : __('Synchronize & check website');
+        ? ('Đồng bộ & kiểm tra '.$primaryLabel)
+        : 'Đồng bộ & kiểm tra website';
     $showOuterSyncButton = ! $isMultilingual || $useResume || ($siteSyncV2Running ?? false);
 @endphp
 

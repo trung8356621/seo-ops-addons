@@ -146,6 +146,21 @@ JS;
         self::assertStringContainsString('PASS:', implode("\n", $output));
     }
 
+    public function test_sticky_assistant_widget_headers_are_opaque(): void
+    {
+        $css = (string) file_get_contents($this->css());
+        self::assertStringContainsString('.seo-assistant-host.is-panel-filter .seo-assistant-widget--links .seo-assistant-widget__header', $css);
+        self::assertStringNotContainsString('background: inherit;', $css);
+        self::assertMatchesRegularExpression(
+            '/\.seo-assistant-host\.is-panel-filter[^{]*\.seo-assistant-widget__header[^{]*\{[^}]*position:\s*sticky;[^}]*background:\s*#fff;/s',
+            $css
+        );
+        self::assertMatchesRegularExpression(
+            '/\.dark\s+\.seo-assistant-host\.is-panel-filter[^{]*\.seo-assistant-widget__header[^{]*\{[^}]*background:\s*rgb\(17\s*24\s*39\);/s',
+            $css
+        );
+    }
+
     private function jsString(string $value): string
     {
         return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);

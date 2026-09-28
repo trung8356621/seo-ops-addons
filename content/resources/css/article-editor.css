@@ -11367,8 +11367,22 @@ section[data-seo-section-id].is-outline-jump-highlight {
     display: flex;
     position: sticky;
     top: 0;
-    z-index: 2;
-    background: inherit;
+    z-index: 10;
+    background: #fff;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--seo .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--images .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--links .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--vocabulary .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--reviews .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--article-info > .seo-assistant-widget__header,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--publishing > .seo-assistant-widget__header--static,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--featured-image > .seo-assistant-widget__header--static,
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-widget--product-album > .seo-assistant-widget__header--static {
+    background: rgb(17 24 39);
+    border-bottom-color: rgb(31 41 55);
 }
 
 .seo-assistant-host.is-panel-filter .seo-assistant-widget__toggle > svg:first-child {
