@@ -8,6 +8,11 @@ import { helpRegistry } from './helpRegistry';
  * @returns {import('./helpRegistry').HelpContext}
  */
 export function resolveHelpContext(input = {}) {
+    const fromPayload = resolvePayloadHelpContext(input);
+    if (fromPayload) {
+        return fromPayload;
+    }
+
     const routeName = String(
         input.routeName
         ?? document.body?.dataset?.helpRouteName
@@ -49,6 +54,96 @@ export function resolveHelpContext(input = {}) {
     }
 
     return helpRegistry.system;
+}
+
+/**
+ * Prefer the client payload step list (Admin / Seeding / SEO) when the shell has booted.
+ * @param {{ routeName?: string|null, path?: string|null, search?: string|null, panelId?: string|null, articleEditor?: boolean }} input
+ */
+function resolvePayloadHelpContext(input) {
+    const payload = window.__SEO_HELP_PAYLOAD__;
+    const contexts = payload?.contexts;
+    const steps = payload?.context_resolution;
+    if (!contexts || !Array.isArray(steps)) {
+        return null;
+    }
+
+    const routeName = String(
+        input.routeName
+        ?? document.body?.dataset?.helpRouteName
+        ?? window.__SEO_HELP_ROUTE_NAME__
+        ?? '',
+    ).trim();
+    const path = String(input.path ?? window.location?.pathname ?? '');
+    const search = String(input.search ?? window.location?.search ?? '');
+    const fullPath = `${path}${search}`;
+    const panelId = String(
+        input.panelId
+        ?? document.body?.dataset?.helpPanel
+        ?? window.__HELP_PANEL_ID__
+        ?? '',
+    ).trim();
+    const articleEditor = input.articleEditor === true
+        || document.body?.classList?.contains('article-editor-page') === true;
+
+    for (const step of steps) {
+        if (!step?.id || !contexts[step.id]) {
+            continue;
+        }
+        const context = contexts[step.id];
+        if (step.bodyClass) {
+            if (articleEditor && step.bodyClass === 'article-editor-page') {
+                return context;
+            }
+            continue;
+        }
+        if (step.requiresSearch) {
+            try {
+                if (!new RegExp(step.requiresSearch).test(search)) {
+                    continue;
+                }
+            } catch {
+                continue;
+            }
+        }
+        if (Array.isArray(step.panelIds)) {
+            const panelHit = step.panelIds.includes(panelId);
+            if (panelHit || matchesContext(normalizePayloadContext(context), routeName, fullPath)) {
+                return context;
+            }
+            continue;
+        }
+        if (matchesContext(normalizePayloadContext(context), routeName, fullPath)) {
+            return context;
+        }
+    }
+
+    if (articleEditor && contexts.articleEditor) {
+        return contexts.articleEditor;
+    }
+
+    return contexts.system || null;
+}
+
+/**
+ * Payload contexts store path patterns as strings. The static registry uses RegExp.
+ * @param {Record<string, any>} context
+ */
+function normalizePayloadContext(context) {
+    const paths = Array.isArray(context.pathPatterns) ? context.pathPatterns : [];
+    return {
+        ...context,
+        pathPatterns: paths.map((pattern) => {
+            if (pattern instanceof RegExp) {
+                return pattern;
+            }
+            try {
+                return new RegExp(String(pattern));
+            } catch {
+                return /$^/;
+            }
+        }),
+    };
 }
 
 /**

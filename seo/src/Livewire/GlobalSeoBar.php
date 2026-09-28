@@ -233,6 +233,7 @@ class GlobalSeoBar extends Component
             'filament.seo.resources.keywords.index',
             'filament.seo.resources.keywords.focus',
             'filament.seo.resources.keywords.anchor-audit',
+            'filament.seo.resources.keywords.external',
         );
     }
 

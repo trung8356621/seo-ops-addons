@@ -241,6 +241,11 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.resources.keywords.anchor-audit');
     }
 
+    public static function isKeywordsExternalNav(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.resources.keywords.external');
+    }
+
     // ─── SEO ─────────────────────────────────────────────────────────────
 
     public static function isSeoModule(?string $route = null): bool

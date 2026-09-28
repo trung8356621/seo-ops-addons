@@ -68,6 +68,37 @@ export function createApi(config) {
             );
         },
 
+        async fetchSiteNetwork() {
+            return parseJson(
+                await fetch(endpoints.siteNetwork, {
+                    credentials: 'same-origin',
+                    headers: csrfHeaders(csrfToken),
+                }),
+            );
+        },
+
+        async fetchSiteNetworkTopics(sourceSiteId, targetSiteId) {
+            const url = new URL(endpoints.siteNetworkTopics, window.location.origin);
+            url.searchParams.set('source_site', String(sourceSiteId));
+            url.searchParams.set('target_site', String(targetSiteId));
+            return parseJson(
+                await fetch(url.toString(), {
+                    credentials: 'same-origin',
+                    headers: csrfHeaders(csrfToken),
+                }),
+            );
+        },
+
+        async fetchTopicCrossSite(topicId) {
+            const path = String(endpoints.topicCrossSite || '').replace('{topic}', String(topicId));
+            return parseJson(
+                await fetch(withSite(path), {
+                    credentials: 'same-origin',
+                    headers: csrfHeaders(csrfToken),
+                }),
+            );
+        },
+
         async fetchAuditStatus() {
             return parseJson(
                 await fetch(withSite(endpoints.auditStatus), {

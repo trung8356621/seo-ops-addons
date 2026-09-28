@@ -65,6 +65,7 @@ export default function AppChrome({
     mcpMin,
     mcpMax,
     renderer,
+    hideTopicFilters = false,
     onToggleAll,
     onToggleUntagged,
     onToggleTag,
@@ -169,19 +170,22 @@ export default function AppChrome({
             </div>
 
             <div className="tm-chrome__row tm-chrome__row--controls">
-                <TagFilterControl
-                    labels={labels}
-                    tagFacets={tagFacets}
-                    untaggedCount={untaggedCount}
-                    selectedTagIds={selectedTagIds}
-                    showUntagged={showUntagged}
-                    tagFilterAll={tagFilterAll}
-                    onToggleAll={onToggleAll}
-                    onToggleUntagged={onToggleUntagged}
-                    onToggleTag={onToggleTag}
-                />
+                {hideTopicFilters ? <div /> : (
+                    <TagFilterControl
+                        labels={labels}
+                        tagFacets={tagFacets}
+                        untaggedCount={untaggedCount}
+                        selectedTagIds={selectedTagIds}
+                        showUntagged={showUntagged}
+                        tagFilterAll={tagFilterAll}
+                        onToggleAll={onToggleAll}
+                        onToggleUntagged={onToggleUntagged}
+                        onToggleTag={onToggleTag}
+                    />
+                )}
 
                 <div className="tm-chrome__tools">
+                    {hideTopicFilters ? null : (
                     <div className="tm-mcp-filter" aria-label="MCP %">
                         <span className="tm-mcp-filter__label">
                             MCP {Math.round(mcpMin)}–{Math.round(mcpMax)}%
@@ -205,6 +209,7 @@ export default function AppChrome({
                             />
                         </div>
                     </div>
+                    )}
 
                     <div className="tm-renderer" role="tablist" aria-label="Topical Map renderer">
                         {['tree', 'network', 'treemap'].map((mode) => (
@@ -219,6 +224,16 @@ export default function AppChrome({
                                 {labels[mode]}
                             </button>
                         ))}
+                        <button
+                            type="button"
+                            role="tab"
+                            className={`tm-btn ${renderer === 'site-network' ? 'is-active' : ''}`}
+                            aria-selected={renderer === 'site-network' ? 'true' : 'false'}
+                            data-renderer="site-network"
+                            onClick={() => onRendererChange('site-network')}
+                        >
+                            {labels.siteNetwork || 'Site Network'}
+                        </button>
                     </div>
 
                     {renderer !== 'treemap' ? (

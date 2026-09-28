@@ -22,7 +22,6 @@
                     'all_issues' => __('seo-content-ai::filament.keyword.link_triage_tab_all_issues'),
                     'broken' => __('seo-content-ai::filament.keyword.link_triage_tab_broken'),
                     'weak_context' => __('seo-content-ai::filament.keyword.link_triage_tab_weak_context'),
-                    'external' => __('seo-content-ai::filament.keyword.link_triage_tab_external'),
                 ] as $tabKey => $tabLabel)
                     <button
                         type="button"

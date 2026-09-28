@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Support;
 
-use App\Models\ClientControlState;
 use App\Models\Service;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -71,7 +71,7 @@ final class SeedingServiceResolver
     public function installationNamespace(): string
     {
         if (Schema::hasTable('client_control_state')) {
-            $id = ClientControlState::query()->orderBy('id')->value('installation_id');
+            $id = DB::table('client_control_state')->orderBy('id')->value('installation_id');
             if (is_string($id) && $id !== '') {
                 return $id;
             }

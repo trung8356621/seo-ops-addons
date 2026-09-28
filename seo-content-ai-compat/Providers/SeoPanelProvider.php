@@ -163,19 +163,6 @@ class SeoPanelProvider extends PanelProvider
         );
 
         FilamentView::registerRenderHook(
-            PanelsRenderHook::USER_MENU_BEFORE,
-            function (): HtmlString {
-                if (! auth()->check() || ! request()->is('seo', 'seo/*')) {
-                    return new HtmlString('');
-                }
-
-                return new HtmlString(
-                    view('seo-content-ai::filament.hooks.global-help-trigger')->render()
-                );
-            },
-        );
-
-        FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,
             function (): HtmlString {
                 if (! request()->is('seo', 'seo/*')) {
@@ -227,19 +214,6 @@ class SeoPanelProvider extends PanelProvider
 
                 return new HtmlString(
                     \Illuminate\Support\Facades\Blade::render('@livewire(\'assign-to-content-project-drawer\')')
-                );
-            },
-        );
-
-        FilamentView::registerRenderHook(
-            PanelsRenderHook::BODY_END,
-            function (): HtmlString {
-                if (! auth()->check() || ! request()->is('seo', 'seo/*')) {
-                    return new HtmlString('');
-                }
-
-                return new HtmlString(
-                    view('seo-content-ai::filament.hooks.global-help-modal')->render()
                 );
             },
         );
@@ -312,19 +286,6 @@ class SeoPanelProvider extends PanelProvider
                     .'window.__SEO_CONNECTION_HASH__ = '.json_encode(SeoConnectionContext::hash()).';'
                     .'document.documentElement.setAttribute("lang", '.json_encode(str_replace('_', '-', app()->getLocale())).');'
                     .'</script>'
-                );
-            },
-        );
-
-        FilamentView::registerRenderHook(
-            PanelsRenderHook::HEAD_END,
-            function (): HtmlString {
-                if (! auth()->check() || ! request()->is('seo', 'seo/*')) {
-                    return new HtmlString('');
-                }
-
-                return new HtmlString(
-                    view('seo-content-ai::filament.hooks.global-help-assets')->render()
                 );
             },
         );

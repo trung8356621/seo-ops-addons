@@ -3760,3 +3760,77 @@ body.keyword-drawer-open {
 .keyword-row__menu-item:hover {
     background: rgb(248 250 252);
 }
+
+.keyword-external-lead {
+    margin: 0;
+    max-width: 46rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: rgb(71 85 105);
+}
+
+.dark .keyword-external-lead {
+    color: rgb(203 213 225);
+}
+
+.keyword-external-keyword,
+.keyword-external-destination {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: rgb(15 23 42);
+}
+
+.dark .keyword-external-keyword,
+.dark .keyword-external-destination {
+    color: rgb(241 245 249);
+}
+
+.keyword-external-meta,
+.keyword-external-url {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: rgb(100 116 139);
+    word-break: break-word;
+}
+
+.keyword-external-status {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.3;
+}
+
+.keyword-external-status--managed {
+    background: rgb(224 231 255);
+    color: rgb(55 48 163);
+}
+
+.keyword-external-status--reference {
+    background: rgb(219 234 254);
+    color: rgb(30 64 175);
+}
+
+.keyword-external-status--review {
+    background: rgb(241 245 249);
+    color: rgb(51 65 85);
+}
+
+.dark .keyword-external-status--managed {
+    background: rgb(49 46 129 / 0.45);
+    color: rgb(199 210 254);
+}
+
+.dark .keyword-external-status--reference {
+    background: rgb(30 58 138 / 0.45);
+    color: rgb(191 219 254);
+}
+
+.dark .keyword-external-status--review {
+    background: rgb(51 65 85 / 0.55);
+    color: rgb(226 232 240);
+}

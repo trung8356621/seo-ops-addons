@@ -49,7 +49,71 @@ final class KeywordExternalRelationshipReadModel
     }
 
     /**
-     * @param  list<string>|null  $typeFilter  null=all, or subset of 'managed_cross_site','wiki_trust','needs_review'
+     * UI category keys. Social and contact never map onto these.
+     *
+     * @return list<string>
+     */
+    public static function uiCategories(): array
+    {
+        return ['all', 'managed_cross_site', 'reference', 'needs_review'];
+    }
+
+    /**
+     * @return list<string>|null  null = all semantic types
+     */
+    public function typesForUiCategory(string $category): ?array
+    {
+        return match ($category) {
+            'managed_cross_site' => [SeoLinkMapType::ManagedCrossSite->value],
+            'reference' => [SeoLinkMapType::WikiTrust->value],
+            'needs_review' => [SeoLinkMapType::NeedsReview->value, SeoLinkMapType::External->value],
+            default => null,
+        };
+    }
+
+    /**
+     * @return array{all: int, managed_cross_site: int, reference: int, needs_review: int, available: bool}
+     */
+    public function categoryCounts(int $siteId): array
+    {
+        $empty = [
+            'all' => 0,
+            'managed_cross_site' => 0,
+            'reference' => 0,
+            'needs_review' => 0,
+            'available' => false,
+        ];
+        if ($siteId <= 0 || ! $this->linkMapsAvailable()) {
+            return $empty;
+        }
+
+        $grouped = [];
+        $rows = $this->baseQuery($siteId, self::SEMANTIC_TYPES)
+            ->toBase()
+            ->select('seo_link_maps.link_type')
+            ->selectRaw('COUNT(*) as aggregate')
+            ->groupBy('seo_link_maps.link_type')
+            ->get();
+        foreach ($rows as $row) {
+            $grouped[(string) ($row->link_type ?? '')] = (int) ($row->aggregate ?? 0);
+        }
+
+        $managed = (int) ($grouped[SeoLinkMapType::ManagedCrossSite->value] ?? 0);
+        $reference = (int) ($grouped[SeoLinkMapType::WikiTrust->value] ?? 0);
+        $review = (int) ($grouped[SeoLinkMapType::NeedsReview->value] ?? 0)
+            + (int) ($grouped[SeoLinkMapType::External->value] ?? 0);
+
+        return [
+            'all' => $managed + $reference + $review,
+            'managed_cross_site' => $managed,
+            'reference' => $reference,
+            'needs_review' => $review,
+            'available' => true,
+        ];
+    }
+
+    /**
+     * @param  list<string>|null  $typeFilter  null=all semantic types
      * @return array{
      *   available: bool,
      *   items: list<array<string, mixed>>,
@@ -64,35 +128,110 @@ final class KeywordExternalRelationshipReadModel
         int $page = 1,
         int $perPage = 50,
     ): array {
-        if ($siteId <= 0 || ! Schema::hasTable('seo_link_maps')) {
-            return ['available' => false, 'items' => [], 'total' => 0, 'page' => $page, 'per_page' => $perPage];
+        return $this->paginate($siteId, $typeFilter, null, $page, $perPage);
+    }
+
+    /**
+     * @return array{available: bool, items: list<array<string, mixed>>, total: int, page: int, per_page: int}
+     */
+    public function externalLinksForUiCategory(
+        int $siteId,
+        string $category,
+        int $page = 1,
+        int $perPage = 50,
+    ): array {
+        return $this->paginate($siteId, $this->typesForUiCategory($category), null, $page, $perPage);
+    }
+
+    /**
+     * Keyword-level cross-site rows for one source keyword. No fake target keyword.
+     *
+     * @return array{available: bool, items: list<array<string, mixed>>}
+     */
+    public function forKeyword(int $siteId, int $keywordId, int $limit = 40): array
+    {
+        if ($keywordId <= 0) {
+            return ['available' => true, 'items' => []];
         }
 
+        $page = $this->paginate($siteId, null, [$keywordId], 1, $limit);
+
+        return [
+            'available' => $page['available'],
+            'items' => $page['items'],
+        ];
+    }
+
+    /**
+     * Source-topic keyword relationships that leave the site.
+     * Target article resolution is not required.
+     *
+     * @return array{available: bool, items: list<array<string, mixed>>}
+     */
+    public function forTopic(int $siteId, int $topicId, int $limit = 40): array
+    {
+        if ($siteId <= 0 || $topicId <= 0 || ! $this->linkMapsAvailable()) {
+            return ['available' => false, 'items' => []];
+        }
+
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_topic_keywords')) {
+            return ['available' => true, 'items' => []];
+        }
+
+        $keywordIds = DB::connection('omi_seo_ai')
+            ->table('seo_topic_keywords')
+            ->where('site_id', $siteId)
+            ->where('topic_id', $topicId)
+            ->limit(200)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($keywordIds === []) {
+            return ['available' => true, 'items' => []];
+        }
+
+        $page = $this->paginate($siteId, null, $keywordIds, 1, $limit);
+
+        return [
+            'available' => $page['available'],
+            'items' => $page['items'],
+        ];
+    }
+
+    /**
+     * @param  list<string>|null  $typeFilter
+     * @param  list<int>|null  $keywordIds
+     * @return array{available: bool, items: list<array<string, mixed>>, total: int, page: int, per_page: int}
+     */
+    private function paginate(
+        int $siteId,
+        ?array $typeFilter,
+        ?array $keywordIds,
+        int $page,
+        int $perPage,
+    ): array {
         $page = max(1, $page);
         $perPage = max(1, min(200, $perPage));
-        $offset = ($page - 1) * $perPage;
+
+        if ($siteId <= 0 || ! $this->linkMapsAvailable()) {
+            return ['available' => false, 'items' => [], 'total' => 0, 'page' => $page, 'per_page' => $perPage];
+        }
 
         $allowedTypes = $this->resolveAllowedTypes($typeFilter);
         if ($allowedTypes === []) {
             return ['available' => true, 'items' => [], 'total' => 0, 'page' => $page, 'per_page' => $perPage];
         }
 
-        // Base query — site-scoped via source article.
-        $baseQuery = SeoLinkMap::query()
-            ->whereIn('link_type', $allowedTypes)
-            ->whereHas('sourceArticle', static fn ($q) => $q->where('site_id', $siteId))
-            ->where(static function ($q): void {
-                // Exclude rows explicitly flagged as not semantic eligible.
-                // NULL means legacy row (treat as eligible for compat).
-                $q->whereNull('is_semantic_eligible')
-                    ->orWhere('is_semantic_eligible', true);
-            });
-
+        $baseQuery = $this->baseQuery($siteId, $allowedTypes, $keywordIds);
         $total = (clone $baseQuery)->count();
 
         $maps = $baseQuery
             ->orderBy('seo_link_maps.id')
-            ->skip($offset)
+            ->skip(($page - 1) * $perPage)
             ->take($perPage)
             ->with([
                 'keyword:id,phrase',
@@ -112,11 +251,39 @@ final class KeywordExternalRelationshipReadModel
 
         return [
             'available' => true,
-            'items' => $items,
+            'items' => $this->attachSourceTopics($items, $siteId),
             'total' => $total,
             'page' => $page,
             'per_page' => $perPage,
         ];
+    }
+
+    private function linkMapsAvailable(): bool
+    {
+        return Schema::connection('omi_seo_ai')->hasTable('seo_link_maps');
+    }
+
+    /**
+     * @param  list<string>  $allowedTypes
+     * @param  list<int>|null  $keywordIds
+     */
+    private function baseQuery(int $siteId, array $allowedTypes, ?array $keywordIds = null)
+    {
+        $query = SeoLinkMap::query()
+            ->whereIn('link_type', $allowedTypes)
+            ->whereHas('sourceArticle', static fn ($q) => $q->where('site_id', $siteId))
+            ->where(static function ($q): void {
+                // Exclude rows explicitly flagged as not semantic eligible.
+                // NULL means legacy row (treat as eligible for compat).
+                $q->whereNull('is_semantic_eligible')
+                    ->orWhere('is_semantic_eligible', true);
+            });
+
+        if ($keywordIds !== null) {
+            $query->whereIn('keyword_id', $keywordIds);
+        }
+
+        return $query;
     }
 
     /**
@@ -162,12 +329,15 @@ final class KeywordExternalRelationshipReadModel
             'map_id' => (int) $map->id,
             'link_type' => $linkType->value,
             'link_type_label' => $linkType->label(),
+            'ui_category' => $this->uiCategoryForType($linkType),
             'is_cta' => $linkType->isCta(),
             'is_semantic_eligible' => $map->is_semantic_eligible ?? true,
             // Source
             'source_site_id' => (int) ($sourceArticle?->site_id ?? 0),
             'source_article_id' => $sourceArticle instanceof SeoArticle ? (int) $sourceArticle->id : null,
             'source_article_title' => trim((string) ($sourceArticle?->title ?? '')),
+            'source_topic_id' => null,
+            'source_topic_name' => null,
             // Keyword (source)
             'source_keyword_id' => $keyword instanceof Keyword ? (int) $keyword->id : null,
             'source_keyword_ref' => $keyword instanceof Keyword ? 'keyword:'.(int) $keyword->id : null,
@@ -196,5 +366,71 @@ final class KeywordExternalRelationshipReadModel
             'target_keyword_resolved' => $targetKeyword instanceof Keyword,
             'destination_kind' => $map->destination_kind?->value,
         ];
+    }
+
+    private function uiCategoryForType(SeoLinkMapType $linkType): string
+    {
+        return match ($linkType) {
+            SeoLinkMapType::ManagedCrossSite => 'managed_cross_site',
+            SeoLinkMapType::WikiTrust => 'reference',
+            default => 'needs_review',
+        };
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function attachSourceTopics(array $items, int $siteId): array
+    {
+        if ($items === [] || $siteId <= 0) {
+            return $items;
+        }
+
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_topic_keywords')
+            || ! Schema::connection('omi_seo_ai')->hasTable('seo_topics')) {
+            return $items;
+        }
+
+        $keywordIds = [];
+        foreach ($items as $item) {
+            $keywordId = (int) ($item['source_keyword_id'] ?? 0);
+            if ($keywordId > 0) {
+                $keywordIds[$keywordId] = true;
+            }
+        }
+        if ($keywordIds === []) {
+            return $items;
+        }
+
+        $rows = DB::connection('omi_seo_ai')
+            ->table('seo_topic_keywords as stk')
+            ->join('seo_topics as st', 'st.id', '=', 'stk.topic_id')
+            ->where('stk.site_id', $siteId)
+            ->where('st.site_id', $siteId)
+            ->whereIn('stk.keyword_id', array_keys($keywordIds))
+            ->get(['stk.keyword_id', 'stk.topic_id', 'st.name']);
+
+        $byKeyword = [];
+        foreach ($rows as $row) {
+            $keywordId = (int) ($row->keyword_id ?? 0);
+            if ($keywordId <= 0 || isset($byKeyword[$keywordId])) {
+                continue;
+            }
+            $byKeyword[$keywordId] = $row;
+        }
+
+        foreach ($items as $index => $item) {
+            $keywordId = (int) ($item['source_keyword_id'] ?? 0);
+            $topic = $byKeyword[$keywordId] ?? null;
+            if ($topic === null) {
+                continue;
+            }
+            $name = trim((string) ($topic->name ?? ''));
+            $items[$index]['source_topic_id'] = (int) ($topic->topic_id ?? 0) ?: null;
+            $items[$index]['source_topic_name'] = $name !== '' ? $name : null;
+        }
+
+        return $items;
     }
 }

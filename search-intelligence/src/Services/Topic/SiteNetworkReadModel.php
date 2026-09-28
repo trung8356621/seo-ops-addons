@@ -35,19 +35,21 @@ final class SiteNetworkReadModel
      *     source_article_count: int,
      *     target_article_count: int,
      *     source_keyword_count: int
-     *   }>
+     *   }>,
+     *   accessible_site_count: int
      * }
      */
     public function overview(): array
     {
         $articleTable = (new SeoArticle())->getTable();
+        $managedSites = $this->loadManagedSites();
+        $accessibleSiteCount = count($managedSites);
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
-            return ['sites' => [], 'edges' => []];
+            return ['sites' => [], 'edges' => [], 'accessible_site_count' => $accessibleSiteCount];
         }
 
-        $managedSites = $this->loadManagedSites();
         if ($managedSites === []) {
-            return ['sites' => [], 'edges' => []];
+            return ['sites' => [], 'edges' => [], 'accessible_site_count' => 0];
         }
 
         $siteIdSet = array_column($managedSites, 'site_id');
@@ -83,6 +85,7 @@ final class SiteNetworkReadModel
                 'domain' => $s['domain'],
             ], $sites),
             'edges' => $edgePayload,
+            'accessible_site_count' => $accessibleSiteCount,
         ];
     }
 

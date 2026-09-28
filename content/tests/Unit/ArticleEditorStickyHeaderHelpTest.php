@@ -19,6 +19,13 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
         return $this->resolveLegacyOrMovedAddonPath($relative);
     }
 
+    private function clientPath(string $relative): string
+    {
+        return dirname(__DIR__, 4)
+            .DIRECTORY_SEPARATOR.'omnichannel-client'
+            .DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+    }
+
     public function test_edit_article_adds_article_editor_page_body_class(): void
     {
         $source = (string) file_get_contents(
@@ -78,30 +85,33 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
 
     public function test_global_help_trigger_and_modal_selectors(): void
     {
-        $trigger = (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-trigger.blade.php'),
-        );
-        $modal = (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-modal.blade.php'),
-        );
+        $trigger = (string) file_get_contents($this->clientPath('resources/views/filament/hooks/global-help-trigger.blade.php'));
+        $drawer = (string) file_get_contents($this->clientPath('resources/views/filament/hooks/global-help-drawer.blade.php'));
         $provider = (string) file_get_contents(
             $this->addonPath('Providers/SeoPanelProvider.php'),
         );
+        $clientProvider = (string) file_get_contents($this->clientPath('app/Core/ClientCoreServiceProvider.php'));
 
         self::assertStringContainsString('id="global-help-trigger"', $trigger);
         self::assertStringContainsString('data-help-trigger', $trigger);
         self::assertStringContainsString('global-help-trigger', $trigger);
-        self::assertStringContainsString('id="global-help-modal"', $modal);
-        self::assertStringContainsString('data-help-modal', $modal);
-        self::assertStringContainsString('help-navigation', $modal);
-        self::assertStringContainsString('USER_MENU_BEFORE', $provider);
-        self::assertStringContainsString('global-help-trigger', $provider);
-        self::assertStringContainsString('global-help-modal', $provider);
-        self::assertStringContainsString('SeoHelpRegistry', (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-assets.blade.php'),
+        self::assertStringContainsString('id="global-help-drawer"', $drawer);
+        self::assertStringContainsString('data-help-modal', $drawer);
+        self::assertStringContainsString('help-group-navigation', $drawer);
+        self::assertStringContainsString('class="help-navigation"', (string) file_get_contents(
+            $this->clientPath('resources/views/filament/hooks/partials/help-group-navigation.blade.php'),
+        ));
+        self::assertStringContainsString('USER_MENU_BEFORE', $clientProvider);
+        self::assertStringContainsString('global-help-trigger', $clientProvider);
+        self::assertStringContainsString('global-help-drawer', $clientProvider);
+        self::assertStringNotContainsString('global-help-trigger', $provider);
+        self::assertStringNotContainsString('global-help-modal', $provider);
+        self::assertStringNotContainsString('global-help-assets', $provider);
+        self::assertStringNotContainsString('SeoHelpRegistry', (string) file_get_contents(
+            $this->clientPath('resources/views/filament/hooks/global-help-assets.blade.php'),
         ));
         self::assertStringNotContainsString('@vite', (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-assets.blade.php'),
+            $this->clientPath('resources/views/filament/hooks/global-help-assets.blade.php'),
         ));
     }
 
@@ -111,7 +121,7 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
             $this->addonPath('Support/SeoHelpRegistry.php'),
         );
         $assets = (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-assets.blade.php'),
+            $this->clientPath('resources/views/filament/hooks/global-help-assets.blade.php'),
         );
         $entry = (string) file_get_contents(
             $this->addonPath('resources/js/article-editor.jsx'),
@@ -120,8 +130,9 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
         self::assertStringContainsString('article-editor', $phpRegistry);
         self::assertStringContainsString('clientPayload', $phpRegistry);
         self::assertStringContainsString("Alpine.store('help'", $assets);
+        self::assertStringContainsString('seo-global-help:open', $assets);
         self::assertStringContainsString('Escape', (string) file_get_contents(
-            $this->addonPath('resources/views/filament/hooks/global-help-modal.blade.php'),
+            $this->clientPath('resources/views/filament/hooks/global-help-drawer.blade.php'),
         ));
         self::assertStringNotContainsString('ArticleEditorHelpModal', $entry);
     }

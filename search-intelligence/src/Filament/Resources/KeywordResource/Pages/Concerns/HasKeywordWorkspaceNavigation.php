@@ -116,7 +116,7 @@ trait HasKeywordWorkspaceNavigation
      * (Topics have no language column; membership is the language gate).
      * Tags tab count = custom Topic tags for current site only (not built-in badges).
      *
-     * @return array{total: int, dictionary: int, focus: int, topics: int, tags: int}
+     * @return array{total: int, dictionary: int, focus: int, topics: int, tags: int, external: int}
      */
     public function getKeywordWorkspaceTabCounts(): array
     {
@@ -138,11 +138,14 @@ trait HasKeywordWorkspaceNavigation
             ->count();
         $topics = 0;
         $tags = 0;
+        $external = 0;
         if ($siteId !== null && $siteId > 0) {
             $topics = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
                 ->summary($siteId, $languageVariants)['topic_count'];
             $tags = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService::class)
                 ->countForSite($siteId);
+            $external = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordExternalRelationshipReadModel::class)
+                ->categoryCounts($siteId)['all'];
         }
 
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;
@@ -153,6 +156,7 @@ trait HasKeywordWorkspaceNavigation
             'focus' => $focus,
             'topics' => $topics,
             'tags' => $tags,
+            'external' => $external,
         ];
     }
 
@@ -187,6 +191,12 @@ trait HasKeywordWorkspaceNavigation
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_tags'),
                 'url' => KeywordResource::getUrl('topic-tags'),
                 'count' => $counts['tags'],
+            ],
+            [
+                'key' => 'external',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_external'),
+                'url' => KeywordResource::getUrl('external'),
+                'count' => $counts['external'],
             ],
             [
                 'key' => 'anchor-audit',

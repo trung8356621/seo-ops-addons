@@ -144,6 +144,11 @@ export function pruneNeighborhoodByAllowedTopics(neighborhood, allowedTopicIds) 
     };
 }
 
+export function readFocusTopic(search = window.location.search) {
+    const id = Number(new URLSearchParams(search).get('focus_topic') || 0);
+    return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 export function readFilterQuery(search = window.location.search) {
     const params = new URLSearchParams(search);
     const tagsRaw = params.get('tags') || '';
@@ -161,7 +166,7 @@ export function readFilterQuery(search = window.location.search) {
     } else if (viewRaw === 'structure') {
         view = 'tree';
     }
-    const renderer = ['tree', 'network', 'treemap'].includes(view) ? view : 'tree';
+    const renderer = view === 'site-network' || ['tree', 'network', 'treemap'].includes(view) ? view : 'tree';
     const { mcpMin, mcpMax } = normalizeMcpRange(
         params.has('mcp_min') ? params.get('mcp_min') : 0,
         params.has('mcp_max') ? params.get('mcp_max') : 100,
@@ -181,6 +186,7 @@ export function writeFilterQuery(filters) {
     const params = new URLSearchParams(window.location.search);
     // Network no longer stores drill/focus state in the URL.
     params.delete('focused_topic');
+    params.delete('focus_topic');
     params.delete('root');
     params.delete('drill');
 

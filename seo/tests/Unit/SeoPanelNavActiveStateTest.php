@@ -73,6 +73,9 @@ final class SeoPanelNavActiveStateTest extends TestCase
             ['filament.seo-main.resources.keywords.cluster', 'keywordsClusters', true],
             ['filament.seo-main.resources.keywords.anchor-audit', 'keywordsBrokenLinks', true],
             ['filament.seo-main.resources.keywords.anchor-audit', 'keywordsDictionary', false],
+            ['filament.seo-main.resources.keywords.external', 'keywordsExternal', true],
+            ['filament.seo-main.resources.keywords.external', 'keywordsDictionary', false],
+            ['filament.seo-main.resources.keywords.external', 'keywordsBrokenLinks', false],
             ['filament.seo-main.resources.keywords.focus', 'keywordsModule', true],
             ['filament.seo-main.pages.keywords.ai-discovery', 'keywordsModule', true],
             ['filament.seo-main.pages.keywords.ai-discovery', 'keywordsDictionary', false],
@@ -174,6 +177,7 @@ final class SeoPanelNavActiveStateTest extends TestCase
             SeoPanelRoutes::isKeywordsFocusNav($route),
             SeoPanelRoutes::isKeywordsClustersNav($route),
             SeoPanelRoutes::isKeywordsBrokenLinksNav($route),
+            SeoPanelRoutes::isKeywordsExternalNav($route),
         ];
 
         self::assertSame(1, count(array_filter($flags)));
@@ -201,6 +205,7 @@ final class SeoPanelNavActiveStateTest extends TestCase
             'keywordsFocus' => SeoPanelRoutes::isKeywordsFocusNav($route),
             'keywordsClusters' => SeoPanelRoutes::isKeywordsClustersNav($route),
             'keywordsBrokenLinks' => SeoPanelRoutes::isKeywordsBrokenLinksNav($route),
+            'keywordsExternal' => SeoPanelRoutes::isKeywordsExternalNav($route),
             'seoModule' => SeoPanelRoutes::isSeoModule($route),
             'seoPerformance' => SeoPanelRoutes::isSeoPerformanceNav($route),
             'systemModule' => SeoPanelRoutes::isSystemModule($route),

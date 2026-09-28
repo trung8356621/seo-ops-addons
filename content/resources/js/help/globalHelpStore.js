@@ -5,6 +5,9 @@ import {
     ARTICLE_EDITOR_HELP_OPEN_EVENT,
     GLOBAL_HELP_CLOSE_EVENT,
     GLOBAL_HELP_OPEN_EVENT,
+    HELP_DRAWER_CLOSE_EVENT,
+    HELP_DRAWER_OPEN_EVENT,
+    HELP_DRAWER_TOGGLE_EVENT,
 } from './helpEvents';
 
 const BODY_LOCK_CLASS = 'global-help-modal-open';
@@ -172,6 +175,9 @@ function createHelpStoreState() {
         },
 
         open(options = {}) {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('agent-drawer:close'));
+            }
             const detail = options && typeof options === 'object' ? options : {};
             if (detail.trigger instanceof Element) {
                 this.triggerEl = detail.trigger;
@@ -316,9 +322,8 @@ function createHelpStoreState() {
             if (typeof document === 'undefined') {
                 return;
             }
-            this._prevOverflow = document.body.style.overflow || '';
             document.body.classList.add(BODY_LOCK_CLASS);
-            document.body.style.overflow = 'hidden';
+            document.body.classList.add('global-help-drawer-open');
         },
 
         unlockBody() {
@@ -326,8 +331,7 @@ function createHelpStoreState() {
                 return;
             }
             document.body.classList.remove(BODY_LOCK_CLASS);
-            document.body.style.overflow = this._prevOverflow || '';
-            this._prevOverflow = '';
+            document.body.classList.remove('global-help-drawer-open');
         },
     };
 }
@@ -444,8 +448,27 @@ export function installGlobalHelpWindowBridge(store) {
     };
 
     window.addEventListener(GLOBAL_HELP_OPEN_EVENT, onOpen);
+    window.addEventListener(HELP_DRAWER_OPEN_EVENT, onOpen);
     window.addEventListener(ARTICLE_EDITOR_HELP_OPEN_EVENT, onOpen);
     window.addEventListener(GLOBAL_HELP_CLOSE_EVENT, onClose);
+    window.addEventListener(HELP_DRAWER_CLOSE_EVENT, onClose);
+    window.addEventListener(HELP_DRAWER_TOGGLE_EVENT, (event) => {
+        if (store.isOpen) {
+            store.close();
+            return;
+        }
+        store.open(event?.detail ?? {});
+    });
+    window.addEventListener('agent-drawer:open', () => {
+        if (store.isOpen) {
+            store.close();
+        }
+    });
+    window.addEventListener('agent-drawer:toggle', () => {
+        if (store.isOpen) {
+            store.close();
+        }
+    });
     document.addEventListener('livewire:navigated', onNavigated);
     window.addEventListener('popstate', onNavigated);
 }

@@ -633,7 +633,7 @@
         title="{{ __('seo-content-ai::filament.article_list.page_action_help') }}"
         aria-label="{{ __('seo-content-ai::filament.help.trigger_aria') }}"
         aria-haspopup="dialog"
-        aria-controls="global-help-modal"
+        aria-controls="global-help-drawer"
         data-seo-page-action="help"
         data-help-trigger
         x-on:click="

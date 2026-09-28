@@ -25,6 +25,7 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapOverviewController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapTagsController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\SiteNetworkController;
+use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicCrossSiteLinksController;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapVite;
@@ -81,6 +82,9 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 Route::get('/topics/{topic}/children', TopicalMapChildrenController::class)
                     ->whereNumber('topic')
                     ->name('seo.topical-map.api.children');
+                Route::get('/topics/{topic}/cross-site-links', TopicCrossSiteLinksController::class)
+                    ->whereNumber('topic')
+                    ->name('seo.topical-map.api.topic-cross-site-links');
                 Route::get('/network', TopicalMapNetworkController::class)
                     ->name('seo.topical-map.api.network');
                 Route::get('/tags', TopicalMapTagsController::class)

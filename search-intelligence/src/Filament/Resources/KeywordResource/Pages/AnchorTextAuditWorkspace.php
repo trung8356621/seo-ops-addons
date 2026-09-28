@@ -56,7 +56,13 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->dispatchKeywordWorkspaceLanguageContext();
 
-        if (! in_array($this->triageFilter, ['all_issues', 'broken', 'weak_context', 'external'], true)) {
+        if ($this->triageFilter === 'external') {
+            $this->redirect(KeywordResource::getUrl('external'), navigate: false);
+
+            return;
+        }
+
+        if (! in_array($this->triageFilter, ['all_issues', 'broken', 'weak_context'], true)) {
             $this->triageFilter = 'all_issues';
         }
     }
@@ -78,7 +84,7 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
 
     public function setTriageFilter(string $filter): void
     {
-        if (! in_array($filter, ['all_issues', 'broken', 'weak_context', 'external'], true)) {
+        if (! in_array($filter, ['all_issues', 'broken', 'weak_context'], true)) {
             return;
         }
 

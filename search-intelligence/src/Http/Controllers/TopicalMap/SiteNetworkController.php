@@ -41,6 +41,7 @@ final class SiteNetworkController extends Controller
             'schema' => 'seo.site_network.v1',
             'sites' => $overview['sites'],
             'edges' => $overview['edges'],
+            'accessible_site_count' => (int) ($overview['accessible_site_count'] ?? 0),
         ]);
     }
 

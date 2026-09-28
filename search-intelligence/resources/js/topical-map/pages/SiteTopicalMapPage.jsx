@@ -5,6 +5,7 @@ import {
     filterTopics,
     normalizeMcpRange,
     readFilterQuery,
+    readFocusTopic,
     writeFilterQuery,
 } from '../state/filters';
 import {
@@ -14,6 +15,8 @@ import {
 import { buildOverviewNeighborhood, buildFocusedNetworkNeighborhood } from '../charts/options';
 import AppChrome from '../components/AppChrome';
 import ChartCanvas from '../components/ChartCanvas';
+import SiteNetworkView from '../components/SiteNetworkView';
+import TopicCrossSitePanel from '../components/TopicCrossSitePanel';
 import AuditConfirmModal from '../components/AuditConfirmModal';
 import AuditOverlay from '../components/AuditOverlay';
 
@@ -39,6 +42,7 @@ export default function SiteTopicalMapPage({ config }) {
     const api = useMemo(() => createApi(config), [config]);
     const initialFilters = useMemo(() => readFilterQuery(), []);
     const chartRef = useRef(null);
+    const siteNetworkRef = useRef(null);
     const [theme, setTheme] = useState(resolveInitialTopicalMapTheme);
 
     const [overviewRaw, setOverviewRaw] = useState(null);
@@ -51,7 +55,11 @@ export default function SiteTopicalMapPage({ config }) {
     const [mcpMin, setMcpMin] = useState(initialFilters.mcpMin);
     const [mcpMax, setMcpMax] = useState(initialFilters.mcpMax);
     const [renderer, setRenderer] = useState(initialFilters.renderer);
-    const [focusedTopicId, setFocusedTopicId] = useState(null);
+    const [focusedTopicId, setFocusedTopicId] = useState(() => readFocusTopic());
+    const [crossSiteItems, setCrossSiteItems] = useState(null);
+    const [crossSiteLoading, setCrossSiteLoading] = useState(false);
+    const [crossSiteError, setCrossSiteError] = useState('');
+    const [showCrossSite, setShowCrossSite] = useState(() => readFocusTopic() != null);
     const [zoomPercent, setZoomPercent] = useState(100);
 
     const [auditStatus, setAuditStatus] = useState(null);
@@ -141,16 +149,66 @@ export default function SiteTopicalMapPage({ config }) {
 
     /** Clear focus when filters remove the focused Topic. */
     useEffect(() => {
-        if (focusedTopicId == null) {
+        if (focusedTopicId == null || renderer === 'site-network') {
             return;
         }
         const stillVisible = filteredTopics.some(
             (topic) => Number(topic.id) === Number(focusedTopicId),
         );
-        if (!stillVisible) {
+        if (!stillVisible && filteredTopics.length > 0) {
             setFocusedTopicId(null);
+            setShowCrossSite(false);
         }
-    }, [filteredTopics, focusedTopicId]);
+    }, [filteredTopics, focusedTopicId, renderer]);
+
+    useEffect(() => {
+        if (renderer === 'site-network' || focusedTopicId == null || !showCrossSite) {
+            return undefined;
+        }
+        let cancelled = false;
+        setCrossSiteLoading(true);
+        setCrossSiteError('');
+        api.fetchTopicCrossSite(focusedTopicId)
+            .then((data) => {
+                if (!cancelled) {
+                    setCrossSiteItems(Array.isArray(data?.items) ? data.items : []);
+                }
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    setCrossSiteItems([]);
+                    setCrossSiteError(err.message || 'Failed to load cross-site relationships');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setCrossSiteLoading(false);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [api, focusedTopicId, renderer, showCrossSite]);
+
+    const enterTopicFromSiteNetwork = useCallback(({ topicId, sourceSiteId }) => {
+        const nextTopicId = Number(topicId);
+        const nextSiteId = Number(sourceSiteId);
+        if (!Number.isFinite(nextTopicId) || nextTopicId <= 0) {
+            return;
+        }
+        if (nextSiteId > 0 && nextSiteId !== siteId) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('site', String(nextSiteId));
+            url.searchParams.set('site_id', String(nextSiteId));
+            url.searchParams.set('view', 'network');
+            url.searchParams.set('focus_topic', String(nextTopicId));
+            window.location.assign(url.toString());
+            return;
+        }
+        setRenderer('network');
+        setFocusedTopicId(nextTopicId);
+        setShowCrossSite(true);
+    }, [siteId]);
 
     /**
      * Visible Network graph: full neighborhood, or client-side focused subset.
@@ -280,6 +338,9 @@ export default function SiteTopicalMapPage({ config }) {
 
     const onRendererChange = (mode) => {
         setRenderer(mode);
+        if (mode === 'site-network') {
+            setShowCrossSite(false);
+        }
     };
 
     const toggleTheme = () => {
@@ -298,11 +359,13 @@ export default function SiteTopicalMapPage({ config }) {
         );
     }
 
-    const empty = !loading && (!filteredOverview || (filteredOverview.topics || []).length === 0)
+    const siteNetworkMode = renderer === 'site-network';
+    const empty = !siteNetworkMode && !loading && (!filteredOverview || (filteredOverview.topics || []).length === 0)
         && Number(overviewRaw?.summary?.topic_count || 0) === 0;
 
-    const zoomDisabled = loading || empty;
+    const zoomDisabled = siteNetworkMode ? false : (loading || empty);
     const zoomScaleDisabled = renderer === 'treemap';
+    const zoomTarget = () => (siteNetworkMode ? siteNetworkRef.current : chartRef.current);
 
     return (
         <div className="tm-app" data-theme={theme}>
@@ -329,6 +392,7 @@ export default function SiteTopicalMapPage({ config }) {
                 mcpMin={mcpMin}
                 mcpMax={mcpMax}
                 renderer={renderer}
+                hideTopicFilters={siteNetworkMode}
                 onToggleAll={toggleAll}
                 onToggleUntagged={toggleUntagged}
                 onToggleTag={toggleTag}
@@ -337,18 +401,28 @@ export default function SiteTopicalMapPage({ config }) {
                 zoomPercent={zoomPercent}
                 zoomDisabled={zoomDisabled}
                 zoomScaleDisabled={zoomScaleDisabled}
-                onZoomIn={() => chartRef.current?.zoomIn?.()}
-                onZoomOut={() => chartRef.current?.zoomOut?.()}
-                onZoomReset={() => chartRef.current?.resetZoom?.()}
+                onZoomIn={() => zoomTarget()?.zoomIn?.()}
+                onZoomOut={() => zoomTarget()?.zoomOut?.()}
+                onZoomReset={() => zoomTarget()?.resetZoom?.()}
             />
 
             <div className="tm-canvas-wrap">
-                {loading ? <div className="tm-empty">Loading…</div> : null}
-                {error ? <div className="tm-empty tm-empty--error">{error}</div> : null}
-                {!loading && !error && empty ? (
+                {siteNetworkMode ? (
+                    <SiteNetworkView
+                        ref={siteNetworkRef}
+                        api={api}
+                        labels={labels}
+                        theme={theme}
+                        currentSiteId={siteId}
+                        onEnterTopic={enterTopicFromSiteNetwork}
+                    />
+                ) : null}
+                {!siteNetworkMode && loading ? <div className="tm-empty">Loading…</div> : null}
+                {!siteNetworkMode && error ? <div className="tm-empty tm-empty--error">{error}</div> : null}
+                {!siteNetworkMode && !loading && !error && empty ? (
                     <div className="tm-empty">{labels.empty}</div>
                 ) : null}
-                {!loading && !error && !empty && filteredOverview ? (
+                {!siteNetworkMode && !loading && !error && !empty && filteredOverview ? (
                     <ChartCanvas
                         ref={chartRef}
                         overview={filteredOverview}
@@ -357,7 +431,10 @@ export default function SiteTopicalMapPage({ config }) {
                         neighborhood={networkNeighborhood}
                         topicDetailUrlTemplate={config.topicDetailUrlTemplate}
                         focusedTopicId={focusedTopicId}
-                        onFocusTopic={setFocusedTopicId}
+                        onFocusTopic={(topicId) => {
+                            setFocusedTopicId(topicId);
+                            setShowCrossSite(topicId != null);
+                        }}
                         preferredTagIds={structurePreferredTagIds}
                         siteDomain={String(config.siteDomain || '').trim()}
                         untaggedBucketLabel={
@@ -371,6 +448,16 @@ export default function SiteTopicalMapPage({ config }) {
                         }
                         onZoomChange={onZoomChange}
                         meta={meta}
+                    />
+                ) : null}
+
+                {!siteNetworkMode && showCrossSite && focusedTopicId != null ? (
+                    <TopicCrossSitePanel
+                        items={crossSiteItems}
+                        loading={crossSiteLoading}
+                        error={crossSiteError}
+                        labels={labels}
+                        onClose={() => setShowCrossSite(false)}
                     />
                 ) : null}
 
