@@ -24,7 +24,7 @@ function emptyCopy(reason, labels) {
     return labels.siteNetworkEmptyLinks || 'No managed cross-site relationships yet.';
 }
 
-function buildOption(graph, selectedKey, theme) {
+function buildOption(graph, selectedKey, selectedNodeId, theme, labels = {}) {
     const dark = theme === 'dark';
     const text = dark ? '#e5e7eb' : '#0f172a';
     const muted = dark ? '#94a3b8' : '#64748b';
@@ -40,8 +40,16 @@ function buildOption(graph, selectedKey, theme) {
             confine: true,
             trigger: 'item',
             formatter(params) {
-                if (params.dataType !== 'edge') {
-                    return params.data?.name || '';
+                if (params.dataType === 'node') {
+                    const data = params.data || {};
+                    const lines = [data.name || ''];
+                    if (data.isMain) {
+                        lines.unshift('★ ' + (labels.siteNetworkMainDomain || 'Main domain'));
+                    }
+                    if (data.isIsolated) {
+                        lines.push(labels.siteNetworkNoRelationshipsYet || 'No semantic relationships recorded yet');
+                    }
+                    return lines.join('<br/>');
                 }
                 const data = params.data || {};
                 const sourceName = graph.nodes.find((n) => n.id === data.sourceSiteRef)?.name || data.sourceSiteRef;
@@ -73,15 +81,50 @@ function buildOption(graph, selectedKey, theme) {
                     position: 'bottom',
                     color: text,
                     fontSize: 12,
-                },
-                data: graph.nodes.map((node) => ({
-                    ...node,
-                    itemStyle: {
-                        color: nodeFill,
-                        borderColor: nodeBorder,
-                        borderWidth: 1.5,
+                    formatter(params) {
+                        const name = params.data?.name || '';
+                        if (params.data?.isMain) {
+                            return `★ ${name}`;
+                        }
+                        return name;
                     },
-                })),
+                },
+                data: graph.nodes.map((node) => {
+                    const isMain = Boolean(node.isMain);
+                    const isIsolated = Boolean(node.isIsolated);
+                    const isSelected = selectedNodeId && selectedNodeId === node.id;
+
+                    let fill = nodeFill;
+                    let border = nodeBorder;
+                    let borderWidth = 1.5;
+                    let borderType = 'solid';
+
+                    if (isMain) {
+                        fill = dark ? '#78350f' : '#fef3c7';
+                        border = dark ? '#f59e0b' : '#d97706';
+                        borderWidth = 3;
+                    } else if (isIsolated) {
+                        fill = dark ? '#1e293b' : '#f8fafc';
+                        border = dark ? '#475569' : '#94a3b8';
+                        borderWidth = 1.5;
+                        borderType = 'dashed';
+                    }
+
+                    if (isSelected) {
+                        border = active;
+                        borderWidth = 3.5;
+                    }
+
+                    return {
+                        ...node,
+                        itemStyle: {
+                            color: fill,
+                            borderColor: border,
+                            borderWidth,
+                            borderType,
+                        },
+                    };
+                }),
                 links: graph.links.map((link) => {
                     const selected = link.selectionKey === selectedKey;
                     return {
@@ -107,7 +150,7 @@ function buildOption(graph, selectedKey, theme) {
 
 const SiteNetworkView = forwardRef(function SiteNetworkView({
     api,
-    labels,
+    labels = {},
     theme,
     currentSiteId,
     onEnterTopic,
@@ -119,6 +162,7 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [selectedKey, setSelectedKey] = useState('');
+    const [selectedNodeId, setSelectedNodeId] = useState('');
     const [topics, setTopics] = useState(null);
     const [topicsLoading, setTopicsLoading] = useState(false);
     const [topicsError, setTopicsError] = useState('');
@@ -126,6 +170,13 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
     const graph = useMemo(() => buildSiteNetworkGraph(payload), [payload]);
     const emptyReason = siteNetworkEmptyReason(payload);
     const selected = graph.links.find((link) => link.selectionKey === selectedKey) || null;
+    const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) || null;
+    const mainNode = graph.nodes.find((node) => node.isMain) || null;
+    const isolatedNodes = graph.nodes.filter((node) => node.isIsolated);
+
+    const totalSitesCount = payload?.accessible_site_count ?? graph.nodes.length;
+    const connectedCount = payload?.connected_site_count ?? graph.nodes.filter((node) => !node.isIsolated).length;
+    const isolatedCount = payload?.isolated_site_count ?? isolatedNodes.length;
 
     useEffect(() => {
         let cancelled = false;
@@ -162,18 +213,22 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
         }
         const chart = chartRef.current || echarts.init(host);
         chartRef.current = chart;
-        chart.setOption(buildOption(graph, selectedKey, theme), true);
+        chart.setOption(buildOption(graph, selectedKey, selectedNodeId, theme, labels), true);
         chart.off('click');
         chart.on('click', (params) => {
-            if (params.dataType !== 'edge') {
-                return;
+            if (params.dataType === 'edge') {
+                const data = params.data || {};
+                const key = data.selectionKey || edgeSelectionKey({
+                    source_site_ref: data.sourceSiteRef,
+                    target_site_ref: data.targetSiteRef,
+                });
+                setSelectedKey(key);
+                setSelectedNodeId('');
+            } else if (params.dataType === 'node') {
+                const data = params.data || {};
+                setSelectedNodeId(data.id || '');
+                setSelectedKey('');
             }
-            const data = params.data || {};
-            const key = data.selectionKey || edgeSelectionKey({
-                source_site_ref: data.sourceSiteRef,
-                target_site_ref: data.targetSiteRef,
-            });
-            setSelectedKey(key);
         });
         const onResize = () => chart.resize();
         const observer = new ResizeObserver(onResize);
@@ -182,7 +237,7 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
             observer.disconnect();
             chart.off('click');
         };
-    }, [graph, selectedKey, theme, emptyReason, loading, error]);
+    }, [graph, selectedKey, selectedNodeId, theme, emptyReason, loading, error, labels]);
 
     useEffect(() => () => {
         chartRef.current?.dispose();
@@ -266,26 +321,56 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
                 <div className="tm-site-network__layout">
                     <div className="tm-site-network__canvas" ref={hostRef} data-site-network-canvas />
                     <aside className="tm-site-network__panel" data-site-network-panel>
-                        <ul className="tm-site-network__edges" data-site-network-edges>
-                            {graph.links.map((link) => {
-                                const from = graph.nodes.find((node) => node.id === link.sourceSiteRef)?.name || link.sourceSiteRef;
-                                const to = graph.nodes.find((node) => node.id === link.targetSiteRef)?.name || link.targetSiteRef;
-                                return (
-                                    <li key={link.selectionKey}>
-                                        <button
-                                            type="button"
-                                            className={`tm-site-network__edge ${link.selectionKey === selectedKey ? 'is-active' : ''}`}
-                                            data-site-network-edge={`${link.sourceSiteId}>${link.targetSiteId}`}
-                                            aria-pressed={link.selectionKey === selectedKey}
-                                            onClick={() => setSelectedKey(link.selectionKey)}
-                                        >
-                                            <span>{from} → {to}</span>
-                                            <span className="tm-site-network__count">{link.article_link_count}</span>
-                                        </button>
-                                    </li>
-                                );
-                            })}
-                        </ul>
+                        <div className="tm-site-network__summary" data-site-network-summary>
+                            <div className="tm-site-network__stats">
+                                <span className="tm-site-network__stat-item" title={labels.siteNetworkTotalManaged || 'Total managed sites'}>
+                                    <strong>{totalSitesCount}</strong> {labels.siteNetworkTotalManaged || 'sites'}
+                                </span>
+                                <span className="tm-site-network__stat-dot">·</span>
+                                <span className="tm-site-network__stat-item" title={labels.siteNetworkConnectedCount || 'Connected'}>
+                                    <strong>{connectedCount}</strong> {labels.siteNetworkConnectedCount || 'connected'}
+                                </span>
+                                <span className="tm-site-network__stat-dot">·</span>
+                                <span className="tm-site-network__stat-item" title={labels.siteNetworkIsolatedCount || 'Isolated'}>
+                                    <strong>{isolatedCount}</strong> {labels.siteNetworkIsolatedCount || 'isolated'}
+                                </span>
+                            </div>
+                            {mainNode ? (
+                                <div className="tm-site-network__main-badge" data-site-network-main-domain={mainNode.domain}>
+                                    <span className="tm-site-network__main-star">★</span>
+                                    <span className="tm-site-network__main-text">
+                                        <span className="tm-site-network__main-label">{labels.siteNetworkMainDomain || 'Main'}:</span> {mainNode.name}
+                                    </span>
+                                </div>
+                            ) : null}
+                        </div>
+
+                        {graph.links.length > 0 ? (
+                            <ul className="tm-site-network__edges" data-site-network-edges>
+                                {graph.links.map((link) => {
+                                    const from = graph.nodes.find((node) => node.id === link.sourceSiteRef)?.name || link.sourceSiteRef;
+                                    const to = graph.nodes.find((node) => node.id === link.targetSiteRef)?.name || link.targetSiteRef;
+                                    return (
+                                        <li key={link.selectionKey}>
+                                            <button
+                                                type="button"
+                                                className={`tm-site-network__edge ${link.selectionKey === selectedKey ? 'is-active' : ''}`}
+                                                data-site-network-edge={`${link.sourceSiteId}>${link.targetSiteId}`}
+                                                aria-pressed={link.selectionKey === selectedKey}
+                                                onClick={() => {
+                                                    setSelectedKey(link.selectionKey);
+                                                    setSelectedNodeId('');
+                                                }}
+                                            >
+                                                <span>{from} → {to}</span>
+                                                <span className="tm-site-network__count">{link.article_link_count}</span>
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : null}
+
                         {selected ? (
                             <>
                                 <h2 className="tm-site-network__title" data-site-network-direction>
@@ -342,11 +427,60 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
                                     ))}
                                 </ul>
                             </>
+                        ) : selectedNode ? (
+                            <div className="tm-site-network__node-detail" data-site-network-node-detail={selectedNode.siteId}>
+                                <h2 className="tm-site-network__title">
+                                    {selectedNode.isMain ? '★ ' : ''}{selectedNode.name}
+                                </h2>
+                                {selectedNode.isMain ? (
+                                    <p className="tm-site-network__main-flag">
+                                        ★ {labels.siteNetworkMainDomain || 'Main domain'}
+                                    </p>
+                                ) : null}
+                                {selectedNode.isIsolated ? (
+                                    <div className="tm-site-network__isolated-state" data-site-network-isolated-state>
+                                        <p className="tm-site-network__note">
+                                            {labels.siteNetworkNoRelationshipsYet || 'No semantic relationships recorded yet'}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="tm-site-network__note">
+                                        {labels.siteNetworkConnectedCount || 'Connected managed site'}
+                                    </p>
+                                )}
+                            </div>
                         ) : (
                             <p className="tm-site-network__note">
                                 {labels.siteNetworkSelectEdge || 'Select a direction to see source topics.'}
                             </p>
                         )}
+
+                        {isolatedNodes.length > 0 ? (
+                            <div className="tm-site-network__isolated-section">
+                                <h3 className="tm-site-network__subtitle">
+                                    {labels.siteNetworkIsolatedHeading || 'Isolated sites'} ({isolatedNodes.length})
+                                </h3>
+                                <ul className="tm-site-network__isolated-list" data-site-network-isolated-list>
+                                    {isolatedNodes.map((node) => (
+                                        <li key={node.id}>
+                                            <button
+                                                type="button"
+                                                className={`tm-site-network__edge tm-site-network__edge--isolated ${selectedNodeId === node.id ? 'is-active' : ''}`}
+                                                data-site-network-isolated-node={node.siteId}
+                                                aria-pressed={selectedNodeId === node.id}
+                                                onClick={() => {
+                                                    setSelectedNodeId(node.id);
+                                                    setSelectedKey('');
+                                                }}
+                                            >
+                                                <span>{node.isMain ? '★ ' : ''}{node.name}</span>
+                                                <span className="tm-site-network__count tm-site-network__count--muted">0 links</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
                     </aside>
                 </div>
             ) : null}
@@ -355,3 +489,4 @@ const SiteNetworkView = forwardRef(function SiteNetworkView({
 });
 
 export default SiteNetworkView;
+

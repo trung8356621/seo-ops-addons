@@ -246,6 +246,11 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.resources.keywords.external');
     }
 
+    public static function isKeywordsRiskNav(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.resources.keywords.risk');
+    }
+
     // ─── SEO ─────────────────────────────────────────────────────────────
 
     public static function isSeoModule(?string $route = null): bool

@@ -123,6 +123,9 @@ class KeywordResource extends SeoPanelResource
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_external'))
                         ->url(static::getUrl('external'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsExternalNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_risk'))
+                        ->url(static::getUrl('risk'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsRiskNav()),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'))
                         ->url(static::getUrl('anchor-audit'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsBrokenLinksNav()),
@@ -1637,6 +1640,7 @@ class KeywordResource extends SeoPanelResource
             'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{topic}'),
             'topic-tags' => Pages\KeywordTopicTags::route('/topic-tags'),
             'external' => Pages\KeywordExternalWorkspace::route('/external'),
+            'risk' => Pages\KeywordRiskWorkspace::route('/risk'),
             'anchor-audit' => Pages\AnchorTextAuditWorkspace::route('/anchor-audit'),
         ];
     }

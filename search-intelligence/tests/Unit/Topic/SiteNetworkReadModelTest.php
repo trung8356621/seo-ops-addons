@@ -62,6 +62,15 @@ final class SiteNetworkReadModelTest extends TestCase
             $table->softDeletes();
         });
 
+        Schema::dropIfExists('site_meta');
+        Schema::create('site_meta', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->string('meta_key');
+            $table->text('meta_value')->nullable();
+            $table->timestamps();
+        });
+
         Schema::connection('omi_seo_ai')->dropIfExists('articles');
         Schema::connection('omi_seo_ai')->create('articles', function (Blueprint $table): void {
             $table->id();
@@ -421,6 +430,148 @@ final class SiteNetworkReadModelTest extends TestCase
         $this->assertSame('site:2', $edge['target_site_ref']);
         $this->assertSame(1, $edge['article_link_count']);
         $this->assertSame(1, $edge['target_article_count']);
+    }
+
+    public function test_i_isolated_site_appears_in_sites_without_fake_edges_and_counts_are_correct(): void
+    {
+        Site::query()->forceCreate(['id' => 1, 'user_id' => $this->owner->id, 'domain' => 'connected-a.com']);
+        Site::query()->forceCreate(['id' => 2, 'user_id' => $this->owner->id, 'domain' => 'connected-b.com']);
+        Site::query()->forceCreate(['id' => 3, 'user_id' => $this->owner->id, 'domain' => 'isolated-c.com']);
+
+        $artA = SeoArticle::query()->create(['id' => 101, 'site_id' => 1, 'title' => 'Article A']);
+        $artB = SeoArticle::query()->create(['id' => 201, 'site_id' => 2, 'title' => 'Article B']);
+
+        SeoLinkMap::query()->create([
+            'keyword_id' => 501,
+            'source_article_id' => (int) $artA->id,
+            'target_article_id' => (int) $artB->id,
+            'target_site_id' => 2,
+            'link_type' => SeoLinkMapType::ManagedCrossSite->value,
+            'status' => SeoLinkMapStatus::Active,
+        ]);
+
+        $model = new SiteNetworkReadModel();
+        $overview = $model->overview();
+
+        $this->assertCount(3, $overview['sites'], 'All accessible managed sites must appear');
+        $siteIds = array_column($overview['sites'], 'site_id');
+        $this->assertSame([1, 2, 3], $siteIds);
+
+        // Edges should only contain 1 -> 2, isolated site 3 must NOT have any fake edges
+        $this->assertCount(1, $overview['edges']);
+        $this->assertSame('site:1', $overview['edges'][0]['source_site_ref']);
+        $this->assertSame('site:2', $overview['edges'][0]['target_site_ref']);
+
+        $this->assertSame(3, $overview['accessible_site_count']);
+        $this->assertSame(2, $overview['connected_site_count']);
+        $this->assertSame(1, $overview['isolated_site_count']);
+    }
+
+    public function test_j_multiple_isolated_sites_appear_in_sites(): void
+    {
+        Site::query()->forceCreate(['id' => 1, 'user_id' => $this->owner->id, 'domain' => 'site-1.com']);
+        Site::query()->forceCreate(['id' => 2, 'user_id' => $this->owner->id, 'domain' => 'site-2.com']);
+        Site::query()->forceCreate(['id' => 3, 'user_id' => $this->owner->id, 'domain' => 'site-3.com']);
+        Site::query()->forceCreate(['id' => 4, 'user_id' => $this->owner->id, 'domain' => 'site-4.com']);
+
+        $art1 = SeoArticle::query()->create(['id' => 101, 'site_id' => 1, 'title' => 'Article 1']);
+        $art2 = SeoArticle::query()->create(['id' => 201, 'site_id' => 2, 'title' => 'Article 2']);
+
+        // Only 1 -> 2 has an edge; 3 and 4 are isolated
+        SeoLinkMap::query()->create([
+            'keyword_id' => 501,
+            'source_article_id' => (int) $art1->id,
+            'target_article_id' => (int) $art2->id,
+            'target_site_id' => 2,
+            'link_type' => SeoLinkMapType::ManagedCrossSite->value,
+            'status' => SeoLinkMapStatus::Active,
+        ]);
+
+        $model = new SiteNetworkReadModel();
+        $overview = $model->overview();
+
+        $this->assertCount(4, $overview['sites']);
+        $this->assertCount(1, $overview['edges']);
+        $this->assertSame(4, $overview['accessible_site_count']);
+        $this->assertSame(2, $overview['connected_site_count']);
+        $this->assertSame(2, $overview['isolated_site_count']);
+    }
+
+    public function test_k_canonical_main_site_derived_from_site_meta_and_independent_of_selection(): void
+    {
+        $site1 = Site::query()->forceCreate(['id' => 1, 'user_id' => $this->owner->id, 'domain' => 'brand-main.com']);
+        $site2 = Site::query()->forceCreate(['id' => 2, 'user_id' => $this->owner->id, 'domain' => 'satellite.com']);
+
+        // Set Site 1 as canonical main domain via SeoMainDomainService / site_meta
+        app(\Omnichannel\Addons\Seo\Services\SeoMainDomainService::class)->setAsMain($site1);
+
+        // Intentionally simulate user selecting Site 2 in global workspace selector
+        \Omnichannel\Addons\Seo\Support\SeoAccessControl::setGlobalSiteId(2);
+
+        $model = new SiteNetworkReadModel();
+        $overview = $model->overview();
+
+        $siteById = collect($overview['sites'])->keyBy('site_id');
+        $this->assertTrue($siteById[1]['is_main'], 'Site 1 must remain canonical main domain');
+        $this->assertFalse($siteById[2]['is_main'], 'Site 2 must not become main merely by being selected');
+    }
+
+    public function test_l_main_site_with_zero_edges_appears_as_isolated_main_site(): void
+    {
+        $siteMain = Site::query()->forceCreate(['id' => 10, 'user_id' => $this->owner->id, 'domain' => 'hub-main.com']);
+        $siteSub1 = Site::query()->forceCreate(['id' => 20, 'user_id' => $this->owner->id, 'domain' => 'sub1.com']);
+        $siteSub2 = Site::query()->forceCreate(['id' => 30, 'user_id' => $this->owner->id, 'domain' => 'sub2.com']);
+
+        app(\Omnichannel\Addons\Seo\Services\SeoMainDomainService::class)->setAsMain($siteMain);
+
+        // Sub1 -> Sub2 edge, Main has 0 edges
+        $art20 = SeoArticle::query()->create(['id' => 201, 'site_id' => 20, 'title' => 'Article 20']);
+        $art30 = SeoArticle::query()->create(['id' => 301, 'site_id' => 30, 'title' => 'Article 30']);
+
+        SeoLinkMap::query()->create([
+            'keyword_id' => 601,
+            'source_article_id' => (int) $art20->id,
+            'target_article_id' => (int) $art30->id,
+            'target_site_id' => 30,
+            'link_type' => SeoLinkMapType::ManagedCrossSite->value,
+            'status' => SeoLinkMapStatus::Active,
+        ]);
+
+        $model = new SiteNetworkReadModel();
+        $overview = $model->overview();
+
+        $this->assertCount(3, $overview['sites']);
+        $this->assertCount(1, $overview['edges']);
+        $this->assertSame(3, $overview['accessible_site_count']);
+        $this->assertSame(2, $overview['connected_site_count']);
+        $this->assertSame(1, $overview['isolated_site_count']);
+
+        $siteById = collect($overview['sites'])->keyBy('site_id');
+        $this->assertTrue($siteById[10]['is_main']);
+        $this->assertFalse($siteById[20]['is_main']);
+        $this->assertFalse($siteById[30]['is_main']);
+    }
+
+    public function test_m_inaccessible_isolated_site_is_not_included(): void
+    {
+        $otherUser = User::query()->forceCreate([
+            'id' => 88,
+            'name' => 'Stranger',
+            'email' => 'stranger@example.com',
+            'role' => User::ROLE_OWNER,
+        ]);
+
+        Site::query()->forceCreate(['id' => 1, 'user_id' => $this->owner->id, 'domain' => 'my-site.com']);
+        Site::query()->forceCreate(['id' => 2, 'user_id' => $otherUser->id, 'domain' => 'foreign-site.com']);
+
+        $model = new SiteNetworkReadModel();
+        $overview = $model->overview();
+
+        $this->assertCount(1, $overview['sites']);
+        $this->assertSame(1, $overview['sites'][0]['site_id']);
+        $this->assertSame(1, $overview['accessible_site_count']);
+        $this->assertSame(0, $overview['connected_site_count']);
+        $this->assertSame(1, $overview['isolated_site_count']);
     }
 }
 

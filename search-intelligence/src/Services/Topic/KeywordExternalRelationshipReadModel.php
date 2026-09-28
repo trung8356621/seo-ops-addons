@@ -59,6 +59,53 @@ final class KeywordExternalRelationshipReadModel
     }
 
     /**
+     * UI risk filter keys.
+     *
+     * @return list<string>
+     */
+    public static function uiRiskFilters(): array
+    {
+        return ['all', 'safe', 'low', 'review'];
+    }
+
+    /**
+     * User-facing risk level internal keys.
+     *
+     * @return list<string>
+     */
+    public static function riskLevels(): array
+    {
+        return ['safe', 'low', 'review'];
+    }
+
+    /**
+     * Derive internal risk level from link type.
+     */
+    public function riskLevelForType(string|SeoLinkMapType $linkType): string
+    {
+        $value = $linkType instanceof SeoLinkMapType ? $linkType->value : (string) $linkType;
+
+        return match ($value) {
+            SeoLinkMapType::ManagedCrossSite->value => 'safe',
+            SeoLinkMapType::WikiTrust->value => 'low',
+            default => 'review',
+        };
+    }
+
+    /**
+     * @return list<string>|null  null = all semantic types
+     */
+    public function typesForRiskLevel(string $riskLevel): ?array
+    {
+        return match ($riskLevel) {
+            'safe' => [SeoLinkMapType::ManagedCrossSite->value],
+            'low' => [SeoLinkMapType::WikiTrust->value],
+            'review' => [SeoLinkMapType::NeedsReview->value, SeoLinkMapType::External->value],
+            default => null,
+        };
+    }
+
+    /**
      * @return list<string>|null  null = all semantic types
      */
     public function typesForUiCategory(string $category): ?array
@@ -69,6 +116,22 @@ final class KeywordExternalRelationshipReadModel
             'needs_review' => [SeoLinkMapType::NeedsReview->value, SeoLinkMapType::External->value],
             default => null,
         };
+    }
+
+    /**
+     * @return array{all: int, safe: int, low: int, review: int, available: bool}
+     */
+    public function riskCounts(int $siteId): array
+    {
+        $categoryCounts = $this->categoryCounts($siteId);
+
+        return [
+            'all' => $categoryCounts['all'],
+            'safe' => $categoryCounts['managed_cross_site'],
+            'low' => $categoryCounts['reference'],
+            'review' => $categoryCounts['needs_review'],
+            'available' => $categoryCounts['available'],
+        ];
     }
 
     /**
@@ -129,6 +192,18 @@ final class KeywordExternalRelationshipReadModel
         int $perPage = 50,
     ): array {
         return $this->paginate($siteId, $typeFilter, null, $page, $perPage);
+    }
+
+    /**
+     * @return array{available: bool, items: list<array<string, mixed>>, total: int, page: int, per_page: int}
+     */
+    public function externalLinksForRiskLevel(
+        int $siteId,
+        string $riskLevel,
+        int $page = 1,
+        int $perPage = 50,
+    ): array {
+        return $this->paginate($siteId, $this->typesForRiskLevel($riskLevel), null, $page, $perPage);
     }
 
     /**
@@ -325,11 +400,24 @@ final class KeywordExternalRelationshipReadModel
             $targetKeyword = $this->targetKeywordResolver->resolveForArticle((int) $targetArticle->id, $targetSiteId);
         }
 
+        $riskLevel = $this->riskLevelForType($linkType);
+
         return [
             'map_id' => (int) $map->id,
             'link_type' => $linkType->value,
             'link_type_label' => $linkType->label(),
             'ui_category' => $this->uiCategoryForType($linkType),
+            'risk_level' => $riskLevel,
+            'risk_level_label' => match ($riskLevel) {
+                'safe' => __('seo-content-ai::filament.keyword.risk_level_safe'),
+                'low' => __('seo-content-ai::filament.keyword.risk_level_low'),
+                default => __('seo-content-ai::filament.keyword.risk_level_review'),
+            },
+            'risk_reason' => match ($riskLevel) {
+                'safe' => __('seo-content-ai::filament.keyword.risk_reason_safe'),
+                'low' => __('seo-content-ai::filament.keyword.risk_reason_low'),
+                default => __('seo-content-ai::filament.keyword.risk_reason_review'),
+            },
             'is_cta' => $linkType->isCta(),
             'is_semantic_eligible' => $map->is_semantic_eligible ?? true,
             // Source

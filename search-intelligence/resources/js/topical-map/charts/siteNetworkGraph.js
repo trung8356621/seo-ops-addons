@@ -29,8 +29,7 @@ export function edgeSelectionKey(edge) {
  */
 export function siteNetworkEmptyReason(payload) {
     const sites = Array.isArray(payload?.sites) ? payload.sites : [];
-    const edges = Array.isArray(payload?.edges) ? payload.edges : [];
-    if (sites.length > 0 && edges.length > 0) {
+    if (sites.length > 0) {
         return null;
     }
     const accessible = Number(payload?.accessible_site_count ?? 0);
@@ -45,6 +44,9 @@ export function siteNetworkEmptyReason(payload) {
 
 /**
  * Build a graph from managed sites only.
+ * ALL accessible managed sites appear as nodes, even with 0 edges.
+ * Main domain node is flagged as isMain.
+ * Isolated sites are placed intentionally in an isolated cluster.
  * An edge whose endpoint is not a managed site is dropped — never becomes a node.
  */
 export function buildSiteNetworkGraph(payload) {
@@ -59,33 +61,22 @@ export function buildSiteNetworkGraph(payload) {
         byRef.set(ref, site);
     });
 
-    const nodeList = Array.from(byRef.values());
-    const count = nodeList.length;
-    const radius = count <= 1 ? 0 : 220;
-    const nodes = nodeList.map((site, index) => {
-        const angle = (Math.PI * 2 * index) / Math.max(count, 1) - Math.PI / 2;
-        return {
-            id: String(site.site_ref),
-            name: String(site.domain || site.site_ref),
-            siteId: Number(site.site_id) || parseSiteRef(site.site_ref),
-            x: Math.cos(angle) * radius,
-            y: Math.sin(angle) * radius,
-            symbolSize: 54,
-        };
-    });
-
     let maxLinks = 1;
     edges.forEach((edge) => {
         maxLinks = Math.max(maxLinks, Number(edge?.article_link_count) || 0);
     });
 
     const links = [];
+    const participatingRefs = new Set();
     edges.forEach((edge) => {
         const source = String(edge?.source_site_ref || '');
         const target = String(edge?.target_site_ref || '');
         if (!byRef.has(source) || !byRef.has(target) || source === target) {
             return;
         }
+        participatingRefs.add(source);
+        participatingRefs.add(target);
+
         const sourceId = parseSiteRef(source);
         const targetId = parseSiteRef(target);
         const articleLinkCount = Number(edge.article_link_count) || 0;
@@ -108,6 +99,89 @@ export function buildSiteNetworkGraph(payload) {
             },
         });
     });
+
+    const nodeList = Array.from(byRef.values());
+    const connectedSites = nodeList.filter((s) => participatingRefs.has(String(s.site_ref)));
+    const isolatedSites = nodeList.filter((s) => !participatingRefs.has(String(s.site_ref)));
+
+    const nodes = [];
+
+    // Position connected nodes in a central circular cluster
+    if (connectedSites.length > 0) {
+        const connCount = connectedSites.length;
+        const connRadius = connCount <= 1 ? 0 : Math.max(160, connCount * 32);
+        const centerY = isolatedSites.length > 0 ? -40 : 0;
+
+        connectedSites.forEach((site, index) => {
+            const angle = (Math.PI * 2 * index) / Math.max(connCount, 1) - Math.PI / 2;
+            const isMain = Boolean(site.is_main);
+            nodes.push({
+                id: String(site.site_ref),
+                name: String(site.domain || site.site_ref),
+                domain: String(site.domain || site.site_ref),
+                siteId: Number(site.site_id) || parseSiteRef(site.site_ref),
+                isMain,
+                is_main: isMain,
+                isIsolated: false,
+                x: Math.round(Math.cos(angle) * connRadius),
+                y: Math.round(centerY + Math.sin(angle) * connRadius),
+                symbolSize: isMain ? 68 : 54,
+            });
+        });
+
+        // Position isolated nodes in an intentional lower area
+        if (isolatedSites.length > 0) {
+            const isoBaseY = Math.max(180, connRadius + 70);
+            const cols = Math.min(isolatedSites.length, 5);
+            const spacingX = 130;
+            const startX = -((cols - 1) * spacingX) / 2;
+
+            isolatedSites.forEach((site, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const isMain = Boolean(site.is_main);
+                nodes.push({
+                    id: String(site.site_ref),
+                    name: String(site.domain || site.site_ref),
+                    domain: String(site.domain || site.site_ref),
+                    siteId: Number(site.site_id) || parseSiteRef(site.site_ref),
+                    isMain,
+                    is_main: isMain,
+                    isIsolated: true,
+                    x: Math.round(startX + col * spacingX),
+                    y: Math.round(isoBaseY + row * 90),
+                    symbolSize: isMain ? 68 : 52,
+                });
+            });
+        }
+    } else {
+        // All sites are isolated — arrange in a clean grid centered at (0, 0)
+        const isoCount = isolatedSites.length;
+        const cols = Math.min(Math.max(isoCount, 1), 4);
+        const spacingX = 140;
+        const spacingY = 100;
+        const totalRows = Math.ceil(isoCount / cols);
+        const startX = -((cols - 1) * spacingX) / 2;
+        const startY = -((totalRows - 1) * spacingY) / 2;
+
+        isolatedSites.forEach((site, index) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const isMain = Boolean(site.is_main);
+            nodes.push({
+                id: String(site.site_ref),
+                name: String(site.domain || site.site_ref),
+                domain: String(site.domain || site.site_ref),
+                siteId: Number(site.site_id) || parseSiteRef(site.site_ref),
+                isMain,
+                is_main: isMain,
+                isIsolated: true,
+                x: Math.round(startX + col * spacingX),
+                y: Math.round(startY + row * spacingY),
+                symbolSize: isMain ? 68 : 52,
+            });
+        });
+    }
 
     return { nodes, links };
 }

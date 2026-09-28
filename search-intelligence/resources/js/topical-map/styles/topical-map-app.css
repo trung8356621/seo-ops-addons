@@ -844,6 +844,117 @@
     padding: 1rem 1rem 1.5rem;
 }
 
+.tm-site-network__summary {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--tm-border-soft);
+}
+
+.tm-site-network__stats {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--tm-text-muted);
+}
+
+.tm-site-network__stat-item strong {
+    color: var(--tm-text);
+    font-weight: 700;
+}
+
+.tm-site-network__stat-dot {
+    color: var(--tm-text-faint);
+}
+
+.tm-site-network__main-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgb(254 243 199);
+    border: 1px solid rgb(253 230 138);
+    color: rgb(146 64 14);
+    font-size: 0.72rem;
+    font-weight: 650;
+}
+
+.dark .tm-site-network__main-badge {
+    background: rgb(120 53 15 / 0.4);
+    border-color: rgb(245 158 11 / 0.4);
+    color: rgb(253 230 138);
+}
+
+.tm-site-network__main-star {
+    color: rgb(217 119 6);
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.dark .tm-site-network__main-star {
+    color: rgb(251 191 36);
+}
+
+.tm-site-network__main-label {
+    opacity: 0.85;
+}
+
+.tm-site-network__main-flag {
+    margin: 0.25rem 0 0.5rem;
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.375rem;
+    background: rgb(254 243 199);
+    color: rgb(146 64 14);
+    font-size: 0.72rem;
+    font-weight: 650;
+}
+
+.dark .tm-site-network__main-flag {
+    background: rgb(120 53 15 / 0.4);
+    color: rgb(253 230 138);
+}
+
+.tm-site-network__edge--isolated {
+    border-style: dashed;
+    opacity: 0.85;
+}
+
+.tm-site-network__edge--isolated:hover,
+.tm-site-network__edge--isolated.is-active {
+    opacity: 1;
+}
+
+.tm-site-network__count--muted {
+    opacity: 0.6;
+}
+
+.tm-site-network__isolated-section {
+    margin-top: 1.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--tm-border-soft);
+}
+
+.tm-site-network__isolated-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.tm-site-network__isolated-state {
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.5rem;
+    background: var(--tm-surface-2);
+    border: 1px dashed var(--tm-border);
+    margin-top: 0.5rem;
+}
+
 .tm-site-network__title,
 .tm-site-network__subtitle {
     margin: 0 0 0.75rem;

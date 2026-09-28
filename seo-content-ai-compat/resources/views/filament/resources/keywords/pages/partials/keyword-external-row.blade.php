@@ -5,6 +5,21 @@
         'reference' => __('seo-content-ai::filament.keyword.external_status_reference'),
         default => __('seo-content-ai::filament.keyword.external_status_review'),
     };
+    $riskLevel = (string) ($row['risk_level'] ?? match ($category) {
+        'managed_cross_site' => 'safe',
+        'reference' => 'low',
+        default => 'review',
+    });
+    $riskLabel = (string) ($row['risk_level_label'] ?? match ($riskLevel) {
+        'safe' => __('seo-content-ai::filament.keyword.risk_level_safe'),
+        'low' => __('seo-content-ai::filament.keyword.risk_level_low'),
+        default => __('seo-content-ai::filament.keyword.risk_level_review'),
+    });
+    $riskReason = (string) ($row['risk_reason'] ?? match ($riskLevel) {
+        'safe' => __('seo-content-ai::filament.keyword.risk_reason_safe'),
+        'low' => __('seo-content-ai::filament.keyword.risk_reason_low'),
+        default => __('seo-content-ai::filament.keyword.risk_reason_review'),
+    });
     $sourceKeyword = trim((string) ($row['source_keyword_phrase'] ?? ''));
     $sourceArticle = trim((string) ($row['source_article_title'] ?? ''));
     $sourceTopic = trim((string) ($row['source_topic_name'] ?? ''));
@@ -26,6 +41,7 @@
     wire:key="keyword-external-row-{{ (int) ($row['map_id'] ?? 0) }}"
     class="link-triage-row keyword-external-row"
     data-external-category="{{ $category }}"
+    data-risk-level="{{ $riskLevel }}"
     data-external-map="{{ (int) ($row['map_id'] ?? 0) }}"
 >
     <td class="link-triage-td align-top">
@@ -41,12 +57,24 @@
         @endif
     </td>
     <td class="link-triage-td align-top">
-        <span @class([
-            'keyword-external-status',
-            'keyword-external-status--managed' => $category === 'managed_cross_site',
-            'keyword-external-status--reference' => $category === 'reference',
-            'keyword-external-status--review' => $category === 'needs_review',
-        ])>{{ $statusLabel }}</span>
+        <div class="flex flex-wrap items-center gap-1.5">
+            <span @class([
+                'keyword-external-status',
+                'keyword-external-status--managed' => $category === 'managed_cross_site',
+                'keyword-external-status--reference' => $category === 'reference',
+                'keyword-external-status--review' => $category === 'needs_review',
+            ]) title="{{ __('seo-content-ai::filament.keyword.external_col_status') }}">{{ $statusLabel }}</span>
+
+            <span @class([
+                'keyword-risk-badge',
+                'keyword-risk-badge--safe' => $riskLevel === 'safe',
+                'keyword-risk-badge--low' => $riskLevel === 'low',
+                'keyword-risk-badge--review' => $riskLevel === 'review',
+            ]) data-risk-level="{{ $riskLevel }}" title="{{ __('seo-content-ai::filament.keyword.risk_col_risk') }}: {{ $riskLabel }}">{{ $riskLabel }}</span>
+        </div>
+        @if ($riskReason !== '')
+            <p class="keyword-external-meta keyword-risk-reason">{{ $riskReason }}</p>
+        @endif
         @if ($destinationKind !== '')
             <p class="keyword-external-meta">{{ $destinationKind }}</p>
         @endif

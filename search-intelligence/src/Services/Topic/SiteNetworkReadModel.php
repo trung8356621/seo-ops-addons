@@ -27,7 +27,7 @@ final class SiteNetworkReadModel
 {
     /**
      * @return array{
-     *   sites: list<array{site_ref: string, site_id: int, domain: string}>,
+     *   sites: list<array{site_ref: string, site_id: int, domain: string, is_main: bool}>,
      *   edges: list<array{
      *     source_site_ref: string,
      *     target_site_ref: string,
@@ -36,7 +36,9 @@ final class SiteNetworkReadModel
      *     target_article_count: int,
      *     source_keyword_count: int
      *   }>,
-     *   accessible_site_count: int
+     *   accessible_site_count: int,
+     *   connected_site_count: int,
+     *   isolated_site_count: int
      * }
      */
     public function overview(): array
@@ -45,27 +47,44 @@ final class SiteNetworkReadModel
         $managedSites = $this->loadManagedSites();
         $accessibleSiteCount = count($managedSites);
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps') || ! Schema::connection('omi_seo_ai')->hasTable($articleTable)) {
-            return ['sites' => [], 'edges' => [], 'accessible_site_count' => $accessibleSiteCount];
+            return [
+                'sites' => [],
+                'edges' => [],
+                'accessible_site_count' => $accessibleSiteCount,
+                'connected_site_count' => 0,
+                'isolated_site_count' => 0,
+            ];
         }
 
         if ($managedSites === []) {
-            return ['sites' => [], 'edges' => [], 'accessible_site_count' => 0];
+            return [
+                'sites' => [],
+                'edges' => [],
+                'accessible_site_count' => 0,
+                'connected_site_count' => 0,
+                'isolated_site_count' => 0,
+            ];
         }
 
         $siteIdSet = array_column($managedSites, 'site_id');
         $edges = $this->computeEdges($siteIdSet);
 
-        // Only include sites that participate in at least one edge.
+        // Track sites participating in at least one edge.
         $participatingSiteIds = [];
         foreach ($edges as $edge) {
             $participatingSiteIds[$edge['source_site_id']] = true;
             $participatingSiteIds[$edge['target_site_id']] = true;
         }
 
-        $sites = array_values(array_filter(
-            $managedSites,
-            static fn (array $s): bool => isset($participatingSiteIds[$s['site_id']]),
-        ));
+        $connectedSiteCount = 0;
+        $isolatedSiteCount = 0;
+        foreach ($managedSites as $site) {
+            if (isset($participatingSiteIds[$site['site_id']])) {
+                $connectedSiteCount++;
+            } else {
+                $isolatedSiteCount++;
+            }
+        }
 
         $edgePayload = array_map(static function (array $edge): array {
             return [
@@ -83,9 +102,12 @@ final class SiteNetworkReadModel
                 'site_ref' => 'site:'.$s['site_id'],
                 'site_id' => $s['site_id'],
                 'domain' => $s['domain'],
-            ], $sites),
+                'is_main' => (bool) ($s['is_main'] ?? false),
+            ], $managedSites),
             'edges' => $edgePayload,
             'accessible_site_count' => $accessibleSiteCount,
+            'connected_site_count' => $connectedSiteCount,
+            'isolated_site_count' => $isolatedSiteCount,
         ];
     }
 
@@ -124,17 +146,21 @@ final class SiteNetworkReadModel
     }
 
     /**
-     * @return list<array{site_id: int, domain: string}>
+     * @return list<array{site_id: int, domain: string, is_main: bool}>
      */
-    private function loadManagedSites(): array
-    {
-        if (! Schema::hasTable('sites')) {
-            return [];
-        }
+     private function loadManagedSites(): array
+     {
+         if (! Schema::hasTable('sites')) {
+             return [];
+         }
 
         $query = SeoAccessControl::accessibleSitesQuery()
-            ->select(['id', 'domain'])
+            ->select(['id', 'domain', 'user_id'])
             ->orderBy('id');
+
+        $mainDomainService = Schema::hasTable('site_meta')
+            ? app(\Omnichannel\Addons\Seo\Services\SeoMainDomainService::class)
+            : null;
 
         $sites = [];
         foreach ($query->get() as $site) {
@@ -148,6 +174,7 @@ final class SiteNetworkReadModel
             $sites[] = [
                 'site_id' => (int) $site->id,
                 'domain' => $domain,
+                'is_main' => $mainDomainService ? $mainDomainService->isMain($site) : false,
             ];
         }
 
