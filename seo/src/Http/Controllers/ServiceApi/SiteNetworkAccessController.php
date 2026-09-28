@@ -90,6 +90,10 @@ final class SiteNetworkAccessController
             );
         }
 
+        if (! $context->isGlobal()) {
+            return ServiceApiError::forbidden('This resource requires a global-scoped access token.');
+        }
+
         return $context;
     }
 

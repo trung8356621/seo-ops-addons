@@ -34,7 +34,7 @@ final class SiteNetworkReadModel
      *     article_link_count: int,
      *     source_article_count: int,
      *     target_article_count: int,
-     *     keyword_relation_count: int
+     *     source_keyword_count: int
      *   }>
      * }
      */
@@ -73,7 +73,6 @@ final class SiteNetworkReadModel
                 'source_article_count' => $edge['source_article_count'],
                 'target_article_count' => $edge['target_article_count'],
                 'source_keyword_count' => $edge['source_keyword_count'],
-                'keyword_relation_count' => $edge['keyword_relation_count'],
             ];
         }, $edges);
 
@@ -174,7 +173,7 @@ final class SiteNetworkReadModel
      *   article_link_count: int,
      *   source_article_count: int,
      *   target_article_count: int,
-     *   keyword_relation_count: int
+     *   source_keyword_count: int
      * }>
      */
     private function computeEdges(array $siteIdSet): array
@@ -214,16 +213,13 @@ final class SiteNetworkReadModel
                 continue;
             }
 
-            $sourceKeywordCount = (int) ($row->source_keyword_count ?? 0);
-
             $edges[] = [
                 'source_site_id' => $sourceSiteId,
                 'target_site_id' => $targetSiteId,
                 'article_link_count' => (int) ($row->article_link_count ?? 0),
                 'source_article_count' => (int) ($row->source_article_count ?? 0),
                 'target_article_count' => (int) ($row->target_article_count ?? 0),
-                'source_keyword_count' => $sourceKeywordCount,
-                'keyword_relation_count' => $sourceKeywordCount,
+                'source_keyword_count' => (int) ($row->source_keyword_count ?? 0),
             ];
         }
 

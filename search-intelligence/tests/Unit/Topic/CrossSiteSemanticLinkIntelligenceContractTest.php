@@ -407,7 +407,7 @@ final class CrossSiteSemanticLinkIntelligenceContractTest extends TestCase
         $this->assertStringContainsString('getTable()', $src);
         // Exposes directional metric keys
         $this->assertStringContainsString('source_keyword_count', $src);
-        $this->assertStringContainsString('keyword_relation_count', $src);
+        $this->assertStringNotContainsString('keyword_relation_count', $src);
         $this->assertStringContainsString('article_link_count', $src);
         $this->assertStringContainsString('source_article_count', $src);
         $this->assertStringContainsString('target_article_count', $src);
