@@ -6,21 +6,19 @@ namespace Omnichannel\Addons\SearchFoundation\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapDestinationKind;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Seo\Support\LinkDestinationClassifier;
+use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 
 /**
- * Backfills destination_kind, is_semantic_eligible, and target_site_id for existing
- * seo_link_maps rows that were created before Phase 1: Link Classification SSOT.
+ * Idempotent reconciliation of seo_link_maps classification.
  *
- * Processing rules (applied in order):
- *   1. link_type = external   AND host is social  → social,   destination_kind=social,    is_semantic_eligible=false
- *   2. link_type = wiki_trust                      → keep,     destination_kind=reference, is_semantic_eligible=true
- *   3. link_type = internal                        → keep,     destination_kind=content,   is_semantic_eligible=true
- *   4. link_type = external   AND target_article_id from a different site
- *                                                  → managed_cross_site, destination_kind=content, target_site_id set
- *   5. All remaining external / needs_review rows  → keep link_type, destination_kind=other, is_semantic_eligible=true
+ * Stale external / needs_review rows are reclassified through LinkDestinationClassifier.
+ * Rows that already use a current type only have incomplete metadata repaired, and only
+ * when that repair matches the canonical classifier or the stored type's own metadata.
+ * A second run writes nothing when the persisted fields already match.
  */
 final class BackfillLinkClassificationCommand extends Command
 {
@@ -28,38 +26,38 @@ final class BackfillLinkClassificationCommand extends Command
         {--dry-run : Print changes without persisting them}
         {--chunk=500 : Number of rows to process per chunk}';
 
-    protected $description = 'Backfill destination_kind, target_site_id, and is_semantic_eligible on seo_link_maps';
+    protected $description = 'Reconcile seo_link_maps link_type, destination_kind, target_site_id, and is_semantic_eligible';
 
     private const CONNECTION = 'omi_seo_ai';
 
     public function handle(): int
     {
-        $dryRun    = (bool) $this->option('dry-run');
+        $dryRun = (bool) $this->option('dry-run');
         $chunkSize = max(1, (int) $this->option('chunk'));
 
         if ($dryRun) {
             $this->warn('[DRY RUN] No changes will be persisted.');
         }
 
-        $this->info("Processing seo_link_maps in chunks of {$chunkSize}…");
+        $this->info("Reconciling seo_link_maps in chunks of {$chunkSize}…");
 
         $updated = 0;
-        $total   = 0;
+        $total = 0;
 
         DB::connection(self::CONNECTION)
             ->table('seo_link_maps')
             ->orderBy('id')
-            ->chunk($chunkSize, function ($rows) use ($dryRun, &$updated, &$total) {
+            ->chunkById($chunkSize, function ($rows) use ($dryRun, &$updated, &$total): void {
                 $total += count($rows);
 
                 foreach ($rows as $row) {
                     $patch = $this->computePatch($row);
-
                     if ($patch === null) {
                         continue;
                     }
 
                     if (! $dryRun) {
+                        $patch['updated_at'] = now();
                         DB::connection(self::CONNECTION)
                             ->table('seo_link_maps')
                             ->where('id', $row->id)
@@ -85,85 +83,191 @@ final class BackfillLinkClassificationCommand extends Command
     }
 
     /**
-     * Compute the update patch for a single row, or null if no changes are needed.
-     *
-     * @param  object $row  A raw DB row from seo_link_maps.
-     * @return array<string,mixed>|null
+     * @return array<string, mixed>|null
      */
     private function computePatch(object $row): ?array
     {
-        $linkType = SeoLinkMapType::tryFrom((string) ($row->link_type ?? '')) ?? SeoLinkMapType::External;
+        $desired = $this->desiredFields($row);
+        $patch = [];
 
-        // --- Rule 1: external link with social host ---
-        if ($linkType === SeoLinkMapType::External) {
-            $url  = (string) ($row->target_external_url ?? '');
-            $host = $url !== '' ? \Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier::resolveHost($url) : '';
-
-            if ($host !== '' && LinkDestinationClassifier::isSocialHost($host)) {
-                return [
-                    'link_type'            => SeoLinkMapType::Social->value,
-                    'destination_kind'     => SeoLinkMapDestinationKind::Social->value,
-                    'is_semantic_eligible' => false,
-                    'target_site_id'       => null,
-                ];
+        foreach ($desired as $key => $value) {
+            if (! $this->sameField($key, $row->{$key} ?? null, $value)) {
+                $patch[$key] = $value;
             }
-
-            // --- Rule 4: external that actually targets a cross-site managed article ---
-            if (! empty($row->target_article_id) && ! empty($row->source_article_id)) {
-                $targetSiteId = $this->lookupArticleSiteId((int) $row->target_article_id);
-                $sourceSiteId = $this->lookupArticleSiteId((int) $row->source_article_id);
-
-                if ($targetSiteId !== null && $sourceSiteId !== null && $targetSiteId !== $sourceSiteId) {
-                    return [
-                        'link_type'            => SeoLinkMapType::ManagedCrossSite->value,
-                        'destination_kind'     => SeoLinkMapDestinationKind::Content->value,
-                        'is_semantic_eligible' => true,
-                        'target_site_id'       => $targetSiteId,
-                    ];
-                }
-            }
-
-            // --- Rule 5: remaining external rows ---
-            return [
-                'link_type'            => SeoLinkMapType::External->value,
-                'destination_kind'     => SeoLinkMapDestinationKind::Other->value,
-                'is_semantic_eligible' => true,
-                'target_site_id'       => null,
-            ];
         }
 
-        // --- Rule 2: wiki_trust ---
-        if ($linkType === SeoLinkMapType::WikiTrust) {
-            return [
-                'destination_kind'     => SeoLinkMapDestinationKind::Reference->value,
-                'is_semantic_eligible' => true,
-                'target_site_id'       => null,
-            ];
-        }
-
-        // --- Rule 3: internal ---
-        if ($linkType === SeoLinkMapType::Internal) {
-            return [
-                'destination_kind'     => SeoLinkMapDestinationKind::Content->value,
-                'is_semantic_eligible' => true,
-                'target_site_id'       => null,
-            ];
-        }
-
-        // Rows with already-classified new link_type values: no patch needed
-        return null;
+        return $patch === [] ? null : $patch;
     }
 
-    /** @var array<int,int|null> */
+    /**
+     * @return array{
+     *     link_type: string,
+     *     destination_kind: string,
+     *     is_semantic_eligible: bool,
+     *     target_site_id: int|null
+     * }
+     */
+    private function desiredFields(object $row): array
+    {
+        $stored = SeoLinkMapType::tryFrom((string) ($row->link_type ?? '')) ?? SeoLinkMapType::External;
+        $classified = $this->classifyRow($row);
+        $stale = $stored === SeoLinkMapType::External || $stored === SeoLinkMapType::NeedsReview;
+
+        if ($stale || $classified['link_type'] === $stored) {
+            return [
+                'link_type' => $classified['link_type']->value,
+                'destination_kind' => $classified['destination_kind']->value,
+                'is_semantic_eligible' => $classified['is_semantic_eligible'],
+                'target_site_id' => $classified['target_site_id'],
+            ];
+        }
+
+        return $this->metadataForStoredType($stored, $row);
+    }
+
+    /**
+     * @return array{
+     *     link_type: SeoLinkMapType,
+     *     destination_kind: SeoLinkMapDestinationKind,
+     *     target_site_id: int|null,
+     *     is_semantic_eligible: bool,
+     *     host: string,
+     *     is_cta: bool
+     * }
+     */
+    private function classifyRow(object $row): array
+    {
+        $sourceArticleId = (int) ($row->source_article_id ?? 0);
+        $sourceSiteId = $sourceArticleId > 0
+            ? ($this->lookupArticleSiteId($sourceArticleId) ?? 0)
+            : 0;
+
+        $targetArticle = null;
+        $targetArticleId = (int) ($row->target_article_id ?? 0);
+        if ($targetArticleId > 0) {
+            $targetArticle = $this->articleForClassification($targetArticleId);
+        }
+
+        $href = trim((string) ($row->target_external_url ?? ''));
+        $host = $href !== '' ? SeoLinkMapLinkTypeClassifier::resolveHost($href) : '';
+        $isTrustHost = $host !== '' && SeoLinkMapLinkTypeClassifier::isWikiTrustHost($host);
+
+        return LinkDestinationClassifier::classify(
+            $href,
+            $sourceSiteId,
+            $targetArticle,
+            $isTrustHost,
+        );
+    }
+
+    /**
+     * Metadata repair for a row whose link_type is already current and disagrees
+     * with a fresh URL classification. Does not change that stored type.
+     *
+     * @return array{
+     *     link_type: string,
+     *     destination_kind: string,
+     *     is_semantic_eligible: bool,
+     *     target_site_id: int|null
+     * }
+     */
+    private function metadataForStoredType(SeoLinkMapType $stored, object $row): array
+    {
+        $targetSiteId = null;
+        if ($stored === SeoLinkMapType::ManagedCrossSite) {
+            $targetArticleId = (int) ($row->target_article_id ?? 0);
+            $fromArticle = $targetArticleId > 0 ? $this->lookupArticleSiteId($targetArticleId) : null;
+            if ($fromArticle !== null && $fromArticle > 0) {
+                $targetSiteId = $fromArticle;
+            } else {
+                $existing = (int) ($row->target_site_id ?? 0);
+                $targetSiteId = $existing > 0 ? $existing : null;
+            }
+        }
+
+        return [
+            'link_type' => $stored->value,
+            'destination_kind' => $this->kindForType($stored)->value,
+            'is_semantic_eligible' => $stored->isSemanticEligible(),
+            'target_site_id' => $targetSiteId,
+        ];
+    }
+
+    private function kindForType(SeoLinkMapType $type): SeoLinkMapDestinationKind
+    {
+        return match ($type) {
+            SeoLinkMapType::Social => SeoLinkMapDestinationKind::Social,
+            SeoLinkMapType::Contact => SeoLinkMapDestinationKind::Contact,
+            SeoLinkMapType::WikiTrust => SeoLinkMapDestinationKind::Reference,
+            SeoLinkMapType::Internal, SeoLinkMapType::ManagedCrossSite => SeoLinkMapDestinationKind::Content,
+            default => SeoLinkMapDestinationKind::Other,
+        };
+    }
+
+    private function sameField(string $key, mixed $current, mixed $desired): bool
+    {
+        if ($key === 'target_site_id') {
+            return $this->normalizeSiteId($current) === $this->normalizeSiteId($desired);
+        }
+
+        if ($key === 'is_semantic_eligible') {
+            return $this->normalizeBool($current) === $this->normalizeBool($desired);
+        }
+
+        return (string) ($current ?? '') === (string) ($desired ?? '');
+    }
+
+    private function normalizeSiteId(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $id = (int) $value;
+
+        return $id > 0 ? $id : null;
+    }
+
+    private function normalizeBool(mixed $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function articleForClassification(int $articleId): ?SeoArticle
+    {
+        $siteId = $this->lookupArticleSiteId($articleId);
+        if ($siteId === null || $siteId <= 0) {
+            return null;
+        }
+
+        $article = new SeoArticle();
+        $article->forceFill([
+            'id' => $articleId,
+            'site_id' => $siteId,
+        ]);
+        $article->exists = true;
+
+        return $article;
+    }
+
+    /** @var array<int, int|null> */
     private array $siteIdCache = [];
 
     private function lookupArticleSiteId(int $articleId): ?int
     {
+        if ($articleId <= 0) {
+            return null;
+        }
+
         if (array_key_exists($articleId, $this->siteIdCache)) {
             return $this->siteIdCache[$articleId];
         }
 
-        $record = \Omnichannel\Addons\Content\Models\SeoArticle::query()
+        $record = SeoArticle::query()
             ->whereKey($articleId)
             ->value('site_id');
 

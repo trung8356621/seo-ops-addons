@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Services\SettingsTransfer;
 
 use App\Models\ApiConnection;
 use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
+use Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\ImageFamilySelectionAdapter;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
@@ -17,6 +18,52 @@ final class AiCenterSettingsSection implements PortableSettingsSection
 {
     public const KEY_PREFERRED_PROVIDER = 'preferred_provider';
 
+    public const CONFIGURATION_METADATA_WHITELIST = [
+        'provider_template',
+        'routing_priority',
+        'base_url',
+        'allow_base_url_override',
+        'short_code',
+        'display_name',
+        'description',
+        'notes',
+        'custom_headers',
+        'auth_type',
+        'header_name',
+        'query_param',
+    ];
+
+    /**
+     * Whitelist portable configuration metadata only.
+     * Rejects all runtime/operational health and transient cache keys.
+     *
+     * @param  array<string, mixed>  $metadata
+     * @return array<string, mixed>
+     */
+    public static function sanitizeConnectionMetadata(array $metadata): array
+    {
+        $clean = [];
+        foreach (self::CONFIGURATION_METADATA_WHITELIST as $key) {
+            if (array_key_exists($key, $metadata) && $metadata[$key] !== null) {
+                $clean[$key] = $metadata[$key];
+            }
+        }
+
+        // Drop secrets unconditionally
+        unset($clean['api_key'], $clean['token'], $clean['password'], $clean['secret']);
+
+        if (isset($clean['provider_template']) && is_array($clean['provider_template'])) {
+            unset(
+                $clean['provider_template']['api_key'],
+                $clean['provider_template']['token'],
+                $clean['provider_template']['password'],
+                $clean['provider_template']['secret']
+            );
+        }
+
+        return $clean;
+    }
+
     public function key(): string
     {
         return 'ai';
@@ -26,6 +73,7 @@ final class AiCenterSettingsSection implements PortableSettingsSection
     {
         $settings = app(SeoCreateArticleSettingsService::class);
         $targets = app(AiRoutingTargetService::class);
+        $resilience = app(AiResilienceSettingsService::class);
         $adapter = new ImageFamilySelectionAdapter();
         $profiles = [];
         foreach (AiExecutionProfile::cases() as $profile) {
@@ -47,9 +95,19 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                 || ApiConnectionProviders::isSeo((string) $connection->provider)) {
                 continue;
             }
-            $meta = is_array($connection->metadata) ? $connection->metadata : [];
-            unset($meta['api_key'], $meta['token'], $meta['password'], $meta['secret']);
-            $template = $meta['provider_template'] ?? null;
+            $rawMeta = is_array($connection->metadata) ? $connection->metadata : [];
+            $meta = self::sanitizeConnectionMetadata($rawMeta);
+            $template = $meta['provider_template'] ?? ($rawMeta['provider_template'] ?? null);
+            if (is_array($template)) {
+                unset(
+                    $template['api_key'],
+                    $template['token'],
+                    $template['password'],
+                    $template['secret']
+                );
+            } else {
+                $template = null;
+            }
 
             $connections[] = [
                 'connection_ref' => [
@@ -63,7 +121,7 @@ final class AiCenterSettingsSection implements PortableSettingsSection
                     'configured' => filled($connection->api_key),
                     'exported' => false,
                 ],
-                'provider_template' => is_array($template) ? $template : null,
+                'provider_template' => $template,
                 'metadata' => $meta,
             ];
         }
@@ -73,6 +131,7 @@ final class AiCenterSettingsSection implements PortableSettingsSection
         return [
             'preferred_provider' => $preferred,
             'usage_mode' => $settings->getDefaultAiUsageMode(),
+            'resilience' => $resilience->get($userId),
             'routing' => $profiles,
             'general_image_families' => $adapter->familiesFromSlugs(
                 $this->slugList($settings->getSettings()[SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY] ?? []),
@@ -109,6 +168,24 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             } else {
                 $changed++;
                 $lines[] = 'Preferred provider: '.($current['preferred_provider'] ?? 'default').' → '.$preferred;
+            }
+        }
+
+        if (isset($incoming['resilience']) && is_array($incoming['resilience'])) {
+            $curResilience = is_array($current['resilience'] ?? null) ? $current['resilience'] : [];
+            $newAi = $incoming['resilience']['max_ai_attempts'] ?? null;
+            $newFree = $incoming['resilience']['max_free_attempts'] ?? null;
+            if ($newAi !== null && (int) $newAi !== (int) ($curResilience['max_ai_attempts'] ?? null)) {
+                $changed++;
+                $lines[] = 'Resilience max_ai_attempts: '.($curResilience['max_ai_attempts'] ?? 'default').' → '.$newAi;
+            } else {
+                $unchanged++;
+            }
+            if ($newFree !== null && (int) $newFree !== (int) ($curResilience['max_free_attempts'] ?? null)) {
+                $changed++;
+                $lines[] = 'Resilience max_free_attempts: '.($curResilience['max_free_attempts'] ?? 'default').' → '.$newFree;
+            } else {
+                $unchanged++;
             }
         }
 
@@ -194,6 +271,17 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             $this->setPreferredProvider($preferred);
         }
 
+        if (isset($incoming['resilience']) && is_array($incoming['resilience'])) {
+            try {
+                app(AiResilienceSettingsService::class)->save($userId, [
+                    'max_ai_attempts' => (int) ($incoming['resilience']['max_ai_attempts'] ?? AiResilienceSettingsService::DEFAULT_MAX_AI_ATTEMPTS),
+                    'max_free_attempts' => (int) ($incoming['resilience']['max_free_attempts'] ?? AiResilienceSettingsService::DEFAULT_MAX_FREE_ATTEMPTS),
+                ]);
+            } catch (\InvalidArgumentException) {
+                // Ignore invalid values gracefully
+            }
+        }
+
         if ($patch !== []) {
             $settings->saveSettings($patch);
         }
@@ -239,9 +327,15 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             }
             $isGlobal = (bool) ($row['is_global'] ?? false);
             $template = is_array($row['provider_template'] ?? null) ? $row['provider_template'] : null;
-            $meta = is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
-            unset($meta['api_key'], $meta['token'], $meta['password'], $meta['secret']);
+            $rawMeta = is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
+            $meta = self::sanitizeConnectionMetadata($rawMeta);
             if ($template !== null) {
+                unset(
+                    $template['api_key'],
+                    $template['token'],
+                    $template['password'],
+                    $template['secret']
+                );
                 $meta['provider_template'] = $template;
             }
 

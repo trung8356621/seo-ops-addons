@@ -71,7 +71,7 @@ final class SeoSettingsBundleService
 
         $payload = [
             'package_type' => $packageType->value,
-            'schema_version' => '1.0',
+            'schema_version' => $isFull ? '1.1' : '1.0',
             'meta' => [
                 'app' => 'seo-ops',
                 'exported_at' => gmdate('c'),
@@ -179,8 +179,14 @@ final class SeoSettingsBundleService
         ], true)) {
             throw ConfigurationPackageException::rejected('unexpected package_type for SEO settings.');
         }
-        if (trim((string) ($data['schema_version'] ?? '')) !== '1.0') {
-            throw ConfigurationPackageException::unsupportedVersion((string) ($data['schema_version'] ?? ''), '1.0');
+
+        $version = trim((string) ($data['schema_version'] ?? ''));
+        $allowedVersions = $type === ConfigurationPackageType::SeoConfigurationBundle->value
+            ? ['1.0', '1.1']
+            : ['1.0'];
+
+        if (! in_array($version, $allowedVersions, true)) {
+            throw ConfigurationPackageException::unsupportedVersion($version !== '' ? $version : '(missing)', end($allowedVersions));
         }
 
         return $this->plan($data, $userId, $mode, $selected);

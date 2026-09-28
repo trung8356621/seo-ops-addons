@@ -150,23 +150,54 @@ final class LinkDestinationClassifier
             return null;
         }
 
-        if (\Illuminate\Support\Facades\Schema::hasTable('sites')) {
-            try {
-                $sites = \App\Models\Site::query()->get(['id', 'domain']);
-                foreach ($sites as $site) {
-                    if ($site instanceof \App\Models\Site) {
-                        $siteHost = SeoLinkMapLinkTypeClassifier::normalizeDomainHost((string) $site->domain);
-                        if ($siteHost !== '' && ($siteHost === $normalized || $normalized === 'www.'.$siteHost || 'www.'.$normalized === $siteHost)) {
-                            return (int) $site->id;
-                        }
-                    }
-                }
-            } catch (\Throwable) {
+        foreach (self::managedSiteHosts() as $siteId => $siteHost) {
+            if ($siteHost === $normalized || $normalized === 'www.'.$siteHost || 'www.'.$normalized === $siteHost) {
+                return $siteId;
             }
         }
 
         return null;
     }
+
+    /**
+     * Process-local host index. Classification rules stay in this class;
+     * the index only avoids repeating the same sites read during reconciliation.
+     *
+     * @return array<int, string>
+     */
+    private static function managedSiteHosts(): array
+    {
+        if (self::$managedSiteHosts !== null) {
+            return self::$managedSiteHosts;
+        }
+
+        self::$managedSiteHosts = [];
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable('sites')) {
+            return self::$managedSiteHosts;
+        }
+
+        try {
+            $sites = \App\Models\Site::query()->get(['id', 'domain']);
+            foreach ($sites as $site) {
+                if (! $site instanceof \App\Models\Site) {
+                    continue;
+                }
+                $siteHost = SeoLinkMapLinkTypeClassifier::normalizeDomainHost((string) $site->domain);
+                $siteId = (int) $site->id;
+                if ($siteHost !== '' && $siteId > 0) {
+                    self::$managedSiteHosts[$siteId] = $siteHost;
+                }
+            }
+        } catch (\Throwable) {
+            self::$managedSiteHosts = [];
+        }
+
+        return self::$managedSiteHosts;
+    }
+
+    /** @var array<int, string>|null */
+    private static ?array $managedSiteHosts = null;
 
     /**
      * Returns true when the host belongs to a known social network.

@@ -37,7 +37,7 @@ final class ConfigurationPackageParser
 
         $data = $this->guard->decode($rawJson, $limits);
         $version = trim((string) ($data['schema_version'] ?? ''));
-        if ($version !== $limits->schemaVersion) {
+        if (! in_array($version, $limits->supportedSchemaVersions, true)) {
             throw ConfigurationPackageException::unsupportedVersion($version !== '' ? $version : '(missing)', $limits->schemaVersion);
         }
 

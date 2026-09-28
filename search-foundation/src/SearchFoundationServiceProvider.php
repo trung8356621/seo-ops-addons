@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchFoundation;
 use App\Core\Capability\CapabilityRegistry;
 use App\Core\Members\MembersSectionRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\SearchFoundation\Console\BackfillLinkClassificationCommand;
 use Omnichannel\Addons\SearchFoundation\Members\SeoMembersSectionContributor;
 
 /**
@@ -32,6 +33,12 @@ final class SearchFoundationServiceProvider extends ServiceProvider
             if (! $registry->has($contributor->addonSlug())) {
                 $registry->register($contributor);
             }
+        }
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                BackfillLinkClassificationCommand::class,
+            ]);
         }
     }
 

@@ -181,6 +181,7 @@ final class FullConfigurationTransferTest extends TestCase
         $exported = $this->bundleService->export(1, [], includePrompts: true, includeTemplates: true, includeTasks: true);
 
         $this->assertSame(ConfigurationPackageType::SeoConfigurationBundle->value, $exported['package_type']);
+        $this->assertSame('1.1', $exported['schema_version']);
         $this->assertArrayHasKey('prompts', $exported);
         $this->assertArrayHasKey('tasks', $exported);
 
@@ -491,6 +492,137 @@ final class FullConfigurationTransferTest extends TestCase
         $aiSection = $this->bundleService->registry()->get('ai');
         $this->assertInstanceOf(AiCenterSettingsSection::class, $aiSection);
         $this->assertSame('gemini', $aiSection->getPreferredProvider());
+    }
+
+    public function test_ai_connection_export_whitelists_metadata_and_drops_transient_runtime_state(): void
+    {
+        ApiConnection::query()->create([
+            'user_id' => 1,
+            'provider' => 'openrouter',
+            'name' => 'Custom OpenRouter',
+            'api_key' => 'sk-secret-key-to-scrub',
+            'status' => 'active',
+            'metadata' => [
+                // Whitelisted configuration keys:
+                'display_name' => 'Custom OpenRouter',
+                'routing_priority' => 10,
+                'base_url' => 'https://openrouter.ai/api/v1',
+                'notes' => 'Primary production connection',
+                // Runtime / transient keys that MUST be dropped:
+                'model_catalog' => ['status' => 'synced', 'models' => ['m1', 'm2']],
+                'last_error' => 'Connection timed out',
+                'catalog_hash' => 'abc123xyz',
+                'last_sync_at' => '2026-09-28T12:00:00Z',
+                'last_success_at' => '2026-09-28T12:00:00Z',
+                'sync_started_at' => '2026-09-28T11:59:00Z',
+                'openrouter_free_pool_health' => ['status' => 'healthy'],
+                'model_strikes' => ['deepseek/deepseek-chat' => 2],
+                'cooldown_until' => '2026-09-28T13:00:00Z',
+                'quarantine_until' => '2026-09-28T13:00:00Z',
+                'recent_failures' => ['fail1', 'fail2'],
+                'seo_ai_model_id' => 999,
+                'openrouter_free_review_banner' => true,
+                'openrouter_free_catalog_snapshot' => ['snapshot' => true],
+            ],
+        ]);
+
+        $exported = $this->bundleService->export(1, ['ai']);
+        $connections = $exported['settings']['ai']['connections'] ?? [];
+        $this->assertCount(1, $connections);
+
+        $meta = $connections[0]['metadata'];
+        // Verify whitelisted keys are present
+        $this->assertSame('Custom OpenRouter', $meta['display_name']);
+        $this->assertSame(10, $meta['routing_priority']);
+        $this->assertSame('https://openrouter.ai/api/v1', $meta['base_url']);
+        $this->assertSame('Primary production connection', $meta['notes']);
+
+        // Verify runtime / transient keys are completely absent
+        $this->assertArrayNotHasKey('model_catalog', $meta);
+        $this->assertArrayNotHasKey('last_error', $meta);
+        $this->assertArrayNotHasKey('catalog_hash', $meta);
+        $this->assertArrayNotHasKey('last_sync_at', $meta);
+        $this->assertArrayNotHasKey('last_success_at', $meta);
+        $this->assertArrayNotHasKey('sync_started_at', $meta);
+        $this->assertArrayNotHasKey('openrouter_free_pool_health', $meta);
+        $this->assertArrayNotHasKey('model_strikes', $meta);
+        $this->assertArrayNotHasKey('cooldown_until', $meta);
+        $this->assertArrayNotHasKey('quarantine_until', $meta);
+        $this->assertArrayNotHasKey('recent_failures', $meta);
+        $this->assertArrayNotHasKey('seo_ai_model_id', $meta);
+        $this->assertArrayNotHasKey('openrouter_free_review_banner', $meta);
+        $this->assertArrayNotHasKey('openrouter_free_catalog_snapshot', $meta);
+        $this->assertArrayNotHasKey('api_key', $meta);
+
+        // Verify import into clean destination also does not populate runtime keys
+        ApiConnection::query()->forceDelete();
+
+        $plan = $this->bundleService->plan($exported, 1, 'merge');
+        $this->bundleService->apply($plan, 1);
+
+        $restored = ApiConnection::query()->where('user_id', 1)->first();
+        $this->assertNotNull($restored);
+        $restoredMeta = $restored->metadata ?? [];
+        $this->assertSame('Custom OpenRouter', $restoredMeta['display_name']);
+        $this->assertSame(10, $restoredMeta['routing_priority']);
+        $this->assertArrayNotHasKey('model_catalog', $restoredMeta);
+        $this->assertArrayNotHasKey('openrouter_free_pool_health', $restoredMeta);
+    }
+
+    public function test_ai_resilience_settings_round_trip(): void
+    {
+        $resilienceService = app(\Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService::class);
+        $resilienceService->save(1, [
+            'max_ai_attempts' => 12,
+            'max_free_attempts' => 5,
+        ]);
+
+        $exported = $this->bundleService->export(1, ['ai']);
+        $this->assertArrayHasKey('resilience', $exported['settings']['ai']);
+        $this->assertSame(12, $exported['settings']['ai']['resilience']['max_ai_attempts']);
+        $this->assertSame(5, $exported['settings']['ai']['resilience']['max_free_attempts']);
+
+        // Wipe options and restore
+        WpOption::query()->forceDelete();
+
+        $plan = $this->bundleService->plan($exported, 1, 'merge');
+        $this->bundleService->apply($plan, 1);
+
+        $restored = $resilienceService->get(1);
+        $this->assertSame(12, $restored['max_ai_attempts']);
+        $this->assertSame(5, $restored['max_free_attempts']);
+    }
+
+    public function test_backward_compatibility_import_1_0_bundle_succeeds(): void
+    {
+        $payload = [
+            'package_type' => 'seo_configuration_bundle',
+            'schema_version' => '1.0',
+            'settings' => [
+                'general' => [
+                    SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE => 'vi',
+                ],
+            ],
+        ];
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
+
+        $plan = $this->bundleService->parseAndPlan($json, 1, 'merge');
+        $this->bundleService->apply($plan, 1);
+
+        $this->assertSame('vi', app(SeoContentLanguageSettingsService::class)->getDefaultContentLanguage());
+    }
+
+    public function test_unsupported_schema_version_is_rejected(): void
+    {
+        $payload = [
+            'package_type' => 'seo_configuration_bundle',
+            'schema_version' => '2.0',
+            'settings' => [],
+        ];
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
+
+        $this->expectException(\Omnichannel\Addons\AiPrompt\Exceptions\ConfigurationPackageException::class);
+        $this->bundleService->parseAndPlan($json, 1, 'merge');
     }
 
     private function manager(int $id): User
