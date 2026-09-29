@@ -48,6 +48,17 @@ class AgentTurnPersistence
         ]);
     }
 
+    public function startRerun(
+        AgentThread $thread,
+        AgentMessage $userMessage,
+        string $appKey,
+        string $scopeType,
+        string $scopeRef,
+        ?int $userId,
+    ): AgentRun {
+        return $this->startRun($thread, $userMessage, $appKey, $scopeType, $scopeRef, $userId);
+    }
+
     public function completeRun(
         AgentRun $run,
         AgentResponse $response,

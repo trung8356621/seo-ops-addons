@@ -14,6 +14,7 @@ use Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository;
 use Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
+use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
 
@@ -124,52 +125,21 @@ final class AgentRuntimeController
 
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
 
-        if (($payload['debug_mode'] ?? false) === true) {
-            try {
-                $progress = $coordinator->startIntercepted($scope, $message, $history);
+        $debugMode = ($payload['debug_mode'] ?? false) === true;
 
-                return $this->respondToProgress(
-                    $progress,
-                    $run,
-                    $thread,
-                    $persistence,
-                    $threads,
-                    app(AssumedModelResolver::class),
-                    $userId,
-                    [
-                        'scope' => $scope->toArray(),
-                        'message' => $message,
-                        'history' => $history,
-                    ],
-                );
-            } catch (\Throwable $e) {
-                $persistence->failRun($run, 'error', $e->getMessage());
-                throw $e;
-            }
-        }
-        
-        try {
-            $result = $coordinator->send($userId, $scope, $message, $history);
-            
-            $meta = [];
-            if ($result->answerModelCalled) {
-                $meta['answer_model'] = 'called';
-            }
-            if ($result->failureCode !== null) {
-                $meta['failure_code'] = $result->failureCode;
-            }
-
-            $persistence->completeRun($run, $result->response, $meta);
-            $threads->touchLastMessage($thread);
-
-            $data = $result->response->toArray();
-            $data['thread_ulid'] = $thread->ulid;
-            
-            return new JsonResponse(['data' => $data]);
-        } catch (\Throwable $e) {
-            $persistence->failRun($run, 'error', $e->getMessage());
-            throw $e;
-        }
+        return $this->executeRun(
+            $coordinator,
+            $run,
+            $thread,
+            $persistence,
+            $threads,
+            $debugMode ? app(AssumedModelResolver::class) : null,
+            $userId,
+            $scope,
+            $message,
+            $history,
+            $debugMode,
+        );
     }
 
     public function modelInput(Request $request, AgentTurnCoordinator $coordinator, SiteDirectory $sites): JsonResponse
@@ -225,7 +195,7 @@ final class AgentRuntimeController
         AgentTurnCoordinator $coordinator,
         AgentThreadRepository $threads,
         AgentTurnPersistence $persistence,
-        AssumedModelResolver $modelResolver,
+        ?AssumedModelResolver $modelResolver,
     ): JsonResponse {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
@@ -362,7 +332,7 @@ final class AgentRuntimeController
 
         $thread->load(['messages' => function ($query) {
             $query->orderBy('position', 'asc')->take(50);
-        }]);
+        }, 'messages.run:id,user_message_id']);
 
         return new JsonResponse(['data' => $thread]);
     }
@@ -374,6 +344,142 @@ final class AgentRuntimeController
         $request->merge($payload);
 
         return $this->turn($request, $coordinator, $sites, $threads, $persistence);
+    }
+
+    public function rerun(
+        Request $request,
+        string $ulid,
+        int $messageId,
+        AgentTurnCoordinator $coordinator,
+        SiteDirectory $sites,
+        AgentThreadRepository $threads,
+        AgentTurnPersistence $persistence,
+        AssumedModelResolver $modelResolver,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $thread = $threads->findForPrincipal($ulid, 'user', (string) $userId);
+        if (! $thread) {
+            return new JsonResponse(['message' => 'Thread not found.'], 404);
+        }
+        $userMessage = AgentMessage::where('id', $messageId)
+            ->where('thread_id', $thread->id)
+            ->where('role', 'user')
+            ->first();
+        if (! $userMessage) {
+            return new JsonResponse(['message' => 'User message not found.'], 404);
+        }
+
+        $scope = AgentProjectScope::fromArray([
+            'type' => $thread->scope_type,
+            'ref' => $thread->scope_ref,
+        ]);
+        if ($scope->isSite() && ! $sites->isSiteVisible($scope->siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+
+        $history = $this->historyBefore($thread->id, $userMessage->position);
+        $run = $persistence->startRerun(
+            $thread,
+            $userMessage,
+            (string) $thread->agentApp->app_key,
+            $thread->scope_type,
+            $thread->scope_ref,
+            $userId,
+        );
+
+        return $this->executeRun(
+            $coordinator,
+            $run,
+            $thread,
+            $persistence,
+            $threads,
+            $modelResolver,
+            $userId,
+            $scope,
+            $userMessage->content,
+            $history,
+            ($request->input('debug_mode', false)) === true,
+        );
+    }
+
+    /** @param list<array{role: string, content: string}> $history */
+    private function executeRun(
+        AgentTurnCoordinator $coordinator,
+        AgentRun $run,
+        \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread $thread,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AssumedModelResolver $modelResolver,
+        int $userId,
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        bool $debugMode,
+    ): JsonResponse {
+        try {
+            if ($debugMode) {
+                if ($modelResolver === null) {
+                    throw new \LogicException('Debug mode requires an assumed model resolver.');
+                }
+                return $this->respondToProgress(
+                    $coordinator->startIntercepted($scope, $message, $history),
+                    $run,
+                    $thread,
+                    $persistence,
+                    $threads,
+                    $modelResolver,
+                    $userId,
+                    ['scope' => $scope->toArray(), 'message' => $message, 'history' => $history],
+                );
+            }
+
+            $result = $coordinator->send($userId, $scope, $message, $history);
+            $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
+            if ($result->failureCode !== null) {
+                $meta['failure_code'] = $result->failureCode;
+            }
+            $assistant = $persistence->completeRun($run, $result->response, $meta);
+            $threads->touchLastMessage($thread);
+            $data = $result->response->toArray();
+            $data['thread_ulid'] = $thread->ulid;
+            $data['run_ulid'] = $run->ulid;
+            $data['user_message_id'] = $run->user_message_id;
+            $data['assistant_message_id'] = $assistant->id;
+
+            return new JsonResponse(['data' => $data]);
+        } catch (\Throwable $e) {
+            $persistence->failRun($run, 'error', $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /** @return list<array{role: string, content: string}> */
+    private function historyBefore(int $threadId, int $position): array
+    {
+        $history = [];
+        $userMessages = AgentMessage::where('thread_id', $threadId)
+            ->where('role', 'user')
+            ->where('position', '<', $position)
+            ->orderBy('position')
+            ->get();
+
+        foreach ($userMessages as $userMessage) {
+            $history[] = ['role' => 'user', 'content' => $userMessage->content];
+            $latestRun = AgentRun::where('user_message_id', $userMessage->id)
+                ->where('status', 'done')
+                ->whereNotNull('assistant_message_id')
+                ->latest('id')
+                ->first();
+            if ($latestRun?->assistantMessage) {
+                $history[] = ['role' => 'assistant', 'content' => $latestRun->assistantMessage->content];
+            }
+        }
+
+        return $history;
     }
 
     /** @param array<string, mixed> $turnState */
@@ -401,6 +507,7 @@ final class AgentRuntimeController
                 'status' => 'paused',
                 'run_ulid' => $run->ulid,
                 'thread_ulid' => $thread->ulid,
+                'user_message_id' => $run->user_message_id,
                 'model_call' => [
                     'key' => $call->key,
                     'full_prompt' => $input,
@@ -419,11 +526,14 @@ final class AgentRuntimeController
         if ($result->failureCode !== null) {
             $meta['failure_code'] = $result->failureCode;
         }
-        $persistence->completeRun($run, $result->response, $meta);
+        $assistant = $persistence->completeRun($run, $result->response, $meta);
         $threads->touchLastMessage($thread);
 
         $data = $result->response->toArray();
         $data['thread_ulid'] = $thread->ulid;
+        $data['run_ulid'] = $run->ulid;
+        $data['user_message_id'] = $run->user_message_id;
+        $data['assistant_message_id'] = $assistant->id;
 
         return new JsonResponse(['data' => $data]);
     }

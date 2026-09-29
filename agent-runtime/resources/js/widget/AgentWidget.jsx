@@ -4,6 +4,8 @@ import { buildProjectItems, scopePayload, switchProject } from '../projects/proj
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
 import { ModelDebugModal } from './ModelDebugModal.jsx';
+import { copyPlainText } from './clipboard.js';
+import { responseToPlainText } from '../response/responseText.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -33,6 +35,23 @@ async function postJson(url, csrf, body) {
 function waitingForManualModel(modelCall) {
     const stage = String(modelCall?.key || 'model');
     return `Waiting for manual ${stage.charAt(0).toUpperCase()}${stage.slice(1)} result…`;
+}
+
+function groupConversation(messages) {
+    const turns = [];
+    let latestTurn = null;
+    for (const message of messages) {
+        if (message.role === 'user') {
+            latestTurn = { ...message, versions: [] };
+            turns.push(latestTurn);
+            continue;
+        }
+        const target = message.originUserMessageId
+            ? turns.find((turn) => String(turn.id) === String(message.originUserMessageId))
+            : latestTurn;
+        if (target) target.versions.push(message);
+    }
+    return turns;
 }
 
 /**
@@ -95,6 +114,7 @@ export function AgentWidget({
     const [debugManualResult, setDebugManualResult] = useState('');
     const [debugParserError, setDebugParserError] = useState('');
     const [processingStatus, setProcessingStatus] = useState(null);
+    const [selectedVersions, setSelectedVersions] = useState({});
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -198,6 +218,8 @@ export function AgentWidget({
                 if (m.role === 'assistant') {
                     return {
                         role: 'assistant',
+                        id: m.id,
+                        originUserMessageId: m.run?.user_message_id,
                         content: m.content || '',
                         response: m.response_payload || {
                             message: m.content || '',
@@ -209,6 +231,7 @@ export function AgentWidget({
                 }
                 return {
                     role: 'user',
+                    id: m.id,
                     content: m.content || '',
                 };
             });
@@ -227,6 +250,7 @@ export function AgentWidget({
         setDebugParserError('');
         setDebugBusy(false);
         setProcessingStatus(null);
+        setSelectedVersions({});
     }, []);
 
     // New conversation action: clears active thread, messages, and saved state
@@ -265,9 +289,12 @@ export function AgentWidget({
             }
             setMessages((current) => [...current, {
                 role: 'assistant',
+                id: data.assistant_message_id,
+                originUserMessageId: data.user_message_id,
                 content: data.message || '',
                 response: data,
             }]);
+            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
             resetDebugState();
             fetchThreads(currentScopeRef);
         } catch (caught) {
@@ -295,7 +322,7 @@ export function AgentWidget({
     }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
     async function copyText(text) {
-        await navigator.clipboard.writeText(text);
+        await copyPlainText(text);
         setCopyState('Copied');
         window.setTimeout(() => setCopyState(''), 1200);
     }
@@ -344,8 +371,14 @@ export function AgentWidget({
         setError('');
         setProcessingStatus('Thinking…');
         setDraft('');
-        const history = messages.map((item) => ({ role: item.role, content: item.content }));
-        setMessages((current) => [...current, { role: 'user', content: message }]);
+        const history = groupConversation(messages).flatMap((turn) => {
+            const latest = turn.versions.at(-1);
+            return latest
+                ? [{ role: 'user', content: turn.content }, { role: 'assistant', content: latest.content }]
+                : [{ role: 'user', content: turn.content }];
+        });
+        const clientKey = `pending:${Date.now()}`;
+        setMessages((current) => [...current, { role: 'user', clientKey, content: message }]);
 
         // Thread continuity:
         // If activeThreadUlid exists, use POST /threads/{ulid}/turns to append.
@@ -367,6 +400,11 @@ export function AgentWidget({
                 debug_mode: debugMode,
             });
             const data = payload?.data || {};
+            if (data.user_message_id) {
+                setMessages((current) => current.map((item) => item.clientKey === clientKey
+                    ? { ...item, id: data.user_message_id }
+                    : item));
+            }
             if (data.status === 'paused') {
                 setDebugRunUlid(data.run_ulid || '');
                 setDebugCall(data.model_call || null);
@@ -393,6 +431,8 @@ export function AgentWidget({
             setLastCopy(payload?.data?.copy || null);
             setMessages((current) => [...current, {
                 role: 'assistant',
+                id: data.assistant_message_id,
+                originUserMessageId: data.user_message_id,
                 content: response?.message || '',
                 response,
             }]);
@@ -404,6 +444,45 @@ export function AgentWidget({
             setBusy(false);
         }
     }
+
+    async function onRerun(userMessageId) {
+        if (busy || !activeThreadUlid || !userMessageId) return;
+        setBusy(true);
+        setError('');
+        setProcessingStatus('Thinking…');
+        try {
+            const payload = await postJson(`${endpoints.threadsUrl}/${activeThreadUlid}/messages/${userMessageId}/rerun`, csrf, {
+                debug_mode: debugMode,
+            });
+            const data = payload?.data || {};
+            if (data.status === 'paused') {
+                setDebugRunUlid(data.run_ulid || '');
+                setDebugCall(data.model_call || null);
+                setDebugManualResult('');
+                setDebugParserError('');
+                setProcessingStatus(waitingForManualModel(data.model_call));
+                setDebugOpen(true);
+                return;
+            }
+            setMessages((current) => [...current, {
+                role: 'assistant',
+                id: data.assistant_message_id,
+                originUserMessageId: data.user_message_id,
+                content: data.message || '',
+                response: data,
+            }]);
+            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
+            setProcessingStatus(null);
+            fetchThreads(currentScopeRef);
+        } catch (caught) {
+            setError(caught.message);
+            setProcessingStatus(null);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const conversationTurns = groupConversation(messages);
 
     const shellClass = [
         'agent-shell',
@@ -606,14 +685,52 @@ export function AgentWidget({
                     ) : null}
                 </header>
                 <div className="agent-messages">
-                    {messages.length === 0 ? <p className="agent-empty">Ask about this project in plain language.</p> : null}
-                    {messages.map((message, index) => (
-                        <article key={index} className={message.role === 'user' ? 'is-user' : 'is-assistant'}>
-                            {message.role === 'assistant'
-                                ? <ResponseView response={message.response} />
-                                : <p>{message.content}</p>}
-                        </article>
-                    ))}
+                    {conversationTurns.length === 0 ? <p className="agent-empty">Ask about this project in plain language.</p> : null}
+                    {conversationTurns.map((turn, turnIndex) => {
+                        const turnKey = turn.id || turn.clientKey || turnIndex;
+                        const requestedIndex = selectedVersions[turnKey];
+                        const versionIndex = Math.min(
+                            requestedIndex ?? turn.versions.length - 1,
+                            turn.versions.length - 1,
+                        );
+                        const version = versionIndex >= 0 ? turn.versions[versionIndex] : null;
+                        return (
+                            <div key={turnKey} className="agent-conversation-turn">
+                                <article className="is-user">
+                                    <p>{turn.content}</p>
+                                    <div className="agent-message-actions">
+                                        <button type="button" onClick={() => copyText(turn.content)}>Copy</button>
+                                    </div>
+                                </article>
+                                {version ? (
+                                    <article className="is-assistant">
+                                        <ResponseView response={version.response} />
+                                        <div className="agent-message-actions agent-message-actions--assistant">
+                                            <button type="button" onClick={() => copyText(responseToPlainText(version.response))}>Copy</button>
+                                            <button type="button" onClick={() => onRerun(turn.id)} disabled={busy || !turn.id}>Rerun</button>
+                                            {turn.versions.length > 1 ? (
+                                                <span className="agent-version-nav" aria-label="Answer versions">
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Previous answer"
+                                                        disabled={versionIndex <= 0}
+                                                        onClick={() => setSelectedVersions((current) => ({ ...current, [turnKey]: versionIndex - 1 }))}
+                                                    >‹</button>
+                                                    <span>{versionIndex + 1} / {turn.versions.length}</span>
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Next answer"
+                                                        disabled={versionIndex >= turn.versions.length - 1}
+                                                        onClick={() => setSelectedVersions((current) => ({ ...current, [turnKey]: versionIndex + 1 }))}
+                                                    >›</button>
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </article>
+                                ) : null}
+                            </div>
+                        );
+                    })}
                     {processingStatus ? (
                         <article className="is-assistant agent-processing-status" role="status" aria-live="polite">
                             <Loader2 size={16} className="agent-spin" />

@@ -629,11 +629,22 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringContainsString('agent-drawer', $spSource);
     }
 
+    public function test_answer_prompt_requires_existing_and_clearly_labeled_new_opportunities_without_fabricated_metrics(): void
+    {
+        $prompt = \Omnichannel\Addons\AgentRuntime\Answer\AnswerRuntimeInstructions::system();
+        self::assertStringContainsString('retrieved SEO/site data as evidence', $prompt);
+        self::assertStringContainsString('existing data opportunities', $prompt);
+        self::assertStringContainsString('new topic or content opportunities', $prompt);
+        self::assertStringContainsString('not confirmed as an existing Topic or Keyword', $prompt);
+        self::assertStringContainsString('never fabricate search volume', $prompt);
+        self::assertStringContainsString('what the evidence says, why it matters, and what to do next', $prompt);
+    }
+
     public function test_debug_mode_pauses_and_resumes_the_same_production_run_without_live_model_calls_or_retrieval_replay(): void
     {
         $answers = new RecordingAnswerGateway();
         $decisions = new RecordingDecisionGateway('{"intent":"unused","needs":{}}');
-        $transport = new RecordingTransport();
+        $transport = new RecordingTransport('no_gsc_property');
         $coordinator = $this->coordinator($decisions, $answers, $transport);
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $resolver = new MockAssumedModelResolver();
@@ -719,6 +730,117 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame('done', $run->status);
         self::assertSame('no_gsc_property', $run->failure_code);
         self::assertSame($longWarning, $run->assistantMessage->response_payload['blocks'][0]['text']);
+    }
+
+    public function test_rerun_reuses_user_message_and_preserves_versioned_assistant_results(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+        $firstAnswers = new RecordingAnswerGateway('{"message":"Version one","blocks":[{"type":"markdown","text":"Version one"}],"actions":[]}');
+        $first = $controller->turn(
+            $this->createTurnRequest(['scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'What should I write?']),
+            $this->coordinator(new RecordingDecisionGateway('{"intent":"content","needs":{"site":0.2}}'), $firstAnswers),
+            $sites,
+            $threads,
+            $persistence,
+        )->getData(true)['data'];
+
+        $thread = $threads->findForPrincipal($first['thread_ulid'], 'user', '1');
+        $userMessage = $thread->messages()->where('role', 'user')->firstOrFail();
+        $firstAssistant = $thread->messages()->where('role', 'assistant')->firstOrFail();
+        $rerunDecisions = new RecordingDecisionGateway('{"intent":"content","needs":{"site":0.2}}');
+        $rerunAnswers = new RecordingAnswerGateway('{"message":"Version two","blocks":[{"type":"markdown","text":"Version two"}],"actions":[]}');
+
+        $rerun = $controller->rerun(
+            $this->createTurnRequest(['debug_mode' => false]),
+            $thread->ulid,
+            $userMessage->id,
+            $this->coordinator($rerunDecisions, $rerunAnswers),
+            $sites,
+            $threads,
+            $persistence,
+            new MockAssumedModelResolver(),
+        )->getData(true)['data'];
+
+        self::assertSame('Version two', $rerun['message']);
+        self::assertSame(1, $thread->messages()->where('role', 'user')->count());
+        self::assertSame(2, $thread->runs()->where('user_message_id', $userMessage->id)->count());
+        self::assertSame(2, $thread->messages()->where('role', 'assistant')->count());
+        self::assertSame('Version one', $firstAssistant->fresh()->content);
+        self::assertSame(1, $rerunDecisions->calls);
+        self::assertSame(1, $rerunAnswers->calls);
+        self::assertStringNotContainsString('Version one', $rerunAnswers->lastExport);
+
+        $forbidden = $controller->rerun(
+            $this->createTurnRequest([], userId: 2),
+            $thread->ulid,
+            $userMessage->id,
+            $this->coordinator(new RecordingDecisionGateway(), new RecordingAnswerGateway()),
+            $sites,
+            $threads,
+            $persistence,
+            new MockAssumedModelResolver(),
+        );
+        self::assertSame(404, $forbidden->getStatusCode());
+
+        $reload = $controller->showThread($this->createTurnRequest([]), $thread->ulid, $threads)->getData(true)['data'];
+        $versions = array_values(array_filter($reload['messages'], static fn (array $message): bool => $message['role'] === 'assistant'));
+        self::assertCount(2, $versions);
+        self::assertSame($userMessage->id, $versions[0]['run']['user_message_id']);
+        self::assertSame($userMessage->id, $versions[1]['run']['user_message_id']);
+    }
+
+    public function test_debug_rerun_pauses_and_resumes_same_new_run_without_live_model_calls(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+        $initial = $controller->turn(
+            $this->createTurnRequest(['scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'Rerun me']),
+            $this->coordinator(new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'), new RecordingAnswerGateway()),
+            $sites,
+            $threads,
+            $persistence,
+        )->getData(true)['data'];
+        $thread = $threads->findForPrincipal($initial['thread_ulid'], 'user', '1');
+        $userMessage = $thread->messages()->where('role', 'user')->firstOrFail();
+        $decisions = new RecordingDecisionGateway();
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator($decisions, $answers);
+        $resolver = new MockAssumedModelResolver();
+
+        $paused = $controller->rerun(
+            $this->createTurnRequest(['debug_mode' => true]),
+            $thread->ulid,
+            $userMessage->id,
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        )->getData(true)['data'];
+        self::assertSame('decision', $paused['model_call']['key']);
+        $runUlid = $paused['run_ulid'];
+
+        $answerPause = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
+        ]), $coordinator, $threads, $persistence, $resolver)->getData(true)['data'];
+        self::assertSame('answer', $answerPause['model_call']['key']);
+
+        $completed = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"message":"Debug version","blocks":[],"actions":[]}',
+        ]), $coordinator, $threads, $persistence, $resolver)->getData(true)['data'];
+        self::assertSame('Debug version', $completed['message']);
+        self::assertSame(0, $decisions->calls);
+        self::assertSame(0, $answers->calls);
+        self::assertSame(1, $thread->messages()->where('role', 'user')->count());
+        self::assertSame(2, $thread->messages()->where('role', 'assistant')->count());
+        self::assertSame('done', AgentRun::where('ulid', $runUlid)->value('status'));
     }
 
     public function test_existing_normal_send_flow_remains_unchanged(): void
