@@ -98,11 +98,24 @@ class ArticleEditorHistoryService
             ? $this->normalizeWikiTrustDomains($settings['wiki_trust_domains'])
             : $current['wiki_trust_domains'];
 
+        $domainsChanged = false;
+        if (array_key_exists('wiki_trust_domains', $settings)) {
+            $oldDomains = $current['wiki_trust_domains'];
+            sort($oldDomains);
+            $newDomains = $wikiTrustDomains;
+            sort($newDomains);
+            $domainsChanged = ($oldDomains !== $newDomains);
+        }
+
         WpOption::set(self::OPTION_KEY, [
             'history_step' => max(1, min(100, $steps)),
             'autosave_interval_seconds' => max(0, min(30, $autosave)),
             'wiki_trust_domains' => $wikiTrustDomains,
         ], 'no');
+
+        if ($domainsChanged) {
+            app(\Omnichannel\Addons\SearchFoundation\Services\LinkClassificationReconciliationService::class)->reconcile();
+        }
     }
 
     /**

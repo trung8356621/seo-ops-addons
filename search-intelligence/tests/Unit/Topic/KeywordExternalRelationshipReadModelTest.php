@@ -354,21 +354,24 @@ final class KeywordExternalRelationshipReadModelTest extends TestCase
         self::assertSame('managed_cross_site', $workspace->filter);
         self::assertSame('', $workspace->risk);
 
-        // Clicking a Risk filter updates risk and clears type filter
+        // setRiskFilter maps legacy risk levels to canonical single filter dimension
         $workspace->setRiskFilter('review');
-        self::assertSame('review', $workspace->risk);
-        self::assertSame('', $workspace->filter);
+        self::assertSame('needs_review', $workspace->filter);
+        self::assertSame('', $workspace->risk);
 
-        // Clicking another Risk filter keeps type filter cleared
         $workspace->setRiskFilter('safe');
-        self::assertSame('safe', $workspace->risk);
-        self::assertSame('', $workspace->filter);
+        self::assertSame('managed_cross_site', $workspace->filter);
+        self::assertSame('', $workspace->risk);
 
         $workspace->setRiskFilter('low');
-        self::assertSame('low', $workspace->risk);
-        self::assertSame('', $workspace->filter);
+        self::assertSame('reference', $workspace->filter);
+        self::assertSame('', $workspace->risk);
 
-        // Clicking a Type filter clears risk
+        $workspace->setRiskFilter('all');
+        self::assertSame('all', $workspace->filter);
+        self::assertSame('', $workspace->risk);
+
+        // Clicking a Type filter
         $workspace->setTypeFilter('reference');
         self::assertSame('reference', $workspace->filter);
         self::assertSame('', $workspace->risk);
@@ -379,7 +382,7 @@ final class KeywordExternalRelationshipReadModelTest extends TestCase
         self::assertSame('', $workspace->risk);
 
         $workspace->setRiskFilter('invalid_risk');
-        self::assertSame('reference', $workspace->filter);
+        self::assertSame('all', $workspace->filter);
         self::assertSame('', $workspace->risk);
     }
 

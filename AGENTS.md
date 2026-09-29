@@ -11,6 +11,18 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 3. No sibling implementation imports.
 4. `seo-content-ai-compat` = Filament views/lang/panel bootstrap only — no new business.
 
+## Mandatory execution skills
+
+For all coding, editing, debugging, testing, and implementation tasks, always apply:
+
+- `seo-ops-execution-guard`
+- `seo-ops-token-discipline`
+
+`seo-ops-execution-guard` controls when to stop, change strategy, or ask the user.
+`seo-ops-token-discipline` controls context loading, reasoning/narration, tool-call volume, discovery, and verification cost.
+
+These skills are mandatory unless the user explicitly overrides them.
+
 ## Feature → owner
 | Feature | Folder |
 |---------|--------|

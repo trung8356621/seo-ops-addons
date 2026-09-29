@@ -199,6 +199,11 @@ final class LinkDestinationClassifier
     /** @var array<int, string>|null */
     private static ?array $managedSiteHosts = null;
 
+    public static function clearManagedSiteHostsCache(): void
+    {
+        self::$managedSiteHosts = null;
+    }
+
     /**
      * Returns true when the host belongs to a known social network.
      */

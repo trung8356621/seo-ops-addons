@@ -28,7 +28,7 @@ use Throwable;
  * Canonical Add-to-Draft intake: resolve Shared Planning Draft, then create items.
  * Destination is never an execution Content Project from UI.
  */
-final class PlanningDraftIntakeService
+class PlanningDraftIntakeService
 {
     public function __construct(
         private readonly PlanningDraftResolver $draftResolver,
@@ -131,6 +131,7 @@ final class PlanningDraftIntakeService
         ?string $keyword = null,
         ?string $forcedType = null,
         ?int $actorId = null,
+        ?string $notes = null,
     ): PlanningDraftIntakeResult {
         if (! SeoAccessControl::canMutateInSeoPanel()) {
             return new PlanningDraftIntakeResult(
@@ -231,6 +232,7 @@ final class PlanningDraftIntakeService
                 $actorId,
                 $draftId,
                 $forcedType,
+                $notes,
             ): array {
                 if ($needsKeyword && $keywordInput !== '') {
                     foreach ($records as $article) {
@@ -255,7 +257,7 @@ final class PlanningDraftIntakeService
                     $draftId,
                     $taskType,
                     SeoProjectTask::REWRITE_MODE_CONTENT,
-                    null,
+                    $notes !== null && trim($notes) !== '' ? trim($notes) : null,
                     $keywordInput !== '' ? $keywordInput : null,
                     null,
                     false,
