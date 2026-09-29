@@ -491,7 +491,18 @@ class SeoArticle extends Model
                 continue;
             }
 
+            $linkType = $map->link_type instanceof SeoLinkMapType
+                ? $map->link_type
+                : ($map->link_type ? SeoLinkMapType::tryFrom((string) $map->link_type) : null);
+
+            // Social and Contact are CTA destinations, not SEO semantic relationships.
+            // Exclude from both internal and external link arrays.
+            if ($linkType?->isSemanticEligible() === false) {
+                continue;
+            }
+
             $href = trim((string) ($map->target_external_url ?? ''));
+            $target = null;
             if ($href === '' && (int) ($map->target_article_id ?? 0) > 0) {
                 $target = $map->relationLoaded('targetArticle')
                     ? $map->targetArticle
@@ -506,34 +517,71 @@ class SeoArticle extends Model
                 continue;
             }
 
+            // Fallback linkType if null
+            if ($linkType === null) {
+                if ((int) ($map->target_article_id ?? 0) > 0) {
+                    $targetSiteId = (int) ($map->target_site_id ?? 0);
+                    if ($targetSiteId <= 0 && $target instanceof SeoArticle) {
+                        $targetSiteId = (int) ($target->site_id ?? 0);
+                    }
+                    $linkType = ($targetSiteId > 0 && $this->site_id !== null && $targetSiteId !== (int) $this->site_id)
+                        ? SeoLinkMapType::ManagedCrossSite
+                        : SeoLinkMapType::Internal;
+                } else {
+                    $linkType = SeoLinkMapType::External;
+                }
+            }
+
+            // Re-check same-site vs managed cross-site
+            if ($linkType === SeoLinkMapType::Internal) {
+                $targetSiteId = (int) ($map->target_site_id ?? 0);
+                if ($targetSiteId <= 0 && $target instanceof SeoArticle) {
+                    $targetSiteId = (int) ($target->site_id ?? 0);
+                }
+                if ($targetSiteId > 0 && $this->site_id !== null && $targetSiteId !== (int) $this->site_id) {
+                    $linkType = SeoLinkMapType::ManagedCrossSite;
+                }
+            }
+
             $row = [
                 'href' => $href,
                 'text' => (string) ($map->anchor_text ?? ''),
                 'is_nofollow' => false,
             ];
 
-            $linkType = $map->link_type;
+            if ($linkType === SeoLinkMapType::Internal) {
+                $row['link_type'] = SeoLinkMapType::Internal->value;
+                if ((int) ($map->target_article_id ?? 0) > 0) {
+                    $row['target_article_id'] = (int) $map->target_article_id;
+                }
+                $internal[] = $row;
+                continue;
+            }
+
+            // External semantic rows (ManagedCrossSite, WikiTrust, NeedsReview, External)
             if (
                 $linkType === SeoLinkMapType::External
                 || $linkType === SeoLinkMapType::WikiTrust
                 || $linkType === SeoLinkMapType::NeedsReview
+                || $linkType === SeoLinkMapType::ManagedCrossSite
             ) {
-                $row['link_type'] = $linkType?->value;
-                $row['semantic_risk'] = match ($linkType) {
-                    SeoLinkMapType::WikiTrust => 'low',
-                    default => 'review',
-                };
-                $row['semantic_label'] = match ($linkType) {
-                    SeoLinkMapType::WikiTrust => 'Trusted / Reference',
-                    SeoLinkMapType::NeedsReview => 'Warning',
-                    default => null,
-                };
+                $targetSiteId = (int) ($map->target_site_id ?? 0);
+                if ($targetSiteId <= 0 && $target instanceof SeoArticle) {
+                    $targetSiteId = (int) ($target->site_id ?? 0);
+                }
+
+                $row['link_type'] = $linkType->value;
+                $row['semantic_risk'] = $linkType->semanticRisk() ?? 'review';
+                $row['is_semantic_eligible'] = (bool) ($map->is_semantic_eligible ?? true);
+                if ($targetSiteId > 0) {
+                    $row['target_site_id'] = $targetSiteId;
+                }
+                if ((int) ($map->target_article_id ?? 0) > 0) {
+                    $row['target_article_id'] = (int) $map->target_article_id;
+                }
+
                 $external[] = $row;
-
-                continue;
             }
-
-            $internal[] = $row;
         }
 
         return ['internal' => $internal, 'external' => $external];

@@ -44,6 +44,23 @@ enum SeoLinkMapType: string
     }
 
     /**
+     * Derive internal semantic risk level for external keyword relationships.
+     * Returns null for non-external or non-semantic link types (internal, cta).
+     */
+    public function semanticRisk(): ?string
+    {
+        return match ($this) {
+            self::ManagedCrossSite => 'safe',
+            self::WikiTrust        => 'low',
+            self::NeedsReview,
+            self::External         => 'review',
+            self::Internal,
+            self::Social,
+            self::Contact          => null,
+        };
+    }
+
+    /**
      * Human-readable label.
      */
     public function label(): string

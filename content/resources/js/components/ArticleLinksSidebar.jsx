@@ -477,6 +477,108 @@ function patchSuggestionAnchorInList(list, item, nextText) {
     });
 }
 
+function renderSemanticBadges(item) {
+    if (!item || typeof item !== 'object') {
+        return null;
+    }
+
+    const linkType = String(item?.link_type ?? '').trim();
+    const semanticRisk = String(item?.semantic_risk ?? '').trim();
+
+    // Internal, social, and contact CTA links never show semantic risk badges.
+    if (linkType === 'internal' || linkType === 'social' || linkType === 'contact' || item?.is_cta) {
+        return null;
+    }
+
+    if (linkType === 'managed_cross_site') {
+        const typeLabel = t('links_semantic_type_managed_cross_site');
+        const riskLabel = t('links_semantic_risk_safe');
+        return (
+            <>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--type"
+                    title={typeLabel}
+                >
+                    {typeLabel}
+                </span>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--safe"
+                    title={riskLabel}
+                >
+                    {riskLabel}
+                </span>
+            </>
+        );
+    }
+
+    if (linkType === 'wiki_trust') {
+        const typeLabel = t('links_semantic_type_wiki_trust');
+        const riskLabel = t('links_semantic_risk_low');
+        return (
+            <>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--type"
+                    title={typeLabel}
+                >
+                    {typeLabel}
+                </span>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--low"
+                    title={riskLabel}
+                >
+                    {riskLabel}
+                </span>
+            </>
+        );
+    }
+
+    if (linkType === 'needs_review') {
+        const typeLabel = t('links_semantic_type_needs_review');
+        const riskLabel = t('links_semantic_risk_review');
+        return (
+            <>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--type"
+                    title={typeLabel}
+                >
+                    {typeLabel}
+                </span>
+                <span
+                    className="wp-article-links-semantic-badge wp-article-links-semantic-badge--review"
+                    title={riskLabel}
+                >
+                    {riskLabel}
+                </span>
+            </>
+        );
+    }
+
+    if (linkType === 'external' || semanticRisk === 'review') {
+        const riskLabel = t('links_semantic_risk_review');
+        return (
+            <span
+                className="wp-article-links-semantic-badge wp-article-links-semantic-badge--review"
+                title={riskLabel}
+            >
+                {riskLabel}
+            </span>
+        );
+    }
+
+    if (item?.semantic_label) {
+        return (
+            <span
+                className={`wp-article-links-semantic-badge wp-article-links-semantic-badge--${semanticRisk || 'review'}`}
+                title={item.semantic_label}
+            >
+                {item.semantic_label}
+            </span>
+        );
+    }
+
+    return null;
+}
+
 /**
  * @param {{ items: Array<ExtractedLink|FaqLinkItem>, title: string, activeKey: string, target: 'editor'|'faq', variant?: 'default'|'suggestion', suggestionKind?: 'internal'|'external', hideTitle?: boolean, interactive?: boolean, hiddenRowKeys?: Set<string>, reviewLoadingKey?: string, errorKeywordIds?: Set<number>, onKeywordClick: Function, onInsertSuggestion?: Function, onUpdateSuggestionAnchor?: Function, onCopyKeyword?: Function, onRemoveInternalLink?: Function, onToggleError?: Function }} props
  */
@@ -696,14 +798,7 @@ function KeywordList({
                                     }
                                 >
                                     {labelWithCount}
-                                    {item?.semantic_label ? (
-                                        <span
-                                            className={`wp-article-links-semantic-badge wp-article-links-semantic-badge--${item.semantic_risk ?? 'review'}`}
-                                            title={item.semantic_label}
-                                        >
-                                            {item.semantic_label}
-                                        </span>
-                                    ) : null}
+                                    {renderSemanticBadges(item)}
                                 </button>
                             ) : (
                                 <span
@@ -711,14 +806,7 @@ function KeywordList({
                                     title={label}
                                 >
                                     {labelWithCount}
-                                    {item?.semantic_label ? (
-                                        <span
-                                            className={`wp-article-links-semantic-badge wp-article-links-semantic-badge--${item.semantic_risk ?? 'review'}`}
-                                            title={item.semantic_label}
-                                        >
-                                            {item.semantic_label}
-                                        </span>
-                                    ) : null}
+                                    {renderSemanticBadges(item)}
                                 </span>
                             )}
                             {variant === 'suggestion' && onInsertSuggestion ? (

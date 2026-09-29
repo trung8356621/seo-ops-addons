@@ -105,6 +105,7 @@ final class ArticleEditorLinksSidebarContractTest extends TestCase
         $body = $this->methodBody(SeoArticle::class, 'linkMapsToExtractedArray');
 
         self::assertStringContainsString('SeoLinkMapType::NeedsReview', $body);
+        self::assertStringContainsString('SeoLinkMapType::ManagedCrossSite', $body);
     }
 
     public function test_link_maps_to_extracted_array_includes_semantic_risk_field(): void
@@ -112,17 +113,18 @@ final class ArticleEditorLinksSidebarContractTest extends TestCase
         $body = $this->methodBody(SeoArticle::class, 'linkMapsToExtractedArray');
 
         self::assertStringContainsString("'semantic_risk'", $body);
-        self::assertStringContainsString("'low'", $body);
-        self::assertStringContainsString("'review'", $body);
+        self::assertStringContainsString('semanticRisk()', $body);
     }
 
-    public function test_link_maps_to_extracted_array_includes_semantic_label_field(): void
+    public function test_link_maps_to_extracted_array_does_not_hardcode_user_facing_labels(): void
     {
         $body = $this->methodBody(SeoArticle::class, 'linkMapsToExtractedArray');
 
-        self::assertStringContainsString("'semantic_label'", $body);
-        self::assertStringContainsString("'Trusted / Reference'", $body);
-        self::assertStringContainsString("'Warning'", $body);
+        // User-facing presentation labels must NOT be hardcoded in SeoArticle domain logic
+        self::assertStringNotContainsString("'Trusted / Reference'", $body);
+        self::assertStringNotContainsString("'Warning'", $body);
+        self::assertStringNotContainsString("'Safe'", $body);
+        self::assertStringNotContainsString("'Low'", $body);
     }
 
     public function test_link_maps_to_extracted_array_includes_link_type_field(): void
@@ -140,6 +142,8 @@ final class ArticleEditorLinksSidebarContractTest extends TestCase
 
         self::assertStringContainsString('.wp-article-links-semantic-badge--review', $css);
         self::assertStringContainsString('.wp-article-links-semantic-badge--low', $css);
+        self::assertStringContainsString('.wp-article-links-semantic-badge--safe', $css);
+        self::assertStringContainsString('.wp-article-links-semantic-badge--type', $css);
     }
 
     public function test_semantic_badge_rendered_in_sidebar_jsx(): void
@@ -147,7 +151,7 @@ final class ArticleEditorLinksSidebarContractTest extends TestCase
         $source = $this->sidebarJsxSource();
 
         self::assertStringContainsString('wp-article-links-semantic-badge', $source);
-        self::assertStringContainsString('semantic_label', $source);
+        self::assertStringContainsString('renderSemanticBadges', $source);
         self::assertStringContainsString('semantic_risk', $source);
     }
 

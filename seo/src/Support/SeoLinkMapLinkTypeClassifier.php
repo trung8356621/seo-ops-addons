@@ -70,6 +70,16 @@ final class SeoLinkMapLinkTypeClassifier
         return $type->isCta();
     }
 
+    /**
+     * Derive internal semantic risk level for a link type.
+     */
+    public static function semanticRisk(SeoLinkMapType|string $type): ?string
+    {
+        $linkType = $type instanceof SeoLinkMapType ? $type : SeoLinkMapType::tryFrom((string) $type);
+
+        return $linkType?->semanticRisk();
+    }
+
     public static function isWikiTrustHost(string $host): bool
     {
         if ($host === '') {

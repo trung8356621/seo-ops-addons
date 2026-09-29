@@ -83,13 +83,11 @@ final class KeywordExternalRelationshipReadModel
      */
     public function riskLevelForType(string|SeoLinkMapType $linkType): string
     {
-        $value = $linkType instanceof SeoLinkMapType ? $linkType->value : (string) $linkType;
+        $type = $linkType instanceof SeoLinkMapType
+            ? $linkType
+            : SeoLinkMapType::tryFrom((string) $linkType);
 
-        return match ($value) {
-            SeoLinkMapType::ManagedCrossSite->value => 'safe',
-            SeoLinkMapType::WikiTrust->value => 'low',
-            default => 'review',
-        };
+        return $type?->semanticRisk() ?? 'review';
     }
 
     /**

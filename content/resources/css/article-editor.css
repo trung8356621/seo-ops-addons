@@ -12000,6 +12000,18 @@ section[data-seo-section-id].is-outline-jump-highlight {
     letter-spacing: 0.01em;
 }
 
+.wp-article-links-semantic-badge--type {
+    background: rgb(243 244 246);
+    color: rgb(55 65 81);
+    border: 1px solid rgb(209 213 219);
+}
+
+.wp-article-links-semantic-badge--safe {
+    background: rgb(220 252 231);
+    color: rgb(22 101 52);
+    border: 1px solid rgb(187 247 208);
+}
+
 .wp-article-links-semantic-badge--low {
     background: rgb(219 234 254);
     color: rgb(30 64 175);
@@ -12010,6 +12022,18 @@ section[data-seo-section-id].is-outline-jump-highlight {
     background: rgb(254 226 226);
     color: rgb(153 27 27);
     border: 1px solid rgb(252 165 165);
+}
+
+.dark .wp-article-links-semantic-badge--type {
+    background: rgb(31 41 55 / 0.6);
+    color: rgb(209 213 219);
+    border-color: rgb(75 85 99 / 0.5);
+}
+
+.dark .wp-article-links-semantic-badge--safe {
+    background: rgb(20 83 45 / 0.45);
+    color: rgb(187 247 208);
+    border-color: rgb(34 197 94 / 0.3);
 }
 
 .dark .wp-article-links-semantic-badge--low {
