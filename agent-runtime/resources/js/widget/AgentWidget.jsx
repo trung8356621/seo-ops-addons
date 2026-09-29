@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
+import { Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -216,16 +216,20 @@ export function AgentWidget({
 
             const mapped = (thread.messages || []).map((m) => {
                 if (m.role === 'assistant') {
+                    const response = m.response_payload || {
+                        message: m.content || '',
+                        blocks: [],
+                        actions: [],
+                        sources: [],
+                    };
                     return {
                         role: 'assistant',
                         id: m.id,
                         originUserMessageId: m.run?.user_message_id,
                         content: m.content || '',
-                        response: m.response_payload || {
-                            message: m.content || '',
-                            blocks: [],
-                            actions: [],
-                            sources: [],
+                        response: {
+                            ...response,
+                            answer_diagnostics: m.run?.retrieval_summary?.answer_diagnostics || response.answer_diagnostics,
                         },
                     };
                 }
@@ -398,6 +402,7 @@ export function AgentWidget({
                 message,
                 history,
                 debug_mode: debugMode,
+                diagnostics,
             });
             const data = payload?.data || {};
             if (data.user_message_id) {
@@ -453,6 +458,7 @@ export function AgentWidget({
         try {
             const payload = await postJson(`${endpoints.threadsUrl}/${activeThreadUlid}/messages/${userMessageId}/rerun`, csrf, {
                 debug_mode: debugMode,
+                diagnostics,
             });
             const data = payload?.data || {};
             if (data.status === 'paused') {
@@ -500,6 +506,17 @@ export function AgentWidget({
                         <span>AI Agent</span>
                     </div>
                     <div className="agent-drawer-header__controls">
+                        <label className="agent-debug-switch" title="Debug mode">
+                            <span>Debug</span>
+                            <input
+                                type="checkbox"
+                                checked={debugMode}
+                                onChange={(event) => setDebugMode(event.target.checked)}
+                                disabled={busy || debugBusy || debugOpen}
+                                aria-label="Debug mode"
+                            />
+                            <span className="agent-debug-switch__track" aria-hidden="true" />
+                        </label>
                         <button
                             type="button"
                             className="agent-header-btn agent-new-btn"
@@ -656,6 +673,17 @@ export function AgentWidget({
                         <div className="agent-workspace-header__top">
                             <h1>{selected.label}</h1>
                             <div className="agent-workspace-actions">
+                                <label className="agent-debug-switch" title="Debug mode">
+                                    <span>Debug</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={debugMode}
+                                        onChange={(event) => setDebugMode(event.target.checked)}
+                                        disabled={busy || debugBusy || debugOpen}
+                                        aria-label="Debug mode"
+                                    />
+                                    <span className="agent-debug-switch__track" aria-hidden="true" />
+                                </label>
                                 <button
                                     type="button"
                                     className="agent-header-btn agent-new-btn"
@@ -699,15 +727,24 @@ export function AgentWidget({
                                 <article className="is-user">
                                     <p>{turn.content}</p>
                                     <div className="agent-message-actions">
-                                        <button type="button" onClick={() => copyText(turn.content)}>Copy</button>
+                                        <button type="button" onClick={() => copyText(turn.content)} title="Copy question" aria-label="Copy question"><Copy size={14} /></button>
                                     </div>
                                 </article>
                                 {version ? (
                                     <article className="is-assistant">
                                         <ResponseView response={version.response} />
+                                        {diagnostics && version.response?.answer_diagnostics ? (
+                                            <details className="agent-answer-diagnostics">
+                                                <summary>Answer diagnostics</summary>
+                                                <p><strong>Parser rejection:</strong></p>
+                                                <pre>{version.response.answer_diagnostics.parser_error}</pre>
+                                                <p><strong>Raw model completion:</strong></p>
+                                                <pre>{version.response.answer_diagnostics.raw_completion}</pre>
+                                            </details>
+                                        ) : null}
                                         <div className="agent-message-actions agent-message-actions--assistant">
-                                            <button type="button" onClick={() => copyText(responseToPlainText(version.response))}>Copy</button>
-                                            <button type="button" onClick={() => onRerun(turn.id)} disabled={busy || !turn.id}>Rerun</button>
+                                            <button type="button" onClick={() => copyText(responseToPlainText(version.response))} title="Copy answer" aria-label="Copy answer"><Copy size={14} /></button>
+                                            <button type="button" onClick={() => onRerun(turn.id)} disabled={busy || !turn.id} title="Rerun" aria-label="Rerun"><RotateCcw size={14} /></button>
                                             {turn.versions.length > 1 ? (
                                                 <span className="agent-version-nav" aria-label="Answer versions">
                                                     <button
@@ -767,15 +804,6 @@ export function AgentWidget({
                                 Copy routing input
                             </button>
                         ) : null}
-                        <label className="agent-model-debug-toggle">
-                            <input
-                                type="checkbox"
-                                checked={debugMode}
-                                onChange={(event) => setDebugMode(event.target.checked)}
-                                disabled={busy || debugBusy}
-                            />
-                            Debug mode
-                        </label>
                         <button type="submit" disabled={busy || draft.trim() === ''} className={busy ? 'is-busy' : ''}>
                             {busy ? <Loader2 size={16} className="agent-spin" /> : <Send size={16} />}
                             Send

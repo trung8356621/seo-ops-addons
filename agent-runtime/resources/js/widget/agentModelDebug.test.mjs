@@ -6,9 +6,9 @@ const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8
 const modal = readFileSync(new URL('./ModelDebugModal.jsx', import.meta.url), 'utf8');
 const clipboard = readFileSync(new URL('./clipboard.js', import.meta.url), 'utf8');
 
-test('composer uses a Debug mode checkbox and normal Send carries debug_mode', () => {
+test('header uses the canonical Debug mode switch and normal Send carries debug_mode', () => {
     assert.match(widget, /type="checkbox"[\s\S]*checked=\{debugMode\}/);
-    assert.match(widget, />\s*Debug mode\s*</);
+    assert.equal(widget.includes('className="agent-debug-switch"'), true);
     assert.equal(widget.includes('agent-model-debug-btn'), false);
     assert.equal(widget.includes('startModelDebug'), false);
     assert.equal(widget.includes('debug_mode: debugMode'), true);

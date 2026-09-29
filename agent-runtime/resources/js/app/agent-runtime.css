@@ -180,6 +180,14 @@
     font-size: 13px;
 }
 
+.agent-messages article.agent-processing-status {
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
 .agent-composer {
     display: flex;
     flex-direction: column;
@@ -421,9 +429,8 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: 32vw;
-    min-width: 400px;
-    max-width: 560px;
+    width: clamp(460px, 38vw, 560px);
+    max-width: 100vw;
     height: 100vh;
     height: 100dvh;
     z-index: 9999;
@@ -609,6 +616,81 @@
     margin-top: 0;
     margin-inline-end: auto;
     font-size: 11px;
+}
+
+.agent-debug-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #475569;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.agent-debug-switch input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.agent-debug-switch__track {
+    width: 28px;
+    height: 16px;
+    padding: 2px;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: background 0.15s ease;
+}
+
+.agent-debug-switch__track::after {
+    content: '';
+    display: block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease;
+}
+
+.agent-debug-switch input:checked + .agent-debug-switch__track {
+    background: #0f766e;
+}
+
+.agent-debug-switch input:checked + .agent-debug-switch__track::after {
+    transform: translateX(12px);
+}
+
+.agent-debug-switch input:focus-visible + .agent-debug-switch__track {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.agent-debug-switch:has(input:disabled) {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.agent-answer-diagnostics {
+    margin-top: 10px;
+    border-top: 1px dashed #cbd5e1;
+    padding-top: 8px;
+    color: #475569;
+    font-size: 12px;
+}
+
+.agent-answer-diagnostics summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.agent-answer-diagnostics pre {
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: #f8fafc;
+    padding: 8px;
 }
 
 /* History & New Conversation Controls */

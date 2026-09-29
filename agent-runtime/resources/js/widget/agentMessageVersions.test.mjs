@@ -15,10 +15,35 @@ test('assistant conversation surface is flat while semantic blocks remain availa
 });
 
 test('user and assistant messages expose lightweight Copy and assistant Rerun', () => {
-    assert.equal(widget.includes('onClick={() => copyText(turn.content)}>Copy'), true);
+    assert.equal(widget.includes('title="Copy question" aria-label="Copy question"><Copy'), true);
     assert.equal(widget.includes('copyText(responseToPlainText(version.response))'), true);
-    assert.equal(widget.includes('onClick={() => onRerun(turn.id)}'), true);
+    assert.equal(widget.includes('title="Copy answer" aria-label="Copy answer"><Copy'), true);
+    assert.equal(widget.includes('title="Rerun" aria-label="Rerun"><RotateCcw'), true);
     assert.equal(clipboard.includes("document.execCommand('copy')"), true);
+});
+
+test('Debug is a canonical header switch shared by Send and Rerun', () => {
+    const composer = widget.slice(widget.indexOf('<form'), widget.indexOf('</form>'));
+    assert.equal(composer.includes('agent-debug-switch'), false);
+    assert.equal(widget.includes('className="agent-debug-switch"'), true);
+    assert.equal(widget.includes('checked={debugMode}'), true);
+    assert.equal(widget.includes('disabled={busy || debugBusy || debugOpen}'), true);
+    assert.ok((widget.match(/debug_mode: debugMode/g) || []).length >= 2);
+    assert.equal(widget.includes('const [diagnostics, setDiagnostics]'), true);
+    assert.equal(widget.includes('const [debugMode, setDebugMode]'), true);
+});
+
+test('Diag-only rejected Answer disclosure is collapsed and contains error plus raw completion', () => {
+    assert.equal(widget.includes('diagnostics && version.response?.answer_diagnostics'), true);
+    assert.equal(widget.includes('<details className="agent-answer-diagnostics">'), true);
+    assert.equal(widget.includes('<summary>Answer diagnostics</summary>'), true);
+    assert.equal(widget.includes('version.response.answer_diagnostics.parser_error'), true);
+    assert.equal(widget.includes('version.response.answer_diagnostics.raw_completion'), true);
+});
+
+test('drawer width and processing status use wider flat contracts', () => {
+    assert.equal(css.includes('width: clamp(460px, 38vw, 560px);'), true);
+    assert.match(css, /article\.agent-processing-status \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
 });
 
 test('assistant copy includes canonical visible markdown and table content', () => {

@@ -139,6 +139,7 @@ final class AgentRuntimeController
             $message,
             $history,
             $debugMode,
+            ($payload['diagnostics'] ?? false) === true,
         );
     }
 
@@ -195,7 +196,7 @@ final class AgentRuntimeController
         AgentTurnCoordinator $coordinator,
         AgentThreadRepository $threads,
         AgentTurnPersistence $persistence,
-        ?AssumedModelResolver $modelResolver,
+        AssumedModelResolver $modelResolver,
     ): JsonResponse {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
@@ -332,7 +333,7 @@ final class AgentRuntimeController
 
         $thread->load(['messages' => function ($query) {
             $query->orderBy('position', 'asc')->take(50);
-        }, 'messages.run:id,user_message_id']);
+        }, 'messages.run:id,user_message_id,retrieval_summary']);
 
         return new JsonResponse(['data' => $thread]);
     }
@@ -403,6 +404,7 @@ final class AgentRuntimeController
             $userMessage->content,
             $history,
             ($request->input('debug_mode', false)) === true,
+            ($request->input('diagnostics', false)) === true,
         );
     }
 
@@ -413,12 +415,13 @@ final class AgentRuntimeController
         \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread $thread,
         AgentTurnPersistence $persistence,
         AgentThreadRepository $threads,
-        AssumedModelResolver $modelResolver,
+        ?AssumedModelResolver $modelResolver,
         int $userId,
         AgentProjectScope $scope,
         string $message,
         array $history,
         bool $debugMode,
+        bool $diagnostics,
     ): JsonResponse {
         try {
             if ($debugMode) {
@@ -437,10 +440,13 @@ final class AgentRuntimeController
                 );
             }
 
-            $result = $coordinator->send($userId, $scope, $message, $history);
+            $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics);
             $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
             if ($result->failureCode !== null) {
                 $meta['failure_code'] = $result->failureCode;
+            }
+            if ($result->answerDiagnostics !== null) {
+                $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
             }
             $assistant = $persistence->completeRun($run, $result->response, $meta);
             $threads->touchLastMessage($thread);
@@ -449,6 +455,9 @@ final class AgentRuntimeController
             $data['run_ulid'] = $run->ulid;
             $data['user_message_id'] = $run->user_message_id;
             $data['assistant_message_id'] = $assistant->id;
+            if ($result->answerDiagnostics !== null) {
+                $data['answer_diagnostics'] = $result->answerDiagnostics;
+            }
 
             return new JsonResponse(['data' => $data]);
         } catch (\Throwable $e) {

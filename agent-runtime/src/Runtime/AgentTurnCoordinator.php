@@ -12,6 +12,7 @@ use Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecisionParser;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput;
+use Omnichannel\Addons\AgentRuntime\Model\SecretRedactor;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
@@ -27,6 +28,7 @@ final class AgentTurnResult
         public PreparedModelInput $answerInput,
         public bool $answerModelCalled,
         public ?string $failureCode = null,
+        public ?array $answerDiagnostics = null,
     ) {}
 
     /**
@@ -92,7 +94,7 @@ class AgentTurnCoordinator
     /**
      * @param  list<array{role: string, content: string}>  $history
      */
-    public function send(int $userId, AgentProjectScope $scope, string $message, array $history): AgentTurnResult
+    public function send(int $userId, AgentProjectScope $scope, string $message, array $history, bool $diagnostics = false): AgentTurnResult
     {
         $prepared = $this->prepare($userId, $scope, $message, $history);
         if ($prepared['response'] instanceof AgentResponse) {
@@ -108,11 +110,18 @@ class AgentTurnCoordinator
         try {
             $raw = $this->answers->complete($userId, $prepared['answer']);
             $response = $this->responses->parse($raw, $prepared['bundle']);
-        } catch (AgentResponseRejected | Throwable) {
+        } catch (AgentResponseRejected $e) {
             $response = $this->safeResponse(
                 'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
                 $prepared['bundle'],
             );
+            $answerDiagnostics = $diagnostics ? $this->answerDiagnostics($raw ?? '', $e) : null;
+        } catch (Throwable) {
+            $response = $this->safeResponse(
+                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
+                $prepared['bundle'],
+            );
+            $answerDiagnostics = null;
         }
 
         return new AgentTurnResult(
@@ -121,6 +130,7 @@ class AgentTurnCoordinator
             $prepared['answer'],
             true,
             $this->failureCodeFromBundle($prepared['bundle']),
+            $answerDiagnostics ?? null,
         );
     }
 
@@ -379,6 +389,16 @@ class AgentTurnCoordinator
         }
 
         return null;
+    }
+
+    /** @return array{status: string, parser_error: string, raw_completion: string} */
+    private function answerDiagnostics(string $raw, AgentResponseRejected $error): array
+    {
+        return [
+            'status' => 'rejected',
+            'parser_error' => $error->getMessage(),
+            'raw_completion' => (new SecretRedactor())->redact($raw),
+        ];
     }
 
     private function decisionFailureMessage(?string $code): string

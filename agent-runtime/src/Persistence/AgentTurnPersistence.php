@@ -107,6 +107,14 @@ class AgentTurnPersistence
         $run->update(['status' => 'running']);
     }
 
+    /** @param array<string, mixed> $diagnostics */
+    public function storeAnswerDiagnostics(AgentRun $run, array $diagnostics): void
+    {
+        $summary = (array) $run->retrieval_summary;
+        $summary['answer_diagnostics'] = $diagnostics;
+        $run->update(['retrieval_summary' => $summary]);
+    }
+
     public function failRun(
         AgentRun $run,
         string $failureCode,

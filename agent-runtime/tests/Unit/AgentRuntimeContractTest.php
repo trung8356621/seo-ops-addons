@@ -386,7 +386,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $keys = array_keys($data);
         sort($keys);
-        self::assertSame(['actions', 'blocks', 'message', 'sources', 'thread_ulid'], $keys);
+        self::assertSame(['actions', 'assistant_message_id', 'blocks', 'message', 'run_ulid', 'sources', 'thread_ulid', 'user_message_id'], $keys);
 
         $raw = (string) $response->getContent();
         self::assertStringNotContainsString('svc_live_secret_value', $raw);
@@ -632,12 +632,82 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_answer_prompt_requires_existing_and_clearly_labeled_new_opportunities_without_fabricated_metrics(): void
     {
         $prompt = \Omnichannel\Addons\AgentRuntime\Answer\AnswerRuntimeInstructions::system();
+        $routing = \Omnichannel\Addons\AgentRuntime\Decision\RoutingRuntimeInstructions::system();
         self::assertStringContainsString('retrieved SEO/site data as evidence', $prompt);
         self::assertStringContainsString('existing data opportunities', $prompt);
         self::assertStringContainsString('new topic or content opportunities', $prompt);
         self::assertStringContainsString('not confirmed as an existing Topic or Keyword', $prompt);
         self::assertStringContainsString('never fabricate search volume', $prompt);
         self::assertStringContainsString('what the evidence says, why it matters, and what to do next', $prompt);
+        self::assertStringContainsString('exactly one valid JSON object', $prompt);
+        self::assertStringContainsString('Do not wrap it in a Markdown code fence', $prompt);
+        self::assertStringContainsString('Put inferred new topics in markdown/list content', $prompt);
+        self::assertStringNotContainsString('new topic or content opportunities', $routing);
+        self::assertStringNotContainsString('inferred new topics', $routing);
+    }
+
+    public function test_answer_rejection_diagnostics_are_opt_in_redacted_and_preserve_parser_reason(): void
+    {
+        $raw = '{"blocks":[{"type":"table","columns":[{"key":"count","label":"Count"}],"rows":[{"count":999999}]}],"echo":"svc_live_fake123"}';
+        $answers = new RecordingAnswerGateway($raw);
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'),
+            $answers,
+        );
+
+        $without = $coordinator->send(1, AgentProjectScope::site(7), 'Plan content', [], false);
+        self::assertStringContainsString('could not be verified', $without->response->message);
+        self::assertNull($without->answerDiagnostics);
+
+        $with = $coordinator->send(1, AgentProjectScope::site(7), 'Plan content', [], true);
+        self::assertStringContainsString('could not be verified', $with->response->message);
+        self::assertSame('rejected', $with->answerDiagnostics['status']);
+        self::assertSame('Agent response is missing message.', $with->answerDiagnostics['parser_error']);
+        self::assertStringContainsString('[redacted-service-credential]', $with->answerDiagnostics['raw_completion']);
+        self::assertStringNotContainsString('svc_live_fake123', $with->answerDiagnostics['raw_completion']);
+    }
+
+    public function test_out_of_evidence_table_value_is_reported_without_weakening_parser(): void
+    {
+        $raw = '{"message":"Plan","blocks":[{"type":"table","columns":[{"key":"count","label":"Count"}],"rows":[{"count":999999}]}],"actions":[]}';
+        $result = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'),
+            new RecordingAnswerGateway($raw),
+        )->send(1, AgentProjectScope::site(7), 'Plan content', [], true);
+
+        self::assertSame('Table value is not present in retrieval evidence.', $result->answerDiagnostics['parser_error']);
+        self::assertSame($raw, $result->answerDiagnostics['raw_completion']);
+    }
+
+    public function test_controller_persists_and_returns_rejected_answer_diagnostics_only_when_enabled(): void
+    {
+        $raw = 'not valid AgentResponse JSON';
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'),
+            new RecordingAnswerGateway($raw),
+        );
+        $controller = new AgentRuntimeController();
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+
+        $enabled = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Plan content',
+            'diagnostics' => true,
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        self::assertSame('Agent response is not JSON.', $enabled['answer_diagnostics']['parser_error']);
+        $enabledRun = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $enabled['run_ulid'])->firstOrFail();
+        self::assertSame($raw, $enabledRun->retrieval_summary['answer_diagnostics']['raw_completion']);
+
+        $disabled = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Plan content again',
+            'diagnostics' => false,
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        self::assertArrayNotHasKey('answer_diagnostics', $disabled);
+        $disabledRun = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $disabled['run_ulid'])->firstOrFail();
+        self::assertArrayNotHasKey('answer_diagnostics', (array) $disabledRun->retrieval_summary);
     }
 
     public function test_debug_mode_pauses_and_resumes_the_same_production_run_without_live_model_calls_or_retrieval_replay(): void
@@ -840,7 +910,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(0, $answers->calls);
         self::assertSame(1, $thread->messages()->where('role', 'user')->count());
         self::assertSame(2, $thread->messages()->where('role', 'assistant')->count());
-        self::assertSame('done', AgentRun::where('ulid', $runUlid)->value('status'));
+        self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
     }
 
     public function test_existing_normal_send_flow_remains_unchanged(): void
