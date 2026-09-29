@@ -13,6 +13,9 @@ use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository;
 use Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
+use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
+use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
 
 final class AgentRuntimeController
 {
@@ -120,6 +123,30 @@ final class AgentRuntimeController
         );
 
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
+
+        if (($payload['debug_mode'] ?? false) === true) {
+            try {
+                $progress = $coordinator->startIntercepted($scope, $message, $history);
+
+                return $this->respondToProgress(
+                    $progress,
+                    $run,
+                    $thread,
+                    $persistence,
+                    $threads,
+                    app(AssumedModelResolver::class),
+                    $userId,
+                    [
+                        'scope' => $scope->toArray(),
+                        'message' => $message,
+                        'history' => $history,
+                    ],
+                );
+            } catch (\Throwable $e) {
+                $persistence->failRun($run, 'error', $e->getMessage());
+                throw $e;
+            }
+        }
         
         try {
             $result = $coordinator->send($userId, $scope, $message, $history);
@@ -197,65 +224,12 @@ final class AgentRuntimeController
         ]);
     }
 
-    public function modelDebugStart(
-        Request $request,
-        AgentTurnCoordinator $coordinator,
-        SiteDirectory $sites,
-        \Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver $modelResolver,
-    ): JsonResponse {
-        $user = $request->user();
-        if ($user === null || (int) $user->id <= 0) {
-            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
-        }
-        $userId = (int) $user->id;
-
-        $payload = $request->all();
-        if (! is_array($payload)) {
-            return new JsonResponse(['message' => 'Invalid payload.'], 422);
-        }
-        $scopeRaw = $payload['scope'] ?? ($payload['hostContext']['scope'] ?? null);
-        if (! is_array($scopeRaw)) {
-            return new JsonResponse(['message' => 'Scope is required.'], 422);
-        }
-
-        $message = trim((string) ($payload['message'] ?? ''));
-        if ($message === '') {
-            return new JsonResponse(['message' => 'Message is required.'], 422);
-        }
-
-        try {
-            $scope = AgentProjectScope::fromArray($scopeRaw);
-        } catch (InvalidArgumentException $e) {
-            return new JsonResponse(['message' => $e->getMessage()], 422);
-        }
-
-        if ($scope->isSite()) {
-            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
-                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
-            }
-        }
-
-        $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
-        $routingInput = $coordinator->buildRoutingInput($scope, $message, $history);
-        $assumedModel = $modelResolver->resolveDecisionModel($userId);
-        $fullPrompt = $routingInput->exportText();
-
-        return new JsonResponse([
-            'data' => [
-                'stage' => 'decision',
-                'full_prompt' => $fullPrompt,
-                'prompt_size' => mb_strlen($fullPrompt),
-                'assumed_model' => $assumedModel->toArray(),
-                'global_unsupported' => $scope->isGlobal(),
-            ],
-        ]);
-    }
-
     public function modelDebugApply(
         Request $request,
         AgentTurnCoordinator $coordinator,
-        SiteDirectory $sites,
-        \Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver $modelResolver,
+        AgentThreadRepository $threads,
+        AgentTurnPersistence $persistence,
+        AssumedModelResolver $modelResolver,
     ): JsonResponse {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
@@ -264,110 +238,52 @@ final class AgentRuntimeController
         $userId = (int) $user->id;
 
         $payload = $request->all();
-        if (! is_array($payload)) {
-            return new JsonResponse(['message' => 'Invalid payload.'], 422);
-        }
-        $scopeRaw = $payload['scope'] ?? ($payload['hostContext']['scope'] ?? null);
-        if (! is_array($scopeRaw)) {
-            return new JsonResponse(['message' => 'Scope is required.'], 422);
+        $runUlid = trim((string) ($payload['run_ulid'] ?? ''));
+        $manualResult = (string) ($payload['manual_result'] ?? '');
+        if ($runUlid === '' || trim($manualResult) === '') {
+            return new JsonResponse(['message' => 'Run and manual result are required.'], 422);
         }
 
-        $message = trim((string) ($payload['message'] ?? ''));
-        if ($message === '') {
-            return new JsonResponse(['message' => 'Message is required.'], 422);
+        $run = AgentRun::where('ulid', $runUlid)
+            ->where('user_id', $userId)
+            ->where('status', 'awaiting_model')
+            ->first();
+        if (! $run) {
+            return new JsonResponse(['message' => 'Paused run not found.'], 404);
         }
+
+        $checkpoint = (array) $run->retrieval_summary;
+        $callKey = (string) ($checkpoint['model_call'] ?? '');
+        $state = (array) ($checkpoint['runtime_state'] ?? []);
+        $turn = (array) ($state['turn'] ?? []);
 
         try {
-            $scope = AgentProjectScope::fromArray($scopeRaw);
-        } catch (InvalidArgumentException $e) {
-            return new JsonResponse(['message' => $e->getMessage()], 422);
+            $scope = AgentProjectScope::fromArray((array) ($turn['scope'] ?? []));
+            $persistence->resumeRun($run);
+            $progress = $coordinator->resumeIntercepted(
+                $scope,
+                (string) ($turn['message'] ?? ''),
+                (array) ($turn['history'] ?? []),
+                $callKey,
+                $manualResult,
+                $state,
+            );
+            $thread = $run->thread()->firstOrFail();
+
+            return $this->respondToProgress(
+                $progress,
+                $run,
+                $thread,
+                $persistence,
+                $threads,
+                $modelResolver,
+                $userId,
+                $turn,
+            );
+        } catch (\Throwable $e) {
+            $persistence->failRun($run, 'error', $e->getMessage());
+            throw $e;
         }
-
-        if ($scope->isSite()) {
-            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
-                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
-            }
-        }
-
-        $stage = trim((string) ($payload['stage'] ?? ''));
-        $manualResult = (string) ($payload['manual_result'] ?? '');
-        $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
-
-        if ($stage === 'decision') {
-            $processed = $coordinator->processDecisionAndRetrieve($scope, $message, $history, $manualResult);
-            $bundle = $processed['bundle'];
-            $retrievalTrace = array_map(static fn ($source) => $source->toArray(), $bundle->sources);
-
-            if ($processed['error'] !== null || $processed['decision'] === null) {
-                return new JsonResponse([
-                    'data' => [
-                        'stage' => 'decision',
-                        'parse_success' => false,
-                        'parser_error' => $processed['error'],
-                        'raw_result' => $manualResult,
-                        'decision' => null,
-                        'retrieval_trace' => $retrievalTrace,
-                        'next_stage' => null,
-                    ],
-                ]);
-            }
-
-            $assumedAnswerModel = $modelResolver->resolveAnswerModel($userId);
-            $fullAnswerPrompt = $processed['answerInput']->exportText();
-
-            return new JsonResponse([
-                'data' => [
-                    'stage' => 'decision',
-                    'parse_success' => true,
-                    'parser_error' => null,
-                    'raw_result' => $manualResult,
-                    'decision' => [
-                        'intent' => $processed['decision']->intent,
-                        'needs' => $processed['decision']->needs,
-                        'parameters' => $processed['decision']->parameters,
-                    ],
-                    'retrieval_trace' => $retrievalTrace,
-                    'next_stage' => [
-                        'stage' => 'answer',
-                        'full_prompt' => $fullAnswerPrompt,
-                        'prompt_size' => mb_strlen($fullAnswerPrompt),
-                        'assumed_model' => $assumedAnswerModel->toArray(),
-                    ],
-                ],
-            ]);
-        }
-
-        if ($stage === 'answer') {
-            $rawDecision = (string) ($payload['raw_decision'] ?? '');
-            $processed = $coordinator->processDecisionAndRetrieve($scope, $message, $history, $rawDecision);
-            $bundle = $processed['bundle'];
-
-            try {
-                $canonicalResponse = $coordinator->parseAnswerResult($manualResult, $bundle);
-
-                return new JsonResponse([
-                    'data' => [
-                        'stage' => 'answer',
-                        'parse_success' => true,
-                        'parser_error' => null,
-                        'raw_result' => $manualResult,
-                        'response' => $canonicalResponse->toArray(),
-                    ],
-                ]);
-            } catch (\Throwable $e) {
-                return new JsonResponse([
-                    'data' => [
-                        'stage' => 'answer',
-                        'parse_success' => false,
-                        'parser_error' => $e->getMessage() ?: 'Failed to parse answer response.',
-                        'raw_result' => $manualResult,
-                        'response' => null,
-                    ],
-                ]);
-            }
-        }
-
-        return new JsonResponse(['message' => 'Invalid debug stage.'], 422);
     }
 
     public function createThread(Request $request, AgentThreadRepository $threads): JsonResponse
@@ -462,6 +378,61 @@ final class AgentRuntimeController
         $request->merge($payload);
 
         return $this->turn($request, $coordinator, $sites, $threads, $persistence);
+    }
+
+    /** @param array<string, mixed> $turnState */
+    private function respondToProgress(
+        AgentTurnProgress $progress,
+        AgentRun $run,
+        \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread $thread,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AssumedModelResolver $modelResolver,
+        int $userId,
+        array $turnState,
+    ): JsonResponse {
+        if ($progress->modelCall !== null) {
+            $call = $progress->modelCall;
+            $state = $call->state;
+            $state['turn'] = $turnState;
+            $persistence->pauseRun($run, $call->key, $state);
+            $input = $call->input->exportText();
+            $model = $call->key === 'decision'
+                ? $modelResolver->resolveDecisionModel($userId)
+                : $modelResolver->resolveAnswerModel($userId);
+
+            return new JsonResponse(['data' => [
+                'status' => 'paused',
+                'run_ulid' => $run->ulid,
+                'thread_ulid' => $thread->ulid,
+                'model_call' => [
+                    'key' => $call->key,
+                    'full_prompt' => $input,
+                    'prompt_size' => mb_strlen($input),
+                    'assumed_model' => $model->toArray(),
+                ],
+            ]]);
+        }
+
+        $result = $progress->result;
+        if ($result === null) {
+            throw new \LogicException('Turn progress has neither a model call nor a result.');
+        }
+
+        $meta = $result->answerModelCalled ? ['answer_model' => 'manual'] : [];
+        foreach ($result->response->blocks as $block) {
+            if (($block['type'] ?? null) === 'warning' && isset($block['text'])) {
+                $meta['failure_code'] = $block['text'];
+                break;
+            }
+        }
+        $persistence->completeRun($run, $result->response, $meta);
+        $threads->touchLastMessage($thread);
+
+        $data = $result->response->toArray();
+        $data['thread_ulid'] = $thread->ulid;
+
+        return new JsonResponse(['data' => $data]);
     }
 
     private function makeThreadTitle(string $message): string {

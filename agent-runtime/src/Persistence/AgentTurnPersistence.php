@@ -79,6 +79,23 @@ class AgentTurnPersistence
         return $assistantMessage;
     }
 
+    /** @param array<string, mixed> $state */
+    public function pauseRun(AgentRun $run, string $callKey, array $state): void
+    {
+        $run->update([
+            'status' => 'awaiting_model',
+            'retrieval_summary' => [
+                'model_call' => $callKey,
+                'runtime_state' => $state,
+            ],
+        ]);
+    }
+
+    public function resumeRun(AgentRun $run): void
+    {
+        $run->update(['status' => 'running']);
+    }
+
     public function failRun(
         AgentRun $run,
         string $failureCode,

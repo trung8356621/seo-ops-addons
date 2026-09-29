@@ -24,6 +24,27 @@ final readonly class RetrievalBundle
         return new self($scope, [], ['global_access_unsupported']);
     }
 
+    /** @param array<string, mixed> $payload */
+    public static function fromArray(array $payload): self
+    {
+        $scope = AgentProjectScope::fromArray((array) ($payload['scope'] ?? []));
+        $sources = [];
+        foreach ((array) ($payload['sources'] ?? []) as $source) {
+            if (! is_array($source)) {
+                continue;
+            }
+            $sources[] = new RetrievalSource(
+                (string) ($source['name'] ?? ''),
+                (string) ($source['status'] ?? ''),
+                (string) ($source['request'] ?? ''),
+                (array) ($source['data'] ?? []),
+                isset($source['reason']) ? (string) $source['reason'] : null,
+            );
+        }
+
+        return new self($scope, $sources, array_values((array) ($payload['warnings'] ?? [])));
+    }
+
     /**
      * @return array<string, mixed>
      */

@@ -44,6 +44,34 @@ final class AgentTurnResult
     }
 }
 
+final readonly class InterceptedModelCall
+{
+    /** @param array<string, mixed> $state */
+    public function __construct(
+        public string $key,
+        public PreparedModelInput $input,
+        public array $state,
+    ) {}
+}
+
+final readonly class AgentTurnProgress
+{
+    private function __construct(
+        public ?AgentTurnResult $result,
+        public ?InterceptedModelCall $modelCall,
+    ) {}
+
+    public static function paused(InterceptedModelCall $call): self
+    {
+        return new self(null, $call);
+    }
+
+    public static function completed(AgentTurnResult $result): self
+    {
+        return new self($result, null);
+    }
+}
+
 /**
  * Routing then retrieval then answer. Copy uses the same PreparedModelInput
  * objects and does not call the answer model.
@@ -86,6 +114,90 @@ class AgentTurnCoordinator
         }
 
         return new AgentTurnResult($response, $prepared['routing'], $prepared['answer'], true);
+    }
+
+    /**
+     * Starts the production pipeline with model completion intercepted.
+     * The caller persists the returned state on the normal run.
+     *
+     * @param list<array{role: string, content: string}> $history
+     */
+    public function startIntercepted(AgentProjectScope $scope, string $message, array $history): AgentTurnProgress
+    {
+        $routingInput = $this->buildRoutingInput($scope, $message, $history);
+        if ($scope->isGlobal()) {
+            $bundle = RetrievalBundle::unsupportedGlobal($scope);
+            $answer = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+
+            return AgentTurnProgress::completed(new AgentTurnResult(
+                $this->safeResponse(
+                    'All Sites is selected, but a global SEO Access API is not available. Ask again inside a site project.',
+                    $bundle,
+                    'global_access_unsupported',
+                ),
+                $routingInput,
+                $answer,
+                false,
+            ));
+        }
+
+        return AgentTurnProgress::paused(new InterceptedModelCall('decision', $routingInput, [
+            'routing_input' => ['stage' => $routingInput->stage, 'messages' => $routingInput->messages],
+        ]));
+    }
+
+    /** @param array<string, mixed> $state */
+    public function resumeIntercepted(
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        string $callKey,
+        string $rawCompletion,
+        array $state,
+    ): AgentTurnProgress {
+        $routingData = (array) ($state['routing_input'] ?? []);
+        $routingInput = new PreparedModelInput(
+            (string) ($routingData['stage'] ?? 'decision'),
+            (array) ($routingData['messages'] ?? []),
+        );
+
+        if ($callKey === 'decision') {
+            $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $rawCompletion);
+            if ($processed['error'] !== null || $processed['decision'] === null) {
+                return AgentTurnProgress::completed(new AgentTurnResult(
+                    $this->safeResponse(
+                        'The routing model did not return a usable decision, so no SEO data was fetched.',
+                        $processed['bundle'],
+                        'routing_decision_invalid',
+                    ),
+                    $routingInput,
+                    $processed['answerInput'],
+                    false,
+                ));
+            }
+
+            return AgentTurnProgress::paused(new InterceptedModelCall('answer', $processed['answerInput'], [
+                'routing_input' => $state['routing_input'],
+                'bundle' => $processed['bundle']->toArray(),
+            ]));
+        }
+
+        if ($callKey !== 'answer' || ! isset($state['bundle']) || ! is_array($state['bundle'])) {
+            throw new InvalidArgumentException('The paused model call is invalid.');
+        }
+
+        $bundle = RetrievalBundle::fromArray($state['bundle']);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+        try {
+            $response = $this->responses->parse($rawCompletion, $bundle);
+        } catch (AgentResponseRejected | Throwable) {
+            $response = $this->safeResponse(
+                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
+                $bundle,
+            );
+        }
+
+        return AgentTurnProgress::completed(new AgentTurnResult($response, $routingInput, $answerInput, true));
     }
 
     /**

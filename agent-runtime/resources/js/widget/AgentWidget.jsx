@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bug, Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
+import { Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -42,7 +42,6 @@ export function AgentWidget({
     turnUrl: propTurnUrl,
     threadsUrl: propThreadsUrl,
     copyUrl: propCopyUrl,
-    modelDebugStartUrl: propModelDebugStartUrl,
     modelDebugApplyUrl: propModelDebugApplyUrl,
     csrf = '',
     mode = 'standalone',
@@ -55,7 +54,6 @@ export function AgentWidget({
         turnUrl: propTurnUrl || rawEndpoints?.turnUrl || '/agent-runtime/turns',
         threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
-        modelDebugStartUrl: propModelDebugStartUrl || rawEndpoints?.modelDebugStartUrl || '/agent-runtime/model-debug/start',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
     };
 
@@ -84,32 +82,13 @@ export function AgentWidget({
     const [diagnostics, setDiagnostics] = useState(false);
     const [lastCopy, setLastCopy] = useState(null);
 
-    // Model Debug State
+    const [debugMode, setDebugMode] = useState(false);
     const [debugOpen, setDebugOpen] = useState(false);
     const [debugBusy, setDebugBusy] = useState(false);
-    const [debugStage, setDebugStage] = useState('decision');
-    const [debugUserMessage, setDebugUserMessage] = useState('');
-
-    const [debugDecisionPrompt, setDebugDecisionPrompt] = useState('');
-    const [debugDecisionPromptSize, setDebugDecisionPromptSize] = useState(0);
-    const [debugDecisionAssumedModel, setDebugDecisionAssumedModel] = useState(null);
-    const [debugDecisionManualResult, setDebugDecisionManualResult] = useState('');
-    const [debugDecisionParseSuccess, setDebugDecisionParseSuccess] = useState(false);
-    const [debugDecisionParserError, setDebugDecisionParserError] = useState('');
-    const [debugDecisionApplied, setDebugDecisionApplied] = useState(false);
-
-    const [debugRetrievalTrace, setDebugRetrievalTrace] = useState([]);
-    const [debugParsedDecision, setDebugParsedDecision] = useState(null);
-
-    const [debugAnswerPrompt, setDebugAnswerPrompt] = useState('');
-    const [debugAnswerPromptSize, setDebugAnswerPromptSize] = useState(0);
-    const [debugAnswerAssumedModel, setDebugAnswerAssumedModel] = useState(null);
-    const [debugAnswerManualResult, setDebugAnswerManualResult] = useState('');
-    const [debugAnswerParseSuccess, setDebugAnswerParseSuccess] = useState(false);
-    const [debugAnswerParserError, setDebugAnswerParserError] = useState('');
-    const [debugAnswerApplied, setDebugAnswerApplied] = useState(false);
-
-    const [debugCanonicalResponse, setDebugCanonicalResponse] = useState(null);
+    const [debugRunUlid, setDebugRunUlid] = useState('');
+    const [debugCall, setDebugCall] = useState(null);
+    const [debugManualResult, setDebugManualResult] = useState('');
+    const [debugParserError, setDebugParserError] = useState('');
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -236,25 +215,10 @@ export function AgentWidget({
     }, [endpoints.threadsUrl, hostContext.appKey, currentScopeRef]);
 
     const resetDebugState = useCallback(() => {
-        setDebugStage('decision');
-        setDebugUserMessage('');
-        setDebugDecisionPrompt('');
-        setDebugDecisionPromptSize(0);
-        setDebugDecisionAssumedModel(null);
-        setDebugDecisionManualResult('');
-        setDebugDecisionParseSuccess(false);
-        setDebugDecisionParserError('');
-        setDebugDecisionApplied(false);
-        setDebugRetrievalTrace([]);
-        setDebugParsedDecision(null);
-        setDebugAnswerPrompt('');
-        setDebugAnswerPromptSize(0);
-        setDebugAnswerAssumedModel(null);
-        setDebugAnswerManualResult('');
-        setDebugAnswerParseSuccess(false);
-        setDebugAnswerParserError('');
-        setDebugAnswerApplied(false);
-        setDebugCanonicalResponse(null);
+        setDebugRunUlid('');
+        setDebugCall(null);
+        setDebugManualResult('');
+        setDebugParserError('');
         setDebugBusy(false);
     }, []);
 
@@ -271,147 +235,35 @@ export function AgentWidget({
         setDebugOpen(false);
     }, [hostContext.appKey, currentScopeRef, resetDebugState]);
 
-    const startModelDebug = useCallback(async (messageOverride) => {
-        const message = (messageOverride ?? draft).trim();
-        if (busy || debugBusy || message === '') {
-            return;
-        }
-        if (globalUnsupported) {
-            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project.');
+    async function onApplyDebugResult() {
+        if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
             return;
         }
         setDebugBusy(true);
-        setError('');
+        setDebugParserError('');
+        setDebugOpen(false);
         try {
-            const payload = await postJson(endpoints.modelDebugStartUrl, csrf, {
-                hostContext: {
-                    appKey: hostContext.appKey,
-                    scope: scopePayload(selected),
-                    capabilities: hostContext.capabilities,
-                },
-                scope: scopePayload(selected),
-                message,
-                history: messages.map((m) => ({ role: m.role, content: m.content })),
+            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
+                run_ulid: debugRunUlid,
+                manual_result: debugManualResult,
             });
             const data = payload?.data || {};
-            setDebugUserMessage(message);
-            setDebugDecisionPrompt(data.full_prompt || '');
-            setDebugDecisionPromptSize(data.prompt_size || (data.full_prompt ? data.full_prompt.length : 0));
-            setDebugDecisionAssumedModel(data.assumed_model || null);
-            setDebugDecisionManualResult('');
-            setDebugDecisionParseSuccess(false);
-            setDebugDecisionParserError('');
-            setDebugDecisionApplied(false);
-            setDebugRetrievalTrace([]);
-            setDebugParsedDecision(null);
-            setDebugAnswerPrompt('');
-            setDebugAnswerPromptSize(0);
-            setDebugAnswerAssumedModel(null);
-            setDebugAnswerManualResult('');
-            setDebugAnswerParseSuccess(false);
-            setDebugAnswerParserError('');
-            setDebugAnswerApplied(false);
-            setDebugCanonicalResponse(null);
-            setDebugStage('decision');
+            if (data.status === 'paused') {
+                setDebugCall(data.model_call || null);
+                setDebugManualResult('');
+                setDebugOpen(true);
+                return;
+            }
+            setMessages((current) => [...current, {
+                role: 'assistant',
+                content: data.message || '',
+                response: data,
+            }]);
+            resetDebugState();
+            fetchThreads(currentScopeRef);
+        } catch (caught) {
+            setDebugParserError(caught.message);
             setDebugOpen(true);
-        } catch (caught) {
-            setError(caught.message);
-        } finally {
-            setDebugBusy(false);
-        }
-    }, [busy, debugBusy, draft, globalUnsupported, endpoints.modelDebugStartUrl, csrf, hostContext, selected, messages]);
-
-    const onResetDebug = useCallback(async () => {
-        const message = debugUserMessage || draft.trim();
-        resetDebugState();
-        if (message) {
-            await startModelDebug(message);
-        }
-    }, [debugUserMessage, draft, resetDebugState, startModelDebug]);
-
-    async function onApplyDecision() {
-        if (debugBusy || !debugDecisionManualResult.trim()) {
-            return;
-        }
-        setDebugBusy(true);
-        setDebugDecisionParserError('');
-        try {
-            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
-                stage: 'decision',
-                manual_result: debugDecisionManualResult,
-                hostContext: {
-                    appKey: hostContext.appKey,
-                    scope: scopePayload(selected),
-                    capabilities: hostContext.capabilities,
-                },
-                scope: scopePayload(selected),
-                message: debugUserMessage,
-                history: messages.map((m) => ({ role: m.role, content: m.content })),
-            });
-            const data = payload?.data || {};
-            if (data.status === 'error' || !data.parse_success) {
-                setDebugDecisionParseSuccess(false);
-                setDebugDecisionParserError(data.error || 'Failed to parse decision JSON.');
-                setDebugDecisionApplied(true);
-                return;
-            }
-            setDebugDecisionParseSuccess(true);
-            setDebugDecisionParserError('');
-            setDebugDecisionApplied(true);
-            setDebugParsedDecision(data.parsed_decision || null);
-            setDebugRetrievalTrace(data.retrieval_trace || []);
-
-            if (data.next_stage === 'answer') {
-                setDebugAnswerPrompt(data.full_prompt || '');
-                setDebugAnswerPromptSize(data.prompt_size || (data.full_prompt ? data.full_prompt.length : 0));
-                setDebugAnswerAssumedModel(data.assumed_model || null);
-                setDebugStage('answer');
-            }
-        } catch (caught) {
-            setDebugDecisionParserError(caught.message);
-            setDebugDecisionParseSuccess(false);
-            setDebugDecisionApplied(true);
-        } finally {
-            setDebugBusy(false);
-        }
-    }
-
-    async function onApplyAnswer() {
-        if (debugBusy || !debugAnswerManualResult.trim()) {
-            return;
-        }
-        setDebugBusy(true);
-        setDebugAnswerParserError('');
-        try {
-            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
-                stage: 'answer',
-                manual_result: debugAnswerManualResult,
-                raw_decision: debugDecisionManualResult,
-                hostContext: {
-                    appKey: hostContext.appKey,
-                    scope: scopePayload(selected),
-                    capabilities: hostContext.capabilities,
-                },
-                scope: scopePayload(selected),
-                message: debugUserMessage,
-                history: messages.map((m) => ({ role: m.role, content: m.content })),
-            });
-            const data = payload?.data || {};
-            if (data.status === 'error' || !data.parse_success) {
-                setDebugAnswerParseSuccess(false);
-                setDebugAnswerParserError(data.error || 'Failed to parse answer response.');
-                setDebugAnswerApplied(true);
-                return;
-            }
-            setDebugAnswerParseSuccess(true);
-            setDebugAnswerParserError('');
-            setDebugAnswerApplied(true);
-            setDebugCanonicalResponse(data.canonical_response || null);
-            setDebugStage('done');
-        } catch (caught) {
-            setDebugAnswerParserError(caught.message);
-            setDebugAnswerParseSuccess(false);
-            setDebugAnswerApplied(true);
         } finally {
             setDebugBusy(false);
         }
@@ -501,7 +353,22 @@ export function AgentWidget({
                 scope: scopePayload(selected),
                 message,
                 history,
+                debug_mode: debugMode,
             });
+            const data = payload?.data || {};
+            if (data.status === 'paused') {
+                setDebugRunUlid(data.run_ulid || '');
+                setDebugCall(data.model_call || null);
+                setDebugManualResult('');
+                setDebugParserError('');
+                setDebugOpen(true);
+                const pausedThreadUlid = data.thread_ulid;
+                if (pausedThreadUlid && pausedThreadUlid !== activeThreadUlid) {
+                    setActiveThreadUlid(pausedThreadUlid);
+                    setStoredThreadUlid(hostContext.appKey, currentScopeRef, pausedThreadUlid);
+                }
+                return;
+            }
             const response = payload?.data?.response ?? payload?.data;
             const returnedUlid = payload?.data?.thread_ulid || response?.thread_ulid;
 
@@ -763,16 +630,15 @@ export function AgentWidget({
                                 Copy routing input
                             </button>
                         ) : null}
-                        <button
-                            type="button"
-                            className="agent-model-debug-btn"
-                            onClick={() => startModelDebug()}
-                            disabled={busy || debugBusy || draft.trim() === ''}
-                            title="Open Model Debug simulator"
-                        >
-                            <Bug size={16} />
-                            <span>Model Debug</span>
-                        </button>
+                        <label className="agent-model-debug-toggle">
+                            <input
+                                type="checkbox"
+                                checked={debugMode}
+                                onChange={(event) => setDebugMode(event.target.checked)}
+                                disabled={busy || debugBusy}
+                            />
+                            Debug mode
+                        </label>
                         <button type="submit" disabled={busy || draft.trim() === ''} className={busy ? 'is-busy' : ''}>
                             {busy ? <Loader2 size={16} className="agent-spin" /> : <Send size={16} />}
                             Send
@@ -783,33 +649,13 @@ export function AgentWidget({
 
             <ModelDebugModal
                 isOpen={debugOpen}
-                onClose={() => setDebugOpen(false)}
-                onReset={onResetDebug}
                 scopeLabel={selected.label}
-                userMessage={debugUserMessage}
-                decisionPrompt={debugDecisionPrompt}
-                decisionPromptSize={debugDecisionPromptSize}
-                decisionAssumedModel={debugDecisionAssumedModel}
-                decisionManualResult={debugDecisionManualResult}
-                onDecisionManualResultChange={setDebugDecisionManualResult}
-                onApplyDecision={onApplyDecision}
-                isApplyingDecision={debugBusy}
-                decisionParseSuccess={debugDecisionParseSuccess}
-                decisionParserError={debugDecisionParserError}
-                decisionApplied={debugDecisionApplied}
-                retrievalTrace={debugRetrievalTrace}
-                parsedDecision={debugParsedDecision}
-                answerPrompt={debugAnswerPrompt}
-                answerPromptSize={debugAnswerPromptSize}
-                answerAssumedModel={debugAnswerAssumedModel}
-                answerManualResult={debugAnswerManualResult}
-                onAnswerManualResultChange={setDebugAnswerManualResult}
-                onApplyAnswer={onApplyAnswer}
-                isApplyingAnswer={debugBusy}
-                answerParseSuccess={debugAnswerParseSuccess}
-                answerParserError={debugAnswerParserError}
-                answerApplied={debugAnswerApplied}
-                canonicalResponse={debugCanonicalResponse}
+                modelCall={debugCall}
+                manualResult={debugManualResult}
+                onManualResultChange={setDebugManualResult}
+                onApply={onApplyDebugResult}
+                isApplying={debugBusy}
+                parserError={debugParserError}
             />
         </div>
     );

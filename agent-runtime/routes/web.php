@@ -11,7 +11,6 @@ Route::middleware(['web', 'auth'])
         Route::get('/projects', [AgentRuntimeController::class, 'projects'])->name('agent-runtime.projects');
         Route::post('/turns', [AgentRuntimeController::class, 'turn'])->name('agent-runtime.turns');
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');
-        Route::post('/model-debug/start', [AgentRuntimeController::class, 'modelDebugStart'])->name('agent-runtime.model-debug.start');
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');
 
         // Thread management
