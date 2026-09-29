@@ -26,6 +26,7 @@ final class AgentTurnResult
         public PreparedModelInput $routingInput,
         public PreparedModelInput $answerInput,
         public bool $answerModelCalled,
+        public ?string $failureCode = null,
     ) {}
 
     /**
@@ -100,6 +101,7 @@ class AgentTurnCoordinator
                 $prepared['routing'],
                 $prepared['answer'],
                 false,
+                $prepared['failureCode'],
             );
         }
 
@@ -113,7 +115,13 @@ class AgentTurnCoordinator
             );
         }
 
-        return new AgentTurnResult($response, $prepared['routing'], $prepared['answer'], true);
+        return new AgentTurnResult(
+            $response,
+            $prepared['routing'],
+            $prepared['answer'],
+            true,
+            $this->failureCodeFromBundle($prepared['bundle']),
+        );
     }
 
     /**
@@ -138,6 +146,7 @@ class AgentTurnCoordinator
                 $routingInput,
                 $answer,
                 false,
+                'global_access_unsupported',
             ));
         }
 
@@ -173,6 +182,7 @@ class AgentTurnCoordinator
                     $routingInput,
                     $processed['answerInput'],
                     false,
+                    'routing_decision_invalid',
                 ));
             }
 
@@ -197,7 +207,13 @@ class AgentTurnCoordinator
             );
         }
 
-        return AgentTurnProgress::completed(new AgentTurnResult($response, $routingInput, $answerInput, true));
+        return AgentTurnProgress::completed(new AgentTurnResult(
+            $response,
+            $routingInput,
+            $answerInput,
+            true,
+            $this->failureCodeFromBundle($bundle),
+        ));
     }
 
     /**
@@ -282,7 +298,7 @@ class AgentTurnCoordinator
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null}
+     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null, failureCode: string|null}
      */
     private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history): array
     {
@@ -299,6 +315,7 @@ class AgentTurnCoordinator
                     $bundle,
                     'global_access_unsupported',
                 ),
+                'failureCode' => 'global_access_unsupported',
             ];
         }
 
@@ -315,6 +332,7 @@ class AgentTurnCoordinator
                     $bundle,
                     $decisionResult->failureCode ?? 'decision_unavailable',
                 ),
+                'failureCode' => $decisionResult->failureCode ?? 'decision_unavailable',
             ];
         }
 
@@ -329,6 +347,7 @@ class AgentTurnCoordinator
                     $processed['bundle'],
                     'routing_decision_invalid',
                 ),
+                'failureCode' => 'routing_decision_invalid',
             ];
         }
 
@@ -341,7 +360,25 @@ class AgentTurnCoordinator
             'answer' => $processed['answerInput'],
             'bundle' => $processed['bundle'],
             'response' => null,
+            'failureCode' => $this->failureCodeFromBundle($processed['bundle']),
         ];
+    }
+
+    private function failureCodeFromBundle(RetrievalBundle $bundle): ?string
+    {
+        foreach ($bundle->sources as $source) {
+            if ($source->status !== 'ok' && $source->reason !== null && $source->reason !== '') {
+                return $source->reason;
+            }
+        }
+
+        foreach ($bundle->warnings as $warning) {
+            if (is_string($warning) && $warning !== '') {
+                return $warning;
+            }
+        }
+
+        return null;
     }
 
     private function decisionFailureMessage(?string $code): string

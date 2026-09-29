@@ -30,6 +30,11 @@ async function postJson(url, csrf, body) {
     return payload;
 }
 
+function waitingForManualModel(modelCall) {
+    const stage = String(modelCall?.key || 'model');
+    return `Waiting for manual ${stage.charAt(0).toUpperCase()}${stage.slice(1)} result…`;
+}
+
 /**
  * Canonical Agent React widget.
  * Decoupled from SEO navigation/page logic and embeddable in any host
@@ -89,6 +94,7 @@ export function AgentWidget({
     const [debugCall, setDebugCall] = useState(null);
     const [debugManualResult, setDebugManualResult] = useState('');
     const [debugParserError, setDebugParserError] = useState('');
+    const [processingStatus, setProcessingStatus] = useState(null);
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -220,6 +226,7 @@ export function AgentWidget({
         setDebugManualResult('');
         setDebugParserError('');
         setDebugBusy(false);
+        setProcessingStatus(null);
     }, []);
 
     // New conversation action: clears active thread, messages, and saved state
@@ -242,6 +249,7 @@ export function AgentWidget({
         setDebugBusy(true);
         setDebugParserError('');
         setDebugOpen(false);
+        setProcessingStatus('Thinking…');
         try {
             const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
                 run_ulid: debugRunUlid,
@@ -251,6 +259,7 @@ export function AgentWidget({
             if (data.status === 'paused') {
                 setDebugCall(data.model_call || null);
                 setDebugManualResult('');
+                setProcessingStatus(waitingForManualModel(data.model_call));
                 setDebugOpen(true);
                 return;
             }
@@ -263,6 +272,7 @@ export function AgentWidget({
             fetchThreads(currentScopeRef);
         } catch (caught) {
             setDebugParserError(caught.message);
+            setProcessingStatus(null);
             setDebugOpen(true);
         } finally {
             setDebugBusy(false);
@@ -332,6 +342,7 @@ export function AgentWidget({
         }
         setBusy(true);
         setError('');
+        setProcessingStatus('Thinking…');
         setDraft('');
         const history = messages.map((item) => ({ role: item.role, content: item.content }));
         setMessages((current) => [...current, { role: 'user', content: message }]);
@@ -361,6 +372,7 @@ export function AgentWidget({
                 setDebugCall(data.model_call || null);
                 setDebugManualResult('');
                 setDebugParserError('');
+                setProcessingStatus(waitingForManualModel(data.model_call));
                 setDebugOpen(true);
                 const pausedThreadUlid = data.thread_ulid;
                 if (pausedThreadUlid && pausedThreadUlid !== activeThreadUlid) {
@@ -384,8 +396,10 @@ export function AgentWidget({
                 content: response?.message || '',
                 response,
             }]);
+            setProcessingStatus(null);
         } catch (caught) {
             setError(caught.message);
+            setProcessingStatus(null);
         } finally {
             setBusy(false);
         }
@@ -600,6 +614,12 @@ export function AgentWidget({
                                 : <p>{message.content}</p>}
                         </article>
                     ))}
+                    {processingStatus ? (
+                        <article className="is-assistant agent-processing-status" role="status" aria-live="polite">
+                            <Loader2 size={16} className="agent-spin" />
+                            <span>{processingStatus}</span>
+                        </article>
+                    ) : null}
                 </div>
                 {error ? <p className="agent-warning">{error}</p> : null}
                 <form

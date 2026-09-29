@@ -155,12 +155,8 @@ final class AgentRuntimeController
             if ($result->answerModelCalled) {
                 $meta['answer_model'] = 'called';
             }
-            // Extract failure_code from any warning block (not positional index)
-            foreach ($result->response->blocks as $block) {
-                if (isset($block['type'], $block['text']) && $block['type'] === 'warning') {
-                    $meta['failure_code'] = $block['text'];
-                    break;
-                }
+            if ($result->failureCode !== null) {
+                $meta['failure_code'] = $result->failureCode;
             }
 
             $persistence->completeRun($run, $result->response, $meta);
@@ -420,11 +416,8 @@ final class AgentRuntimeController
         }
 
         $meta = $result->answerModelCalled ? ['answer_model' => 'manual'] : [];
-        foreach ($result->response->blocks as $block) {
-            if (($block['type'] ?? null) === 'warning' && isset($block['text'])) {
-                $meta['failure_code'] = $block['text'];
-                break;
-            }
+        if ($result->failureCode !== null) {
+            $meta['failure_code'] = $result->failureCode;
         }
         $persistence->completeRun($run, $result->response, $meta);
         $threads->touchLastMessage($thread);

@@ -164,7 +164,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_executor_refuses_external_urls_and_hides_permanent_credentials(): void
     {
-        $transport = new RecordingTransport();
+        $transport = new RecordingTransport('no_gsc_property');
         $executor = new SeoAccessExecutor(
             $transport,
             new class implements SeoAccessCredential {
@@ -669,19 +669,56 @@ final class AgentRuntimeContractTest extends TestCase
         $retrievalCalls = count($transport->calls);
         self::assertGreaterThan(0, $retrievalCalls);
 
+        $longWarning = trim(str_repeat('Google Search Console is unavailable for this property. ', 8));
         $answer = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $run->ulid,
-            'manual_result' => '{"message":"Manual answer","blocks":[{"type":"markdown","text":"Manual answer"}],"actions":[]}',
+            'manual_result' => json_encode([
+                'message' => $longWarning,
+                'blocks' => [['type' => 'warning', 'text' => $longWarning]],
+                'actions' => [],
+            ], JSON_THROW_ON_ERROR),
         ]), $coordinator, $threads, $persistence, $resolver);
-        self::assertSame('Manual answer', $answer->getData(true)['data']['message']);
+        self::assertSame($longWarning, $answer->getData(true)['data']['message']);
+        self::assertSame($longWarning, $answer->getData(true)['data']['blocks'][0]['text']);
         self::assertSame($retrievalCalls, count($transport->calls));
         self::assertSame(0, $decisions->calls);
         self::assertSame(0, $answers->calls);
 
         $run->refresh();
         self::assertSame('done', $run->status);
+        self::assertSame('no_gsc_property', $run->failure_code);
+        self::assertNotSame($longWarning, $run->failure_code);
         self::assertNotNull($run->assistant_message_id);
         self::assertSame(1, $run->thread->messages()->where('role', 'assistant')->count());
+        self::assertSame($longWarning, $run->assistantMessage->response_payload['blocks'][0]['text']);
+    }
+
+    public function test_normal_send_persists_canonical_retrieval_reason_instead_of_long_warning_text(): void
+    {
+        $longWarning = trim(str_repeat('Google Search Console is unavailable for this property. ', 8));
+        $answers = new RecordingAnswerGateway(json_encode([
+            'message' => $longWarning,
+            'blocks' => [['type' => 'warning', 'text' => $longWarning]],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR));
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            $answers,
+            new RecordingTransport('no_gsc_property'),
+        );
+        $controller = new AgentRuntimeController();
+        $controller->turn(
+            $this->createTurnRequest(['scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'Check traffic']),
+            $coordinator,
+            new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]),
+            app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class),
+            app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class),
+        );
+
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::latest('id')->firstOrFail();
+        self::assertSame('done', $run->status);
+        self::assertSame('no_gsc_property', $run->failure_code);
+        self::assertSame($longWarning, $run->assistantMessage->response_payload['blocks'][0]['text']);
     }
 
     public function test_existing_normal_send_flow_remains_unchanged(): void
@@ -815,6 +852,8 @@ final class RecordingTransport implements SeoAccessTransport
     /** @var list<array{method: string, url: string, bearer: ?string, body: ?array}> */
     public array $calls = [];
 
+    public function __construct(private readonly string $unavailableReason = 'no_synced_data') {}
+
     public function request(string $method, string $url, array $query = [], ?string $bearer = null, ?array $jsonBody = null): array
     {
         $this->calls[] = [
@@ -838,7 +877,7 @@ final class RecordingTransport implements SeoAccessTransport
             'status' => 200,
             'json' => ['data' => [
                 'available' => false,
-                'reason' => 'no_synced_data',
+                'reason' => $this->unavailableReason,
                 'period' => '2026-09',
                 'latest_available' => ['period' => '2026-07'],
             ]],
@@ -862,10 +901,16 @@ final class RecordingAnswerGateway implements AnswerModelGateway
 
     public string $lastExport = '';
 
+    public function __construct(private readonly ?string $rawResponse = null) {}
+
     public function complete(int $userId, PreparedModelInput $input): string
     {
         $this->calls++;
         $this->lastExport = $input->exportText();
+
+        if ($this->rawResponse !== null) {
+            return $this->rawResponse;
+        }
 
         return json_encode([
             'message' => 'No synchronized GSC data for that period.',

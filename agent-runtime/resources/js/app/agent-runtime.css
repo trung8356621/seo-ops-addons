@@ -120,6 +120,15 @@
     padding: 10px 12px;
 }
 
+.agent-processing-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    color: #64748b;
+    font-size: 13px;
+}
+
 .agent-composer {
     display: flex;
     flex-direction: column;

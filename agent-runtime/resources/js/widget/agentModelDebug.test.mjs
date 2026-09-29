@@ -78,3 +78,30 @@ test('retired 0.9.22 simulator UI is absent', () => {
     assert.equal(modal.includes('title="DECISION"'), false);
     assert.equal(modal.includes('title="ANSWER"'), false);
 });
+
+test('Send shows ephemeral Thinking and both normal completion and error clear it', () => {
+    const send = widget.slice(widget.indexOf('async function onSend()'), widget.indexOf('const shellClass'));
+    assert.ok(send.indexOf("setProcessingStatus('Thinking…');") < send.indexOf('postJson(sendUrl'));
+    assert.match(send, /setMessages\(\(current\) => \[\.\.\.current, \{[\s\S]*role: 'assistant',[\s\S]*setProcessingStatus\(null\);/);
+    assert.match(send, /catch \(caught\) \{[\s\S]*setError\(caught\.message\);\s*setProcessingStatus\(null\);/);
+});
+
+test('debug pauses show manual waiting status and Apply restores Thinking while resuming', () => {
+    assert.equal(widget.includes('function waitingForManualModel(modelCall)'), true);
+    const apply = widget.slice(widget.indexOf('async function onApplyDebugResult()'), widget.indexOf('// Scope change / initial mount effect'));
+    assert.ok(apply.indexOf('setDebugOpen(false);') < apply.indexOf("setProcessingStatus('Thinking…');"));
+    assert.ok(apply.indexOf("setProcessingStatus('Thinking…');") < apply.indexOf('postJson('));
+    assert.match(apply, /if \(data\.status === 'paused'\) \{[\s\S]*setProcessingStatus\(waitingForManualModel\(data\.model_call\)\);[\s\S]*setDebugOpen\(true\);/);
+    assert.equal(apply.includes('resetDebugState();'), true);
+});
+
+test('processing status is frontend-only and lifecycle resets clear it', () => {
+    assert.match(widget, /\{processingStatus \? \([\s\S]*role="status"[\s\S]*\{processingStatus\}/);
+    assert.equal(widget.includes("role: 'status'"), false);
+    assert.equal(widget.includes("content: processingStatus"), false);
+
+    const reset = widget.slice(widget.indexOf('const resetDebugState'), widget.indexOf('// New conversation action'));
+    assert.equal(reset.includes('setProcessingStatus(null);'), true);
+    const scopeEffect = widget.slice(widget.indexOf('// Scope change / initial mount effect'), widget.indexOf('async function copyText'));
+    assert.equal(scopeEffect.includes('resetDebugState();'), true);
+});
