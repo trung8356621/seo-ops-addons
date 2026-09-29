@@ -641,9 +641,18 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringContainsString('what the evidence says, why it matters, and what to do next', $prompt);
         self::assertStringContainsString('exactly one valid JSON object', $prompt);
         self::assertStringContainsString('Do not wrap it in a Markdown code fence', $prompt);
-        self::assertStringContainsString('Put inferred new topics in markdown/list content', $prompt);
+        self::assertStringContainsString('Markdown is the safe default block type', $prompt);
+        self::assertStringContainsString('inferred new topics in markdown list/text content', $prompt);
+        self::assertStringContainsString('NEW SUGGESTED IDEAS', $prompt);
+        self::assertStringContainsString('Tables and charts are evidence presentation tools, not reasoning or ideation tools', $prompt);
+        self::assertStringContainsString('every numeric value is copied directly', $prompt);
+        self::assertStringContainsString('If evidence support is uncertain, use markdown instead', $prompt);
+        self::assertStringContainsString('priority scores, confidence percentages, estimated demand', $prompt);
+        self::assertStringContainsString('never fabricate search volume, Topic IDs, article or DNA counts, keyword counts, scores', $prompt);
+        self::assertStringContainsString('blocks and actions must be JSON arrays', $prompt);
         self::assertStringNotContainsString('new topic or content opportunities', $routing);
         self::assertStringNotContainsString('inferred new topics', $routing);
+        self::assertStringNotContainsString('Markdown is the safe default block type', $routing);
     }
 
     public function test_answer_rejection_diagnostics_are_opt_in_redacted_and_preserve_parser_reason(): void
