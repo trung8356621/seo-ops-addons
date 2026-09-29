@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapDestinationKind;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
@@ -44,6 +45,10 @@ class LinkClassificationReconciliationService
         $updated = 0;
         $total = 0;
         $patches = [];
+
+        if (! Schema::connection(self::CONNECTION)->hasTable('seo_link_maps')) {
+            return ['total' => 0, 'updated' => 0, 'patches' => []];
+        }
 
         DB::connection(self::CONNECTION)
             ->table('seo_link_maps')

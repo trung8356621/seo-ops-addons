@@ -56,6 +56,11 @@ final class TrustedExternalDomainsReclassificationTest extends TestCase
             'autosave_interval_seconds' => 2,
             'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu'],
         ]);
+
+        $historyService = app(ArticleEditorHistoryService::class);
+        $historyService->setReconciliationFingerprint(
+            $historyService->computeTrustedDomainsFingerprint(['wikipedia.org', '*.gov', '*.edu'])
+        );
     }
 
     protected function tearDown(): void
@@ -199,6 +204,153 @@ final class TrustedExternalDomainsReclassificationTest extends TestCase
         $countsAfter = $readModel->categoryCounts(1);
         self::assertSame(2, $countsAfter['reference'], 'example.org became reference');
         self::assertSame(0, $countsAfter['needs_review'], 'needs_review became 0');
+    }
+
+    public function test_existing_trusted_settings_predate_fingerprint_runs_reconciliation_and_stores_fingerprint(): void
+    {
+        // 1. Existing trusted settings predate fingerprint:
+        WpOption::where('option_name', ArticleEditorHistoryService::RECONCILIATION_FINGERPRINT_OPTION_KEY)->delete();
+        WpOption::clearRequestCache();
+
+        $service = app(ArticleEditorHistoryService::class);
+        self::assertNull($service->getReconciliationFingerprint());
+
+        $mock = $this->createMock(LinkClassificationReconciliationService::class);
+        $mock->expects($this->once())->method('reconcile');
+        $this->app->instance(LinkClassificationReconciliationService::class, $mock);
+
+        // Save identical list of domains
+        $service->saveSettings([
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu'],
+        ]);
+
+        $this->app->forgetInstance(LinkClassificationReconciliationService::class);
+        self::assertNotNull($service->getReconciliationFingerprint());
+        self::assertSame(
+            $service->computeTrustedDomainsFingerprint(['wikipedia.org', '*.gov', '*.edu']),
+            $service->getReconciliationFingerprint()
+        );
+    }
+
+    public function test_existing_stale_needs_review_natoli_vn_reclassifies_to_wikitrust_when_fingerprint_missing(): void
+    {
+        // 2. Existing stale NeedsReview natoli.vn:
+        WpOption::set(ArticleEditorHistoryService::OPTION_KEY, [
+            'history_step' => 20,
+            'autosave_interval_seconds' => 2,
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu', 'natoli.vn'],
+        ]);
+        WpOption::where('option_name', ArticleEditorHistoryService::RECONCILIATION_FINGERPRINT_OPTION_KEY)->delete();
+        WpOption::clearRequestCache();
+
+        $service = app(ArticleEditorHistoryService::class);
+        self::assertNull($service->getReconciliationFingerprint());
+
+        // Stale row created before reconciliation hook existed
+        $id = $this->insertLinkMap('needs_review', 'https://natoli.vn/ao-khoac-nam');
+        $this->assertStored($id, 'needs_review');
+
+        // User clicks "Save settings" without changing the list
+        $service->saveSettings([
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu', 'natoli.vn'],
+        ]);
+
+        // Row becomes wiki_trust / reference
+        $this->assertStored($id, 'wiki_trust', 'reference');
+        self::assertSame(
+            $service->computeTrustedDomainsFingerprint(['wikipedia.org', '*.gov', '*.edu', 'natoli.vn']),
+            $service->getReconciliationFingerprint()
+        );
+    }
+
+    public function test_add_or_remove_trusted_domain_changes_fingerprint_and_reconciles(): void
+    {
+        // 4. Add/remove trusted domain:
+        $service = app(ArticleEditorHistoryService::class);
+        $initialFingerprint = $service->getReconciliationFingerprint();
+        self::assertNotNull($initialFingerprint);
+
+        // Add domain
+        $service->saveSettings([
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu', 'natoli.vn'],
+        ]);
+        $addedFingerprint = $service->getReconciliationFingerprint();
+        self::assertNotNull($addedFingerprint);
+        self::assertNotSame($initialFingerprint, $addedFingerprint);
+        self::assertSame(
+            $service->computeTrustedDomainsFingerprint(['wikipedia.org', '*.gov', '*.edu', 'natoli.vn']),
+            $addedFingerprint
+        );
+
+        // Remove domain
+        $service->saveSettings([
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu'],
+        ]);
+        $removedFingerprint = $service->getReconciliationFingerprint();
+        self::assertSame($initialFingerprint, $removedFingerprint);
+    }
+
+    public function test_reconciliation_failure_does_not_advance_fingerprint(): void
+    {
+        // 5. Reconciliation failure:
+        $service = app(ArticleEditorHistoryService::class);
+        $initialFingerprint = $service->getReconciliationFingerprint();
+        self::assertNotNull($initialFingerprint);
+
+        $mock = $this->createMock(LinkClassificationReconciliationService::class);
+        $mock->expects($this->once())
+            ->method('reconcile')
+            ->willThrowException(new \RuntimeException('Database failure during reconciliation'));
+        $this->app->instance(LinkClassificationReconciliationService::class, $mock);
+
+        $caught = false;
+        try {
+            $service->saveSettings([
+                'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu', 'unreconciled.org'],
+            ]);
+        } catch (\RuntimeException $e) {
+            $caught = true;
+            self::assertSame('Database failure during reconciliation', $e->getMessage());
+        }
+
+        $this->app->forgetInstance(LinkClassificationReconciliationService::class);
+        self::assertTrue($caught, 'Expected RuntimeException was thrown');
+
+        // Fingerprint must NOT advance to the new domain's fingerprint
+        self::assertSame($initialFingerprint, $service->getReconciliationFingerprint());
+    }
+
+    public function test_history_step_and_autosave_only_change_leaves_fingerprint_unchanged_and_skips_reconciliation(): void
+    {
+        // 6. history_step/autosave-only change:
+        $service = app(ArticleEditorHistoryService::class);
+        $fingerprintBefore = $service->getReconciliationFingerprint();
+        self::assertNotNull($fingerprintBefore);
+
+        $mock = $this->createMock(LinkClassificationReconciliationService::class);
+        $mock->expects($this->never())->method('reconcile');
+        $this->app->instance(LinkClassificationReconciliationService::class, $mock);
+
+        // 1. Save with only history_step / autosave changed while passing same wiki_trust_domains
+        $service->saveSettings([
+            'history_step' => 45,
+            'autosave_interval_seconds' => 15,
+            'wiki_trust_domains' => ['wikipedia.org', '*.gov', '*.edu'],
+        ]);
+
+        self::assertSame(45, $service->getHistoryStep());
+        self::assertSame($fingerprintBefore, $service->getReconciliationFingerprint());
+
+        // 2. Save with wiki_trust_domains omitted entirely
+        $service->saveSettings([
+            'history_step' => 50,
+            'autosave_interval_seconds' => 5,
+        ]);
+
+        self::assertSame(50, $service->getHistoryStep());
+        self::assertSame($fingerprintBefore, $service->getReconciliationFingerprint());
+
+        $this->app->forgetInstance(LinkClassificationReconciliationService::class);
     }
 
     private function insertLinkMap(string $linkType, string $url, array $extra = []): int

@@ -49,3 +49,37 @@ If uncertainty is architectural or materially changes behavior:
 STOP_AND_ASK under seo-ops-execution-guard.
 
 Never trade correctness for brevity.
+
+## Silent execution
+
+Default behavior during implementation:
+
+- Do not narrate reasoning.
+- Do not summarize what you are about to do.
+- Do not explain files you just read.
+- Do not restate the implementation plan.
+- Do not emit progress/status commentary unless the user explicitly asks for it.
+- Tool activity itself is sufficient progress indication.
+- Once the implementation path is clear, edit immediately.
+
+Visible explanation is allowed only when:
+
+1. `STOP_AND_ASK` / a genuine blocker is triggered.
+2. A user decision is required.
+3. The user explicitly asks for analysis, review, audit, or report.
+4. The task is complete and the final report is being given.
+
+For ordinary coding tasks:
+
+read → edit → test → final report
+
+No running commentary between those stages.
+
+Final reports should stay concise by default:
+
+- root cause
+- files changed
+- tests/build
+- blockers, if any
+
+Only produce a detailed report when the user explicitly asks for one.

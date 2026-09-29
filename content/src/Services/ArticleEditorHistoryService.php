@@ -10,6 +10,8 @@ class ArticleEditorHistoryService
 {
     public const OPTION_KEY = 'seo_article_editor_settings';
 
+    public const RECONCILIATION_FINGERPRINT_OPTION_KEY = 'seo_link_classification_trusted_domains_fingerprint';
+
     public const DEFAULT_HISTORY_STEP = 20;
 
     /** Local browser draft interval (localStorage) — not server/database autosave. */
@@ -94,18 +96,28 @@ class ArticleEditorHistoryService
         $current = $this->getSettings();
         $steps = (int) ($settings['history_step'] ?? $current['history_step']);
         $autosave = (int) ($settings['autosave_interval_seconds'] ?? $current['autosave_interval_seconds']);
-        $wikiTrustDomains = array_key_exists('wiki_trust_domains', $settings)
+        $hasDomainPayload = array_key_exists('wiki_trust_domains', $settings);
+        $wikiTrustDomains = $hasDomainPayload
             ? $this->normalizeWikiTrustDomains($settings['wiki_trust_domains'])
             : $current['wiki_trust_domains'];
 
         $domainsChanged = false;
-        if (array_key_exists('wiki_trust_domains', $settings)) {
+        if ($hasDomainPayload) {
             $oldDomains = $current['wiki_trust_domains'];
-            sort($oldDomains);
+            sort($oldDomains, SORT_STRING);
             $newDomains = $wikiTrustDomains;
-            sort($newDomains);
-            $domainsChanged = ($oldDomains !== $newDomains);
+            sort($newDomains, SORT_STRING);
+            $domainsChanged = (array_values($oldDomains) !== array_values($newDomains));
         }
+
+        $storedFingerprint = $this->getReconciliationFingerprint();
+        $currentFingerprint = $this->computeTrustedDomainsFingerprint($wikiTrustDomains);
+
+        $needsReconciliation = $hasDomainPayload && (
+            $domainsChanged
+            || $storedFingerprint === null
+            || $storedFingerprint !== $currentFingerprint
+        );
 
         WpOption::set(self::OPTION_KEY, [
             'history_step' => max(1, min(100, $steps)),
@@ -113,9 +125,35 @@ class ArticleEditorHistoryService
             'wiki_trust_domains' => $wikiTrustDomains,
         ], 'no');
 
-        if ($domainsChanged) {
+        if ($needsReconciliation) {
             app(\Omnichannel\Addons\SearchFoundation\Services\LinkClassificationReconciliationService::class)->reconcile();
+            $this->setReconciliationFingerprint($currentFingerprint);
         }
+    }
+
+    /**
+     * Deterministic canonical fingerprint representing only classification-affecting trusted domain configuration.
+     * Raw form input variations, trailing slashes, scheme, and ordering are normalized before hashing.
+     */
+    public function computeTrustedDomainsFingerprint(mixed $domains): string
+    {
+        $normalized = $this->normalizeWikiTrustDomains($domains);
+        sort($normalized, SORT_STRING);
+        $canonical = array_values(array_unique($normalized));
+
+        return hash('sha256', (string) json_encode($canonical, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    public function getReconciliationFingerprint(): ?string
+    {
+        $val = WpOption::get(self::RECONCILIATION_FINGERPRINT_OPTION_KEY);
+
+        return is_string($val) && $val !== '' ? $val : null;
+    }
+
+    public function setReconciliationFingerprint(string $fingerprint): void
+    {
+        WpOption::set(self::RECONCILIATION_FINGERPRINT_OPTION_KEY, $fingerprint, 'no');
     }
 
     /**
