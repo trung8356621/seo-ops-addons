@@ -766,6 +766,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
+    overflow: hidden;
 }
 
 .agent-debug-modal {
@@ -774,7 +775,8 @@
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     width: 100%;
     max-width: 900px;
-    max-height: 90vh;
+    max-height: calc(100dvh - 48px);
+    min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -788,12 +790,16 @@
     padding: 16px 20px;
     background: #0f172a;
     color: #ffffff;
+    flex: 0 0 auto;
+    min-width: 0;
 }
 
 .agent-debug-modal__header-left {
     display: flex;
     align-items: center;
     gap: 12px;
+    min-width: 0;
+    flex-wrap: wrap;
 }
 
 .agent-debug-modal__header-left h2 {
@@ -879,8 +885,11 @@
 }
 
 .agent-debug-modal__body {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -896,6 +905,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
 }
 
 .agent-debug-card--applied {
@@ -963,6 +973,7 @@
     gap: 6px;
     align-items: baseline;
     line-height: 1.5;
+    flex-wrap: wrap;
 }
 
 .agent-debug-card__model-label,
@@ -983,6 +994,23 @@
 .agent-debug-card__fallbacks {
     color: #64748b;
     font-size: 11px;
+}
+
+.agent-debug-card__fallback-details {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.agent-debug-card__fallback-details summary {
+    cursor: pointer;
+}
+
+.agent-debug-card__fallback-details div {
+    margin-top: 4px;
+    max-height: 80px;
+    overflow: auto;
+    overflow-wrap: anywhere;
 }
 
 .agent-debug-card__section {
@@ -1047,6 +1075,22 @@
     color: #1e293b;
     white-space: pre-wrap;
     word-break: break-word;
+    height: clamp(160px, 28vh, 300px);
+    max-height: 32vh;
+    overflow: auto;
+    resize: vertical;
+}
+
+.agent-debug-copy-error {
+    margin: 0;
+    color: #b91c1c;
+    font-size: 11px;
+}
+
+@media (max-width: 640px) {
+    .agent-debug-overlay { padding: 8px; }
+    .agent-debug-modal { max-height: calc(100dvh - 16px); }
+    .agent-debug-modal__header, .agent-debug-modal__body { padding: 12px; }
 }
 
 .agent-debug-card__result-input {

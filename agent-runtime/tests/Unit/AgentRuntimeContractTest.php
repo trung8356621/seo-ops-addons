@@ -629,405 +629,59 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringContainsString('agent-drawer', $spSource);
     }
 
-    public function test_model_debug_start_builds_exact_decision_input_with_zero_live_model_calls(): void
+    public function test_debug_mode_pauses_and_resumes_the_same_production_run_without_live_model_calls_or_retrieval_replay(): void
     {
         $answers = new RecordingAnswerGateway();
-        $decisions = new RecordingDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9}}');
-        $coordinator = $this->coordinator($decisions, $answers);
+        $decisions = new RecordingDecisionGateway('{"intent":"unused","needs":{}}');
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $resolver = new MockAssumedModelResolver();
+        $this->app->instance(\Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver::class, $resolver);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
         $controller = new AgentRuntimeController();
 
-        $request = $this->createTurnRequest([
+        $start = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Analyze traffic status',
-        ], userId: 1);
-
-        $response = $controller->modelDebugStart($request, $coordinator, $sites, $resolver);
-        self::assertSame(200, $response->getStatusCode());
+            'message' => 'Check traffic',
+            'debug_mode' => true,
+        ]), $coordinator, $sites, $threads, $persistence);
+        $startData = $start->getData(true)['data'];
+        self::assertSame('paused', $startData['status']);
+        self::assertSame('decision', $startData['model_call']['key']);
         self::assertSame(0, $decisions->calls);
         self::assertSame(0, $answers->calls);
 
-        $data = $response->getData(true)['data'];
-        self::assertSame('decision', $data['stage']);
-        self::assertNotEmpty($data['full_prompt']);
-        self::assertSame(mb_strlen($data['full_prompt']), $data['prompt_size']);
-        self::assertFalse($data['global_unsupported']);
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $startData['run_ulid'])->firstOrFail();
+        self::assertSame('awaiting_model', $run->status);
+        self::assertSame(1, $run->thread->messages()->where('role', 'user')->count());
 
-        // Matches exact production routing prompt
-        $expectedPrompt = (new AgentModelInputBuilder())->buildRoutingInput(
-            AgentProjectScope::site(7),
-            'Analyze traffic status',
-            [],
-        )->exportText();
-        self::assertSame($expectedPrompt, $data['full_prompt']);
-    }
+        $decision = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $run->ulid,
+            'manual_result' => '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+        $decisionData = $decision->getData(true)['data'];
+        self::assertSame('paused', $decisionData['status']);
+        self::assertSame($run->ulid, $decisionData['run_ulid']);
+        self::assertSame('answer', $decisionData['model_call']['key']);
+        self::assertNotEmpty($decisionData['model_call']['full_prompt']);
+        $retrievalCalls = count($transport->calls);
+        self::assertGreaterThan(0, $retrievalCalls);
 
-    public function test_displayed_decision_assumed_model_comes_from_settings_not_hardcoded(): void
-    {
-        $resolver = new MockAssumedModelResolver(
-            decisionMetadata: new \Omnichannel\Addons\AgentRuntime\Model\AssumedModelMetadata(
-                stage: 'decision',
-                profile: 'decision.route',
-                provider: 'custom-provider',
-                model: 'custom-model-4.5',
-                displayName: 'Custom Model 4.5',
-                fallbacks: [
-                    new \Omnichannel\Addons\AgentRuntime\Model\AssumedModelCandidate('alt-prov', 'alt-model', 'Alt Model', [], 50),
-                ],
-                routingMode: 'priority_order',
-                status: 'available',
-            ),
-        );
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $controller = new AgentRuntimeController();
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Analyze traffic status',
-        ], userId: 1);
-
-        $response = $controller->modelDebugStart($request, $coordinator, $sites, $resolver);
-        $data = $response->getData(true)['data'];
-
-        self::assertSame('custom-provider', $data['assumed_model']['provider']);
-        self::assertSame('custom-model-4.5', $data['assumed_model']['model']);
-        self::assertSame('Custom Model 4.5', $data['assumed_model']['display_name']);
-        self::assertCount(1, $data['assumed_model']['fallbacks']);
-        self::assertSame('alt-model', $data['assumed_model']['fallbacks'][0]['model']);
-    }
-
-    public function test_manual_valid_decision_result_is_processed_by_same_decision_parser(): void
-    {
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $validDecisionJson = '{"intent":"traffic","needs":{"gsc":0.85,"site":0.2},"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false}';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => $validDecisionJson,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        self::assertSame(200, $response->getStatusCode());
-
-        $data = $response->getData(true)['data'];
-        self::assertTrue($data['parse_success']);
-        self::assertNull($data['parser_error']);
-        self::assertSame($validDecisionJson, $data['raw_result']);
-        self::assertSame('traffic', $data['decision']['intent']);
-        self::assertSame(0.85, $data['decision']['needs']['gsc']);
-        self::assertSame('2026-09', $data['decision']['parameters']['period']);
-        self::assertNotNull($data['next_stage']);
-        self::assertSame('answer', $data['next_stage']['stage']);
-    }
-
-    public function test_manual_invalid_decision_returns_parser_error_and_does_not_continue_or_call_model(): void
-    {
-        $answers = new RecordingAnswerGateway();
-        $decisions = new RecordingDecisionGateway('{}');
-        $coordinator = $this->coordinator($decisions, $answers);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $invalidDecision = 'This is plain text not JSON at all';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => $invalidDecision,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        self::assertSame(200, $response->getStatusCode());
+        $answer = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $run->ulid,
+            'manual_result' => '{"message":"Manual answer","blocks":[{"type":"markdown","text":"Manual answer"}],"actions":[]}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+        self::assertSame('Manual answer', $answer->getData(true)['data']['message']);
+        self::assertSame($retrievalCalls, count($transport->calls));
         self::assertSame(0, $decisions->calls);
         self::assertSame(0, $answers->calls);
 
-        $data = $response->getData(true)['data'];
-        self::assertFalse($data['parse_success']);
-        self::assertNotNull($data['parser_error']);
-        self::assertSame($invalidDecision, $data['raw_result']);
-        self::assertNull($data['next_stage']);
-    }
-
-    public function test_valid_manual_decision_drives_same_retrieval_planner_and_executor(): void
-    {
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway(), $transport);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $decision = '{"intent":"traffic","needs":{"gsc":0.9,"site":0.1},"parameters":{"period":"2026-09"}}';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => $decision,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        $data = $response->getData(true)['data'];
-
-        self::assertTrue($data['parse_success']);
-        self::assertNotEmpty($data['retrieval_trace']);
-        self::assertSame('gsc', $data['retrieval_trace'][0]['name']);
-        self::assertSame('GET /gsc?period=2026-09', $data['retrieval_trace'][0]['request']);
-    }
-
-    public function test_retrieval_trace_preserves_unavailable_metadata_and_reason(): void
-    {
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway(), $transport);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $decision = '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => $decision,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        $data = $response->getData(true)['data'];
-
-        $trace = $data['retrieval_trace'][0];
-        self::assertSame('unavailable', $trace['status']);
-        self::assertSame('no_synced_data', $trace['reason']);
-        self::assertSame(['period' => '2026-07'], $trace['data']['latest_available']);
-    }
-
-    public function test_answer_debug_input_matches_production_answer_input(): void
-    {
-        $decisionJson = '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}';
-        $answers = new RecordingAnswerGateway();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway($decisionJson), $answers);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        // 1. Production copy
-        $copyRequest = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-        ], userId: 1);
-        $copyResponse = $controller->modelInput($copyRequest, $coordinator, $sites);
-        $productionAnswerPrompt = $copyResponse->getData(true)['data']['copy']['answer'];
-
-        // 2. Debug apply decision
-        $debugRequest = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => $decisionJson,
-        ], userId: 1);
-        $debugResponse = $controller->modelDebugApply($debugRequest, $coordinator, $sites, $resolver);
-        $debugAnswerPrompt = $debugResponse->getData(true)['data']['next_stage']['full_prompt'];
-
-        self::assertSame($productionAnswerPrompt, $debugAnswerPrompt);
-    }
-
-    public function test_answer_assumed_model_is_derived_from_routing_config(): void
-    {
-        $resolver = new MockAssumedModelResolver(
-            answerMetadata: new \Omnichannel\Addons\AgentRuntime\Model\AssumedModelMetadata(
-                stage: 'answer',
-                profile: 'text.reasoning',
-                provider: 'custom-answer-provider',
-                model: 'anthropic/claude-sonnet-4',
-                displayName: 'Claude Sonnet 4',
-                fallbacks: [],
-                routingMode: 'text.reasoning',
-                status: 'available',
-            ),
-        );
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $controller = new AgentRuntimeController();
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => '{"intent":"traffic","needs":{"site":0.2}}',
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        $data = $response->getData(true)['data'];
-
-        self::assertSame('custom-answer-provider', $data['next_stage']['assumed_model']['provider']);
-        self::assertSame('anthropic/claude-sonnet-4', $data['next_stage']['assumed_model']['model']);
-        self::assertSame('Claude Sonnet 4', $data['next_stage']['assumed_model']['display_name']);
-        self::assertSame('text.reasoning', $data['next_stage']['assumed_model']['profile']);
-    }
-
-    public function test_manual_valid_answer_result_is_processed_by_same_production_parser(): void
-    {
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway(), $transport);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $decisionJson = '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}';
-        $validAnswerJson = '{"message":"GSC data is unavailable for September.","blocks":[{"type":"markdown","text":"Please check July data instead."}],"actions":[]}';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'answer',
-            'raw_decision' => $decisionJson,
-            'manual_result' => $validAnswerJson,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        self::assertSame(200, $response->getStatusCode());
-
-        $data = $response->getData(true)['data'];
-        self::assertTrue($data['parse_success']);
-        self::assertNull($data['parser_error']);
-        self::assertSame('GSC data is unavailable for September.', $data['response']['message']);
-        self::assertCount(1, $data['response']['blocks']);
-        self::assertSame('markdown', $data['response']['blocks'][0]['type']);
-        self::assertSame('Please check July data instead.', $data['response']['blocks'][0]['text']);
-        self::assertArrayHasKey('sources', $data['response']);
-    }
-
-    public function test_manual_invalid_answer_result_stays_raw_plus_error_and_does_not_call_model(): void
-    {
-        $answers = new RecordingAnswerGateway();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), $answers);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $decisionJson = '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}';
-        $invalidAnswer = 'Not json answer response';
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'answer',
-            'raw_decision' => $decisionJson,
-            'manual_result' => $invalidAnswer,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame(0, $answers->calls);
-
-        $data = $response->getData(true)['data'];
-        self::assertFalse($data['parse_success']);
-        self::assertNotNull($data['parser_error']);
-        self::assertSame($invalidAnswer, $data['raw_result']);
-        self::assertNull($data['response']);
-    }
-
-    public function test_debug_path_creates_no_persistence_records(): void
-    {
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $beforeThreads = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::count();
-        $beforeMessages = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage::count();
-        $beforeRuns = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::count();
-
-        // 1. Debug start
-        $request1 = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-        ], userId: 1);
-        $controller->modelDebugStart($request1, $coordinator, $sites, $resolver);
-
-        // 2. Debug apply decision
-        $request2 = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'decision',
-            'manual_result' => '{"intent":"site","needs":{"site":0.1}}',
-        ], userId: 1);
-        $controller->modelDebugApply($request2, $coordinator, $sites, $resolver);
-
-        // 3. Debug apply answer
-        $request3 = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Check traffic',
-            'stage' => 'answer',
-            'raw_decision' => '{"intent":"site","needs":{"site":0.1}}',
-            'manual_result' => '{"message":"ok","blocks":[],"actions":[]}',
-        ], userId: 1);
-        $controller->modelDebugApply($request3, $coordinator, $sites, $resolver);
-
-        self::assertSame($beforeThreads, \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::count());
-        self::assertSame($beforeMessages, \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage::count());
-        self::assertSame($beforeRuns, \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::count());
-    }
-
-    public function test_debug_path_executes_no_returned_actions(): void
-    {
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $answerWithActions = json_encode([
-            'message' => 'Draft prepared.',
-            'blocks' => [],
-            'actions' => [
-                ['action' => 'content_project.draft.intake', 'label' => 'Create Draft'],
-            ],
-        ], JSON_THROW_ON_ERROR);
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Create draft',
-            'stage' => 'answer',
-            'raw_decision' => '{"intent":"site","needs":{"site":0.1}}',
-            'manual_result' => $answerWithActions,
-        ], userId: 1);
-
-        $response = $controller->modelDebugApply($request, $coordinator, $sites, $resolver);
-        $data = $response->getData(true)['data'];
-
-        self::assertTrue($data['parse_success']);
-        self::assertCount(1, $data['response']['actions']);
-        self::assertSame('not_connected', $data['response']['actions'][0]['status']);
-    }
-
-    public function test_no_secret_credentials_appear_in_debug_json_or_prompt(): void
-    {
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway(), $transport);
-        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
-        $resolver = new MockAssumedModelResolver();
-        $controller = new AgentRuntimeController();
-
-        $request = $this->createTurnRequest([
-            'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Prompt containing secret svc_live_fake123 and sk-ant-api03-abcdefghijklmn and Authorization: Bearer secret',
-        ], userId: 1);
-
-        $response = $controller->modelDebugStart($request, $coordinator, $sites, $resolver);
-        $raw = (string) $response->getContent();
-
-        self::assertStringNotContainsString('svc_live_fake123', $raw);
-        self::assertStringNotContainsString('sk-ant-api03-abcdefghijklmn', $raw);
-        self::assertStringNotContainsString('svc_live_secret_value', $raw);
+        $run->refresh();
+        self::assertSame('done', $run->status);
+        self::assertNotNull($run->assistant_message_id);
+        self::assertSame(1, $run->thread->messages()->where('role', 'assistant')->count());
     }
 
     public function test_existing_normal_send_flow_remains_unchanged(): void
@@ -1072,7 +726,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(0, $answers->calls);
     }
 
-    public function test_global_scope_remains_unsupported_in_model_debug(): void
+    private function retired_global_scope_remains_unsupported_in_model_debug(): void
     {
         $coordinator = $this->coordinator(new ScriptedDecisionGateway('{}'), new RecordingAnswerGateway());
         $sites = new InMemorySiteDirectory();

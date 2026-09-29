@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Copy } from 'lucide-react';
+import { copyPlainText } from './clipboard.js';
 
 function AssumedModelHeader({ assumedModel }) {
     if (!assumedModel) return null;
@@ -15,22 +16,33 @@ function AssumedModelHeader({ assumedModel }) {
             <div className="agent-debug-card__routing-line">
                 <span className="agent-debug-card__routing-label">Routing / profile:</span>
                 <span className="agent-debug-card__routing-value">{profile || routing_mode}</span>
-                {Array.isArray(fallbacks) && fallbacks.length ? (
-                    <span className="agent-debug-card__fallbacks">(Fallbacks: {fallbacks.map((item) => item.display_name || item.model).join(', ')})</span>
-                ) : null}
+                {Array.isArray(fallbacks) && fallbacks.length ? <span className="agent-debug-card__fallbacks">Fallbacks: {fallbacks.length} candidates</span> : null}
             </div>
+            {Array.isArray(fallbacks) && fallbacks.length ? (
+                <details className="agent-debug-card__fallback-details">
+                    <summary>Show fallback candidates</summary>
+                    <div>{fallbacks.map((item) => item.display_name || item.model).join(', ')}</div>
+                </details>
+            ) : null}
         </div>
     );
 }
 
 export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, isApplying, parserError }) {
     const [copied, setCopied] = useState(false);
+    const [copyError, setCopyError] = useState('');
     if (!isOpen || !modelCall) return null;
 
     async function copyPrompt() {
-        await navigator.clipboard.writeText(modelCall.full_prompt || '');
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
+        setCopied(false);
+        setCopyError('');
+        try {
+            await copyPlainText(modelCall.full_prompt || '');
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+            setCopyError('Could not copy. Select the prompt and copy it manually.');
+        }
     }
 
     return (
@@ -43,6 +55,7 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         <span className="agent-debug-modal__scope">{scopeLabel}</span>
                     </div>
                 </div>
+                <div className="agent-debug-modal__body">
                 <div className={`agent-debug-card ${parserError ? 'agent-debug-card--error' : ''}`}>
                     <div className="agent-debug-card__header">
                         <h3>{String(modelCall.key || 'model').toUpperCase()} MODEL CALL</h3>
@@ -57,6 +70,7 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                                 <span>{copied ? 'Copied' : 'Copy full prompt'}</span>
                             </button>
                         </div>
+                        {copyError ? <p className="agent-debug-copy-error" role="alert">{copyError}</p> : null}
                         <textarea className="agent-debug-card__prompt-view" readOnly value={modelCall.full_prompt || ''} rows={10} />
                     </div>
                     <div className="agent-debug-card__section">
@@ -74,6 +88,7 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                             {isApplying ? 'Applying...' : 'Apply'}
                         </button>
                     </div>
+                </div>
                 </div>
             </div>
         </div>

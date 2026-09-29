@@ -26,7 +26,11 @@
     ];
 @endphp
 
-@vite('addons/agent-runtime/resources/js/app/main.jsx')
+@if (file_exists(public_path('build-agent/manifest.json')))
+    @vite('addons/agent-runtime/resources/js/app/main.jsx', 'build-agent')
+@else
+    @vite('addons/agent-runtime/resources/js/app/main.jsx')
+@endif
 
 <div
     class="agent-drawer-host"
@@ -87,7 +91,6 @@
             data-turn-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/turns"
             data-threads-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/threads"
             data-copy-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-input"
-            data-model-debug-start-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-debug/start"
             data-model-debug-apply-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-debug/apply"
             data-csrf="{{ csrf_token() }}"
             data-host-context="{{ json_encode($hostContext) }}"
