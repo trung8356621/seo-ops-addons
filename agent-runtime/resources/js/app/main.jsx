@@ -32,6 +32,8 @@ if (standaloneRoot) {
         turnUrl: standaloneRoot.dataset.turnUrl,
         threadsUrl: standaloneRoot.dataset.threadsUrl || '/agent-runtime/threads',
         copyUrl: standaloneRoot.dataset.copyUrl,
+        modelDebugStartUrl: standaloneRoot.dataset.modelDebugStartUrl || '/agent-runtime/model-debug/start',
+        modelDebugApplyUrl: standaloneRoot.dataset.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
         csrf: standaloneRoot.dataset.csrf || '',
         mode: 'standalone',
     });
@@ -58,6 +60,8 @@ export function mountDrawer() {
         turnUrl: drawerRoot.dataset.turnUrl,
         threadsUrl: drawerRoot.dataset.threadsUrl || '/agent-runtime/threads',
         copyUrl: drawerRoot.dataset.copyUrl,
+        modelDebugStartUrl: drawerRoot.dataset.modelDebugStartUrl || '/agent-runtime/model-debug/start',
+        modelDebugApplyUrl: drawerRoot.dataset.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
         csrf: drawerRoot.dataset.csrf || '',
         mode: 'drawer',
         onClose: () => {

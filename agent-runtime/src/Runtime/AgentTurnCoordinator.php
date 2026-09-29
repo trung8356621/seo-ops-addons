@@ -101,18 +101,80 @@ class AgentTurnCoordinator
         return new AgentTurnResult($response, $prepared['routing'], $prepared['answer'], false);
     }
 
-    /**
-     * @param  list<array{role: string, content: string}>  $history
-     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null}
-     */
-    private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history): array
+    public function buildRoutingInput(AgentProjectScope $scope, string $message, array $history): PreparedModelInput
     {
         $message = trim($message);
         if ($message === '') {
             throw new InvalidArgumentException('Message is required.');
         }
 
-        $routingInput = $this->inputs->buildRoutingInput($scope, $message, $history);
+        return $this->inputs->buildRoutingInput($scope, $message, $history);
+    }
+
+    /**
+     * @param  list<array{role: string, content: string}>  $history
+     * @return array{bundle: RetrievalBundle, answerInput: PreparedModelInput, decision: \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecision|null, error: string|null}
+     */
+    public function processDecisionAndRetrieve(
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        string $rawDecisionJson,
+    ): array {
+        $message = trim($message);
+        if ($message === '') {
+            throw new InvalidArgumentException('Message is required.');
+        }
+
+        if ($scope->isGlobal()) {
+            $bundle = RetrievalBundle::unsupportedGlobal($scope);
+            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+
+            return [
+                'bundle' => $bundle,
+                'answerInput' => $answerInput,
+                'decision' => null,
+                'error' => 'All Sites is selected, but a global SEO Access API is not available. Ask again inside a site project.',
+            ];
+        }
+
+        try {
+            $decision = $this->decisionParser->parse($rawDecisionJson);
+        } catch (InvalidArgumentException $e) {
+            $bundle = new RetrievalBundle($scope, [], ['routing_decision_invalid']);
+            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+
+            return [
+                'bundle' => $bundle,
+                'answerInput' => $answerInput,
+                'decision' => null,
+                'error' => $e->getMessage() ?: 'The routing model did not return a usable decision, so no SEO data was fetched.',
+            ];
+        }
+
+        $bundle = $this->retrieval->execute($decision, $scope);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+
+        return [
+            'bundle' => $bundle,
+            'answerInput' => $answerInput,
+            'decision' => $decision,
+            'error' => null,
+        ];
+    }
+
+    public function parseAnswerResult(string $rawAnswerText, RetrievalBundle $bundle): AgentResponse
+    {
+        return $this->responses->parse($rawAnswerText, $bundle);
+    }
+
+    /**
+     * @param  list<array{role: string, content: string}>  $history
+     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null}
+     */
+    private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history): array
+    {
+        $routingInput = $this->buildRoutingInput($scope, $message, $history);
         if ($scope->isGlobal()) {
             $bundle = RetrievalBundle::unsupportedGlobal($scope);
 
@@ -144,32 +206,28 @@ class AgentTurnCoordinator
             ];
         }
 
-        try {
-            $decision = $this->decisionParser->parse($decisionResult->rawText);
-        } catch (InvalidArgumentException) {
-            $bundle = new RetrievalBundle($scope, [], ['routing_decision_invalid']);
-
+        $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $decisionResult->rawText);
+        if ($processed['error'] !== null || $processed['decision'] === null) {
             return [
                 'routing' => $routingInput,
-                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle),
-                'bundle' => $bundle,
+                'answer' => $processed['answerInput'],
+                'bundle' => $processed['bundle'],
                 'response' => $this->safeResponse(
                     'The routing model did not return a usable decision, so no SEO data was fetched.',
-                    $bundle,
+                    $processed['bundle'],
                     'routing_decision_invalid',
                 ),
             ];
         }
 
-        $bundle = $this->retrieval->execute($decision, $scope);
         if (! $this->draftIntake->isConnected()) {
             // Write stays unwired. The answer instructions already forbid inventing the call.
         }
 
         return [
             'routing' => $routingInput,
-            'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle),
-            'bundle' => $bundle,
+            'answer' => $processed['answerInput'],
+            'bundle' => $processed['bundle'],
             'response' => null,
         ];
     }
@@ -198,3 +256,4 @@ class AgentTurnCoordinator
         );
     }
 }
+

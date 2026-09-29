@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
+import { Bug, Copy, History, Loader2, Plus, Send, Sparkles, X } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
+import { ModelDebugModal } from './ModelDebugModal.jsx';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -41,6 +42,8 @@ export function AgentWidget({
     turnUrl: propTurnUrl,
     threadsUrl: propThreadsUrl,
     copyUrl: propCopyUrl,
+    modelDebugStartUrl: propModelDebugStartUrl,
+    modelDebugApplyUrl: propModelDebugApplyUrl,
     csrf = '',
     mode = 'standalone',
     onClose = null,
@@ -52,6 +55,8 @@ export function AgentWidget({
         turnUrl: propTurnUrl || rawEndpoints?.turnUrl || '/agent-runtime/turns',
         threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
+        modelDebugStartUrl: propModelDebugStartUrl || rawEndpoints?.modelDebugStartUrl || '/agent-runtime/model-debug/start',
+        modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
     };
 
     // Initialize initial scope based on hostContext or fallback to global
@@ -78,6 +83,33 @@ export function AgentWidget({
     const [error, setError] = useState('');
     const [diagnostics, setDiagnostics] = useState(false);
     const [lastCopy, setLastCopy] = useState(null);
+
+    // Model Debug State
+    const [debugOpen, setDebugOpen] = useState(false);
+    const [debugBusy, setDebugBusy] = useState(false);
+    const [debugStage, setDebugStage] = useState('decision');
+    const [debugUserMessage, setDebugUserMessage] = useState('');
+
+    const [debugDecisionPrompt, setDebugDecisionPrompt] = useState('');
+    const [debugDecisionPromptSize, setDebugDecisionPromptSize] = useState(0);
+    const [debugDecisionAssumedModel, setDebugDecisionAssumedModel] = useState(null);
+    const [debugDecisionManualResult, setDebugDecisionManualResult] = useState('');
+    const [debugDecisionParseSuccess, setDebugDecisionParseSuccess] = useState(false);
+    const [debugDecisionParserError, setDebugDecisionParserError] = useState('');
+    const [debugDecisionApplied, setDebugDecisionApplied] = useState(false);
+
+    const [debugRetrievalTrace, setDebugRetrievalTrace] = useState([]);
+    const [debugParsedDecision, setDebugParsedDecision] = useState(null);
+
+    const [debugAnswerPrompt, setDebugAnswerPrompt] = useState('');
+    const [debugAnswerPromptSize, setDebugAnswerPromptSize] = useState(0);
+    const [debugAnswerAssumedModel, setDebugAnswerAssumedModel] = useState(null);
+    const [debugAnswerManualResult, setDebugAnswerManualResult] = useState('');
+    const [debugAnswerParseSuccess, setDebugAnswerParseSuccess] = useState(false);
+    const [debugAnswerParserError, setDebugAnswerParserError] = useState('');
+    const [debugAnswerApplied, setDebugAnswerApplied] = useState(false);
+
+    const [debugCanonicalResponse, setDebugCanonicalResponse] = useState(null);
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -203,6 +235,29 @@ export function AgentWidget({
         }
     }, [endpoints.threadsUrl, hostContext.appKey, currentScopeRef]);
 
+    const resetDebugState = useCallback(() => {
+        setDebugStage('decision');
+        setDebugUserMessage('');
+        setDebugDecisionPrompt('');
+        setDebugDecisionPromptSize(0);
+        setDebugDecisionAssumedModel(null);
+        setDebugDecisionManualResult('');
+        setDebugDecisionParseSuccess(false);
+        setDebugDecisionParserError('');
+        setDebugDecisionApplied(false);
+        setDebugRetrievalTrace([]);
+        setDebugParsedDecision(null);
+        setDebugAnswerPrompt('');
+        setDebugAnswerPromptSize(0);
+        setDebugAnswerAssumedModel(null);
+        setDebugAnswerManualResult('');
+        setDebugAnswerParseSuccess(false);
+        setDebugAnswerParserError('');
+        setDebugAnswerApplied(false);
+        setDebugCanonicalResponse(null);
+        setDebugBusy(false);
+    }, []);
+
     // New conversation action: clears active thread, messages, and saved state
     const onNewConversation = useCallback(() => {
         setActiveThreadUlid(null);
@@ -212,7 +267,155 @@ export function AgentWidget({
         setDraft('');
         clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
         setShowHistory(false);
-    }, [hostContext.appKey, currentScopeRef]);
+        resetDebugState();
+        setDebugOpen(false);
+    }, [hostContext.appKey, currentScopeRef, resetDebugState]);
+
+    const startModelDebug = useCallback(async (messageOverride) => {
+        const message = (messageOverride ?? draft).trim();
+        if (busy || debugBusy || message === '') {
+            return;
+        }
+        if (globalUnsupported) {
+            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project.');
+            return;
+        }
+        setDebugBusy(true);
+        setError('');
+        try {
+            const payload = await postJson(endpoints.modelDebugStartUrl, csrf, {
+                hostContext: {
+                    appKey: hostContext.appKey,
+                    scope: scopePayload(selected),
+                    capabilities: hostContext.capabilities,
+                },
+                scope: scopePayload(selected),
+                message,
+                history: messages.map((m) => ({ role: m.role, content: m.content })),
+            });
+            const data = payload?.data || {};
+            setDebugUserMessage(message);
+            setDebugDecisionPrompt(data.full_prompt || '');
+            setDebugDecisionPromptSize(data.prompt_size || (data.full_prompt ? data.full_prompt.length : 0));
+            setDebugDecisionAssumedModel(data.assumed_model || null);
+            setDebugDecisionManualResult('');
+            setDebugDecisionParseSuccess(false);
+            setDebugDecisionParserError('');
+            setDebugDecisionApplied(false);
+            setDebugRetrievalTrace([]);
+            setDebugParsedDecision(null);
+            setDebugAnswerPrompt('');
+            setDebugAnswerPromptSize(0);
+            setDebugAnswerAssumedModel(null);
+            setDebugAnswerManualResult('');
+            setDebugAnswerParseSuccess(false);
+            setDebugAnswerParserError('');
+            setDebugAnswerApplied(false);
+            setDebugCanonicalResponse(null);
+            setDebugStage('decision');
+            setDebugOpen(true);
+        } catch (caught) {
+            setError(caught.message);
+        } finally {
+            setDebugBusy(false);
+        }
+    }, [busy, debugBusy, draft, globalUnsupported, endpoints.modelDebugStartUrl, csrf, hostContext, selected, messages]);
+
+    const onResetDebug = useCallback(async () => {
+        const message = debugUserMessage || draft.trim();
+        resetDebugState();
+        if (message) {
+            await startModelDebug(message);
+        }
+    }, [debugUserMessage, draft, resetDebugState, startModelDebug]);
+
+    async function onApplyDecision() {
+        if (debugBusy || !debugDecisionManualResult.trim()) {
+            return;
+        }
+        setDebugBusy(true);
+        setDebugDecisionParserError('');
+        try {
+            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
+                stage: 'decision',
+                manual_result: debugDecisionManualResult,
+                hostContext: {
+                    appKey: hostContext.appKey,
+                    scope: scopePayload(selected),
+                    capabilities: hostContext.capabilities,
+                },
+                scope: scopePayload(selected),
+                message: debugUserMessage,
+                history: messages.map((m) => ({ role: m.role, content: m.content })),
+            });
+            const data = payload?.data || {};
+            if (data.status === 'error' || !data.parse_success) {
+                setDebugDecisionParseSuccess(false);
+                setDebugDecisionParserError(data.error || 'Failed to parse decision JSON.');
+                setDebugDecisionApplied(true);
+                return;
+            }
+            setDebugDecisionParseSuccess(true);
+            setDebugDecisionParserError('');
+            setDebugDecisionApplied(true);
+            setDebugParsedDecision(data.parsed_decision || null);
+            setDebugRetrievalTrace(data.retrieval_trace || []);
+
+            if (data.next_stage === 'answer') {
+                setDebugAnswerPrompt(data.full_prompt || '');
+                setDebugAnswerPromptSize(data.prompt_size || (data.full_prompt ? data.full_prompt.length : 0));
+                setDebugAnswerAssumedModel(data.assumed_model || null);
+                setDebugStage('answer');
+            }
+        } catch (caught) {
+            setDebugDecisionParserError(caught.message);
+            setDebugDecisionParseSuccess(false);
+            setDebugDecisionApplied(true);
+        } finally {
+            setDebugBusy(false);
+        }
+    }
+
+    async function onApplyAnswer() {
+        if (debugBusy || !debugAnswerManualResult.trim()) {
+            return;
+        }
+        setDebugBusy(true);
+        setDebugAnswerParserError('');
+        try {
+            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
+                stage: 'answer',
+                manual_result: debugAnswerManualResult,
+                raw_decision: debugDecisionManualResult,
+                hostContext: {
+                    appKey: hostContext.appKey,
+                    scope: scopePayload(selected),
+                    capabilities: hostContext.capabilities,
+                },
+                scope: scopePayload(selected),
+                message: debugUserMessage,
+                history: messages.map((m) => ({ role: m.role, content: m.content })),
+            });
+            const data = payload?.data || {};
+            if (data.status === 'error' || !data.parse_success) {
+                setDebugAnswerParseSuccess(false);
+                setDebugAnswerParserError(data.error || 'Failed to parse answer response.');
+                setDebugAnswerApplied(true);
+                return;
+            }
+            setDebugAnswerParseSuccess(true);
+            setDebugAnswerParserError('');
+            setDebugAnswerApplied(true);
+            setDebugCanonicalResponse(data.canonical_response || null);
+            setDebugStage('done');
+        } catch (caught) {
+            setDebugAnswerParserError(caught.message);
+            setDebugAnswerParseSuccess(false);
+            setDebugAnswerApplied(true);
+        } finally {
+            setDebugBusy(false);
+        }
+    }
 
     // Scope change / initial mount effect: sync threads list and restore stored active thread
     useEffect(() => {
@@ -225,7 +428,9 @@ export function AgentWidget({
             setActiveThreadUlid(null);
             setMessages([]);
         }
-    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey]);
+        resetDebugState();
+        setDebugOpen(false);
+    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
     async function copyText(text) {
         await navigator.clipboard.writeText(text);
@@ -366,6 +571,8 @@ export function AgentWidget({
                                 setError('');
                                 setLastCopy(null);
                                 setShowHistory(false);
+                                resetDebugState();
+                                setDebugOpen(false);
                             }}
                             aria-label="Select Project"
                         >
@@ -462,6 +669,8 @@ export function AgentWidget({
                                         setError('');
                                         setLastCopy(null);
                                         setShowHistory(false);
+                                        resetDebugState();
+                                        setDebugOpen(false);
                                     }}
                                 >
                                     <span>{project.label}</span>
@@ -554,9 +763,15 @@ export function AgentWidget({
                                 Copy routing input
                             </button>
                         ) : null}
-                        <button type="button" onClick={onCopy} disabled={busy || draft.trim() === ''}>
-                            <Copy size={16} />
-                            {copyState || 'Copy'}
+                        <button
+                            type="button"
+                            className="agent-model-debug-btn"
+                            onClick={() => startModelDebug()}
+                            disabled={busy || debugBusy || draft.trim() === ''}
+                            title="Open Model Debug simulator"
+                        >
+                            <Bug size={16} />
+                            <span>Model Debug</span>
                         </button>
                         <button type="submit" disabled={busy || draft.trim() === ''} className={busy ? 'is-busy' : ''}>
                             {busy ? <Loader2 size={16} className="agent-spin" /> : <Send size={16} />}
@@ -565,6 +780,37 @@ export function AgentWidget({
                     </div>
                 </form>
             </section>
+
+            <ModelDebugModal
+                isOpen={debugOpen}
+                onClose={() => setDebugOpen(false)}
+                onReset={onResetDebug}
+                scopeLabel={selected.label}
+                userMessage={debugUserMessage}
+                decisionPrompt={debugDecisionPrompt}
+                decisionPromptSize={debugDecisionPromptSize}
+                decisionAssumedModel={debugDecisionAssumedModel}
+                decisionManualResult={debugDecisionManualResult}
+                onDecisionManualResultChange={setDebugDecisionManualResult}
+                onApplyDecision={onApplyDecision}
+                isApplyingDecision={debugBusy}
+                decisionParseSuccess={debugDecisionParseSuccess}
+                decisionParserError={debugDecisionParserError}
+                decisionApplied={debugDecisionApplied}
+                retrievalTrace={debugRetrievalTrace}
+                parsedDecision={debugParsedDecision}
+                answerPrompt={debugAnswerPrompt}
+                answerPromptSize={debugAnswerPromptSize}
+                answerAssumedModel={debugAnswerAssumedModel}
+                answerManualResult={debugAnswerManualResult}
+                onAnswerManualResultChange={setDebugAnswerManualResult}
+                onApplyAnswer={onApplyAnswer}
+                isApplyingAnswer={debugBusy}
+                answerParseSuccess={debugAnswerParseSuccess}
+                answerParserError={debugAnswerParserError}
+                answerApplied={debugAnswerApplied}
+                canonicalResponse={debugCanonicalResponse}
+            />
         </div>
     );
 }

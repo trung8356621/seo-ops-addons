@@ -197,6 +197,179 @@ final class AgentRuntimeController
         ]);
     }
 
+    public function modelDebugStart(
+        Request $request,
+        AgentTurnCoordinator $coordinator,
+        SiteDirectory $sites,
+        \Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver $modelResolver,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+
+        $payload = $request->all();
+        if (! is_array($payload)) {
+            return new JsonResponse(['message' => 'Invalid payload.'], 422);
+        }
+        $scopeRaw = $payload['scope'] ?? ($payload['hostContext']['scope'] ?? null);
+        if (! is_array($scopeRaw)) {
+            return new JsonResponse(['message' => 'Scope is required.'], 422);
+        }
+
+        $message = trim((string) ($payload['message'] ?? ''));
+        if ($message === '') {
+            return new JsonResponse(['message' => 'Message is required.'], 422);
+        }
+
+        try {
+            $scope = AgentProjectScope::fromArray($scopeRaw);
+        } catch (InvalidArgumentException $e) {
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        }
+
+        if ($scope->isSite()) {
+            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+        }
+
+        $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
+        $routingInput = $coordinator->buildRoutingInput($scope, $message, $history);
+        $assumedModel = $modelResolver->resolveDecisionModel($userId);
+        $fullPrompt = $routingInput->exportText();
+
+        return new JsonResponse([
+            'data' => [
+                'stage' => 'decision',
+                'full_prompt' => $fullPrompt,
+                'prompt_size' => mb_strlen($fullPrompt),
+                'assumed_model' => $assumedModel->toArray(),
+                'global_unsupported' => $scope->isGlobal(),
+            ],
+        ]);
+    }
+
+    public function modelDebugApply(
+        Request $request,
+        AgentTurnCoordinator $coordinator,
+        SiteDirectory $sites,
+        \Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver $modelResolver,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+
+        $payload = $request->all();
+        if (! is_array($payload)) {
+            return new JsonResponse(['message' => 'Invalid payload.'], 422);
+        }
+        $scopeRaw = $payload['scope'] ?? ($payload['hostContext']['scope'] ?? null);
+        if (! is_array($scopeRaw)) {
+            return new JsonResponse(['message' => 'Scope is required.'], 422);
+        }
+
+        $message = trim((string) ($payload['message'] ?? ''));
+        if ($message === '') {
+            return new JsonResponse(['message' => 'Message is required.'], 422);
+        }
+
+        try {
+            $scope = AgentProjectScope::fromArray($scopeRaw);
+        } catch (InvalidArgumentException $e) {
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        }
+
+        if ($scope->isSite()) {
+            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+        }
+
+        $stage = trim((string) ($payload['stage'] ?? ''));
+        $manualResult = (string) ($payload['manual_result'] ?? '');
+        $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
+
+        if ($stage === 'decision') {
+            $processed = $coordinator->processDecisionAndRetrieve($scope, $message, $history, $manualResult);
+            $bundle = $processed['bundle'];
+            $retrievalTrace = array_map(static fn ($source) => $source->toArray(), $bundle->sources);
+
+            if ($processed['error'] !== null || $processed['decision'] === null) {
+                return new JsonResponse([
+                    'data' => [
+                        'stage' => 'decision',
+                        'parse_success' => false,
+                        'parser_error' => $processed['error'],
+                        'raw_result' => $manualResult,
+                        'decision' => null,
+                        'retrieval_trace' => $retrievalTrace,
+                        'next_stage' => null,
+                    ],
+                ]);
+            }
+
+            $assumedAnswerModel = $modelResolver->resolveAnswerModel($userId);
+            $fullAnswerPrompt = $processed['answerInput']->exportText();
+
+            return new JsonResponse([
+                'data' => [
+                    'stage' => 'decision',
+                    'parse_success' => true,
+                    'parser_error' => null,
+                    'raw_result' => $manualResult,
+                    'decision' => [
+                        'intent' => $processed['decision']->intent,
+                        'needs' => $processed['decision']->needs,
+                        'parameters' => $processed['decision']->parameters,
+                    ],
+                    'retrieval_trace' => $retrievalTrace,
+                    'next_stage' => [
+                        'stage' => 'answer',
+                        'full_prompt' => $fullAnswerPrompt,
+                        'prompt_size' => mb_strlen($fullAnswerPrompt),
+                        'assumed_model' => $assumedAnswerModel->toArray(),
+                    ],
+                ],
+            ]);
+        }
+
+        if ($stage === 'answer') {
+            $rawDecision = (string) ($payload['raw_decision'] ?? '');
+            $processed = $coordinator->processDecisionAndRetrieve($scope, $message, $history, $rawDecision);
+            $bundle = $processed['bundle'];
+
+            try {
+                $canonicalResponse = $coordinator->parseAnswerResult($manualResult, $bundle);
+
+                return new JsonResponse([
+                    'data' => [
+                        'stage' => 'answer',
+                        'parse_success' => true,
+                        'parser_error' => null,
+                        'raw_result' => $manualResult,
+                        'response' => $canonicalResponse->toArray(),
+                    ],
+                ]);
+            } catch (\Throwable $e) {
+                return new JsonResponse([
+                    'data' => [
+                        'stage' => 'answer',
+                        'parse_success' => false,
+                        'parser_error' => $e->getMessage() ?: 'Failed to parse answer response.',
+                        'raw_result' => $manualResult,
+                        'response' => null,
+                    ],
+                ]);
+            }
+        }
+
+        return new JsonResponse(['message' => 'Invalid debug stage.'], 422);
+    }
+
     public function createThread(Request $request, AgentThreadRepository $threads): JsonResponse
     {
         $user = $request->user();

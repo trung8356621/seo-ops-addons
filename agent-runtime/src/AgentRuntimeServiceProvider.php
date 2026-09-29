@@ -58,6 +58,7 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
             );
         });
         $this->app->singleton(RetrievalExecutor::class);
+        $this->app->singleton(\Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver::class, \Omnichannel\Addons\AgentRuntime\Model\AiSettingsAssumedModelResolver::class);
         $this->app->singleton(DecisionModelGateway::class, static function ($app): DecisionModelGateway {
             $max = (int) config('agent-runtime.decision_max_output_tokens', 800);
 
