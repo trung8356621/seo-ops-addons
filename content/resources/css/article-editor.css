@@ -11985,6 +11985,45 @@ section[data-seo-section-id].is-outline-jump-highlight {
     color: #fca5a5;
 }
 
+/* ── Semantic classification badges (Article Editor external links) ── */
+
+.wp-article-links-semantic-badge {
+    display: inline-block;
+    margin-left: 0.3rem;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.6rem;
+    font-weight: 600;
+    line-height: 1.3;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+    vertical-align: middle;
+    letter-spacing: 0.01em;
+}
+
+.wp-article-links-semantic-badge--low {
+    background: rgb(219 234 254);
+    color: rgb(30 64 175);
+    border: 1px solid rgb(147 197 253);
+}
+
+.wp-article-links-semantic-badge--review {
+    background: rgb(254 226 226);
+    color: rgb(153 27 27);
+    border: 1px solid rgb(252 165 165);
+}
+
+.dark .wp-article-links-semantic-badge--low {
+    background: rgb(12 74 110 / 0.45);
+    color: rgb(186 230 253);
+    border-color: rgb(14 165 233 / 0.3);
+}
+
+.dark .wp-article-links-semantic-badge--review {
+    background: rgb(127 29 29 / 0.45);
+    color: rgb(252 165 165);
+    border-color: rgb(239 68 68 / 0.35);
+}
+
 .seo-keyword-review-popover {
     position: absolute;
     z-index: 70;

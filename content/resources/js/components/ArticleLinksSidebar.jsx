@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, Link2, Loader2, OctagonAlert, Phone, RotateCcw, Settings2, Trash2 } from 'lucide-react';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import { t } from '../utils/i18n';
@@ -696,6 +696,14 @@ function KeywordList({
                                     }
                                 >
                                     {labelWithCount}
+                                    {item?.semantic_label ? (
+                                        <span
+                                            className={`wp-article-links-semantic-badge wp-article-links-semantic-badge--${item.semantic_risk ?? 'review'}`}
+                                            title={item.semantic_label}
+                                        >
+                                            {item.semantic_label}
+                                        </span>
+                                    ) : null}
                                 </button>
                             ) : (
                                 <span
@@ -703,6 +711,14 @@ function KeywordList({
                                     title={label}
                                 >
                                     {labelWithCount}
+                                    {item?.semantic_label ? (
+                                        <span
+                                            className={`wp-article-links-semantic-badge wp-article-links-semantic-badge--${item.semantic_risk ?? 'review'}`}
+                                            title={item.semantic_label}
+                                        >
+                                            {item.semantic_label}
+                                        </span>
+                                    ) : null}
                                 </span>
                             )}
                             {variant === 'suggestion' && onInsertSuggestion ? (
@@ -1532,7 +1548,7 @@ export default function ArticleLinksSidebar({
                     clearInternalLinkSuggestionSession(articleId, siteId);
                 }
 
-                void loadLinkSuggestions();
+                // No valid session — leave suggestions empty until explicit Generate Suggestions click.
             })();
         }, 0);
 

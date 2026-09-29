@@ -516,7 +516,18 @@ class SeoArticle extends Model
             if (
                 $linkType === SeoLinkMapType::External
                 || $linkType === SeoLinkMapType::WikiTrust
+                || $linkType === SeoLinkMapType::NeedsReview
             ) {
+                $row['link_type'] = $linkType?->value;
+                $row['semantic_risk'] = match ($linkType) {
+                    SeoLinkMapType::WikiTrust => 'low',
+                    default => 'review',
+                };
+                $row['semantic_label'] = match ($linkType) {
+                    SeoLinkMapType::WikiTrust => 'Trusted / Reference',
+                    SeoLinkMapType::NeedsReview => 'Warning',
+                    default => null,
+                };
                 $external[] = $row;
 
                 continue;

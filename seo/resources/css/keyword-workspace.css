@@ -3859,9 +3859,9 @@ body.keyword-drawer-open {
 }
 
 .keyword-risk-badge--review {
-    background: rgb(254 243 199);
-    color: rgb(146 64 14);
-    border: 1px solid rgb(253 230 138);
+    background: rgb(254 226 226);
+    color: rgb(153 27 27);
+    border: 1px solid rgb(252 165 165);
 }
 
 .dark .keyword-risk-badge--safe {
@@ -3877,9 +3877,9 @@ body.keyword-drawer-open {
 }
 
 .dark .keyword-risk-badge--review {
-    background: rgb(120 53 15 / 0.45);
-    color: rgb(253 230 138);
-    border-color: rgb(245 158 11 / 0.35);
+    background: rgb(127 29 29 / 0.45);
+    color: rgb(252 165 165);
+    border-color: rgb(239 68 68 / 0.35);
 }
 
 .keyword-risk-reason {
