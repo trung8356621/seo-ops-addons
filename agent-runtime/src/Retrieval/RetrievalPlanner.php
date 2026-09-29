@@ -9,11 +9,14 @@ use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 
 final class RetrievalPlanner
 {
+    /** @deprecated Canonical planning is explicit and does not use score thresholds. */
     public const DEFAULT_NEED_THRESHOLD = 0.5;
 
-    public function __construct(
-        private readonly float $needThreshold = self::DEFAULT_NEED_THRESHOLD,
-    ) {}
+    /** @param float|null $legacyNeedThreshold Ignored; retained for constructor compatibility. */
+    public function __construct(?float $legacyNeedThreshold = null)
+    {
+        unset($legacyNeedThreshold);
+    }
 
     public function plan(RetrievalDecision $decision, AgentProjectScope $scope): RetrievalPlan
     {
@@ -22,11 +25,7 @@ final class RetrievalPlanner
         }
 
         $steps = [];
-        foreach (SeoAccessCapabilityCatalog::resources() as $resource) {
-            $score = $decision->needs[$resource] ?? 0.0;
-            if ($score < $this->needThreshold) {
-                continue;
-            }
+        foreach ($decision->modules as $resource) {
             $steps[] = $this->stepFor($resource, $decision);
         }
 
@@ -42,17 +41,20 @@ final class RetrievalPlanner
     {
         $query = [];
         $topicRef = null;
-        if ($resource === 'gsc') {
+        if (in_array($resource, ['gsc', 'content_projects'], true)) {
             $period = $decision->parameters['period'] ?? '';
             if (preg_match('/^\d{4}-\d{2}$/', $period) === 1) {
                 $query['period'] = $period;
             }
         }
-        if ($resource === 'keywords') {
+        if (in_array($resource, ['keywords', 'topics'], true)) {
             $topic = $decision->parameters['topic_ref'] ?? '';
             if (preg_match('/^topic:[1-9]\d*$/', $topic) === 1) {
                 $topicRef = $topic;
             }
+        }
+        if ($resource === 'articles') {
+            $query['limit'] = (string) ($decision->parameters['limit_max'] ?? 30);
         }
 
         return new RetrievalStep($resource, $query, $topicRef);

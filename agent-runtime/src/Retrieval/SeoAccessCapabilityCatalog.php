@@ -14,7 +14,7 @@ final class SeoAccessCapabilityCatalog
      */
     public static function resources(): array
     {
-        return ['site', 'keywords', 'gsc'];
+        return ['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'];
     }
 
     /**
@@ -37,6 +37,7 @@ final class SeoAccessCapabilityCatalog
     {
         return [
             'resources' => self::resources(),
+            'semantics' => 'Business modules only; the runtime maps modules to read resources.',
             'keywords_topic_detail' => 'topic:{id} via parameters.topic_ref',
             'gsc_period' => 'YYYY-MM via parameters.period',
             'missing' => self::missing(),

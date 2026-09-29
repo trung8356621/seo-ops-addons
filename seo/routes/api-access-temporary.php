@@ -12,7 +12,7 @@ use Omnichannel\Addons\Seo\Http\Controllers\ServiceApi\TemporarySeoAccessControl
 | No permanent Bearer / AuthenticateServiceApi.
 | Auth: ResolveTemporaryServiceAccess only.
 |
-| Canonical public resources: site, keywords, gsc.
+| Canonical public resources: site, articles, links, keywords/topics, content projects, gsc.
 */
 
 Route::middleware([
@@ -26,6 +26,11 @@ Route::middleware([
     Route::get('{token}/site', [TemporarySeoAccessController::class, 'site'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->name('api.v1.access.site');
+
+    Route::get('{token}/articles', [TemporarySeoAccessController::class, 'articles'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.articles');
+    Route::get('{token}/internal-links', [TemporarySeoAccessController::class, 'internalLinks'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.internal-links');
+    Route::get('{token}/external-links', [TemporarySeoAccessController::class, 'externalLinks'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.external-links');
+    Route::get('{token}/content-projects', [TemporarySeoAccessController::class, 'contentProjects'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.content-projects');
 
     Route::get('{token}/keywords', [TemporarySeoAccessController::class, 'keywords'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')

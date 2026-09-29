@@ -58,10 +58,10 @@ final class SeoAccessHttpArchitectureGuardContractTest extends TestCase
         );
     }
 
-    public function test_catalog_is_exactly_three_public_resources(): void
+    public function test_catalog_exposes_module_aware_public_resources(): void
     {
         $keys = array_column(SeoAccessCatalog::resources(), 'key');
-        self::assertSame(['site', 'keywords', 'gsc'], $keys);
+        self::assertSame(['site', 'articles', 'internal-links', 'external-links', 'keywords', 'content-projects', 'gsc'], $keys);
 
         $usage = SeoAccessCatalog::usage();
         self::assertArrayHasKey('purpose', $usage);
@@ -105,8 +105,12 @@ final class SeoAccessHttpArchitectureGuardContractTest extends TestCase
         self::assertStringContainsString('GscContextSource', $gsc);
 
         $tempRoutes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/api-access-temporary.php');
-        self::assertStringNotContainsString('{token}/content', $tempRoutes);
+        self::assertStringNotContainsString("Route::get('{token}/content',", $tempRoutes);
         self::assertStringContainsString('keywords/topics/{topicRef}', $tempRoutes);
+        self::assertStringContainsString('{token}/articles', $tempRoutes);
+        self::assertStringContainsString('{token}/internal-links', $tempRoutes);
+        self::assertStringContainsString('{token}/external-links', $tempRoutes);
+        self::assertStringContainsString('{token}/content-projects', $tempRoutes);
     }
 
     public function test_internal_mcp_reader_still_delegates_to_context_registry(): void

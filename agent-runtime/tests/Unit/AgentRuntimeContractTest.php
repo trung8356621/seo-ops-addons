@@ -80,15 +80,18 @@ final class AgentRuntimeContractTest extends TestCase
         AgentProjectScope::site(0);
     }
 
-    public function test_routing_decision_schema_rejects_out_of_range_scores(): void
+    public function test_module_aware_routing_decision_schema_and_parameters(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"gsc","needs":{"gsc":0.87,"site":0.1},"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
+        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
         self::assertSame('2026-09', $decision->parameters['period']);
-        self::assertSame(0.87, $decision->needs['gsc']);
+        self::assertSame('articles', $decision->primaryModule);
+        self::assertSame(15, $decision->parameters['limit_min']);
+        self::assertSame(30, $decision->parameters['limit_max']);
+        self::assertContains('internal_links', $decision->modules);
 
         $this->expectException(InvalidArgumentException::class);
-        $parser->parse('{"intent":"bad","needs":{"gsc":1.4},"parameters":{}}');
+        $parser->parse('{"intent":"bad","primary_module":"unknown","modules":["unknown"],"parameters":{}}');
     }
 
     public function test_unavailable_gsc_is_not_measured_zero(): void
@@ -176,8 +179,8 @@ final class AgentRuntimeContractTest extends TestCase
             new SeoAccessUrlPolicy(),
             'https://app.example.test',
         );
-        $planner = new RetrievalPlanner(0.5);
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"traffic","needs":{"gsc":0.9,"site":0.2},"parameters":{"period":"2026-09","url":"https://evil.example/steal"},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
+        $planner = new RetrievalPlanner();
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
         $bundle = $executor->execute($planner->plan($decision, AgentProjectScope::site(7)));
 
         self::assertSame(['https://app.example.test/api/v1/services/seo/access'], array_values(array_unique(array_map(
@@ -226,13 +229,76 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertFalse($result->answerModelCalled);
     }
 
-    public function test_need_threshold_is_explicit(): void
+    public function test_legacy_scores_normalize_immediately_and_cannot_drop_primary_module(): void
     {
         $planner = new RetrievalPlanner(0.9);
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"maybe","needs":{"site":0.8,"gsc":0.95},"parameters":{}}');
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"maybe","needs":{"site":0.49,"gsc":0.2},"parameters":{}}');
         $plan = $planner->plan($decision, AgentProjectScope::site(7));
-        self::assertSame(['gsc'], array_map(static fn ($step) => $step->resource, $plan->steps));
-        self::assertSame(0.5, RetrievalPlanner::DEFAULT_NEED_THRESHOLD);
+        self::assertSame('site', $decision->primaryModule);
+        self::assertSame(['site'], array_map(static fn ($step) => $step->resource, $plan->steps));
+    }
+
+    public function test_module_parser_rejects_duplicates_missing_primary_unknown_modules_and_bad_ranges(): void
+    {
+        $parser = new RetrievalDecisionParser();
+        foreach ([
+            '{"intent":"x","primary_module":"articles","modules":["topics"],"parameters":{}}',
+            '{"intent":"x","primary_module":"articles","modules":["articles","articles"],"parameters":{}}',
+            '{"intent":"x","primary_module":"articles","modules":["articles","unknown"],"parameters":{}}',
+            '{"intent":"x","primary_module":"articles","modules":["articles"],"parameters":{"limit_min":30,"limit_max":15}}',
+            '{"intent":"x","primary_module":"articles","modules":["articles"],"parameters":{"limit_min":"15"}}',
+            '{"intent":"x","primary_module":"articles","modules":["articles"],"parameters":{"url":"https://evil.example"}}',
+        ] as $raw) {
+            try {
+                $parser->parse($raw);
+                self::fail('Invalid decision was accepted: '.$raw);
+            } catch (InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
+    }
+
+    public function test_routing_prompt_encodes_business_module_question_archetypes(): void
+    {
+        $prompt = \Omnichannel\Addons\AgentRuntime\Decision\RoutingRuntimeInstructions::system();
+        foreach (['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'] as $module) {
+            self::assertStringContainsString($module, $prompt);
+        }
+        self::assertStringContainsString('concrete entity list', $prompt);
+        self::assertStringContainsString('ambiguous link questions include both internal_links and external_links', $prompt);
+        self::assertStringContainsString('Existing-article improvement lists normally include articles, topics, keywords, internal_links, and gsc', $prompt);
+        self::assertStringContainsString('New-content planning normally includes topics, keywords, site, content_projects, gsc, and articles', $prompt);
+        self::assertStringNotContainsString('probabilities from 0 to 1', $prompt);
+    }
+
+    public function test_business_modules_map_to_distinct_read_resources(): void
+    {
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"links","primary_module":"internal_links","modules":["internal_links","external_links","topics","content_projects"],"parameters":{"period":"2026-09"}}');
+        $transport = new RecordingTransport();
+        (new SeoAccessExecutor($transport, new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } }, new SeoAccessUrlPolicy(), 'https://app.example.test'))
+            ->execute((new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7)));
+        $urls = array_column(array_filter($transport->calls, static fn (array $call): bool => $call['method'] === 'GET'), 'url');
+        self::assertTrue((bool) array_filter($urls, static fn (string $url): bool => str_contains($url, '/internal-links')));
+        self::assertTrue((bool) array_filter($urls, static fn (string $url): bool => str_contains($url, '/external-links')));
+        self::assertTrue((bool) array_filter($urls, static fn (string $url): bool => str_contains($url, '/keywords')));
+        self::assertTrue((bool) array_filter($urls, static fn (string $url): bool => str_contains($url, '/content-projects?period=2026-09')));
+    }
+
+    public function test_article_question_delivers_concrete_article_evidence_to_answer_input(): void
+    {
+        $processed = $this->coordinator(
+            new ScriptedDecisionGateway('unused'),
+            new RecordingAnswerGateway(),
+            new ArticleEvidenceTransport(),
+        )->processDecisionAndRetrieve(
+            AgentProjectScope::site(7),
+            'Tháng 9 này cần sửa những bài nào? gợi ý 15-30 bài',
+            [],
+            '{"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30}}',
+        );
+        self::assertSame('articles', $processed['decision']->primaryModule);
+        self::assertStringContainsString('article:41', $processed['answerInput']->exportText());
+        self::assertStringContainsString('Existing article title', $processed['answerInput']->exportText());
     }
 
     public function test_metadata_and_external_hosts_are_rejected(): void
@@ -1083,6 +1149,27 @@ final class RecordingTransport implements SeoAccessTransport
                 'latest_available' => ['period' => '2026-07'],
             ]],
         ];
+    }
+}
+
+final class ArticleEvidenceTransport implements SeoAccessTransport
+{
+    public function request(string $method, string $url, array $query = [], ?string $bearer = null, ?array $jsonBody = null): array
+    {
+        if (strtoupper($method) === 'POST') {
+            return ['status' => 200, 'json' => ['data' => [
+                'access_url' => 'https://app.example.test/api/v1/access/access_tmp_test',
+                'expires_at' => '2026-09-30T00:00:00+00:00',
+            ]]];
+        }
+        if (str_contains($url, '/articles')) {
+            return ['status' => 200, 'json' => ['data' => [
+                'schema' => 'seo.access.articles.v1',
+                'articles' => [['article_ref' => 'article:41', 'title' => 'Existing article title', 'status' => 'published']],
+            ]]];
+        }
+
+        return ['status' => 200, 'json' => ['data' => ['available' => false, 'reason' => 'no_synced_data']]];
     }
 }
 

@@ -7,12 +7,13 @@ namespace Omnichannel\Addons\AgentRuntime\Decision;
 final readonly class RetrievalDecision
 {
     /**
-     * @param  array<string, float>  $needs
-     * @param  array<string, string>  $parameters
+     * @param  list<string>  $modules
+     * @param  array<string, scalar|null>  $parameters
      */
     public function __construct(
         public string $intent,
-        public array $needs,
+        public string $primaryModule,
+        public array $modules,
         public array $parameters,
         public bool $requiresParameterExtraction,
         public bool $requiresUserConfirmation,
@@ -25,7 +26,8 @@ final readonly class RetrievalDecision
     {
         return [
             'intent' => $this->intent,
-            'needs' => $this->needs,
+            'primary_module' => $this->primaryModule,
+            'modules' => $this->modules,
             'parameters' => $this->parameters,
             'requires_parameter_extraction' => $this->requiresParameterExtraction,
             'requires_user_confirmation' => $this->requiresUserConfirmation,

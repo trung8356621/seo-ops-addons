@@ -42,6 +42,9 @@ class SeoAccessCatalog
                 'when_to_use' => 'Read first before making content or SEO decisions.',
                 'method' => 'GET',
             ],
+            ['key' => 'articles', 'description' => 'Compact existing Article inventory and SEO/link signals.', 'when_to_use' => 'Use for concrete existing-article questions.', 'method' => 'GET'],
+            ['key' => 'internal-links', 'description' => 'Internal Article relationships.', 'when_to_use' => 'Use for internal-link quality and opportunities.', 'method' => 'GET'],
+            ['key' => 'external-links', 'description' => 'External and managed cross-site destinations.', 'when_to_use' => 'Use for external-link review.', 'method' => 'GET'],
             [
                 'key' => 'keywords',
                 'description' => 'Topic landscape with MCP coverage scores.',
@@ -56,6 +59,7 @@ class SeoAccessCatalog
                     'detail' => 'Each Topic contains detail_href. Follow it for full DNA and Focus Articles.',
                 ],
             ],
+            ['key' => 'content-projects', 'description' => 'Read-only project and planned-item state.', 'when_to_use' => 'Use to avoid recommending work already planned.', 'method' => 'GET'],
             [
                 'key' => 'gsc',
                 'description' => 'Google Search Console performance and SEO opportunity data.',

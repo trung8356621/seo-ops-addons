@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessCatalog;
+use Omnichannel\Addons\Seo\Services\Access\SeoAccessBusinessModulesComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessGscComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessKeywordsComposer;
 use Omnichannel\Addons\Seo\Services\Access\SeoAccessSiteKnowledgeComposer;
@@ -25,6 +26,7 @@ final class TemporarySeoAccessController
         private readonly SeoAccessSiteKnowledgeComposer $site,
         private readonly SeoAccessKeywordsComposer $keywords,
         private readonly SeoAccessGscComposer $gsc,
+        private readonly SeoAccessBusinessModulesComposer $business,
     ) {}
 
     public function index(Request $request, string $token): JsonResponse
@@ -144,6 +146,43 @@ final class TemporarySeoAccessController
                 $token,
             )
         );
+    }
+
+    public function articles(Request $request, string $token): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) return $context;
+
+        return $this->runReadSafely(fn (): array => $this->business->articles($context->siteId, (int) $request->query('limit', 30)));
+    }
+
+    public function internalLinks(Request $request, string $token): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) return $context;
+
+        return $this->runReadSafely(fn (): array => $this->business->links($context->siteId, true));
+    }
+
+    public function externalLinks(Request $request, string $token): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) return $context;
+
+        return $this->runReadSafely(fn (): array => $this->business->links($context->siteId, false));
+    }
+
+    public function contentProjects(Request $request, string $token): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) return $context;
+
+        $period = $request->query('period');
+        return $this->runReadSafely(fn (): array => $this->business->contentProjects(
+            $context->siteId,
+            is_string($period) ? $period : null,
+            'seo-access:'.$context->lookupId,
+        ));
     }
 
     public function gscQuery(Request $request, string $token): JsonResponse

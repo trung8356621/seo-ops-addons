@@ -134,10 +134,16 @@ final class SeoAccessExecutor
 
     private function resourcePath(RetrievalStep $step): string
     {
-        if ($step->resource === 'keywords' && is_string($step->topicRef) && preg_match('/^topic:[1-9]\d*$/', $step->topicRef) === 1) {
+        if ($step->resource === 'topics' && is_string($step->topicRef) && preg_match('/^topic:[1-9]\d*$/', $step->topicRef) === 1) {
             return '/keywords/topics/'.$step->topicRef;
         }
 
-        return '/'.$step->resource;
+        return match ($step->resource) {
+            'topics' => '/keywords',
+            'internal_links' => '/internal-links',
+            'external_links' => '/external-links',
+            'content_projects' => '/content-projects',
+            default => '/'.$step->resource,
+        };
     }
 }
