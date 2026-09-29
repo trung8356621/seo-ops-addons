@@ -88,13 +88,13 @@ test('response blocks component preserves structured blocks, actions, and source
     assert.equal(source.includes('source.status === \'unavailable\''), true);
 });
 
-test('canonical agent widget supports drawer mode with compact select and close button', () => {
+test('canonical agent widget supports drawer mode without a visible header close button', () => {
     const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
     assert.equal(source.includes("mode === 'drawer'"), true);
     assert.equal(source.includes('agent-shell--drawer'), true);
     assert.equal(source.includes('agent-drawer-header'), true);
     assert.equal(source.includes('agent-project-select'), true);
-    assert.equal(source.includes('agent-drawer-close-btn'), true);
+    assert.equal(source.includes('agent-drawer-close-btn'), false);
     assert.equal(source.includes('onClose'), true);
     // When isDrawer, showSidebar is false
     assert.equal(source.includes('!isDrawer'), true);
@@ -120,6 +120,8 @@ test('blade views define global launcher and right-side drawer hook', () => {
     assert.equal(drawerSource.includes('agent-drawer-scrim'), true);
     assert.equal(drawerSource.includes('agent-drawer:toggle'), true);
     assert.equal(drawerSource.includes('agent-drawer:close'), true);
+    assert.equal(drawerSource.includes('x-on:click="close()"'), true);
+    assert.equal(drawerSource.includes('x-on:keydown.escape.window="close()"'), true);
     assert.equal(drawerSource.includes('DomainContextResolver'), true);
 });
 

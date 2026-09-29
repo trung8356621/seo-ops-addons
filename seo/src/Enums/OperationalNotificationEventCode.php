@@ -54,6 +54,11 @@ enum OperationalNotificationEventCode: string
     case SiteSyncFailed = 'site_sync.failed';
     case SiteSyncRecovered = 'site_sync.recovered';
 
+    // Site Health
+    case SiteHealthDown = 'site.health.down';
+    case SiteHealthDegraded = 'site.health.degraded';
+    case SiteHealthRecovered = 'site.health.recovered';
+
     // Content Project
     case ContentProjectTaskFailed = 'content_project.task_failed';
 

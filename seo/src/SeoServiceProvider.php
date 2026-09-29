@@ -7,10 +7,10 @@ namespace Omnichannel\Addons\Seo;
 use App\Core\Capability\CapabilityRegistry;
 use App\Core\Members\MembersSectionRegistry;
 use App\Core\Settings\SettingsSectionRegistry;
+use Illuminate\Support\ServiceProvider;
 use Omnichannel\Addons\SearchFoundation\Members\SeoMembersSectionContributor;
 use Omnichannel\Addons\Seo\Settings\SeoSettingsSectionContributor;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
-use Illuminate\Support\ServiceProvider;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -23,6 +23,7 @@ final class SeoServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(DomainContextResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class);
         $this->registerCapabilities();
         $this->app->singleton(SeoSettingsSectionContributor::class);
         $this->app->singleton(SeoMembersSectionContributor::class);
@@ -65,6 +66,17 @@ final class SeoServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'seo');
+
+        if ($this->app->bound(CapabilityRegistry::class)) {
+            $capabilities = $this->app->make(CapabilityRegistry::class);
+            if (! $capabilities->has(\Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability::ID)) {
+                $capabilities->register(
+                    \Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability::ID,
+                    $this->app->make(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class),
+                    self::SLUG,
+                );
+            }
+        }
 
         $this->registerAddonPermissions();
 
@@ -182,7 +194,7 @@ final class SeoServiceProvider extends ServiceProvider
     /** @return list<string> */
     private function providedCapabilityIds(): array
     {
-        $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'addon.json';
+        $path = dirname(__DIR__).DIRECTORY_SEPARATOR.'addon.json';
         if (! is_file($path)) {
             return [];
         }

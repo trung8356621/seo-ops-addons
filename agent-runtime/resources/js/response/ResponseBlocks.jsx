@@ -1,23 +1,9 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-}
-
-function markdownToHtml(text) {
-    const escaped = escapeHtml(text);
-    return escaped
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\n/g, '<br />');
-}
+import { modelMarkdownToHtml, resolveWarningClass } from './markdownPresentation.js';
 
 function MarkdownBlock({ text }) {
-    return <div className="agent-md" dangerouslySetInnerHTML={{ __html: markdownToHtml(text || '') }} />;
+    return <div className="agent-md" dangerouslySetInnerHTML={{ __html: modelMarkdownToHtml(text || '') }} />;
 }
 
 function ChartBlock({ block }) {
@@ -140,7 +126,9 @@ export function ResponseView({ response }) {
 
             {blocks.map((block, index) => {
                 if (block.type === 'warning') {
-                    return <div key={index} className="agent-warning">{block.text}</div>;
+                    const text = String(block.text || '');
+                    const warningClass = resolveWarningClass(block, response.sources);
+                    return <div key={index} className={warningClass}>{text}</div>;
                 }
                 if (block.type === 'chart') {
                     return <ChartBlock key={index} block={block} />;

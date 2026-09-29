@@ -559,17 +559,6 @@ export function AgentWidget({
                                 </option>
                             ))}
                         </select>
-                        {onClose ? (
-                            <button
-                                type="button"
-                                className="agent-drawer-close-btn"
-                                onClick={onClose}
-                                aria-label="Close Agent drawer"
-                                title="Close"
-                            >
-                                <X size={18} />
-                            </button>
-                        ) : null}
                     </div>
                 </div>
             ) : null}

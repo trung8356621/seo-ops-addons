@@ -171,6 +171,23 @@
     padding: 10px 12px;
 }
 
+.agent-md h1,
+.agent-md h2,
+.agent-md h3,
+.agent-md h4,
+.agent-md h5,
+.agent-md h6 {
+    margin: 10px 0 6px;
+    font-size: 1em;
+    font-weight: 700;
+}
+
+.agent-md p { margin: 0 0 7px; }
+.agent-md ul,
+.agent-md ol { margin: 4px 0 8px; padding-left: 22px; }
+.agent-md a { color: #0369a1; text-decoration: underline; overflow-wrap: anywhere; }
+.agent-md pre { overflow-x: auto; white-space: pre; }
+
 .agent-processing-status {
     display: inline-flex;
     align-items: center;
@@ -429,7 +446,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    width: clamp(460px, 38vw, 560px);
+    width: min(80vw, 1180px);
     max-width: 100vw;
     height: 100vh;
     height: 100dvh;
@@ -449,7 +466,7 @@
     overflow: hidden;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
     .agent-drawer-container {
         width: 100vw;
         min-width: 100vw;
@@ -532,25 +549,11 @@
     box-shadow: 0 0 0 1px #059669;
 }
 
-.agent-drawer-close-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-    background: #fff;
+.agent-availability-note {
+    margin: 4px 0;
     color: #64748b;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.agent-drawer-close-btn:hover {
-    background: #fee2e2;
-    color: #dc2626;
-    border-color: #fecaca;
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 /* Agent Shell in Drawer Mode */

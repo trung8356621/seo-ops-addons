@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SiteSync;
 
 use App\Core\Capability\CapabilityRegistry;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
 use Omnichannel\Addons\SiteSync\Services\Capabilities\SiteLinkCatalogCapabilityService;
 use Omnichannel\Addons\SiteSync\Services\Profile\Contracts\WordPressSiteProfileSource;
@@ -27,8 +29,17 @@ final class SiteSyncServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Jobs (ProcessSiteSyncV3Job) resolve via container; no explicit bind required.
-        // Migrations discovered via client addon_migration_ownership (site-sync).
+        $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'site-sync');
+        Livewire::component('site-health-notice', \Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice::class);
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([\Omnichannel\Addons\SiteSync\Console\MonitorSiteHealthCommand::class]);
+        }
+
+        Schedule::command('seo:site-health:monitor')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(10)
+            ->onOneServer();
     }
 
     private function registerCapabilities(): void
@@ -49,6 +60,7 @@ final class SiteSyncServiceProvider extends ServiceProvider
                     $this->app->make(SiteLinkCatalogCapabilityService::class),
                     self::SLUG,
                 );
+
                 continue;
             }
             $caps->register($id, new CapabilityMarker($id, self::SLUG), self::SLUG);
@@ -58,7 +70,7 @@ final class SiteSyncServiceProvider extends ServiceProvider
     /** @return list<string> */
     private function providedCapabilityIds(): array
     {
-        $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'addon.json';
+        $path = dirname(__DIR__).DIRECTORY_SEPARATOR.'addon.json';
         if (! is_file($path)) {
             return [];
         }

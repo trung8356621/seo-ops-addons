@@ -42,8 +42,27 @@ test('Diag-only rejected Answer disclosure is collapsed and contains error plus 
 });
 
 test('drawer width and processing status use wider flat contracts', () => {
-    assert.equal(css.includes('width: clamp(460px, 38vw, 560px);'), true);
+    assert.equal(css.includes('width: min(80vw, 1180px);'), true);
+    assert.equal(css.includes('@media (max-width: 768px)'), true);
     assert.match(css, /article\.agent-processing-status \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
+});
+
+test('drawer header has no visible close button while existing controls remain', () => {
+    assert.equal(widget.includes('agent-drawer-close-btn'), false);
+    assert.equal(widget.includes('aria-label="Close Agent drawer"'), false);
+    assert.equal(widget.includes('className="agent-debug-switch"'), true);
+    assert.equal(widget.includes('title="Copy question"'), true);
+    assert.equal(widget.includes('title="Copy answer"'), true);
+    assert.equal(widget.includes('title="Rerun"'), true);
+    assert.equal(widget.includes('agent-version-nav'), true);
+    assert.equal(widget.includes('Diag'), true);
+});
+
+test('GSC availability uses muted styling without weakening real warnings', () => {
+    const response = readFileSync(new URL('../response/ResponseBlocks.jsx', import.meta.url), 'utf8');
+    assert.equal(response.includes('resolveWarningClass'), true);
+    assert.match(css, /\.agent-availability-note \{[\s\S]*color: #64748b;[\s\S]*font-size: 12px;/);
+    assert.equal(css.includes('.agent-warning'), true);
 });
 
 test('assistant copy includes canonical visible markdown and table content', () => {

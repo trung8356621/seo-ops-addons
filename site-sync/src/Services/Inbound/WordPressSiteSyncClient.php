@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SiteSync\Services\Inbound;
 
-use Omnichannel\Addons\SiteSync\Services\Contracts\CapabilityManifestData;
-use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncBatchData;
-use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Facades\Http;
+use Omnichannel\Addons\SiteSync\Services\Contracts\CapabilityManifestData;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncBatchData;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Throwable;
 
 /**
@@ -17,6 +17,44 @@ use Throwable;
  */
 final class WordPressSiteSyncClient
 {
+    /** @return array{base: string, error: ?string} */
+    public function healthContext(Site $site): array
+    {
+        $base = $this->baseUrl($site);
+
+        return ['base' => $base ?? '', 'error' => $base === null ? 'Invalid site domain.' : null];
+    }
+
+    /**
+     * Sanitized low-level probe for Site Health. It intentionally reuses this
+     * client's canonical auth and WordPress REST fallback behavior.
+     *
+     * @return array{ok: bool, status: int, payload: array<string, mixed>, message: string, auth_error: bool, base: string}
+     */
+    public function healthProbe(Site $site, string $route, int $timeout = 5): array
+    {
+        $auth = $this->authContext($site);
+        if ($auth['error'] !== null) {
+            return ['ok' => false, 'status' => 0, 'payload' => [], 'message' => $auth['error'], 'auth_error' => true, 'base' => $auth['base']];
+        }
+
+        try {
+            $response = $this->getWpRest($auth['base'], $auth['token'], $route, $timeout);
+            $json = $response->json();
+
+            return [
+                'ok' => $response->successful(),
+                'status' => $response->status(),
+                'payload' => is_array($json) ? $json : [],
+                'message' => $response->successful() ? 'ok' : 'HTTP '.$response->status(),
+                'auth_error' => in_array($response->status(), [401, 403], true),
+                'base' => $auth['base'],
+            ];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'status' => 0, 'payload' => [], 'message' => $e->getMessage(), 'auth_error' => false, 'base' => $auth['base']];
+        }
+    }
+
     /**
      * @return array{success: bool, message: string, manifest?: CapabilityManifestData}
      */
@@ -455,15 +493,23 @@ final class WordPressSiteSyncClient
             return ['token' => '', 'base' => '', 'error' => 'Thiếu SEO Read Token.'];
         }
 
-        $domain = trim((string) $site->domain);
-        if ($domain === '') {
+        $base = $this->baseUrl($site);
+        if ($base === null) {
             return ['token' => '', 'base' => '', 'error' => 'Domain site không hợp lệ.'];
         }
 
-        $base = preg_match('#^https?://#i', $domain) === 1
+        return ['token' => $token, 'base' => rtrim($base, '/'), 'error' => null];
+    }
+
+    private function baseUrl(Site $site): ?string
+    {
+        $domain = trim((string) $site->domain);
+        if ($domain === '') {
+            return null;
+        }
+
+        return preg_match('#^https?://#i', $domain) === 1
             ? rtrim($domain, '/')
             : 'https://'.ltrim($domain, '/');
-
-        return ['token' => $token, 'base' => rtrim($base, '/'), 'error' => null];
     }
 }
