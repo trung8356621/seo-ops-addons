@@ -293,12 +293,27 @@ export function AgentWidget({
                 setActiveThreadUlid(ulid);
                 setStoredThreadUlid(hostContext.appKey, scopeRef, ulid);
             }
+
+            if (threadData.pending_model_call) {
+                const pending = threadData.pending_model_call;
+                setDebugRunUlid(pending.run_ulid || '');
+                setDebugCall(pending.model_call || null);
+                setDebugManualResult('');
+                setDebugParserError('');
+                setProcessingStatus(waitingForManualModel(pending.model_call));
+                setDebugOpen(true);
+                setStoredDeveloperMode(hostContext.appKey, DEV_MODE_DEBUG);
+                setDeveloperMode(DEV_MODE_DEBUG);
+            } else {
+                resetDebugState();
+                setDebugOpen(false);
+            }
         } catch (err) {
             setError(err.message || 'Failed to load thread.');
         } finally {
             setBusy(false);
         }
-    }, [endpoints.threadsUrl, hostContext.appKey]);
+    }, [endpoints.threadsUrl, hostContext.appKey, resetDebugState]);
 
     // New conversation action
     const onNewConversation = useCallback(() => {
@@ -368,8 +383,7 @@ export function AgentWidget({
         setDebugBusy(true);
         setDebugParserError('');
         setDebugOpen(false);
-        const resumingStage = debugCall?.key;
-        setProcessingStatus(resumingStage === 'answer' ? 'Validating Answer…' : 'Retrieving SEO data…');
+        setProcessingStatus('Thinking…');
         try {
             const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
                 run_ulid: debugRunUlid,
@@ -421,9 +435,9 @@ export function AgentWidget({
             setViewingThreadUlid(null);
             setIsViewingArchived(false);
             setMessages([]);
+            resetDebugState();
+            setDebugOpen(false);
         }
-        resetDebugState();
-        setDebugOpen(false);
     }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
     async function copyText(text) {
@@ -493,12 +507,21 @@ export function AgentWidget({
                 diagnostics: isDiagnostics,
             });
 
-            const returnedUlid = payload?.data?.thread_ulid;
+            const data = payload?.data || {};
+            const returnedUlid = data.thread_ulid;
             if (returnedUlid && !activeThreadUlid) {
                 setActiveThreadUlid(returnedUlid);
                 setViewingThreadUlid(returnedUlid);
                 setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
                 fetchThreads(currentScopeRef);
+            }
+
+            if (data.user_message_id) {
+                setMessages((current) =>
+                    current.map((msg) =>
+                        msg.id === tempUserId ? { ...msg, id: data.user_message_id } : msg
+                    )
+                );
             }
 
             if (data.status === 'paused') {
@@ -511,18 +534,13 @@ export function AgentWidget({
                 return;
             }
 
-            setMessages((current) => {
-                const updated = current.map((msg) =>
-                    msg.id === tempUserId ? { ...msg, id: data.user_message_id || tempUserId } : msg
-                );
-                return [...updated, {
-                    role: 'assistant',
-                    id: data.assistant_message_id,
-                    originUserMessageId: data.user_message_id || tempUserId,
-                    content: data.message || '',
-                    response: data,
-                }];
-            });
+            setMessages((current) => [...current, {
+                role: 'assistant',
+                id: data.assistant_message_id,
+                originUserMessageId: data.user_message_id || tempUserId,
+                content: data.message || '',
+                response: data,
+            }]);
 
             setSelectedVersions((current) => ({
                 ...current,
@@ -531,7 +549,7 @@ export function AgentWidget({
             fetchThreads(currentScopeRef);
             setProcessingStatus(null);
         } catch (caught) {
-            setError(caught.message || 'Could not send message.');
+            setError(caught.message);
             setProcessingStatus(null);
         } finally {
             setBusy(false);

@@ -284,6 +284,7 @@ import {
 import FaqAccordionPreview from './FaqAccordionPreview';
 import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus } from 'lucide-react';
 import { extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
+import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
     getSelectionHtmlFromEditor,
     getSelectionTextFromEditor,
@@ -939,6 +940,10 @@ export default function SeoArticleEditor({
     }, [blocks]);
 
     const [copiedSectionId, setCopiedSectionId] = useState(null);
+    const [legacyFaqNotice, setLegacyFaqNotice] = useState(null);
+    const legacyFaqRestoreRef = useRef(null);
+    const ignoredLegacyFaqSectionsRef = useRef(new Set());
+    const legacyFaqAutoAttemptedRef = useRef(false);
     const copiedSectionTimerRef = useRef(null);
 
     const copySectionText = useCallback(
@@ -1413,6 +1418,62 @@ export default function SeoArticleEditor({
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
         const { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
+        const extractLegacyFaqSection = useCallback((section, source = 'manual') => {
+            if (!section || faqCount > 0 || articleHasFaqShortcode(blocksRef.current)) return false;
+            const html = sectionHtml(section, blockById);
+            const faqs = detectFaqPairsFromSection(html);
+            if (faqs.length === 0) {
+                window.dispatchEvent(new CustomEvent('seo-article-editor-notify', { detail: {
+                    title: 'FAQ', body: 'Section này không có cặp câu hỏi/trả lời dùng được.', status: 'warning',
+                } }));
+                return false;
+            }
+
+            const originalBlocks = blocksRef.current;
+            const originalFaqs = Array.isArray(panelFaqsRef.current) ? panelFaqsRef.current : [];
+            const selectedIds = new Set(section.blockIds);
+            const firstIndex = originalBlocks.findIndex((block) => selectedIds.has(block.id));
+            const nextBlocks = originalBlocks.filter((block) => !selectedIds.has(block.id));
+            nextBlocks.splice(Math.max(0, firstIndex), 0, createFaqShortcodeBlock());
+            legacyFaqRestoreRef.current = { sectionId: section.id, blocks: originalBlocks, faqs: originalFaqs };
+            panelFaqsRef.current = faqs;
+            faqsCanonicalKnownRef.current = true;
+            setPanelFaqs(faqs);
+            setFaqCount(faqs.length);
+            setBlocks(nextBlocks);
+            setLegacyFaqNotice({ heading: section.title, questionCount: faqs.length, answerCount: faqs.length, source });
+            markSeoStale();
+            scheduleAutosave();
+            window.setTimeout(() => runLocalSeoAnalysis(), 0);
+            return true;
+        }, [blockById, faqCount, markSeoStale, runLocalSeoAnalysis, scheduleAutosave, setBlocks]);
+
+        const restoreLegacyFaqSection = useCallback(() => {
+            const snapshot = legacyFaqRestoreRef.current;
+            if (!snapshot) return;
+            ignoredLegacyFaqSectionsRef.current.add(snapshot.sectionId);
+            panelFaqsRef.current = snapshot.faqs;
+            setPanelFaqs(snapshot.faqs);
+            setFaqCount(snapshot.faqs.length);
+            setBlocks(snapshot.blocks);
+            legacyFaqRestoreRef.current = null;
+            setLegacyFaqNotice(null);
+            markSeoStale();
+            scheduleAutosave();
+            window.setTimeout(() => runLocalSeoAnalysis(), 0);
+        }, [markSeoStale, runLocalSeoAnalysis, scheduleAutosave, setBlocks]);
+
+        useEffect(() => {
+            if (legacyFaqAutoAttemptedRef.current || contentLoading || blocks.length === 0 || faqCount > 0) return;
+            legacyFaqAutoAttemptedRef.current = true;
+            const candidate = findLegacyFaqSection(
+                editorSections,
+                editorSettings?.faq_catch_keywords ?? [],
+                ignoredLegacyFaqSectionsRef.current,
+            );
+            if (candidate) extractLegacyFaqSection(candidate, 'auto');
+        }, [blocks.length, contentLoading, editorSections, editorSettings?.faq_catch_keywords, extractLegacyFaqSection, faqCount]);
+
         const { handleEditorSearchAction } = useArticleEditorSearch({ blockById, clearTempMerge, commitActiveBlock, editorSections, featuredSnippetTargetRef, insertFeaturedSnippetAsNewSectionAfter, publishEditorImagesCatalogRef, quickReplaceFind, quickReplaceValue, setBlocks, setCollapsedSectionIds, setEditorSearchMatchCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setImagesReloadKey, tempMergeRef });
 
     const editorHostApi = useMemo(() => ({
@@ -1867,7 +1928,19 @@ export default function SeoArticleEditor({
                                 {t('editor_loading_content')}
                             </p>
                         ) : (
-                            editorSections.map((section, sectionIndex) => {
+                            <>
+                            {legacyFaqNotice ? (
+                                <div className="mb-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100">
+                                    <div className="font-medium">Đã nhận diện FAQ từ nội dung bài viết</div>
+                                    <div className="text-xs">Heading: {legacyFaqNotice.heading}</div>
+                                    <div className="text-xs">Phát hiện: {legacyFaqNotice.questionCount} câu hỏi · {legacyFaqNotice.answerCount} câu trả lời</div>
+                                    <div className="mt-2 flex gap-2">
+                                        <button type="button" className="rounded border border-emerald-400 px-2 py-1 text-xs" onClick={() => openFaqModule({ source: 'legacy-faq-detection' })}>Kiểm tra FAQ</button>
+                                        <button type="button" className="rounded border border-slate-400 px-2 py-1 text-xs" onClick={restoreLegacyFaqSection}>Trả lại nội dung</button>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {editorSections.map((section, sectionIndex) => {
                                 const isCollapsed = collapsedSectionIds[section.id] === true;
                                 const sectionNumber = editorSections
                                     .slice(0, sectionIndex + 1)
@@ -1987,6 +2060,18 @@ export default function SeoArticleEditor({
                                                         <Copy size={12} />
                                                     )}
                                                 </button>
+
+                                                {!section.isIntro ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => extractLegacyFaqSection(section, 'manual')}
+                                                        className="seo-section-header-icon-btn ml-1 border-teal-300 bg-teal-50 px-1.5 text-[11px] font-semibold text-teal-700 hover:bg-teal-100 dark:border-teal-500/70 dark:bg-teal-900/30 dark:text-teal-200"
+                                                        title="Đánh dấu section này là FAQ"
+                                                        aria-label="Đánh dấu section này là FAQ"
+                                                    >
+                                                        FAQ
+                                                    </button>
+                                                ) : null}
 
                                                 {!section.isIntro ? (
                                                     <button
@@ -2228,7 +2313,8 @@ export default function SeoArticleEditor({
                                         ) : null}
                                     </section>
                                 );
-                            })
+                            })}
+                            </>
                         )}
                     </div>
                 </div>

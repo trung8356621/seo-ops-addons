@@ -26,7 +26,6 @@ final class ArticleEditorPersistService
 {
     public function __construct(
         private readonly ArticleEditorHtmlSanitizeService $htmlSanitize,
-        private readonly ArticleFaqBodySyncService $faqBodySync,
         private readonly ArticlePostImagesService $postImages,
         private readonly ArticleWordPressSyncFlagService $syncFlags,
         private readonly ArticleKeywordLinkReconcileService $keywordLinks,
@@ -185,9 +184,6 @@ final class ArticleEditorPersistService
 
         $html = $this->canonicalizeBodyForPersist($html);
         $html = $this->guardArticleBodyBeforeSave($article, $html);
-
-        $faqSync = $this->faqBodySync->extractFromBodyWhenMissing($article, $html);
-        $html = $faqSync['body_html'];
 
         // Body-only writers without JSON: mark existing JSON stale.
         if (! $derivedFromJson && $this->documentWriter->columnsReady($article)) {

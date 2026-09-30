@@ -33,7 +33,6 @@ use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
 use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
 use Omnichannel\Addons\Content\Services\ArticleEditorSeoMetaService;
 use Omnichannel\Addons\Content\Services\ArticleEditorSeoPayloadService;
-use Omnichannel\Addons\Content\Services\ArticleFaqBodySyncService;
 use Omnichannel\Addons\Content\Services\ArticleFaqEditorService;
 use Omnichannel\Addons\Content\Services\ArticleFaqExtractDebugService;
 use Omnichannel\Addons\Content\Services\ArticleFaqGeneratorService;
@@ -3440,14 +3439,6 @@ class EditArticle extends SeoEditRecord
             return null;
         }
 
-        $faqSync = app(ArticleFaqBodySyncService::class)->extractFromBodyWhenMissing($this->record, $html);
-        $html = $faqSync['body_html'];
-        if ($faqSync['extracted']) {
-            $this->dispatch('article-faqs-extracted', faqs: $faqSync['faqs'], editorHtml: $html);
-        } else {
-            $this->dispatchFaqExtractDebugIfPresent($faqSync['extract_debug'] ?? null);
-        }
-
         $slug = Str::slug($this->articleSlug);
         $postType = ArticleWordPressPostType::normalizeEditorInput($this->articlePostType);
         $bundle = [
@@ -4224,6 +4215,7 @@ class EditArticle extends SeoEditRecord
             'history_step' => $editorSettings['history_step'] ?? 20,
             'autosave_interval_seconds' => $editorSettings['autosave_interval_seconds'] ?? 60,
             'wiki_trust_domains' => $editorSettings['wiki_trust_domains'] ?? [],
+            'faq_catch_keywords' => app(\Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService::class)->getFaqCatchKeywords(),
             'show_reviews_tab' => true,
             'show_link_widgets' => true,
             'allow_wp_sync' => ! SeoAccessControl::isContentManager(),
@@ -4350,6 +4342,7 @@ class EditArticle extends SeoEditRecord
         $payload = [
             ...$editorSettings,
             'wiki_trust_domains' => $editorSettings['wiki_trust_domains'],
+            'faq_catch_keywords' => app(\Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService::class)->getFaqCatchKeywords(),
             'featured_snippet_thresholds' => $featuredSnippetThresholds,
             'article_length_product' => $promptSettings->resolveArticleLengthTarget('product'),
             'article_length_default' => $promptSettings->resolveArticleLengthTarget('article'),

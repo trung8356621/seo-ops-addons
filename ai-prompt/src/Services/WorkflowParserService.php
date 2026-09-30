@@ -1543,19 +1543,33 @@ class WorkflowParserService
     public function calculateSeoScoreFromContent(string $content, array $parsedFaqs = []): array
     {
         $content = trim($content);
-        if ($content === '') {
-            return $this->calculateSeoScore('', $parsedFaqs);
+        $faqPresent = $parsedFaqs !== [] || $this->contentHasFaqKeywordHeading($content);
+        $tablePresent = preg_match('/<table\b/i', $content) === 1
+            || preg_match('/^\s*\|.+\|\s*$/m', $content) === 1;
+        $violations = [];
+        if (! $faqPresent) $violations[] = SeoScoringRulesRegistry::KEY_FAQ_MISSING;
+        if (! $tablePresent) $violations[] = SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_MISSING;
+
+        return [
+            'violations' => $violations,
+            'total_score' => SeoScoringCalculator::scoreFromViolations($violations),
+            'parsed_faq_count' => count($parsedFaqs),
+            'checklist' => [
+                'faq' => ['passed' => $faqPresent, 'points' => 0, 'message' => $faqPresent ? 'FAQ present' : 'FAQ missing'],
+                'table' => ['passed' => $tablePresent, 'points' => 0, 'message' => $tablePresent ? 'Table present' : 'Table missing', 'tier' => $tablePresent ? 'present' : 'none'],
+            ],
+        ];
+    }
+
+    private function contentHasFaqKeywordHeading(string $content): bool
+    {
+        preg_match_all('/(?:<h[2-6]\b[^>]*>([\s\S]*?)<\/h[2-6]>|^#{2,6}\s+(.+)$)/imu', $content, $matches, PREG_SET_ORDER);
+        $matcher = $this->faqHeadingMatcher();
+        foreach ($matches as $match) {
+            if ($matcher->matches((string) ($match[1] !== '' ? $match[1] : ($match[2] ?? '')))) return true;
         }
 
-        if ($parsedFaqs === [] && preg_match('/<[a-z][\s\S]*>/i', $content) === 1) {
-            $parsedFaqs = $this->parseFaqsFromContent($content);
-        }
-
-        $markdown = preg_match('/<[a-z][\s\S]*>/i', $content) === 1
-            ? $this->htmlFragmentToMarkdown($content)
-            : $content;
-
-        return $this->calculateSeoScore($markdown, $parsedFaqs, $content);
+        return false;
     }
 
     /**

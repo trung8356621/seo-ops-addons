@@ -67,14 +67,7 @@ final class ArticleContentSeoBonusService
     {
         $article->loadMissing(['faqs', 'articleMetas']);
 
-        $dbFaqs = $article->resolveFaqs();
-        if (trim($content) === '') {
-            return $dbFaqs;
-        }
-
-        $contentFaqs = $this->workflowParser->parseFaqsFromContent($content);
-
-        return count($contentFaqs) > count($dbFaqs) ? $contentFaqs : $dbFaqs;
+        return $article->resolveFaqs();
     }
 
     /**

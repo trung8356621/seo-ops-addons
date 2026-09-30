@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
+use Omnichannel\Addons\Seo\Support\FaqHeadingMatcher;
 use Omnichannel\Addons\Seo\Support\SeoReasonPresentation;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use DOMDocument;
@@ -78,7 +79,7 @@ final class SeoScoringEngine
             $violations[] = SeoScoringRulesRegistry::KEY_WIKI_TRUST_MISSING;
         }
 
-        if (! $this->hasFaqData($faqsMeta, $htmlContent)) {
+        if (! $this->hasFaqData($faqsMeta, $htmlContent, $context['faq_catch_keywords'] ?? [])) {
             $violations[] = SeoScoringRulesRegistry::KEY_FAQ_MISSING;
         }
 
@@ -86,12 +87,7 @@ final class SeoScoringEngine
             $violations[] = $key;
         }
 
-        $snippetViolation = $this->resolveFeaturedSnippetViolation(
-            $htmlContent,
-            is_array($context['featured_snippet_thresholds'] ?? null)
-                ? $context['featured_snippet_thresholds']
-                : $this->defaultFeaturedSnippetThresholds(),
-        );
+        $snippetViolation = $this->resolveFeaturedSnippetViolation($htmlContent);
         if ($snippetViolation !== null) {
             $violations[] = $snippetViolation;
         }
@@ -192,24 +188,11 @@ final class SeoScoringEngine
         return $violations;
     }
 
-    /**
-     * @param  array{rows_min?: int, rows_range?: int, rows_max?: int, min_columns?: int, max_columns?: int}  $thresholds
-     */
-    private function resolveFeaturedSnippetViolation(string $content, array $thresholds): ?string
+    private function resolveFeaturedSnippetViolation(string $content): ?string
     {
-        $content = trim($content);
-        if ($content === '' || preg_match('/<table\b/i', $content) !== 1) {
-            return SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_MISSING;
-        }
-
-        $tier = $this->bestFeaturedSnippetTierFromHtml($content, $thresholds);
-
-        return match ($tier) {
-            self::SNIPPET_TIER_EXCELLENT => null,
-            self::SNIPPET_TIER_GOOD => SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_BELOW_EXCELLENT,
-            self::SNIPPET_TIER_AVERAGE => SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_BELOW_GOOD,
-            default => SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_MISSING,
-        };
+        return preg_match('/<table\b/i', $content) === 1
+            ? null
+            : SeoScoringRulesRegistry::KEY_FEATURED_SNIPPET_MISSING;
     }
 
     /**
@@ -382,7 +365,7 @@ final class SeoScoringEngine
     /**
      * @param  list<array{question?: string, answer?: string}>  $faqsMeta
      */
-    private function hasFaqData(array $faqsMeta, string $html = ''): bool
+    private function hasFaqData(array $faqsMeta, string $html = '', array $faqCatchKeywords = []): bool
     {
         foreach ($faqsMeta as $item) {
             if (! is_array($item)) {
@@ -402,15 +385,18 @@ final class SeoScoringEngine
             return false;
         }
 
-        if (preg_match('/omi-faq-placeholder|\[omi_faq\]/i', $html) === 1) {
-            return true;
+        $matcher = new FaqHeadingMatcher($faqCatchKeywords !== [] ? $faqCatchKeywords : [
+            'FAQ', 'Câu hỏi thường gặp', 'Frequently Asked Questions',
+        ]);
+        preg_match_all('/<h[2-6]\b[^>]*>([\s\S]*?)<\/h[2-6]>/iu', $html, $matches);
+
+        foreach ($matches[1] ?? [] as $heading) {
+            if ($matcher->matches((string) $heading)) {
+                return true;
+            }
         }
 
-        if (preg_match('/\bomi-faq-item\b/i', $html) === 1) {
-            return true;
-        }
-
-        return preg_match('/<h3\b[^>]*>[\s\S]*?<\/h3>\s*<p\b/i', $html) === 1;
+        return false;
     }
 
     private function hasWikiTrustExternalLink(string $html, string $domain): bool

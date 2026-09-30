@@ -28,6 +28,7 @@ class SeoAnalyzerService
         private readonly WorkflowParserService $workflowParser,
         private readonly SeoScoringEngine $scoringEngine,
         private readonly SeoPromptSettingsService $promptSettings,
+        private readonly SeoOverviewSettingsService $overviewSettings,
     ) {}
 
     /**
@@ -410,6 +411,7 @@ class SeoAnalyzerService
                     ArticlePostTypeResolver::resolve($article),
                 ),
                 'featured_snippet_thresholds' => $this->promptSettings->getFeaturedSnippetThresholds(),
+                'faq_catch_keywords' => $this->overviewSettings->getFaqCatchKeywords(),
             ],
         );
 
@@ -426,20 +428,7 @@ class SeoAnalyzerService
      */
     private function resolveFaqsForScoring(SeoArticle $article, string $content): array
     {
-        $dbFaqs = $article->resolveFaqs();
-        $content = trim($content);
-
-        if ($content === '') {
-            return $dbFaqs;
-        }
-
-        $contentFaqs = $this->workflowParser->parseFaqsFromContent($content);
-
-        if (count($contentFaqs) > count($dbFaqs)) {
-            return $contentFaqs;
-        }
-
-        return $dbFaqs;
+        return $article->resolveFaqs();
     }
 
     /**
