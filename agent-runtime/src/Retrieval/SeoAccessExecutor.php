@@ -138,6 +138,10 @@ final class SeoAccessExecutor
             return '/keywords/topics/'.$step->topicRef;
         }
 
+        if ($step->resource === 'articles' && is_string($step->articleRef) && preg_match('/^article:[1-9]\d*$/', $step->articleRef) === 1) {
+            return '/articles/'.$step->articleRef;
+        }
+
         return match ($step->resource) {
             'topics' => '/keywords',
             'internal_links' => '/internal-links',

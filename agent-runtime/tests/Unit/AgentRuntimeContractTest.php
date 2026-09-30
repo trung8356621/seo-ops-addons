@@ -22,6 +22,7 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
+use Omnichannel\Addons\Seo\Services\Access\SeoAccessBusinessModulesComposer;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentHostContext;
 use Omnichannel\Addons\AgentRuntime\Filament\Pages\AgentRuntimePage;
@@ -42,6 +43,150 @@ final class AgentRuntimeContractTest extends TestCase
         parent::setUp();
         if (!\Illuminate\Support\Facades\Schema::hasTable('agent_apps')) {
             $this->artisan('migrate', ['--path' => 'D:\work\omnichannel-addons\agent-runtime\database\migrations', '--realpath' => true]);
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('articles')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('articles', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('site_id')->nullable();
+                $table->string('title')->nullable();
+                $table->string('slug')->nullable();
+                $table->string('status')->default('publish');
+                $table->string('review_status')->nullable();
+                $table->integer('document_version')->default(1);
+                $table->softDeletes();
+                $table->timestamps();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_article_profiles')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('seo_article_profiles', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('article_id');
+                $table->string('focus_keyword')->nullable();
+                $table->float('seo_score')->nullable();
+                $table->integer('internal_link_count')->default(0);
+                $table->integer('external_link_count')->default(0);
+                $table->timestamps();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_projects')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('seo_projects', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('site_id')->nullable();
+                $table->string('name')->nullable();
+                $table->date('month')->nullable();
+                $table->string('status')->default('draft');
+                $table->timestamp('archived_at')->nullable();
+                $table->unsignedBigInteger('user_id')->nullable();
+                $table->timestamps();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_project_tasks')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('seo_project_tasks', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('project_id');
+                $table->unsignedBigInteger('site_id')->nullable();
+                $table->unsignedBigInteger('article_id')->nullable();
+                $table->string('task_type')->nullable();
+                $table->string('status')->default('pending');
+                $table->string('lifecycle_state')->default('draft');
+                $table->string('publish_queue_status')->nullable();
+                $table->timestamp('scheduled_publish_at')->nullable();
+                $table->timestamp('last_publish_attempt_at')->nullable();
+                $table->timestamp('publish_published_at')->nullable();
+                $table->timestamp('archived_at')->nullable();
+                $table->softDeletes();
+                $table->timestamps();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_project_runs')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('seo_project_runs', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('project_id');
+                $table->string('status')->default('completed');
+                $table->timestamps();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
+            \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->create('wordpress_article_links', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('article_id')->nullable();
+                $table->unsignedBigInteger('wp_post_id')->nullable();
+                $table->timestamps();
+            });
+        }
+
+        \Illuminate\Support\Facades\Config::set('database.core_connection', 'sqlite');
+
+        if (!\Illuminate\Support\Facades\Schema::hasTable('users')) {
+            \Illuminate\Support\Facades\Schema::create('users', function ($table) {
+                $table->id();
+                $table->string('name');
+                $table->string('email')->unique();
+                $table->string('password');
+                $table->string('role')->default('user');
+                $table->string('status')->default('normal');
+                $table->timestamps();
+                $table->softDeletes();
+            });
+        }
+        if (!\Illuminate\Support\Facades\Schema::hasTable('sites')) {
+            \Illuminate\Support\Facades\Schema::create('sites', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->nullable();
+                $table->string('domain')->nullable();
+                $table->string('status')->default('active');
+                $table->timestamps();
+                $table->softDeletes();
+            });
+        }
+
+        $owner = \App\Models\User::query()->firstOrCreate(
+            ['email' => 'agent-runtime-test@test.test'],
+            [
+                'name' => 'Agent Runtime Test Owner',
+                'password' => bcrypt('secret'),
+                'role' => \App\Models\User::ROLE_OWNER,
+                'status' => \App\Models\User::STATUS_NORMAL,
+            ]
+        );
+        $this->actingAs($owner);
+
+        if (!\App\Models\Site::query()->where('id', 7)->exists()) {
+            \App\Models\Site::query()->forceCreate([
+                'id' => 7,
+                'user_id' => $owner->id,
+                'domain' => 'site7.test',
+                'status' => 'active',
+            ]);
+        }
+
+        $realConn = \Illuminate\Support\Facades\DB::connection('omi_seo_ai');
+        if ($realConn instanceof \Illuminate\Database\SQLiteConnection && ! property_exists($realConn, 'isCompatWrapped')) {
+            $wrappedConn = new class($realConn->getPdo(), $realConn->getDatabaseName(), $realConn->getTablePrefix(), $realConn->getConfig()) extends \Illuminate\Database\SQLiteConnection {
+                public bool $isCompatWrapped = true;
+
+                public function selectOne($query, $bindings = [], $useReadPdo = true)
+                {
+                    if (str_contains($query, 'DATE_SUB')) {
+                        $query = (string) preg_replace('/DATE_SUB\(NOW\(\),\s*INTERVAL\s+(\d+)\s+MINUTE\)/i', "datetime('now', '-$1 minutes')", $query);
+                    }
+                    return parent::selectOne($query, $bindings, $useReadPdo);
+                }
+
+                public function select($query, $bindings = [], $useReadPdo = true)
+                {
+                    if (str_contains($query, 'DATE_SUB')) {
+                        $query = (string) preg_replace('/DATE_SUB\(NOW\(\),\s*INTERVAL\s+(\d+)\s+MINUTE\)/i', "datetime('now', '-$1 minutes')", $query);
+                    }
+                    return parent::select($query, $bindings, $useReadPdo);
+                }
+            };
+            $db = app('db');
+            $prop = new \ReflectionProperty($db, 'connections');
+            $prop->setAccessible(true);
+            $conns = $prop->getValue($db);
+            $conns['omi_seo_ai'] = $wrappedConn;
+            $prop->setValue($db, $conns);
         }
     }
 
@@ -1029,6 +1174,360 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertArrayHasKey('routing', $data['copy']);
         self::assertSame(0, $answers->calls);
     }
+
+    public function test_article_ref_reaches_article_retrieval(): void
+    {
+        $parser = new RetrievalDecisionParser();
+        $decision = $parser->parse('{"intent":"inspect article","primary_module":"articles","modules":["articles"],"parameters":{"article_ref":"article:41"}}');
+        $planner = new RetrievalPlanner();
+        $plan = $planner->plan($decision, AgentProjectScope::site(7));
+
+        self::assertCount(1, $plan->steps);
+        self::assertSame('article:41', $plan->steps[0]->articleRef);
+
+        $transport = new RecordingTransport();
+        $executor = new SeoAccessExecutor(
+            $transport,
+            new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } },
+            new SeoAccessUrlPolicy(),
+            'https://app.example.test',
+        );
+        $executor->execute($plan);
+
+        $urls = array_column(array_filter($transport->calls, static fn (array $c): bool => $c['method'] === 'GET'), 'url');
+        self::assertNotEmpty($urls);
+        self::assertStringContainsString('/articles/article:41', $urls[0]);
+    }
+
+    public function test_article_ref_cannot_read_article_from_another_site(): void
+    {
+        $composer = app(SeoAccessBusinessModulesComposer::class);
+        $otherSiteArticle = \Omnichannel\Addons\Content\Models\SeoArticle::query()->create([
+            'site_id' => 999,
+            'title' => 'Other site article',
+            'slug' => 'other-site-article-'.uniqid(),
+            'status' => 'publish',
+        ]);
+
+        $detail = $composer->articleDetail(7, 'article:'.$otherSiteArticle->id);
+        self::assertNull($detail);
+
+        $sameSiteDetail = $composer->articleDetail(999, 'article:'.$otherSiteArticle->id);
+        self::assertNotNull($sameSiteDetail);
+        self::assertSame('article:'.$otherSiteArticle->id, $sameSiteDetail['article']['article_ref']);
+    }
+
+    public function test_task_improve_affects_article_read_projection(): void
+    {
+        $parser = new RetrievalDecisionParser();
+        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles"],"parameters":{"task":"improve","limit_max":20}}');
+        $planner = new RetrievalPlanner();
+        $plan = $planner->plan($decision, AgentProjectScope::site(7));
+
+        self::assertSame('improve', $plan->steps[0]->query['task'] ?? null);
+        self::assertSame('20', $plan->steps[0]->query['limit'] ?? null);
+
+        $transport = new RecordingTransport();
+        $executor = new SeoAccessExecutor(
+            $transport,
+            new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } },
+            new SeoAccessUrlPolicy(),
+            'https://app.example.test',
+        );
+        $executor->execute($plan);
+
+        $urls = array_column(array_filter($transport->calls, static fn (array $c): bool => $c['method'] === 'GET'), 'url');
+        self::assertStringContainsString('/articles?task=improve&limit=20', $urls[0]);
+    }
+
+    public function test_improve_candidate_retrieval_reuses_canonical_seo_audit_logic(): void
+    {
+        $mockAudit = $this->createMock(\Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService::class);
+        $mockAudit->expects(self::once())
+            ->method('listArticles')
+            ->willReturn([
+                'items' => [
+                    [
+                        'article_ref' => 'article:55',
+                        'title' => 'Weak Article 55',
+                        'slug' => 'weak-article-55',
+                        'status' => 'publish',
+                        'score' => 45.0,
+                        'seo_score' => 45.0,
+                        'focus_keyword' => 'may dong phuc',
+                        'reason_labels' => ['Thiếu meta description', 'Điểm SEO thấp'],
+                        'has_keyword_flags' => true,
+                        'updated_at' => '2026-09-01T00:00:00+00:00',
+                    ],
+                ],
+                'total' => 1,
+                'post_type' => null,
+            ]);
+
+        $composer = new SeoAccessBusinessModulesComposer(
+            app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class),
+            $mockAudit,
+        );
+
+        $result = $composer->articles(siteId: 7, limit: 15, task: 'improve');
+        self::assertSame('seo.access.articles.v1', $result['schema']);
+        self::assertSame('improve', $result['task']);
+        self::assertCount(1, $result['articles']);
+        self::assertSame('article:55', $result['articles'][0]['article_ref']);
+        self::assertSame(['Thiếu meta description', 'Điểm SEO thấp'], $result['articles'][0]['reason_labels']);
+    }
+
+    public function test_explicit_output_limit_does_not_blindly_truncate_candidate_discovery(): void
+    {
+        $mockAudit = $this->createMock(\Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService::class);
+        $mockAudit->expects(self::atLeastOnce())
+            ->method('listArticles')
+            ->with(
+                self::anything(),
+                self::callback(function (array $input): bool {
+                    return isset($input['limit']) && $input['limit'] >= 50;
+                }),
+            )
+            ->willReturn(['items' => [
+                ['article_ref' => 'article:1', 'title' => 'T1', 'slug' => 's1', 'status' => 'publish'],
+            ], 'total' => 1, 'post_type' => null]);
+
+        $composer = new SeoAccessBusinessModulesComposer(
+            app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class),
+            $mockAudit,
+        );
+
+        $composer->articles(siteId: 7, limit: 15, task: 'improve');
+    }
+
+    public function test_answer_input_contains_concrete_candidate_article_refs_titles_and_issues(): void
+    {
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), [
+            new RetrievalSource('articles', 'ok', 'GET /articles?task=improve&limit=30', [
+                'schema' => 'seo.access.articles.v1',
+                'task' => 'improve',
+                'articles' => [
+                    [
+                        'article_ref' => 'article:101',
+                        'title' => 'Hướng dẫn đặt may áo thun',
+                        'status' => 'publish',
+                        'focus_keyword' => 'may ao thun',
+                        'seo_score' => 42.0,
+                        'reason_labels' => ['Thiếu thẻ meta description', 'Mật độ từ khóa thấp'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $input = (new AgentModelInputBuilder())->buildAnswerInput(
+            AgentProjectScope::site(7),
+            'Gợi ý các bài cần sửa',
+            [],
+            $bundle,
+        );
+        $export = $input->exportText();
+        self::assertStringContainsString('article:101', $export);
+        self::assertStringContainsString('Hướng dẫn đặt may áo thun', $export);
+        self::assertStringContainsString('Thiếu thẻ meta description', $export);
+    }
+
+    public function test_generic_article_inventory_questions_still_work(): void
+    {
+        $composer = app(SeoAccessBusinessModulesComposer::class);
+        $result = $composer->articles(siteId: 7, limit: 10, task: null);
+        self::assertSame('seo.access.articles.v1', $result['schema']);
+        self::assertSame('site:7', $result['site_ref']);
+        self::assertArrayNotHasKey('task', $result);
+    }
+
+    public function test_domain_neutral_content_project_with_item_on_current_site_is_included(): void
+    {
+        $project = \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->create([
+            'site_id' => null,
+            'name' => 'Domain Neutral Project with Site 7 Task',
+            'month' => '2026-09-01',
+            'status' => 'draft',
+        ]);
+        \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()->create([
+            'project_id' => $project->id,
+            'site_id' => 7,
+            'task_type' => 'new_content',
+            'status' => 'pending',
+        ]);
+
+        $readService = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class);
+        $context = new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext(
+            actorRef: 'seo-access', actorType: 'agent', tenantRef: 'seo-access',
+            siteRef: 'site:7', requestRef: 'test-req-included', resolvedSiteId: 7,
+            scopes: ['content-projects:read'],
+        );
+
+        $projects = $readService->listProjects($context)['projects'];
+        $projectIds = array_column($projects, 'project_id');
+        self::assertContains($project->id, $projectIds);
+    }
+
+    public function test_domain_neutral_content_project_containing_only_another_site_items_is_excluded(): void
+    {
+        $project = \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->create([
+            'site_id' => null,
+            'name' => 'Domain Neutral Project for Site 999 Only',
+            'month' => '2026-09-01',
+            'status' => 'draft',
+        ]);
+        \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()->create([
+            'project_id' => $project->id,
+            'site_id' => 999,
+            'task_type' => 'new_content',
+            'status' => 'pending',
+        ]);
+
+        $readService = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class);
+        $context = new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext(
+            actorRef: 'seo-access', actorType: 'agent', tenantRef: 'seo-access',
+            siteRef: 'site:7', requestRef: 'test-req-excluded', resolvedSiteId: 7,
+            scopes: ['content-projects:read'],
+        );
+
+        $projects = $readService->listProjects($context)['projects'];
+        $projectIds = array_column($projects, 'project_id');
+        self::assertNotContains($project->id, $projectIds);
+
+        $this->expectException(\RuntimeException::class);
+        $readService->getProject($context, ['project_ref' => \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::project((int) $project->id)]);
+    }
+
+    public function test_non_agent_shared_content_project_semantics_remain_broad(): void
+    {
+        $project = \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->create([
+            'site_id' => null,
+            'name' => 'Domain Neutral Project Shared Multi-site',
+            'month' => '2026-09-01',
+            'status' => 'draft',
+        ]);
+        $taskSite7 = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()->create([
+            'project_id' => $project->id,
+            'site_id' => 7,
+            'task_type' => 'new_content',
+            'status' => 'pending',
+        ]);
+        $taskSite999 = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()->create([
+            'project_id' => $project->id,
+            'site_id' => 999,
+            'task_type' => 'new_content',
+            'status' => 'pending',
+        ]);
+
+        $actorContext = \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext::user(
+            userId: 1,
+            siteId: 7,
+        );
+
+        // General application read model returns all items without Agent site narrowing
+        $readModel = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectReadModelService::class);
+        $allItems = $readModel->items($project, $actorContext);
+        $allItemRefs = array_map(static fn ($dto) => (string) $dto->itemRef, $allItems);
+        $expectedSite7Ref = \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::item((int) $taskSite7->id);
+        $expectedSite999Ref = \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::item((int) $taskSite999->id);
+        self::assertContains($expectedSite7Ref, $allItemRefs);
+        self::assertContains($expectedSite999Ref, $allItemRefs);
+
+        // In contrast, Agent read service strictly filters domain-neutral project items to the working site
+        $agentReadService = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class);
+        $agentContext = new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext(
+            actorRef: 'seo-access', actorType: 'agent', tenantRef: 'seo-access',
+            siteRef: 'site:7', requestRef: 'test-req-narrow', resolvedSiteId: 7,
+            scopes: ['content-projects:read'],
+        );
+        $agentItems = $agentReadService->listItems($agentContext, ['project_ref' => \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::project((int) $project->id)])['items'];
+        $agentItemRefs = array_column($agentItems, 'item_ref');
+        self::assertContains($expectedSite7Ref, $agentItemRefs);
+        self::assertNotContains($expectedSite999Ref, $agentItemRefs);
+    }
+
+    public function test_site_bound_content_project_behavior_remains_unchanged(): void
+    {
+        $projectSite7 = \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->create([
+            'site_id' => 7,
+            'name' => 'Site 7 Dedicated Project',
+            'month' => '2026-09-01',
+            'status' => 'draft',
+        ]);
+        $projectSite8 = \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->create([
+            'site_id' => 8,
+            'name' => 'Site 8 Dedicated Project',
+            'month' => '2026-09-01',
+            'status' => 'draft',
+        ]);
+
+        $readService = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\ContentProjectAgentReadService::class);
+        $context = new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext(
+            actorRef: 'seo-access', actorType: 'agent', tenantRef: 'seo-access',
+            siteRef: 'site:7', requestRef: 'test-req-site-bound', resolvedSiteId: 7,
+            scopes: ['content-projects:read'],
+        );
+
+        $res = $readService->listProjects($context);
+        $projects = $res['projects'];
+        $projectIds = array_column($projects, 'project_id');
+        self::assertContains($projectSite7->id, $projectIds);
+        self::assertNotContains($projectSite8->id, $projectIds);
+    }
+
+    public function test_gsc_unavailable_still_does_not_block_other_modules(): void
+    {
+        $transport = new class implements SeoAccessTransport {
+            public function request(string $method, string $url, array $query = [], ?string $bearer = null, ?array $jsonBody = null): array
+            {
+                if (strtoupper($method) === 'POST') {
+                    return ['status' => 200, 'json' => ['data' => [
+                        'access_url' => 'https://app.example.test/api/v1/access/access_tmp_test',
+                        'expires_at' => '2026-09-27T00:00:00+00:00',
+                        'site_ref' => 'site:7',
+                    ]]];
+                }
+                if (str_contains($url, '/gsc')) {
+                    return ['status' => 200, 'json' => ['data' => ['available' => false, 'reason' => 'no_gsc_property']]];
+                }
+
+                return ['status' => 200, 'json' => ['data' => ['status' => 'ok']]];
+            }
+        };
+
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"check status","primary_module":"articles","modules":["articles","gsc"],"parameters":{}}');
+        $plan = (new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7));
+        $bundle = (new SeoAccessExecutor(
+            $transport,
+            new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } },
+            new SeoAccessUrlPolicy(),
+            'https://app.example.test',
+        ))->execute($plan);
+
+        self::assertCount(2, $bundle->sources);
+        self::assertSame('ok', $bundle->sources[0]->status);
+        self::assertSame('unavailable', $bundle->sources[1]->status);
+        self::assertSame('no_gsc_property', $bundle->sources[1]->reason);
+    }
+
+    public function test_no_global_agent_behavior_is_enabled(): void
+    {
+        $global = AgentProjectScope::global();
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"test","primary_module":"site","modules":["site"],"parameters":{}}');
+        $plan = (new RetrievalPlanner())->plan($decision, $global);
+
+        self::assertTrue($plan->globalUnsupported);
+
+        $bundle = (new SeoAccessExecutor(
+            new RecordingTransport(),
+            new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } },
+            new SeoAccessUrlPolicy(),
+            'https://app.example.test',
+        ))->execute($plan);
+
+        self::assertTrue($bundle->scope->isGlobal());
+        self::assertSame(['global_access_unsupported'], $bundle->warnings);
+    }
+
 
     private function retired_global_scope_remains_unsupported_in_model_debug(): void
     {

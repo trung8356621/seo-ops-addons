@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Actor
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Capabilities\ContentProjectCapabilityRegistry;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectReadModelService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\ContentProjectDailyReportService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\ContentProjectSiteHealthService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLifecycle;
@@ -30,6 +31,7 @@ final class ContentProjectAgentReadService
         private readonly ContentProjectDailyReportService $dailyReport,
         private readonly ContentProjectSiteHealthService $siteHealth,
         private readonly ContentProjectAgentPolicy $policy,
+        private readonly ?ContentProjectTenantGuard $tenantGuard = null,
     ) {}
 
     /**
@@ -41,8 +43,22 @@ final class ContentProjectAgentReadService
         $siteId = (int) ($context->resolvedSiteId ?? 0);
         $query = SeoProject::query()->with('user')->orderByDesc('id')->limit(100);
         if ($siteId > 0) {
-            $query->where('site_id', $siteId);
+            $query->where(function (\Illuminate\Database\Eloquent\Builder $q) use ($siteId): void {
+                $q->where('site_id', $siteId)
+                    ->orWhere(function (\Illuminate\Database\Eloquent\Builder $sub) use ($siteId): void {
+                        $sub->whereNull('site_id')
+                            ->whereHas('tasks', function (\Illuminate\Database\Eloquent\Builder $taskQuery) use ($siteId): void {
+                                $taskQuery->active()->where('site_id', $siteId);
+                            });
+                    });
+            });
         }
+
+        $period = trim((string) ($input['period'] ?? $input['month'] ?? ''));
+        if ($period !== '' && preg_match('/^\d{4}-\d{2}$/', $period) === 1) {
+            $query->where('month', 'like', $period.'%');
+        }
+
 
         $rows = [];
         foreach ($query->get() as $project) {
@@ -88,10 +104,29 @@ final class ContentProjectAgentReadService
     public function listItems(AgentExecutionContext $context, array $input): array
     {
         $project = $this->findProject($input, $context);
+        $siteId = (int) ($context->resolvedSiteId ?? 0);
         $items = array_map(
             fn ($dto) => $dto->toArray(),
             $this->reads->items($project, $context->toActorContext()),
         );
+
+        if ($siteId > 0 && (int) ($project->site_id ?? 0) <= 0) {
+            $taskSiteMap = SeoProjectTask::query()
+                ->where('project_id', (int) $project->getKey())
+                ->active()
+                ->pluck('site_id', 'id')
+                ->all();
+
+            $items = array_values(array_filter($items, function (array $item) use ($taskSiteMap, $siteId): bool {
+                $ref = (string) ($item['item_ref'] ?? '');
+                try {
+                    $itemId = ContentProjectPublicRef::resolveItemIdStrict($ref);
+                } catch (\Throwable) {
+                    return false;
+                }
+                return (int) ($taskSiteMap[$itemId] ?? 0) === $siteId;
+            }));
+        }
 
         return ['items' => $items];
     }
@@ -112,6 +147,15 @@ final class ContentProjectAgentReadService
         $project = SeoProject::query()->find((int) $task->project_id);
         if (! $project instanceof SeoProject) {
             throw new RuntimeException('Project not found.');
+        }
+
+        $siteId = (int) ($context->resolvedSiteId ?? 0);
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        if ($siteId > 0 && $projectSiteId > 0 && $projectSiteId !== $siteId) {
+            throw new RuntimeException('Item not found.');
+        }
+        if ($siteId > 0 && $projectSiteId <= 0 && (int) ($task->site_id ?? 0) !== $siteId) {
+            throw new RuntimeException('Item not found.');
         }
 
         foreach ($this->reads->items($project, $context->toActorContext()) as $dto) {
@@ -384,6 +428,13 @@ final class ContentProjectAgentReadService
         // Legacy project.site_id, when set, must match site_ref.
         if ($siteId > 0 && $projectSiteId > 0 && $projectSiteId !== $siteId) {
             throw new RuntimeException('Legacy project.site_id does not match site context.');
+        }
+
+        if ($siteId > 0 && $projectSiteId <= 0) {
+            $guard = $this->tenantGuard ?? app(ContentProjectTenantGuard::class);
+            if (! $guard->domainNeutralProjectHasAccessibleItemOwnership($project, [$siteId])) {
+                throw new RuntimeException('Domain-neutral project has no items for working site.');
+            }
         }
 
         return $project;

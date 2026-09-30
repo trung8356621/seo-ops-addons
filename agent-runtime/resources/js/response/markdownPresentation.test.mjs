@@ -124,3 +124,93 @@ test('unrelated real warning blocks retain warning styling', () => {
     }, [{ name: 'GSC', status: 'available' }]);
     assert.equal(class2, 'agent-warning');
 });
+
+test('1. *(note)* renders as <em> inside paragraph', () => {
+    const input = '*(Lưu ý: đây là đề xuất mới)*';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html, '<p><em>(Lưu ý: đây là đề xuất mới)</em></p>');
+});
+
+test('2. *Ý tưởng mới*: inside a list item renders emphasis', () => {
+    const input = '- *Ý tưởng mới*: Hướng dẫn đặt may B2B';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html, '<ul><li><em>Ý tưởng mới</em>: Hướng dẫn đặt may B2B</li></ul>');
+});
+
+test('3. _italic_ renders as <em>', () => {
+    const input = 'This is _italic_ text and (_in parens_)';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html.includes('<em>italic</em>'), true);
+    assert.equal(html.includes('<em>in parens</em>'), true);
+});
+
+test('4. bold still works with double stars and underscores', () => {
+    const input = 'This is **bold text** and __another bold__';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html.includes('<strong>bold text</strong>'), true);
+    assert.equal(html.includes('<strong>another bold</strong>'), true);
+});
+
+test('5. italic and bold do not corrupt each other', () => {
+    const input1 = '**bold and *italic* inside**';
+    const html1 = modelMarkdownToHtml(input1);
+    assert.equal(html1, '<p><strong>bold and <em>italic</em> inside</strong></p>');
+
+    const input2 = '*italic and **bold** inside*';
+    const html2 = modelMarkdownToHtml(input2);
+    assert.equal(html2, '<p><em>italic and <strong>bold</strong> inside</em></p>');
+
+    const input3 = '**bold** and *italic* and _italic_ and __bold__';
+    const html3 = modelMarkdownToHtml(input3);
+    assert.equal(html3, '<p><strong>bold</strong> and <em>italic</em> and <em>italic</em> and <strong>bold</strong></p>');
+});
+
+test('6. list marker * item remains a list, not emphasis', () => {
+    const input = '* First item\n* Second item';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html, '<ul><li>First item</li><li>Second item</li></ul>');
+    assert.equal(html.includes('<em>'), false);
+});
+
+test('7. one nested list level preserves hierarchy and indentation', () => {
+    const input = [
+        '- Nhóm A',
+        '  - Ý tưởng 1',
+        '  - Ý tưởng 2',
+        '- Nhóm B',
+        '  - Ý tưởng 3',
+    ].join('\n');
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html, '<ul><li>Nhóm A<ul><li>Ý tưởng 1</li><li>Ý tưởng 2</li></ul></li><li>Nhóm B<ul><li>Ý tưởng 3</li></ul></li></ul>');
+});
+
+test('8. inline code containing *text* stays literal', () => {
+    const input = 'Use `*do not italicize*` and `_literal_` in code';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html.includes('<code>*do not italicize*</code>'), true);
+    assert.equal(html.includes('<code>_literal_</code>'), true);
+    assert.equal(html.includes('<em>'), false);
+});
+
+test('9. fenced code stays literal', () => {
+    const input = [
+        '```',
+        'function test() {',
+        '  // *comment* and _underscore_',
+        '  return 1 * 2;',
+        '}',
+        '```',
+    ].join('\n');
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html.includes('<pre><code>function test() {\n  // *comment* and _underscore_\n  return 1 * 2;\n}\n</code></pre>'), true);
+    assert.equal(html.includes('<em>'), false);
+});
+
+test('10. existing escaping normalization tests remain green and no_gsc_property is not italicized', () => {
+    const input = 'Identifier no_gsc_property and some_function_name should not be italicized';
+    const html = modelMarkdownToHtml(input);
+    assert.equal(html.includes('no_gsc_property'), true);
+    assert.equal(html.includes('some_function_name'), true);
+    assert.equal(html.includes('<em>'), false);
+});
+

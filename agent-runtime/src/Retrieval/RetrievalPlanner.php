@@ -41,6 +41,7 @@ final class RetrievalPlanner
     {
         $query = [];
         $topicRef = null;
+        $articleRef = null;
         if (in_array($resource, ['gsc', 'content_projects'], true)) {
             $period = $decision->parameters['period'] ?? '';
             if (preg_match('/^\d{4}-\d{2}$/', $period) === 1) {
@@ -54,9 +55,19 @@ final class RetrievalPlanner
             }
         }
         if ($resource === 'articles') {
-            $query['limit'] = (string) ($decision->parameters['limit_max'] ?? 30);
+            $ref = $decision->parameters['article_ref'] ?? '';
+            if (is_string($ref) && preg_match('/^article:[1-9]\d*$/', $ref) === 1) {
+                $articleRef = $ref;
+            }
+            $task = $decision->parameters['task'] ?? '';
+            if (is_string($task) && $task !== '') {
+                $query['task'] = $task;
+            }
+            if (isset($decision->parameters['limit_max'])) {
+                $query['limit'] = (string) $decision->parameters['limit_max'];
+            }
         }
 
-        return new RetrievalStep($resource, $query, $topicRef);
+        return new RetrievalStep($resource, $query, $topicRef, $articleRef);
     }
 }

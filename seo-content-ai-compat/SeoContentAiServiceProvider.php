@@ -445,6 +445,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\SiteSync\Console\RunLinkAnalysisCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\PollWordPressHeartbeatCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\ReconcileSiteSyncCommand::class,
+                \Omnichannel\Addons\SiteSync\Console\MonitorSiteHealthCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\BackfillSiteSyncV2Command::class,
                 \Omnichannel\Addons\Seo\Console\BackfillSiteManualLinksCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\ClearPromptHookDefinitionCacheCommand::class,
@@ -549,6 +550,11 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         self::$booted = true;
 
         $this->loadViewsFrom(__DIR__.'/resources/views', 'seo-content-ai');
+        $this->loadViewsFrom(dirname(__DIR__).'/site-sync/resources/views', 'site-sync');
+        \Livewire\Livewire::component(
+            'site-health-notice',
+            \Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice::class,
+        );
         // Override Filament sidebar item: caret expand/collapse cho nested parent (v3 không có sẵn).
         \Illuminate\Support\Facades\View::prependNamespace(
             'filament-panels',
@@ -626,6 +632,18 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->everyThirtyMinutes()
                     ->name($heartbeatName)
                     ->withoutOverlapping(25);
+            }
+
+            $siteHealthName = 'seo-content-ai:site-health-monitor';
+            $siteHealthRegistered = collect($schedule->events())
+                ->contains(static fn ($event): bool => $event->description === $siteHealthName);
+            if (! $siteHealthRegistered) {
+                $schedule
+                    ->command(\Omnichannel\Addons\SiteSync\Console\MonitorSiteHealthCommand::class)
+                    ->everyFiveMinutes()
+                    ->name($siteHealthName)
+                    ->withoutOverlapping(10)
+                    ->onOneServer();
             }
 
             $wpContentCacheName = 'seo-content-ai:purge-article-wp-content-cache';

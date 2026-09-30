@@ -13,5 +13,6 @@ final readonly class RetrievalStep
         public string $resource,
         public array $query = [],
         public ?string $topicRef = null,
+        public ?string $articleRef = null,
     ) {}
 }

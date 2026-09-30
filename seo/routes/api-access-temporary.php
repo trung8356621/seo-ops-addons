@@ -28,6 +28,10 @@ Route::middleware([
         ->name('api.v1.access.site');
 
     Route::get('{token}/articles', [TemporarySeoAccessController::class, 'articles'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.articles');
+    Route::get('{token}/articles/{articleRef}', [TemporarySeoAccessController::class, 'articleDetail'])
+        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
+        ->where('articleRef', 'article:[1-9]\d*|[1-9]\d*')
+        ->name('api.v1.access.articles.detail');
     Route::get('{token}/internal-links', [TemporarySeoAccessController::class, 'internalLinks'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.internal-links');
     Route::get('{token}/external-links', [TemporarySeoAccessController::class, 'externalLinks'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.external-links');
     Route::get('{token}/content-projects', [TemporarySeoAccessController::class, 'contentProjects'])->where('token', 'access_tmp_[A-Za-z0-9_-]+')->name('api.v1.access.content-projects');

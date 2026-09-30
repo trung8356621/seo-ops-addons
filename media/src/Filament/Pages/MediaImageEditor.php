@@ -98,6 +98,11 @@ class MediaImageEditor extends Page
         return SeoMediaImageEditorResolverService::editorUrl($mediaId, $tab);
     }
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     private function canAccessMedia(SeoMedia $media): bool
     {
         $articleId = $media->firstArticleId();

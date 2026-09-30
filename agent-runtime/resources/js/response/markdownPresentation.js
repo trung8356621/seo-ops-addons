@@ -31,39 +31,91 @@ export function modelMarkdownToHtml(text) {
         code.push(`<pre><code>${body}</code></pre>`);
         return token;
     });
-    const inline = escaped
+    const inlineCodes = [];
+    const withoutInlineCodes = escaped.replace(/`([^`\n]+)`/g, (_, body) => {
+        const token = `@@AGENT_INLINE_${inlineCodes.length}@@`;
+        inlineCodes.push(`<code>${body}</code>`);
+        return token;
+    });
+
+    const inline = withoutInlineCodes
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        .replace(/__(.+?)__/g, '<strong>$1</strong>')
+        .replace(/(?<=^|[\s(])\*(?!\s)([^*\n]+?)(?<!\s)\*(?=[.,!?;:\s)]|$)/g, '<em>$1</em>')
+        .replace(/(?<=^|[\s(])_(?!\s)([^_\n]+?)(?<!\s)_(?=[.,!?;:\s)]|$)/g, '<em>$1</em>');
+
     const lines = inline.split('\n');
     const out = [];
-    let list = null;
-    const closeList = () => {
-        if (list) out.push(`</${list}>`);
-        list = null;
+
+    let inLevel0List = null;
+    let inLevel0Item = false;
+    let inLevel1List = null;
+
+    const closeLevel1 = () => {
+        if (inLevel1List) {
+            out.push(`</${inLevel1List}>`);
+            inLevel1List = null;
+        }
     };
+
+    const closeLevel0Item = () => {
+        closeLevel1();
+        if (inLevel0Item) {
+            out.push('</li>');
+            inLevel0Item = false;
+        }
+    };
+
+    const closeAllLists = () => {
+        closeLevel0Item();
+        if (inLevel0List) {
+            out.push(`</${inLevel0List}>`);
+            inLevel0List = null;
+        }
+    };
+
     for (const line of lines) {
         const heading = line.match(/^(#{1,6})\s+(.+)$/);
-        const unordered = line.match(/^\s*[-*]\s+(.+)$/);
-        const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+        const listItem = line.match(/^(\s*)(?:([-*])|(\d+)\.)\s+(.+)$/);
         if (heading) {
-            closeList();
+            closeAllLists();
             out.push(`<h${heading[1].length}>${heading[2]}</h${heading[1].length}>`);
-        } else if (unordered || ordered) {
-            const nextList = unordered ? 'ul' : 'ol';
-            if (list !== nextList) {
-                closeList();
-                out.push(`<${nextList}>`);
-                list = nextList;
+        } else if (listItem) {
+            const indent = listItem[1].length;
+            const isLevel1 = indent >= 2 && inLevel0Item;
+            const nextListType = listItem[2] ? 'ul' : 'ol';
+            const content = listItem[4];
+
+            if (isLevel1) {
+                if (inLevel1List !== nextListType) {
+                    closeLevel1();
+                    out.push(`<${nextListType}>`);
+                    inLevel1List = nextListType;
+                }
+                out.push(`<li>${content}</li>`);
+            } else {
+                closeLevel0Item();
+                if (inLevel0List !== nextListType) {
+                    if (inLevel0List) {
+                        out.push(`</${inLevel0List}>`);
+                    }
+                    out.push(`<${nextListType}>`);
+                    inLevel0List = nextListType;
+                }
+                out.push(`<li>${content}`);
+                inLevel0Item = true;
             }
-            out.push(`<li>${(unordered || ordered)[1]}</li>`);
         } else {
-            closeList();
+            closeAllLists();
             if (line !== '') out.push(`<p>${line}</p>`);
         }
     }
-    closeList();
-    return out.join('').replace(/@@AGENT_CODE_(\d+)@@/g, (_, index) => code[Number(index)] || '');
+    closeAllLists();
+
+    return out.join('')
+        .replace(/@@AGENT_INLINE_(\d+)@@/g, (_, index) => inlineCodes[Number(index)] || '')
+        .replace(/@@AGENT_CODE_(\d+)@@/g, (_, index) => code[Number(index)] || '');
 }
 
 export function resolveWarningClass(block, sources = []) {

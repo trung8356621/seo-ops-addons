@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SiteSync;
 
 use App\Core\Capability\CapabilityRegistry;
-use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
-use Livewire\Livewire;
 use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
 use Omnichannel\Addons\SiteSync\Services\Capabilities\SiteLinkCatalogCapabilityService;
 use Omnichannel\Addons\SiteSync\Services\Profile\Contracts\WordPressSiteProfileSource;
@@ -29,17 +27,7 @@ final class SiteSyncServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'site-sync');
-        Livewire::component('site-health-notice', \Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice::class);
-
-        if ($this->app->runningInConsole()) {
-            $this->commands([\Omnichannel\Addons\SiteSync\Console\MonitorSiteHealthCommand::class]);
-        }
-
-        Schedule::command('seo:site-health:monitor')
-            ->everyFiveMinutes()
-            ->withoutOverlapping(10)
-            ->onOneServer();
+        // Console scheduling and shell UI are bootstrapped by the early compat provider.
     }
 
     private function registerCapabilities(): void

@@ -6,10 +6,12 @@ namespace Omnichannel\Addons\SiteSync\Services\SiteHealth;
 
 use App\Core\Capability\CapabilityRegistry;
 use App\Models\Site;
+use App\Support\RuntimeLogger;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability;
 use Omnichannel\Addons\SiteSync\Models\SiteHealthIncident;
 use Omnichannel\Addons\SiteSync\Models\SiteHealthState;
+use Throwable;
 
 final class SiteHealthStateService
 {
@@ -17,15 +19,16 @@ final class SiteHealthStateService
 
     public function record(Site $site, SiteHealthResult $result): SiteHealthState
     {
-        return DB::connection('omi_seo_ai')->transaction(function () use ($site, $result): SiteHealthState {
+        [$state, $notification, $incident] = DB::connection('omi_seo_ai')->transaction(function () use ($site, $result): array {
             $now = now();
             $state = SiteHealthState::query()->lockForUpdate()->firstOrNew(['site_id' => (int) $site->id]);
 
             if ($result->healthy) {
+                $notification = null;
                 $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
                 if ($incident instanceof SiteHealthIncident && $incident->resolved_at === null) {
                     $incident->forceFill(['status' => 'resolved', 'resolved_at' => $now, 'last_occurred_at' => $now])->save();
-                    $this->notifier()?->incidentResolved($site, $incident);
+                    $notification = 'resolved';
                 }
 
                 $state->forceFill([
@@ -35,7 +38,7 @@ final class SiteHealthStateService
                     'first_failure_at' => null, 'last_checked_at' => $now, 'last_success_at' => $now,
                 ])->save();
 
-                return $state;
+                return [$state, $notification, $incident];
             }
 
             $failures = (int) $state->consecutive_failures + 1;
@@ -48,7 +51,7 @@ final class SiteHealthStateService
             ])->save();
 
             if ($failures < 2) {
-                return $state;
+                return [$state, null, null];
             }
 
             $incident = $state->active_incident_id ? SiteHealthIncident::query()->find($state->active_incident_id) : null;
@@ -69,10 +72,28 @@ final class SiteHealthStateService
                 ])->save();
             }
 
-            $this->notifier()?->incidentActive($site, $incident);
-
-            return $state;
+            return [$state, 'active', $incident];
         });
+
+        if (is_string($notification) && $incident instanceof SiteHealthIncident) {
+            try {
+                $notifier = $this->notifier();
+                if ($notification === 'resolved') {
+                    $notifier?->incidentResolved($site, $incident);
+                } else {
+                    $notifier?->incidentActive($site, $incident);
+                }
+            } catch (Throwable $exception) {
+                RuntimeLogger::report($exception, [
+                    'source' => self::class,
+                    'site_id' => (int) $site->id,
+                    'site_health_incident_id' => (int) $incident->id,
+                    'site_health_notification' => $notification,
+                ]);
+            }
+        }
+
+        return $state;
     }
 
     private function notifier(): ?SiteHealthNotificationCapability

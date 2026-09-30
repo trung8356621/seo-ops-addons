@@ -22,19 +22,20 @@ test('user and assistant messages expose lightweight Copy and assistant Rerun', 
     assert.equal(clipboard.includes("document.execCommand('copy')"), true);
 });
 
-test('Debug is a canonical header switch shared by Send and Rerun', () => {
+test('Developer mode is a canonical header selector shared by Send and Rerun', () => {
     const composer = widget.slice(widget.indexOf('<form'), widget.indexOf('</form>'));
-    assert.equal(composer.includes('agent-debug-switch'), false);
-    assert.equal(widget.includes('className="agent-debug-switch"'), true);
-    assert.equal(widget.includes('checked={debugMode}'), true);
-    assert.equal(widget.includes('disabled={busy || debugBusy || debugOpen}'), true);
-    assert.ok((widget.match(/debug_mode: debugMode/g) || []).length >= 2);
-    assert.equal(widget.includes('const [diagnostics, setDiagnostics]'), true);
-    assert.equal(widget.includes('const [debugMode, setDebugMode]'), true);
+    assert.equal(composer.includes('agent-dev-select'), false);
+    assert.equal(composer.includes('agent-diagnostics'), false);
+    assert.equal(widget.includes('className="agent-dev-select"'), true);
+    assert.equal(widget.includes('value={developerMode}'), true);
+    assert.equal(widget.includes('disabled={isDevModeDisabled}'), true);
+    assert.ok((widget.match(/debug_mode: isDebugMode/g) || []).length >= 2);
+    assert.ok((widget.match(/diagnostics: isDiagnostics/g) || []).length >= 2);
+    assert.equal(widget.includes("const [developerMode, setDeveloperMode] = useState('normal')"), true);
 });
 
 test('Diag-only rejected Answer disclosure is collapsed and contains error plus raw completion', () => {
-    assert.equal(widget.includes('diagnostics && version.response?.answer_diagnostics'), true);
+    assert.equal(widget.includes('isDiagnostics && version.response?.answer_diagnostics'), true);
     assert.equal(widget.includes('<details className="agent-answer-diagnostics">'), true);
     assert.equal(widget.includes('<summary>Answer diagnostics</summary>'), true);
     assert.equal(widget.includes('version.response.answer_diagnostics.parser_error'), true);
@@ -42,7 +43,7 @@ test('Diag-only rejected Answer disclosure is collapsed and contains error plus 
 });
 
 test('drawer width and processing status use wider flat contracts', () => {
-    assert.equal(css.includes('width: min(80vw, 1180px);'), true);
+    assert.equal(css.includes('width: 90vw;'), true);
     assert.equal(css.includes('@media (max-width: 768px)'), true);
     assert.match(css, /article\.agent-processing-status \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
 });
@@ -50,12 +51,12 @@ test('drawer width and processing status use wider flat contracts', () => {
 test('drawer header has no visible close button while existing controls remain', () => {
     assert.equal(widget.includes('agent-drawer-close-btn'), false);
     assert.equal(widget.includes('aria-label="Close Agent drawer"'), false);
-    assert.equal(widget.includes('className="agent-debug-switch"'), true);
+    assert.equal(widget.includes('className="agent-dev-select"'), true);
     assert.equal(widget.includes('title="Copy question"'), true);
     assert.equal(widget.includes('title="Copy answer"'), true);
     assert.equal(widget.includes('title="Rerun"'), true);
     assert.equal(widget.includes('agent-version-nav'), true);
-    assert.equal(widget.includes('Diag'), true);
+    assert.equal(widget.includes('<option value="diag">Diag</option>'), true);
 });
 
 test('GSC availability uses muted styling without weakening real warnings', () => {
@@ -93,7 +94,8 @@ test('version navigation changes local selection without network requests', () =
 test('Rerun uses the normal endpoint lifecycle and supports existing Debug interception', () => {
     const rerun = widget.slice(widget.indexOf('async function onRerun'), widget.indexOf('const conversationTurns'));
     assert.equal(rerun.includes("setProcessingStatus('Thinking…')"), true);
-    assert.equal(rerun.includes('debug_mode: debugMode'), true);
+    assert.equal(rerun.includes('debug_mode: isDebugMode'), true);
+    assert.equal(rerun.includes('diagnostics: isDiagnostics'), true);
     assert.equal(rerun.includes("if (data.status === 'paused')"), true);
     assert.equal(rerun.includes('setDebugOpen(true)'), true);
     assert.equal(rerun.includes('Number.MAX_SAFE_INTEGER'), true);

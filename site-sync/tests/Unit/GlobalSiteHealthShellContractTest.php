@@ -28,8 +28,13 @@ final class GlobalSiteHealthShellContractTest extends TestCase
         self::assertStringContainsString('localStorage.setItem', $view);
         self::assertStringNotContainsString('resolved_at', $view);
 
-        $provider = (string) file_get_contents(dirname(__DIR__, 2).'/src/SiteSyncServiceProvider.php');
-        self::assertSame(1, substr_count($provider, "Schedule::command('seo:site-health:monitor')"));
-        self::assertStringContainsString('withoutOverlapping', $provider);
+        $provider = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/SeoContentAiServiceProvider.php');
+        self::assertSame(1, substr_count($provider, '->command(\Omnichannel\Addons\SiteSync\Console\MonitorSiteHealthCommand::class)'));
+        self::assertSame(1, substr_count($provider, "'seo-content-ai:site-health-monitor'"));
+        self::assertStringContainsString('->everyFiveMinutes()', $provider);
+        self::assertStringContainsString('->withoutOverlapping(10)', $provider);
+        self::assertStringContainsString("\\Livewire\\Livewire::component(", $provider);
+        self::assertStringContainsString("'site-health-notice'", $provider);
+        self::assertStringContainsString("loadViewsFrom(dirname(__DIR__).'/site-sync/resources/views', 'site-sync')", $provider);
     }
 }

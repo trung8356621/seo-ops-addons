@@ -1,5 +1,6 @@
 import { uploadLocalMediaFiles } from './utils/seoLocalMediaUpload';
 import { buildMediaImageEditorUrl, prepareImageEditorUrl } from './utils/seoMediaApi';
+import { openMediaEditorPopup } from './utils/mediaEditorPopup';
 
 const MEDIA_LIBRARY_REMOVE_MS = 280;
 
@@ -344,58 +345,32 @@ function registerSeoMediaLibraryActions() {
             this.previewEditorOpening = true;
             this.setPreviewEditorButtonState(triggerEl, true);
 
-            if (seoMediaId > 0) {
-                const directUrl = buildMediaImageEditorUrl({ seoMediaId });
-                if (directUrl) {
-                    window.open(directUrl, '_blank', 'noopener,noreferrer');
-                    if (typeof this.$wire?.closeImagePreview === 'function') {
-                        await this.$wire.closeImagePreview();
-                    }
-
-                    this.previewEditorOpening = false;
-                    this.setPreviewEditorButtonState(triggerEl, false);
-
-                    return;
-                }
-            }
-
-            const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
-
             try {
-                const data = await prepareImageEditorUrl({
-                    siteId,
-                    seoMediaId: seoMediaId > 0 ? seoMediaId : null,
-                    wpAttachmentId: wpAttachmentId > 0 ? wpAttachmentId : null,
-                    url: payload?.url ?? '',
-                    slug: payload?.slug ?? '',
+                const directUrl = seoMediaId > 0
+                    ? buildMediaImageEditorUrl({ seoMediaId })
+                    : '';
+                const opened = await openMediaEditorPopup({
+                    directUrl,
+                    prepareUrl: () => prepareImageEditorUrl({
+                        siteId,
+                        seoMediaId: seoMediaId > 0 ? seoMediaId : null,
+                        wpAttachmentId: wpAttachmentId > 0 ? wpAttachmentId : null,
+                        url: payload?.url ?? '',
+                        slug: payload?.slug ?? '',
+                    }),
+                    notifyDanger: async (message) => {
+                        if (typeof this.$wire?.notifyLocalMediaUpload === 'function') {
+                            await this.$wire.notifyLocalMediaUpload(
+                                'danger',
+                                'Không mở được trình chỉnh sửa',
+                                message,
+                            );
+                        }
+                    },
                 });
 
-                const editorUrl = data?.editor_url;
-                if (!editorUrl) {
-                    throw new Error('Không mở được trình chỉnh sửa.');
-                }
-
-                if (popup && !popup.closed) {
-                    popup.location.href = editorUrl;
-                } else {
-                    window.open(editorUrl, '_blank', 'noopener,noreferrer');
-                }
-
-                if (typeof this.$wire?.closeImagePreview === 'function') {
+                if (opened && typeof this.$wire?.closeImagePreview === 'function') {
                     await this.$wire.closeImagePreview();
-                }
-            } catch (error) {
-                if (popup && !popup.closed) {
-                    popup.close();
-                }
-
-                const message = error?.message ?? 'Không mở được trình chỉnh sửa.';
-                if (typeof this.$wire?.notifyLocalMediaUpload === 'function') {
-                    await this.$wire.notifyLocalMediaUpload(
-                        'danger',
-                        'Không mở được trình chỉnh sửa',
-                        message,
-                    );
                 }
             } finally {
                 this.previewEditorOpening = false;

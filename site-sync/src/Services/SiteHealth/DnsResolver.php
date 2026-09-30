@@ -8,7 +8,12 @@ class DnsResolver
 {
     public function resolves(string $host): bool
     {
-        return filter_var($host, FILTER_VALIDATE_IP) !== false
-            || dns_get_record($host, DNS_A | DNS_AAAA) !== [];
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+
+        $records = dns_get_record($host, DNS_A | DNS_AAAA);
+
+        return is_array($records) && $records !== [];
     }
 }

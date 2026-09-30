@@ -6,12 +6,12 @@ const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8
 const modal = readFileSync(new URL('./ModelDebugModal.jsx', import.meta.url), 'utf8');
 const clipboard = readFileSync(new URL('./clipboard.js', import.meta.url), 'utf8');
 
-test('header uses the canonical Debug mode switch and normal Send carries debug_mode', () => {
-    assert.match(widget, /type="checkbox"[\s\S]*checked=\{debugMode\}/);
-    assert.equal(widget.includes('className="agent-debug-switch"'), true);
+test('header uses the canonical Dev mode selector and normal Send carries debug_mode', () => {
+    assert.match(widget, /<select[\s\S]*className="agent-dev-select"[\s\S]*value=\{developerMode\}/);
+    assert.equal(widget.includes('className="agent-dev-mode-label"'), true);
     assert.equal(widget.includes('agent-model-debug-btn'), false);
     assert.equal(widget.includes('startModelDebug'), false);
-    assert.equal(widget.includes('debug_mode: debugMode'), true);
+    assert.equal(widget.includes('debug_mode: isDebugMode'), true);
 });
 
 test('a paused production response opens the current intercepted model call', () => {

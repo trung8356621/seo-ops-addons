@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
  * Agent read adapter — reuse Web SEO Audit query (SeoAuditKeywordFlagService).
  * Site-level: requires site_ref context, không cần project_ref.
  */
-final class SeoAuditAgentReadService
+class SeoAuditAgentReadService
 {
     public function __construct(
         private readonly SeoAuditKeywordFlagService $auditResults,
@@ -51,15 +51,20 @@ final class SeoAuditAgentReadService
                 continue;
             }
             $items[] = [
+                'article_ref' => 'article:'.($row['id'] ?? 0),
                 'title' => (string) ($row['title'] ?? ''),
+                'slug' => $row['slug'] ?? null,
+                'status' => (string) ($row['status'] ?? 'publish'),
                 'domain' => (string) ($row['domain'] ?? ''),
                 'score' => $row['score'] ?? null,
+                'seo_score' => $row['score'] ?? null,
                 'post_type' => $postType,
                 'focus_keyword' => (string) ($row['focus_keyword'] ?? ''),
                 'reason_labels' => array_values(array_filter(
                     array_map('strval', is_array($row['reason_labels'] ?? null) ? $row['reason_labels'] : []),
                 )),
                 'has_keyword_flags' => (bool) ($row['has_keyword_flags'] ?? false),
+                'updated_at' => (string) ($row['updated_at'] ?? ''),
             ];
         }
 
@@ -69,6 +74,63 @@ final class SeoAuditAgentReadService
             'post_type' => $postType,
         ];
     }
+
+    /**
+     * Compact single Article audit detail scoped strictly to the working site.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getArticle(AgentExecutionContext $context, int $articleId): ?array
+    {
+        $siteId = (int) ($context->resolvedSiteId ?? 0);
+        if ($siteId <= 0 || $articleId <= 0) {
+            return null;
+        }
+
+        $article = SeoArticle::query()
+            ->where('id', $articleId)
+            ->where('site_id', $siteId)
+            ->where('status', '!=', 'trash')
+            ->with([
+                'site:id,domain',
+                'seoProfile:article_id,seo_score,focus_keyword,internal_link_count,external_link_count',
+                'articleMetas' => static function ($relation): void {
+                    $relation->whereIn('meta_key', [
+                        \Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry::META_KEY_VIOLATIONS,
+                        'seo_focus_keyword',
+                        'wp_permalink',
+                        'meta_description',
+                    ]);
+                },
+                'linkMaps.keyword.reviewReason',
+            ])
+            ->first();
+
+        if (! $article instanceof SeoArticle) {
+            return null;
+        }
+
+        $audit = $this->auditResults->auditArticle($article);
+        $profile = $article->seoProfile;
+
+        return [
+            'article_ref' => 'article:'.$article->id,
+            'title' => (string) ($article->title ?? ''),
+            'slug' => $article->slug,
+            'status' => (string) $article->status,
+            'focus_keyword' => $profile?->focus_keyword ?: ($audit['focus_keyword'] ?? null),
+            'seo_score' => $profile?->seo_score !== null ? (float) $profile->seo_score : ($audit['score'] ?? null),
+            'reason_labels' => array_values(array_filter(
+                array_map('strval', is_array($audit['reason_labels'] ?? null) ? $audit['reason_labels'] : []),
+            )),
+            'has_keyword_flags' => (bool) ($audit['has_keyword_flags'] ?? false),
+            'internal_link_count' => $profile?->internal_link_count !== null ? (int) $profile->internal_link_count : null,
+            'external_link_count' => $profile?->external_link_count !== null ? (int) $profile->external_link_count : null,
+            'created_at' => $article->created_at?->toIso8601String(),
+            'updated_at' => $article->updated_at?->toIso8601String(),
+        ];
+    }
+
 
     /**
      * @return Builder<SeoArticle>

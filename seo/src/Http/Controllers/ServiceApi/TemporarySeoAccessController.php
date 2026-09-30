@@ -153,8 +153,31 @@ final class TemporarySeoAccessController
         $context = $this->requireContext($request);
         if ($context instanceof JsonResponse) return $context;
 
-        return $this->runReadSafely(fn (): array => $this->business->articles($context->siteId, (int) $request->query('limit', 30)));
+        $limit = (int) $request->query('limit', 30);
+        $task = $request->query('task');
+
+        return $this->runReadSafely(fn (): array => $this->business->articles(
+            $context->siteId,
+            $limit,
+            is_string($task) ? $task : null,
+        ));
     }
+
+    public function articleDetail(Request $request, string $token, string $articleRef): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) return $context;
+
+        return $this->runReadSafely(function () use ($context, $articleRef): array {
+            $article = $this->business->articleDetail($context->siteId, $articleRef);
+            if ($article === null) {
+                throw new SeoAccessNotFoundException('Article not found for this site.');
+            }
+
+            return $article;
+        });
+    }
+
 
     public function internalLinks(Request $request, string $token): JsonResponse
     {

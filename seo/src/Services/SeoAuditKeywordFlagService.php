@@ -304,6 +304,8 @@ final class SeoAuditKeywordFlagService
             'id' => (int) $article->id,
             'site_id' => (int) ($article->site_id ?? 0),
             'title' => (string) ($article->title ?? ''),
+            'slug' => $article->slug,
+            'status' => (string) $article->status,
             'domain' => (string) ($article->site?->domain ?? ''),
             'permalink' => $this->resolveCachedPermalink($article),
             'edit_url' => ArticleResource::getUrl('edit', ['record' => $article]),
@@ -326,6 +328,17 @@ final class SeoAuditKeywordFlagService
             'updated_at' => optional($article->updated_at)->toIso8601String() ?? '',
         ];
     }
+
+    /**
+     * Audit single article using canonical SEO Audit scoring, violations, and keyword flags.
+     *
+     * @return array<string, mixed>
+     */
+    public function auditArticle(SeoArticle $article): array
+    {
+        return $this->mapMergedArticleRow($article, [], false, false);
+    }
+
 
     /**
      * @return array{

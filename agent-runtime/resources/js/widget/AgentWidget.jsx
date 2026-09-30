@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -103,10 +103,9 @@ export function AgentWidget({
     const [busy, setBusy] = useState(false);
     const [copyState, setCopyState] = useState('');
     const [error, setError] = useState('');
-    const [diagnostics, setDiagnostics] = useState(false);
+    const [developerMode, setDeveloperMode] = useState('normal'); // 'normal' | 'debug' | 'diag'
     const [lastCopy, setLastCopy] = useState(null);
 
-    const [debugMode, setDebugMode] = useState(false);
     const [debugOpen, setDebugOpen] = useState(false);
     const [debugBusy, setDebugBusy] = useState(false);
     const [debugRunUlid, setDebugRunUlid] = useState('');
@@ -115,6 +114,10 @@ export function AgentWidget({
     const [debugParserError, setDebugParserError] = useState('');
     const [processingStatus, setProcessingStatus] = useState(null);
     const [selectedVersions, setSelectedVersions] = useState({});
+
+    const isDebugMode = developerMode === 'debug';
+    const isDiagnostics = developerMode === 'diag';
+    const isDevModeDisabled = busy || debugBusy || debugOpen || (processingStatus !== null);
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -401,8 +404,8 @@ export function AgentWidget({
                 scope: scopePayload(selected),
                 message,
                 history,
-                debug_mode: debugMode,
-                diagnostics,
+                debug_mode: isDebugMode,
+                diagnostics: isDiagnostics,
             });
             const data = payload?.data || {};
             if (data.user_message_id) {
@@ -457,8 +460,8 @@ export function AgentWidget({
         setProcessingStatus('Thinking…');
         try {
             const payload = await postJson(`${endpoints.threadsUrl}/${activeThreadUlid}/messages/${userMessageId}/rerun`, csrf, {
-                debug_mode: debugMode,
-                diagnostics,
+                debug_mode: isDebugMode,
+                diagnostics: isDiagnostics,
             });
             const data = payload?.data || {};
             if (data.status === 'paused') {
@@ -506,16 +509,19 @@ export function AgentWidget({
                         <span>AI Agent</span>
                     </div>
                     <div className="agent-drawer-header__controls">
-                        <label className="agent-debug-switch" title="Debug mode">
-                            <span>Debug</span>
-                            <input
-                                type="checkbox"
-                                checked={debugMode}
-                                onChange={(event) => setDebugMode(event.target.checked)}
-                                disabled={busy || debugBusy || debugOpen}
-                                aria-label="Debug mode"
-                            />
-                            <span className="agent-debug-switch__track" aria-hidden="true" />
+                        <label className="agent-dev-mode-label" title="Developer mode">
+                            <span>Dev</span>
+                            <select
+                                className="agent-dev-select"
+                                value={developerMode}
+                                onChange={(event) => setDeveloperMode(event.target.value)}
+                                disabled={isDevModeDisabled}
+                                aria-label="Developer mode"
+                            >
+                                <option value="normal">Normal</option>
+                                <option value="debug">Debug</option>
+                                <option value="diag">Diag</option>
+                            </select>
                         </label>
                         <button
                             type="button"
@@ -563,138 +569,127 @@ export function AgentWidget({
                 </div>
             ) : null}
 
-            {/* Compact History Popover */}
-            {showHistory ? (
-                <div className="agent-history-popover" role="dialog" aria-label="Conversation History">
-                    <div className="agent-history-popover__header">
-                        <span className="agent-history-popover__title">History · {selected.label}</span>
-                        <div className="agent-history-popover__actions">
-                            <button
-                                type="button"
-                                className="agent-history-new-btn"
-                                onClick={onNewConversation}
-                            >
-                                <Plus size={13} />
-                                <span>New</span>
-                            </button>
-                            <button
-                                type="button"
-                                className="agent-history-close-btn"
-                                onClick={() => setShowHistory(false)}
-                                aria-label="Close history"
-                            >
-                                <X size={14} />
-                            </button>
-                        </div>
-                    </div>
-                    <div className="agent-history-popover__body">
-                        {loadingThreads ? (
-                            <div className="agent-history-empty">
-                                <Loader2 size={16} className="agent-spin" />
-                                <span>Loading conversations...</span>
-                            </div>
-                        ) : threads.length === 0 ? (
-                            <p className="agent-history-empty">No conversations for this site yet.</p>
-                        ) : (
-                            <ul className="agent-history-list">
-                                {threads.map((t) => (
-                                    <li key={t.ulid}>
-                                        <button
-                                            type="button"
-                                            className={`agent-history-item ${t.ulid === activeThreadUlid ? 'is-active' : ''}`}
-                                            onClick={() => {
-                                                loadThread(t.ulid, currentScopeRef);
-                                                setShowHistory(false);
-                                            }}
-                                        >
-                                            <span className="agent-history-item__title">{t.title || 'Untitled conversation'}</span>
-                                            <span className="agent-history-item__meta">
-                                                {formatTimeAgo(t.last_message_at || t.created_at)}
-                                            </span>
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                    </div>
-                </div>
-            ) : null}
-
-            {showSidebar ? (
-                <aside className="agent-projects">
-                    <p className="agent-kicker">Projects</p>
-                    <ul>
-                        {projects.map((project) => (
-                            <li key={project.key}>
+            <div className={`agent-main-layout ${showHistory ? 'agent-main-layout--history-open' : ''}`}>
+                {/* Internal History Sidebar */}
+                {showHistory ? (
+                    <aside className="agent-history-sidebar" role="region" aria-label="Conversation History">
+                        <div className="agent-history-sidebar__header">
+                            <span className="agent-history-sidebar__title">History · {selected.label}</span>
+                            <div className="agent-history-sidebar__actions">
                                 <button
                                     type="button"
-                                    className={project.key === selected.key ? 'is-active' : ''}
-                                    onClick={() => {
-                                        const next = switchProject(projects, project.key);
-                                        setSelectedKey(next.key);
-                                        setError('');
-                                        setLastCopy(null);
-                                        setShowHistory(false);
-                                        resetDebugState();
-                                        setDebugOpen(false);
-                                    }}
-                                >
-                                    <span>{project.label}</span>
-                                    {project.retrieval === 'unsupported' ? <small>No global API</small> : null}
-                                </button>
-                            </li>
-                        ))}
-                    </ul>
-                    <label className="agent-diagnostics">
-                        <input
-                            type="checkbox"
-                            checked={diagnostics}
-                            onChange={(event) => setDiagnostics(event.target.checked)}
-                        />
-                        Diagnostics
-                    </label>
-                </aside>
-            ) : null}
-
-            <section className="agent-workspace">
-                <header className="agent-workspace-header">
-                    {!isDrawer ? (
-                        <div className="agent-workspace-header__top">
-                            <h1>{selected.label}</h1>
-                            <div className="agent-workspace-actions">
-                                <label className="agent-debug-switch" title="Debug mode">
-                                    <span>Debug</span>
-                                    <input
-                                        type="checkbox"
-                                        checked={debugMode}
-                                        onChange={(event) => setDebugMode(event.target.checked)}
-                                        disabled={busy || debugBusy || debugOpen}
-                                        aria-label="Debug mode"
-                                    />
-                                    <span className="agent-debug-switch__track" aria-hidden="true" />
-                                </label>
-                                <button
-                                    type="button"
-                                    className="agent-header-btn agent-new-btn"
+                                    className="agent-history-new-btn"
                                     onClick={onNewConversation}
                                     title="New conversation"
+                                    aria-label="New conversation"
                                 >
-                                    <Plus size={14} />
+                                    <Plus size={13} />
                                     <span>New</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
-                                    onClick={() => setShowHistory((prev) => !prev)}
-                                    title="Conversation history"
-                                    aria-expanded={showHistory}
-                                >
-                                    <History size={14} />
-                                    <span>History</span>
                                 </button>
                             </div>
                         </div>
-                    ) : null}
+                        <div className="agent-history-sidebar__body">
+                            {loadingThreads ? (
+                                <div className="agent-history-empty">
+                                    <Loader2 size={16} className="agent-spin" />
+                                    <span>Loading conversations...</span>
+                                </div>
+                            ) : threads.length === 0 ? (
+                                <p className="agent-history-empty">No conversations for this site yet.</p>
+                            ) : (
+                                <ul className="agent-history-list">
+                                    {threads.map((t) => (
+                                        <li key={t.ulid}>
+                                            <button
+                                                type="button"
+                                                className={`agent-history-item ${t.ulid === activeThreadUlid ? 'is-active' : ''}`}
+                                                onClick={() => {
+                                                    loadThread(t.ulid, currentScopeRef);
+                                                }}
+                                            >
+                                                <span className="agent-history-item__title">{t.title || 'Untitled conversation'}</span>
+                                                <span className="agent-history-item__meta">
+                                                    {formatTimeAgo(t.last_message_at || t.created_at)}
+                                                </span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </aside>
+                ) : null}
+
+                {showSidebar ? (
+                    <aside className="agent-projects">
+                        <p className="agent-kicker">Projects</p>
+                        <ul>
+                            {projects.map((project) => (
+                                <li key={project.key}>
+                                    <button
+                                        type="button"
+                                        className={project.key === selected.key ? 'is-active' : ''}
+                                        onClick={() => {
+                                            const next = switchProject(projects, project.key);
+                                            setSelectedKey(next.key);
+                                            setError('');
+                                            setLastCopy(null);
+                                            setShowHistory(false);
+                                            resetDebugState();
+                                            setDebugOpen(false);
+                                        }}
+                                    >
+                                        <span>{project.label}</span>
+                                        {project.retrieval === 'unsupported' ? <small>No global API</small> : null}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </aside>
+                ) : null}
+
+                <section className="agent-workspace">
+                    <header className="agent-workspace-header">
+                        {!isDrawer ? (
+                            <div className="agent-workspace-header__top">
+                                <h1>{selected.label}</h1>
+                                <div className="agent-workspace-actions">
+                                    <label className="agent-dev-mode-label" title="Developer mode">
+                                        <span>Dev</span>
+                                        <select
+                                            className="agent-dev-select"
+                                            value={developerMode}
+                                            onChange={(event) => setDeveloperMode(event.target.value)}
+                                            disabled={isDevModeDisabled}
+                                            aria-label="Developer mode"
+                                        >
+                                            <option value="normal">Normal</option>
+                                            <option value="debug">Debug</option>
+                                            <option value="diag">Diag</option>
+                                        </select>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        className="agent-header-btn agent-new-btn"
+                                        onClick={onNewConversation}
+                                        title="New conversation"
+                                    >
+                                        <Plus size={14} />
+                                        <span>New</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
+                                        onClick={() => setShowHistory((prev) => !prev)}
+                                        title="Conversation history"
+                                        aria-expanded={showHistory}
+                                    >
+                                        <History size={14} />
+                                        <span>History</span>
+                                    </button>
+                                </div>
+                            </div>
+                        ) : null}
                     {globalUnsupported ? (
                         <p className="agent-warning">
                             All Sites retrieval is unsupported until a global SEO Access API is agreed. Select a site project to send requests.
@@ -722,7 +717,7 @@ export function AgentWidget({
                                 {version ? (
                                     <article className="is-assistant">
                                         <ResponseView response={version.response} />
-                                        {diagnostics && version.response?.answer_diagnostics ? (
+                                        {isDiagnostics && version.response?.answer_diagnostics ? (
                                             <details className="agent-answer-diagnostics">
                                                 <summary>Answer diagnostics</summary>
                                                 <p><strong>Parser rejection:</strong></p>
@@ -778,17 +773,7 @@ export function AgentWidget({
                         onChange={(event) => setDraft(event.target.value)}
                     />
                     <div className="agent-composer__actions">
-                        {isDrawer ? (
-                            <label className="agent-diagnostics agent-diagnostics--drawer">
-                                <input
-                                    type="checkbox"
-                                    checked={diagnostics}
-                                    onChange={(event) => setDiagnostics(event.target.checked)}
-                                />
-                                Diag
-                            </label>
-                        ) : null}
-                        {diagnostics && lastCopy?.routing ? (
+                        {isDiagnostics && lastCopy?.routing ? (
                             <button type="button" onClick={() => copyText(lastCopy.routing)}>
                                 Copy routing input
                             </button>
@@ -800,6 +785,7 @@ export function AgentWidget({
                     </div>
                 </form>
             </section>
+            </div>
 
             <ModelDebugModal
                 isOpen={debugOpen}
