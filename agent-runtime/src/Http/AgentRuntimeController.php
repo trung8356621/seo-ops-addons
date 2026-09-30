@@ -99,6 +99,9 @@ final class AgentRuntimeController
             if (!$thread) {
                 return new JsonResponse(['message' => 'Thread not found.'], 404);
             }
+            if ($thread->status === 'archived') {
+                return new JsonResponse(['message' => 'Archived thread cannot receive new messages.'], 422);
+            }
         } else {
             $title = $this->makeThreadTitle($message);
             $thread = $threads->createThread(
@@ -247,6 +250,31 @@ final class AgentRuntimeController
                 $userId,
                 $turn,
             );
+        } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected $e) {
+            $persistence->pauseRun($run, $callKey, $state);
+            $thread = $run->thread()->firstOrFail();
+            $model = $modelResolver->resolveAnswerModel($userId);
+            $bundle = \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle::fromArray((array) ($state['bundle'] ?? []));
+            $answerInput = $coordinator->buildAnswerInput($scope, (string) ($turn['message'] ?? ''), (array) ($turn['history'] ?? []), $bundle);
+            $input = $answerInput->exportText();
+
+            return new JsonResponse([
+                'message' => 'Answer result rejected: ' . $e->getMessage(),
+                'validation_error' => $e->getMessage(),
+                'data' => [
+                    'status' => 'paused',
+                    'run_ulid' => $run->ulid,
+                    'thread_ulid' => $thread->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'model_call' => [
+                        'key' => $callKey,
+                        'full_prompt' => $input,
+                        'prompt_size' => mb_strlen($input),
+                        'assumed_model' => $model->toArray(),
+                    ],
+                    'error' => $e->getMessage(),
+                ],
+            ], 422);
         } catch (\Throwable $e) {
             $persistence->failRun($run, 'error', $e->getMessage());
             throw $e;
@@ -309,10 +337,74 @@ final class AgentRuntimeController
         $appKey = $request->query('appKey');
         $scopeRef = $request->query('scope_ref');
         $perPage = (int) $request->query('per_page', 20);
+        $status = $request->query('status', 'active');
 
-        $paginator = $threads->listForPrincipal($principalType, $principalRef, $appKey, $scopeRef, $perPage);
+        if ($status === 'archived') {
+            $paginator = $threads->listArchivedForPrincipal($principalType, $principalRef, $appKey, $scopeRef, $perPage);
+        } else {
+            $paginator = $threads->listForPrincipal($principalType, $principalRef, $appKey, $scopeRef, $perPage);
+        }
 
         return new JsonResponse($paginator);
+    }
+
+    public function archiveThread(Request $request, string $ulid, AgentThreadRepository $threads): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+
+        $principalType = 'user';
+        $principalRef = (string) $userId;
+
+        $thread = $threads->findForPrincipal($ulid, $principalType, $principalRef);
+        if (! $thread) {
+            return new JsonResponse(['message' => 'Thread not found.'], 404);
+        }
+
+        $activeRunsCount = $thread->runs()
+            ->whereIn('status', ['running', 'awaiting_model'])
+            ->count();
+        if ($activeRunsCount > 0) {
+            return new JsonResponse(['message' => 'Cannot archive thread with an active run.'], 422);
+        }
+
+        $threads->archiveThread($thread);
+
+        return new JsonResponse([
+            'data' => [
+                'ulid' => $thread->ulid,
+                'status' => 'archived',
+            ],
+        ]);
+    }
+
+    public function deleteThread(Request $request, string $ulid, AgentThreadRepository $threads): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+
+        $principalType = 'user';
+        $principalRef = (string) $userId;
+
+        $thread = $threads->findForPrincipal($ulid, $principalType, $principalRef);
+        if (! $thread) {
+            return new JsonResponse(['message' => 'Thread not found.'], 404);
+        }
+
+        $threads->deleteThread($thread);
+
+        return new JsonResponse([
+            'data' => [
+                'deleted' => true,
+                'ulid' => $ulid,
+            ],
+        ]);
     }
 
     public function showThread(Request $request, string $ulid, AgentThreadRepository $threads): JsonResponse
@@ -365,6 +457,9 @@ final class AgentRuntimeController
         $thread = $threads->findForPrincipal($ulid, 'user', (string) $userId);
         if (! $thread) {
             return new JsonResponse(['message' => 'Thread not found.'], 404);
+        }
+        if ($thread->status === 'archived') {
+            return new JsonResponse(['message' => 'Archived thread cannot receive new messages.'], 422);
         }
         $userMessage = AgentMessage::where('id', $messageId)
             ->where('thread_id', $thread->id)
@@ -445,7 +540,9 @@ final class AgentRuntimeController
             if ($result->failureCode !== null) {
                 $meta['failure_code'] = $result->failureCode;
             }
-            if ($result->answerDiagnostics !== null) {
+            if ($result->modelDiagnostics !== null) {
+                $persistence->storeModelDiagnostics($run, $result->modelDiagnostics);
+            } elseif ($result->answerDiagnostics !== null) {
                 $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
             }
             $assistant = $persistence->completeRun($run, $result->response, $meta);
@@ -455,6 +552,9 @@ final class AgentRuntimeController
             $data['run_ulid'] = $run->ulid;
             $data['user_message_id'] = $run->user_message_id;
             $data['assistant_message_id'] = $assistant->id;
+            if ($result->modelDiagnostics !== null) {
+                $data['model_diagnostics'] = $result->modelDiagnostics;
+            }
             if ($result->answerDiagnostics !== null) {
                 $data['answer_diagnostics'] = $result->answerDiagnostics;
             }

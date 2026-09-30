@@ -6,18 +6,22 @@ namespace Omnichannel\Addons\SiteSync\Tests\Unit;
 
 use App\Core\Capability\CapabilityRegistry;
 use App\Models\Site;
+use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Livewire\Livewire;
 use Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability;
 use Omnichannel\Addons\SiteSync\Models\SiteHealthIncident;
+use Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
 use Omnichannel\Addons\SiteSync\Services\SiteHealth\DnsResolver;
 use Omnichannel\Addons\SiteSync\Services\SiteHealth\ManagedWordPressSiteSelector;
 use Omnichannel\Addons\SiteSync\Services\SiteHealth\SiteHealthCheckService;
 use Omnichannel\Addons\SiteSync\Services\SiteHealth\SiteHealthResult;
 use Omnichannel\Addons\SiteSync\Services\SiteHealth\SiteHealthStateService;
+use Omnichannel\Addons\SiteSync\Services\SiteHealth\SiteHealthMonitor;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -27,6 +31,7 @@ final class SiteHealthBehaviorTest extends TestCase
     {
         parent::setUp();
 
+        view()->addNamespace('site-sync', dirname(__DIR__, 2).'/resources/views');
         $this->createCoreTables();
         $this->createHealthTables();
     }
@@ -151,6 +156,67 @@ final class SiteHealthBehaviorTest extends TestCase
         self::assertNotContains($inactive->id, $ids);
     }
 
+    public function test_authorized_user_can_retry_site_health_and_refresh_the_active_incident(): void
+    {
+        $user = $this->owner('health-owner@example.test');
+        $site = Site::query()->create([
+            'user_id' => $user->id,
+            'domain' => 'https://site-health-test.invalid',
+            'status' => 'active',
+        ]);
+        $monitor = app(SiteHealthMonitor::class);
+        $monitor->check($site);
+        $state = $monitor->check($site);
+        $incidentId = (int) $state->active_incident_id;
+        $lastCheckedAt = $state->last_checked_at;
+
+        $this->travel(1)->second();
+
+        Livewire::actingAs($user)
+            ->test(SiteHealthNotice::class)
+            ->call('retrySiteHealth', $site->id)
+            ->assertSet('alert.incidents.0.id', $incidentId)
+            ->assertSet('alert.incidents.0.consecutive_failures', 3)
+            ->assertDispatched('site-health-retried');
+
+        $state->refresh();
+        self::assertSame($incidentId, (int) $state->active_incident_id);
+        self::assertTrue($state->last_checked_at->greaterThan($lastCheckedAt));
+        self::assertSame(1, SiteHealthIncident::query()->where('site_id', $site->id)->count());
+
+        $site->update(['domain' => 'https://127.0.0.1']);
+        $site->metas()->create(['meta_key' => 'seo_read_token', 'meta_value' => 'test-token']);
+        Http::fake([
+            'https://127.0.0.1' => Http::response('ok', 200),
+            'https://127.0.0.1/wp-json/omi-seo-ai/v1/heartbeat*' => Http::response(['status' => 'ok'], 200),
+            'https://127.0.0.1/wp-json/omi-seo-ai/v1/capabilities*' => Http::response(['status' => 'ok'], 200),
+        ]);
+
+        Livewire::actingAs($user)
+            ->test(SiteHealthNotice::class)
+            ->call('retrySiteHealth', $site->id)
+            ->assertSet('alert', null)
+            ->assertDispatched('site-health-retried');
+
+        self::assertNotNull(SiteHealthIncident::query()->findOrFail($incidentId)->resolved_at);
+    }
+
+    public function test_retry_site_health_for_an_unauthorized_site_returns_403(): void
+    {
+        $owner = $this->owner('site-owner@example.test');
+        $otherUser = $this->owner('other-owner@example.test');
+        $site = Site::query()->create([
+            'user_id' => $owner->id,
+            'domain' => 'https://site-health-test.invalid',
+            'status' => 'active',
+        ]);
+
+        Livewire::actingAs($otherUser)
+            ->test(SiteHealthNotice::class)
+            ->call('retrySiteHealth', $site->id)
+            ->assertForbidden();
+    }
+
     private function managedSite(string $domain): Site
     {
         $site = $this->site($domain, 'active');
@@ -164,17 +230,44 @@ final class SiteHealthBehaviorTest extends TestCase
         return Site::query()->create(['domain' => $domain, 'status' => $status]);
     }
 
+    private function owner(string $email): User
+    {
+        return User::query()->create([
+            'name' => 'Site Health Owner',
+            'email' => $email,
+            'password' => bcrypt('password'),
+            'role' => User::ROLE_OWNER,
+            'status' => User::STATUS_NORMAL,
+        ]);
+    }
+
     private function createCoreTables(): void
     {
+        Schema::dropIfExists('users');
         Schema::dropIfExists('site_services');
         Schema::dropIfExists('services');
         Schema::dropIfExists('site_meta');
         Schema::dropIfExists('sites');
         Schema::create('sites', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
             $table->string('domain')->unique();
             $table->string('status')->default('active');
             $table->boolean('ssl')->default(false);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('parent_id')->nullable();
+            $table->unsignedBigInteger('manager_id')->nullable();
+            $table->string('role')->nullable();
+            $table->string('status')->default(User::STATUS_NORMAL);
+            $table->boolean('is_system')->default(false);
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();
         });

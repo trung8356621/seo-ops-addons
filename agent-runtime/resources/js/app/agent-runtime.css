@@ -756,13 +756,13 @@
     position: relative;
 }
 
-/* History Sidebar (Internal) */
+/* History Sidebar (Internal - Docked on the RIGHT) */
 .agent-history-sidebar {
     width: 280px;
     min-width: 280px;
-    max-width: 280px;
+    max-width: 320px;
     background: #ffffff;
-    border-right: 1px solid #e2e8f0;
+    border-left: 1px solid #e2e8f0;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -804,12 +804,23 @@
     padding: 6px;
 }
 
+@media (min-width: 769px) {
+    .agent-history-btn {
+        display: none !important;
+    }
+}
+
 @media (max-width: 768px) {
+    .agent-history-sidebar {
+        display: none;
+    }
+
     .agent-main-layout--history-open .agent-history-sidebar {
+        display: flex;
         width: 100%;
         min-width: 100%;
         max-width: 100%;
-        border-right: none;
+        border-left: none;
     }
 
     .agent-main-layout--history-open .agent-workspace {
@@ -817,7 +828,57 @@
     }
 }
 
-/* Developer Mode Select */
+/* Developer Mode Segmented Tabs */
+.agent-dev-tabs {
+    display: inline-flex;
+    align-items: center;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.agent-dev-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    padding: 0 4px 0 6px;
+    user-select: none;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.agent-dev-tab {
+    border: 0;
+    background: transparent;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #475569;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.agent-dev-tab:hover:not(:disabled):not(.is-active) {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.agent-dev-tab.is-active,
+.agent-dev-tab[aria-selected="true"] {
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.agent-dev-tab:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .agent-dev-mode-label {
     display: inline-flex;
     align-items: center;
@@ -880,6 +941,23 @@
     gap: 2px;
 }
 
+.agent-history-item-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 4px;
+    border-radius: 6px;
+}
+
+.agent-history-item-wrap:hover {
+    background: #f1f5f9;
+}
+
+.agent-history-item-wrap .agent-history-item {
+    flex: 1;
+    min-width: 0;
+}
+
 .agent-history-item {
     width: 100%;
     display: flex;
@@ -919,6 +997,96 @@
     font-size: 11px;
     color: #94a3b8;
     margin-top: 2px;
+}
+
+.agent-history-delete-btn {
+    border: 0;
+    background: transparent;
+    color: #94a3b8;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.agent-history-item-wrap:hover .agent-history-delete-btn {
+    opacity: 1;
+}
+
+.agent-history-delete-btn:hover {
+    color: #ef4444;
+    background: #fee2e2;
+}
+
+.agent-archived-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 14px 18px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.agent-archived-banner__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #0f172a;
+    cursor: pointer;
+}
+
+.agent-archived-banner__btn:hover {
+    background: #f1f5f9;
+}
+
+.agent-diagnostics-disclosure {
+    margin-top: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    font-size: 12px;
+}
+
+.agent-diagnostics-disclosure summary {
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+}
+
+.agent-diagnostics-stage {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.agent-diagnostics-stage h4 {
+    margin: 4px 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.agent-diagnostics-stage pre {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 11px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 /* ==========================================================================

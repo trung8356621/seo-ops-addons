@@ -1528,6 +1528,305 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(['global_access_unsupported'], $bundle->warnings);
     }
 
+    public function test_debug_manual_answer_parser_rejection_keeps_run_retryable(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $coordinator = $this->coordinator(new RecordingDecisionGateway(), new RecordingAnswerGateway());
+        $resolver = new MockAssumedModelResolver();
+        $controller = new AgentRuntimeController();
+
+        $initial = $controller->turn(
+            $this->createTurnRequest([
+                'scope' => ['type' => 'site', 'siteId' => 7],
+                'message' => 'Debug retry test',
+                'debug_mode' => true,
+            ]),
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        )->getData(true)['data'];
+
+        self::assertSame('paused', $initial['status']);
+        self::assertSame('decision', $initial['model_call']['key']);
+        $runUlid = $initial['run_ulid'];
+
+        $decisionApply = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        )->getData(true)['data'];
+
+        self::assertSame('paused', $decisionApply['status']);
+        self::assertSame('answer', $decisionApply['model_call']['key']);
+
+        // First apply invalid answer -> 422 rejected, run preserved awaiting_model
+        $rejectedRes = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"not_valid_answer":true}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(422, $rejectedRes->getStatusCode());
+        $rejectedData = $rejectedRes->getData(true);
+        self::assertSame('paused', $rejectedData['data']['status']);
+        self::assertSame('answer', $rejectedData['data']['model_call']['key']);
+        self::assertSame($runUlid, $rejectedData['data']['run_ulid']);
+        self::assertNotEmpty($rejectedData['validation_error']);
+
+        $runModel = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->firstOrFail();
+        self::assertSame('awaiting_model', $runModel->status);
+        self::assertSame('answer', $runModel->retrieval_summary['model_call']);
+
+        // Second apply with valid answer succeeds on the same run
+        $validRes = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"message":"Corrected answer","blocks":[],"actions":[]}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(200, $validRes->getStatusCode());
+        $validData = $validRes->getData(true)['data'];
+        self::assertSame('Corrected answer', $validData['message']);
+        self::assertSame('done', $runModel->fresh()->status);
+    }
+
+    public function test_debug_rerun_manual_answer_parser_rejection_has_identical_retry_semantics(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+        $initial = $controller->turn(
+            $this->createTurnRequest(['scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'Initial message']),
+            $this->coordinator(new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'), new RecordingAnswerGateway()),
+            $sites,
+            $threads,
+            $persistence,
+        )->getData(true)['data'];
+        $thread = $threads->findForPrincipal($initial['thread_ulid'], 'user', '1');
+        $userMessage = $thread->messages()->where('role', 'user')->firstOrFail();
+        $coordinator = $this->coordinator(new RecordingDecisionGateway(), new RecordingAnswerGateway());
+        $resolver = new MockAssumedModelResolver();
+
+        $rerunPaused = $controller->rerun(
+            $this->createTurnRequest(['debug_mode' => true]),
+            $thread->ulid,
+            $userMessage->id,
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        )->getData(true)['data'];
+        $runUlid = $rerunPaused['run_ulid'];
+
+        // Step 1: Decision
+        $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+
+        // Step 2: Invalid Answer -> 422
+        $rejectedRes = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"invalid":1}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+        self::assertSame(422, $rejectedRes->getStatusCode());
+        self::assertSame('awaiting_model', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
+
+        // Step 3: Valid Answer -> 200
+        $completedRes = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"message":"Rerun corrected","blocks":[],"actions":[]}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+        self::assertSame(200, $completedRes->getStatusCode());
+        self::assertSame('Rerun corrected', $completedRes->getData(true)['data']['message']);
+        self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
+    }
+
+    public function test_diag_captures_redacted_decision_diagnostics(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+        $resolver = new MockAssumedModelResolver();
+
+        $brokenDecision = new ScriptedDecisionGateway('api_key: sensitive_api_key_xyz123 invalid json decision');
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator($brokenDecision, $answers);
+
+        $res = $controller->turn(
+            $this->createTurnRequest([
+                'scope' => ['type' => 'site', 'siteId' => 7],
+                'message' => 'Diag test with broken decision',
+                'diagnostics' => true,
+            ]),
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(200, $res->getStatusCode());
+        $data = $res->getData(true)['data'];
+        self::assertArrayHasKey('model_diagnostics', $data);
+        $diag = $data['model_diagnostics'];
+        self::assertNotNull($diag['decision'] ?? null);
+        self::assertSame('rejected', $diag['decision']['status']);
+        self::assertNotEmpty($diag['decision']['parser_error']);
+        self::assertStringNotContainsString('sensitive_api_key_xyz123', $diag['decision']['raw_completion']);
+        self::assertStringContainsString('api_key: [redacted]', $diag['decision']['raw_completion']);
+    }
+
+    public function test_diag_captures_redacted_answer_diagnostics(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $controller = new AgentRuntimeController();
+        $resolver = new MockAssumedModelResolver();
+
+        $decisions = new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}');
+        $brokenAnswer = new RecordingAnswerGateway('bearer: secret_pass_456 invalid answer payload');
+        $coordinator = $this->coordinator($decisions, $brokenAnswer);
+
+        $res = $controller->turn(
+            $this->createTurnRequest([
+                'scope' => ['type' => 'site', 'siteId' => 7],
+                'message' => 'Diag test with broken answer',
+                'diagnostics' => true,
+            ]),
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(200, $res->getStatusCode());
+        $data = $res->getData(true)['data'];
+        self::assertArrayHasKey('model_diagnostics', $data);
+        $diag = $data['model_diagnostics'];
+        self::assertNotNull($diag['answer'] ?? null);
+        self::assertSame('rejected', $diag['answer']['status']);
+        self::assertNotEmpty($diag['answer']['parser_error']);
+        self::assertStringNotContainsString('secret_pass_456', $diag['answer']['raw_completion']);
+        self::assertStringContainsString('bearer: [redacted]', $diag['answer']['raw_completion']);
+    }
+
+    public function test_model_diagnostics_merge_without_destroying_debug_checkpoint_fields(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+        $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', 'Test');
+        $userMsg = $persistence->persistUserMessage($thread, 'Test message');
+        $run = $persistence->startRun($thread, $userMsg, 'seo-ops', 'site', 'site:7', 1);
+
+        $persistence->pauseRun($run, 'decision', [
+            'scope' => ['type' => 'site', 'site_id' => 7],
+            'prompt' => 'Checkpoint prompt',
+        ]);
+
+        $runModel = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $run->ulid)->firstOrFail();
+        self::assertSame('decision', $runModel->retrieval_summary['model_call']);
+        self::assertSame('Checkpoint prompt', $runModel->retrieval_summary['runtime_state']['prompt']);
+
+        $persistence->storeModelDiagnostics($run, [
+            'decision' => ['status' => 'rejected', 'parser_error' => 'Syntax error'],
+        ]);
+
+        $reloaded = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $run->ulid)->firstOrFail();
+        self::assertSame('decision', $reloaded->retrieval_summary['model_call']);
+        self::assertSame('Checkpoint prompt', $reloaded->retrieval_summary['runtime_state']['prompt']);
+        self::assertSame(['type' => 'site', 'site_id' => 7], $reloaded->retrieval_summary['runtime_state']['scope']);
+        self::assertSame('rejected', $reloaded->retrieval_summary['model_diagnostics']['decision']['status']);
+    }
+
+    public function test_thread_archive_and_delete_lifecycle_and_principal_isolation(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{"intent":"site","needs":{"site":0.2}}'), new RecordingAnswerGateway());
+        $controller = new AgentRuntimeController();
+
+        $turn = $controller->turn(
+            $this->createTurnRequest(['scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'Hello for archive']),
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+        )->getData(true)['data'];
+
+        $threadUlid = $turn['thread_ulid'];
+        $thread = $threads->findForPrincipal($threadUlid, 'user', '1');
+        self::assertNotNull($thread);
+        self::assertSame('active', $thread->status);
+
+        // User 2 cannot archive User 1's thread
+        $unauthArchive = $controller->archiveThread($this->createTurnRequest([], userId: 2), $threadUlid, $threads);
+        self::assertSame(404, $unauthArchive->getStatusCode());
+
+        // User 1 archives thread
+        $archiveRes = $controller->archiveThread($this->createTurnRequest([], userId: 1), $threadUlid, $threads);
+        self::assertSame(200, $archiveRes->getStatusCode());
+        self::assertSame('archived', $thread->fresh()->status);
+        self::assertGreaterThanOrEqual(1, $thread->messages()->count());
+        self::assertGreaterThanOrEqual(1, $thread->runs()->count());
+
+        // Archived listing returns this thread
+        $listReq = Request::create('/agent-runtime/threads?status=archived&scope_ref=site:7', 'GET');
+        $user1 = new class(1) { public function __construct(public int $id) {} };
+        $listReq->setUserResolver(static fn () => $user1);
+        $archivedList = $controller->listThreads($listReq, $threads)->getData(true)['data'];
+        $ulids = array_column($archivedList, 'ulid');
+        self::assertContains($threadUlid, $ulids);
+
+        // Active listing does NOT return this thread
+        $activeListReq = Request::create('/agent-runtime/threads?status=active&scope_ref=site:7', 'GET');
+        $activeListReq->setUserResolver(static fn () => $user1);
+        $activeList = $controller->listThreads($activeListReq, $threads)->getData(true)['data'];
+        $activeUlids = array_column($activeList, 'ulid');
+        self::assertNotContains($threadUlid, $activeUlids);
+
+        // Write turn to archived thread returns 422
+        $writeTurnReq = $this->createTurnRequest(['message' => 'Should fail on archived', 'scope' => ['type' => 'site', 'siteId' => 7]]);
+        $writeRes = $controller->threadTurn($writeTurnReq, $threadUlid, $coordinator, $sites, $threads, $persistence);
+        self::assertSame(422, $writeRes->getStatusCode());
+
+        // User 2 cannot delete User 1's thread
+        $unauthDelete = $controller->deleteThread($this->createTurnRequest([], userId: 2), $threadUlid, $threads);
+        self::assertSame(404, $unauthDelete->getStatusCode());
+
+        // User 1 deletes thread (soft delete)
+        $deleteRes = $controller->deleteThread($this->createTurnRequest([], userId: 1), $threadUlid, $threads);
+        self::assertSame(200, $deleteRes->getStatusCode());
+        self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::find($thread->id));
+        self::assertNotNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
+    }
 
     private function retired_global_scope_remains_unsupported_in_model_debug(): void
     {

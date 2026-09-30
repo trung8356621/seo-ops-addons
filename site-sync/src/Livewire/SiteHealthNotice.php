@@ -26,13 +26,19 @@ final class SiteHealthNotice extends Component
         $this->alert = $user instanceof User ? $readModel->forUser($user) : null;
     }
 
-    public function retry(int $siteId, SiteAccess $access, SiteHealthMonitor $monitor, GlobalSiteHealthReadModel $readModel): void
+    public function retrySiteHealth(int $siteId, SiteAccess $access, SiteHealthMonitor $monitor, GlobalSiteHealthReadModel $readModel): void
     {
         $user = Auth::user();
         abort_unless($user instanceof User && $access->canAccessSite($siteId, $user), 403);
         $site = Site::query()->findOrFail($siteId);
         $monitor->check($site);
         $this->alert = $readModel->forUser($user);
+
+        $this->dispatch(
+            'site-health-retried',
+            siteId: $siteId,
+            incident: collect($this->alert['incidents'] ?? [])->firstWhere('site_id', $siteId),
+        );
     }
 
     public function render(): View
