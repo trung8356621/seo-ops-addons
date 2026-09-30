@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Services\Tools;
 use InvalidArgumentException;
 use Omnichannel\Addons\Seo\Services\Tools\Handlers\ContentProjectDraftIntakeToolHandler;
 use Omnichannel\Addons\Seo\Services\Tools\Handlers\SeoAuditListToolHandler;
+use Omnichannel\Addons\Seo\Services\Tools\Handlers\TopicCreateToolHandler;
 
 final class SeoToolRegistry
 {
@@ -91,11 +92,12 @@ final class SeoToolRegistry
     }
 
     /**
-     * Factory to build default registry with canonical SEO and ContentProject tools.
+     * Factory to build default registry with canonical SEO, Draft, and Topic tools.
      */
     public static function buildDefault(
         SeoAuditListToolHandler $seoAuditHandler,
-        ContentProjectDraftIntakeToolHandler $draftIntakeHandler
+        ContentProjectDraftIntakeToolHandler $draftIntakeHandler,
+        ?TopicCreateToolHandler $topicCreateHandler = null
     ): self {
         $registry = new self();
 
@@ -141,13 +143,13 @@ final class SeoToolRegistry
             $seoAuditHandler
         );
 
-        // 2. content_project.draft_intake
+        // 2. draft.intake
         $registry->register(
             new SeoToolDefinition(
                 key: ContentProjectDraftIntakeToolHandler::TOOL_KEY,
                 name: 'Intake Items into Planning Draft',
                 description: 'Intake new or rewrite content items into the shared planning draft for a site.',
-                module: 'content_projects',
+                module: 'draft',
                 kind: SeoToolDefinition::KIND_WRITE,
                 scopes: ['content-projects:draft:write'],
                 requiredContext: [SeoToolDefinition::CONTEXT_SITE_REF],
@@ -184,6 +186,37 @@ final class SeoToolRegistry
             ),
             $draftIntakeHandler
         );
+
+        // 3. topic.create
+        if ($topicCreateHandler !== null) {
+            $registry->register(
+                new SeoToolDefinition(
+                    key: TopicCreateToolHandler::TOOL_KEY,
+                    name: 'Create Topic',
+                    description: 'Create or reuse a site-scoped manual topic.',
+                    module: 'topic',
+                    kind: SeoToolDefinition::KIND_WRITE,
+                    scopes: ['topics:write'],
+                    requiredContext: [SeoToolDefinition::CONTEXT_SITE_REF],
+                    confirmationPolicy: SeoToolDefinition::CONFIRMATION_REQUIRED,
+                    isExposed: true,
+                    inputSchema: [
+                        'type' => 'object',
+                        'properties' => [
+                            'name' => [
+                                'type' => 'string',
+                                'minLength' => 1,
+                                'maxLength' => 255,
+                                'description' => 'Topic name to create or reuse.',
+                            ],
+                        ],
+                        'required' => ['name'],
+                        'additionalProperties' => false,
+                    ]
+                ),
+                $topicCreateHandler
+            );
+        }
 
         return $registry;
     }

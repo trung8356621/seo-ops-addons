@@ -22,6 +22,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureRuntimeAction;
@@ -1275,6 +1276,135 @@ final class AiRuntimeFallbackTest extends TestCase
                 || str_contains($e->getMessage(), 'All eligible routes marked unavailable'),
             );
         }
+    }
+
+    public function test_faq_malformed_json_falls_through_to_valid_route(): void
+    {
+        $this->seedOrderedLongform(102, [
+            ['a', 'model/a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'model/b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+
+        [$output, , , , , $attempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 102),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                $output = $candidate->model === 'model/a'
+                    ? 'Here are your FAQs...'
+                    : '{"faqs":[{"question":"Q?","answer":"A"}]}';
+                $this->assertFaqStructuredOutput($output);
+
+                return [$output, null];
+            },
+        );
+
+        self::assertSame(['model/a', 'model/b'], $calls);
+        self::assertCount(1, json_decode($output, true, 512, JSON_THROW_ON_ERROR)['faqs']);
+        self::assertSame(AiFailureClass::ProviderInvalidOutput->value, $attempts[0]['failure_class']);
+        self::assertSame('FAQ_INVALID_JSON', $attempts[0]['provider_error_code']);
+        self::assertSame('success', $attempts[1]['result']);
+    }
+
+    public function test_faq_invalid_schema_falls_through_to_valid_route(): void
+    {
+        $this->seedOrderedLongform(111, [
+            ['a', 'model/a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'model/b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+
+        [$output, , , , , $attempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 111),
+            function ($candidate): array {
+                $output = $candidate->model === 'model/a'
+                    ? '{"foo":"bar"}'
+                    : '{"faqs":[{"question":"Q?","answer":"A"}]}';
+                $this->assertFaqStructuredOutput($output);
+
+                return [$output, null];
+            },
+        );
+
+        self::assertSame('{"faqs":[{"question":"Q?","answer":"A"}]}', $output);
+        self::assertSame(AiFailureClass::ProviderInvalidOutput->value, $attempts[0]['failure_class']);
+        self::assertSame('success', $attempts[1]['result']);
+    }
+
+    public function test_all_invalid_faq_routes_are_exhausted_with_diagnostics(): void
+    {
+        $this->seedOrderedLongform(112, [
+            ['a', 'model/a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'model/b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 112),
+                function ($candidate): array {
+                    $output = $candidate->model === 'model/a' ? 'not json' : '{"faqs":[]}';
+                    $this->assertFaqStructuredOutput($output);
+
+                    return [$output, null];
+                },
+            );
+            self::fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException $exception) {
+            self::assertStringContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
+            $attempts = $exception->context['routing_attempts'] ?? [];
+            self::assertCount(2, $attempts);
+            self::assertSame(AiFailureClass::ProviderInvalidOutput->value, $attempts[0]['failure_class']);
+            self::assertSame(AiFailureClass::ProviderInvalidOutput->value, $attempts[1]['failure_class']);
+        }
+    }
+
+    public function test_faq_free_only_does_not_use_paid_valid_route(): void
+    {
+        $this->seedOrderedLongform(113, [
+            ['f', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['p', 'paid/b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 113, freeOnly: true),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    $output = $candidate->isFree
+                        ? 'invalid free output'
+                        : '{"faqs":[{"question":"Q?","answer":"A"}]}';
+                    $this->assertFaqStructuredOutput($output);
+
+                    return [$output, null];
+                },
+            );
+            self::fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException) {
+            self::assertSame(['free/a:free'], $calls);
+        }
+    }
+
+    public function test_non_structured_prompt_still_accepts_plain_text(): void
+    {
+        $this->assertFaqStructuredOutput('ordinary plain text', false, 'regular.text.prompt');
+        self::assertTrue(true);
+    }
+
+    private function assertFaqStructuredOutput(
+        string $output,
+        bool $structured = true,
+        string $hookKey = 'article.faq.generate',
+    ): void {
+        $runner = (new \ReflectionClass(PromptRunnerService::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(PromptRunnerService::class, 'assertStructuredOutputEligibleForFailover');
+        $method->invoke($runner, $output, $hookKey, [
+            'structured_output' => $structured,
+            'structured_strategy' => $structured ? 'json_mode' : '',
+        ]);
     }
 
     /**

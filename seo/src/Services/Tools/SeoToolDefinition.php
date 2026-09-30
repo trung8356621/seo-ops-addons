@@ -23,6 +23,11 @@ final class SeoToolDefinition
 
     public const CONFIRMATION_REQUIRED = 'required';
 
+    public const WRITE_ALLOWED_NAMESPACES = [
+        'draft',
+        'topic',
+    ];
+
     /** @var list<string> */
     public readonly array $scopes;
 
@@ -54,6 +59,15 @@ final class SeoToolDefinition
 
         if ($kind !== self::KIND_READ && $kind !== self::KIND_WRITE) {
             throw new InvalidArgumentException("Invalid tool kind: '{$kind}'. Allowed: 'read', 'write'.");
+        }
+
+        if ($kind === self::KIND_WRITE) {
+            $namespace = explode('.', $cleanKey, 2)[0];
+            if (!in_array($namespace, self::WRITE_ALLOWED_NAMESPACES, true)) {
+                throw new InvalidArgumentException(
+                    "Write tool '{$key}' belongs to forbidden namespace '{$namespace}'. Write tools are restricted to namespaces: " . implode(', ', self::WRITE_ALLOWED_NAMESPACES) . "."
+                );
+            }
         }
 
         if ($confirmationPolicy !== self::CONFIRMATION_NONE && $confirmationPolicy !== self::CONFIRMATION_REQUIRED) {

@@ -558,7 +558,7 @@ class PromptRunnerService
         $generationStrategy = ArticleGenerationStrategy::resolve(
             $variables['generation_shape'] ?? $variables['generation_strategy'] ?? null,
         );
-        $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
+        $hookKey = $this->effectiveHookKey($prompt, $variables);
         if (
             $generationStrategy->isSectioned()
             && ArticleContentGenerationHooks::matches($hookKey)
@@ -2004,7 +2004,7 @@ class PromptRunnerService
         bool $isTaskMode,
         string $toolType,
     ): array {
-        $hookKey = (string) ($prompt->hook_key ?? '');
+        $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
         $routeVariables = $variables;
         $compiled = $baselineCompiled;
 
@@ -2144,6 +2144,12 @@ class PromptRunnerService
         $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
 
         return [$output, $usage];
+    }
+
+    /** @param array<string, mixed> $variables */
+    private function effectiveHookKey(SeoPrompt $prompt, array $variables): string
+    {
+        return trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
     }
 
     /** @param array<string, mixed> $options */

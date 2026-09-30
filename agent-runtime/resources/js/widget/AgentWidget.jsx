@@ -619,6 +619,11 @@ export function AgentWidget({
         }
     }
 
+    function onComposerSubmit(event) {
+        event.preventDefault();
+        void onSend();
+    }
+
     async function onRerun(userMessageId) {
         if (busy || !activeThreadUlid || !userMessageId || isViewingArchived) {
             return;
@@ -1014,7 +1019,7 @@ export function AgentWidget({
                             </button>
                         </div>
                     ) : (
-                        <form className="agent-composer" onSubmit={onSend}>
+                        <form className="agent-composer" onSubmit={onComposerSubmit}>
                             <div className="agent-input-wrap">
                                 <textarea
                                     ref={textareaRef}

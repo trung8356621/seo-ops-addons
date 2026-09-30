@@ -116,6 +116,11 @@ final class AiProviderFailureClassifier
             $code = $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure
                 ? $exception->failureCode->value
                 : 'output_validation';
+            if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput
+                && preg_match('/^([A-Z][A-Z0-9_]+):/', $exception->getMessage(), $matches) === 1
+            ) {
+                $code = (string) $matches[1];
+            }
 
             $safeMessage = $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated
                 ? 'OUTPUT_TRUNCATED — trying next eligible paid physical route.'

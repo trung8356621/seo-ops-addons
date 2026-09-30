@@ -861,6 +861,9 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringContainsString('priority scores, confidence percentages, estimated demand', $prompt);
         self::assertStringContainsString('never fabricate search volume, Topic IDs, article or DNA counts, keyword counts, scores', $prompt);
         self::assertStringContainsString('blocks and actions must be JSON arrays', $prompt);
+        self::assertStringContainsString('String values must follow JSON escaping rules', $prompt);
+        self::assertStringContainsString('Do not backslash-escape Markdown punctuation', $prompt);
+        self::assertStringContainsString('*(note)*, not \*(note)\*', $prompt);
         self::assertStringNotContainsString('new topic or content opportunities', $routing);
         self::assertStringNotContainsString('inferred new topics', $routing);
         self::assertStringNotContainsString('Markdown is the safe default block type', $routing);
@@ -1909,6 +1912,107 @@ final class AgentRuntimeContractTest extends TestCase
             $answers,
             new AgentResponseParser(),
         );
+    }
+
+    public function test_parser_leaves_normal_valid_json_unchanged(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), []);
+        $raw = json_encode([
+            'message' => 'Normal valid response',
+            'blocks' => [
+                ['type' => 'markdown', 'text' => "Paragraph 1\n\nParagraph 2 with *emphasis* and `code`"],
+            ],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR);
+
+        $response = $parser->parse($raw, $bundle);
+        self::assertSame('Normal valid response', $response->message);
+        self::assertSame("Paragraph 1\n\nParagraph 2 with *emphasis* and `code`", $response->blocks[0]['text']);
+    }
+
+    public function test_parser_recovers_gemini_markdown_punctuation_escapes(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), []);
+
+        // Raw Gemini response with invalid backslash escapes before markdown punctuation
+        $raw = '{"message":"Recovery successful","blocks":[{"type":"markdown","text":"Summary:\n\n\*(Lưu ý...)\*\n\n\_italic\_ and \#heading and \[link text\] and \(parens\) and \~strikethrough\~ and \`inline_code\`."}],"actions":[]}';
+
+        $response = $parser->parse($raw, $bundle);
+        self::assertSame('Recovery successful', $response->message);
+        self::assertSame("Summary:\n\n*(Lưu ý...)*\n\n_italic_ and #heading and [link text] and (parens) and ~strikethrough~ and `inline_code`.", $response->blocks[0]['text']);
+    }
+
+    public function test_parser_preserves_valid_json_escapes_including_newlines_quotes_and_backslashes(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), []);
+
+        // Valid JSON with standard escapes (\n, \t, \", \\) plus an escaped backslash followed by a star (\\*)
+        // And mixed with a Gemini-style escaped star (\*) to ensure repair distinguishes \\* from \*
+        $raw = '{"message":"Escapes test","blocks":[{"type":"markdown","text":"Line 1\nLine 2\t\"quoted\"\nLiteral backslash and star: \\\\*\nInvalid markdown escape repaired: \*(note)\*"}],"actions":[]}';
+
+        $response = $parser->parse($raw, $bundle);
+        $text = $response->blocks[0]['text'];
+        self::assertStringContainsString("Line 1\nLine 2\t\"quoted\"", $text);
+        self::assertStringContainsString('Literal backslash and star: \\*', $text);
+        self::assertStringContainsString('Invalid markdown escape repaired: *(note)*', $text);
+    }
+
+    public function test_parser_still_rejects_genuinely_malformed_json_and_non_markdown_escapes(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), []);
+
+        // Case 1: Truncated JSON / missing closing brace
+        try {
+            $parser->parse('{"message":"truncated"', $bundle);
+            self::fail('Truncated JSON should be rejected.');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('Agent response is not JSON', $e->getMessage());
+        }
+
+        // Case 2: Unquoted keys / invalid JSON syntax
+        try {
+            $parser->parse('{message: "unquoted"}', $bundle);
+            self::fail('Unquoted key JSON should be rejected.');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('Agent response JSON is invalid', $e->getMessage());
+        }
+
+        // Case 3: Invalid escape that is NOT safe markdown punctuation (e.g. \q)
+        try {
+            $parser->parse('{"message":"bad escape \q here","blocks":[]}', $bundle);
+            self::fail('Non-markdown invalid escape should be rejected.');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('Agent response JSON is invalid', $e->getMessage());
+        }
+    }
+
+    public function test_schema_and_evidence_validation_still_run_after_markdown_escape_repair(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(7), [
+            new RetrievalSource('gsc', 'ok', 'GET /gsc', ['clicks' => 10]),
+        ]);
+
+        // Even though Gemini markdown escapes are repaired, schema rules (missing message, fabricated numbers) must strictly apply
+        $missingMessage = '{"blocks":[{"type":"markdown","text":"\*(note)\*"}],"actions":[]}';
+        try {
+            $parser->parse($missingMessage, $bundle);
+            self::fail('Missing message should be rejected.');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('Agent response is missing message', $e->getMessage());
+        }
+
+        $inventedChartNumber = '{"message":"Repaired \*(note)\*","blocks":[{"type":"chart","chart":"line","title":"Clicks","x_key":"month","series":[{"key":"clicks","label":"Clicks"}],"data":[{"month":"2026-09","clicks":99999}]}],"actions":[]}';
+        try {
+            $parser->parse($inventedChartNumber, $bundle);
+            self::fail('Fabricated number in chart should be rejected.');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('Chart value is not present in retrieval evidence', $e->getMessage());
+        }
     }
 }
 

@@ -4,11 +4,27 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ProjectRoot;
 
 final class FaqStructuredOutputRoutingContractTest extends TestCase
 {
+    public function test_execution_scoped_hook_key_overrides_prompt_record_hook(): void
+    {
+        $runner = (new \ReflectionClass(PromptRunnerService::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(PromptRunnerService::class, 'effectiveHookKey');
+        $prompt = new SeoPrompt();
+        $prompt->hook_key = 'regular.text.prompt';
+
+        self::assertSame(
+            'article.faq.generate',
+            $method->invoke($runner, $prompt, ['_hook_key' => ' article.faq.generate ']),
+        );
+        self::assertSame('regular.text.prompt', $method->invoke($runner, $prompt, []));
+    }
+
     public function test_faq_invalid_json_is_rejected_inside_router_attempt(): void
     {
         $runner = (string) file_get_contents(ProjectRoot::addonsPath().'/ai-prompt/src/Services/PromptRunnerService.php');

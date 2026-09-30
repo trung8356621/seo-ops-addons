@@ -28,6 +28,7 @@ Schema:
 }
 
 Rules:
+- String values must follow JSON escaping rules. Escape only characters that JSON requires. Do not backslash-escape Markdown punctuation such as *, _, #, [, ], (, ), ~, or backticks. Example: use *(note)*, not \*(note)\*.
 - message must be a non-empty natural-language summary. blocks and actions must be JSON arrays. Supported block types are markdown, warning, table, and chart only.
 - Markdown is the safe default block type. Use it for reasoning, prioritization, recommendations, explanations, hypotheses, and inferred ideas. When unsure which block type to use, use markdown.
 - Tables and charts are evidence presentation tools, not reasoning or ideation tools. Use them only for retrieved structured facts when every numeric value is copied directly from a retrieval_bundle source with status "ok". If evidence support is uncertain, use markdown instead.

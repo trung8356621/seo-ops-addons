@@ -235,11 +235,29 @@ final class AgentResponseParser
         if ($start === false || $end === false || $end <= $start) {
             throw new AgentResponseRejected('Agent response is not JSON.');
         }
-        $decoded = json_decode(substr($raw, $start, $end - $start + 1), true);
+        $json = substr($raw, $start, $end - $start + 1);
+        $decoded = json_decode($json, true);
+        if (! is_array($decoded)) {
+            $repaired = $this->repairMarkdownEscapes($json);
+            if ($repaired !== $json) {
+                $decoded = json_decode($repaired, true);
+            }
+        }
         if (! is_array($decoded)) {
             throw new AgentResponseRejected('Agent response JSON is invalid.');
         }
 
         return $decoded;
+    }
+
+    /**
+     * Narrowly strip provider-generated invalid backslash escapes before common Markdown punctuation.
+     * Preserves valid JSON escapes (\", \\, \/, \b, \f, \n, \r, \t, \uXXXX) and even counts of preceding backslashes.
+     */
+    public function repairMarkdownEscapes(string $json): string
+    {
+        $repaired = preg_replace('/(?<!\\\\)((?:\\\\\\\\)*)\\\\([*_#\\[\\]()~`>+!\\-])/', '$1$2', $json);
+
+        return is_string($repaired) ? $repaired : $json;
     }
 }

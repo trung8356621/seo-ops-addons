@@ -114,7 +114,7 @@ final class ArticleFaqGeneratorService
             'faq_answer' => '',
             'existing_faqs' => $this->summarizeExistingFaqs($article),
         ]);
-        $variables['_hook_key'] = 'article.faq.generate';
+        $variables = $this->withLegacyStructuredExecutionContract($variables);
 
         $envelope = PromptHookExecutionInput::fromArray([
             'context' => [
@@ -157,6 +157,16 @@ final class ArticleFaqGeneratorService
         );
 
         return $faqs;
+    }
+
+    /** @param array<string, mixed> $variables */
+    private function withLegacyStructuredExecutionContract(array $variables): array
+    {
+        $variables['_hook_key'] = 'article.faq.generate';
+        $variables['_structured_output'] = true;
+        $variables['_structured_strategy'] = 'json_mode';
+
+        return $variables;
     }
 
     private function linkPromptResultToArticle(SeoArticle $article, SeoPrompt $prompt, PromptResult $result): void

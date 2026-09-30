@@ -13,7 +13,7 @@ use Throwable;
 
 final class ContentProjectDraftIntakeToolHandler implements SeoToolHandlerInterface
 {
-    public const TOOL_KEY = 'content_project.draft_intake';
+    public const TOOL_KEY = 'draft.intake';
 
     public function __construct(
         private readonly ServiceApiDraftIntakeService $intakeService

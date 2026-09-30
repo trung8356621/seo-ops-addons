@@ -36,6 +36,12 @@ final class SeoToolInputValidator
         if (is_numeric($value) && isset($schema['maximum']) && $value > $schema['maximum']) {
             $errors[] = "Field {$path} cannot exceed {$schema['maximum']}.";
         }
+        if (is_string($value) && isset($schema['minLength']) && mb_strlen($value) < (int) $schema['minLength']) {
+            $errors[] = "Field {$path} must be at least {$schema['minLength']} character(s).";
+        }
+        if (is_string($value) && isset($schema['maxLength']) && mb_strlen($value) > (int) $schema['maxLength']) {
+            $errors[] = "Field {$path} cannot exceed {$schema['maxLength']} character(s).";
+        }
 
         if ($type === 'array' && is_array($value)) {
             if (isset($schema['minItems']) && count($value) < (int) $schema['minItems']) {

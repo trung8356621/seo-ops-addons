@@ -69,6 +69,7 @@ final class SeoServiceProvider extends ServiceProvider
                 return \Omnichannel\Addons\Seo\Services\Tools\SeoToolRegistry::buildDefault(
                     $app->make(\Omnichannel\Addons\Seo\Services\Tools\Handlers\SeoAuditListToolHandler::class),
                     $app->make(\Omnichannel\Addons\Seo\Services\Tools\Handlers\ContentProjectDraftIntakeToolHandler::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Tools\Handlers\TopicCreateToolHandler::class),
                 );
             }
         );
