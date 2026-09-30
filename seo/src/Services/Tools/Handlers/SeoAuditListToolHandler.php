@@ -50,8 +50,8 @@ final class SeoAuditListToolHandler implements SeoToolHandlerInterface
             return SeoToolExecutionResult::success($result);
         } catch (Throwable $e) {
             return SeoToolExecutionResult::failure(
-                errorCode: 'seo_audit_list_failed',
-                errorMessage: $e->getMessage() !== '' ? $e->getMessage() : 'Failed to retrieve SEO audit articles.'
+                errorCode: 'execution_failed',
+                errorMessage: 'Failed to retrieve SEO audit articles.'
             );
         }
     }

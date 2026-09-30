@@ -51,6 +51,15 @@ final class SeoToolApiController
      */
     public function execute(Request $request, string $service, string $toolKey): JsonResponse
     {
+        $headerSiteRef = $request->header('X-Site-Ref');
+        $bodySiteRef = $request->input('context.site_ref');
+        if (is_string($headerSiteRef) && is_string($bodySiteRef) && trim($headerSiteRef) !== trim($bodySiteRef)) {
+            return response()->json(['error' => [
+                'code' => 'context_mismatch',
+                'message' => 'Header and body site context do not match.',
+            ]], 422)->header('Cache-Control', 'no-store');
+        }
+
         $context = $this->resolveContext($request);
         if (!$context instanceof SeoToolContext) {
             return ServiceApiError::unauthorized();
@@ -61,15 +70,17 @@ final class SeoToolApiController
             return ServiceApiError::validationFailed('Request body must be a JSON object.');
         }
 
-        // Support both wrapped `input` envelope and top-level fields
-        if (isset($payload['input']) && is_array($payload['input'])) {
-            $input = $payload['input'];
-            $confirmed = (bool) ($payload['confirmed'] ?? ($request->header('X-Confirmed') === 'true'));
-        } else {
-            $input = $payload;
-            $confirmed = (bool) ($payload['confirmed'] ?? ($request->header('X-Confirmed') === 'true'));
-            unset($input['confirmed']);
+        $allowedEnvelope = ['context', 'input', 'confirmed', 'idempotency_key'];
+        foreach (array_keys($payload) as $field) {
+            if (!in_array($field, $allowedEnvelope, true)) {
+                return ServiceApiError::validationFailed("Unknown request field: {$field}");
+            }
         }
+        $input = $payload['input'] ?? [];
+        if (!is_array($input)) {
+            return ServiceApiError::validationFailed('Input must be a JSON object.');
+        }
+        $confirmed = (bool) ($payload['confirmed'] ?? ($request->header('X-Confirmed') === 'true'));
 
         $result = $this->executor->execute($toolKey, $context, $input, $confirmed);
 
@@ -109,16 +120,8 @@ final class SeoToolApiController
                 : null;
         }
 
-        $siteRef = $request->header('X-Site-Ref') ?: $request->input('site_ref');
-        $siteId = $request->input('site_id');
-        if ($siteId !== null && is_numeric($siteId) && (int) $siteId > 0) {
-            $siteId = (int) $siteId;
-            if ($siteRef === null) {
-                $siteRef = 'site:' . $siteId;
-            }
-        } else {
-            $siteId = SeoToolContext::parseSiteId(is_string($siteRef) ? $siteRef : null);
-        }
+        $siteRef = $request->header('X-Site-Ref') ?: $request->input('context.site_ref');
+        $siteId = SeoToolContext::parseSiteId(is_string($siteRef) ? $siteRef : null);
 
         $requestRef = (string) ($request->header('X-Request-Ref') ?: $request->header('X-Request-Id') ?: '');
         $idempotencyKey = (string) ($request->header('Idempotency-Key') ?: $request->input('idempotency_key') ?: '');
@@ -130,23 +133,6 @@ final class SeoToolApiController
                 resolvedSiteId: $siteId,
                 requestRef: $requestRef,
                 idempotencyKey: $idempotencyKey !== '' ? $idempotencyKey : null
-            );
-        }
-
-        $user = auth()->user();
-        if ($user !== null) {
-            return new SeoToolContext(
-                actorRef: 'user:' . $user->getAuthIdentifier(),
-                actorType: 'user',
-                actorId: (int) $user->getAuthIdentifier(),
-                serviceSlug: 'seo',
-                siteRef: is_string($siteRef) ? $siteRef : null,
-                resolvedSiteId: $siteId,
-                resolvedActorUserId: (int) $user->getAuthIdentifier(),
-                scopes: ['*'],
-                requestRef: $requestRef !== '' ? $requestRef : bin2hex(random_bytes(8)),
-                idempotencyKey: $idempotencyKey !== '' ? $idempotencyKey : null,
-                tenantRef: $siteId !== null ? 'site:' . $siteId : null
             );
         }
 

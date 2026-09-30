@@ -52,9 +52,9 @@ final class SeoToolExecutor
         $handler = $this->registry->getHandler($toolKey);
 
         // Step 2: Tool exposed / enabled
-        if (!$definition || !$handler || !$definition->isExposed) {
+        if (!$definition || !$handler || !$definition->isExposed()) {
             return SeoToolExecutionResult::failure(
-                errorCode: 'tool_disabled',
+                errorCode: 'tool_not_exposed',
                 errorMessage: "Tool '{$toolKey}' is currently disabled or unavailable.",
                 meta: ['tool' => $toolKey],
                 httpStatus: 404
@@ -62,9 +62,9 @@ final class SeoToolExecutor
         }
 
         // Step 3: Caller scopes
-        if (!$context->hasAnyScope($definition->scopes)) {
+        if (!$context->satisfiesAllScopes($definition->scopes)) {
             return SeoToolExecutionResult::failure(
-                errorCode: 'forbidden_scope',
+                errorCode: 'scope_denied',
                 errorMessage: "Caller lacks required scopes: " . implode(', ', $definition->scopes),
                 meta: [
                     'tool' => $toolKey,
@@ -76,10 +76,6 @@ final class SeoToolExecutor
         }
 
         // Step 4: Required context
-        if (isset($input['site_id']) && is_numeric($input['site_id']) && $context->resolvedSiteId === null) {
-            $context = $context->withResolvedSiteId((int) $input['site_id']);
-        }
-
         $missingContext = $definition->getMissingContext($context);
         if (!empty($missingContext)) {
             return SeoToolExecutionResult::failure(
@@ -94,11 +90,11 @@ final class SeoToolExecutor
         }
 
         // Step 5: Site / tenant access
-        if (in_array('site', $definition->requiredContext, true)) {
+        if (in_array(SeoToolDefinition::CONTEXT_SITE_REF, $definition->requiredContext, true)) {
             $siteId = $context->resolvedSiteId;
             if ($siteId === null || $siteId <= 0) {
                 return SeoToolExecutionResult::failure(
-                    errorCode: 'site_access_denied',
+                    errorCode: 'missing_context',
                     errorMessage: 'A valid site context is required.',
                     meta: ['tool' => $toolKey],
                     httpStatus: 403

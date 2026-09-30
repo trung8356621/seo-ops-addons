@@ -39,7 +39,7 @@ final class SeoToolApiTest extends TestCase
             module: 'seo',
             kind: SeoToolDefinition::KIND_READ,
             scopes: ['seo:read'],
-            requiredContext: ['site'],
+            requiredContext: ['site_ref'],
             confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE,
             isExposed: true,
             inputSchema: [
@@ -56,10 +56,9 @@ final class SeoToolApiTest extends TestCase
         $this->assertSame('Test Tool', $public['name']);
         $this->assertSame('seo', $public['module']);
         $this->assertSame('read', $public['kind']);
-        $this->assertSame(['seo:read'], $public['scopes']);
-        $this->assertSame(['site'], $public['required_context']);
+        $this->assertSame(['site_ref'], $public['required_context']);
         $this->assertSame('none', $public['confirmation_policy']);
-        $this->assertTrue($public['is_exposed']);
+        $this->assertArrayNotHasKey('is_exposed', $public);
 
         // Must not leak internal PHP handler or private metadata
         $this->assertArrayNotHasKey('handler', $public);
@@ -83,6 +82,36 @@ final class SeoToolApiTest extends TestCase
         );
     }
 
+    public function test_definition_rejects_unsupported_required_context(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new SeoToolDefinition(
+            key: 'test.context', name: 'Test', description: 'Test', module: 'test',
+            kind: SeoToolDefinition::KIND_READ, scopes: [], requiredContext: ['site'],
+            confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE, inputSchema: []
+        );
+    }
+
+    public function test_recursive_schema_rejects_nested_unknowns_and_constraints(): void
+    {
+        $schema = [
+            'type' => 'object', 'additionalProperties' => false, 'required' => ['items'],
+            'properties' => ['items' => [
+                'type' => 'array', 'minItems' => 1, 'maxItems' => 1,
+                'items' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => ['type'],
+                    'properties' => ['type' => ['type' => 'string', 'enum' => ['new']]],
+                ],
+            ]],
+        ];
+
+        $errors = $this->validator->validate($schema, ['items' => [['type' => 'rewrite', 'site_id' => 9]]]);
+        $this->assertNotEmpty($errors);
+        $this->assertStringContainsString('Invalid enum value', implode(' ', $errors));
+        $this->assertStringContainsString('Unknown field', implode(' ', $errors));
+    }
+
     public function test_registry_prevents_duplicate_keys_and_mismatched_handlers(): void
     {
         $registry = new SeoToolRegistry();
@@ -94,7 +123,7 @@ final class SeoToolApiTest extends TestCase
             module: 'seo',
             kind: SeoToolDefinition::KIND_READ,
             scopes: ['seo:read'],
-            requiredContext: ['site'],
+            requiredContext: ['site_ref'],
             confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE,
             inputSchema: []
         );
@@ -107,6 +136,31 @@ final class SeoToolApiTest extends TestCase
         // Duplicate registration must throw
         $this->expectException(InvalidArgumentException::class);
         $registry->register($def, $handler);
+    }
+
+    public function test_disabled_tool_is_neither_discoverable_nor_executable(): void
+    {
+        $handler = $this->createMock(SeoToolHandlerInterface::class);
+        $handler->method('getToolKey')->willReturn('test.disabled');
+        $registry = new SeoToolRegistry();
+        $registry->register(new SeoToolDefinition(
+            key: 'test.disabled', name: 'Disabled', description: 'Disabled', module: 'test',
+            kind: SeoToolDefinition::KIND_READ, scopes: ['a'], requiredContext: [],
+            confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE, inputSchema: [], enabled: false
+        ), $handler);
+        $context = new SeoToolContext(actorRef: 'actor', scopes: ['*']);
+
+        $this->assertSame([], $registry->listForContext($context));
+        $result = (new SeoToolExecutor($registry, $this->validator))->execute('test.disabled', $context);
+        $this->assertSame('tool_not_exposed', $result->getErrorCode());
+    }
+
+    public function test_required_tool_scopes_use_all_semantics_and_wildcard(): void
+    {
+        $context = new SeoToolContext(actorRef: 'actor', scopes: ['scope:a']);
+        $this->assertFalse($context->satisfiesAllScopes(['scope:a', 'scope:b']));
+        $wildcard = new SeoToolContext(actorRef: 'actor', scopes: ['*']);
+        $this->assertTrue($wildcard->satisfiesAllScopes(['scope:a', 'scope:b']));
     }
 
     public function test_default_registry_builds_canonical_tools(): void
@@ -151,6 +205,8 @@ final class SeoToolApiTest extends TestCase
         $keys = array_column($visibleSeo, 'key');
         $this->assertContains('seo_audit.list', $keys);
         $this->assertNotContains('content_project.draft_intake', $keys);
+        $this->assertFalse($visibleSeo[0]['availability']['available']);
+        $this->assertSame('missing_site_context', $visibleSeo[0]['availability']['reason']);
 
         // Caller with wildcard *
         $adminContext = new SeoToolContext(
@@ -203,7 +259,7 @@ final class SeoToolApiTest extends TestCase
         $result = $executor->execute('seo_audit.list', $context, ['site_id' => 1]);
 
         $this->assertFalse($result->isSuccess());
-        $this->assertSame('forbidden_scope', $result->getErrorCode());
+        $this->assertSame('scope_denied', $result->getErrorCode());
         $this->assertSame(403, $result->getHttpStatus());
     }
 
@@ -244,7 +300,8 @@ final class SeoToolApiTest extends TestCase
         $context = new SeoToolContext(
             actorRef: 'test:actor',
             resolvedSiteId: 1,
-            scopes: ['content-projects:draft:write']
+            scopes: ['content-projects:draft:write'],
+            idempotencyKey: 'idem-123'
         );
 
         // content_project.draft_intake requires 'items' to be an array
@@ -275,7 +332,8 @@ final class SeoToolApiTest extends TestCase
         $context = new SeoToolContext(
             actorRef: 'test:actor',
             resolvedSiteId: 1,
-            scopes: ['content-projects:draft:write']
+            scopes: ['content-projects:draft:write'],
+            idempotencyKey: 'idem-123'
         );
 
         $result = $executor->execute(
@@ -351,6 +409,10 @@ final class SeoToolApiTest extends TestCase
 
         $draftIntakeService->expects($this->once())
             ->method('intake')
+            ->with(
+                $this->callback(static fn (array $payload): bool => $payload['site_id'] === 1 && !isset($payload['input'])),
+                'idem-123'
+            )
             ->willReturn($draftIntakeResult);
 
         $registry = SeoToolRegistry::buildDefault(
@@ -362,7 +424,9 @@ final class SeoToolApiTest extends TestCase
         $context = new SeoToolContext(
             actorRef: 'test:actor',
             resolvedSiteId: 1,
-            scopes: ['content-projects:draft:write']
+            scopes: ['content-projects:draft:write'],
+            requestRef: 'request-must-not-be-idempotency',
+            idempotencyKey: 'idem-123'
         );
 
         $result = $executor->execute(
@@ -379,6 +443,29 @@ final class SeoToolApiTest extends TestCase
         $this->assertTrue($result->isSuccess());
         $this->assertSame('project:10', $result->getData()['draft_ref'] ?? null);
         $this->assertSame(1, $result->getData()['added'] ?? null);
+    }
+
+    public function test_schema_enforces_audit_limit_and_draft_item_types(): void
+    {
+        $registry = SeoToolRegistry::buildDefault(
+            new SeoAuditListToolHandler($this->createMock(SeoAuditAgentReadService::class)),
+            new ContentProjectDraftIntakeToolHandler($this->createMock(ServiceApiDraftIntakeService::class))
+        );
+        $audit = $registry->getDefinition('seo_audit.list');
+        $draft = $registry->getDefinition('content_project.draft_intake');
+        $this->assertNotEmpty($this->validator->validate($audit->inputSchema, ['limit' => 101]));
+        $this->assertNotEmpty($this->validator->validate($draft->inputSchema, ['items' => [['keyword_id' => 'bad']]]));
+    }
+
+    public function test_unexpected_handler_errors_are_sanitized(): void
+    {
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $audit->method('listArticles')->willThrowException(new \RuntimeException('database secret'));
+        $result = (new SeoAuditListToolHandler($audit))->execute(
+            new SeoToolContext(actorRef: 'actor', resolvedSiteId: 1, scopes: ['seo:read']), []
+        );
+        $this->assertSame('execution_failed', $result->getErrorCode());
+        $this->assertStringNotContainsString('database secret', (string) $result->getErrorMessage());
     }
 
     public function test_architecture_guard_no_legacy_tables_or_duplicate_algorithms(): void

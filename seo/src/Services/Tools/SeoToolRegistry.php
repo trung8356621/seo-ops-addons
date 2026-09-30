@@ -71,16 +71,20 @@ final class SeoToolRegistry
         $visible = [];
 
         foreach ($this->definitions as $def) {
-            if (!$def->isExposed) {
+            if (!$def->isExposed()) {
                 continue;
             }
 
-            // Verify caller has at least one of the required tool scopes
-            if (!$context->hasAnyScope($def->scopes)) {
+            if (!$context->satisfiesAllScopes($def->scopes)) {
                 continue;
             }
 
-            $visible[] = $def->toPublicArray();
+            $tool = $def->toPublicArray();
+            $missing = $def->getMissingContext($context);
+            $tool['availability'] = empty($missing)
+                ? ['available' => true]
+                : ['available' => false, 'reason' => in_array(SeoToolDefinition::CONTEXT_SITE_REF, $missing, true) ? 'missing_site_context' : 'missing_context'];
+            $visible[] = $tool;
         }
 
         return $visible;
@@ -101,10 +105,10 @@ final class SeoToolRegistry
                 key: SeoAuditListToolHandler::TOOL_KEY,
                 name: 'List SEO Audit Articles',
                 description: 'List articles with SEO audit scoring and optimization recommendations for a site.',
-                module: 'seo',
+                module: 'seo_audit',
                 kind: SeoToolDefinition::KIND_READ,
                 scopes: ['seo:read'],
-                requiredContext: ['site'],
+                requiredContext: [SeoToolDefinition::CONTEXT_SITE_REF],
                 confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE,
                 isExposed: true,
                 inputSchema: [
@@ -116,10 +120,13 @@ final class SeoToolRegistry
                         ],
                         'limit' => [
                             'type' => 'integer',
+                            'minimum' => 1,
+                            'maximum' => 100,
                             'description' => 'Maximum items to return (1-100). Default is 50.',
                         ],
                         'rules' => [
                             'type' => 'array',
+                            'items' => ['type' => 'string'],
                             'description' => 'List of specific rule keys to filter by.',
                         ],
                         'low_score' => [
@@ -128,6 +135,7 @@ final class SeoToolRegistry
                         ],
                     ],
                     'required' => [],
+                    'additionalProperties' => false,
                 ]
             ),
             $seoAuditHandler
@@ -139,27 +147,39 @@ final class SeoToolRegistry
                 key: ContentProjectDraftIntakeToolHandler::TOOL_KEY,
                 name: 'Intake Items into Planning Draft',
                 description: 'Intake new or rewrite content items into the shared planning draft for a site.',
-                module: 'content_project',
+                module: 'content_projects',
                 kind: SeoToolDefinition::KIND_WRITE,
                 scopes: ['content-projects:draft:write'],
-                requiredContext: ['site'],
+                requiredContext: [SeoToolDefinition::CONTEXT_SITE_REF],
                 confirmationPolicy: SeoToolDefinition::CONFIRMATION_REQUIRED,
                 isExposed: true,
                 inputSchema: [
                     'type' => 'object',
                     'properties' => [
-                        'site_id' => [
-                            'type' => 'integer',
-                            'description' => 'Optional explicit site ID; defaults to resolved context site.',
-                        ],
                         'items' => [
                             'type' => 'array',
                             'description' => 'List of content items to intake into planning draft (1-100 items).',
                             'minItems' => 1,
                             'maxItems' => 100,
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'keyword' => ['type' => 'string'],
+                                    'title' => ['type' => 'string'],
+                                    'description' => ['type' => 'string'],
+                                    'type' => ['type' => 'string', 'enum' => ['new', 'rewrite']],
+                                    'source' => ['type' => 'string'],
+                                    'keyword_id' => ['type' => 'integer'],
+                                    'keyword_ref' => ['type' => 'string'],
+                                    'article_id' => ['type' => 'integer'],
+                                    'article_ref' => ['type' => 'string'],
+                                ],
+                                'additionalProperties' => false,
+                            ],
                         ],
                     ],
                     'required' => ['items'],
+                    'additionalProperties' => false,
                 ]
             ),
             $draftIntakeHandler

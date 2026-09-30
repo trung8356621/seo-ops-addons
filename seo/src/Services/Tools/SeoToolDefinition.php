@@ -11,6 +11,10 @@ use InvalidArgumentException;
  */
 final class SeoToolDefinition
 {
+    public const CONTEXT_SITE_REF = 'site_ref';
+    public const CONTEXT_TENANT_REF = 'tenant_ref';
+    public const CONTEXT_ACTOR_REF = 'actor_ref';
+    private const SUPPORTED_CONTEXT = [self::CONTEXT_SITE_REF, self::CONTEXT_TENANT_REF, self::CONTEXT_ACTOR_REF];
     public const KIND_READ = 'read';
 
     public const KIND_WRITE = 'write';
@@ -41,8 +45,7 @@ final class SeoToolDefinition
         public readonly string $confirmationPolicy,
         public readonly array $inputSchema,
         public readonly bool $isExposed = true,
-        public readonly bool $enabled = true,
-        public readonly ?string $handlerClass = null
+        public readonly bool $enabled = true
     ) {
         $cleanKey = trim($key);
         if ($cleanKey === '' || preg_match('/^[a-z0-9_]+(\.[a-z0-9_]+)+$/', $cleanKey) !== 1) {
@@ -78,6 +81,11 @@ final class SeoToolDefinition
             }
         }
         $this->requiredContext = array_values(array_unique($cleanContext));
+        foreach ($this->requiredContext as $contextKey) {
+            if (!in_array($contextKey, self::SUPPORTED_CONTEXT, true)) {
+                throw new InvalidArgumentException("Unsupported required context: '{$contextKey}'.");
+            }
+        }
 
         self::assertSafeSchema($inputSchema);
     }
@@ -118,10 +126,10 @@ final class SeoToolDefinition
 
         foreach ($this->requiredContext as $req) {
             $matched = match ($req) {
-                'site' => $context->resolvedSiteId !== null && $context->resolvedSiteId > 0,
-                'tenant' => $context->tenantRef !== null && trim($context->tenantRef) !== '',
-                'actor' => trim($context->actorRef) !== '',
-                default => true,
+                self::CONTEXT_SITE_REF => $context->resolvedSiteId !== null && $context->resolvedSiteId > 0,
+                self::CONTEXT_TENANT_REF => $context->tenantRef !== null && trim($context->tenantRef) !== '',
+                self::CONTEXT_ACTOR_REF => trim($context->actorRef) !== '',
+                default => false,
             };
 
             if (!$matched) {
@@ -146,10 +154,8 @@ final class SeoToolDefinition
             'description' => $this->description,
             'module' => $this->module,
             'kind' => $this->kind,
-            'scopes' => $this->scopes,
             'required_context' => $this->requiredContext,
             'confirmation_policy' => $this->confirmationPolicy,
-            'is_exposed' => $this->isExposed(),
             'input_schema' => $this->inputSchema,
         ];
     }

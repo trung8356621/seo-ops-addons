@@ -38,7 +38,7 @@ final class ContentProjectDraftIntakeToolHandler implements SeoToolHandlerInterf
             $payload['site_id'] = $context->resolvedSiteId;
         }
 
-        $idempotencyKey = $context->requestRef;
+        $idempotencyKey = $context->idempotencyKey;
 
         try {
             $result = $this->intakeService->intake($payload, $idempotencyKey);
@@ -59,8 +59,8 @@ final class ContentProjectDraftIntakeToolHandler implements SeoToolHandlerInterf
             );
         } catch (Throwable $e) {
             return SeoToolExecutionResult::failure(
-                errorCode: 'draft_intake_failed',
-                errorMessage: $e->getMessage() !== '' ? $e->getMessage() : 'Draft intake failed.'
+                errorCode: 'execution_failed',
+                errorMessage: 'Draft intake failed.'
             );
         }
     }
