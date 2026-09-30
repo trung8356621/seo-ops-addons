@@ -25,8 +25,12 @@ import {
     claimFaqGeneration,
     beginFaqApply,
     finishFaqGeneration,
-    markFaqGenerationApplying,
+    markFaqGenerationPreviewReady,
+    noteFaqGenerationEvent,
+    registerFaqGenerationExecutor,
     requestFaqGeneration,
+    restoreFaqGenerationPreview,
+    unregisterFaqGenerationExecutor,
     useFaqGenerationState,
 } from '../utils/faqGenerationCommand';
 
@@ -534,8 +538,10 @@ export default function ArticleFaqEditor({
         );
     };
 
-    const generateAllFaqs = useCallback((requestId = null) => {
+    const generateAllFaqs = useCallback((request = null) => {
+        const requestId = typeof request === 'object' ? request?.requestId ?? null : request;
         if (!canGenerateFaq) {
+            if (requestId !== null) finishFaqGeneration(requestId, 'permission rejected');
             return;
         }
         const claimedRequestId = claimFaqGeneration(requestId);
@@ -550,6 +556,7 @@ export default function ArticleFaqEditor({
                 const html = typeof window.__seoExportEditorHtml === 'function'
                     ? String(window.__seoExportEditorHtml() ?? '')
                     : '';
+                noteFaqGenerationEvent('generate-preview started');
                 const preview = await generateFaqPreview(articleId, html);
                 const generated = normalizeFaqRows(preview?.faqs ?? []);
                 // Additive preview: keep manual / existing rows; dedupe by question.
@@ -560,7 +567,7 @@ export default function ArticleFaqEditor({
                 faqsRef.current = merged;
                 setAiPreviewPending(true);
                 setSaveStatus('pending');
-                markFaqGenerationApplying(claimedRequestId);
+                markFaqGenerationPreviewReady(claimedRequestId);
             } catch (error) {
                 window.dispatchEvent(
                     new CustomEvent('seo-article-editor-notify', {
@@ -571,23 +578,20 @@ export default function ArticleFaqEditor({
                         },
                     }),
                 );
+                finishFaqGeneration(claimedRequestId, 'preview failed');
             } finally {
-                finishFaqGeneration(claimedRequestId);
                 setGeneratingAll(false);
             }
         })();
     }, [articleId, canGenerateFaq]);
 
     useEffect(() => {
-        const runRequestedGeneration = (event) => generateAllFaqs(event.detail?.requestId ?? null);
-        window.addEventListener('article-faq-generation-requested', runRequestedGeneration);
-        if (generationState.phase === 'opening') generateAllFaqs(generationState.requestId);
-        return () => window.removeEventListener('article-faq-generation-requested', runRequestedGeneration);
-    }, [generateAllFaqs, generationState.phase, generationState.requestId]);
+        registerFaqGenerationExecutor(generateAllFaqs);
+        return () => unregisterFaqGenerationExecutor(generateAllFaqs);
+    }, [generateAllFaqs]);
 
     const requestGenerateAllFaqs = () => {
-        const requestId = requestFaqGeneration('faq-panel');
-        if (requestId !== null) generateAllFaqs(requestId);
+        requestFaqGeneration('faq-panel');
     };
 
     const applyAiFaqPreview = () => {
@@ -622,6 +626,7 @@ export default function ArticleFaqEditor({
                 clearFaqDraft(articleId);
                 setAiPreviewPending(false);
                 setSaveStatus('saved');
+                finishFaqGeneration(applyRequestId);
             } catch (error) {
                 window.dispatchEvent(
                     new CustomEvent('seo-article-editor-notify', {
@@ -632,8 +637,8 @@ export default function ArticleFaqEditor({
                         },
                     }),
                 );
+                restoreFaqGenerationPreview(applyRequestId);
             } finally {
-                finishFaqGeneration(applyRequestId);
                 setGeneratingAll(false);
             }
         })();

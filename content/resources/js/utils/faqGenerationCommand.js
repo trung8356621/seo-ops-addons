@@ -1,18 +1,14 @@
 import { useSyncExternalStore } from 'react';
+import { createFaqGenerationCommandStore } from './faqGenerationCommandStore';
 
-let state = Object.freeze({ phase: 'idle', requestId: 0, source: null });
-const listeners = new Set();
-
-const publish = (next) => {
-    state = Object.freeze(next);
-    listeners.forEach((listener) => listener());
+const observe = (event, detail) => {
+    if (!globalThis.__SEO_FAQ_GENERATION_DEBUG__) return;
+    console.debug('[faq-generation]', event, detail);
 };
+const store = createFaqGenerationCommandStore({ observe });
 
-export const getFaqGenerationState = () => state;
-export const subscribeFaqGeneration = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-};
+export const getFaqGenerationState = store.getState;
+export const subscribeFaqGeneration = store.subscribe;
 
 export const useFaqGenerationState = () => useSyncExternalStore(
     subscribeFaqGeneration,
@@ -21,43 +17,41 @@ export const useFaqGenerationState = () => useSyncExternalStore(
 );
 
 export function requestFaqGeneration(source = 'unknown') {
-    if (state.phase !== 'idle') return null;
-    const requestId = state.requestId + 1;
-    publish({ phase: 'opening', requestId, source });
-    window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('article-faq-generation-requested', {
-            detail: { requestId, source },
-        }));
-    }, 0);
-    return requestId;
+    return store.request(source);
+}
+
+export function registerFaqGenerationExecutor(executor) {
+    return store.registerExecutor(executor);
+}
+
+export function unregisterFaqGenerationExecutor(executor) {
+    return store.unregisterExecutor(executor);
 }
 
 export function claimFaqGeneration(requestId = null) {
-    if (state.phase !== 'opening') return null;
-    if (requestId !== null && Number(requestId) !== state.requestId) return null;
-    publish({ ...state, phase: 'generating' });
-    return state.requestId;
+    return store.claim(requestId);
 }
 
-export function markFaqGenerationApplying(requestId) {
-    if (Number(requestId) !== state.requestId || state.phase !== 'generating') return false;
-    publish({ ...state, phase: 'applying' });
-    return true;
+export function markFaqGenerationPreviewReady(requestId) {
+    return store.markPreviewReady(requestId);
 }
 
-export function beginFaqApply(source = 'faq-panel-apply') {
-    if (state.phase !== 'idle') return null;
-    const requestId = state.requestId + 1;
-    publish({ phase: 'applying', requestId, source });
-    return requestId;
+export function beginFaqApply() {
+    return store.beginApply();
 }
 
-export function finishFaqGeneration(requestId) {
-    if (Number(requestId) !== state.requestId) return false;
-    publish({ phase: 'idle', requestId: state.requestId, source: null });
-    return true;
+export function restoreFaqGenerationPreview(requestId) {
+    return store.restorePreview(requestId);
+}
+
+export function noteFaqGenerationEvent(event, detail = {}) {
+    store.note(event, detail);
+}
+
+export function finishFaqGeneration(requestId, outcome = 'finished') {
+    return store.finish(requestId, outcome);
 }
 
 export function resetFaqGenerationForTests() {
-    publish({ phase: 'idle', requestId: 0, source: null });
+    store.reset();
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2 } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
@@ -69,6 +69,57 @@ function groupConversation(messages) {
     return turns;
 }
 
+const I18N = {
+    vi: {
+        welcomeTitle: 'Trợ lý AI SEO Operations',
+        welcomeDesc: (label) => `Sẵn sàng hỗ trợ kiểm tra SEO, liên kết còn thiếu, kế hoạch nội dung hoặc dữ liệu hiệu suất cho ${label}.`,
+        suggestion1: 'Kiểm tra liên kết nội bộ còn thiếu',
+        suggestion2: 'Gợi ý từ khóa & kế hoạch bài viết mới',
+        suggestion3: 'Đánh giá hiệu suất và cơ hội tăng trưởng SEO',
+        placeholder: 'Hỏi về hiệu suất SEO, từ khóa hoặc ý tưởng nội dung…',
+        placeholderUnsupported: 'Chọn một website dự án để bắt đầu hỏi đáp…',
+        copyPrompt: 'Sao chép',
+        copied: 'Đã chép',
+        noConversations: 'Chưa có cuộc trò chuyện nào cho website này.',
+        noArchived: 'Chưa có cuộc trò chuyện nào được lưu trữ cho website này.',
+        archivedBanner: 'Cuộc trò chuyện này đã được lưu trữ và chỉ có thể đọc.',
+        startNewChat: 'Bắt đầu chat mới',
+    },
+    en: {
+        welcomeTitle: 'SEO Operations Agent',
+        welcomeDesc: (label) => `Ask about SEO audits, missing links, content projects, or performance data for ${label}.`,
+        suggestion1: 'Check missing internal links',
+        suggestion2: 'Suggest keywords & content plan',
+        suggestion3: 'Audit SEO performance of this site',
+        placeholder: 'Ask about SEO performance, keywords, or content ideas…',
+        placeholderUnsupported: 'Select a site project to ask questions…',
+        copyPrompt: 'Copy',
+        copied: 'Copied',
+        noConversations: 'No conversations for this site yet.',
+        noArchived: 'No archived conversations for this site.',
+        archivedBanner: 'This conversation is archived and read-only.',
+        startNewChat: 'Start new chat',
+    },
+};
+
+function resolveLocale(hostContext) {
+    if (hostContext?.locale) {
+        const l = String(hostContext.locale).toLowerCase();
+        if (l.startsWith('vi')) return 'vi';
+        if (l.startsWith('en')) return 'en';
+    }
+    if (typeof window !== 'undefined' && window.__SEO_I18N_LOCALE__) {
+        const l = String(window.__SEO_I18N_LOCALE__).toLowerCase();
+        if (l.startsWith('vi')) return 'vi';
+        if (l.startsWith('en')) return 'en';
+    }
+    if (typeof document !== 'undefined') {
+        const lang = document.documentElement?.getAttribute('lang') || '';
+        if (lang.toLowerCase().startsWith('vi')) return 'vi';
+    }
+    return 'en';
+}
+
 /**
  * Canonical Agent React widget.
  * Decoupled from SEO navigation/page logic and embeddable in any host
@@ -88,6 +139,8 @@ export function AgentWidget({
     className = '',
 }) {
     const hostContext = normalizeHostContext(rawHostContext);
+    const locale = resolveLocale(hostContext);
+    const t = I18N[locale] || I18N.en;
     const endpoints = {
         projectsUrl: propProjectsUrl || rawEndpoints?.projectsUrl || '/agent-runtime/projects',
         turnUrl: propTurnUrl || rawEndpoints?.turnUrl || '/agent-runtime/turns',
@@ -123,6 +176,16 @@ export function AgentWidget({
     const [busy, setBusy] = useState(false);
     const [copyState, setCopyState] = useState('');
     const [error, setError] = useState('');
+    const textareaRef = useRef(null);
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            if (draft) {
+                textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+            }
+        }
+    }, [draft]);
 
     const [developerMode, setDeveloperMode] = useState(() => getStoredDeveloperMode(hostContext.appKey));
     const [lastCopy, setLastCopy] = useState(null);
@@ -651,7 +714,7 @@ export function AgentWidget({
                                 role="tab"
                                 id="drawer-dev-tab-normal"
                                 aria-selected={developerMode === 'normal'}
-                                className={`agent-dev-tab ${developerMode === 'normal' ? 'is-active' : ''}`}
+                                className={`agent-dev-tab agent-dev-tab--normal ${developerMode === 'normal' ? 'is-active' : ''}`}
                                 onClick={() => updateDevMode('normal')}
                                 disabled={isDevModeDisabled}
                             >
@@ -662,7 +725,7 @@ export function AgentWidget({
                                 role="tab"
                                 id="drawer-dev-tab-debug"
                                 aria-selected={developerMode === 'debug'}
-                                className={`agent-dev-tab ${developerMode === 'debug' ? 'is-active' : ''}`}
+                                className={`agent-dev-tab agent-dev-tab--debug ${developerMode === 'debug' ? 'is-active' : ''}`}
                                 onClick={() => updateDevMode('debug')}
                                 disabled={isDevModeDisabled}
                             >
@@ -673,24 +736,13 @@ export function AgentWidget({
                                 role="tab"
                                 id="drawer-dev-tab-diag"
                                 aria-selected={developerMode === 'diag'}
-                                className={`agent-dev-tab ${developerMode === 'diag' ? 'is-active' : ''}`}
+                                className={`agent-dev-tab agent-dev-tab--diag ${developerMode === 'diag' ? 'is-active' : ''}`}
                                 onClick={() => updateDevMode('diag')}
                                 disabled={isDevModeDisabled}
                             >
                                 Diag
                             </button>
                         </div>
-
-                        <button
-                            type="button"
-                            className="agent-new-chat-btn"
-                            onClick={onNewConversation}
-                            title="New conversation"
-                            aria-label="New conversation"
-                        >
-                            <Plus size={16} />
-                            <span>New</span>
-                        </button>
                     </div>
                 </div>
             ) : null}
@@ -733,7 +785,7 @@ export function AgentWidget({
                                         role="tab"
                                         id="header-dev-tab-normal"
                                         aria-selected={developerMode === 'normal'}
-                                        className={`agent-dev-tab ${developerMode === 'normal' ? 'is-active' : ''}`}
+                                        className={`agent-dev-tab agent-dev-tab--normal ${developerMode === 'normal' ? 'is-active' : ''}`}
                                         onClick={() => updateDevMode('normal')}
                                         disabled={isDevModeDisabled}
                                     >
@@ -744,7 +796,7 @@ export function AgentWidget({
                                         role="tab"
                                         id="header-dev-tab-debug"
                                         aria-selected={developerMode === 'debug'}
-                                        className={`agent-dev-tab ${developerMode === 'debug' ? 'is-active' : ''}`}
+                                        className={`agent-dev-tab agent-dev-tab--debug ${developerMode === 'debug' ? 'is-active' : ''}`}
                                         onClick={() => updateDevMode('debug')}
                                         disabled={isDevModeDisabled}
                                     >
@@ -755,24 +807,13 @@ export function AgentWidget({
                                         role="tab"
                                         id="header-dev-tab-diag"
                                         aria-selected={developerMode === 'diag'}
-                                        className={`agent-dev-tab ${developerMode === 'diag' ? 'is-active' : ''}`}
+                                        className={`agent-dev-tab agent-dev-tab--diag ${developerMode === 'diag' ? 'is-active' : ''}`}
                                         onClick={() => updateDevMode('diag')}
                                         disabled={isDevModeDisabled}
                                     >
                                         Diag
                                     </button>
                                 </div>
-
-                                <button
-                                    type="button"
-                                    className="agent-new-chat-btn"
-                                    onClick={onNewConversation}
-                                    title="New conversation"
-                                    aria-label="New conversation"
-                                >
-                                    <Plus size={16} />
-                                    <span>New</span>
-                                </button>
 
                                 <button
                                     type="button"
@@ -789,9 +830,48 @@ export function AgentWidget({
 
                     <div className="agent-messages" role="log" aria-live="polite">
                         {conversationTurns.length === 0 ? (
-                            <div className="agent-empty">
-                                <Sparkles size={24} className="agent-sparkles-icon" />
-                                <p>Ask about SEO audits, missing links, content projects, or performance data for {selected.label}.</p>
+                            <div className="agent-welcome agent-empty">
+                                <div className="agent-welcome__icon-wrap">
+                                    <Sparkles size={26} className="agent-sparkles-icon agent-welcome__icon" />
+                                </div>
+                                <h2 className="agent-welcome__title">
+                                    {t.welcomeTitle}
+                                </h2>
+                                <p className="agent-welcome__desc">
+                                    {t.welcomeDesc(selected.label)}
+                                </p>
+                                <div className="agent-welcome__suggestions">
+                                    <button
+                                        type="button"
+                                        className="agent-suggestion-chip"
+                                        onClick={() => {
+                                            setDraft(t.suggestion1);
+                                            if (textareaRef.current) textareaRef.current.focus();
+                                        }}
+                                    >
+                                        <span>{t.suggestion1}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="agent-suggestion-chip"
+                                        onClick={() => {
+                                            setDraft(t.suggestion2);
+                                            if (textareaRef.current) textareaRef.current.focus();
+                                        }}
+                                    >
+                                        <span>{t.suggestion2}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="agent-suggestion-chip"
+                                        onClick={() => {
+                                            setDraft(t.suggestion3);
+                                            if (textareaRef.current) textareaRef.current.focus();
+                                        }}
+                                    >
+                                        <span>{t.suggestion3}</span>
+                                    </button>
+                                </div>
                             </div>
                         ) : null}
 
@@ -806,18 +886,15 @@ export function AgentWidget({
                             return (
                                 <div key={turn.id} className="agent-turn">
                                     <article className="agent-message is-user">
-                                        <div className="agent-message__header">
-                                            <span className="agent-message__role">You</span>
-                                            <div className="agent-message__actions">
-                                                <button
-                                                    type="button"
-                                                    className="agent-message-action-btn"
-                                                    onClick={() => copyText(turn.content)}
-                                                    title="Copy question" aria-label="Copy question"><Copy size={13} /></button>
-                                            </div>
-                                        </div>
                                         <div className="agent-message__body">
                                             <p>{turn.content}</p>
+                                        </div>
+                                        <div className="agent-message__actions">
+                                            <button
+                                                type="button"
+                                                className="agent-message-action-btn"
+                                                onClick={() => copyText(turn.content)}
+                                                title="Copy question" aria-label="Copy question"><Copy size={13} /></button>
                                         </div>
                                     </article>
 
@@ -926,25 +1003,26 @@ export function AgentWidget({
 
                     {isViewingArchived ? (
                         <div className="agent-archived-banner" role="status">
-                            <span>This conversation is archived and read-only.</span>
+                            <span>{locale === 'vi' ? t.archivedBanner : 'This conversation is archived and read-only.'}</span>
                             <button
                                 type="button"
                                 className="agent-archived-banner__btn"
                                 onClick={onNewConversation}
                             >
                                 <Plus size={14} />
-                                <span>Start new chat</span>
+                                <span>{locale === 'vi' ? t.startNewChat : 'Start new chat'}</span>
                             </button>
                         </div>
                     ) : (
                         <form className="agent-composer" onSubmit={onSend}>
                             <div className="agent-input-wrap">
                                 <textarea
+                                    ref={textareaRef}
                                     className="agent-input"
                                     placeholder={
                                         globalUnsupported
-                                            ? 'Select a site project to ask questions…'
-                                            : 'Ask about SEO performance, keywords, or content ideas…'
+                                            ? t.placeholderUnsupported
+                                            : t.placeholder
                                     }
                                     value={draft}
                                     onChange={(e) => setDraft(e.target.value)}
@@ -955,7 +1033,7 @@ export function AgentWidget({
                                         }
                                     }}
                                     disabled={busy || isViewingArchived}
-                                    rows={3}
+                                    rows={2}
                                 />
                                 <div className="agent-composer-actions">
                                     <button
@@ -963,16 +1041,16 @@ export function AgentWidget({
                                         className="agent-copy-btn"
                                         onClick={onCopy}
                                         disabled={busy || !draft.trim() || isViewingArchived}
-                                        title="Copy prompt"
+                                        title={locale === 'vi' ? 'Sao chép câu lệnh' : 'Copy prompt'}
                                     >
                                         <Copy size={15} />
-                                        <span>{copyState || 'Copy'}</span>
+                                        <span>{copyState ? (locale === 'vi' ? 'Đã chép' : 'Copied') : (locale === 'vi' ? 'Sao chép' : 'Copy')}</span>
                                     </button>
                                     <button
                                         type="submit"
                                         className="agent-send-btn"
                                         disabled={busy || !draft.trim() || isViewingArchived}
-                                        title="Send message"
+                                        title={locale === 'vi' ? 'Gửi tin nhắn' : 'Send message'}
                                         aria-label="Send message"
                                     >
                                         {busy ? <Loader2 size={16} className="agent-spinner" /> : <Send size={16} />}
@@ -1009,7 +1087,7 @@ export function AgentWidget({
                             className={`agent-history-tab ${historyTab === 'chats' ? 'is-active' : ''}`}
                             onClick={() => setHistoryTab('chats')}
                         >
-                            Chats
+                            {locale === 'vi' ? 'Hội thoại' : 'Chats'}
                         </button>
                         <button
                             type="button"
@@ -1019,7 +1097,7 @@ export function AgentWidget({
                             className={`agent-history-tab ${historyTab === 'archived' ? 'is-active' : ''}`}
                             onClick={() => setHistoryTab('archived')}
                         >
-                            Archived
+                            {locale === 'vi' ? 'Đã lưu trữ' : 'Archived'}
                         </button>
                     </div>
 
@@ -1027,11 +1105,13 @@ export function AgentWidget({
                         {loadingThreads ? (
                             <div className="agent-history-loading">
                                 <Loader2 size={16} className="agent-spinner" />
-                                <span>Loading…</span>
+                                <span>{locale === 'vi' ? 'Đang tải…' : 'Loading…'}</span>
                             </div>
                         ) : historyTab === 'chats' ? (
                             activeThreads.length === 0 ? (
-                                <div className="agent-history-empty">No conversations for this site yet.</div>
+                                <div className="agent-history-empty">
+                                    {locale === 'vi' ? t.noConversations : 'No conversations for this site yet.'}
+                                </div>
                             ) : (
                                 <ul className="agent-history-list">
                                     {activeThreads.map((t) => (
@@ -1068,7 +1148,9 @@ export function AgentWidget({
                             )
                         ) : (
                             archivedThreads.length === 0 ? (
-                                <div className="agent-history-empty">No archived conversations for this site.</div>
+                                <div className="agent-history-empty">
+                                    {locale === 'vi' ? t.noArchived : 'No archived conversations for this site.'}
+                                </div>
                             ) : (
                                 <ul className="agent-history-list">
                                     {archivedThreads.map((t) => (
