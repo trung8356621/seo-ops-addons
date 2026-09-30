@@ -153,3 +153,4 @@ final class SeoToolApiController
         return null;
     }
 }
+

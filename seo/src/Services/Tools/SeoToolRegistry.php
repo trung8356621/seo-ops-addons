@@ -168,3 +168,4 @@ final class SeoToolRegistry
         return $registry;
     }
 }
+

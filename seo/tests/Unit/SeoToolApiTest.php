@@ -78,7 +78,8 @@ final class SeoToolApiTest extends TestCase
             kind: 'unsupported_kind',
             scopes: ['seo:read'],
             requiredContext: [],
-            confirmationPolicy: 'none'
+            confirmationPolicy: 'none',
+            inputSchema: []
         );
     }
 
@@ -94,7 +95,8 @@ final class SeoToolApiTest extends TestCase
             kind: SeoToolDefinition::KIND_READ,
             scopes: ['seo:read'],
             requiredContext: ['site'],
-            confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE
+            confirmationPolicy: SeoToolDefinition::CONFIRMATION_NONE,
+            inputSchema: []
         );
 
         $handler = $this->createMock(SeoToolHandlerInterface::class);

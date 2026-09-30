@@ -170,3 +170,4 @@ final class SeoToolDefinition
         }
     }
 }
+

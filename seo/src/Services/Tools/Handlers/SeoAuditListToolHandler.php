@@ -37,7 +37,7 @@ final class SeoAuditListToolHandler implements SeoToolHandlerInterface
             $agentContext = new AgentExecutionContext(
                 actorRef: $context->actorRef,
                 actorType: $context->actorType,
-                tenantRef: $context->tenantRef,
+                tenantRef: $context->tenantRef ?? ('site:' . ($context->resolvedSiteId ?? 0)),
                 siteRef: $context->siteRef ?? ('site:' . ($context->resolvedSiteId ?? 0)),
                 requestRef: $context->requestRef ?? ('req_' . bin2hex(random_bytes(8))),
                 resolvedSiteId: $context->resolvedSiteId,

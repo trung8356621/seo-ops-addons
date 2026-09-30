@@ -117,3 +117,4 @@ final class SeoToolExecutionResult
         return $payload;
     }
 }
+
