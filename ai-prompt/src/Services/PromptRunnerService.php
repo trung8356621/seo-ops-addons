@@ -53,6 +53,8 @@ use RuntimeException;
 
 class PromptRunnerService
 {
+    private const FAQ_STRUCTURED_OUTPUT_CONTRACT_MARKER = 'FAQ_JSON_OUTPUT_CONTRACT_V1';
+
     public function __construct(
         private readonly AiExecutionService $aiExecution,
         private readonly MediaGenerationService $mediaGeneration,
@@ -2004,9 +2006,13 @@ class PromptRunnerService
         bool $isTaskMode,
         string $toolType,
     ): array {
-        $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
+        $hookKey = $this->effectiveHookKey($prompt, $variables);
         $routeVariables = $variables;
-        $compiled = $baselineCompiled;
+        $compiled = $this->applyStructuredOutputPromptContract(
+            $baselineCompiled,
+            $hookKey,
+            $routeVariables,
+        );
 
         // Article generation: PromptBudget must not throttle output / skip models / force LongForm split.
         if (ArticleContentGenerationHooks::matches($hookKey)) {
@@ -2150,6 +2156,48 @@ class PromptRunnerService
     private function effectiveHookKey(SeoPrompt $prompt, array $variables): string
     {
         return trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
+    }
+
+    /** @param array<string, mixed> $variables */
+    private function applyStructuredOutputPromptContract(
+        string $compiledPrompt,
+        string $hookKey,
+        array $variables,
+    ): string {
+        if ($hookKey !== 'article.faq.generate'
+            || ! filter_var($variables['_structured_output'] ?? false, FILTER_VALIDATE_BOOL)
+        ) {
+            return $compiledPrompt;
+        }
+
+        $hasCanonicalFaqSchema = str_contains($compiledPrompt, self::FAQ_STRUCTURED_OUTPUT_CONTRACT_MARKER)
+            || (stripos($compiledPrompt, 'json') !== false
+                && str_contains($compiledPrompt, '"faqs"')
+                && str_contains($compiledPrompt, '"question"')
+                && str_contains($compiledPrompt, '"answer"'));
+        if ($hasCanonicalFaqSchema) {
+            return $compiledPrompt;
+        }
+
+        $contract = <<<'PROMPT'
+FAQ_JSON_OUTPUT_CONTRACT_V1
+Return ONLY valid JSON.
+
+Required JSON object schema:
+{
+  "faqs": [
+    {
+      "question": "...",
+      "answer": "..."
+    }
+  ]
+}
+
+Generate 4-6 distinct FAQ items. Keep answers concise.
+Do not output markdown fences or text outside the JSON object.
+PROMPT;
+
+        return rtrim($compiledPrompt)."\n\n".$contract;
     }
 
     /** @param array<string, mixed> $options */
