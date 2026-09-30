@@ -7,6 +7,10 @@ namespace Omnichannel\Addons\Content\Services;
 /** Normalizes the structured result produced by article.faq.generate. */
 final class ArticleFaqResultNormalizer
 {
+    public function __construct(
+        private readonly ArticleMarkdownToHtmlService $markdownHtml,
+    ) {}
+
     /** @return list<array{question: string, answer: string}> */
     public function normalize(mixed $value): array
     {
@@ -41,7 +45,10 @@ final class ArticleFaqResultNormalizer
             if ($question === '' || $answer === '') {
                 continue;
             }
-            $faqs[] = ['question' => $question, 'answer' => $answer];
+            $faqs[] = [
+                'question' => $question,
+                'answer' => $this->answerToEditorHtml($answer),
+            ];
         }
 
         if ($faqs === []) {
@@ -49,5 +56,14 @@ final class ArticleFaqResultNormalizer
         }
 
         return $faqs;
+    }
+
+    private function answerToEditorHtml(string $answer): string
+    {
+        if (preg_match('/<[a-z][\s\S]*>/i', $answer) === 1) {
+            return $answer;
+        }
+
+        return $this->markdownHtml->toHtml($answer);
     }
 }

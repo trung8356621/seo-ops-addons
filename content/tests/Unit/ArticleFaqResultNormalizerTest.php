@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Services\ArticleFaqResultNormalizer;
 use Omnichannel\Addons\Content\Services\ArticleFaqGeneratorService;
+use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
+use Omnichannel\Addons\Content\Support\SimpleMarkdownHtmlConverter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -28,13 +30,37 @@ final class ArticleFaqResultNormalizerTest extends TestCase
 
     public function test_normalizes_canonical_json_and_direct_lists(): void
     {
-        $normalizer = new ArticleFaqResultNormalizer;
+        $normalizer = $this->normalizer();
         self::assertSame([
-            ['question' => 'FAQ 1?', 'answer' => 'Answer 1'],
+            ['question' => 'FAQ 1?', 'answer' => '<p>Answer 1</p>'],
         ], $normalizer->normalize('{"faqs":[{"question":" FAQ 1? ","answer":" Answer 1 "}]}'));
         self::assertSame([
-            ['question' => 'FAQ 2?', 'answer' => 'Answer 2'],
+            ['question' => 'FAQ 2?', 'answer' => '<p>Answer 2</p>'],
         ], $normalizer->normalize([['question' => 'FAQ 2?', 'answer' => 'Answer 2']]));
+    }
+
+    public function test_converts_markdown_answers_and_keeps_questions_plain(): void
+    {
+        $result = $this->normalizer()->normalize([
+            ['question' => '**Quy trình** gồm những bước nào?', 'answer' => '**Thiết kế mẫu** và *Answered by Mr. A*'],
+        ]);
+
+        self::assertSame('**Quy trình** gồm những bước nào?', $result[0]['question']);
+        self::assertSame(
+            '<p><strong>Thiết kế mẫu</strong> và <em>Answered by Mr. A</em></p>',
+            $result[0]['answer'],
+        );
+    }
+
+    public function test_preserves_existing_answer_html(): void
+    {
+        $html = '<p><strong>Đã format</strong></p>';
+
+        $result = $this->normalizer()->normalize([
+            ['question' => 'FAQ?', 'answer' => $html],
+        ]);
+
+        self::assertSame($html, $result[0]['answer']);
     }
 
     #[DataProvider('invalidResults')]
@@ -42,7 +68,7 @@ final class ArticleFaqResultNormalizerTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage($code);
-        (new ArticleFaqResultNormalizer)->normalize($value);
+        $this->normalizer()->normalize($value);
     }
 
     public static function invalidResults(): array
@@ -52,6 +78,15 @@ final class ArticleFaqResultNormalizerTest extends TestCase
             'missing faqs' => [[], 'FAQ_EMPTY_RESULT'],
             'empty faqs' => [['faqs' => []], 'FAQ_EMPTY_RESULT'],
             'malformed rows' => [['faqs' => [['question' => 'Missing answer']]], 'FAQ_EMPTY_RESULT'],
+            'empty question' => [['faqs' => [['question' => ' ', 'answer' => 'Answer']]], 'FAQ_EMPTY_RESULT'],
+            'empty answer' => [['faqs' => [['question' => 'Question?', 'answer' => ' ']]], 'FAQ_EMPTY_RESULT'],
         ];
+    }
+
+    private function normalizer(): ArticleFaqResultNormalizer
+    {
+        return new ArticleFaqResultNormalizer(
+            new ArticleMarkdownToHtmlService(new SimpleMarkdownHtmlConverter),
+        );
     }
 }
