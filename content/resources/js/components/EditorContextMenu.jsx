@@ -272,6 +272,7 @@ export default function EditorContextMenu({
                         disabled={!snapshot.canSplitParagraph}
                         onSelect={() => runMapped(CMD.splitParagraph)}
                     />
+                    <MenuItem icon={Heading2} label={t('ctx_split_h2')} shortcut="Alt+2" onSelect={() => runMapped(CMD.splitH2)} />
                     <MenuItem icon={Heading3} label={t('ctx_split_h3')} shortcut="Alt+3" onSelect={() => runMapped(CMD.splitH3)} />
                     <MenuItem icon={Heading4} label={t('ctx_split_h4')} shortcut="Alt+4" onSelect={() => runMapped(CMD.splitH4)} />
                 </>

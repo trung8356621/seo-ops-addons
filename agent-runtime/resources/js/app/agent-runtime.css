@@ -999,6 +999,7 @@
     margin-top: 2px;
 }
 
+.agent-history-archive-btn,
 .agent-history-delete-btn {
     border: 0;
     background: transparent;
@@ -1010,13 +1011,54 @@
     transition: opacity 0.15s, color 0.15s, background 0.15s;
 }
 
+.agent-history-item-wrap:hover .agent-history-archive-btn,
 .agent-history-item-wrap:hover .agent-history-delete-btn {
     opacity: 1;
+}
+
+.agent-history-archive-btn:hover {
+    color: #0284c7;
+    background: #e0f2fe;
 }
 
 .agent-history-delete-btn:hover {
     color: #ef4444;
     background: #fee2e2;
+}
+
+.agent-history-tabs {
+    display: flex;
+    padding: 6px 10px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+    gap: 4px;
+}
+
+.agent-history-tab {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #64748b;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+}
+
+.agent-history-tab:hover:not(.is-active) {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.agent-history-tab.is-active,
+.agent-history-tab[aria-selected="true"] {
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .agent-archived-banner {

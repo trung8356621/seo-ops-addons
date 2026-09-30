@@ -246,6 +246,7 @@ export function applyContextMenuSelection(editor, snapshot) {
  */
 export const CONTEXT_MENU_COMMANDS = Object.freeze({
     splitParagraph: { name: 'split_selection_to_paragraph', args: () => ({}) },
+    splitH2: { name: 'split_selection_to_heading', args: () => ({ level: 2 }) },
     splitH3: { name: 'split_selection_to_heading', args: () => ({ level: 3 }) },
     splitH4: { name: 'split_selection_to_heading', args: () => ({ level: 4 }) },
     splitAtCursor: { name: 'split_paragraph_at_cursor', args: () => ({}) },

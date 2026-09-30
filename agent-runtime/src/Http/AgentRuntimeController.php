@@ -49,8 +49,14 @@ final class AgentRuntimeController
         ]);
     }
 
-    public function turn(Request $request, AgentTurnCoordinator $coordinator, SiteDirectory $sites, AgentThreadRepository $threads, AgentTurnPersistence $persistence): JsonResponse
-    {
+    public function turn(
+        Request $request,
+        AgentTurnCoordinator $coordinator,
+        SiteDirectory $sites,
+        AgentThreadRepository $threads,
+        AgentTurnPersistence $persistence,
+        ?AssumedModelResolver $modelResolver = null,
+    ): JsonResponse {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
             return new JsonResponse(['message' => 'Unauthenticated.'], 401);
@@ -136,7 +142,7 @@ final class AgentRuntimeController
             $thread,
             $persistence,
             $threads,
-            $debugMode ? app(AssumedModelResolver::class) : null,
+            $debugMode ? ($modelResolver ?? (app()->bound(AssumedModelResolver::class) ? app(AssumedModelResolver::class) : null)) : null,
             $userId,
             $scope,
             $message,
@@ -430,13 +436,20 @@ final class AgentRuntimeController
         return new JsonResponse(['data' => $thread]);
     }
 
-    public function threadTurn(Request $request, string $ulid, AgentTurnCoordinator $coordinator, SiteDirectory $sites, AgentThreadRepository $threads, AgentTurnPersistence $persistence): JsonResponse
-    {
+    public function threadTurn(
+        Request $request,
+        string $ulid,
+        AgentTurnCoordinator $coordinator,
+        SiteDirectory $sites,
+        AgentThreadRepository $threads,
+        AgentTurnPersistence $persistence,
+        ?AssumedModelResolver $modelResolver = null,
+    ): JsonResponse {
         $payload = $request->all();
         $payload['thread_ulid'] = $ulid;
         $request->merge($payload);
 
-        return $this->turn($request, $coordinator, $sites, $threads, $persistence);
+        return $this->turn($request, $coordinator, $sites, $threads, $persistence, $modelResolver);
     }
 
     public function rerun(
@@ -540,10 +553,11 @@ final class AgentRuntimeController
             if ($result->failureCode !== null) {
                 $meta['failure_code'] = $result->failureCode;
             }
+            if ($result->answerDiagnostics !== null) {
+                $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
+            }
             if ($result->modelDiagnostics !== null) {
                 $persistence->storeModelDiagnostics($run, $result->modelDiagnostics);
-            } elseif ($result->answerDiagnostics !== null) {
-                $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
             }
             $assistant = $persistence->completeRun($run, $result->response, $meta);
             $threads->touchLastMessage($thread);

@@ -47,4 +47,9 @@ class AgentThread extends Model
     {
         return $query->where('status', 'active');
     }
+
+    public function scopeArchived(Builder $query): Builder
+    {
+        return $query->where('status', 'archived');
+    }
 }

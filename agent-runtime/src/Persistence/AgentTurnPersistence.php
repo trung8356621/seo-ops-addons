@@ -110,8 +110,16 @@ class AgentTurnPersistence
     /** @param array<string, mixed> $diagnostics */
     public function storeAnswerDiagnostics(AgentRun $run, array $diagnostics): void
     {
-        $summary = (array) $run->retrieval_summary;
+        $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
         $summary['answer_diagnostics'] = $diagnostics;
+        $run->update(['retrieval_summary' => $summary]);
+    }
+
+    /** @param array<string, mixed> $diagnostics */
+    public function storeModelDiagnostics(AgentRun $run, array $diagnostics): void
+    {
+        $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+        $summary['model_diagnostics'] = $diagnostics;
         $run->update(['retrieval_summary' => $summary]);
     }
 

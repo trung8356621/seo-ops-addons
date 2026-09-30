@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services;
 
 
-use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -19,7 +18,7 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 
 /**
- * Sinh FAQ bằng prompt (renew_faq_prompt_id), bóc tách Markdown và đẩy vào panel FAQ.
+ * Sinh FAQ bằng prompt (renew_faq_prompt_id) theo contract JSON có cấu trúc.
  */
 final class ArticleFaqGeneratorService
 {
@@ -28,11 +27,11 @@ final class ArticleFaqGeneratorService
         private readonly PromptRunnerService $promptRunner,
         private readonly ArticleContentFaqService $contentFaq,
         private readonly ArticleFaqEditorService $faqEditor,
-        private readonly WorkflowParserService $workflowParser,
         private readonly ArticleFaqExtractDebugService $extractDebug,
         private readonly ArticleFaqPromptVariablesService $faqPromptVariables,
         private readonly PromptResultLinkService $promptResultLinks,
         private readonly PromptHookCallerBridge $promptHookBridge,
+        private readonly ArticleFaqResultNormalizer $resultNormalizer,
     ) {
     }
 
@@ -115,12 +114,14 @@ final class ArticleFaqGeneratorService
             'faq_answer' => '',
             'existing_faqs' => $this->summarizeExistingFaqs($article),
         ]);
+        $variables['_hook_key'] = 'article.faq.generate';
 
         $envelope = PromptHookExecutionInput::fromArray([
             'context' => [
                 'site_id' => (int) ($article->site_id ?? 0),
                 'article_id' => (int) $article->id,
                 'locale' => (string) ($article->language ?? ''),
+                'prompt_id' => (int) $prompt->id,
             ],
             'input' => [
                 'title' => (string) ($article->title ?? ''),
@@ -145,44 +146,15 @@ final class ArticleFaqGeneratorService
 
                 $this->linkPromptResultToArticle($article, $prompt, $result);
 
-                $output = trim((string) ($result->output_text ?? ''));
-                if ($output === '') {
-                    throw new \InvalidArgumentException(
-                        'AI không trả về nội dung FAQ. Kết quả prompt đã lưu — xem tại trang Prompts của bài.',
-                    );
-                }
-
-                $parsed = $this->parseFaqsFromAiOutput($output);
-                if ($parsed === []) {
-                    throw new \InvalidArgumentException(
-                        'Không bóc tách được FAQ từ kết quả AI. Kết quả prompt đã lưu — xem tại trang Prompts của bài, hoặc dùng «Import markdown FAQ (debug)».',
-                    );
-                }
-
-                return $parsed;
+                return $this->normalizeAndRecordResult($result->output_text, (int) $result->getKey());
             },
             mapHookResult: function ($runtimeResult): array {
-                $value = $runtimeResult->output['value'] ?? null;
-                if (is_string($value)) {
-                    return $this->parseFaqsFromAiOutput($value);
-                }
-                if (! is_array($value)) {
-                    return [];
-                }
-                // Accept list of FAQ objects or {faqs:[...]}
-                if (isset($value['faqs']) && is_array($value['faqs'])) {
-                    return array_values($value['faqs']);
-                }
-
-                return array_values($value);
+                return $this->normalizeAndRecordResult(
+                    $runtimeResult->output['value'] ?? null,
+                    (int) ($runtimeResult->meta['prompt_result_id'] ?? 0),
+                );
             },
         );
-
-        if ($faqs === []) {
-            throw new \InvalidArgumentException(
-                'Không bóc tách được FAQ từ kết quả AI. Kết quả prompt đã lưu — xem tại trang Prompts của bài, hoặc dùng «Import markdown FAQ (debug)».',
-            );
-        }
 
         return $faqs;
     }
@@ -239,38 +211,52 @@ final class ArticleFaqGeneratorService
         return implode("\n\n", $lines);
     }
 
-    /**
-     * @return list<array{question: string, answer: string, more?: string|null}>
-     */
-    private function parseFaqsFromAiOutput(string $output): array
+    /** @return list<array{question: string, answer: string}> */
+    private function normalizeAndRecordResult(mixed $value, int $promptResultId): array
     {
-        $import = $this->contentFaq->convertMarkdownImport($output);
-        $faqs = $import['faqs'];
-        if ($faqs !== []) {
-            return $faqs;
+        try {
+            $faqs = $this->resultNormalizer->normalize($value);
+        } catch (\InvalidArgumentException $exception) {
+            $this->recordFaqResult($promptResultId, 'invalid', 0, $exception->getMessage());
+            throw $exception;
         }
 
-        $parsed = $this->workflowParser->parseFaqsFromContent($output);
+        $this->recordFaqResult($promptResultId, 'valid', count($faqs));
 
-        $rows = [];
-        foreach ($parsed as $faq) {
-            if (! is_array($faq)) {
-                continue;
-            }
-            $question = trim((string) ($faq['question'] ?? ''));
-            $answer = trim((string) ($faq['answer'] ?? ''));
-            if ($question === '' || $answer === '') {
-                continue;
-            }
-            if (preg_match('/<[a-z][\s\S]*>/i', $answer) !== 1) {
-                $answer = app(ArticleMarkdownToHtmlService::class)->toHtml($answer);
-            }
-            $rows[] = [
-                'question' => $question,
-                'answer' => $answer,
-            ];
+        return $faqs;
+    }
+
+    private function recordFaqResult(int $promptResultId, string $status, int $faqCount, ?string $error = null): void
+    {
+        if ($promptResultId <= 0) {
+            return;
         }
 
-        return $rows;
+        $result = PromptResult::query()->find($promptResultId);
+        if (! $result instanceof PromptResult) {
+            return;
+        }
+
+        $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+        $snapshot['hook_key'] = 'article.faq.generate';
+        $snapshot['validation_contract'] = 'article.faq.generate';
+        $snapshot['validators_applied'] = ['non_empty', 'json_schema', 'faq_structure'];
+        $snapshot['faq_result_status'] = match (true) {
+            $status === 'valid' => 'valid',
+            str_starts_with((string) $error, 'FAQ_INVALID_JSON:') => 'invalid_json',
+            str_starts_with((string) $error, 'FAQ_INVALID_SCHEMA:') => 'invalid_schema',
+            str_starts_with((string) $error, 'FAQ_EMPTY_RESULT:') => 'empty',
+            default => 'invalid',
+        };
+        $snapshot['faq_count'] = $faqCount;
+        if ($error !== null) {
+            $snapshot['faq_validation_error'] = $error;
+        }
+        $payload = ['input_snapshot' => $snapshot];
+        if ($status === 'invalid') {
+            $payload['status'] = 'failed';
+            $payload['error_message'] = $error;
+        }
+        $result->update($payload);
     }
 }

@@ -19,4 +19,6 @@ Route::middleware(['web', 'auth'])
         Route::get('/threads/{ulid}', [AgentRuntimeController::class, 'showThread'])->name('agent-runtime.threads.show');
         Route::post('/threads/{ulid}/turns', [AgentRuntimeController::class, 'threadTurn'])->name('agent-runtime.threads.turn');
         Route::post('/threads/{ulid}/messages/{messageId}/rerun', [AgentRuntimeController::class, 'rerun'])->name('agent-runtime.threads.messages.rerun');
+        Route::post('/threads/{ulid}/archive', [AgentRuntimeController::class, 'archiveThread'])->name('agent-runtime.threads.archive');
+        Route::delete('/threads/{ulid}', [AgentRuntimeController::class, 'deleteThread'])->name('agent-runtime.threads.delete');
     });

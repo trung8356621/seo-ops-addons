@@ -211,9 +211,22 @@ describe('capture + restore + split', () => {
         assert.equal(headingIndexAtPos(doc, h3Pos + 1), 1);
     });
 
-    it('maps split H3 to the registered command name', () => {
+    it('maps H2/H3/H4 splits to the same registered command with their levels', () => {
+        assert.equal(CONTEXT_MENU_COMMANDS.splitH2.name, 'split_selection_to_heading');
+        assert.deepEqual(CONTEXT_MENU_COMMANDS.splitH2.args(), { level: 2 });
         assert.equal(CONTEXT_MENU_COMMANDS.splitH3.name, 'split_selection_to_heading');
         assert.deepEqual(CONTEXT_MENU_COMMANDS.splitH3.args(), { level: 3 });
+        assert.equal(CONTEXT_MENU_COMMANDS.splitH4.name, 'split_selection_to_heading');
+        assert.deepEqual(CONTEXT_MENU_COMMANDS.splitH4.args(), { level: 4 });
         assert.equal(CONTEXT_MENU_COMMANDS.renameHeading.name, 'rename_heading');
+    });
+
+    it('renders Split + H2 before the existing H3/H4 actions with Alt+2', () => {
+        const source = fs.readFileSync(new URL('../components/EditorContextMenu.jsx', import.meta.url), 'utf8');
+        const h2 = source.indexOf("label={t('ctx_split_h2')} shortcut=\"Alt+2\"");
+        const h3 = source.indexOf("label={t('ctx_split_h3')} shortcut=\"Alt+3\"");
+        const h4 = source.indexOf("label={t('ctx_split_h4')} shortcut=\"Alt+4\"");
+        assert.equal(h2 >= 0, true);
+        assert.equal(h2 < h3 && h3 < h4, true);
     });
 });

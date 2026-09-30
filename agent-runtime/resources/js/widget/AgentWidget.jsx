@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles } from 'lucide-react';
+import { Archive, Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2 } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -12,6 +12,13 @@ import {
     getStoredThreadUlid,
     setStoredThreadUlid,
 } from './agentThreadState.js';
+import {
+    DEV_MODE_NORMAL,
+    DEV_MODE_DEBUG,
+    DEV_MODE_DIAG,
+    getStoredDeveloperMode,
+    setStoredDeveloperMode,
+} from './agentDevMode.js';
 import '../app/agent-runtime.css';
 
 async function postJson(url, csrf, body) {
@@ -27,14 +34,22 @@ async function postJson(url, csrf, body) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-        throw new Error(payload.message || 'Request failed');
+        const err = new Error(payload.message || 'Request failed');
+        err.status = response.status;
+        err.payload = payload;
+        throw err;
     }
     return payload;
 }
 
 function waitingForManualModel(modelCall) {
     const stage = String(modelCall?.key || 'model');
-    return `Waiting for manual ${stage.charAt(0).toUpperCase()}${stage.slice(1)} result…`;
+    const label = `${stage.charAt(0).toUpperCase()}${stage.slice(1)}`;
+    const modelName = modelCall?.assumed_model?.display_name || modelCall?.assumed_model?.model;
+    if (modelName) {
+        return `Waiting for manual ${label} result · ${modelName}…`;
+    }
+    return `Waiting for manual ${label} result…`;
 }
 
 function groupConversation(messages) {
@@ -94,8 +109,13 @@ export function AgentWidget({
 
     const [selectedKey, setSelectedKey] = useState(initialKey);
     const [activeThreadUlid, setActiveThreadUlid] = useState(null);
-    const [threads, setThreads] = useState([]);
-    const [showHistory, setShowHistory] = useState(false);
+    const [viewingThreadUlid, setViewingThreadUlid] = useState(null);
+    const [isViewingArchived, setIsViewingArchived] = useState(false);
+
+    const [activeThreads, setActiveThreads] = useState([]);
+    const [archivedThreads, setArchivedThreads] = useState([]);
+    const [historyTab, setHistoryTab] = useState('chats'); // 'chats' | 'archived'
+    const [showHistoryMobile, setShowHistoryMobile] = useState(false);
     const [loadingThreads, setLoadingThreads] = useState(false);
 
     const [draft, setDraft] = useState('');
@@ -103,7 +123,8 @@ export function AgentWidget({
     const [busy, setBusy] = useState(false);
     const [copyState, setCopyState] = useState('');
     const [error, setError] = useState('');
-    const [developerMode, setDeveloperMode] = useState('normal'); // 'normal' | 'debug' | 'diag'
+
+    const [developerMode, setDeveloperMode] = useState(() => getStoredDeveloperMode(hostContext.appKey));
     const [lastCopy, setLastCopy] = useState(null);
 
     const [debugOpen, setDebugOpen] = useState(false);
@@ -115,9 +136,14 @@ export function AgentWidget({
     const [processingStatus, setProcessingStatus] = useState(null);
     const [selectedVersions, setSelectedVersions] = useState({});
 
-    const isDebugMode = developerMode === 'debug';
-    const isDiagnostics = developerMode === 'diag';
+    const isDebugMode = developerMode === DEV_MODE_DEBUG;
+    const isDiagnostics = developerMode === DEV_MODE_DIAG;
     const isDevModeDisabled = busy || debugBusy || debugOpen || (processingStatus !== null);
+
+    const updateDevMode = (newMode) => {
+        setDeveloperMode(newMode);
+        setStoredDeveloperMode(hostContext.appKey, newMode);
+    };
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
     useEffect(() => {
@@ -139,7 +165,6 @@ export function AgentWidget({
                 const items = buildProjectItems(sites);
                 setProjects(items);
 
-                // If host supplied a specific scope, ensure it remains selected
                 if (initialKey && items.some((item) => item.key === initialKey)) {
                     setSelectedKey(initialKey);
                 }
@@ -161,38 +186,61 @@ export function AgentWidget({
     const isDrawer = mode === 'drawer';
     const showSidebar = !isDrawer && (mode !== 'embedded' || !initialScope || initialScope.type === 'global');
 
-    // Fetch recent threads list for current scope
+    // Fetch both active and archived threads list for current scope
     const fetchThreads = useCallback(async (scopeRef) => {
         if (!endpoints.threadsUrl) {
             return;
         }
         setLoadingThreads(true);
         try {
-            const url = new URL(endpoints.threadsUrl, window.location.origin);
-            url.searchParams.set('appKey', hostContext.appKey || 'seo-ops');
+            // Fetch active threads
+            const activeUrl = new URL(endpoints.threadsUrl, window.location.origin);
+            activeUrl.searchParams.set('appKey', hostContext.appKey || 'seo-ops');
+            activeUrl.searchParams.set('status', 'active');
             if (scopeRef) {
-                url.searchParams.set('scope_ref', scopeRef);
+                activeUrl.searchParams.set('scope_ref', scopeRef);
             }
-            const res = await fetch(url.toString(), {
+            const activeRes = await fetch(activeUrl.toString(), {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
             });
-            if (!res.ok) {
-                return;
+            if (activeRes.ok) {
+                const activeData = await activeRes.json();
+                setActiveThreads(activeData.data || []);
             }
-            const payload = await res.json();
-            const list = Array.isArray(payload?.data)
-                ? payload.data
-                : (Array.isArray(payload) ? payload : []);
-            setThreads(list);
+
+            // Fetch archived threads
+            const archUrl = new URL(endpoints.threadsUrl, window.location.origin);
+            archUrl.searchParams.set('appKey', hostContext.appKey || 'seo-ops');
+            archUrl.searchParams.set('status', 'archived');
+            if (scopeRef) {
+                archUrl.searchParams.set('scope_ref', scopeRef);
+            }
+            const archRes = await fetch(archUrl.toString(), {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            });
+            if (archRes.ok) {
+                const archData = await archRes.json();
+                setArchivedThreads(archData.data || []);
+            }
         } catch {
-            // Ignore list fetch network errors
+            // Non-critical background fetch failure
         } finally {
             setLoadingThreads(false);
         }
     }, [endpoints.threadsUrl, hostContext.appKey]);
 
-    // Hydrate thread messages from DB without running any model
+    const resetDebugState = useCallback(() => {
+        setDebugRunUlid('');
+        setDebugCall(null);
+        setDebugManualResult('');
+        setDebugParserError('');
+        setDebugBusy(false);
+        setProcessingStatus(null);
+    }, []);
+
+    // Load thread messages without triggering a model turn
     const loadThread = useCallback(async (ulid, scopeRef) => {
         if (!endpoints.threadsUrl || !ulid) {
             return;
@@ -204,74 +252,114 @@ export function AgentWidget({
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
             });
-            const payload = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(payload.message || 'Could not load conversation.');
+                throw new Error('Could not load conversation.');
             }
-            const thread = payload?.data;
-            if (!thread) {
-                return;
-            }
-
-            setActiveThreadUlid(thread.ulid);
-            const targetScope = scopeRef || thread.scope_ref || currentScopeRef;
-            setStoredThreadUlid(hostContext.appKey, targetScope, thread.ulid);
-
-            const mapped = (thread.messages || []).map((m) => {
-                if (m.role === 'assistant') {
-                    const response = m.response_payload || {
-                        message: m.content || '',
-                        blocks: [],
-                        actions: [],
-                        sources: [],
-                    };
+            const payload = await res.json();
+            const threadData = payload?.data || {};
+            const rawMessages = threadData.messages || [];
+            const mapped = rawMessages.map((msg) => {
+                if (msg.role === 'user') {
                     return {
-                        role: 'assistant',
-                        id: m.id,
-                        originUserMessageId: m.run?.user_message_id,
-                        content: m.content || '',
-                        response: {
-                            ...response,
-                            answer_diagnostics: m.run?.retrieval_summary?.answer_diagnostics || response.answer_diagnostics,
-                        },
+                        id: msg.id,
+                        role: 'user',
+                        content: msg.content,
                     };
                 }
+                const responsePayload = msg.response_payload || {};
+                const retrievalSummary = msg.run?.retrieval_summary || {};
+                const modelDiag = retrievalSummary.model_diagnostics || responsePayload.model_diagnostics || null;
+                const answerDiag = retrievalSummary.answer_diagnostics || responsePayload.answer_diagnostics || null;
                 return {
-                    role: 'user',
-                    id: m.id,
-                    content: m.content || '',
+                    id: msg.id,
+                    role: 'assistant',
+                    originUserMessageId: msg.run?.user_message_id || null,
+                    content: msg.content,
+                    response: {
+                        message: msg.content,
+                        blocks: responsePayload.blocks || [],
+                        actions: responsePayload.actions || [],
+                        sources: responsePayload.sources || [],
+                        model_diagnostics: modelDiag,
+                        answer_diagnostics: answerDiag,
+                    },
                 };
             });
             setMessages(mapped);
+            setViewingThreadUlid(ulid);
+            const threadIsArchived = threadData.status === 'archived';
+            setIsViewingArchived(threadIsArchived);
+            if (!threadIsArchived) {
+                setActiveThreadUlid(ulid);
+                setStoredThreadUlid(hostContext.appKey, scopeRef, ulid);
+            }
         } catch (err) {
-            setError(err.message);
+            setError(err.message || 'Failed to load thread.');
         } finally {
             setBusy(false);
         }
-    }, [endpoints.threadsUrl, hostContext.appKey, currentScopeRef]);
+    }, [endpoints.threadsUrl, hostContext.appKey]);
 
-    const resetDebugState = useCallback(() => {
-        setDebugRunUlid('');
-        setDebugCall(null);
-        setDebugManualResult('');
-        setDebugParserError('');
-        setDebugBusy(false);
-        setProcessingStatus(null);
-        setSelectedVersions({});
-    }, []);
-
-    // New conversation action: clears active thread, messages, and saved state
+    // New conversation action
     const onNewConversation = useCallback(() => {
         setActiveThreadUlid(null);
+        setViewingThreadUlid(null);
+        setIsViewingArchived(false);
         setMessages([]);
-        setError('');
-        setLastCopy(null);
         setDraft('');
+        setError('');
         clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
-        setShowHistory(false);
         resetDebugState();
         setDebugOpen(false);
     }, [hostContext.appKey, currentScopeRef, resetDebugState]);
+
+    // Archive conversation action
+    const onArchiveThread = useCallback(async (ulid) => {
+        if (!ulid || !endpoints.threadsUrl || busy || debugBusy) {
+            return;
+        }
+        try {
+            const payload = await postJson(`${endpoints.threadsUrl}/${ulid}/archive`, csrf, {});
+            if (payload?.data?.status === 'archived') {
+                if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
+                    onNewConversation();
+                }
+                fetchThreads(currentScopeRef);
+            }
+        } catch (err) {
+            setError(err.message || 'Could not archive conversation.');
+        }
+    }, [endpoints.threadsUrl, csrf, busy, debugBusy, viewingThreadUlid, activeThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
+
+    // Delete conversation action
+    const onDeleteThread = useCallback(async (ulid) => {
+        if (!ulid || !endpoints.threadsUrl) {
+            return;
+        }
+        if (!window.confirm('Delete this archived conversation?')) {
+            return;
+        }
+        try {
+            const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                },
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.message || 'Could not delete conversation.');
+            }
+            if (viewingThreadUlid === ulid) {
+                onNewConversation();
+            }
+            fetchThreads(currentScopeRef);
+        } catch (err) {
+            setError(err.message || 'Could not delete conversation.');
+        }
+    }, [endpoints.threadsUrl, csrf, viewingThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
 
     async function onApplyDebugResult() {
         if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
@@ -280,7 +368,8 @@ export function AgentWidget({
         setDebugBusy(true);
         setDebugParserError('');
         setDebugOpen(false);
-        setProcessingStatus('Thinking…');
+        const resumingStage = debugCall?.key;
+        setProcessingStatus(resumingStage === 'answer' ? 'Validating Answer…' : 'Retrieving SEO data…');
         try {
             const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
                 run_ulid: debugRunUlid,
@@ -305,9 +394,16 @@ export function AgentWidget({
             resetDebugState();
             fetchThreads(currentScopeRef);
         } catch (caught) {
-            setDebugParserError(caught.message);
-            setProcessingStatus(null);
-            setDebugOpen(true);
+            const payload = caught.payload;
+            if (caught.status === 422 && payload?.data?.status === 'paused') {
+                setDebugParserError(payload.validation_error || payload.message || 'Answer result rejected');
+                setProcessingStatus(waitingForManualModel(payload.data.model_call));
+                setDebugOpen(true);
+            } else {
+                setDebugParserError(caught.message);
+                setProcessingStatus(null);
+                setDebugOpen(true);
+            }
         } finally {
             setDebugBusy(false);
         }
@@ -322,6 +418,8 @@ export function AgentWidget({
             loadThread(storedUlid, currentScopeRef);
         } else {
             setActiveThreadUlid(null);
+            setViewingThreadUlid(null);
+            setIsViewingArchived(false);
             setMessages([]);
         }
         resetDebugState();
@@ -335,7 +433,7 @@ export function AgentWidget({
     }
 
     async function onCopy() {
-        if (busy || draft.trim() === '') {
+        if (busy || draft.trim() === '' || isViewingArchived) {
             return;
         }
         if (globalUnsupported) {
@@ -346,73 +444,63 @@ export function AgentWidget({
         setError('');
         try {
             const payload = await postJson(endpoints.copyUrl, csrf, {
-                hostContext: {
-                    appKey: hostContext.appKey,
-                    scope: scopePayload(selected),
-                    capabilities: hostContext.capabilities,
-                },
+                message: draft.trim(),
                 scope: scopePayload(selected),
-                message: draft,
-                history: messages.map((message) => ({ role: message.role, content: message.content })),
+                hostContext,
+                history: messages
+                    .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+                    .map((msg) => ({ role: msg.role, content: msg.content })),
             });
-            const text = payload?.data?.copy?.answer || payload?.data?.copy || '';
+            const textToCopy = payload?.data?.copy?.answer || payload?.data?.copy?.routing || '';
+            await copyText(textToCopy);
             setLastCopy(payload?.data?.copy || null);
-            await copyText(text);
         } catch (caught) {
-            setError(caught.message);
+            setError(caught.message || 'Could not prepare model input.');
         } finally {
             setBusy(false);
         }
     }
 
     async function onSend() {
-        const message = draft.trim();
-        if (busy || message === '') {
+        if (busy || draft.trim() === '' || isViewingArchived) {
             return;
         }
         if (globalUnsupported) {
-            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project to send requests.');
+            setError('All Sites retrieval is unsupported until a global SEO Access API is available. Select a site project.');
             return;
         }
-        setBusy(true);
-        setError('');
-        setProcessingStatus('Thinking…');
-        setDraft('');
-        const history = groupConversation(messages).flatMap((turn) => {
-            const latest = turn.versions.at(-1);
-            return latest
-                ? [{ role: 'user', content: turn.content }, { role: 'assistant', content: latest.content }]
-                : [{ role: 'user', content: turn.content }];
-        });
-        const clientKey = `pending:${Date.now()}`;
-        setMessages((current) => [...current, { role: 'user', clientKey, content: message }]);
 
-        // Thread continuity:
-        // If activeThreadUlid exists, use POST /threads/{ulid}/turns to append.
-        // Otherwise, use POST /turns which creates a new thread.
-        const sendUrl = activeThreadUlid
-            ? `${endpoints.threadsUrl}/${activeThreadUlid}/turns`
-            : endpoints.turnUrl;
+        const userMessageText = draft.trim();
+        setDraft('');
+        setError('');
+        setBusy(true);
+        setProcessingStatus('Thinking…');
+
+        const tempUserId = `temp-${Date.now()}`;
+        setMessages((current) => [...current, { role: 'user', id: tempUserId, content: userMessageText }]);
 
         try {
+            const sendUrl = activeThreadUlid
+                ? `${endpoints.threadsUrl}/${activeThreadUlid}/turns`
+                : endpoints.turnUrl;
+
             const payload = await postJson(sendUrl, csrf, {
-                hostContext: {
-                    appKey: hostContext.appKey,
-                    scope: scopePayload(selected),
-                    capabilities: hostContext.capabilities,
-                },
+                message: userMessageText,
                 scope: scopePayload(selected),
-                message,
-                history,
+                hostContext,
+                thread_ulid: activeThreadUlid,
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
             });
-            const data = payload?.data || {};
-            if (data.user_message_id) {
-                setMessages((current) => current.map((item) => item.clientKey === clientKey
-                    ? { ...item, id: data.user_message_id }
-                    : item));
+
+            const returnedUlid = payload?.data?.thread_ulid;
+            if (returnedUlid && !activeThreadUlid) {
+                setActiveThreadUlid(returnedUlid);
+                setViewingThreadUlid(returnedUlid);
+                setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
+                fetchThreads(currentScopeRef);
             }
+
             if (data.status === 'paused') {
                 setDebugRunUlid(data.run_ulid || '');
                 setDebugCall(data.model_call || null);
@@ -420,33 +508,30 @@ export function AgentWidget({
                 setDebugParserError('');
                 setProcessingStatus(waitingForManualModel(data.model_call));
                 setDebugOpen(true);
-                const pausedThreadUlid = data.thread_ulid;
-                if (pausedThreadUlid && pausedThreadUlid !== activeThreadUlid) {
-                    setActiveThreadUlid(pausedThreadUlid);
-                    setStoredThreadUlid(hostContext.appKey, currentScopeRef, pausedThreadUlid);
-                }
                 return;
             }
-            const response = payload?.data?.response ?? payload?.data;
-            const returnedUlid = payload?.data?.thread_ulid || response?.thread_ulid;
 
-            if (returnedUlid && returnedUlid !== activeThreadUlid) {
-                setActiveThreadUlid(returnedUlid);
-                setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
-                fetchThreads(currentScopeRef);
-            }
+            setMessages((current) => {
+                const updated = current.map((msg) =>
+                    msg.id === tempUserId ? { ...msg, id: data.user_message_id || tempUserId } : msg
+                );
+                return [...updated, {
+                    role: 'assistant',
+                    id: data.assistant_message_id,
+                    originUserMessageId: data.user_message_id || tempUserId,
+                    content: data.message || '',
+                    response: data,
+                }];
+            });
 
-            setLastCopy(payload?.data?.copy || null);
-            setMessages((current) => [...current, {
-                role: 'assistant',
-                id: data.assistant_message_id,
-                originUserMessageId: data.user_message_id,
-                content: response?.message || '',
-                response,
-            }]);
+            setSelectedVersions((current) => ({
+                ...current,
+                [data.user_message_id || tempUserId]: Number.MAX_SAFE_INTEGER,
+            }));
+            fetchThreads(currentScopeRef);
             setProcessingStatus(null);
         } catch (caught) {
-            setError(caught.message);
+            setError(caught.message || 'Could not send message.');
             setProcessingStatus(null);
         } finally {
             setBusy(false);
@@ -454,16 +539,22 @@ export function AgentWidget({
     }
 
     async function onRerun(userMessageId) {
-        if (busy || !activeThreadUlid || !userMessageId) return;
+        if (busy || !activeThreadUlid || !userMessageId || isViewingArchived) {
+            return;
+        }
         setBusy(true);
         setError('');
         setProcessingStatus('Thinking…');
+
         try {
-            const payload = await postJson(`${endpoints.threadsUrl}/${activeThreadUlid}/messages/${userMessageId}/rerun`, csrf, {
+            const rerunUrl = `${endpoints.threadsUrl}/${activeThreadUlid}/messages/${userMessageId}/rerun`;
+            const payload = await postJson(rerunUrl, csrf, {
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
             });
+
             const data = payload?.data || {};
+
             if (data.status === 'paused') {
                 setDebugRunUlid(data.run_ulid || '');
                 setDebugCall(data.model_call || null);
@@ -473,18 +564,23 @@ export function AgentWidget({
                 setDebugOpen(true);
                 return;
             }
+
             setMessages((current) => [...current, {
                 role: 'assistant',
                 id: data.assistant_message_id,
-                originUserMessageId: data.user_message_id,
+                originUserMessageId: userMessageId,
                 content: data.message || '',
                 response: data,
             }]);
-            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
-            setProcessingStatus(null);
+
+            setSelectedVersions((current) => ({
+                ...current,
+                [userMessageId]: Number.MAX_SAFE_INTEGER,
+            }));
             fetchThreads(currentScopeRef);
+            setProcessingStatus(null);
         } catch (caught) {
-            setError(caught.message);
+            setError(caught.message || 'Could not rerun message.');
             setProcessingStatus(null);
         } finally {
             setBusy(false);
@@ -509,41 +605,6 @@ export function AgentWidget({
                         <span>AI Agent</span>
                     </div>
                     <div className="agent-drawer-header__controls">
-                        <label className="agent-dev-mode-label" title="Developer mode">
-                            <span>Dev</span>
-                            <select
-                                className="agent-dev-select"
-                                value={developerMode}
-                                onChange={(event) => setDeveloperMode(event.target.value)}
-                                disabled={isDevModeDisabled}
-                                aria-label="Developer mode"
-                            >
-                                <option value="normal">Normal</option>
-                                <option value="debug">Debug</option>
-                                <option value="diag">Diag</option>
-                            </select>
-                        </label>
-                        <button
-                            type="button"
-                            className="agent-header-btn agent-new-btn"
-                            onClick={onNewConversation}
-                            title="New conversation"
-                            aria-label="New conversation"
-                        >
-                            <Plus size={14} />
-                            <span className="agent-btn-text">New</span>
-                        </button>
-                        <button
-                            type="button"
-                            className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
-                            onClick={() => setShowHistory((prev) => !prev)}
-                            title="Conversation history"
-                            aria-label="Conversation history"
-                            aria-expanded={showHistory}
-                        >
-                            <History size={14} />
-                            <span className="agent-btn-text">History</span>
-                        </button>
                         <select
                             className="agent-project-select"
                             value={selected.key}
@@ -553,7 +614,6 @@ export function AgentWidget({
                                 setSelectedKey(next.key);
                                 setError('');
                                 setLastCopy(null);
-                                setShowHistory(false);
                                 resetDebugState();
                                 setDebugOpen(false);
                             }}
@@ -565,46 +625,405 @@ export function AgentWidget({
                                 </option>
                             ))}
                         </select>
+
+                        <div className="agent-dev-tabs" role="tablist" aria-label="Developer mode">
+                            <span className="agent-dev-label">Dev</span>
+                            <button
+                                type="button"
+                                role="tab"
+                                id="drawer-dev-tab-normal"
+                                aria-selected={developerMode === 'normal'}
+                                className={`agent-dev-tab ${developerMode === 'normal' ? 'is-active' : ''}`}
+                                onClick={() => updateDevMode('normal')}
+                                disabled={isDevModeDisabled}
+                            >
+                                Normal
+                            </button>
+                            <button
+                                type="button"
+                                role="tab"
+                                id="drawer-dev-tab-debug"
+                                aria-selected={developerMode === 'debug'}
+                                className={`agent-dev-tab ${developerMode === 'debug' ? 'is-active' : ''}`}
+                                onClick={() => updateDevMode('debug')}
+                                disabled={isDevModeDisabled}
+                            >
+                                Debug
+                            </button>
+                            <button
+                                type="button"
+                                role="tab"
+                                id="drawer-dev-tab-diag"
+                                aria-selected={developerMode === 'diag'}
+                                className={`agent-dev-tab ${developerMode === 'diag' ? 'is-active' : ''}`}
+                                onClick={() => updateDevMode('diag')}
+                                disabled={isDevModeDisabled}
+                            >
+                                Diag
+                            </button>
+                        </div>
+
+                        <button
+                            type="button"
+                            className="agent-new-chat-btn"
+                            onClick={onNewConversation}
+                            title="New conversation"
+                            aria-label="New conversation"
+                        >
+                            <Plus size={16} />
+                            <span>New</span>
+                        </button>
                     </div>
                 </div>
             ) : null}
 
-            <div className={`agent-main-layout ${showHistory ? 'agent-main-layout--history-open' : ''}`}>
-                {/* Internal History Sidebar */}
-                {showHistory ? (
-                    <aside className="agent-history-sidebar" role="region" aria-label="Conversation History">
-                        <div className="agent-history-sidebar__header">
-                            <span className="agent-history-sidebar__title">History · {selected.label}</span>
-                            <div className="agent-history-sidebar__actions">
+            {showSidebar ? (
+                <aside className="agent-projects">
+                    <p className="agent-kicker">Project scope</p>
+                    <ul>
+                        {projects.map((project) => (
+                            <li key={project.key}>
                                 <button
                                     type="button"
-                                    className="agent-history-new-btn"
+                                    className={project.key === selectedKey ? 'is-active' : ''}
+                                    onClick={() => setSelectedKey(project.key)}
+                                >
+                                    <span>{project.label}</span>
+                                    {project.retrieval === 'unsupported' ? (
+                                        <small>Retrieval disabled</small>
+                                    ) : null}
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </aside>
+            ) : null}
+
+            <div className={`agent-main-layout ${showHistoryMobile ? 'agent-main-layout--history-open' : ''}`}>
+                <div className="agent-workspace">
+                    {!isDrawer ? (
+                        <header className="agent-workspace__header">
+                            <div>
+                                <p className="agent-kicker">Scope: {selected.label}</p>
+                                <h1>SEO Operations Agent</h1>
+                            </div>
+                            <div className="agent-workspace__controls">
+                                <div className="agent-dev-tabs" role="tablist" aria-label="Developer mode">
+                                    <span className="agent-dev-label">Dev</span>
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        id="header-dev-tab-normal"
+                                        aria-selected={developerMode === 'normal'}
+                                        className={`agent-dev-tab ${developerMode === 'normal' ? 'is-active' : ''}`}
+                                        onClick={() => updateDevMode('normal')}
+                                        disabled={isDevModeDisabled}
+                                    >
+                                        Normal
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        id="header-dev-tab-debug"
+                                        aria-selected={developerMode === 'debug'}
+                                        className={`agent-dev-tab ${developerMode === 'debug' ? 'is-active' : ''}`}
+                                        onClick={() => updateDevMode('debug')}
+                                        disabled={isDevModeDisabled}
+                                    >
+                                        Debug
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        id="header-dev-tab-diag"
+                                        aria-selected={developerMode === 'diag'}
+                                        className={`agent-dev-tab ${developerMode === 'diag' ? 'is-active' : ''}`}
+                                        onClick={() => updateDevMode('diag')}
+                                        disabled={isDevModeDisabled}
+                                    >
+                                        Diag
+                                    </button>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    className="agent-new-chat-btn"
                                     onClick={onNewConversation}
                                     title="New conversation"
                                     aria-label="New conversation"
                                 >
-                                    <Plus size={13} />
+                                    <Plus size={16} />
                                     <span>New</span>
                                 </button>
+
+                                <button
+                                    type="button"
+                                    className="agent-history-btn"
+                                    onClick={() => setShowHistoryMobile((current) => !current)}
+                                    title="Toggle History"
+                                    aria-label="Toggle History"
+                                >
+                                    <History size={16} />
+                                </button>
                             </div>
-                        </div>
-                        <div className="agent-history-sidebar__body">
-                            {loadingThreads ? (
-                                <div className="agent-history-empty">
-                                    <Loader2 size={16} className="agent-spin" />
-                                    <span>Loading conversations...</span>
+                        </header>
+                    ) : null}
+
+                    <div className="agent-messages" role="log" aria-live="polite">
+                        {conversationTurns.length === 0 ? (
+                            <div className="agent-empty">
+                                <Sparkles size={24} className="agent-sparkles-icon" />
+                                <p>Ask about SEO audits, missing links, content projects, or performance data for {selected.label}.</p>
+                            </div>
+                        ) : null}
+
+                        {conversationTurns.map((turn) => {
+                            const requestedIndex = selectedVersions[turn.id];
+                            const versionIndex = Math.min(
+                                requestedIndex ?? (turn.versions.length > 0 ? turn.versions.length - 1 : 0),
+                                Math.max(0, turn.versions.length - 1)
+                            );
+                            const version = turn.versions[versionIndex];
+
+                            return (
+                                <div key={turn.id} className="agent-turn">
+                                    <article className="agent-message is-user">
+                                        <div className="agent-message__header">
+                                            <span className="agent-message__role">You</span>
+                                            <div className="agent-message__actions">
+                                                <button
+                                                    type="button"
+                                                    className="agent-message-action-btn"
+                                                    onClick={() => copyText(turn.content)}
+                                                    title="Copy question" aria-label="Copy question"><Copy size={13} /></button>
+                                            </div>
+                                        </div>
+                                        <div className="agent-message__body">
+                                            <p>{turn.content}</p>
+                                        </div>
+                                    </article>
+
+                                    {version ? (
+                                        <article className="agent-message is-assistant">
+                                            <div className="agent-message__header">
+                                                <span className="agent-message__role">AI Assistant</span>
+                                                <div className="agent-message__actions">
+                                                    {turn.versions.length > 1 ? (
+                                                        <span className="agent-version-nav">
+                                                            <button
+                                                                type="button"
+                                                                disabled={versionIndex <= 0}
+                                                                onClick={() =>
+                                                                    setSelectedVersions((current) => ({
+                                                                        ...current,
+                                                                        [turn.id]: versionIndex - 1,
+                                                                    }))
+                                                                }
+                                                                aria-label="Previous response version"
+                                                            >
+                                                                ‹
+                                                            </button>
+                                                            <span>
+                                                                {versionIndex + 1} / {turn.versions.length}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                disabled={versionIndex >= turn.versions.length - 1}
+                                                                onClick={() =>
+                                                                    setSelectedVersions((current) => ({
+                                                                        ...current,
+                                                                        [turn.id]: versionIndex + 1,
+                                                                    }))
+                                                                }
+                                                                aria-label="Next response version"
+                                                            >
+                                                                ›
+                                                            </button>
+                                                        </span>
+                                                    ) : null}
+
+                                                    <button
+                                                        type="button"
+                                                        className="agent-message-action-btn"
+                                                        onClick={() => copyText(responseToPlainText(version.response))}
+                                                        title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
+
+                                                    {!isViewingArchived && (
+                                                        <button
+                                                            type="button"
+                                                            className="agent-message-action-btn"
+                                                            onClick={() => onRerun(turn.id)}
+                                                            disabled={busy || isDevModeDisabled}
+                                                            title="Rerun" aria-label="Rerun"><RotateCcw size={13} /></button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="agent-message__body">
+                                                <ResponseView response={version.response} />
+                                                {(() => {
+                                                    const modelDiag = version?.response?.model_diagnostics;
+                                                    const answerDiag = version?.response?.answer_diagnostics;
+                                                    const decisionDiag = modelDiag?.decision;
+                                                    const finalAnswerDiag = modelDiag?.answer || answerDiag;
+                                                    const hasDiagnostics = Boolean(decisionDiag || finalAnswerDiag);
+
+                                                    if (!hasDiagnostics) return null;
+
+                                                    return (
+                                                        <details className="agent-diagnostics-disclosure">
+                                                            <summary>Diagnostics</summary>
+                                                            {decisionDiag && (
+                                                                <div className="agent-diagnostics-stage">
+                                                                    <h4>Decision</h4>
+                                                                    <pre>{JSON.stringify(decisionDiag, null, 2)}</pre>
+                                                                </div>
+                                                            )}
+                                                            {finalAnswerDiag && (
+                                                                <div className="agent-diagnostics-stage">
+                                                                    <h4>Answer</h4>
+                                                                    <pre>{JSON.stringify(finalAnswerDiag, null, 2)}</pre>
+                                                                </div>
+                                                            )}
+                                                        </details>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </article>
+                                    ) : null}
                                 </div>
-                            ) : threads.length === 0 ? (
-                                <p className="agent-history-empty">No conversations for this site yet.</p>
+                            );
+                        })}
+
+                        {processingStatus ? (
+                            <article className="agent-message is-assistant agent-processing-status" role="status">
+                                <div className="agent-status-indicator">
+                                    <Loader2 size={16} className="agent-spinner" />
+                                    <span>{processingStatus}</span>
+                                </div>
+                            </article>
+                        ) : null}
+
+                        {error ? <div className="agent-error-banner">{error}</div> : null}
+                    </div>
+
+                    {isViewingArchived ? (
+                        <div className="agent-archived-banner" role="status">
+                            <span>This conversation is archived and read-only.</span>
+                            <button
+                                type="button"
+                                className="agent-archived-banner__btn"
+                                onClick={onNewConversation}
+                            >
+                                <Plus size={14} />
+                                <span>Start new chat</span>
+                            </button>
+                        </div>
+                    ) : (
+                        <form className="agent-composer" onSubmit={onSend}>
+                            <div className="agent-input-wrap">
+                                <textarea
+                                    className="agent-input"
+                                    placeholder={
+                                        globalUnsupported
+                                            ? 'Select a site project to ask questions…'
+                                            : 'Ask about SEO performance, keywords, or content ideas…'
+                                    }
+                                    value={draft}
+                                    onChange={(e) => setDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            onSend();
+                                        }
+                                    }}
+                                    disabled={busy || isViewingArchived}
+                                    rows={3}
+                                />
+                                <div className="agent-composer-actions">
+                                    <button
+                                        type="button"
+                                        className="agent-copy-btn"
+                                        onClick={onCopy}
+                                        disabled={busy || !draft.trim() || isViewingArchived}
+                                        title="Copy prompt"
+                                    >
+                                        <Copy size={15} />
+                                        <span>{copyState || 'Copy'}</span>
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="agent-send-btn"
+                                        disabled={busy || !draft.trim() || isViewingArchived}
+                                        title="Send message"
+                                        aria-label="Send message"
+                                    >
+                                        {busy ? <Loader2 size={16} className="agent-spinner" /> : <Send size={16} />}
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    )}
+                </div>
+
+                {/* Right History Sidebar */}
+                <aside className="agent-history-sidebar" aria-label="Conversation history">
+                    <div className="agent-history-sidebar__header">
+                        <span className="agent-history-sidebar__title">History</span>
+                        <div className="agent-history-sidebar__actions">
+                            <button
+                                type="button"
+                                className="agent-new-chat-btn"
+                                onClick={onNewConversation}
+                                title="New conversation"
+                                aria-label="New conversation"
+                            >
+                                <Plus size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="agent-history-tabs" role="tablist" aria-label="History categories">
+                        <button
+                            type="button"
+                            role="tab"
+                            id="history-tab-chats"
+                            aria-selected={historyTab === 'chats'}
+                            className={`agent-history-tab ${historyTab === 'chats' ? 'is-active' : ''}`}
+                            onClick={() => setHistoryTab('chats')}
+                        >
+                            Chats
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            id="history-tab-archived"
+                            aria-selected={historyTab === 'archived'}
+                            className={`agent-history-tab ${historyTab === 'archived' ? 'is-active' : ''}`}
+                            onClick={() => setHistoryTab('archived')}
+                        >
+                            Archived
+                        </button>
+                    </div>
+
+                    <div className="agent-history-sidebar__body">
+                        {loadingThreads ? (
+                            <div className="agent-history-loading">
+                                <Loader2 size={16} className="agent-spinner" />
+                                <span>Loading…</span>
+                            </div>
+                        ) : historyTab === 'chats' ? (
+                            activeThreads.length === 0 ? (
+                                <div className="agent-history-empty">No conversations for this site yet.</div>
                             ) : (
                                 <ul className="agent-history-list">
-                                    {threads.map((t) => (
-                                        <li key={t.ulid}>
+                                    {activeThreads.map((t) => (
+                                        <li key={t.ulid} className="agent-history-item-wrap">
                                             <button
                                                 type="button"
-                                                className={`agent-history-item ${t.ulid === activeThreadUlid ? 'is-active' : ''}`}
+                                                className={`agent-history-item ${t.ulid === (viewingThreadUlid || activeThreadUlid) && !isViewingArchived ? 'is-active' : ''}`}
                                                 onClick={() => {
-                                                    loadThread(t.ulid, currentScopeRef);
+                                                    loadThread(t.ulid, currentScopeRef, false);
+                                                    setShowHistoryMobile(false);
                                                 }}
                                             >
                                                 <span className="agent-history-item__title">{t.title || 'Untitled conversation'}</span>
@@ -612,179 +1031,62 @@ export function AgentWidget({
                                                     {formatTimeAgo(t.last_message_at || t.created_at)}
                                                 </span>
                                             </button>
+                                            <button
+                                                type="button"
+                                                className="agent-history-archive-btn"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onArchiveThread(t.ulid);
+                                                }}
+                                                disabled={busy || debugBusy}
+                                                title="Archive conversation"
+                                                aria-label="Archive conversation"
+                                            >
+                                                <Archive size={13} />
+                                            </button>
                                         </li>
                                     ))}
                                 </ul>
-                            )}
-                        </div>
-                    </aside>
-                ) : null}
-
-                {showSidebar ? (
-                    <aside className="agent-projects">
-                        <p className="agent-kicker">Projects</p>
-                        <ul>
-                            {projects.map((project) => (
-                                <li key={project.key}>
-                                    <button
-                                        type="button"
-                                        className={project.key === selected.key ? 'is-active' : ''}
-                                        onClick={() => {
-                                            const next = switchProject(projects, project.key);
-                                            setSelectedKey(next.key);
-                                            setError('');
-                                            setLastCopy(null);
-                                            setShowHistory(false);
-                                            resetDebugState();
-                                            setDebugOpen(false);
-                                        }}
-                                    >
-                                        <span>{project.label}</span>
-                                        {project.retrieval === 'unsupported' ? <small>No global API</small> : null}
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    </aside>
-                ) : null}
-
-                <section className="agent-workspace">
-                    <header className="agent-workspace-header">
-                        {!isDrawer ? (
-                            <div className="agent-workspace-header__top">
-                                <h1>{selected.label}</h1>
-                                <div className="agent-workspace-actions">
-                                    <label className="agent-dev-mode-label" title="Developer mode">
-                                        <span>Dev</span>
-                                        <select
-                                            className="agent-dev-select"
-                                            value={developerMode}
-                                            onChange={(event) => setDeveloperMode(event.target.value)}
-                                            disabled={isDevModeDisabled}
-                                            aria-label="Developer mode"
-                                        >
-                                            <option value="normal">Normal</option>
-                                            <option value="debug">Debug</option>
-                                            <option value="diag">Diag</option>
-                                        </select>
-                                    </label>
-                                    <button
-                                        type="button"
-                                        className="agent-header-btn agent-new-btn"
-                                        onClick={onNewConversation}
-                                        title="New conversation"
-                                    >
-                                        <Plus size={14} />
-                                        <span>New</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`agent-header-btn agent-history-btn ${showHistory ? 'is-active' : ''}`}
-                                        onClick={() => setShowHistory((prev) => !prev)}
-                                        title="Conversation history"
-                                        aria-expanded={showHistory}
-                                    >
-                                        <History size={14} />
-                                        <span>History</span>
-                                    </button>
-                                </div>
-                            </div>
-                        ) : null}
-                    {globalUnsupported ? (
-                        <p className="agent-warning">
-                            All Sites retrieval is unsupported until a global SEO Access API is agreed. Select a site project to send requests.
-                        </p>
-                    ) : null}
-                </header>
-                <div className="agent-messages">
-                    {conversationTurns.length === 0 ? <p className="agent-empty">Ask about this project in plain language.</p> : null}
-                    {conversationTurns.map((turn, turnIndex) => {
-                        const turnKey = turn.id || turn.clientKey || turnIndex;
-                        const requestedIndex = selectedVersions[turnKey];
-                        const versionIndex = Math.min(
-                            requestedIndex ?? turn.versions.length - 1,
-                            turn.versions.length - 1,
-                        );
-                        const version = versionIndex >= 0 ? turn.versions[versionIndex] : null;
-                        return (
-                            <div key={turnKey} className="agent-conversation-turn">
-                                <article className="is-user">
-                                    <p>{turn.content}</p>
-                                    <div className="agent-message-actions">
-                                        <button type="button" onClick={() => copyText(turn.content)} title="Copy question" aria-label="Copy question"><Copy size={14} /></button>
-                                    </div>
-                                </article>
-                                {version ? (
-                                    <article className="is-assistant">
-                                        <ResponseView response={version.response} />
-                                        {isDiagnostics && version.response?.answer_diagnostics ? (
-                                            <details className="agent-answer-diagnostics">
-                                                <summary>Answer diagnostics</summary>
-                                                <p><strong>Parser rejection:</strong></p>
-                                                <pre>{version.response.answer_diagnostics.parser_error}</pre>
-                                                <p><strong>Raw model completion:</strong></p>
-                                                <pre>{version.response.answer_diagnostics.raw_completion}</pre>
-                                            </details>
-                                        ) : null}
-                                        <div className="agent-message-actions agent-message-actions--assistant">
-                                            <button type="button" onClick={() => copyText(responseToPlainText(version.response))} title="Copy answer" aria-label="Copy answer"><Copy size={14} /></button>
-                                            <button type="button" onClick={() => onRerun(turn.id)} disabled={busy || !turn.id} title="Rerun" aria-label="Rerun"><RotateCcw size={14} /></button>
-                                            {turn.versions.length > 1 ? (
-                                                <span className="agent-version-nav" aria-label="Answer versions">
-                                                    <button
-                                                        type="button"
-                                                        aria-label="Previous answer"
-                                                        disabled={versionIndex <= 0}
-                                                        onClick={() => setSelectedVersions((current) => ({ ...current, [turnKey]: versionIndex - 1 }))}
-                                                    >‹</button>
-                                                    <span>{versionIndex + 1} / {turn.versions.length}</span>
-                                                    <button
-                                                        type="button"
-                                                        aria-label="Next answer"
-                                                        disabled={versionIndex >= turn.versions.length - 1}
-                                                        onClick={() => setSelectedVersions((current) => ({ ...current, [turnKey]: versionIndex + 1 }))}
-                                                    >›</button>
+                            )
+                        ) : (
+                            archivedThreads.length === 0 ? (
+                                <div className="agent-history-empty">No archived conversations for this site.</div>
+                            ) : (
+                                <ul className="agent-history-list">
+                                    {archivedThreads.map((t) => (
+                                        <li key={t.ulid} className="agent-history-item-wrap">
+                                            <button
+                                                type="button"
+                                                className={`agent-history-item ${t.ulid === viewingThreadUlid && isViewingArchived ? 'is-active' : ''}`}
+                                                onClick={() => {
+                                                    loadThread(t.ulid, currentScopeRef, true);
+                                                    setShowHistoryMobile(false);
+                                                }}
+                                            >
+                                                <span className="agent-history-item__title">{t.title || 'Untitled conversation'}</span>
+                                                <span className="agent-history-item__meta">
+                                                    {formatTimeAgo(t.last_message_at || t.created_at)}
                                                 </span>
-                                            ) : null}
-                                        </div>
-                                    </article>
-                                ) : null}
-                            </div>
-                        );
-                    })}
-                    {processingStatus ? (
-                        <article className="is-assistant agent-processing-status" role="status" aria-live="polite">
-                            <Loader2 size={16} className="agent-spin" />
-                            <span>{processingStatus}</span>
-                        </article>
-                    ) : null}
-                </div>
-                {error ? <p className="agent-warning">{error}</p> : null}
-                <form
-                    className="agent-composer"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        onSend();
-                    }}
-                >
-                    <textarea
-                        value={draft}
-                        placeholder="Tháng 9 traffic có vấn đề gì và nên viết thêm gì?"
-                        onChange={(event) => setDraft(event.target.value)}
-                    />
-                    <div className="agent-composer__actions">
-                        {isDiagnostics && lastCopy?.routing ? (
-                            <button type="button" onClick={() => copyText(lastCopy.routing)}>
-                                Copy routing input
-                            </button>
-                        ) : null}
-                        <button type="submit" disabled={busy || draft.trim() === ''} className={busy ? 'is-busy' : ''}>
-                            {busy ? <Loader2 size={16} className="agent-spin" /> : <Send size={16} />}
-                            Send
-                        </button>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="agent-history-delete-btn"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteThread(t.ulid);
+                                                }}
+                                                title="Delete conversation"
+                                                aria-label="Delete conversation"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )
+                        )}
                     </div>
-                </form>
-            </section>
+                </aside>
             </div>
 
             <ModelDebugModal

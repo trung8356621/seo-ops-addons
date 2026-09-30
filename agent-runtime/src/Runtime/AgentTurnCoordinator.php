@@ -29,6 +29,7 @@ final class AgentTurnResult
         public bool $answerModelCalled,
         public ?string $failureCode = null,
         public ?array $answerDiagnostics = null,
+        public ?array $modelDiagnostics = null,
     ) {}
 
     /**
@@ -36,7 +37,7 @@ final class AgentTurnResult
      */
     public function toArray(): array
     {
-        return [
+        $data = [
             'response' => $this->response->toArray(),
             'copy' => [
                 'answer' => $this->answerInput->exportText(),
@@ -44,6 +45,16 @@ final class AgentTurnResult
             ],
             'answer_model_called' => $this->answerModelCalled,
         ];
+
+        if ($this->modelDiagnostics !== null) {
+            $data['model_diagnostics'] = $this->modelDiagnostics;
+        }
+
+        if ($this->answerDiagnostics !== null) {
+            $data['answer_diagnostics'] = $this->answerDiagnostics;
+        }
+
+        return $data;
     }
 }
 
@@ -96,7 +107,15 @@ class AgentTurnCoordinator
      */
     public function send(int $userId, AgentProjectScope $scope, string $message, array $history, bool $diagnostics = false): AgentTurnResult
     {
-        $prepared = $this->prepare($userId, $scope, $message, $history);
+        $prepared = $this->prepare($userId, $scope, $message, $history, $diagnostics);
+        $modelDiagnostics = null;
+        if ($diagnostics) {
+            $modelDiagnostics = [];
+            if (! empty($prepared['decisionDiagnostics'])) {
+                $modelDiagnostics['decision'] = $prepared['decisionDiagnostics'];
+            }
+        }
+
         if ($prepared['response'] instanceof AgentResponse) {
             return new AgentTurnResult(
                 $prepared['response'],
@@ -104,6 +123,8 @@ class AgentTurnCoordinator
                 $prepared['answer'],
                 false,
                 $prepared['failureCode'],
+                null,
+                $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
             );
         }
 
@@ -116,12 +137,20 @@ class AgentTurnCoordinator
                 $prepared['bundle'],
             );
             $answerDiagnostics = $diagnostics ? $this->answerDiagnostics($raw ?? '', $e) : null;
-        } catch (Throwable) {
+        } catch (Throwable $e) {
             $response = $this->safeResponse(
                 'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
                 $prepared['bundle'],
             );
-            $answerDiagnostics = null;
+            $answerDiagnostics = $diagnostics ? [
+                'status' => 'failed',
+                'failure_code' => 'answer_failed',
+                'error' => $e->getMessage(),
+            ] : null;
+        }
+
+        if ($diagnostics && $answerDiagnostics !== null) {
+            $modelDiagnostics['answer'] = $answerDiagnostics;
         }
 
         return new AgentTurnResult(
@@ -131,6 +160,7 @@ class AgentTurnCoordinator
             true,
             $this->failureCodeFromBundle($prepared['bundle']),
             $answerDiagnostics ?? null,
+            $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
         );
     }
 
@@ -208,14 +238,7 @@ class AgentTurnCoordinator
 
         $bundle = RetrievalBundle::fromArray($state['bundle']);
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
-        try {
-            $response = $this->responses->parse($rawCompletion, $bundle);
-        } catch (AgentResponseRejected | Throwable) {
-            $response = $this->safeResponse(
-                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
-                $bundle,
-            );
-        }
+        $response = $this->responses->parse($rawCompletion, $bundle);
 
         return AgentTurnProgress::completed(new AgentTurnResult(
             $response,
@@ -247,6 +270,14 @@ class AgentTurnCoordinator
         }
 
         return $this->inputs->buildRoutingInput($scope, $message, $history);
+    }
+
+    /**
+     * @param  list<array{role: string, content: string}>  $history
+     */
+    public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle): PreparedModelInput
+    {
+        return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
     }
 
     /**
@@ -308,9 +339,9 @@ class AgentTurnCoordinator
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null, failureCode: string|null}
+     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null, failureCode: string|null, decisionDiagnostics?: array|null}
      */
-    private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history): array
+    private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history, bool $diagnostics = false): array
     {
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         if ($scope->isGlobal()) {
@@ -326,12 +357,19 @@ class AgentTurnCoordinator
                     'global_access_unsupported',
                 ),
                 'failureCode' => 'global_access_unsupported',
+                'decisionDiagnostics' => null,
             ];
         }
 
         $decisionResult = $this->decisions->decide(new DecisionRequest($userId, $routingInput));
         if (! $decisionResult->ok) {
             $bundle = new RetrievalBundle($scope, [], [$decisionResult->failureCode ?? 'decision_unavailable']);
+            $decisionDiagnostics = $diagnostics ? [
+                'status' => 'failed',
+                'failure_code' => $decisionResult->failureCode ?? 'decision_unavailable',
+                'error' => $this->decisionFailureMessage($decisionResult->failureCode),
+                'raw_completion' => (new SecretRedactor())->redact($decisionResult->rawText ?? ''),
+            ] : null;
 
             return [
                 'routing' => $routingInput,
@@ -343,11 +381,19 @@ class AgentTurnCoordinator
                     $decisionResult->failureCode ?? 'decision_unavailable',
                 ),
                 'failureCode' => $decisionResult->failureCode ?? 'decision_unavailable',
+                'decisionDiagnostics' => $decisionDiagnostics,
             ];
         }
 
         $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $decisionResult->rawText);
         if ($processed['error'] !== null || $processed['decision'] === null) {
+            $decisionDiagnostics = $diagnostics ? [
+                'status' => 'rejected',
+                'failure_code' => 'routing_decision_invalid',
+                'parser_error' => $processed['error'] ?? 'The routing model did not return a usable decision, so no SEO data was fetched.',
+                'raw_completion' => (new SecretRedactor())->redact($decisionResult->rawText ?? ''),
+            ] : null;
+
             return [
                 'routing' => $routingInput,
                 'answer' => $processed['answerInput'],
@@ -358,6 +404,7 @@ class AgentTurnCoordinator
                     'routing_decision_invalid',
                 ),
                 'failureCode' => 'routing_decision_invalid',
+                'decisionDiagnostics' => $decisionDiagnostics,
             ];
         }
 
@@ -371,6 +418,7 @@ class AgentTurnCoordinator
             'bundle' => $processed['bundle'],
             'response' => null,
             'failureCode' => $this->failureCodeFromBundle($processed['bundle']),
+            'decisionDiagnostics' => null,
         ];
     }
 

@@ -71,4 +71,39 @@ class AgentThreadRepository
     {
         $thread->update(['last_message_at' => now()]);
     }
+
+    public function listArchivedForPrincipal(
+        string $principalType,
+        string $principalRef,
+        ?string $appKey = null,
+        ?string $scopeRef = null,
+        int $perPage = 20,
+    ): LengthAwarePaginator {
+        $query = AgentThread::forPrincipal($principalType, $principalRef)
+            ->archived()
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id');
+
+        if ($appKey !== null) {
+            $query->whereHas('agentApp', function ($q) use ($appKey) {
+                $q->where('app_key', $appKey);
+            });
+        }
+
+        if ($scopeRef !== null) {
+            $query->where('scope_ref', $scopeRef);
+        }
+
+        return $query->paginate($perPage);
+    }
+
+    public function archiveThread(AgentThread $thread): void
+    {
+        $thread->update(['status' => 'archived']);
+    }
+
+    public function deleteThread(AgentThread $thread): void
+    {
+        $thread->delete();
+    }
 }

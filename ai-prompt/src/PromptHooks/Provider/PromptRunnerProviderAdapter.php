@@ -58,10 +58,9 @@ final class PromptRunnerProviderAdapter implements PromptProviderAdapter
             throw new ProviderFailed("SeoPrompt [{$promptId}] not found.");
         }
 
+        // The configured prompt connection is only a legacy fallback. Candidate
+        // eligibility and FREE/paid fallback belong to the canonical router.
         $connection = $prompt->aiConnection;
-        if ($connection === null || blank($connection->api_key)) {
-            throw new ProviderFailed('AI connection missing or has no credential (resolved outside hook JSON).');
-        }
 
         $compiled = $this->renderedCompiler->compile($request, $strategy);
         $variables = is_array($request->metadata['variables'] ?? null)
@@ -94,7 +93,7 @@ final class PromptRunnerProviderAdapter implements PromptProviderAdapter
 
         $text = trim((string) ($result->output_text ?? ''));
         $usage = is_array($result->token_usage ?? null) ? $result->token_usage : [];
-        $provider = (string) ($connection->provider ?? 'unknown');
+        $provider = (string) ($connection?->provider ?? 'unknown');
         $model = (string) ($result->model_used ?? $request->model->name);
 
         return $this->usageNormalizer->normalize(

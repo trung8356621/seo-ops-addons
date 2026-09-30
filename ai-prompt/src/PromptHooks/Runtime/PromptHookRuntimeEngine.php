@@ -63,6 +63,7 @@ final class PromptHookRuntimeEngine
             $validated['previous_outputs'],
             $settings['hook'],
         );
+        $variables['_hook_key'] = $definition->key->value;
         $articleId = isset($validated['context']['article_id']) ? (int) $validated['context']['article_id'] : 0;
         if ($articleId > 0 && ! isset($variables['article_id'])) {
             $variables['article_id'] = $articleId;
@@ -132,6 +133,11 @@ final class PromptHookRuntimeEngine
             $promptResultId = (int) ($providerResponse->meta['prompt_result_id'] ?? 0);
             if ($promptResultId > 0) {
                 $failure->bindPromptResultId($promptResultId);
+                $this->persistHookOutputValidationFailure(
+                    $promptResultId,
+                    $definition->key->value,
+                    $failure,
+                );
                 $this->persistFailedLengthValidation(
                     $promptResultId,
                     (string) ($pipelinePayload['text'] ?? ''),
@@ -281,6 +287,35 @@ final class PromptHookRuntimeEngine
     public function definition(string $hookKey, string $version): PromptHookDefinition
     {
         return $this->registry->get($hookKey, $version);
+    }
+
+    private function persistHookOutputValidationFailure(
+        int $promptResultId,
+        string $hookKey,
+        PromptHookFailure $failure,
+    ): void {
+        if ($hookKey !== 'article.faq.generate') {
+            return;
+        }
+
+        $result = PromptResult::query()->find($promptResultId);
+        if ($result === null) {
+            return;
+        }
+
+        $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+        $snapshot['hook_key'] = $hookKey;
+        $snapshot['validation_contract'] = $hookKey;
+        $snapshot['faq_result_status'] = 'invalid_json';
+        $snapshot['faq_count'] = 0;
+        $snapshot['faq_validation_error'] = $failure->getMessage();
+
+        $result->update([
+            'status' => 'failed',
+            'error_message' => $failure->getMessage(),
+            'input_snapshot' => $snapshot,
+            'finished_at' => now(),
+        ]);
     }
 
     /**

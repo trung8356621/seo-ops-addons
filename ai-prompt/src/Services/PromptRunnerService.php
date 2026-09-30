@@ -557,7 +557,7 @@ class PromptRunnerService
         $generationStrategy = ArticleGenerationStrategy::resolve(
             $variables['generation_shape'] ?? $variables['generation_strategy'] ?? null,
         );
-        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+        $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
         if (
             $generationStrategy->isSectioned()
             && ArticleContentGenerationHooks::matches($hookKey)
@@ -1191,6 +1191,11 @@ class PromptRunnerService
     {
         $taskId = (int) ($variables['project_task_id'] ?? $variables['task_id'] ?? 0);
         $taskIdField = $taskId > 0 ? ['task_id' => $taskId] : [];
+        $hookKey = trim((string) ($variables['_hook_key'] ?? ''));
+        if ($hookKey !== '') {
+            $taskIdField['hook_key'] = $hookKey;
+            $taskIdField['validation_contract'] = $hookKey;
+        }
 
         if (! $this->variablesCarryWritingPassMode($variables)) {
             return $taskIdField;
@@ -2314,7 +2319,7 @@ class PromptRunnerService
         $modelMode = strtolower(trim((string) ($variables['_item_model_override_mode'] ?? '')));
         $generationMode = trim((string) ($variables['_item_generation_mode'] ?? ''));
 
-        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+        $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
 
         $effectivePolicy = (new EffectiveAiCostPolicyResolver())->resolve(
             contextPolicy: AiCostPolicyScope::current(),
