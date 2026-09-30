@@ -4,16 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Filament\Resources;
 
-
-
-use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
-use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Forms\DomainTechnicalSeoForm;
-use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages;
-use Omnichannel\Addons\SearchFoundation\Support\DomainListPresentation;
-use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Help\HelpUi;
+use App\Models\IndustryContextProfile;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Components\Actions\Action as FormInputAction;
@@ -25,6 +17,13 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Forms\DomainTechnicalSeoForm;
+use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages;
+use Omnichannel\Addons\SearchFoundation\Support\DomainListPresentation;
+use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
+use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 
 class DomainResource extends SeoPanelResource
 {
@@ -35,7 +34,6 @@ class DomainResource extends SeoPanelResource
     protected static ?string $navigationIcon = 'heroicon-o-globe-alt';
 
     protected static ?string $navigationGroup = null;
-
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_DOMAINS;
 
@@ -100,6 +98,19 @@ class DomainResource extends SeoPanelResource
                     ->required()
                     ->native(false)
                     ->hintAction(HelpUi::fieldHintAction('domain.website_type')),
+                Forms\Components\Select::make('seo_industry_context_key')
+                    ->label(app()->getLocale() === 'vi' ? 'Ngữ cảnh ngành' : 'Industry Context')
+                    ->options(fn (): array => IndustryContextProfile::query()
+                        ->orderBy('name')
+                        ->pluck('name', 'key')
+                        ->all())
+                    ->searchable()
+                    ->preload()
+                    ->native(false)
+                    ->nullable()
+                    ->helperText(app()->getLocale() === 'vi'
+                        ? 'Ngữ cảnh ngành/kinh doanh toàn cục có thể tái sử dụng; không phải danh sách SEO Topic của website.'
+                        : 'Reusable global industry/business context; this is not the site SEO Topic list.'),
                 Forms\Components\TextInput::make('seo_read_token')
                     ->label(__('Read token'))
                     ->key('seo_read_token')

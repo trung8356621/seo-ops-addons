@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\PromptHooks\Runtime;
 
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidInput;
@@ -13,17 +17,13 @@ use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeHookOrchestrator;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
-use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver;
-use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\Media\Support\ImageToolType;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use InvalidArgumentException;
 
 /**
  * Editor/workflow execution when SeoPrompt has explicit versioned hook binding.
@@ -37,7 +37,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         private readonly PromptHookMigrationFlags $flags,
         private readonly PromptRunnerService $promptRunner,
         private readonly ?SectionedFreeHookOrchestrator $sectionedFreeOrchestrator = null,
-        private readonly ArticleGenerationStrategyResolver $strategyResolver = new ArticleGenerationStrategyResolver(),
+        private readonly ArticleGenerationStrategyResolver $strategyResolver = new ArticleGenerationStrategyResolver,
     ) {}
 
     /**
@@ -123,7 +123,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         if (ArticleContentGenerationHooks::matches($effectiveHookKey)) {
             $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
             $profile = app(PromptExecutionProfileResolver::class)->resolve($prompt, $effectiveHookKey, $toolType);
-            $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
+            $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver)->resolve(
                 contextPolicy: AiCostPolicyScope::current(),
                 explicitFreeOnlyFlag: false,
                 hookKey: $effectiveHookKey,
@@ -275,7 +275,11 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             // Schema-whitelist only — never merge full shared workflow payload (topic leak).
             // Alias mirrors (focus_keyword/title/…) are derived from mapped input for compile only.
             $compileVars = $this->expandCompileAliasMirrors($input);
-            $context['legacy_compiled_prompt'] = $this->promptRunner->compilePrompt($prompt, $compileVars);
+            $compiledPrompt = $this->promptRunner->compilePrompt($prompt, $compileVars);
+            if ($definition->key->value === 'industry.context.generate') {
+                $compiledPrompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler::compile($compiledPrompt);
+            }
+            $context['legacy_compiled_prompt'] = $compiledPrompt;
         }
 
         $envelope = new PromptHookExecutionInput(

@@ -1,0 +1,33 @@
+{
+  "spec_version": "0.1",
+  "key": "industry.context.generate",
+  "version": "0.1.0",
+  "name": "Industry Context Generator",
+  "description": "Generate one reusable global Industry Context profile from the canonical schema.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "industry-context",
+  "model": { "provider": "prompt_connection", "name": "configured", "structured_output": true, "settings": { "temperature": 0.1 } },
+  "locale": { "mode": "input", "fallback": "en" },
+  "input_schema": {
+    "context_name": { "type": "string", "required": true, "max_length": 255, "label": "Context name" },
+    "language": { "type": "string", "required": true, "max_length": 32, "label": "Language" },
+    "market": { "type": "string", "required": true, "max_length": 255, "label": "Market" },
+    "notes": { "type": "string", "required": false, "nullable": true, "max_length": 4000, "label": "Optional notes" }
+  },
+  "output_schema": { "type": "json", "normalize": ["trim", "strip_markdown_fence"], "validation": { "not_empty": true, "json_object": true } },
+  "template": { "source": "legacy_prompt_content", "system": null, "user": null },
+  "canonical_default": {
+    "markdown": "Generate one complete Industry Context profile for {{context_name}} in {{language}} for {{market}}, strictly following the canonical Industry Context JSON Schema and its embedded descriptions/rules; use null for genuinely unknown values and return JSON only."
+  },
+  "presentation": {
+    "description": "Generate a reusable global Industry Context profile; the canonical schema is appended by runtime.",
+    "variables": [{"key":"context_name","required":true},{"key":"language","required":true},{"key":"market","required":true},{"key":"notes","required":false}],
+    "notes": ["The editable prompt stays intentionally small; runtime appends the canonical core JSON Schema."]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}
