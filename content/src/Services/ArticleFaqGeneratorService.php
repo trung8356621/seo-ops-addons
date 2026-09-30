@@ -141,7 +141,7 @@ final class ArticleFaqGeneratorService
                 try {
                     $result = $this->promptRunner->run($prompt, $variables);
                 } catch (PromptRunException $exception) {
-                    throw new \InvalidArgumentException($exception->getMessage(), 0, $exception);
+                    $this->rethrowLinkedPromptFailure($article, $prompt, $exception);
                 }
 
                 $this->linkPromptResultToArticle($article, $prompt, $result);
@@ -167,6 +167,22 @@ final class ArticleFaqGeneratorService
         $variables['_structured_strategy'] = 'json_mode';
 
         return $variables;
+    }
+
+    private function rethrowLinkedPromptFailure(
+        SeoArticle $article,
+        SeoPrompt $prompt,
+        PromptRunException $exception,
+    ): never {
+        $promptResultId = (int) ($exception->context['prompt_result_id'] ?? 0);
+        if ($promptResultId > 0) {
+            $result = PromptResult::query()->find($promptResultId);
+            if ($result instanceof PromptResult) {
+                $this->linkPromptResultToArticle($article, $prompt, $result);
+            }
+        }
+
+        throw $exception;
     }
 
     private function linkPromptResultToArticle(SeoArticle $article, SeoPrompt $prompt, PromptResult $result): void

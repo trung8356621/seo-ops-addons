@@ -11,6 +11,7 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorFaqSnapshotSe
 use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionException;
 use Omnichannel\Addons\Content\Services\ArticleFaqGeneratorService;
 use Omnichannel\Addons\Content\Services\ArticleFaqManualExtractService;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Http\Controllers\Controller;
 use App\Models\User;
@@ -91,6 +92,8 @@ final class ArticleEditorFaqSnapshotController extends Controller
             ]);
         } catch (ArticleEditorSessionException $exception) {
             return $this->sessionError($exception);
+        } catch (PromptRunException $exception) {
+            return $this->promptRunError($exception);
         } catch (\InvalidArgumentException $exception) {
             return response()->json([
                 'success' => false,
@@ -236,5 +239,47 @@ final class ArticleEditorFaqSnapshotController extends Controller
             'lock' => $exception->context['lock'] ?? null,
             'conflict' => $exception->context,
         ], $exception->httpStatus);
+    }
+
+    private function promptRunError(PromptRunException $exception): JsonResponse
+    {
+        $context = $exception->context;
+        $normalized = is_array($context['normalized_failure'] ?? null)
+            ? $context['normalized_failure']
+            : [];
+        $candidates = [
+            $context['failure_code'] ?? null,
+            $context['primary_failure_code'] ?? null,
+            $normalized['code'] ?? null,
+            $context['classification'] ?? null,
+        ];
+        $error = '';
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                $error = trim($candidate);
+                break;
+            }
+        }
+        if ($error === '' && preg_match('/^([A-Z][A-Z0-9_]+)(?::|\b)/', $exception->getMessage(), $match) === 1) {
+            $error = (string) $match[1];
+        }
+        if ($error === '') {
+            $error = 'faq_generation_failed';
+        }
+
+        $promptResultId = (int) ($context['prompt_result_id'] ?? 0);
+
+        return response()->json(array_filter([
+            'success' => false,
+            'error' => $error,
+            'message' => $exception->userMessage(),
+            'prompt_result_id' => $promptResultId > 0 ? $promptResultId : null,
+            'classification' => is_string($context['classification'] ?? null)
+                ? $context['classification']
+                : null,
+            'retryable' => array_key_exists('retryable', $context)
+                ? (bool) $context['retryable']
+                : null,
+        ], static fn (mixed $value): bool => $value !== null), 422);
     }
 }
