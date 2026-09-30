@@ -61,6 +61,18 @@ final class SeoServiceProvider extends ServiceProvider
         );
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Router\McpRouterReader::class);
         $this->app->scoped(\Omnichannel\Addons\Seo\Services\Mcp\Manifest\McpManifestMarkdownPresenter::class);
+
+        $this->app->singleton(\Omnichannel\Addons\Seo\Services\Tools\SeoToolInputValidator::class);
+        $this->app->singleton(
+            \Omnichannel\Addons\Seo\Services\Tools\SeoToolRegistry::class,
+            static function ($app): \Omnichannel\Addons\Seo\Services\Tools\SeoToolRegistry {
+                return \Omnichannel\Addons\Seo\Services\Tools\SeoToolRegistry::buildDefault(
+                    $app->make(\Omnichannel\Addons\Seo\Services\Tools\Handlers\SeoAuditListToolHandler::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\Tools\Handlers\ContentProjectDraftIntakeToolHandler::class),
+                );
+            }
+        );
+        $this->app->singleton(\Omnichannel\Addons\Seo\Services\Tools\SeoToolExecutor::class);
     }
 
     public function boot(): void

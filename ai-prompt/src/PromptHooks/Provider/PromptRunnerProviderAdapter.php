@@ -66,6 +66,8 @@ final class PromptRunnerProviderAdapter implements PromptProviderAdapter
         $variables = is_array($request->metadata['variables'] ?? null)
             ? $request->metadata['variables']
             : [];
+        $variables['_structured_output'] = $strategy !== PromptStructuredStrategy::PlainText;
+        $variables['_structured_strategy'] = $strategy->value;
 
         try {
             $result = $this->promptRunner->runWithCompiledPrompt(

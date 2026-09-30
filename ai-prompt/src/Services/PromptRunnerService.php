@@ -47,6 +47,7 @@ use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
 use App\Models\ApiConnection;
 use RuntimeException;
 
@@ -2118,6 +2119,8 @@ class PromptRunnerService
             'max_output' => $budgetPlan->requestedMaxOutputTokens,
             'budget_plan_id' => $budgetPlan->planId,
             'hook_key' => $hookKey,
+            'structured_output' => filter_var($routeVariables['_structured_output'] ?? false, FILTER_VALIDATE_BOOL),
+            'structured_strategy' => (string) ($routeVariables['_structured_strategy'] ?? ''),
         ]);
 
         [$output, $usage] = $this->callProvider(
@@ -2137,9 +2140,49 @@ class PromptRunnerService
         // attempt (outline / vocabulary / other hooks) — same contract as article.
         // Budget diagnostics are stamped first so failed attempts retain observability.
         $this->assertProviderTerminalReasonEligibleForFailover($usage);
+        $this->assertStructuredOutputEligibleForFailover($output, $hookKey, $callOptions);
         $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
 
         return [$output, $usage];
+    }
+
+    /** @param array<string, mixed> $options */
+    private function assertStructuredOutputEligibleForFailover(string $output, string $hookKey, array $options): void
+    {
+        if (($options['structured_output'] ?? false) !== true) {
+            return;
+        }
+
+        $json = trim($output);
+        if (preg_match('/^```(?:json)?\s*(.*?)\s*```$/isu', $json, $match) === 1) {
+            $json = trim((string) $match[1]);
+        }
+
+        try {
+            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            $code = $hookKey === 'article.faq.generate' ? 'FAQ_INVALID_JSON' : 'INVALID_OUTPUT';
+            throw new InvalidOutput($code.': provider returned malformed structured JSON.');
+        }
+
+        if (! is_array($decoded)) {
+            $code = $hookKey === 'article.faq.generate' ? 'FAQ_INVALID_JSON' : 'INVALID_OUTPUT';
+            throw new InvalidOutput($code.': provider structured output must be a JSON object.');
+        }
+        if ($hookKey === 'article.faq.generate') {
+            $rows = $decoded['faqs'] ?? null;
+            if (! is_array($rows) || $rows === []) {
+                throw new InvalidOutput('FAQ_INVALID_JSON: expected a non-empty faqs array.');
+            }
+            foreach ($rows as $row) {
+                if (! is_array($row)
+                    || trim((string) ($row['question'] ?? '')) === ''
+                    || trim((string) ($row['answer'] ?? '')) === ''
+                ) {
+                    throw new InvalidOutput('FAQ_INVALID_JSON: every FAQ requires question and answer.');
+                }
+            }
+        }
     }
 
     /**

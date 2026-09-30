@@ -26,7 +26,7 @@
     "validation": { "not_empty": true, "json_object": true }
   },
   "template": {
-    "system": "Return FAQ as a JSON object with key faqs (array of {question, answer}). Language: {{language}}. No markdown fences.",
+    "system": "Return FAQ as a JSON object with key faqs (array of {question, answer}). Generate 4-6 distinct questions. Keep each answer concise: at most 2 short sentences. Language: {{language}}. No markdown fences and no text outside JSON.",
     "user": "Title: {{title}}\nContent:\n{{content_excerpt}}"
   },
   "presentation": {

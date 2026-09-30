@@ -8,6 +8,7 @@ import { getAnalysisPolicy, getExternalFacts } from '@seo-addon/utils/articleAna
 import { openPanel } from '../editor/runtime/editorRuntimeNavigation';
 import { sanitizeViolations, scoreFromViolations } from '@seo-addon/utils/seoScoreCalculator.js';
 import { isCompletedSeoAnalysis } from '../utils/seoAnalysisReadiness';
+import { requestFaqGeneration } from '../utils/faqGenerationCommand';
 import {
     useCallback,
     useEffect,
@@ -19,7 +20,7 @@ import {
  * useArticleEditorSeoAnalysis - local SEO analysis for Edit Article.
  * Empty violations must never imply READY/100 until a real analysis completed.
  */
-export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqCount = 0, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains }) {
+export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqCount = 0, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains }) {
     const [seoStale, setSeoStale] = useState(false);
     const [seoStaleRevision, setSeoStaleRevision] = useState(1);
     const [seoAnalysisReady, setSeoAnalysisReady] = useState(false);
@@ -298,9 +299,6 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
     }, [articleId, markSeoStale]);
 
     const openFaqModule = useCallback((options = {}) => {
-        if (options?.autoGenerate) {
-            pendingFaqGenerateRef.current = true;
-        }
         window.setTimeout(() => {
             openPanel('faq', {
                 source: options?.source ?? 'faq-shortcode',
@@ -310,12 +308,8 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
     }, []);
 
     const createFaqFromShortcode = useCallback(() => {
-        openFaqModule({ autoGenerate: canGenerateFaq });
-        if (canGenerateFaq) {
-            window.setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('generate-article-faqs'));
-            }, 400);
-        }
+        if (!canGenerateFaq || requestFaqGeneration('shortcode') === null) return;
+        openFaqModule({ source: 'faq-shortcode' });
     }, [canGenerateFaq, openFaqModule]);
 
     const openFeaturedSnippetPrompt = useCallback(() => {
@@ -341,12 +335,8 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             return;
         }
         if (action.action === 'open-faq-generator') {
-            openFaqModule({ autoGenerate: canGenerateFaq });
-            if (canGenerateFaq) {
-                window.setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('generate-article-faqs'));
-                }, 500);
-            }
+            if (!canGenerateFaq || requestFaqGeneration('seo-violation') === null) return;
+            openFaqModule({ source: 'seo-violation' });
             return;
         }
         if (action.action === 'open-featured-snippet-prompt') {

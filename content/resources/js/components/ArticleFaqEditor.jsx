@@ -21,6 +21,14 @@ import {
 import { runFaqExtractFromToolbar } from '../editor/modules/faq/faqExtractToolbarAction';
 import { t } from '../utils/i18n';
 import { canMutateEditor } from '../utils/editorSessionState';
+import {
+    claimFaqGeneration,
+    beginFaqApply,
+    finishFaqGeneration,
+    markFaqGenerationApplying,
+    requestFaqGeneration,
+    useFaqGenerationState,
+} from '../utils/faqGenerationCommand';
 
 const normalizeQuestion = (text) =>
     (text || '')
@@ -246,7 +254,7 @@ export default function ArticleFaqEditor({
 
     const skipBlurDuplicateCheckRef = useRef(false);
     const flushFaqsInFlightRef = useRef(false);
-    const generateFaqInFlightRef = useRef(false);
+    const generationState = useFaqGenerationState();
     const [renewingIndex, setRenewingIndex] = useState(null);
     const [generatingAll, setGeneratingAll] = useState(false);
     const [markdownImportOpen, setMarkdownImportOpen] = useState(false);
@@ -490,12 +498,6 @@ export default function ArticleFaqEditor({
         window.addEventListener('article-faq-extract-debug-cleared', onExtractDebugCleared);
         window.addEventListener('flush-article-faqs', flushFaqs);
         window.addEventListener('article-faqs-save-finished', onFaqsSaveFinished);
-        const onGenerateStarted = () => setGeneratingAll(true);
-        const onGenerateFinished = () => setGeneratingAll(false);
-
-        window.addEventListener('article-faq-generate-started', onGenerateStarted);
-        window.addEventListener('article-faq-generate-finished', onGenerateFinished);
-
         const onMarkdownImportFinished = (event) => {
             setImportingMarkdown(false);
             if (event?.detail?.success === true) {
@@ -514,8 +516,6 @@ export default function ArticleFaqEditor({
             window.removeEventListener('article-faq-extract-debug-cleared', onExtractDebugCleared);
             window.removeEventListener('flush-article-faqs', flushFaqs);
             window.removeEventListener('article-faqs-save-finished', onFaqsSaveFinished);
-            window.removeEventListener('article-faq-generate-started', onGenerateStarted);
-            window.removeEventListener('article-faq-generate-finished', onGenerateFinished);
             window.removeEventListener('article-faq-markdown-import-finished', onMarkdownImportFinished);
         };
     }, [articleId, debouncedSave, flushFaqs]);
@@ -534,14 +534,16 @@ export default function ArticleFaqEditor({
         );
     };
 
-    const generateAllFaqs = () => {
-        if (!canGenerateFaq || generatingAll || generateFaqInFlightRef.current) {
+    const generateAllFaqs = useCallback((requestId = null) => {
+        if (!canGenerateFaq) {
             return;
         }
+        const claimedRequestId = claimFaqGeneration(requestId);
+        if (claimedRequestId === null) return;
         if (!canMutateEditor()) {
+            finishFaqGeneration(claimedRequestId);
             return;
         }
-        generateFaqInFlightRef.current = true;
         setGeneratingAll(true);
         void (async () => {
             try {
@@ -558,6 +560,7 @@ export default function ArticleFaqEditor({
                 faqsRef.current = merged;
                 setAiPreviewPending(true);
                 setSaveStatus('pending');
+                markFaqGenerationApplying(claimedRequestId);
             } catch (error) {
                 window.dispatchEvent(
                     new CustomEvent('seo-article-editor-notify', {
@@ -569,10 +572,22 @@ export default function ArticleFaqEditor({
                     }),
                 );
             } finally {
-                generateFaqInFlightRef.current = false;
+                finishFaqGeneration(claimedRequestId);
                 setGeneratingAll(false);
             }
         })();
+    }, [articleId, canGenerateFaq]);
+
+    useEffect(() => {
+        const runRequestedGeneration = (event) => generateAllFaqs(event.detail?.requestId ?? null);
+        window.addEventListener('article-faq-generation-requested', runRequestedGeneration);
+        if (generationState.phase === 'opening') generateAllFaqs(generationState.requestId);
+        return () => window.removeEventListener('article-faq-generation-requested', runRequestedGeneration);
+    }, [generateAllFaqs, generationState.phase, generationState.requestId]);
+
+    const requestGenerateAllFaqs = () => {
+        const requestId = requestFaqGeneration('faq-panel');
+        if (requestId !== null) generateAllFaqs(requestId);
     };
 
     const applyAiFaqPreview = () => {
@@ -582,6 +597,8 @@ export default function ArticleFaqEditor({
         if (!canMutateEditor()) {
             return;
         }
+        const applyRequestId = beginFaqApply();
+        if (applyRequestId === null) return;
         setGeneratingAll(true);
         void (async () => {
             try {
@@ -616,6 +633,7 @@ export default function ArticleFaqEditor({
                     }),
                 );
             } finally {
+                finishFaqGeneration(applyRequestId);
                 setGeneratingAll(false);
             }
         })();
@@ -686,12 +704,12 @@ export default function ArticleFaqEditor({
                         <button
                             type="button"
                             className="seo-faq-btn-generate"
-                            disabled={generatingAll}
-                            onClick={generateAllFaqs}
+                            disabled={generationState.phase !== 'idle'}
+                            onClick={requestGenerateAllFaqs}
                             title={t('faq_generate_ai')}
                         >
-                            <Sparkles size={14} className={generatingAll ? 'animate-pulse' : ''} />
-                            {generatingAll ? t('faq_generate_ai_loading') : t('faq_generate_ai')}
+                            <Sparkles size={14} className={generationState.phase !== 'idle' ? 'animate-pulse' : ''} />
+                            {generationState.phase !== 'idle' ? t('faq_generate_ai_loading') : t('faq_generate_ai')}
                         </button>
                     ) : null}
                     {aiPreviewPending ? (

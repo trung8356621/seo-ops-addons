@@ -100,6 +100,9 @@ final class OpenAiCompatibleProtocolAdapter
         if (isset($options['temperature']) && is_numeric($options['temperature'])) {
             $payload['temperature'] = (float) $options['temperature'];
         }
+        if (($options['structured_output'] ?? false) === true) {
+            $payload['response_format'] = ['type' => 'json_object'];
+        }
 
         $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
 

@@ -9,16 +9,30 @@ use Tests\Support\ProjectRoot;
 
 final class ArticleFaqGenerateSingleFlightContractTest extends TestCase
 {
-    public function test_faq_editor_has_generate_inflight_ref_guard(): void
+    public function test_all_faq_entry_points_share_one_claimed_single_flight_command(): void
     {
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleFaqEditor.jsx',
         );
+        $seo = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSeoAnalysis.js',
+        );
+        $command = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/faqGenerationCommand.js',
+        );
+        $shortcode = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/FaqAccordionPreview.jsx',
+        );
 
-        self::assertStringContainsString('generateFaqInFlightRef', $editor);
-        self::assertStringContainsString('generateFaqInFlightRef.current', $editor);
+        self::assertStringContainsString("state.phase !== 'idle'", $command);
+        self::assertStringContainsString("state.phase !== 'opening'", $command);
+        self::assertStringContainsString('claimFaqGeneration(requestId)', $editor);
+        self::assertStringContainsString("requestFaqGeneration('shortcode')", $seo);
+        self::assertStringContainsString("requestFaqGeneration('seo-violation')", $seo);
+        self::assertStringContainsString("requestFaqGeneration('faq-panel')", $editor);
+        self::assertStringContainsString("disabled={generationBusy", $shortcode);
         self::assertStringContainsString('generateFaqPreview', $editor);
-        self::assertStringNotContainsString("new CustomEvent('generate-article-faqs')", $editor);
+        self::assertStringNotContainsString("new CustomEvent('generate-article-faqs')", $seo);
     }
 
     public function test_generate_preview_controller_uses_cache_lock(): void

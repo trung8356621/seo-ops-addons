@@ -1,5 +1,6 @@
 import React from 'react';
 import { t } from '../utils/i18n';
+import { useFaqGenerationState } from '../utils/faqGenerationCommand';
 
 /**
  * Compact FAQ shortcode surface — count + Edit/Create. Full rows stay lazy in FAQ module.
@@ -27,6 +28,8 @@ export default function FaqAccordionPreview({
         ? Number(faqCount)
         : countFromRows;
     const hasFaq = resolvedCount > 0 || countFromRows > 0;
+    const generation = useFaqGenerationState();
+    const generationBusy = generation.phase !== 'idle';
 
     return (
         <div className="omi-faq-editor-preview omi-faq-editor-preview--compact" data-omi-faq="1">
@@ -53,13 +56,13 @@ export default function FaqAccordionPreview({
                         <button
                             type="button"
                             className="omi-faq-shortcode-card__btn"
-                            disabled={!canGenerateFaq && !onCreateFaq}
+                            disabled={generationBusy || (!canGenerateFaq && !onCreateFaq)}
                             onClick={(event) => {
                                 event.stopPropagation();
-                                onCreateFaq?.();
+                                if (!generationBusy) onCreateFaq?.();
                             }}
                         >
-                            {t('faq_shortcode_create')}
+                            {generationBusy ? t('faq_generate_ai_loading') : t('faq_shortcode_create')}
                         </button>
                     )}
                 </div>

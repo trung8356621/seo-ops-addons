@@ -124,6 +124,9 @@ final class GeminiGenerateContentClient
                         ],
                     ],
                 ],
+                ...(($options['structured_output'] ?? false) === true
+                    ? ['generationConfig' => ['responseMimeType' => 'application/json']]
+                    : []),
             ]);
 
         if (! $response->successful()) {

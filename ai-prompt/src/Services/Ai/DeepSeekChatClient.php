@@ -52,6 +52,9 @@ final class DeepSeekChatClient
         if (array_key_exists('temperature', $options) && $options['temperature'] !== null) {
             $payload['temperature'] = (float) $options['temperature'];
         }
+        if (($options['structured_output'] ?? false) === true) {
+            $payload['response_format'] = ['type' => 'json_object'];
+        }
 
         $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
 
