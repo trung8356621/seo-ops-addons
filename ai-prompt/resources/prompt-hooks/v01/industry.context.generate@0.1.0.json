@@ -9,7 +9,7 @@
   "settings_visible": true,
   "category": "industry-context",
   "model": { "provider": "prompt_connection", "name": "configured", "structured_output": true, "settings": { "temperature": 0.1 } },
-  "locale": { "mode": "input", "fallback": "en" },
+  "locale": { "mode": "caller", "fallback": "en" },
   "input_schema": {
     "context_name": { "type": "string", "required": true, "max_length": 255, "label": "Context name" },
     "language": { "type": "string", "required": true, "max_length": 32, "label": "Language" },

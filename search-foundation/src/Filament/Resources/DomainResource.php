@@ -101,6 +101,7 @@ class DomainResource extends SeoPanelResource
                 Forms\Components\Select::make('seo_industry_context_key')
                     ->label(app()->getLocale() === 'vi' ? 'Ngữ cảnh ngành' : 'Industry Context')
                     ->options(fn (): array => IndustryContextProfile::query()
+                        ->where('is_active', true)
                         ->orderBy('name')
                         ->pluck('name', 'key')
                         ->all())
