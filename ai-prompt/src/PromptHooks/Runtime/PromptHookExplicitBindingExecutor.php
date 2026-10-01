@@ -277,8 +277,10 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $compileVars = $this->expandCompileAliasMirrors($input);
             $compiledPrompt = $this->promptRunner->compilePrompt($prompt, $compileVars);
             if ($definition->key->value === 'industry.context.generate') {
-                $compiledPrompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler::compile(
-                    $compiledPrompt,
+                $compiledPrompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler::runnablePrompt(
+                    (string) ($input['context_name'] ?? ''),
+                    isset($input['language']) ? (string) $input['language'] : 'vi',
+                    isset($input['market']) ? (string) $input['market'] : null,
                     isset($input['notes']) ? (string) $input['notes'] : null,
                 );
             }

@@ -16,8 +16,11 @@ final class IndustryContextGenerationService
     public function __construct(private readonly PromptHookBindingRunner $runner) {}
 
     /** @return array<string, mixed> */
-    public function generate(string $contextName, string $language, string $market, ?string $notes = null): array
+    public function generate(string $contextName, ?string $language = 'vi', ?string $market = null, ?string $notes = null): array
     {
+        $contextName = trim($contextName);
+        $language = trim((string) $language) ?: 'vi';
+        $market = trim((string) $market);
         app(DefaultIndustryContextPromptInstaller::class)->install();
         $prompt = SeoPrompt::query()->where('hook_key', DefaultIndustryContextPromptInstaller::HOOK_KEY)
             ->where('name', DefaultIndustryContextPromptInstaller::PROMPT_NAME)->orderBy('id')->firstOrFail();
@@ -42,7 +45,7 @@ final class IndustryContextGenerationService
         );
     }
 
-    public function copyPrompt(string $contextName, string $language, string $market, ?string $notes = null): string
+    public function copyPrompt(string $contextName, ?string $language = 'vi', ?string $market = null, ?string $notes = null): string
     {
         return IndustryContextPromptCompiler::runnablePrompt($contextName, $language, $market, $notes);
     }

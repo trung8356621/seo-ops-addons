@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
 use App\IndustryContext\IndustryContextSchema;
+use InvalidArgumentException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
@@ -47,10 +48,31 @@ final class IndustryContextPromptTest extends TestCase
     {
         $prompt = IndustryContextPromptCompiler::runnablePrompt('Balo & túi xách', 'vi', 'VN', 'Focus on durable retail context.');
         self::assertStringContainsString('Balo & túi xách', $prompt);
-        self::assertStringContainsString('in vi for VN', $prompt);
+        self::assertStringContainsString('in "vi" for market "VN"', $prompt);
         self::assertStringContainsString(IndustryContextSchema::json(), $prompt);
         self::assertStringContainsString('Focus on durable retail context.', $prompt);
         self::assertStringNotContainsString('CURRENT_CONTEXT_SENTINEL', $prompt);
+    }
+
+    public function test_runnable_prompt_requires_only_name_and_omits_blank_optional_clauses(): void
+    {
+        $nameOnly = IndustryContextPromptCompiler::runnablePrompt('Bags');
+        self::assertStringContainsString('for "Bags" in "vi", strictly following', $nameOnly);
+        self::assertStringNotContainsString('for ""', $nameOnly);
+        self::assertStringNotContainsString('undefined', $nameOnly);
+        self::assertStringContainsString(IndustryContextSchema::json(), $nameOnly);
+
+        $languageOnly = IndustryContextPromptCompiler::runnablePrompt('Bags', 'en');
+        self::assertStringContainsString('for "Bags" in "en", strictly following', $languageOnly);
+
+        $withMarket = IndustryContextPromptCompiler::runnablePrompt('Bags', 'en', 'US');
+        self::assertStringContainsString('for "Bags" in "en" for market "US", strictly following', $withMarket);
+    }
+
+    public function test_runnable_prompt_rejects_blank_name(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        IndustryContextPromptCompiler::runnablePrompt('   ');
     }
 
     public function test_generation_output_validation_accepts_valid_json_and_rejects_invalid_json(): void
