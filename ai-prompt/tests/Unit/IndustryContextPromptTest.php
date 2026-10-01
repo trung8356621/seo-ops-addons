@@ -6,13 +6,15 @@ namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
 use App\IndustryContext\IndustryContextSchema;
 use InvalidArgumentException;
+use Mockery;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultIndustryContextPromptInstaller;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextGenerationService;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler;
-use PHPUnit\Framework\TestCase;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Tests\TestCase;
 use UnexpectedValueException;
 
 final class IndustryContextPromptTest extends TestCase
@@ -44,35 +46,68 @@ final class IndustryContextPromptTest extends TestCase
         self::assertStringContainsString('if (! isset($bindings[self::HOOK_KEY]))', (string) $source);
     }
 
-    public function test_copy_prompt_substitutes_values_and_contains_schema_not_current_context(): void
+    public function test_compile_prompt_uses_current_stored_prompt_without_executing_provider(): void
     {
-        $prompt = IndustryContextPromptCompiler::runnablePrompt('Balo & túi xách', 'vi', 'VN', 'Focus on durable retail context.');
-        self::assertStringContainsString('Balo & túi xách', $prompt);
-        self::assertStringContainsString('in "vi" for market "VN"', $prompt);
-        self::assertStringContainsString(IndustryContextSchema::json(), $prompt);
-        self::assertStringContainsString('Focus on durable retail context.', $prompt);
-        self::assertStringNotContainsString('CURRENT_CONTEXT_SENTINEL', $prompt);
+        $runner = new class implements PromptHookBindingRunner
+        {
+            public bool $called = false;
+
+            public function execute(SeoPrompt $prompt, array $variables = [], array $contextExtras = [], array $previousOutputs = []): array
+            {
+                $this->called = true;
+
+                return [];
+            }
+        };
+        $storedPrompt = new SeoPrompt;
+        $storedPrompt->forceFill([
+            'name' => DefaultIndustryContextPromptInstaller::PROMPT_NAME,
+            'hook_key' => DefaultIndustryContextPromptInstaller::HOOK_KEY,
+            'markdown_content' => 'OPERATOR EDITED {{context_name}} / {{language}} / {{market}}',
+        ]);
+        $promptRunner = Mockery::mock(PromptRunnerService::class);
+        $promptRunner->shouldReceive('compilePrompt')
+            ->once()
+            ->with($storedPrompt, Mockery::on(fn (array $variables): bool => $variables === [
+                'context_name' => 'Balo & túi xách',
+                'language' => 'vi',
+                'market' => 'VN',
+                'notes' => 'Focus on retail.',
+            ]))
+            ->andReturn('OPERATOR EDITED Balo & túi xách / vi / VN');
+
+        $service = new IndustryContextGenerationService($runner, $promptRunner, fn (): SeoPrompt => $storedPrompt);
+        $compiled = $service->compilePrompt(' Balo & túi xách ', ' vi ', ' VN ', ' Focus on retail. ');
+
+        self::assertFalse($runner->called);
+        self::assertStringContainsString('OPERATOR EDITED Balo & túi xách / vi / VN', $compiled);
+        self::assertStringNotContainsString(DefaultIndustryContextPromptInstaller::canonicalDefaultMarkdown(), $compiled);
+        self::assertStringContainsString("Temporary generation notes:\nFocus on retail.", $compiled);
+        self::assertStringContainsString(IndustryContextSchema::json(), $compiled);
+        self::assertStringNotContainsString('CURRENT_CONTEXT_SENTINEL', $compiled);
     }
 
-    public function test_runnable_prompt_requires_only_name_and_omits_blank_optional_clauses(): void
+    public function test_compile_prompt_requires_name_and_never_calls_runner(): void
     {
-        $nameOnly = IndustryContextPromptCompiler::runnablePrompt('Bags');
-        self::assertStringContainsString('for "Bags" in "vi", strictly following', $nameOnly);
-        self::assertStringNotContainsString('for ""', $nameOnly);
-        self::assertStringNotContainsString('undefined', $nameOnly);
-        self::assertStringContainsString(IndustryContextSchema::json(), $nameOnly);
+        $runner = new class implements PromptHookBindingRunner
+        {
+            public bool $called = false;
 
-        $languageOnly = IndustryContextPromptCompiler::runnablePrompt('Bags', 'en');
-        self::assertStringContainsString('for "Bags" in "en", strictly following', $languageOnly);
+            public function execute(SeoPrompt $prompt, array $variables = [], array $contextExtras = [], array $previousOutputs = []): array
+            {
+                $this->called = true;
 
-        $withMarket = IndustryContextPromptCompiler::runnablePrompt('Bags', 'en', 'US');
-        self::assertStringContainsString('for "Bags" in "en" for market "US", strictly following', $withMarket);
-    }
+                return [];
+            }
+        };
+        $service = new IndustryContextGenerationService($runner);
 
-    public function test_runnable_prompt_rejects_blank_name(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-        IndustryContextPromptCompiler::runnablePrompt('   ');
+        try {
+            $service->compilePrompt('   ');
+            self::fail('Blank name should be rejected.');
+        } catch (InvalidArgumentException) {
+            self::assertFalse($runner->called);
+        }
     }
 
     public function test_generation_output_validation_accepts_valid_json_and_rejects_invalid_json(): void

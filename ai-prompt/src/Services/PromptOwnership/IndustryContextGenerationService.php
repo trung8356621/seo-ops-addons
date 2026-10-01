@@ -6,27 +6,27 @@ namespace Omnichannel\Addons\AiPrompt\Services\PromptOwnership;
 
 use App\IndustryContext\IndustryContextSchema;
 use App\Models\IndustryContextProfile;
+use Closure;
+use InvalidArgumentException;
 use JsonException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use RuntimeException;
 
 final class IndustryContextGenerationService
 {
-    public function __construct(private readonly PromptHookBindingRunner $runner) {}
+    public function __construct(
+        private readonly PromptHookBindingRunner $runner,
+        private readonly ?PromptRunnerService $promptRunner = null,
+        private readonly ?Closure $promptResolver = null,
+    ) {}
 
     /** @return array<string, mixed> */
     public function generate(string $contextName, ?string $language = 'vi', ?string $market = null, ?string $notes = null): array
     {
-        $contextName = trim($contextName);
-        $language = trim((string) $language) ?: 'vi';
-        $market = trim((string) $market);
-        app(DefaultIndustryContextPromptInstaller::class)->install();
-        $prompt = SeoPrompt::query()->where('hook_key', DefaultIndustryContextPromptInstaller::HOOK_KEY)
-            ->where('name', DefaultIndustryContextPromptInstaller::PROMPT_NAME)->orderBy('id')->firstOrFail();
-        $result = $this->runner->execute($prompt, [
-            'context_name' => $contextName, 'language' => $language, 'market' => $market, 'notes' => $notes,
-        ], ['locale' => $language]);
+        $seed = $this->normalizedSeed($contextName, $language, $market, $notes);
+        $result = $this->runner->execute($this->resolvePrompt(), $seed, ['locale' => $seed['language']]);
 
         return $this->validatedOutput($result['value'] ?? $result['output'] ?? null);
     }
@@ -45,9 +45,15 @@ final class IndustryContextGenerationService
         );
     }
 
-    public function copyPrompt(string $contextName, ?string $language = 'vi', ?string $market = null, ?string $notes = null): string
+    public function compilePrompt(string $contextName, ?string $language = 'vi', ?string $market = null, ?string $notes = null): string
     {
-        return IndustryContextPromptCompiler::runnablePrompt($contextName, $language, $market, $notes);
+        $seed = $this->normalizedSeed($contextName, $language, $market, $notes);
+        $compiled = ($this->promptRunner ?? app(PromptRunnerService::class))->compilePrompt(
+            $this->resolvePrompt(),
+            $seed,
+        );
+
+        return IndustryContextPromptCompiler::compile($compiled, $seed['notes']);
     }
 
     /** @return array<string, mixed> */
@@ -63,5 +69,49 @@ final class IndustryContextGenerationService
         IndustryContextSchema::assertValid($output);
 
         return $output;
+    }
+
+    /** @return array{context_name:string,language:string,market:?string,notes:?string} */
+    private function normalizedSeed(string $contextName, ?string $language, ?string $market, ?string $notes): array
+    {
+        $contextName = trim($contextName);
+        if ($contextName === '') {
+            throw new InvalidArgumentException('Industry Context name is required.');
+        }
+        $language = trim((string) $language) ?: 'vi';
+        $market = trim((string) $market);
+        $notes = trim((string) $notes);
+
+        return [
+            'context_name' => $contextName,
+            'language' => $language,
+            'market' => $market !== '' ? $market : null,
+            'notes' => $notes !== '' ? $notes : null,
+        ];
+    }
+
+    private function resolvePrompt(): SeoPrompt
+    {
+        if ($this->promptResolver !== null) {
+            $prompt = ($this->promptResolver)();
+            if (! $prompt instanceof SeoPrompt) {
+                throw new RuntimeException('Industry Context prompt resolver returned an invalid prompt.');
+            }
+
+            return $prompt;
+        }
+
+        $query = fn (): ?SeoPrompt => SeoPrompt::query()
+            ->where('hook_key', DefaultIndustryContextPromptInstaller::HOOK_KEY)
+            ->where('name', DefaultIndustryContextPromptInstaller::PROMPT_NAME)
+            ->orderBy('id')
+            ->first();
+        $prompt = $query();
+        if ($prompt === null) {
+            app(DefaultIndustryContextPromptInstaller::class)->install();
+            $prompt = $query();
+        }
+
+        return $prompt ?? throw new RuntimeException('Industry Context prompt could not be resolved.');
     }
 }
