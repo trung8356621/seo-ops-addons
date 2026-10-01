@@ -85,6 +85,12 @@ final class IndustryContextPromptTest extends TestCase
         self::assertStringContainsString("Temporary generation notes:\nFocus on retail.", $compiled);
         self::assertStringContainsString(IndustryContextSchema::json(), $compiled);
         self::assertStringNotContainsString('CURRENT_CONTEXT_SENTINEL', $compiled);
+        self::assertStringContainsString('human-readable values must primarily be Vietnamese', $compiled);
+        self::assertStringContainsString('MOQ (số lượng đặt hàng tối thiểu)', $compiled);
+        self::assertStringContainsString('OEM/ODM (sản xuất theo thiết kế hoặc thương hiệu đặt hàng)', $compiled);
+        self::assertStringContainsString('EDC (các vật dụng thường mang theo hằng ngày)', $compiled);
+        self::assertStringContainsString('Do not write complete names, descriptions, sentences, or headings in English', $compiled);
+        self::assertStringContainsString('Other languages retain normal locale-aware behavior', $compiled);
     }
 
     public function test_compile_prompt_requires_name_and_never_calls_runner(): void
