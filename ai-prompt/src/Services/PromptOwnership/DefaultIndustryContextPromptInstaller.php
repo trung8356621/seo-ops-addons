@@ -17,36 +17,50 @@ final class DefaultIndustryContextPromptInstaller
 
     public const PROMPT_NAME = 'Industry Context Generator';
 
+    /** @var array<string, array{hook:string,name:string}> */
+    private const TYPES = [
+        'core' => ['hook' => self::HOOK_KEY, 'name' => self::PROMPT_NAME],
+        'discovery' => ['hook' => 'industry.discovery.generate', 'name' => 'Industry Discovery & Attention Generator'],
+        'breakout' => ['hook' => 'industry.breakout.generate', 'name' => 'Industry Breakout Generator'],
+    ];
+
     public function __construct(private readonly SeoCreateArticleSettingsService $settings) {}
 
     /** @return array{prompt_id:int,created:bool,binding_set:bool,restored:bool} */
     public function install(bool $restoreCanonical = false): array
     {
-        $prompt = SeoPrompt::query()->where('hook_key', self::HOOK_KEY)->where('name', self::PROMPT_NAME)->orderBy('id')->first();
+        return $this->installType('core', $restoreCanonical);
+    }
+
+    /** @return array{prompt_id:int,created:bool,binding_set:bool,restored:bool} */
+    public function installType(string $type, bool $restoreCanonical = false): array
+    {
+        $config = self::TYPES[$type] ?? throw new RuntimeException("Unknown Industry Context prompt type [{$type}].");
+        $prompt = SeoPrompt::query()->where('hook_key', $config['hook'])->where('name', $config['name'])->orderBy('id')->first();
         $created = false;
         $restored = false;
         if ($prompt === null) {
             $prompt = new SeoPrompt;
-            $prompt->fill(['name' => self::PROMPT_NAME, 'title' => self::PROMPT_NAME, 'markdown_content' => self::canonicalDefaultMarkdown(), 'description' => self::canonicalDescription(), 'hook_key' => self::HOOK_KEY, 'hook_version' => self::HOOK_VERSION, 'variables' => self::canonicalVariables(), 'tools' => 'default', 'is_active' => true, 'user_id' => $this->systemUserId(), 'settings' => ['is_system_default' => true, 'ownership' => 'settings_binding']]);
+            $prompt->fill(['name' => $config['name'], 'title' => $config['name'], 'markdown_content' => self::canonicalDefaultMarkdown($type), 'description' => self::canonicalDescription($type), 'hook_key' => $config['hook'], 'hook_version' => self::HOOK_VERSION, 'variables' => self::canonicalVariables($type), 'tools' => 'default', 'is_active' => true, 'user_id' => $this->systemUserId(), 'settings' => ['is_system_default' => true, 'ownership' => 'settings_binding']]);
             $prompt->save();
             $created = true;
         } elseif ($restoreCanonical) {
-            $prompt->fill(['markdown_content' => self::canonicalDefaultMarkdown(), 'description' => self::canonicalDescription(), 'variables' => self::canonicalVariables(), 'hook_version' => self::HOOK_VERSION])->save();
+            $prompt->fill(['markdown_content' => self::canonicalDefaultMarkdown($type), 'description' => self::canonicalDescription($type), 'variables' => self::canonicalVariables($type), 'hook_version' => self::HOOK_VERSION])->save();
             $restored = true;
         }
         $bindings = $this->settings->getPromptHookBindings();
         $bindingSet = false;
-        if (! isset($bindings[self::HOOK_KEY])) {
-            $this->settings->savePromptHookBindings([self::HOOK_KEY => (int) $prompt->id]);
+        if (! isset($bindings[$config['hook']])) {
+            $this->settings->savePromptHookBindings([$config['hook'] => (int) $prompt->id]);
             $bindingSet = true;
         }
 
         return ['prompt_id' => (int) $prompt->id, 'created' => $created, 'binding_set' => $bindingSet, 'restored' => $restored];
     }
 
-    public static function canonicalDefaultMarkdown(): string
+    public static function canonicalDefaultMarkdown(string $type = 'core'): string
     {
-        $block = self::spec()['canonical_default'] ?? [];
+        $block = self::spec($type)['canonical_default'] ?? [];
         $value = is_array($block) ? trim((string) ($block['markdown'] ?? '')) : '';
         if ($value === '') {
             throw new RuntimeException('Canonical Industry Context prompt is empty.');
@@ -55,16 +69,16 @@ final class DefaultIndustryContextPromptInstaller
         return $value;
     }
 
-    public static function canonicalDescription(): string
+    public static function canonicalDescription(string $type = 'core'): string
     {
-        return (string) (self::spec()['description'] ?? 'Industry Context generator.');
+        return (string) (self::spec($type)['description'] ?? 'Industry Context generator.');
     }
 
     /** @return list<array{name:string,description:string}> */
-    public static function canonicalVariables(): array
+    public static function canonicalVariables(string $type = 'core'): array
     {
         $rows = [];
-        foreach ((array) (self::spec()['input_schema'] ?? []) as $name => $field) {
+        foreach ((array) (self::spec($type)['input_schema'] ?? []) as $name => $field) {
             $rows[] = ['name' => (string) $name, 'description' => (string) ((array) $field)['label']];
         }
 
@@ -72,9 +86,10 @@ final class DefaultIndustryContextPromptInstaller
     }
 
     /** @return array<string,mixed> */
-    private static function spec(): array
+    private static function spec(string $type = 'core'): array
     {
-        $path = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.self::HOOK_KEY.'@'.self::HOOK_VERSION.'.json';
+        $config = self::TYPES[$type] ?? throw new RuntimeException("Unknown Industry Context prompt type [{$type}].");
+        $path = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.$config['hook'].'@'.self::HOOK_VERSION.'.json';
         $value = json_decode((string) file_get_contents($path), true);
         if (! is_array($value)) {
             throw new RuntimeException('Canonical Industry Context Hook JSON is invalid.');

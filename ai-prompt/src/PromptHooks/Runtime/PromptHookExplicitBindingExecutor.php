@@ -276,9 +276,16 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             // Alias mirrors (focus_keyword/title/…) are derived from mapped input for compile only.
             $compileVars = $this->expandCompileAliasMirrors($input);
             $compiledPrompt = $this->promptRunner->compilePrompt($prompt, $compileVars);
-            if ($definition->key->value === 'industry.context.generate') {
-                $compiledPrompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler::compile(
+            $industryContextType = match ($definition->key->value) {
+                'industry.context.generate' => 'core',
+                'industry.discovery.generate' => 'discovery',
+                'industry.breakout.generate' => 'breakout',
+                default => null,
+            };
+            if ($industryContextType !== null) {
+                $compiledPrompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler::compileForType(
                     $compiledPrompt,
+                    $industryContextType,
                     isset($input['notes']) ? (string) $input['notes'] : null,
                 );
             }
