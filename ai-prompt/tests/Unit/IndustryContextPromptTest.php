@@ -91,6 +91,14 @@ final class IndustryContextPromptTest extends TestCase
         self::assertStringContainsString('EDC (các vật dụng thường mang theo hằng ngày)', $compiled);
         self::assertStringContainsString('Do not write complete names, descriptions, sentences, or headings in English', $compiled);
         self::assertStringContainsString('Other languages retain normal locale-aware behavior', $compiled);
+        self::assertStringContainsString('Normally target 1-4 words and strongly prefer 5 words or fewer', $compiled);
+        self::assertStringContainsString('Query patterns may be longer than concise industry keywords', $compiled);
+        self::assertStringContainsString('Full natural-language questions are allowed', $compiled);
+        self::assertStringContainsString('Generate a comprehensive Core profile', $compiled);
+        self::assertStringNotContainsString('"topic_mix"', $compiled);
+        self::assertStringNotContainsString('"discovery_attention_topics"', $compiled);
+        self::assertStringNotContainsString('"breakout_topics"', $compiled);
+        self::assertStringNotContainsString('"tier_rules"', $compiled);
     }
 
     public function test_compile_prompt_requires_name_and_never_calls_runner(): void
