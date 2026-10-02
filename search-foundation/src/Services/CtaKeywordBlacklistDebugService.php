@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Services;
 
+use Omnichannel\Addons\AiPrompt\Services\OutlineSkipListMatcher;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 
 final class CtaKeywordBlacklistDebugService
