@@ -141,7 +141,7 @@
     </div>
 
     @viteReactRefresh
-    @vite('addons/seo/resources/js/article-seo-preview.jsx')
+    @vite('addons/seo/resources/js/article-seo-preview.jsx', 'build-seo')
 
     @once
         <style>

@@ -28,7 +28,7 @@
     ];
 @endphp
 
-@vite('addons/ai-prompt/resources/css/global-ai-chat.css')
+@vite('addons/ai-prompt/resources/css/global-ai-chat.css', 'build-support')
 
 <div
     class="seo-global-chat"

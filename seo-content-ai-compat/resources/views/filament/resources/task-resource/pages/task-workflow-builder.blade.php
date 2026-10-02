@@ -28,6 +28,6 @@
 
     @push('scripts')
         @viteReactRefresh
-        @vite('addons/content-projects/resources/js/task-builder.jsx')
+        @vite('addons/content-projects/resources/js/task-builder.jsx', 'build-projects')
     @endpush
 </x-filament-panels::page>

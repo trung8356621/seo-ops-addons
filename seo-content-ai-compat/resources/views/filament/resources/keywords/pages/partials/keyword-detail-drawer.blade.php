@@ -98,4 +98,4 @@
     </aside>
 </div>
 
-@vite('addons/seo/resources/js/keyword-detail-panel.jsx')
+@vite('addons/seo/resources/js/keyword-detail-panel.jsx', 'build-seo')

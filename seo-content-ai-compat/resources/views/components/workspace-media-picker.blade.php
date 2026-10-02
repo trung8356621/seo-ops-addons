@@ -9,7 +9,7 @@
     ];
 @endphp
 
-@vite('addons/media/resources/js/article-media-picker-cache-bootstrap.js')
+@vite('addons/media/resources/js/article-media-picker-cache-bootstrap.js', 'build-media')
 
 <div
     wire:ignore

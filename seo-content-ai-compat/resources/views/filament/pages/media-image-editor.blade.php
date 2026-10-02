@@ -1,5 +1,5 @@
 @viteReactRefresh
-@vite('addons/media/resources/js/media-image-editor-page.jsx')
+@vite('addons/media/resources/js/media-image-editor-page.jsx', 'build-media')
 
 <div
     id="seo-media-image-editor-root"

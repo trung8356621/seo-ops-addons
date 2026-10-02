@@ -1,8 +1,6 @@
 @push('styles')
-    @vite([
-        'addons/media/resources/js/article-media-picker-cache-bootstrap.js',
-        'addons/content/resources/css/article-edit-page.css',
-    ])
+    @vite('addons/media/resources/js/article-media-picker-cache-bootstrap.js', 'build-media')
+    @vite('addons/content/resources/css/article-edit-page.css', 'build-editor')
     {{-- Inline fallback: topbar hide không phụ thuộc hashed CSS nếu Vite stale --}}
     <style id="article-editor-ui-revision-style">
         body.article-editor-page .fi-topbar,
@@ -1033,7 +1031,7 @@
 
     @push('scripts')
         @viteReactRefresh
-        @vite('addons/content/resources/js/article-editor.jsx')
+        @vite('addons/content/resources/js/article-editor.jsx', 'build-editor')
     @endpush
 
 @endif

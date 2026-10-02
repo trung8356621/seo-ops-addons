@@ -23,6 +23,6 @@
 
     @push('scripts')
         @viteReactRefresh
-        @vite('addons/content-projects/resources/js/automation-workflow-builder.jsx')
+        @vite('addons/content-projects/resources/js/automation-workflow-builder.jsx', 'build-projects')
     @endpush
 </x-filament-panels::page>

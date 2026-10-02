@@ -26,11 +26,7 @@
     ];
 @endphp
 
-@if (file_exists(public_path('build-agent/manifest.json')))
-    @vite('addons/agent-runtime/resources/js/app/main.jsx', 'build-agent')
-@else
-    @vite('addons/agent-runtime/resources/js/app/main.jsx')
-@endif
+@vite('addons/agent-runtime/resources/js/app/main.jsx', 'build-agent')
 
 <div
     class="agent-drawer-host"

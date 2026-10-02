@@ -2,7 +2,7 @@
     @vite([
         'addons/content-projects/resources/css/project-run-step.css',
         'addons/content/resources/js/article-execution-history.jsx',
-    ])
+    ], 'build-projects')
 
     @php
         $groups = $this->getAiCallGroups();

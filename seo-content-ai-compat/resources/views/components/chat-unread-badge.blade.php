@@ -9,7 +9,7 @@
         data-props='@json(['unreadUrl' => $unreadUrl])'
         aria-hidden="true"
     ></div>
-    @vite('addons/content/resources/js/chat/unreadBadge.js')
+    @vite('addons/content/resources/js/chat/unreadBadge.js', 'build-support')
 @endif
 
 {{-- Floating Chat/Agent launcher retired from normal/global pages.

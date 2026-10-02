@@ -2,7 +2,7 @@
     @vite([
         'addons/content-projects/resources/js/automation-workflow-viewer.jsx',
         'addons/content-projects/resources/css/automation-workflow-viewer.css',
-    ])
+    ], 'build-projects')
 
     <div
         class="space-y-4"

@@ -1,7 +1,7 @@
 <x-filament-panels::page>
     @vite([
         'addons/media/resources/css/media-library.css',
-    ])
+    ], 'build-media')
 
     <div
         class="seo-media-library seo-ai-processing"

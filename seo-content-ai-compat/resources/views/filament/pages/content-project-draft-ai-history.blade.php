@@ -5,7 +5,7 @@
 
 <x-filament-panels::page>
     <x-seo-content-ai::content-project-ops-styles />
-    @vite(['addons/content-projects/resources/css/project-run-step.css'])
+    @vite(['addons/content-projects/resources/css/project-run-step.css'], 'build-projects')
 
     <x-seo-content-ai::prompt-ai-calls-panel
         :groups="$payload['groups']"

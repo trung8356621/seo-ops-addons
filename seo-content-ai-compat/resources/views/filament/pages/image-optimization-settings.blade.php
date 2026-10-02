@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    @vite('addons/media/resources/css/image-optimization-settings.css')
+    @vite('addons/media/resources/css/image-optimization-settings.css', 'build-media')
 
     <div class="seo-image-opt">
         <div class="seo-image-opt__toolbar">

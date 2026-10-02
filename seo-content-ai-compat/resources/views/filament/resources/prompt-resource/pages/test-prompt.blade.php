@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    @vite('addons/media/resources/css/media-library.css')
+    @vite('addons/media/resources/css/media-library.css', 'build-media')
 
     <div class="seo-prompt-test-layout">
         {{-- Cột 1: Prompt template --}}

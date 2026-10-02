@@ -5,7 +5,7 @@
 
 <x-filament-panels::page>
     @push('styles')
-        @vite('addons/content-projects/resources/css/project-run-queue.css')
+        @vite('addons/content-projects/resources/css/project-run-queue.css', 'build-projects')
         <style>
             .seo-run-items-wrap,
             .seo-run-items-wrap table,
@@ -853,6 +853,6 @@
     </div>
 
     @push('scripts')
-        @vite('addons/content-projects/resources/js/project-run-queue.js')
+        @vite('addons/content-projects/resources/js/project-run-queue.js', 'build-projects')
     @endpush
 </x-filament-panels::page>

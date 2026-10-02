@@ -43,14 +43,14 @@
                     Agent Workspace đã được tách khỏi runtime hiện tại (reference-only). Dùng Group Chat hoặc Support Ticket.
                 </div>
             @elseif ($tab === 'group')
-                @vite(['addons/content/resources/js/chat/groupChatApp.js', 'addons/ai-prompt/resources/css/global-ai-chat.css'])
+                @vite(['addons/content/resources/js/chat/groupChatApp.js', 'addons/ai-prompt/resources/css/global-ai-chat.css'], 'build-support')
                 <div
                     id="seo-group-chat-root"
                     class="h-full min-h-0"
                     data-props='@json($groupChatProps)'
                 ></div>
             @else
-                @vite(['addons/content/resources/js/chat/ticketPanel.js', 'addons/ai-prompt/resources/css/global-ai-chat.css'])
+                @vite(['addons/content/resources/js/chat/ticketPanel.js', 'addons/ai-prompt/resources/css/global-ai-chat.css'], 'build-support')
                 <div
                     id="seo-ticket-panel-root"
                     class="h-full min-h-0 overflow-auto p-1"

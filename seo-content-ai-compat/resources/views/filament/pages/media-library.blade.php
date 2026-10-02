@@ -6,7 +6,7 @@
         'addons/media/resources/css/media-library.css',
         'addons/media/resources/js/media-library-actions.js',
         'addons/media/resources/js/media-library-page.jsx',
-    ])
+    ], 'build-media')
     {{-- Inline override: rename modal above preview + actions/footer without waiting for vite rebuild. --}}
     <style>
         .seo-wp-rename-modal { z-index: 100100 !important; padding: 1rem; box-sizing: border-box; }

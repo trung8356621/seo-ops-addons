@@ -1,6 +1,6 @@
 ﻿import { initArticleSeoListModal } from './articleSeoListModal';
 import { initArticleListTableLoading } from '@content-addon/articleListTableLoading.js';
-import '../../../content/resources/css/article-editor.css';
+import '../css/article-seo-preview.css';
 
 export { mountArticleSeoPreview, unmountArticleSeoPreview } from './articleSeoPreviewMount';
 

@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    @vite('addons/content-projects/resources/css/project-run-step.css')
+    @vite('addons/content-projects/resources/css/project-run-step.css', 'build-projects')
 
     @php
         $groups = $this->getRunGroups();

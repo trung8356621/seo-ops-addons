@@ -136,7 +136,7 @@ final class SeoServiceProvider extends ServiceProvider
                     return (string) app(\Illuminate\Foundation\Vite::class)([
                         'addons/seo/resources/css/operational-landing-dashboard.css',
                         'addons/seo/resources/css/ops-statistics.css',
-                    ]);
+                    ], 'build-seo');
                 } catch (\Throwable) {
                     return '';
                 }

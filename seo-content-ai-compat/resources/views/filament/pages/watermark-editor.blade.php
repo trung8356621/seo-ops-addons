@@ -1,6 +1,6 @@
 <x-filament-panels::page>
     @viteReactRefresh
-    @vite('addons/media/resources/js/watermark-editor-page.jsx')
+    @vite('addons/media/resources/js/watermark-editor-page.jsx', 'build-media')
 
     <div class="fi-section rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10 p-4 mb-4">
         <div class="flex flex-wrap items-center gap-3">

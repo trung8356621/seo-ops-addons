@@ -45,4 +45,4 @@
     window.__SEO_DOMAIN_CONTEXT_FROM_SERVER__ = @json($domainContext->domainKey);
     window.__SEO_DOMAIN_CONTEXT_KEY__ = window.__SEO_DOMAIN_CONTEXT_KEY__ || window.__SEO_DOMAIN_CONTEXT_FROM_SERVER__;
 </script>
-@vite('addons/seo/resources/js/domain-context.js')
+@vite('addons/seo/resources/js/domain-context.js', 'build-seo')

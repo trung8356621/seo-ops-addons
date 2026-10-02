@@ -11,7 +11,7 @@
         <style>{!! file_get_contents($cssPath) !!}</style>
     @endif
 
-    @vite(['addons/search-intelligence/resources/js/performance-hub-gsc-chart.js'])
+    @vite(['addons/search-intelligence/resources/js/performance-hub-gsc-chart.js'], 'build-search')
 
     <div class="performance-hub-shell space-y-6">
         @if ($isRankProvider)
