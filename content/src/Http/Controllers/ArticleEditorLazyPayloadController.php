@@ -99,7 +99,9 @@ final class ArticleEditorLazyPayloadController extends Controller
             'success' => true,
             'data' => [
                 'count' => $count,
+                'faq_count' => $count,
                 'can_generate' => app(SeoCreateArticleSettingsService::class)->getRenewFaqPromptId() !== null,
+                'can_generate_faq' => app(SeoCreateArticleSettingsService::class)->getRenewFaqPromptId() !== null,
             ],
         ]);
     }
@@ -280,6 +282,7 @@ final class ArticleEditorLazyPayloadController extends Controller
                 'featured_snippet_thresholds' => $promptSettings->getFeaturedSnippetThresholds(),
                 'article_length_product' => $promptSettings->resolveArticleLengthTarget('product'),
                 'article_length_default' => $promptSettings->resolveArticleLengthTarget('article'),
+                'can_generate_faq' => app(SeoCreateArticleSettingsService::class)->getRenewFaqPromptId() !== null,
             ],
         ]);
     }

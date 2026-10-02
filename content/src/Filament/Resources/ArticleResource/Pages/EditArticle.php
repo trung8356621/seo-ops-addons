@@ -4138,8 +4138,9 @@ class EditArticle extends SeoEditRecord
                 'mediaGallery' => route('seo.articles.editor.media.gallery.replace', ['article' => $articleId]),
             ],
             'faqCount' => (int) $this->record->faqs()->count(),
+            'can_generate_faq' => $this->canGenerateArticleFaqs(),
             'settings' => $this->getEditorCoreSettingsPayload($analysisPolicy, $externalFacts),
-            // FREE badge SSOT — must live on core bootstrap (blade no longer embeds getEditorMetaPayload).
+            // FREE badge SSOT — must live on core bootstrap (blade no longer embeds meta payload).
             'content_generation' => ArticleContentGenerationBadge::forArticleId($articleId),
             'aiHistoryPendingApply' => $aiHistoryPending,
         ];
@@ -4223,7 +4224,7 @@ class EditArticle extends SeoEditRecord
             'can_generate_outline_heading' => $this->canGenerateOutlineHeading(),
             'can_generate_image' => $this->canGenerateEditorImage(),
             'can_generate_video' => $this->canGenerateEditorVideo(),
-            'can_generate_faq' => app(SeoCreateArticleSettingsService::class)->getRenewFaqPromptId() !== null,
+            'can_generate_faq' => $this->canGenerateArticleFaqs(),
             'prompt_hooks' => $this->getPromptHooksEditorPayload(),
             'perf_debug' => (bool) config('seo-content-ai.article_editor_perf_debug', false),
             'analysis_policy' => $analysisPolicy ?? $policyService->forArticle($this->record),
@@ -4359,6 +4360,7 @@ class EditArticle extends SeoEditRecord
             'can_generate_outline_heading' => $this->canGenerateOutlineHeading(),
             'can_generate_image' => $this->canGenerateEditorImage(),
             'can_generate_video' => $this->canGenerateEditorVideo(),
+            'can_generate_faq' => $this->canGenerateArticleFaqs(),
             'prompt_hooks' => $this->getPromptHooksEditorPayload(),
             'perf_debug' => (bool) config('seo-content-ai.article_editor_perf_debug', false),
             'analysis_policy' => app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorAnalysisPolicyService::class)

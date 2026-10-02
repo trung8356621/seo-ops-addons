@@ -93,7 +93,6 @@ final class ArticleEditorFaqSnapshotService
             : $article->contentArchiveItem()->exists();
         $canEdit = ! $archived && SeoAccessControl::canAccessArticle($article);
         $canGenerate = $canEdit
-            && SeoAccessControl::canAccessManagerFeatures()
             && $this->workflowSettings->getRenewFaqPromptId() !== null;
 
         return [

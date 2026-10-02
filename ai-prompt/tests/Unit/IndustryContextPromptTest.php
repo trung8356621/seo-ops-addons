@@ -11,6 +11,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultIndustryContextPromptInstaller;
+use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextAuxiliaryPromptGuidance;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextGenerationService;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\IndustryContextPromptCompiler;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
@@ -215,5 +216,118 @@ final class IndustryContextPromptTest extends TestCase
 
         $this->expectException(UnexpectedValueException::class);
         $service->validatedOutput('{"schema_version":"2.0"}');
+    }
+
+    public function test_auxiliary_guidance_helper_contains_canonical_topic_semantic(): void
+    {
+        $guidance = IndustryContextAuxiliaryPromptGuidance::guidance();
+
+        self::assertSame($guidance, \App\IndustryContext\IndustryContextAuxiliaryPromptGuidance::guidance());
+        self::assertTrue(IndustryContextAuxiliaryPromptGuidance::appliesTo('discovery'));
+        self::assertTrue(IndustryContextAuxiliaryPromptGuidance::appliesTo('industry.discovery.generate'));
+        self::assertTrue(IndustryContextAuxiliaryPromptGuidance::appliesTo('breakout'));
+        self::assertTrue(IndustryContextAuxiliaryPromptGuidance::appliesTo('industry.breakout.generate'));
+        self::assertFalse(IndustryContextAuxiliaryPromptGuidance::appliesTo('core'));
+        self::assertFalse(IndustryContextAuxiliaryPromptGuidance::appliesTo('match'));
+
+        self::assertStringContainsString('`topic` is NOT:', $guidance);
+        self::assertStringContainsString('article title', $guidance);
+        self::assertStringContainsString('headline', $guidance);
+        self::assertStringContainsString('content idea', $guidance);
+        self::assertStringContainsString('proposed blog post title', $guidance);
+        self::assertStringContainsString('publish-ready angle', $guidance);
+
+        self::assertStringContainsString('`topic` IS:', $guidance);
+        self::assertStringContainsString('stable canonical label for a reusable subject/concept area', $guidance);
+        self::assertStringContainsString('concise noun phrase', $guidance);
+        self::assertStringContainsString('reusable across many future articles and queries', $guidance);
+        self::assertStringContainsString('Normally keep `topic` concise, preferably about 2–8 words', $guidance);
+
+        self::assertStringContainsString('Knowledge & Search:', $guidance);
+        self::assertStringContainsString('Denier và mật độ sợi', $guidance);
+        self::assertStringContainsString('Chống thấm PU/PVC', $guidance);
+        self::assertStringContainsString('Mút EVA và chống sốc', $guidance);
+        self::assertStringContainsString('Khóa kéo và phụ liệu chịu lực', $guidance);
+
+        self::assertStringContainsString('Lifestyle & Usage:', $guidance);
+        self::assertStringContainsString('EDC hằng ngày', $guidance);
+        self::assertStringContainsString('Balo trong phong cách streetwear', $guidance);
+        self::assertStringContainsString('Balo đi làm', $guidance);
+        self::assertStringContainsString('Balo du lịch cuối tuần', $guidance);
+        self::assertStringContainsString('Phối balo với trang phục công sở', $guidance);
+
+        self::assertStringContainsString('Avoid publish-ready framing such as:', $guidance);
+        self::assertStringContainsString('Cách...', $guidance);
+        self::assertStringContainsString('Hướng dẫn...', $guidance);
+        self::assertStringContainsString('Chiến lược...', $guidance);
+        self::assertStringContainsString('Top...', $guidance);
+        self::assertStringContainsString('Tại sao...', $guidance);
+        self::assertStringContainsString('Nên...', $guidance);
+        self::assertStringContainsString('Xây dựng...', $guidance);
+        self::assertStringContainsString('numbered/listicle framing', $guidance);
+        self::assertStringContainsString('Do NOT ban those words mechanically if they are legitimately part of a concept.', $guidance);
+        self::assertStringContainsString('The rule is semantic: do not produce article-title style topics.', $guidance);
+
+        self::assertStringContainsString('`query_examples` is where natural search queries belong.', $guidance);
+        self::assertStringContainsString('`keywords` is where keyword phrases belong.', $guidance);
+    }
+
+    public function test_both_hooks_receive_same_shared_guidance_while_keeping_branch_specific_scope(): void
+    {
+        $discoveryPrompt = DefaultIndustryContextPromptInstaller::canonicalDefaultMarkdown('discovery');
+        $breakoutPrompt = DefaultIndustryContextPromptInstaller::canonicalDefaultMarkdown('breakout');
+
+        $compiledDiscovery = IndustryContextPromptCompiler::compileForType($discoveryPrompt, 'discovery');
+        $compiledBreakout = IndustryContextPromptCompiler::compileForType($breakoutPrompt, 'breakout');
+
+        $sharedGuidance = IndustryContextAuxiliaryPromptGuidance::guidance();
+
+        self::assertStringContainsString($sharedGuidance, $compiledDiscovery);
+        self::assertStringContainsString($sharedGuidance, $compiledBreakout);
+
+        self::assertStringContainsString('reasonable machine-readable bridge to Core', $compiledDiscovery);
+        self::assertStringContainsString('Discovery & Attention topic and keyword territories', $compiledDiscovery);
+        self::assertStringContainsString('Canonical Industry Discovery & Attention JSON Schema', $compiledDiscovery);
+        self::assertStringNotContainsString('explore far beyond normal Core SEO thinking', $compiledDiscovery);
+        self::assertStringNotContainsString('Breakout territory pool', $compiledDiscovery);
+
+        self::assertStringContainsString('explore far beyond normal Core SEO thinking', $compiledBreakout);
+        self::assertStringContainsString('Breakout territory pool', $compiledBreakout);
+        self::assertStringContainsString('Canonical Industry Breakout JSON Schema', $compiledBreakout);
+        self::assertStringNotContainsString('reasonable machine-readable bridge to Core', $compiledBreakout);
+        self::assertStringNotContainsString('Canonical Industry Discovery & Attention JSON Schema', $compiledBreakout);
+
+        self::assertLessThan(
+            strpos($compiledDiscovery, 'Canonical Industry Discovery & Attention JSON Schema'),
+            strpos($compiledDiscovery, IndustryContextAuxiliaryPromptGuidance::HEADING)
+        );
+        self::assertLessThan(
+            strpos($compiledBreakout, 'Canonical Industry Breakout JSON Schema'),
+            strpos($compiledBreakout, IndustryContextAuxiliaryPromptGuidance::HEADING)
+        );
+    }
+
+    public function test_raw_default_markdowns_do_not_duplicate_shared_guidance_text(): void
+    {
+        $discoveryRaw = DefaultIndustryContextPromptInstaller::canonicalDefaultMarkdown('discovery');
+        $breakoutRaw = DefaultIndustryContextPromptInstaller::canonicalDefaultMarkdown('breakout');
+
+        self::assertStringNotContainsString('Denier và mật độ sợi', $discoveryRaw);
+        self::assertStringNotContainsString('Denier và mật độ sợi', $breakoutRaw);
+        self::assertStringNotContainsString('EDC hằng ngày', $discoveryRaw);
+        self::assertStringNotContainsString('EDC hằng ngày', $breakoutRaw);
+        self::assertStringNotContainsString(IndustryContextAuxiliaryPromptGuidance::HEADING, $discoveryRaw);
+        self::assertStringNotContainsString(IndustryContextAuxiliaryPromptGuidance::HEADING, $breakoutRaw);
+    }
+
+    public function test_core_and_match_prompts_do_not_contain_auxiliary_topic_guidance(): void
+    {
+        $coreCompiled = IndustryContextPromptCompiler::compileForType('Core prompt content', 'core');
+        $matchCompiled = IndustryContextPromptCompiler::compileForType('Match prompt content', 'match');
+
+        self::assertStringNotContainsString(IndustryContextAuxiliaryPromptGuidance::HEADING, $coreCompiled);
+        self::assertStringNotContainsString(IndustryContextAuxiliaryPromptGuidance::HEADING, $matchCompiled);
+        self::assertStringNotContainsString('Denier và mật độ sợi', $coreCompiled);
+        self::assertStringNotContainsString('Denier và mật độ sợi', $matchCompiled);
     }
 }

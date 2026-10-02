@@ -1,7 +1,10 @@
 import React from 'react';
 import { t } from '../utils/i18n';
 import { useFaqGenerationState } from '../utils/faqGenerationCommand';
-import { isFaqGenerationCreateDisabled } from '../utils/faqGenerationCommandStore';
+import {
+    getFaqGenerationCreateDisabledReason,
+    isFaqGenerationCreateDisabled,
+} from '../utils/faqGenerationCommandStore';
 
 /**
  * Compact FAQ shortcode surface — count + Edit/Create. Full rows stay lazy in FAQ module.
@@ -30,22 +33,36 @@ export default function FaqAccordionPreview({
         : countFromRows;
     const hasFaq = resolvedCount > 0 || countFromRows > 0;
     const generation = useFaqGenerationState();
-    const generationBusy = generation.phase !== 'idle';
+    const generationBusy = generation.phase === 'opening' || generation.phase === 'generating' || generation.phase === 'applying';
+    const isPreviewPhase = generation.phase === 'preview';
     const createDisabled = isFaqGenerationCreateDisabled({
         phase: generation.phase,
         canGenerateFaq,
         onCreateFaq,
     });
+    const disabledReason = createDisabled
+        ? getFaqGenerationCreateDisabledReason({
+            phase: generation.phase,
+            canGenerateFaq,
+            onCreateFaq,
+            t,
+        })
+        : '';
+
+    let cardBody = t('faq_shortcode_empty');
+    if (hasFaq) {
+        cardBody = t('faq_shortcode_count', { count: resolvedCount });
+    } else if (isPreviewPhase) {
+        cardBody = t('faq_shortcode_preview_pending');
+    } else if (generationBusy) {
+        cardBody = t('faq_generate_ai_loading');
+    }
 
     return (
         <div className="omi-faq-editor-preview omi-faq-editor-preview--compact" data-omi-faq="1">
             <div className="omi-faq-placeholder omi-faq-shortcode-card">
                 <div className="omi-faq-shortcode-card__title">{t('faq_shortcode_title')}</div>
-                <div className="omi-faq-shortcode-card__body">
-                    {hasFaq
-                        ? t('faq_shortcode_count', { count: resolvedCount })
-                        : t('faq_shortcode_empty')}
-                </div>
+                <div className="omi-faq-shortcode-card__body">{cardBody}</div>
                 <div className="omi-faq-shortcode-card__actions">
                     {hasFaq ? (
                         <button
@@ -58,11 +75,23 @@ export default function FaqAccordionPreview({
                         >
                             {t('faq_shortcode_edit')}
                         </button>
+                    ) : isPreviewPhase ? (
+                        <button
+                            type="button"
+                            className="omi-faq-shortcode-card__btn"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onEditFaq?.();
+                            }}
+                        >
+                            {t('faq_shortcode_view_preview')}
+                        </button>
                     ) : (
                         <button
                             type="button"
                             className="omi-faq-shortcode-card__btn"
-                            disabled={createDisabled}
+                            disabled={generationBusy || createDisabled}
+                            title={disabledReason || undefined}
                             onClick={(event) => {
                                 event.stopPropagation();
                                 if (!generationBusy && canGenerateFaq) onCreateFaq?.();

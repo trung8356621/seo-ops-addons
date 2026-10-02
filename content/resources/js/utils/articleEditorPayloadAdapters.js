@@ -188,7 +188,10 @@ export function normalizeSeoSummary(payload) {
 export function normalizeFaqPayload(responseOrPayload) {
     const base = normalizeModulePayload(responseOrPayload);
     const src = base.raw && Object.keys(base.raw).length > 0 ? base.raw : base;
-    const canGenerateRaw = src.can_generate ?? src.can_generate_faq ?? src.canGenerateFaq;
+    const canGenerateRaw = src.can_generate_faq ?? src.can_generate ?? src.canGenerateFaq;
+    const canGenerateFaq = canGenerateRaw !== undefined
+        ? (canGenerateRaw === true || canGenerateRaw === 1 || canGenerateRaw === '1')
+        : false;
 
     return {
         success: Boolean(base.success),
@@ -196,9 +199,9 @@ export function normalizeFaqPayload(responseOrPayload) {
         cached_at: base.cached_at ?? null,
         items: Array.isArray(base.items) ? base.items : [],
         faqs: Array.isArray(base.faqs) ? base.faqs : [],
-        count: Number(src.count ?? base.items.length ?? 0) || 0,
+        count: Number(src.count ?? src.faq_count ?? base.items.length ?? 0) || 0,
         extractDebug: src.extract_debug ?? src.extractDebug ?? null,
-        canGenerateFaq: canGenerateRaw !== false,
+        canGenerateFaq,
         canImportMarkdownFaq: Boolean(src.can_import_markdown_faq ?? src.canImportMarkdownFaq),
         faqSnapshot: src.faq_snapshot && typeof src.faq_snapshot === 'object' ? src.faq_snapshot : null,
         error: base.error,

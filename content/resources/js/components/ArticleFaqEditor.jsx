@@ -251,10 +251,10 @@ export default function ArticleFaqEditor({
     useEffect(() => {
         window.dispatchEvent(
             new CustomEvent('article-faq-rows-changed', {
-                detail: { faqs },
+                detail: { faqs, isPreview: Boolean(aiPreviewPending) },
             }),
         );
-    }, [faqs]);
+    }, [faqs, aiPreviewPending]);
 
     const skipBlurDuplicateCheckRef = useRef(false);
     const flushFaqsInFlightRef = useRef(false);
@@ -610,22 +610,31 @@ export default function ArticleFaqEditor({
                     ? String(window.__seoExportEditorHtml() ?? '')
                     : '';
                 const result = await applyFaqSnapshot(articleId, faqsRef.current, html);
-                if (result?.faq_snapshot) {
-                    setFaqs(normalizeFaqRows(itemsFromFaqSnapshot(result.faq_snapshot)));
-                }
+                const appliedRows = normalizeFaqRows(
+                    result?.faq_snapshot
+                        ? itemsFromFaqSnapshot(result.faq_snapshot)
+                        : (faqsRef.current ?? [])
+                );
+                setFaqs(appliedRows);
+                faqsRef.current = appliedRows;
+                clearFaqDraft(articleId);
+                setAiPreviewPending(false);
+                setSaveStatus('saved');
+                window.dispatchEvent(
+                    new CustomEvent('article-faq-rows-changed', {
+                        detail: { faqs: appliedRows, isPreview: false },
+                    }),
+                );
                 if (result?.editor_html) {
                     window.dispatchEvent(
                         new CustomEvent('article-faqs-extracted', {
                             detail: {
-                                faqs: faqsRef.current,
+                                faqs: appliedRows,
                                 editorHtml: result.editor_html,
                             },
                         }),
                     );
                 }
-                clearFaqDraft(articleId);
-                setAiPreviewPending(false);
-                setSaveStatus('saved');
                 finishFaqGeneration(applyRequestId);
             } catch (error) {
                 window.dispatchEvent(

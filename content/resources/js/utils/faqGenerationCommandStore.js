@@ -51,6 +51,9 @@ export function createFaqGenerationCommandStore({ observe = () => {} } = {}) {
             if (executor !== currentExecutor) return false;
             executor = null;
             emit('executor unregistered');
+            if (state.phase === 'generating' || state.phase === 'opening') {
+                publish({ phase: 'idle', requestId: state.requestId, source: null });
+            }
             return true;
         },
         claim(requestId = null) {
@@ -98,4 +101,20 @@ export function createFaqGenerationCommandStore({ observe = () => {} } = {}) {
 
 export function isFaqGenerationCreateDisabled({ phase, canGenerateFaq, onCreateFaq }) {
     return phase !== 'idle' || !canGenerateFaq || typeof onCreateFaq !== 'function';
+}
+
+export function getFaqGenerationCreateDisabledReason({ phase, canGenerateFaq, onCreateFaq, t = (k) => k }) {
+    if (phase === 'opening' || phase === 'generating') {
+        return t('faq_generate_ai_loading');
+    }
+    if (phase === 'applying') {
+        return t('faq_saving');
+    }
+    if (!canGenerateFaq) {
+        return t('faq_generate_disabled_reason');
+    }
+    if (typeof onCreateFaq !== 'function') {
+        return t('faq_generate_unavailable');
+    }
+    return '';
 }

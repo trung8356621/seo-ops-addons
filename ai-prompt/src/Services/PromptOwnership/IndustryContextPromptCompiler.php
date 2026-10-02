@@ -22,12 +22,23 @@ final class IndustryContextPromptCompiler
             $prompt .= "\n\nTemporary generation notes:\n".trim((string) $notes);
         }
 
-        [$heading, $schema] = match ($type) {
+        $normalizedType = match ($type) {
+            'core', 'industry.context.generate' => 'core',
+            'discovery', 'industry.discovery.generate' => 'discovery',
+            'breakout', 'industry.breakout.generate' => 'breakout',
+            'match', 'industry.match.generate' => 'match',
+            default => throw new InvalidArgumentException("Unknown Industry Context prompt type [{$type}]."),
+        };
+
+        if (IndustryContextAuxiliaryPromptGuidance::appliesTo($normalizedType)) {
+            $prompt .= "\n\n".IndustryContextAuxiliaryPromptGuidance::guidance();
+        }
+
+        [$heading, $schema] = match ($normalizedType) {
             'core' => ['Canonical Industry Context JSON Schema (the single source of truth):', IndustryContextSchema::json()],
             'discovery' => ['Canonical Industry Discovery & Attention JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::DISCOVERY)],
             'breakout' => ['Canonical Industry Breakout JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::BREAKOUT)],
             'match' => ['Canonical Industry Match & Research JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::MATCH)],
-            default => throw new InvalidArgumentException("Unknown Industry Context prompt type [{$type}]."),
         };
 
         return $prompt."\n\n{$heading}\n".$schema;

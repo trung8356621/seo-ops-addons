@@ -280,6 +280,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 'industry.context.generate' => 'core',
                 'industry.discovery.generate' => 'discovery',
                 'industry.breakout.generate' => 'breakout',
+                'industry.match.generate' => 'match',
                 default => null,
             };
             if ($industryContextType !== null) {

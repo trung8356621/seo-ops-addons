@@ -335,7 +335,17 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
         const fromCore = Number(core?.faqCount ?? core?.faq_count ?? 0);
         return Number.isFinite(fromCore) ? fromCore : 0;
     });
-    const canGenerateFaq = editorSettings?.can_generate_faq === true;
+    const canGenerateFaq = Boolean(
+        editorSettings?.can_generate_faq === true
+        || editorSettings?.can_generate === true
+        || editorSettings?.canGenerateFaq === true
+        || editorSettings?.can_generate_faq === 1
+        || editorSettings?.can_generate_faq === '1'
+        || readCoreBootstrap()?.settings?.can_generate_faq === true
+        || readCoreBootstrap()?.settings?.can_generate_faq === 1
+        || readCoreBootstrap()?.can_generate_faq === true
+        || readCoreBootstrap()?.can_generate_faq === 1
+    );
     const [featuredSnippetPromptOpen, setFeaturedSnippetPromptOpen] = useState(false);
     const [featuredSnippetPreviewHtml, setFeaturedSnippetPreviewHtml] = useState('');
     const [featuredSnippetPromptContext, setFeaturedSnippetPromptContext] = useState(null);

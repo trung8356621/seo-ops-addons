@@ -1,8 +1,9 @@
-﻿import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { EditorModuleErrorBoundary } from '../../runtime/EditorModuleErrorBoundary';
 import { isAbortError } from '../../../utils/articleEditorModules';
 import { logModuleLoadError, normalizeFaqPayload } from '../../../utils/articleEditorPayloadAdapters';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import { finishFaqGeneration, getFaqGenerationState } from '../../../utils/faqGenerationCommand';
 import { t } from '../../../utils/i18n';
 
 const ArticleFaqEditor = lazy(() => import('../../../components/ArticleFaqEditor'));
@@ -29,6 +30,10 @@ export function FaqSidebarPanel({ articleId = null, active = false }) {
     useEffect(() => {
         if (!active || !articleId) {
             setView({ status: 'idle', payload: EMPTY_FAQ_PAYLOAD });
+            const gen = getFaqGenerationState();
+            if (gen.phase === 'opening') {
+                finishFaqGeneration(gen.requestId, 'cancelled');
+            }
             return undefined;
         }
 
@@ -52,6 +57,10 @@ export function FaqSidebarPanel({ articleId = null, active = false }) {
                 }
                 if (!response.ok || data?.success === false) {
                     setView({ status: 'error', payload: EMPTY_FAQ_PAYLOAD });
+                    const gen = getFaqGenerationState();
+                    if (gen.phase === 'opening') {
+                        finishFaqGeneration(gen.requestId, 'module_load_failed');
+                    }
                     logModuleLoadError({
                         moduleName: 'faq',
                         articleId,
@@ -69,6 +78,10 @@ export function FaqSidebarPanel({ articleId = null, active = false }) {
                     return;
                 }
                 setView({ status: 'error', payload: EMPTY_FAQ_PAYLOAD });
+                const gen = getFaqGenerationState();
+                if (gen.phase === 'opening') {
+                    finishFaqGeneration(gen.requestId, 'module_load_failed');
+                }
                 logModuleLoadError({
                     moduleName: 'faq',
                     articleId,
@@ -78,7 +91,13 @@ export function FaqSidebarPanel({ articleId = null, active = false }) {
             }
         })();
 
-        return () => controller.abort();
+        return () => {
+            controller.abort();
+            const gen = getFaqGenerationState();
+            if (gen.phase === 'opening') {
+                finishFaqGeneration(gen.requestId, 'cancelled');
+            }
+        };
     }, [active, articleId, retryKey]);
 
     if (!active) {

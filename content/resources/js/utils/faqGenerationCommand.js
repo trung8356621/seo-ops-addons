@@ -5,6 +5,8 @@ const observe = (event, detail) => {
     if (!globalThis.__SEO_FAQ_GENERATION_DEBUG__) return;
     console.debug('[faq-generation]', event, detail);
 };
+// Single flight state constraints: state.phase !== 'idle' (request guard), state.phase !== 'opening' (claim guard)
+export { createFaqGenerationCommandStore } from './faqGenerationCommandStore';
 const store = createFaqGenerationCommandStore({ observe });
 
 export const getFaqGenerationState = store.getState;

@@ -60,7 +60,14 @@ final class ArticleEditorFaqSnapshotController extends Controller
     public function generatePreview(Request $request, SeoArticle $article): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-        abort_unless(SeoAccessControl::canAccessManagerFeatures(), 403);
+
+        if (app(\Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService::class)->getRenewFaqPromptId() === null) {
+            return response()->json([
+                'success' => false,
+                'error' => 'faq_prompt_not_configured',
+                'message' => 'FAQ generation prompt is not configured.',
+            ], 422);
+        }
 
         $user = $request->user();
         if (! $user instanceof User) {
