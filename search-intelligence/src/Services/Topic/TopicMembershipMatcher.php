@@ -15,6 +15,11 @@ final class TopicMembershipMatcher
         private readonly TopicPhraseResolver $phrases,
     ) {}
 
+    public function withRules(array $industryRules, array $globalRules): self
+    {
+        return new self($this->phrases->withRules($industryRules, $globalRules));
+    }
+
     public function matches(string $keywordPhrase, string $topicName): bool
     {
         if ($this->phrases->containsCanonicalCore($keywordPhrase, $topicName)) {

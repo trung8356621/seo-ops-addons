@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Concerns;
 
-use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Services\AiKeywordDiscoveryService;
-use Omnichannel\Addons\ContentProjects\Services\CreateArticlesFromTaskService;
-use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
-use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
-use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Notifications\Notification;
 use Livewire\Attributes\Url;
+use Omnichannel\Addons\ContentProjects\Services\CreateArticlesFromTaskService;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
+use Omnichannel\Addons\SearchIntelligence\Services\AiKeywordDiscoveryService;
+use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait InteractsWithAiKeywordDiscovery
 {
@@ -94,9 +94,9 @@ trait InteractsWithAiKeywordDiscovery
             );
 
             if ($existing !== []) {
-                $guard = new \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordAiCandidateGuard();
+                $guard = new \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordAiCandidateGuard;
                 $phrases = array_map(static fn (array $row): string => (string) ($row['keyword'] ?? ''), $this->suggestions);
-                $evaluated = $guard->evaluate($phrases, $existing);
+                $evaluated = $guard->evaluate($phrases, $existing, siteId: $siteId);
                 $kept = [];
                 foreach ($this->suggestions as $i => $item) {
                     $decision = $evaluated[$i]['decision'] ?? 'accept';

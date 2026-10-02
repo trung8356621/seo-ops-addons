@@ -6,7 +6,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicDnaExtractor;
 
@@ -17,6 +19,8 @@ final class TopicDnaService
 {
     public function __construct(
         private readonly TopicDnaExtractor $extractor,
+        private readonly ?IndustryMatchRuntime $industryRules = null,
+        private readonly ?GlobalMatchRuleProvider $globalRules = null,
     ) {}
 
     public static function tableReady(): bool
@@ -48,6 +52,10 @@ final class TopicDnaService
             ->pluck('phrase', 'id');
 
         $rows = [];
+        $extractor = $this->extractor->withRules(
+            $this->industryRules?->rulesForSite($siteId) ?? [],
+            $this->globalRules?->globalMatchRules() ?? [],
+        );
         $now = now();
         /** @var array<string, true> $seen */
         $seen = [];
@@ -57,7 +65,7 @@ final class TopicDnaService
             if ($phrase === '') {
                 continue;
             }
-            foreach ($this->extractor->extract($phrase, $topicName) as $dna) {
+            foreach ($extractor->extract($phrase, $topicName) as $dna) {
                 $value = trim((string) ($dna['value'] ?? ''));
                 if ($value === '') {
                     continue;

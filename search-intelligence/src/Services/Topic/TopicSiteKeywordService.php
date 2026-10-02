@@ -69,6 +69,7 @@ final class TopicSiteKeywordService
             is_string($keyword->source ?? null) ? (string) $keyword->source : null,
         );
         $classified = $this->classifier->classify($raw, $norm['normalized_text'], [
+            'site_id' => $siteId,
             'source_kind' => $sourceKind,
             'occurrence_count' => max(1, (int) ($keyword->link_maps_count ?? 1)),
         ]);

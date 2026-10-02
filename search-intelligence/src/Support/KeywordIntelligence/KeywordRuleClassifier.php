@@ -4,8 +4,17 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence;
 
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
+
 final class KeywordRuleClassifier
 {
+    private const INDUSTRY_GROUPS = ['products', 'product_families', 'materials', 'services', 'audiences', 'use_cases', 'features', 'adjacent_products'];
+
+    public function __construct(
+        private readonly ?GlobalMatchRuleProvider $globalRules = null,
+        private readonly ?IndustryMatchRuntime $industryRules = null,
+    ) {}
     public const KIND_KEYWORD_PHRASE = 'keyword_phrase';
 
     public const KIND_QUERY = 'query';
@@ -99,13 +108,14 @@ final class KeywordRuleClassifier
         $targetPosts = max(0, (int) ($context['target_post_count'] ?? 0));
         $hasCanonical = (bool) ($context['has_canonical_match'] ?? false);
 
-        $features = $this->features($raw, $text, $context);
-        $cta = $this->ctaAssessment($text, $raw, $features);
-        $kind = $this->kind($raw, $text, $features);
+        $globalRules = $this->globalRules($context);
+        $features = $this->features($raw, $text, $context, $globalRules);
+        $cta = $this->ctaAssessment($text, $raw, $features, $globalRules);
+        $kind = $this->kind($raw, $text, $features, $globalRules);
         if ($cta['is_cta_like']) {
             $kind = (int) $features['word_count'] >= 6 ? self::KIND_SENTENCE : self::KIND_DESCRIPTIVE_PHRASE;
         }
-        $intent = $this->intent($text, $kind, $features);
+        $intent = $this->intent($text, $kind, $features, $globalRules);
         $confidence = $this->confidence($kind, $features, $source, $occurrence, $hasCanonical);
         $keywordScore = $this->keywordScore($kind, $features, $source, $occurrence, $sourcePosts, $targetPosts, $hasCanonical);
         if ($cta['is_cta_like']) {
@@ -148,43 +158,20 @@ final class KeywordRuleClassifier
      *     strong_sentence: bool
      * }
      */
-    private function features(string $raw, string $text, array $context = []): array
+    private function features(string $raw, string $text, array $context, array $globalRules): array
     {
         $words = preg_split('/\s+/u', $text) ?: [];
         $words = array_values(array_filter($words, static fn (string $w): bool => $w !== ''));
         $wordCount = count($words);
 
-        $sentenceHints = [
-            'chúng tôi', 'công ty chúng tôi', 'có thể', 'mang lại',
-            'khách hàng', 'được', 'giúp', 'sẽ', 'đang', 'nên', 'cần',
-        ];
-        $hintHits = 0;
-        foreach ($sentenceHints as $hint) {
-            if (str_contains($text, $hint)) {
-                $hintHits++;
-            }
-        }
-        if (preg_match('/\blà\b/u', $text) === 1) {
-            $hintHits++;
-        }
-
-        $marketing = ['đơn vị', 'uy tín', 'chuyên nghiệp', 'hàng đầu', 'chất lượng', 'đáng tin', 'cam kết', 'tận tâm'];
-        $marketingHits = 0;
-        foreach ($marketing as $m) {
-            if (str_contains($text, $m)) {
-                $marketingHits++;
-            }
-        }
-
-        $products = array_values(array_filter((array) ($context['industry_terms'] ?? []), 'is_string'));
-        $productHits = 0;
-        foreach ($products as $p) {
-            if (str_contains($text, $p)) {
-                $productHits++;
-            }
-        }
-
-        $locationHits = preg_match('/\b(tại|tp\.?|tphcm|hồ chí minh|hcm|hà nội|đà nẵng)\b/u', $text) === 1 ? 1 : 0;
+        $hintHits = $this->hitCount($text, $globalRules['sentence_hints'] ?? []);
+        $marketingHits = $this->hitCount($text, $globalRules['marketing_terms'] ?? []);
+        $locationHits = $this->hitCount($text, $globalRules['location_terms'] ?? []);
+        $explicitIndustryTerms = array_values(array_filter((array) ($context['industry_terms'] ?? []), 'is_string'));
+        $siteId = (int) ($context['site_id'] ?? 0);
+        $productHits = $explicitIndustryTerms !== []
+            ? $this->hitCount($text, $explicitIndustryTerms)
+            : count($this->industryRuntime()?->matchingEntries($siteId, self::INDUSTRY_GROUPS, $raw) ?? []);
 
         $rawTokens = preg_split('/\s+/u', trim($raw)) ?: [];
         $alpha = 0;
@@ -200,13 +187,12 @@ final class KeywordRuleClassifier
         }
         $properRatio = $alpha > 0 ? $proper / $alpha : 0.0;
 
-        $strongSentence = str_contains($text, 'công ty chúng tôi')
-            || (str_contains($text, 'chúng tôi') && ($hintHits >= 2 || str_contains($text, 'chuyên')));
+        $strongSentence = $hintHits >= 2;
 
         return [
             'word_count' => $wordCount,
             'has_url' => preg_match('#https?://#i', $raw) === 1 || preg_match('/^[a-z0-9.-]+\.[a-z]{2,}$/i', $text) === 1,
-            'has_question' => str_contains($text, '?') || preg_match('/\b(gì|sao|như thế nào|ở đâu|làm sao|tại sao|how|what|where|why|không)\b/u', $text) === 1 && preg_match('/\b(ở đâu|là gì|như thế nào|tại sao|làm sao|how|what|where|why)\b/u', $text) === 1,
+            'has_question' => str_contains($text, '?') || $this->hitCount($text, $globalRules['question_terms'] ?? []) > 0,
             'has_terminator' => preg_match('/[.!?].+\s/u', $raw) === 1 || str_ends_with(trim($raw), '.'),
             'has_dash' => preg_match('/[–—]| \- /u', $raw) === 1,
             'sentence_hint_hits' => $hintHits,
@@ -221,7 +207,7 @@ final class KeywordRuleClassifier
     /**
      * @param  array<string, mixed>  $features
      */
-    private function kind(string $raw, string $text, array $features): string
+    private function kind(string $raw, string $text, array $features, array $globalRules): string
     {
         if ($text === '' || preg_match('/^[\p{P}\p{S}\s]+$/u', $text) === 1) {
             return self::KIND_NOISE;
@@ -251,7 +237,7 @@ final class KeywordRuleClassifier
             return self::KIND_DESCRIPTIVE_PHRASE;
         }
 
-        if ($this->looksLikeBrand($raw, $features)) {
+        if ($this->looksLikeBrand($raw, $features, $globalRules)) {
             return self::KIND_BRAND_ENTITY;
         }
 
@@ -269,7 +255,7 @@ final class KeywordRuleClassifier
     /**
      * @param  array<string, mixed>  $features
      */
-    private function looksLikeBrand(string $raw, array $features): bool
+    private function looksLikeBrand(string $raw, array $features, array $globalRules): bool
     {
         $wc = (int) $features['word_count'];
         if ($wc < 1 || $wc > 5) {
@@ -279,7 +265,7 @@ final class KeywordRuleClassifier
             return false;
         }
         $folded = mb_strtolower($raw);
-        $genericOnly = preg_match('/\b(giá|mua)\b/u', $folded) === 1;
+        $genericOnly = $this->hitCount($folded, $globalRules['generic_purchase_terms'] ?? []) > 0;
         if ($genericOnly && $wc >= 3 && (int) $features['product_hits'] >= 2) {
             return false;
         }
@@ -296,18 +282,15 @@ final class KeywordRuleClassifier
     /**
      * @param  array<string, mixed>  $features
      */
-    private function intent(string $text, string $kind, array $features): string
+    private function intent(string $text, string $kind, array $features, array $globalRules): string
     {
         if (in_array($kind, [self::KIND_NOISE, self::KIND_URL_DOMAIN, self::KIND_SENTENCE, self::KIND_DESCRIPTIVE_PHRASE], true)) {
             return self::INTENT_UNKNOWN;
         }
-        if (preg_match('/\b(mua|đặt hàng|order|buy|báo giá|giá xưởng|thanh toán)\b/u', $text) === 1) {
+        if ($this->hitCount($text, $globalRules['transactional_terms'] ?? []) > 0 && $kind !== self::KIND_BRAND_ENTITY) {
             return self::INTENT_TRANSACTIONAL;
         }
-        if (preg_match('/\b(giá|báo giá|chi phí|bảng giá)\b/u', $text) === 1 && $kind !== self::KIND_BRAND_ENTITY) {
-            return self::INTENT_TRANSACTIONAL;
-        }
-        if ($kind === self::KIND_QUERY || preg_match('/\b(là gì|hướng dẫn|cách|what is|how to)\b/u', $text) === 1) {
+        if ($kind === self::KIND_QUERY || $this->hitCount($text, $globalRules['informational_terms'] ?? []) > 0) {
             return self::INTENT_INFORMATIONAL;
         }
         if ($kind === self::KIND_BRAND_ENTITY) {
@@ -482,32 +465,32 @@ final class KeywordRuleClassifier
      * @param  array<string, mixed>  $features
      * @return array{score: int, is_cta_like: bool}
      */
-    private function ctaAssessment(string $text, string $raw, array $features): array
+    private function ctaAssessment(string $text, string $raw, array $features, array $globalRules): array
     {
         $score = 0;
         $wordCount = (int) ($features['word_count'] ?? 0);
         $productHits = (int) ($features['product_hits'] ?? 0);
 
-        if (preg_match('/^(nhận|liên hệ|đăng ký|gọi|xem|tìm hiểu|điền|bắt đầu|click|contact|get|request|read more|sign up)\b/u', $text) === 1) {
+        if ($this->startsWithAny($text, $globalRules['cta_action_terms'] ?? [])) {
             $score += 2;
         }
-        if (preg_match('/\b(liên hệ ngay|nhận tư vấn|đăng ký nhận|gọi ngay|xem thêm|tìm hiểu thêm|điền form|contact us|get quote|request quote)\b/u', $text) === 1) {
+        if ($this->hitCount($text, $globalRules['cta_phrase_terms'] ?? []) > 0) {
             $score += 2;
         }
-        if (preg_match('/\b(chúng tôi|contact us)\b/u', $text) === 1 && preg_match('/\b(liên hệ|nhận|gọi|đăng ký|tư vấn)\b/u', $text) === 1) {
+        if ($this->hitCount($text, $globalRules['sentence_hints'] ?? []) > 0 && $this->hitCount($text, $globalRules['cta_action_terms'] ?? []) > 0) {
             $score += 1;
         }
-        if (preg_match('/\b(ngay|miễn phí)\b/u', $text) === 1 && preg_match('/\b(nhận|liên hệ|đăng ký|gọi|tư vấn|báo giá ngay)\b/u', $text) === 1) {
+        if ($this->hitCount($text, $globalRules['cta_urgency_terms'] ?? []) > 0 && $this->hitCount($text, $globalRules['cta_action_terms'] ?? []) > 0) {
             $score += 1;
         }
         if (str_contains($raw, '→')) {
             $score += 2;
         }
-        if ($wordCount <= 3 && preg_match('/\b(ngay|miễn phí|here|now)\b/u', $text) === 1) {
+        if ($wordCount <= 3 && $this->hitCount($text, $globalRules['cta_urgency_terms'] ?? []) > 0) {
             $score += 1;
         }
 
-        $commercialSeoLead = preg_match('/^(báo giá|giá|mua|cách)\b/u', $text) === 1
+        $commercialSeoLead = $this->startsWithAny($text, $globalRules['commercial_lead_terms'] ?? [])
             && $productHits >= 1;
         if ($commercialSeoLead) {
             $score -= 3;
@@ -523,5 +506,54 @@ final class KeywordRuleClassifier
             'score' => $score,
             'is_cta_like' => $score >= 3 && ! $commercialSeoLead && $productHits <= 1,
         ];
+    }
+
+    private function industryRuntime(): ?IndustryMatchRuntime
+    {
+        if ($this->industryRules !== null) {
+            return $this->industryRules;
+        }
+        try {
+            return app(IndustryMatchRuntime::class);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function globalRules(array $context): array
+    {
+        if (is_array($context['global_rules'] ?? null)) {
+            return $context['global_rules'];
+        }
+        try {
+            return ($this->globalRules ?? app(GlobalMatchRuleProvider::class))->globalMatchRules();
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    private function hitCount(string $text, array $terms): int
+    {
+        $hits = 0;
+        foreach ($terms as $term) {
+            $term = mb_strtolower(trim((string) $term));
+            if ($term !== '' && str_contains($text, $term)) {
+                $hits++;
+            }
+        }
+
+        return $hits;
+    }
+
+    private function startsWithAny(string $text, array $terms): bool
+    {
+        foreach ($terms as $term) {
+            $term = mb_strtolower(trim((string) $term));
+            if ($term !== '' && ($text === $term || str_starts_with($text, $term.' '))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

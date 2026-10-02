@@ -12,6 +12,7 @@ use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatIdentity;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatLiveSource;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Throwable;
 
@@ -32,6 +33,7 @@ final class ArticleInternalLinkProductCatCatalog
     public function __construct(
         private readonly ?SiteMcpProductCatLiveSource $liveSource = null,
         private readonly array $industryServicePrefixes = [],
+        private readonly ?IndustryMatchRuntime $industryMatchRuntime = null,
     ) {}
 
     /**
@@ -94,6 +96,11 @@ final class ArticleInternalLinkProductCatCatalog
             (int) ($cached['incomplete'] ?? 0),
         );
         $this->lastDebug['source'] = (string) ($cached['source'] ?? 'local_articles_taxonomy_sync');
+        $prefixes = $this->industryMatchRuntime?->termsForSite($siteId, ['service_intent_terms']) ?? [];
+        foreach ($eligible as &$row) {
+            $row['core_phrase_norm'] = $this->corePhraseNorm((string) ($row['name'] ?? ''), $prefixes);
+        }
+        unset($row);
 
         $sourceLanguage = trim((string) ($sourceLanguage ?? ''));
         if ($sourceLanguage !== '') {
@@ -146,14 +153,14 @@ final class ArticleInternalLinkProductCatCatalog
      * Strip manufacturer/business prefixes for core phrase matching.
      * Does not mutate the display name — only matching needles.
      */
-    public function corePhraseNorm(string $name): string
+    public function corePhraseNorm(string $name, ?array $prefixes = null): string
     {
         $norm = KeywordPhraseMatcher::normalize($name);
         if ($norm === '') {
             return '';
         }
 
-        $prefixes = $this->industryServicePrefixes;
+        $prefixes ??= $this->industryServicePrefixes;
 
         foreach ($prefixes as $prefix) {
             $prefixNorm = KeywordPhraseMatcher::normalize($prefix);

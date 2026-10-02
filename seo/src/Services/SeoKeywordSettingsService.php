@@ -6,8 +6,9 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use App\Models\WpOption;
 use Omnichannel\Addons\Seo\Services\MatchRules\GlobalMatchRuleRegistry;
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
 
-final class SeoKeywordSettingsService
+final class SeoKeywordSettingsService implements GlobalMatchRuleProvider
 {
     /** @var array<string, mixed>|null */
     private ?array $inMemorySettings = null;
@@ -42,11 +43,18 @@ final class SeoKeywordSettingsService
 
         $settings = [];
         foreach ($this->definitions() as $key => $definition) {
-            $values = $this->normalizeKeywords($data[$key] ?? null);
-            if ($values !== [] && $this->hasByteCorruptedUtf8Labels($values)) {
-                $values = [];
+            if (! array_key_exists($key, $data)) {
+                $settings[$key] = $definition['defaults'];
+
+                continue;
             }
-            $settings[$key] = $values !== [] ? $values : $definition['defaults'];
+            $values = $this->normalizeKeywords($data[$key]);
+            if ($values !== [] && $this->hasByteCorruptedUtf8Labels($values)) {
+                $settings[$key] = $definition['defaults'];
+
+                continue;
+            }
+            $settings[$key] = $values;
         }
 
         return $settings;
@@ -67,8 +75,9 @@ final class SeoKeywordSettingsService
     {
         $normalized = [];
         foreach ($this->definitions() as $key => $definition) {
-            $values = $this->normalizeKeywords($settings[$key] ?? null);
-            $normalized[$key] = $values !== [] ? $values : $definition['defaults'];
+            $normalized[$key] = array_key_exists($key, $settings)
+                ? $this->normalizeKeywords($settings[$key])
+                : $definition['defaults'];
         }
         WpOption::set(self::OPTION_KEY, $normalized, 'no');
 
@@ -117,6 +126,11 @@ final class SeoKeywordSettingsService
     public function normalizeRuleValues(mixed $raw): array
     {
         return $this->normalizeKeywords($raw);
+    }
+
+    public function globalMatchRules(): array
+    {
+        return $this->getSettings();
     }
 
     /**

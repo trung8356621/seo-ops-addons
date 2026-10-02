@@ -38,7 +38,7 @@ final class CanonicalKeywordReconciler
         array $context = [],
     ): ?Keyword {
         $normalized = Keyword::preparePhraseForStorage($rawPhrase);
-        $evaluation = $this->evaluator->evaluate($rawPhrase, $normalized, $candidateType);
+        $evaluation = $this->evaluator->evaluate($rawPhrase, $normalized, $candidateType, (int) ($context['site_id'] ?? 0));
 
         if (! $evaluation['eligible'] || $normalized === '') {
             $this->logSkip($context, $candidateType, $rawPhrase, $normalized, $evaluation);

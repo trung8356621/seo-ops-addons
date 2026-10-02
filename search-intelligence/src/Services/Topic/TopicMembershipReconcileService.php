@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
@@ -20,6 +22,8 @@ final class TopicMembershipReconcileService
         private readonly TopicMembershipMatcher $matcher,
         private readonly TopicSiteKeywordService $siteKeywords,
         private readonly TopicDnaService $dna,
+        private readonly ?IndustryMatchRuntime $industryRules = null,
+        private readonly ?GlobalMatchRuleProvider $globalRules = null,
     ) {}
 
     /**
@@ -60,6 +64,10 @@ final class TopicMembershipReconcileService
         }
 
         $topicName = TopicNaming::canonicalName((string) $topic->name) ?: (string) $topic->name;
+        $matcher = $this->matcher->withRules(
+            $this->industryRules?->rulesForSite($siteId) ?? [],
+            $this->globalRules?->globalMatchRules() ?? [],
+        );
         $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
 
         /** @var array<int, SeoTopicKeyword> $memberships */
@@ -90,6 +98,7 @@ final class TopicMembershipReconcileService
             $siteId,
             $topicId,
             $topicName,
+            $matcher,
             $eligible,
             $memberships,
             $lockedTopicIds,
@@ -108,7 +117,7 @@ final class TopicMembershipReconcileService
                 if ($keywordId <= 0 || $phrase === '') {
                     continue;
                 }
-                if (! $this->matcher->matches($phrase, $topicName)) {
+                if (! $matcher->matches($phrase, $topicName)) {
                     continue;
                 }
                 $matched++;

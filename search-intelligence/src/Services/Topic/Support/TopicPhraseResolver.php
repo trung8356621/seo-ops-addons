@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Support;
 
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\MatchRuleMatcher;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 
@@ -12,26 +13,28 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNor
  */
 final class TopicPhraseResolver
 {
-    /** @var list<string> */
-    private const DISCOURSE_PREFIXES = [
-        'tham khao',
-        'tim hieu',
-        'xem them',
-        'thong tin ve',
-        'thong tin',
-    ];
-
-    /** @var list<string> */
-    private const GLUE_TOKENS = [
-        'tai', 'o', 'cho', 'la', 'cua', 'va', 'voi', 'den', 'tu', 'trong', 'theo',
-    ];
-
     public function __construct(
         private readonly KeywordNormalizer $normalizer,
         private readonly KeywordCanonicalizer $canonicalizer,
         private readonly array $serviceIntentMarkers = [],
         private readonly array $genericCores = [],
+        private readonly ?MatchRuleMatcher $matchRuleMatcher = null,
+        private readonly array $discoursePrefixes = [],
+        private readonly array $glueTokens = [],
     ) {}
+
+    public function withRules(array $industryRules, array $globalRules): self
+    {
+        return new self(
+            $this->normalizer,
+            $this->canonicalizer,
+            (array) ($industryRules['service_intent_terms'] ?? []),
+            (array) ($industryRules['generic_cores'] ?? []),
+            $this->matchRuleMatcher ?? new MatchRuleMatcher,
+            $this->normalizeTerms((array) ($globalRules['discourse_prefixes'] ?? [])),
+            $this->normalizeTerms((array) ($globalRules['topic_glue_terms'] ?? [])),
+        );
+    }
 
     /**
      * Pick the best canonical display phrase from member phrases.
@@ -82,7 +85,7 @@ final class TopicPhraseResolver
         }
 
         $tokens = $this->stripDiscoursePrefix($tokens);
-        $tokens = $this->stripLeadingDiscourseService($tokens);
+        $tokens = $this->stripLeadingServiceIntent($raw, $tokens);
 
         $rebuilt = $this->rebuildDisplay($raw, $tokens);
 
@@ -91,6 +94,9 @@ final class TopicPhraseResolver
 
     public function hasServiceIntent(string $phrase): bool
     {
+        if ($this->matchRuleMatcher !== null && $this->entries($this->serviceIntentMarkers) !== []) {
+            return $this->matchRuleMatcher->matches($this->entries($this->serviceIntentMarkers), $phrase);
+        }
         $folded = $this->normalizer->normalize($phrase)['folded_text'];
         $tokens = $this->tokens($folded);
         if ($tokens === []) {
@@ -100,13 +106,45 @@ final class TopicPhraseResolver
         $joined = implode(' ', $tokens);
         $padded = ' '.$joined.' ';
 
-        foreach ($this->serviceIntentMarkers as $marker) {
+        foreach ($this->terms($this->serviceIntentMarkers) as $marker) {
             $marker = trim((string) $marker);
             if ($marker === '') {
                 continue;
             }
             if ($joined === $marker || str_contains($padded, ' '.$marker.' ')) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasAccentSensitiveServiceConflict(string $phrase): bool
+    {
+        if ($this->matchRuleMatcher === null) {
+            return false;
+        }
+        $foldedPhrase = $this->normalizer->normalize($phrase)['folded_text'];
+        $normalizedPhrase = mb_strtolower($this->normalizer->normalize($phrase)['normalized_text']);
+        foreach ($this->entries($this->serviceIntentMarkers) as $entry) {
+            if (($entry['match_mode'] ?? '') !== 'accent_sensitive' || $this->matchRuleMatcher->matches([$entry], $phrase)) {
+                continue;
+            }
+            foreach ([(string) ($entry['canonical'] ?? ''), ...array_map('strval', (array) ($entry['aliases'] ?? []))] as $term) {
+                $foldedTerm = $this->normalizer->normalize($term)['folded_text'];
+                if ($foldedTerm !== '' && str_contains(' '.$foldedPhrase.' ', ' '.$foldedTerm.' ')) {
+                    return true;
+                }
+                $normalizedTerm = mb_strtolower($this->normalizer->normalize($term)['normalized_text']);
+                foreach ($this->tokens($foldedTerm) as $index => $foldedToken) {
+                    $sensitiveToken = $this->tokens($normalizedTerm)[$index] ?? '';
+                    if ($sensitiveToken !== ''
+                        && str_contains(' '.$foldedPhrase.' ', ' '.$foldedToken.' ')
+                        && ! str_contains(' '.$normalizedPhrase.' ', ' '.$sensitiveToken.' ')
+                    ) {
+                        return true;
+                    }
+                }
             }
         }
 
@@ -239,7 +277,11 @@ final class TopicPhraseResolver
             return false;
         }
 
-        return in_array($tokens[0], $this->genericCores, true);
+        if ($this->matchRuleMatcher !== null && $this->entries($this->genericCores) !== []) {
+            return $this->matchRuleMatcher->matches($this->entries($this->genericCores), implode(' ', $tokens));
+        }
+
+        return in_array($tokens[0], $this->normalizeTerms($this->terms($this->genericCores)), true);
     }
 
     /**
@@ -336,7 +378,7 @@ final class TopicPhraseResolver
 
         return array_values(array_filter(
             $tokens,
-            static fn (string $t): bool => ! in_array($t, self::GLUE_TOKENS, true) && mb_strlen($t) >= 2,
+            fn (string $t): bool => ! in_array($t, $this->glueTokens, true) && mb_strlen($t) >= 2,
         ));
     }
 
@@ -350,7 +392,7 @@ final class TopicPhraseResolver
         while ($working !== []) {
             $joined = implode(' ', $working);
             $stripped = false;
-            foreach (self::DISCOURSE_PREFIXES as $prefix) {
+            foreach ($this->discoursePrefixes as $prefix) {
                 $prefixTokens = $this->tokens($prefix);
                 if ($this->startsWith($working, $prefixTokens)) {
                     $working = array_slice($working, count($prefixTokens));
@@ -372,8 +414,24 @@ final class TopicPhraseResolver
      * @param  list<string>  $tokens
      * @return list<string>
      */
-    private function stripLeadingDiscourseService(array $tokens): array
+    private function stripLeadingServiceIntent(string $phrase, array $tokens): array
     {
+        foreach ($this->serviceIntentMarkers as $marker) {
+            $entries = is_array($marker) ? [$marker] : [];
+            if ($entries !== [] && $this->matchRuleMatcher !== null && ! $this->matchRuleMatcher->matches($entries, $phrase)) {
+                continue;
+            }
+            $values = is_array($marker)
+                ? [(string) ($marker['canonical'] ?? ''), ...array_map('strval', (array) ($marker['aliases'] ?? []))]
+                : [(string) $marker];
+            foreach ($values as $value) {
+                $markerTokens = $this->tokens($this->normalizer->normalize($value)['folded_text']);
+                if ($markerTokens !== [] && $this->startsWith($tokens, $markerTokens)) {
+                    return array_values(array_slice($tokens, count($markerTokens)));
+                }
+            }
+        }
+
         return $tokens;
     }
 
@@ -500,7 +558,7 @@ final class TopicPhraseResolver
     private function allGlueOrDiscourse(array $tokens): bool
     {
         foreach ($tokens as $token) {
-            if (! in_array($token, self::GLUE_TOKENS, true)) {
+            if (! in_array($token, $this->glueTokens, true)) {
                 return false;
             }
         }
@@ -519,7 +577,7 @@ final class TopicPhraseResolver
         }
 
         $joined = implode(' ', $tokens);
-        foreach ($this->serviceIntentMarkers as $marker) {
+        foreach ($this->terms($this->serviceIntentMarkers) as $marker) {
             $markerTokens = $this->tokens(trim((string) $marker));
             if ($markerTokens !== [] && ($joined === implode(' ', $markerTokens) || str_contains(' '.$joined.' ', ' '.implode(' ', $markerTokens).' '))) {
                 return $markerTokens;
@@ -527,6 +585,33 @@ final class TopicPhraseResolver
         }
 
         return array_slice($tokens, 0, 1);
+    }
+
+    private function entries(array $values): array
+    {
+        return array_values(array_filter($values, static fn ($value): bool => is_array($value)));
+    }
+
+    private function terms(array $values): array
+    {
+        $terms = [];
+        foreach ($values as $value) {
+            if (is_array($value)) {
+                $terms[] = (string) ($value['canonical'] ?? '');
+            } else {
+                $terms[] = (string) $value;
+            }
+        }
+
+        return array_values(array_filter($terms, static fn (string $term): bool => trim($term) !== ''));
+    }
+
+    private function normalizeTerms(array $terms): array
+    {
+        return array_values(array_filter(array_map(
+            fn ($term): string => $this->normalizer->normalize((string) $term)['folded_text'],
+            $terms,
+        )));
     }
 
     /**

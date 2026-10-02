@@ -17,13 +17,14 @@ final class KeywordAiCandidateGuard
      * @param  list<array{normalized_text: string, folded_text: string, seo_intent?: string}>  $existing
      * @return list<array<string, mixed>>
      */
-    public function evaluate(array $candidates, array $existing, string $sourceKind = KeywordSourceNormalizer::AI_GENERATED): array
+    public function evaluate(array $candidates, array $existing, string $sourceKind = KeywordSourceNormalizer::AI_GENERATED, int $siteId = 0): array
     {
         $out = [];
         foreach ($candidates as $raw) {
             $norm = $this->normalizer->normalize($raw);
             $classified = $this->classifier->classify($raw, $norm['normalized_text'], [
                 'source_kind' => $sourceKind,
+                'site_id' => $siteId,
             ]);
             $decision = 'accept';
             $duplicateOf = null;

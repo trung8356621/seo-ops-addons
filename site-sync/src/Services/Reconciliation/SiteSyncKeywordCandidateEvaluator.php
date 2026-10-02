@@ -33,7 +33,7 @@ final class SiteSyncKeywordCandidateEvaluator
      *     reason: string
      * }
      */
-    public function evaluate(string $raw, string $normalized, string $candidateType): array
+    public function evaluate(string $raw, string $normalized, string $candidateType, int $siteId = 0): array
     {
         if ($candidateType === self::CANDIDATE_HREF) {
             return [
@@ -84,6 +84,7 @@ final class SiteSyncKeywordCandidateEvaluator
             'source_kind' => $sourceKind,
             'skip_segments' => true,
             'industry_terms' => $this->industryTerms,
+            'site_id' => $siteId,
         ]);
 
         $kind = (string) ($classified['phrase_kind'] ?? KeywordRuleClassifier::KIND_NOISE);

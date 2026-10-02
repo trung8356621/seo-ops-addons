@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
+use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
@@ -31,6 +33,8 @@ final class TopicReclusterService
         private readonly TopicDnaService $dna,
         private readonly TopicSeedIdentityResolver $identity = new TopicSeedIdentityResolver,
         private readonly TopicDiscoveredIdentityResolver $discoveredIdentity = new TopicDiscoveredIdentityResolver,
+        private readonly ?IndustryMatchRuntime $industryRules = null,
+        private readonly ?GlobalMatchRuleProvider $globalRules = null,
     ) {}
 
     public static function tablesReady(): bool
@@ -116,7 +120,11 @@ final class TopicReclusterService
             $metrics['memberships_locked_preserved'] = count($locked['locked_keyword_ids']);
 
             $engineMetrics = [];
-            $clusters = $this->engine->cluster(
+            $engine = $this->engine->withRules(
+                $this->industryRules?->rulesForSite($siteId) ?? [],
+                $this->globalRules?->globalMatchRules() ?? [],
+            );
+            $clusters = $engine->cluster(
                 $seedRows,
                 $eligible,
                 $locked['topics'],
@@ -584,6 +592,7 @@ final class TopicReclusterService
                         'is_locked' => (bool) $row->is_locked,
                     ];
                 }
+
                 continue;
             }
 

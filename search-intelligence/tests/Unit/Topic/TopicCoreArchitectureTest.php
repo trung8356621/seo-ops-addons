@@ -53,10 +53,13 @@ final class TopicCoreArchitectureTest extends TestCase
 
     public function test_dna_extractor_preserves_semantic_glue_in_question_phrases(): void
     {
-        $extractor = new TopicDnaExtractor(
+        $extractor = (new TopicDnaExtractor(
             new KeywordNormalizer,
             new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer),
-        );
+        ))->withRules([], [
+            'topic_glue_terms' => ['la', 'o'],
+            'topic_question_tokens' => ['gi', 'dau'],
+        ]);
 
         $whatRows = $extractor->extract('vải da PVC là gì', 'Vải da PVC');
         self::assertSame(['là gì'], array_column($whatRows, 'value'));

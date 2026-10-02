@@ -14,18 +14,6 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNor
  */
 final class TopicDnaExtractor
 {
-    /** @var list<string> */
-    private const GLUE = [
-        'tai', 'o', 'cho', 'la', 'cua', 'va', 'voi', 'den', 'tu', 'trong', 'theo',
-        'mot', 'cac', 'nhung', 've', 'hoac', 'va', 'and', 'or', 'of', 'for', 'at', 'in',
-    ];
-
-    /** Location / discourse wrappers stripped from residual DNA display. */
-    private const LOCATION_WRAPPERS = ['tai', 'o', 'tai thanh pho', 'o thanh pho'];
-
-    /** Question heads whose adjacent glue words are part of the semantic DNA phrase. */
-    private const QUESTION_TOKENS = ['gi', 'ai', 'dau', 'sao', 'nao', 'bao', 'khi'];
-
     /** @var array<string, string> */
     private array $knownFacets;
 
@@ -33,8 +21,50 @@ final class TopicDnaExtractor
         private readonly KeywordNormalizer $normalizer,
         private readonly TopicPhraseResolver $phraseResolver,
         array $knownFacets = [],
+        private readonly array $glueTerms = [],
+        private readonly array $locationWrappers = [],
+        private readonly array $questionTokens = [],
     ) {
         $this->knownFacets = $knownFacets;
+    }
+
+    public function withRules(array $industryRules, array $globalRules): self
+    {
+        $mapping = [
+            'products' => 'product', 'product_families' => 'product', 'adjacent_products' => 'product',
+            'materials' => 'material', 'services' => 'service', 'audiences' => 'audience',
+            'use_cases' => 'use_case', 'features' => 'feature',
+        ];
+        $facets = [];
+        foreach ($mapping as $group => $facet) {
+            foreach ((array) ($industryRules[$group] ?? []) as $entry) {
+                if (! is_array($entry)) {
+                    continue;
+                }
+                foreach ([(string) ($entry['canonical'] ?? ''), ...array_map('strval', (array) ($entry['aliases'] ?? []))] as $term) {
+                    $normalized = $this->normalizer->normalize($term)['folded_text'];
+                    if ($normalized !== '') {
+                        $facets[$normalized] = $facet;
+                    }
+                }
+            }
+        }
+
+        $resolver = $this->phraseResolver->withRules($industryRules, $globalRules);
+
+        return new self($this->normalizer, $resolver, $facets,
+            $this->normalizedTerms((array) ($globalRules['topic_glue_terms'] ?? [])),
+            $this->normalizedTerms((array) ($globalRules['topic_location_wrappers'] ?? [])),
+            $this->normalizedTerms((array) ($globalRules['topic_question_tokens'] ?? [])),
+        );
+    }
+
+    private function normalizedTerms(array $terms): array
+    {
+        return array_values(array_filter(array_map(
+            fn ($term): string => $this->normalizer->normalize((string) $term)['folded_text'],
+            $terms,
+        )));
     }
 
     /**
@@ -71,7 +101,7 @@ final class TopicDnaExtractor
         $residual = $this->removeTopicSpans($residual, $topicTokens);
         $residual = array_values(array_filter(
             $residual,
-            static fn (string $t): bool => ! in_array($t, self::GLUE, true) && mb_strlen($t) >= 2,
+            fn (string $t): bool => ! in_array($t, $this->glueTerms, true) && mb_strlen($t) >= 2,
         ));
 
         return $this->composeDnaValues($keywordPhrase, $residual, $topicNorm['folded_text'], $topicTokens);
@@ -182,7 +212,7 @@ final class TopicDnaExtractor
     private function stripLocationWrapper(string $folded): string
     {
         $working = trim($folded);
-        foreach (self::LOCATION_WRAPPERS as $wrapper) {
+        foreach ($this->locationWrappers as $wrapper) {
             if ($working === $wrapper) {
                 return '';
             }
@@ -211,7 +241,7 @@ final class TopicDnaExtractor
         if ($normalized === '' || mb_strlen($normalized) < 2) {
             return false;
         }
-        if (in_array($normalized, self::GLUE, true)) {
+        if (in_array($normalized, $this->glueTerms, true)) {
             return false;
         }
         if ($normalized === $topicFolded) {
@@ -412,7 +442,7 @@ final class TopicDnaExtractor
         $chunks = [];
         $buffer = [];
         foreach ($residual as $token) {
-            if (in_array($token, self::GLUE, true) || mb_strlen($token) < 2) {
+            if (in_array($token, $this->glueTerms, true) || mb_strlen($token) < 2) {
                 if ($buffer !== []) {
                     $chunks[] = implode(' ', $buffer);
                     $buffer = [];
@@ -482,7 +512,7 @@ final class TopicDnaExtractor
         }
 
         if ($pi === count($patternParts) && $displayParts !== []) {
-            $questionPhrase = array_intersect($patternParts, self::QUESTION_TOKENS) !== [];
+            $questionPhrase = array_intersect($patternParts, $this->questionTokens) !== [];
             if ($questionPhrase && $matchedIndexes !== []) {
                 $start = $matchedIndexes[0];
                 $end = $matchedIndexes[count($matchedIndexes) - 1];
@@ -515,7 +545,7 @@ final class TopicDnaExtractor
         $folded = $this->normalizer->fold(mb_strtolower($word, 'UTF-8'));
         $folded = preg_replace('/[^\p{L}\p{N}]+/u', '', $folded) ?? '';
 
-        return in_array($folded, self::GLUE, true);
+        return in_array($folded, $this->glueTerms, true);
     }
 
     private function guessFacet(string $normalized): ?string

@@ -22,6 +22,10 @@ final class SeoServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->singleton(
+            \Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider::class,
+            \Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService::class,
+        );
         $this->app->singleton(DomainContextResolver::class);
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class);
         $this->registerCapabilities();

@@ -28,7 +28,13 @@ final class TopicPhase2BAttachDiscoverIdentityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->phrases = new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer);
+        $this->phrases = (new TopicPhraseResolver(new KeywordNormalizer, new KeywordCanonicalizer))->withRules([
+            'service_intent_terms' => [[
+                'canonical' => "x\u{01B0}\u{1EDF}ng may",
+                'aliases' => [],
+                'match_mode' => 'accent_sensitive',
+            ]],
+        ], []);
         $this->engine = new TopicClusterEngine(
             new TopicMembershipMatcher($this->phrases),
             new KeywordNormalizer,

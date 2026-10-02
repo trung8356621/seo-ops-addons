@@ -25,6 +25,13 @@ final class TopicClusterEngine
         private readonly TopicPhraseResolver $phrases,
     ) {}
 
+    public function withRules(array $industryRules, array $globalRules): self
+    {
+        $phrases = $this->phrases->withRules($industryRules, $globalRules);
+
+        return new self(new TopicMembershipMatcher($phrases), $this->normalizer, $phrases);
+    }
+
     /**
      * @param  list<array{keyword_id: int, phrase: string, source: string, is_seed: true, confidence: float|null}>  $seeds
      * @param  list<array{keyword_id: int, phrase: string, is_seo_keyword: bool}>  $eligible
@@ -346,6 +353,10 @@ final class TopicClusterEngine
 
     private function coreFallbackMatches(string $keywordPhrase, string $topicName): bool
     {
+        if ($this->phrases->hasAccentSensitiveServiceConflict($keywordPhrase)) {
+            return false;
+        }
+
         // Intent is not a hard gate here: product/service umbrella Topics may absorb
         // product-only keywords when the topic product core is contiguous in the keyword.
         // Two-token product cores are too broad for fallback.
@@ -368,7 +379,8 @@ final class TopicClusterEngine
      */
     private function topicProductTokens(string $topicName): array
     {
-        $tokens = $this->phrases->significantTokens($topicName);
+        $core = $this->phrases->preferredClusterCore($topicName);
+        $tokens = $this->phrases->significantTokens($core !== '' ? $core : $topicName);
 
         return $tokens;
     }
