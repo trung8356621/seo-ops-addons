@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './omi-faq-accordion.css';
+@import '../../../media/resources/css/seo-article-media-modal.css';
 @plugin '@tailwindcss/typography';
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -849,8 +850,6 @@ p.article-cta a.article-cta__value {
     color: #2271b1;
     text-decoration: underline;
 }
-
-@import '../../../media/resources/css/seo-article-media-modal.css';
 
 /* Phase 6C.3 — Shared Media Picker (parity with Alpine modal shell) */
 .seo-shared-media-picker-overlay {

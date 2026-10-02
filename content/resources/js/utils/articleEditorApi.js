@@ -7,6 +7,7 @@ import {
     writeSyncedLocalSnapshot,
 } from './articleEditorStorage.js';
 import { getMediaSnapshot } from './articleEditorMediaSnapshot.js';
+import { flushAllSaveOwners, listSaveOwnerIds } from '@client-core/saveCoordinator.js';
 import {
     acknowledgeDocumentVersion,
     getLastDocumentVersionAck,
@@ -311,7 +312,6 @@ export function buildArticleEditorApiPayload(editorBundle, wire, owners = {}) {
  */
 export async function buildCoordinatedArticleSavePayload(editorBundle, wire) {
     try {
-        const { flushAllSaveOwners, listSaveOwnerIds } = await import('@client-core/saveCoordinator.js');
         if (listSaveOwnerIds().length === 0) {
             return buildArticleEditorApiPayload(editorBundle, wire);
         }
