@@ -35,4 +35,14 @@ final class SeoKeywordSettingsExplicitEmptyTest extends TestCase
 
         self::assertSame([], (new SeoKeywordSettingsService)->getSettings()['marketing_terms']);
     }
+
+    public function test_explicit_empty_internal_link_heading_prefixes_persist_without_defaults(): void
+    {
+        $service = SeoKeywordSettingsService::withDefaults();
+        $settings = $service->getSettings();
+        $settings['link_heading_prefixes'] = [];
+        $service->saveSettings($settings);
+
+        self::assertSame([], (new SeoKeywordSettingsService)->getSettings()['link_heading_prefixes']);
+    }
 }

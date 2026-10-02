@@ -298,7 +298,7 @@ final class TopicPhraseResolver
     }
 
     /**
-     * Rebuild display for xuong/may/(product) lead found anywhere in the phrase.
+     * Rebuild display for a configured service-intent lead found anywhere in the phrase.
      */
     public function extractServiceCoreDisplay(string $phrase): string
     {

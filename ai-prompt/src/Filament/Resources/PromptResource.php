@@ -4,21 +4,7 @@ declare(strict_types=1); // @codeCoverageIgnore
 
 namespace Omnichannel\Addons\AiPrompt\Filament\Resources;
 
-
-
-
-use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
-use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages;
-use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
-use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
-use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
-use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
-use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
-use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
+use App\Filament\Forms\Components\MarkdownCodeEditor;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -28,6 +14,17 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
+use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
+use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
+use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
+use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
+use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
+use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 
 class PromptResource extends SeoPanelResource
 {
@@ -38,9 +35,6 @@ class PromptResource extends SeoPanelResource
     protected static ?string $navigationIcon = 'heroicon-o-chat-bubble-bottom-center-text';
 
     protected static ?string $navigationGroup = null;
-
-
-
 
     protected static ?int $navigationSort = SeoUserNavigation::SORT_PROMPTS;
 
@@ -277,7 +271,7 @@ class PromptResource extends SeoPanelResource
                                                     (string) ($get('hook_key') ?? ''),
                                                     (string) ($get('hook_version') ?? ''),
                                                 )),
-                                        Forms\Components\MarkdownEditor::make('markdown_content')
+                                        MarkdownCodeEditor::make('markdown_content')
                                             ->label('')
                                             ->required(fn (Get $get): bool => blank($get('hook_key'))
                                                 || PromptHookFormSchema::usesLegacyPromptTemplate(
@@ -297,21 +291,6 @@ class PromptResource extends SeoPanelResource
                                             ->dehydrated(true)
                                             ->live(onBlur: true)
                                             ->columnSpanFull()
-                                            ->minHeight('280px')
-                                            ->maxHeight('600px')
-                                            ->extraAttributes([
-                                                'class' => 'seo-prompt-markdown-editor',
-                                            ])
-                                            ->toolbarButtons([
-                                                'bold',
-                                                'italic',
-                                                'bulletList',
-                                                'orderedList',
-                                                'blockquote',
-                                                'link',
-                                                'undo',
-                                                'redo',
-                                            ])
                                             ->placeholder(__("# Role\nYou are an expert...\n\n# Context\nSystem...\n\n# Task: Main image\nCapture product image...\n\n# Sub-task: Side shot\n...")),
                                     ]),
 
@@ -409,7 +388,7 @@ class PromptResource extends SeoPanelResource
                             );
                             $panels = $n * $n;
 
-                            return __("seo-content-ai::filament.prompt.post_processing.grid_preview", [
+                            return __('seo-content-ai::filament.prompt.post_processing.grid_preview', [
                                 'n' => $n,
                                 'panels' => $panels,
                             ]);

@@ -12,6 +12,7 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\EditProm
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\ListPrompts;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\TestPrompt;
 use Omnichannel\Addons\AiPrompt\Services\PromptVersionService;
+use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
@@ -98,6 +99,30 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
             $props = (new ReflectionClass($page))->getDefaultProperties();
             self::assertSame(PromptResource::class, $props['resource'] ?? null);
         }
+    }
+
+    public function test_prompt_body_uses_shared_raw_markdown_code_editor(): void
+    {
+        $src = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
+        $view = (string) file_get_contents(resource_path('views/filament/forms/components/markdown-code-editor.blade.php'));
+
+        self::assertStringContainsString("MarkdownCodeEditor::make('markdown_content')", $src);
+        self::assertStringNotContainsString("MarkdownEditor::make('markdown_content')", $src);
+        self::assertStringNotContainsString('toolbarButtons', $src);
+        self::assertStringNotContainsString('seo-prompt-markdown-editor', $src);
+        self::assertStringContainsString("@vite(['resources/js/admin/code-editor/index.js'], 'build-code-editor')", $view);
+        self::assertStringContainsString('data-language="markdown"', $view);
+        self::assertStringContainsString('$wire.entangle(@js($statePath))', $view);
+    }
+
+    public function test_prompt_variable_sync_still_reads_raw_markdown_placeholders(): void
+    {
+        $markdown = "# Context\n{{context_name}} {{language}} {{market}}\n\n{{core_context}}";
+
+        self::assertSame(
+            ['context_name', 'language', 'market', 'core_context'],
+            PromptVariableSync::extractNames($markdown),
+        );
     }
 
     public function test_admin_context_list_scope_matches_seo_and_sees_prompt_26_for_owner_two(): void

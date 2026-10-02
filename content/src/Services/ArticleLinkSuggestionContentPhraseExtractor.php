@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use Illuminate\Support\Str;
+use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionStopPhraseFilter;
-use Illuminate\Support\Str;
 
 /**
  * Bóc candidate anchor từ nội dung thật (highlight → noun phrase → heading fallback).
@@ -28,57 +29,11 @@ final class ArticleLinkSuggestionContentPhraseExtractor
 
     public const SCORE_HEADING = 2;
 
-    /**
-     * Tiền tố heading bỏ đi để chỉ giữ cụm chính.
-     *
-     * @var list<string>
-     */
-    private const HEADING_PREFIXES = [
-        'huong dan',
-        'hướng dẫn',
-        'cach',
-        'cách',
-        'tai sao',
-        'tại sao',
-        'luu y',
-        'lưu ý',
-        'cac',
-        'các',
-        'nhung',
-        'những',
-        'top',
-        'so sanh',
-        'so sánh',
-        'bang',
-        'bảng',
-        'gioi thieu',
-        'giới thiệu',
-        'tong quan',
-        'tổng quan',
-        'loi ich',
-        'lợi ích',
-        'uu diem',
-        'ưu điểm',
-        'nhuoc diem',
-        'nhược điểm',
-        'ket luan',
-        'kết luận',
-        'tom tat',
-        'tóm tắt',
-        'danh sach',
-        'danh sách',
-        'how to',
-        'why',
-        'what is',
-        'what are',
-        'best',
-        'guide',
-        'tips',
-    ];
+    public function __construct(private readonly ?GlobalMatchRuleProvider $globalRules = null) {}
 
     /**
      * @param  list<string>  $excludePhrases  Phrase đã suggestion / đã link (case-insensitive)
-     * @param  list<string>  $priorityPhrases Focus / secondary keywords (entity-like) nếu có trong bài
+     * @param  list<string>  $priorityPhrases  Focus / secondary keywords (entity-like) nếu có trong bài
      * @return list<array{phrase: string, source: string, offset: int, source_score: int}>
      */
     public function extract(string $html, array $excludePhrases = [], array $priorityPhrases = []): array
@@ -318,7 +273,7 @@ final class ArticleLinkSuggestionContentPhraseExtractor
             $maxWords,
         );
 
-        // Material / model tokens with digits (e.g. Polyester 600D) — 2-word windows from paragraphs.
+        // Entity/model tokens containing numeric grade or model codes — 2-word windows from paragraphs.
         $this->collectAlphanumericEntityWindows(
             $candidates,
             $htmlWithoutLinks,
@@ -485,7 +440,7 @@ final class ArticleLinkSuggestionContentPhraseExtractor
             $head = implode(' ', array_slice($tokens, 0, $len));
             $norm = KeywordPhraseMatcher::normalize($head);
             $ascii = $this->toAsciiSpaced($norm);
-            foreach (self::HEADING_PREFIXES as $prefix) {
+            foreach ($this->ruleValues('link_heading_prefixes') as $prefix) {
                 $pNorm = KeywordPhraseMatcher::normalize($prefix);
                 $pAscii = $this->toAsciiSpaced($pNorm);
                 if ($norm === $pNorm || $ascii === $pAscii) {
@@ -720,10 +675,7 @@ final class ArticleLinkSuggestionContentPhraseExtractor
         }
 
         // Reject connector-heavy fragments ("và chất", "kế và", "do chọn" still OK if noun-like).
-        $connectors = [
-            'va', 'cua', 'cho', 'voi', 'tu', 've', 'de', 'khi', 'neu', 'hoac', 'nhung',
-            'la', 'ma', 'thi', 'bi', 'duoc', 'cac', 'nhung', 'mot', 'nhung',
-        ];
+        $connectors = $this->asciiRuleValues('link_phrase_connectors');
         $contentTokens = 0;
         foreach ($tokens as $token) {
             $ascii = $this->toAscii((string) $token);
@@ -898,6 +850,7 @@ final class ArticleLinkSuggestionContentPhraseExtractor
         }
 
         $counts = [];
+        $leadingStopwords = $this->asciiRuleValues('link_ngram_leading_stopwords');
         $countTokens = count($tokens);
         for ($size = $maxWords; $size >= $minWords; $size--) {
             for ($i = 0; $i <= $countTokens - $size; $i++) {
@@ -905,10 +858,9 @@ final class ArticleLinkSuggestionContentPhraseExtractor
                 if ($this->isStopwordOnlyTokens($slice)) {
                     continue;
                 }
-                // Bỏ ngram mở đầu bằng stopword yếu kiểu «cac / các / huong dan».
+                // Reject ngrams whose first token is configured as a weak leading term.
                 $firstAscii = $this->toAscii($slice[0]);
-                if (in_array($firstAscii, ['cac', 'nhung', 'mot'], true)
-                    || in_array($slice[0], ['các', 'những', 'một'], true)) {
+                if (in_array($firstAscii, $leadingStopwords, true)) {
                     continue;
                 }
                 $gram = implode(' ', $slice);
@@ -931,19 +883,53 @@ final class ArticleLinkSuggestionContentPhraseExtractor
      */
     private function isStopwordOnlyTokens(array $tokens): bool
     {
-        $stop = [
-            'va', 'và', 'cua', 'của', 'cho', 'voi', 'với', 'la', 'là', 'cac', 'các',
-            'mot', 'một', 'the', 'and', 'or', 'to', 'in', 'on', 'of', 'for', 'a', 'an',
-            'nhung', 'những', 'nhu', 'như', 'de', 'để', 'khi', 'nay', 'này',
-        ];
+        $stop = $this->normalizedRuleSet('link_phrase_stopwords');
         foreach ($tokens as $token) {
             $ascii = $this->toAscii($token);
-            if (! in_array($token, $stop, true) && ! in_array($ascii, $stop, true)) {
+            if (! isset($stop[$token]) && ! isset($stop[$ascii])) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** @return list<string> */
+    private function ruleValues(string $key): array
+    {
+        $rules = $this->globalRules?->globalMatchRules() ?? [];
+        $values = $rules[$key] ?? [];
+
+        return is_array($values)
+            ? array_values(array_filter($values, static fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
+            : [];
+    }
+
+    /** @return list<string> */
+    private function asciiRuleValues(string $key): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            fn (string $value): string => $this->toAscii($value),
+            $this->ruleValues($key),
+        ))));
+    }
+
+    /** @return array<string, true> */
+    private function normalizedRuleSet(string $key): array
+    {
+        $set = [];
+        foreach ($this->ruleValues($key) as $value) {
+            $normalized = KeywordPhraseMatcher::normalize($value);
+            $ascii = $this->toAscii($value);
+            if ($normalized !== '') {
+                $set[$normalized] = true;
+            }
+            if ($ascii !== '') {
+                $set[$ascii] = true;
+            }
+        }
+
+        return $set;
     }
 
     private function plainTextFromHtml(string $html): string

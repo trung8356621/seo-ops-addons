@@ -1538,7 +1538,7 @@ final class ArticleInternalLinkPipeline
             ->whereNotNull('phrase')
             ->where('phrase', '!=', '')
             // Prefer linkable entity phrases (2–4 words). Long title-spam keywords
-            // previously crowded the CHAR_LENGTH DESC limit(800) and hid "túi canvas".
+            // previously crowded the CHAR_LENGTH DESC limit(800) and hid multi-word entity phrases.
             ->whereRaw('CHAR_LENGTH(TRIM(phrase)) BETWEEN 5 AND 40')
             ->whereRaw('(LENGTH(TRIM(phrase)) - LENGTH(REPLACE(TRIM(phrase), " ", ""))) BETWEEN 1 AND 3')
             ->whereDoesntHave(

@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
-use Tests\Support\ProjectRoot;
-
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSearchService;
-use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionContentKeywordFallback;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionContentPhraseExtractor;
-use Tests\TestCase;
+use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use ReflectionClass;
+use Tests\Support\ProjectRoot;
+use Tests\TestCase;
 
 /**
  * Content-keyword fallback — extract phrases + gate khi primary < target.
@@ -161,7 +160,7 @@ final class ArticleLinkSuggestionContentFallbackTest extends TestCase
 
     public function test_heading_prefix_stripped_to_core_phrase(): void
     {
-        $extractor = new ArticleLinkSuggestionContentPhraseExtractor;
+        $extractor = new ArticleLinkSuggestionContentPhraseExtractor(SeoKeywordSettingsService::withDefaults());
         self::assertSame(
             'bảo quản balo bền đẹp',
             $extractor->stripHeadingPrefix('Hướng dẫn bảo quản balo bền đẹp'),
