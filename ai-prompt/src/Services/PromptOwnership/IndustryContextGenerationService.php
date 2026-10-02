@@ -22,6 +22,7 @@ final class IndustryContextGenerationService
         'core' => ['hook' => DefaultIndustryContextPromptInstaller::HOOK_KEY, 'name' => DefaultIndustryContextPromptInstaller::PROMPT_NAME],
         'discovery' => ['hook' => 'industry.discovery.generate', 'name' => 'Industry Discovery & Attention Generator'],
         'breakout' => ['hook' => 'industry.breakout.generate', 'name' => 'Industry Breakout Generator'],
+        'match' => ['hook' => 'industry.match.generate', 'name' => 'Industry Match & Research Generator'],
     ];
 
     public function __construct(

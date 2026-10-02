@@ -22,17 +22,6 @@ final class TopicPhraseResolver
     ];
 
     /** @var list<string> */
-    private const SERVICE_INTENT_MARKERS = [
-        'xuong may',
-        'dich vu may',
-        'dich vu',
-        'san xuat',
-        'gia si',
-        'theo yeu cau',
-        'may',
-    ];
-
-    /** @var list<string> */
     private const GLUE_TOKENS = [
         'tai', 'o', 'cho', 'la', 'cua', 'va', 'voi', 'den', 'tu', 'trong', 'theo',
     ];
@@ -40,6 +29,8 @@ final class TopicPhraseResolver
     public function __construct(
         private readonly KeywordNormalizer $normalizer,
         private readonly KeywordCanonicalizer $canonicalizer,
+        private readonly array $serviceIntentMarkers = [],
+        private readonly array $genericCores = [],
     ) {}
 
     /**
@@ -109,23 +100,17 @@ final class TopicPhraseResolver
         $joined = implode(' ', $tokens);
         $padded = ' '.$joined.' ';
 
-        // Mid-phrase OK (e.g. service markers embedded in longer text). Skip bare "may" here.
-        foreach (['xuong may', 'dich vu may', 'dich vu', 'san xuat', 'gia si', 'theo yeu cau'] as $marker) {
+        foreach ($this->serviceIntentMarkers as $marker) {
+            $marker = trim((string) $marker);
+            if ($marker === '') {
+                continue;
+            }
             if ($joined === $marker || str_contains($padded, ' '.$marker.' ')) {
                 return true;
             }
         }
 
-        foreach (self::SERVICE_INTENT_MARKERS as $marker) {
-            if ($marker === 'may') {
-                continue;
-            }
-            if (str_starts_with($joined, $marker.' ') || $joined === $marker) {
-                return true;
-            }
-        }
-
-        return in_array('may', $tokens, true) && ! in_array('xuong', $tokens, true);
+        return false;
     }
 
     public function intentCompatible(string $phraseA, string $phraseB): bool
@@ -254,7 +239,7 @@ final class TopicPhraseResolver
             return false;
         }
 
-        return in_array($tokens[0], ['may', 'balo', 'tui', 'vai', 'gia', 'da'], true);
+        return in_array($tokens[0], $this->genericCores, true);
     }
 
     /**
@@ -275,22 +260,11 @@ final class TopicPhraseResolver
      */
     public function extractServiceCoreDisplay(string $phrase): string
     {
-        $tokens = $this->significantTokens($phrase);
-        $lead = $this->serviceLeadTokens($tokens);
-        if ($lead === [] || ($lead[0] ?? '') !== 'xuong') {
-            // Leading "may …" service cores
-            if (($lead[0] ?? '') === 'may' && count($tokens) >= 2) {
-                $mayLead = array_slice($tokens, $this->indexOfToken($tokens, 'may'), min(3, count($tokens)));
-
-                return $this->rebuildLeadDisplay($phrase, $mayLead);
-            }
-
+        if (! $this->hasServiceIntent($phrase)) {
             return '';
         }
 
-        $lead = array_values(array_filter($lead, static fn (string $t): bool => $t !== ''));
-
-        return $this->rebuildLeadDisplay($phrase, $lead);
+        return $this->deriveCorePhrase($phrase);
     }
 
     /**
@@ -400,13 +374,6 @@ final class TopicPhraseResolver
      */
     private function stripLeadingDiscourseService(array $tokens): array
     {
-        if (count($tokens) >= 2 && $tokens[0] === 'dich' && $tokens[1] === 'vu') {
-            $rest = array_slice($tokens, 2);
-            if ($rest !== [] && ($rest[0] === 'may' || str_starts_with(implode(' ', $rest), 'may '))) {
-                return $rest;
-            }
-        }
-
         return $tokens;
     }
 
@@ -551,23 +518,12 @@ final class TopicPhraseResolver
             return [];
         }
 
-        $xuongIdx = $this->indexOfXuongMay($tokens);
-        if ($xuongIdx >= 0) {
-            $lead = ['xuong', 'may'];
-            if (($tokens[$xuongIdx + 2] ?? '') !== '') {
-                $lead[] = $tokens[$xuongIdx + 2];
+        $joined = implode(' ', $tokens);
+        foreach ($this->serviceIntentMarkers as $marker) {
+            $markerTokens = $this->tokens(trim((string) $marker));
+            if ($markerTokens !== [] && ($joined === implode(' ', $markerTokens) || str_contains(' '.$joined.' ', ' '.implode(' ', $markerTokens).' '))) {
+                return $markerTokens;
             }
-
-            return $lead;
-        }
-
-        $mayIdx = $this->indexOfToken($tokens, 'may');
-        if ($mayIdx >= 0 && ! in_array('xuong', $tokens, true)) {
-            return ['may'];
-        }
-
-        if ($tokens[0] === 'dich' && ($tokens[1] ?? '') === 'vu') {
-            return array_slice($tokens, 0, min(3, count($tokens)));
         }
 
         return array_slice($tokens, 0, 1);
@@ -576,18 +532,6 @@ final class TopicPhraseResolver
     /**
      * @param  list<string>  $tokens
      */
-    private function indexOfXuongMay(array $tokens): int
-    {
-        $count = count($tokens);
-        for ($i = 0; $i < $count - 1; $i++) {
-            if ($tokens[$i] === 'xuong' && $tokens[$i + 1] === 'may') {
-                return $i;
-            }
-        }
-
-        return -1;
-    }
-
     /**
      * @param  list<string>  $tokens
      */

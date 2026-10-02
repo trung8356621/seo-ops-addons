@@ -5,8 +5,8 @@
 
             <div class="seo-settings-main">
                 <header class="seo-settings-header">
-                    <h1>{{ __('seo-content-ai::filament.settings_keywords.page_title') }}</h1>
-                    <p>{{ __('seo-content-ai::filament.settings_keywords.page_description') }}</p>
+                    <h1>Match &amp; Research</h1>
+                    <p>Inspect global matching rules, generated industry rules, and deterministic matcher diagnostics.</p>
                 </header>
 
                 <form wire:submit="saveKeywordSettings" class="max-w-3xl mx-auto space-y-6">
@@ -30,6 +30,13 @@
                         />
                     </div>
                 </form>
+
+                <div class="mx-auto mt-8 max-w-3xl space-y-4">
+                    <x-filament::section heading="Industry Rules" description="Read-only rules come from the active Match & Research revision of the selected Industry Context. No active revision means an empty industry rule set." />
+                    <x-filament::section heading="Debug Matcher" description="Deterministic diagnostics only; no AI provider is called.">
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Use the existing CTA debug action above to inspect global rule matches. Industry rule diagnostics are resolved from the active Match revision.</p>
+                    </x-filament::section>
+                </div>
 
                 @if (is_array($debugReport))
                     <div class="mx-auto mt-8 max-w-3xl space-y-4">

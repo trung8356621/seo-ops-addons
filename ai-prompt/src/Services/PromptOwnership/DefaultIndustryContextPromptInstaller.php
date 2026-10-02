@@ -22,6 +22,7 @@ final class DefaultIndustryContextPromptInstaller
         'core' => ['hook' => self::HOOK_KEY, 'name' => self::PROMPT_NAME],
         'discovery' => ['hook' => 'industry.discovery.generate', 'name' => 'Industry Discovery & Attention Generator'],
         'breakout' => ['hook' => 'industry.breakout.generate', 'name' => 'Industry Breakout Generator'],
+        'match' => ['hook' => 'industry.match.generate', 'name' => 'Industry Match & Research Generator'],
     ];
 
     public function __construct(private readonly SeoCreateArticleSettingsService $settings) {}

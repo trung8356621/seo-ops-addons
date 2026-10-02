@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 
-use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
-use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Core\Addon\AddonEnablement;
 use App\Help\HelpUi;
 use App\Models\Site;
@@ -16,6 +13,9 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
+use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 class SeoSettingsKeywords extends Page implements HasForms
 {
@@ -27,9 +27,8 @@ class SeoSettingsKeywords extends Page implements HasForms
 
     public function getTitle(): string
     {
-        return __('Keywords');
+        return 'Match & Research';
     }
-
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-keywords';
 
@@ -52,7 +51,8 @@ class SeoSettingsKeywords extends Page implements HasForms
     {
         return $form
             ->schema([
-                Forms\Components\Section::make(__('seo-content-ai::filament.settings_keywords.cta_blacklist'))
+                Forms\Components\Section::make('Global Rules')
+                    ->description('Editable language/system matching rules. CTA / Noise retains its existing behavior.')
                     ->headerActions([HelpUi::fieldHintAction('settings.keywords.cta_blacklist')])
                     ->schema([
                         Forms\Components\TagsInput::make(SeoKeywordSettingsService::KEY_CTA_BLACKLIST)

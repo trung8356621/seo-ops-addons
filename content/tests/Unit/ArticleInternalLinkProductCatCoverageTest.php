@@ -25,7 +25,8 @@ final class ArticleInternalLinkProductCatCoverageTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->catalog = new ArticleInternalLinkProductCatCatalog;
+        // Fixture emulates service-intent terms resolved from an active industry profile.
+        $this->catalog = new ArticleInternalLinkProductCatCatalog(industryServicePrefixes: ['may']);
         $this->matcher = new ArticleInternalLinkProductCatMatcher($this->catalog);
     }
 

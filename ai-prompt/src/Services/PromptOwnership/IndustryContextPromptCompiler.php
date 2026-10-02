@@ -26,6 +26,7 @@ final class IndustryContextPromptCompiler
             'core' => ['Canonical Industry Context JSON Schema (the single source of truth):', IndustryContextSchema::json()],
             'discovery' => ['Canonical Industry Discovery & Attention JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::DISCOVERY)],
             'breakout' => ['Canonical Industry Breakout JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::BREAKOUT)],
+            'match' => ['Canonical Industry Match & Research JSON Schema (the single source of truth):', IndustryAuxiliarySchema::json(IndustryAuxiliarySchema::MATCH)],
             default => throw new InvalidArgumentException("Unknown Industry Context prompt type [{$type}]."),
         };
 

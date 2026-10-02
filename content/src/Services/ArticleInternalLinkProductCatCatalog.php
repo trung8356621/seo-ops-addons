@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use App\Models\Site;
+use Illuminate\Support\Facades\Cache;
 use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
@@ -11,8 +13,6 @@ use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatIdenti
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpProductCatLiveSource;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
-use App\Models\Site;
-use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -31,6 +31,7 @@ final class ArticleInternalLinkProductCatCatalog
 
     public function __construct(
         private readonly ?SiteMcpProductCatLiveSource $liveSource = null,
+        private readonly array $industryServicePrefixes = [],
     ) {}
 
     /**
@@ -152,15 +153,7 @@ final class ArticleInternalLinkProductCatCatalog
             return '';
         }
 
-        $prefixes = [
-            'cong ty may',
-            'công ty may',
-            'xuong may',
-            'xưởng may',
-            'san xuat',
-            'sản xuất',
-            'may',
-        ];
+        $prefixes = $this->industryServicePrefixes;
 
         foreach ($prefixes as $prefix) {
             $prefixNorm = KeywordPhraseMatcher::normalize($prefix);
@@ -225,6 +218,7 @@ final class ArticleInternalLinkProductCatCatalog
             $url = trim((string) ($row['url'] ?? ''));
             if ($url === '' || ! SeoSuggestionUrlNormalizer::isParsableTarget($url, allowRelative: true)) {
                 $missingUrl++;
+
                 continue;
             }
             $withUrl++;
@@ -232,6 +226,7 @@ final class ArticleInternalLinkProductCatCatalog
             $health = (string) ($row['health'] ?? 'unknown');
             if (in_array($health, ['404', '410', 'dead'], true)) {
                 $healthExcluded++;
+
                 continue;
             }
 
@@ -354,6 +349,7 @@ final class ArticleInternalLinkProductCatCatalog
 
             if (! array_key_exists('wp_parent_id', $metas) || $termId <= 0 || $name === '') {
                 $incomplete++;
+
                 continue;
             }
 
@@ -425,6 +421,7 @@ final class ArticleInternalLinkProductCatCatalog
                 $url = trim((string) ($payload['url'] ?? $payload['permalink'] ?? ''));
                 if ($termId <= 0 || $name === '' || ! array_key_exists('parent_term_id', $payload)) {
                     $incomplete++;
+
                     continue;
                 }
                 $verified = [

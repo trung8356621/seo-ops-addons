@@ -21,6 +21,7 @@ final class SiteSyncKeywordCandidateEvaluator
 
     public function __construct(
         private readonly ?KeywordRuleClassifier $classifier = null,
+        private readonly array $industryTerms = [],
     ) {}
 
     /**
@@ -66,7 +67,7 @@ final class SiteSyncKeywordCandidateEvaluator
         }
 
         $classifier = $this->classifier ?? (class_exists(KeywordRuleClassifier::class)
-            ? new KeywordRuleClassifier()
+            ? new KeywordRuleClassifier
             : null);
 
         if ($classifier === null) {
@@ -82,6 +83,7 @@ final class SiteSyncKeywordCandidateEvaluator
         $classified = $classifier->classify($raw !== '' ? $raw : $normalized, $normalized, [
             'source_kind' => $sourceKind,
             'skip_segments' => true,
+            'industry_terms' => $this->industryTerms,
         ]);
 
         $kind = (string) ($classified['phrase_kind'] ?? KeywordRuleClassifier::KIND_NOISE);

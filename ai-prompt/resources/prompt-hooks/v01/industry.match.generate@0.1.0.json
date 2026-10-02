@@ -1,0 +1,28 @@
+{
+  "spec_version": "0.1",
+  "key": "industry.match.generate",
+  "version": "0.1.0",
+  "name": "Industry Match & Research Generator",
+  "description": "Derive a stable, reusable industry lexical ontology from Core Industry Context.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "industry-context",
+  "model": { "provider": "prompt_connection", "name": "configured", "structured_output": true, "settings": { "temperature": 0.1 } },
+  "locale": { "mode": "caller", "fallback": "vi" },
+  "input_schema": {
+    "context_name": { "type": "string", "required": true, "max_length": 255, "label": "Context name" },
+    "language": { "type": "string", "required": true, "max_length": 32, "label": "Language" },
+    "market": { "type": "string", "required": true, "max_length": 255, "label": "Target market hint or explicit unspecified marker" },
+    "core_context": { "type": "string", "required": true, "label": "Valid Core Industry Context JSON" },
+    "notes": { "type": "string", "required": false, "nullable": true, "max_length": 4000, "label": "Optional notes" }
+  },
+  "output_schema": { "type": "json", "normalize": ["trim", "strip_markdown_fence"], "validation": { "not_empty": true, "json_object": true } },
+  "template": { "source": "legacy_prompt_content", "system": null, "user": null },
+  "canonical_default": { "markdown": "Derive a stable reusable industry lexical ontology for {{context_name}} in {{language}} (market hint: {{market}}) from the supplied Core Industry Context. Prefer canonical industry terms; identify aliases and ambiguous terms; distinguish industry semantics from universal language grammar. Do not invent or include site data, article titles, keywords, GSC, rankings, publication state, dates, trend snapshots, generic stopwords, connectors, or executable regex. Use only the controlled match modes permitted by the appended schema and return only schema-valid JSON.\n\nCore Industry Context:\n{{core_context}}" },
+  "presentation": { "description": "Generate stable industry matching vocabulary from Core context.", "variables": [{"key":"context_name","required":true},{"key":"language","required":true},{"key":"market","required":true},{"key":"core_context","required":true},{"key":"notes","required":false}], "notes": ["Runtime appends the canonical Match & Research schema."] },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

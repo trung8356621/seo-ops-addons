@@ -27,25 +27,15 @@ final class TopicDnaExtractor
     private const QUESTION_TOKENS = ['gi', 'ai', 'dau', 'sao', 'nao', 'bao', 'khi'];
 
     /** @var array<string, string> */
-    private const KNOWN_FACETS = [
-        'canvas' => 'material',
-        'vai' => 'material',
-        'da' => 'material',
-        'nhua' => 'material',
-        'hoc sinh' => 'audience',
-        'tre em' => 'audience',
-        'nam' => 'audience',
-        'nu' => 'audience',
-        'the thao' => 'use_case',
-        'thoi trang' => 'style',
-        'gia re' => 'feature',
-        'gia si' => 'feature',
-    ];
+    private array $knownFacets;
 
     public function __construct(
         private readonly KeywordNormalizer $normalizer,
         private readonly TopicPhraseResolver $phraseResolver,
-    ) {}
+        array $knownFacets = [],
+    ) {
+        $this->knownFacets = $knownFacets;
+    }
 
     /**
      * @return list<array{value: string, facet_type: ?string, confidence: string, placement: string, source: string}>
@@ -106,7 +96,7 @@ final class TopicDnaExtractor
         $used = [];
         $joined = implode(' ', $residual);
 
-        foreach (self::KNOWN_FACETS as $pattern => $facet) {
+        foreach ($this->knownFacets as $pattern => $facet) {
             if (! str_contains($joined, $pattern) || isset($used[$pattern])) {
                 continue;
             }
@@ -328,14 +318,6 @@ final class TopicDnaExtractor
             return 0;
         }
 
-        if ($tokens[0] === 'xuong' && ($tokens[1] ?? '') === 'may') {
-            return min(3, count($tokens));
-        }
-
-        if ($tokens[0] === 'may') {
-            return min(2, count($tokens));
-        }
-
         return 0;
     }
 
@@ -538,6 +520,6 @@ final class TopicDnaExtractor
 
     private function guessFacet(string $normalized): ?string
     {
-        return self::KNOWN_FACETS[$normalized] ?? null;
+        return $this->knownFacets[$normalized] ?? null;
     }
 }

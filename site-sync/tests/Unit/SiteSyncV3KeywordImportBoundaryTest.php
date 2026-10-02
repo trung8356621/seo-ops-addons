@@ -16,7 +16,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 {
     public function test_href_never_promoted_to_keyword_candidate(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $href = 'https://maybalotuixachgiare.com';
 
         $fromHref = $evaluator->evaluate($href, $href, SiteSyncKeywordCandidateEvaluator::CANDIDATE_HREF);
@@ -27,7 +27,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_url_shaped_anchor_classified_as_url_domain_not_seo(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $url = 'https://maybalotuixachgiare.com';
 
         $result = $evaluator->evaluate($url, $url, SiteSyncKeywordCandidateEvaluator::CANDIDATE_ANCHOR);
@@ -38,7 +38,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_url_shaped_provider_keyword_not_eligible(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $url = 'https://maybalotuixachgiare.com';
 
         $result = $evaluator->evaluate($url, $url, SiteSyncKeywordCandidateEvaluator::CANDIDATE_PROVIDER);
@@ -48,7 +48,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_valid_anchor_phrase_still_eligible(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator(industryTerms: ['balo', 'học sinh']);
         $phrase = 'balo học sinh giá rẻ';
 
         $result = $evaluator->evaluate($phrase, mb_strtolower($phrase), SiteSyncKeywordCandidateEvaluator::CANDIDATE_ANCHOR);
@@ -59,7 +59,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_noise_anchor_not_eligible(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $result = $evaluator->evaluate('--- ///', '--- ///', SiteSyncKeywordCandidateEvaluator::CANDIDATE_ANCHOR);
         self::assertFalse($result['eligible']);
         self::assertSame(KeywordRuleClassifier::KIND_NOISE, $result['phrase_kind']);
@@ -73,7 +73,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
         self::assertStringContainsString('url_shaped_anchor_not_promoted', $src);
         self::assertStringContainsString('looksLikeUrlOrDomain', $src);
-        self::assertStringNotContainsString("mb_substr(\$href, 0, 120)", $src);
+        self::assertStringNotContainsString('mb_substr($href, 0, 120)', $src);
         self::assertStringContainsString('empty_anchor_href_not_promoted', $src);
         self::assertStringContainsString('findOrAttachEligible', $src);
         self::assertStringContainsString('CANDIDATE_ANCHOR', $src);
@@ -107,7 +107,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_domain_only_string_classified_url_domain(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $result = $evaluator->evaluate(
             'maybalotuixachgiare.com',
             'maybalotuixachgiare.com',
@@ -119,7 +119,7 @@ final class SiteSyncV3KeywordImportBoundaryTest extends TestCase
 
     public function test_malformed_http_scheme_anchor_rejected(): void
     {
-        $evaluator = new SiteSyncKeywordCandidateEvaluator();
+        $evaluator = new SiteSyncKeywordCandidateEvaluator;
         $result = $evaluator->evaluate(
             'http:maybalogiare.com',
             'http:maybalogiare.com',

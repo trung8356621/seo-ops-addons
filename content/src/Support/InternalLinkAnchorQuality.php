@@ -248,12 +248,8 @@ final class InternalLinkAnchorQuality
 
     private static function hasMaterialOrGradeCode(string $norm): bool
     {
-        // 600D / 1680D / polyester 600 d style material grades
+        // A numeric material/grade shape is structural and industry-neutral.
         if (preg_match('/\b\d{2,4}\s*d\b/u', $norm) === 1) {
-            return true;
-        }
-
-        if (preg_match('/\b(?:polyester|nylon|canvas|oxford|pu|pvc|cotton|jute)\b/u', $norm) === 1) {
             return true;
         }
 

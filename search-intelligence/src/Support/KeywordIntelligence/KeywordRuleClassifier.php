@@ -99,7 +99,7 @@ final class KeywordRuleClassifier
         $targetPosts = max(0, (int) ($context['target_post_count'] ?? 0));
         $hasCanonical = (bool) ($context['has_canonical_match'] ?? false);
 
-        $features = $this->features($raw, $text);
+        $features = $this->features($raw, $text, $context);
         $cta = $this->ctaAssessment($text, $raw, $features);
         $kind = $this->kind($raw, $text, $features);
         if ($cta['is_cta_like']) {
@@ -148,7 +148,7 @@ final class KeywordRuleClassifier
      *     strong_sentence: bool
      * }
      */
-    private function features(string $raw, string $text): array
+    private function features(string $raw, string $text, array $context = []): array
     {
         $words = preg_split('/\s+/u', $text) ?: [];
         $words = array_values(array_filter($words, static fn (string $w): bool => $w !== ''));
@@ -176,7 +176,7 @@ final class KeywordRuleClassifier
             }
         }
 
-        $products = ['túi', 'balo', 'vải', 'canvas', 'không dệt', 'xưởng', 'may', 'gia công', 'in logo', 'quà tặng', 'sản xuất'];
+        $products = array_values(array_filter((array) ($context['industry_terms'] ?? []), 'is_string'));
         $productHits = 0;
         foreach ($products as $p) {
             if (str_contains($text, $p)) {
@@ -279,7 +279,7 @@ final class KeywordRuleClassifier
             return false;
         }
         $folded = mb_strtolower($raw);
-        $genericOnly = preg_match('/\b(túi|balo|canvas|không dệt|vải|giá|mua)\b/u', $folded) === 1;
+        $genericOnly = preg_match('/\b(giá|mua)\b/u', $folded) === 1;
         if ($genericOnly && $wc >= 3 && (int) $features['product_hits'] >= 2) {
             return false;
         }
@@ -453,7 +453,7 @@ final class KeywordRuleClassifier
      */
     private function segments(string $raw): array
     {
-        $segmenter = new KeywordAnchorSegmenter();
+        $segmenter = new KeywordAnchorSegmenter;
         $parts = $segmenter->segment($raw);
         if (count($parts) < 2) {
             return [];
@@ -507,12 +507,12 @@ final class KeywordRuleClassifier
             $score += 1;
         }
 
-        $commercialSeoLead = preg_match('/^(báo giá|giá|mua|cách|xưởng|sản xuất|gia công|in logo)\b/u', $text) === 1
+        $commercialSeoLead = preg_match('/^(báo giá|giá|mua|cách)\b/u', $text) === 1
             && $productHits >= 1;
         if ($commercialSeoLead) {
             $score -= 3;
         }
-        if ($productHits >= 2 && preg_match('/\b(túi|balo|canvas|vải|không dệt|may|xưởng)\b/u', $text) === 1) {
+        if ($productHits >= 2) {
             $score -= 1;
         }
         if ($features['has_question'] ?? false) {
