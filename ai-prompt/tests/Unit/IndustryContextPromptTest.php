@@ -74,12 +74,13 @@ final class IndustryContextPromptTest extends TestCase
             ->with($storedPrompt, Mockery::on(fn (array $variables): bool => $variables === [
                 'context_name' => 'Balo & túi xách',
                 'language' => 'vi',
+                'market' => 'VN',
                 'notes' => 'Focus on retail.',
             ]))
             ->andReturn('OPERATOR EDITED Balo & túi xách / vi / VN');
 
         $service = new IndustryContextGenerationService($runner, $promptRunner, fn (): SeoPrompt => $storedPrompt);
-        $compiled = $service->compilePrompt(' Balo & túi xách ', ' vi ', ' Focus on retail. ');
+        $compiled = $service->compilePrompt(' Balo & túi xách ', ' vi ', ' VN ', ' Focus on retail. ');
 
         self::assertFalse($runner->called);
         self::assertStringContainsString('OPERATOR EDITED Balo & túi xách / vi / VN', $compiled);
@@ -87,6 +88,8 @@ final class IndustryContextPromptTest extends TestCase
         self::assertStringContainsString("Temporary generation notes:\nFocus on retail.", $compiled);
         self::assertStringContainsString(IndustryContextSchema::json(), $compiled);
         self::assertStringNotContainsString('CURRENT_CONTEXT_SENTINEL', $compiled);
+        self::assertStringNotContainsString('{{market}}', $compiled);
+        self::assertStringNotContainsString('undefined', $compiled);
         self::assertStringContainsString('human-readable values must primarily be Vietnamese', $compiled);
         self::assertStringContainsString('MOQ (số lượng đặt hàng tối thiểu)', $compiled);
         self::assertStringContainsString('OEM/ODM (sản xuất theo thiết kế hoặc thương hiệu đặt hàng)', $compiled);
@@ -126,6 +129,21 @@ final class IndustryContextPromptTest extends TestCase
         }
     }
 
+    public function test_compile_prompt_resolves_known_legacy_tokens_and_undefined_fallback(): void
+    {
+        $runner = Mockery::mock(PromptHookBindingRunner::class);
+        $promptRunner = Mockery::mock(PromptRunnerService::class);
+        $promptRunner->shouldReceive('compilePrompt')->once()->andReturn('{{context_name}} / {{language}} / {{market}} / undefined');
+        $prompt = new SeoPrompt;
+        $service = new IndustryContextGenerationService($runner, $promptRunner, fn (): SeoPrompt => $prompt);
+
+        $compiled = $service->compilePrompt('Balo', 'vi');
+
+        self::assertStringContainsString('Balo / vi / unspecified / no explicit target market / unspecified', $compiled);
+        self::assertStringNotContainsString('{{market}}', $compiled);
+        self::assertStringNotContainsString('undefined', $compiled);
+    }
+
     public function test_discovery_and_breakout_compile_current_prompt_with_core_context_without_provider_execution(): void
     {
         $runner = new class implements PromptHookBindingRunner
@@ -148,20 +166,24 @@ final class IndustryContextPromptTest extends TestCase
         }
         $promptRunner = Mockery::mock(PromptRunnerService::class);
         $promptRunner->shouldReceive('compilePrompt')->twice()->andReturnUsing(
-            fn (SeoPrompt $resolved, array $variables): string => 'EDITED AUX '.$variables['context_name'].' '.$variables['language'].' '.$variables['core_context'],
+            fn (SeoPrompt $resolved, array $variables): string => 'EDITED AUX '.$variables['context_name'].' '.$variables['language'].' '.$variables['market'].' '.$variables['core_context'],
         );
         $service = new IndustryContextGenerationService($runner, $promptRunner, fn (): SeoPrompt => $prompt);
 
-        $discovery = $service->compilePromptForType('discovery', 'Balo', 'vi', $core, 'ghi chú');
-        $breakout = $service->compilePromptForType('breakout', 'Balo', 'vi', $core);
+        $discovery = $service->compilePromptForType('discovery', 'Balo', 'vi', 'US', $core, 'ghi chú');
+        $breakout = $service->compilePromptForType('breakout', 'Balo', 'vi', null, $core);
 
         self::assertFalse($runner->called);
         self::assertStringContainsString('EDITED AUX Balo vi', $discovery);
+        self::assertStringContainsString('EDITED AUX Balo vi US', $discovery);
         self::assertStringContainsString('Canonical Industry Discovery & Attention JSON Schema', $discovery);
         self::assertStringContainsString('normally 1-4 words and strongly prefer 5 words or fewer', $discovery);
         self::assertStringContainsString("Temporary generation notes:\nghi chú", $discovery);
         self::assertStringContainsString('Canonical Industry Breakout JSON Schema', $breakout);
+        self::assertStringContainsString('unspecified / no explicit target market', $breakout);
         self::assertStringContainsString('normally 1-4 words and strongly prefer 5 words or fewer', $breakout);
+        self::assertStringNotContainsString('{{market}}', $discovery.$breakout);
+        self::assertStringNotContainsString('undefined', $discovery.$breakout);
     }
 
     public function test_auxiliary_prompt_requires_valid_core_context(): void
@@ -171,7 +193,7 @@ final class IndustryContextPromptTest extends TestCase
         $service = new IndustryContextGenerationService($runner);
 
         $this->expectException(UnexpectedValueException::class);
-        $service->compilePromptForType('discovery', 'Balo', 'vi', []);
+        $service->compilePromptForType('discovery', 'Balo', 'vi', null, []);
     }
 
     public function test_generation_output_validation_accepts_valid_json_and_rejects_invalid_json(): void
