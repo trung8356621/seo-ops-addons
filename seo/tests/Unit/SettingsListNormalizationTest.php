@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use App\Models\WpOption;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\SeoSettingsBundleService;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class SettingsListNormalizationTest extends TestCase
 {
     private ArticleEditorHistoryService $editorService;
+
     private SeoOverviewSettingsService $overviewService;
+
     private SeoKeywordSettingsService $keywordService;
 
     protected function setUp(): void
@@ -33,7 +35,7 @@ final class SettingsListNormalizationTest extends TestCase
         });
         WpOption::clearRequestCache();
 
-        $this->editorService = new ArticleEditorHistoryService();
+        $this->editorService = new ArticleEditorHistoryService;
         $this->overviewService = SeoOverviewSettingsService::withDefaults();
         $this->keywordService = SeoKeywordSettingsService::withDefaults();
     }
@@ -172,5 +174,15 @@ final class SettingsListNormalizationTest extends TestCase
 
         $blacklist = $this->keywordService->getCtaBlacklist();
         self::assertSame(['tại đây', 'CLICK VÀO'], $blacklist);
+    }
+
+    public function test_non_cta_global_rule_persists_and_reloads(): void
+    {
+        $settings = $this->keywordService->getSettings();
+        $settings['question_terms'] = ['which one', 'so sánh gì'];
+        $this->keywordService->saveSettings($settings);
+
+        $reloaded = new SeoKeywordSettingsService;
+        self::assertSame(['which one', 'so sánh gì'], $reloaded->getSettings()['question_terms']);
     }
 }

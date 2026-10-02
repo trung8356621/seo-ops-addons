@@ -50,7 +50,7 @@ final class SeoSettingsSectionContributor implements SettingsSectionContributor
             ),
             new SettingsSection(
                 id: 'keywords',
-                label: 'Keywords',
+                label: 'Match & Research',
                 icon: 'heroicon-o-key',
                 url: $this->url(SeoSettingsKeywords::class, '/admin/settings/keywords'),
                 owner: 'seo',

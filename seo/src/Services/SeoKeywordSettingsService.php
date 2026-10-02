@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services;
 
 use App\Models\WpOption;
+use Omnichannel\Addons\Seo\Services\MatchRules\GlobalMatchRuleRegistry;
 
 final class SeoKeywordSettingsService
 {
@@ -15,19 +16,7 @@ final class SeoKeywordSettingsService
 
     public const KEY_CTA_BLACKLIST = 'cta_blacklist';
 
-    /** @var list<string> */
-    private const DEFAULT_CTA_BLACKLIST = [
-        'tại đây',
-        'click vào',
-        'yêu cầu mẫu',
-        'liên hệ hotline',
-        'catalogue mẫu',
-        'miễn phí tại đây',
-        'yêu cầu catalogue',
-        'nhấn vào đây',
-        'xem thêm tại đây',
-        'liên hệ ngay',
-    ];
+    public function __construct(private readonly ?GlobalMatchRuleRegistry $registry = null) {}
 
     public static function withDefaults(): self
     {
@@ -51,14 +40,16 @@ final class SeoKeywordSettingsService
             return $this->defaultSettings();
         }
 
-        $blacklist = $this->normalizeKeywords($data[self::KEY_CTA_BLACKLIST] ?? null);
-        if ($blacklist !== [] && $this->hasByteCorruptedUtf8Labels($blacklist)) {
-            $blacklist = [];
+        $settings = [];
+        foreach ($this->definitions() as $key => $definition) {
+            $values = $this->normalizeKeywords($data[$key] ?? null);
+            if ($values !== [] && $this->hasByteCorruptedUtf8Labels($values)) {
+                $values = [];
+            }
+            $settings[$key] = $values !== [] ? $values : $definition['defaults'];
         }
 
-        return [
-            self::KEY_CTA_BLACKLIST => $blacklist !== [] ? $blacklist : self::DEFAULT_CTA_BLACKLIST,
-        ];
+        return $settings;
     }
 
     /**
@@ -74,11 +65,12 @@ final class SeoKeywordSettingsService
      */
     public function saveSettings(array $settings): void
     {
-        $blacklist = $this->normalizeKeywords($settings[self::KEY_CTA_BLACKLIST] ?? null);
-
-        WpOption::set(self::OPTION_KEY, [
-            self::KEY_CTA_BLACKLIST => $blacklist !== [] ? $blacklist : self::DEFAULT_CTA_BLACKLIST,
-        ], 'no');
+        $normalized = [];
+        foreach ($this->definitions() as $key => $definition) {
+            $values = $this->normalizeKeywords($settings[$key] ?? null);
+            $normalized[$key] = $values !== [] ? $values : $definition['defaults'];
+        }
+        WpOption::set(self::OPTION_KEY, $normalized, 'no');
 
         $this->inMemorySettings = null;
     }
@@ -112,9 +104,19 @@ final class SeoKeywordSettingsService
      */
     private function defaultSettings(): array
     {
-        return [
-            self::KEY_CTA_BLACKLIST => self::DEFAULT_CTA_BLACKLIST,
-        ];
+        return array_map(static fn (array $definition): array => $definition['defaults'], $this->definitions());
+    }
+
+    /** @return array<string, array{key:string,label:string,scope:string,description:string,match_mode:string,editable:bool,defaults:list<string>}> */
+    public function definitions(): array
+    {
+        return ($this->registry ?? new GlobalMatchRuleRegistry)->definitions();
+    }
+
+    /** @return list<string> */
+    public function normalizeRuleValues(mixed $raw): array
+    {
+        return $this->normalizeKeywords($raw);
     }
 
     /**

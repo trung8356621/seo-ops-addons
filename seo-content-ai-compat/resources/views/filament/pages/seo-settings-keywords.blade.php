@@ -32,9 +32,49 @@
                 </form>
 
                 <div class="mx-auto mt-8 max-w-3xl space-y-4">
-                    <x-filament::section heading="Industry Rules" description="Read-only rules come from the active Match & Research revision of the selected Industry Context. No active revision means an empty industry rule set." />
+                    <x-filament::section heading="Industry Rules" description="Read-only rules resolved from the current site's active Match & Research revision.">
+                        @if ($industryProvenance)
+                            <div class="mb-4 flex flex-wrap gap-3 text-sm">
+                                <span><strong>Industry Context:</strong> {{ $industryProvenance['industry_context_key'] }}</span>
+                                <span><strong>Match revision:</strong> #{{ $industryProvenance['match_revision_id'] }}</span>
+                                <x-filament::badge :color="($industryProvenance['stale'] ?? true) ? 'warning' : 'success'">
+                                    {{ ($industryProvenance['stale'] ?? true) ? 'Stale' : 'Fresh' }}
+                                </x-filament::badge>
+                            </div>
+                            <div class="space-y-4">
+                                @foreach ($industryRules as $group => $entries)
+                                    <div>
+                                        <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ str($group)->replace('_', ' ')->title() }}</h3>
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            @forelse ($entries as $entry)
+                                                @php($label = is_array($entry) ? ($entry['canonical'] ?? $entry['term'] ?? '') : (string) $entry)
+                                                @if ($label !== '')
+                                                    <x-filament::badge color="gray">{{ $label }}</x-filament::badge>
+                                                @endif
+                                            @empty
+                                                <span class="text-sm text-gray-500">—</span>
+                                            @endforelse
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <p class="text-sm text-gray-500 dark:text-gray-400">Chưa có Match &amp; Research đang hoạt động cho Industry Context của site hiện tại.</p>
+                            @if ($industryContextKey)
+                                <p class="mt-1 text-xs text-gray-400">Industry Context key: {{ $industryContextKey }}</p>
+                            @endif
+                        @endif
+                    </x-filament::section>
                     <x-filament::section heading="Debug Matcher" description="Deterministic diagnostics only; no AI provider is called.">
-                        <p class="text-sm text-gray-500 dark:text-gray-400">Use the existing CTA debug action above to inspect global rule matches. Industry rule diagnostics are resolved from the active Match revision.</p>
+                        <div class="space-y-3">
+                            <x-filament::input.wrapper>
+                                <x-filament::input type="text" wire:model="debugPhrase" placeholder="Nhập cụm từ cần kiểm tra" />
+                            </x-filament::input.wrapper>
+                            <x-filament::button type="button" wire:click="debugMatcher" wire:loading.attr="disabled" wire:target="debugMatcher">Debug Matcher</x-filament::button>
+                            @if (is_array($matcherReport))
+                                <pre class="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-950 p-4 font-mono text-xs text-gray-100">{{ json_encode($matcherReport, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>
+                            @endif
+                        </div>
                     </x-filament::section>
                 </div>
 

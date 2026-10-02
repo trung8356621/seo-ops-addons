@@ -9,7 +9,7 @@ use Omnichannel\Addons\Seo\Filament\Forms\Components\SettingsTagsInput;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsGeneral;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
-use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
+use Omnichannel\Addons\Seo\Services\MatchRules\GlobalMatchRuleRegistry;
 use Omnichannel\Addons\Seo\Support\SettingsTagNormalizer;
 use Tests\TestCase;
 
@@ -42,11 +42,14 @@ final class SettingsListUiContractTest extends TestCase
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);
     }
 
-    public function test_seo_settings_keywords_cta_blacklist_remains_tags_input(): void
+    public function test_seo_settings_keywords_renders_all_editable_registry_rules(): void
     {
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsKeywords::class))->getFileName());
+        $definitions = (new GlobalMatchRuleRegistry)->definitions();
 
-        self::assertStringContainsString('Forms\Components\TagsInput::make(SeoKeywordSettingsService::KEY_CTA_BLACKLIST)', $code);
+        self::assertNotSame([], array_filter($definitions, static fn (array $rule): bool => $rule['editable'] && $rule['key'] !== 'cta_blacklist'));
+        self::assertStringContainsString('collect($settings->definitions())', $code);
+        self::assertStringContainsString("Forms\\Components\\TagsInput::make(\$definition['key'])", $code);
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);
     }
 
