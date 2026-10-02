@@ -1,4 +1,7 @@
 <x-filament-panels::page>
+    @once
+        @vite(['resources/js/admin/code-editor/index.js'], 'build-code-editor')
+    @endonce
     @vite([
         'addons/content-projects/resources/css/project-run-step.css',
         'addons/content/resources/js/article-execution-history.jsx',
@@ -58,12 +61,17 @@
             drawerPrompt: '',
             drawerResult: '',
             drawerMeta: '',
+            promptViewer: null,
+            resultViewer: null,
             openTwoCol(title, prompt, result, meta) {
                 this.drawerTitle = title || '';
                 this.drawerPrompt = prompt || '';
                 this.drawerResult = result || '';
                 this.drawerMeta = meta || '';
                 this.drawerOpen = true;
+                this.$nextTick(() => {
+                    this.renderViewers();
+                });
             },
             async openRawAiCall(ref) {
                 if (!ref) {
@@ -75,10 +83,67 @@
                 } else {
                     this.openTwoCol('AI Call', payload?.message ?? @js(__('AI call not found.')), '', '');
                 }
-                this.drawerOpen = true;
             },
             closeDrawer() {
                 this.drawerOpen = false;
+                this.destroyViewers();
+            },
+            renderViewers() {
+                if (typeof window.createCodeViewer !== 'function') {
+                    setTimeout(() => {
+                        if (this.drawerOpen) {
+                            this.renderViewers();
+                        }
+                    }, 50);
+                    return;
+                }
+                const promptVal = this.drawerPrompt || @js(__('No more prompt data.'));
+                const resultVal = this.drawerResult || @js(__('No results saved.'));
+
+                if (this.promptViewer) {
+                    this.promptViewer.setValue(promptVal);
+                } else if (this.$refs.promptSurface) {
+                    this.promptViewer = window.createCodeViewer({
+                        parent: this.$refs.promptSurface,
+                        value: promptVal,
+                        language: 'markdown',
+                        wrap: true,
+                    });
+                }
+
+                if (this.resultViewer) {
+                    this.resultViewer.setValue(resultVal, 'auto');
+                } else if (this.$refs.resultSurface) {
+                    this.resultViewer = window.createCodeViewer({
+                        parent: this.$refs.resultSurface,
+                        value: resultVal,
+                        language: 'auto',
+                        wrap: true,
+                    });
+                }
+            },
+            destroyViewers() {
+                if (this.promptViewer) {
+                    this.promptViewer.destroy();
+                    this.promptViewer = null;
+                }
+                if (this.resultViewer) {
+                    this.resultViewer.destroy();
+                    this.resultViewer = null;
+                }
+                if (this.$refs.promptSurface) this.$refs.promptSurface.innerHTML = '';
+                if (this.$refs.resultSurface) this.$refs.resultSurface.innerHTML = '';
+            },
+            openPromptSearch() {
+                this.promptViewer?.openSearch?.();
+            },
+            openResultSearch() {
+                this.resultViewer?.openSearch?.();
+            },
+            init() {
+                this.$cleanup(() => {
+                    this.destroyViewers();
+                });
             },
             async copyText(text) {
                 if (!text) return;
@@ -832,16 +897,22 @@
                     <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                         <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2 text-xs font-semibold dark:border-gray-700">
                             <span>Prompt</span>
-                            <button type="button" class="underline" x-on:click="copyText(drawerPrompt)">Copy</button>
+                            <div class="flex items-center gap-2">
+                                <button type="button" class="underline" x-on:click="openPromptSearch()">Search</button>
+                                <button type="button" class="underline" x-on:click="copyText(drawerPrompt)">Copy</button>
+                            </div>
                         </div>
-                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerPrompt || @js(__('No more prompt data.'))"></pre>
+                        <div x-ref="promptSurface" class="code-viewer-surface min-h-0 flex-1"></div>
                     </div>
                     <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                         <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2 text-xs font-semibold dark:border-gray-700">
                             <span>Kết quả</span>
-                            <button type="button" class="underline" x-on:click="copyText(drawerResult)">Copy</button>
+                            <div class="flex items-center gap-2">
+                                <button type="button" class="underline" x-on:click="openResultSearch()">Search</button>
+                                <button type="button" class="underline" x-on:click="copyText(drawerResult)">Copy</button>
+                            </div>
                         </div>
-                        <pre class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs" x-text="drawerResult || @js(__('No results saved.'))"></pre>
+                        <div x-ref="resultSurface" class="code-viewer-surface min-h-0 flex-1"></div>
                     </div>
                 </div>
             </aside>
