@@ -204,6 +204,100 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         self::assertSame($tenRowQueries, $twentyFiveRowQueries);
     }
 
+    public function test_topic_list_uses_real_pagination_with_bounded_page_queries(): void
+    {
+        for ($index = 1; $index <= 30; $index++) {
+            $this->createTopic(self::SITE_A, sprintf('Page Topic %02d', $index));
+        }
+
+        $list = app(TopicListQuery::class);
+        $first = $list->paginate(self::SITE_A, [
+            'search' => 'Page Topic',
+            'sort' => 'name_asc',
+            'per_page' => 10,
+            'page' => 1,
+        ], ['vi']);
+        $second = $list->paginate(self::SITE_A, [
+            'search' => 'Page Topic',
+            'sort' => 'name_asc',
+            'per_page' => 10,
+            'page' => 2,
+        ], ['vi']);
+
+        self::assertSame(30, $first->total());
+        self::assertSame('Page Topic 01', $first->items()[0]['name']);
+        self::assertSame('Page Topic 11', $second->items()[0]['name']);
+
+        $connection = DB::connection('omi_seo_ai');
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+        $list->paginate(self::SITE_A, ['search' => 'Page Topic', 'per_page' => 10], ['vi']);
+        $tenQueries = count($connection->getQueryLog());
+        $connection->flushQueryLog();
+        $list->paginate(self::SITE_A, ['search' => 'Page Topic', 'per_page' => 25], ['vi']);
+        self::assertSame($tenQueries, count($connection->getQueryLog()));
+    }
+
+    public function test_topic_list_db_filters_sorts_and_page_metrics_remain_correct(): void
+    {
+        $articleA = $this->createArticle(self::SITE_A, 'vi', 'Metric A1');
+        $articleA2 = $this->createArticle(self::SITE_A, 'vi', 'Metric A2');
+        $articleB = $this->createArticle(self::SITE_A, 'vi', 'Metric B1');
+        $keywordA1 = $this->createInventoryKeyword('metric alpha first', $articleA, withFocus: true);
+        $keywordA2 = $this->createInventoryKeyword('metric alpha second', $articleA2, withFocus: true);
+        $keywordB = $this->createInventoryKeyword('metric beta first', $articleB, withFocus: true);
+        $topicA = $this->createTopic(self::SITE_A, 'Metric Alpha');
+        $topicB = $this->createTopic(self::SITE_A, 'Metric Beta');
+        $this->assignTopicKeyword(self::SITE_A, $topicA, $keywordA1);
+        $this->assignTopicKeyword(self::SITE_A, $topicA, $keywordA2);
+        $this->assignTopicKeyword(self::SITE_A, $topicB, $keywordB);
+        DB::connection('omi_seo_ai')->table('seo_topic_keywords')
+            ->where('topic_id', $topicA)->where('keyword_id', $keywordA1)->update(['is_locked' => 1]);
+        DB::connection('omi_seo_ai')->table('seo_topics')->where('id', $topicB)->update([
+            'source' => 'manual',
+            'mcp_excluded' => 1,
+        ]);
+        $tagId = (int) DB::connection('omi_seo_ai')->table('seo_topic_tags')->insertGetId([
+            'site_id' => self::SITE_A,
+            'name' => 'Priority',
+            'slug' => 'priority',
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_topic_tag_assignments')->insert([
+            'site_id' => self::SITE_A,
+            'topic_id' => $topicA,
+            'tag_id' => $tagId,
+        ]);
+
+        $list = app(TopicListQuery::class);
+        $rows = $list->paginate(self::SITE_A, [
+            'search' => 'Metric',
+            'sort' => 'keywords_desc',
+            'has_articles' => true,
+            'per_page' => 10,
+        ], ['vi'])->items();
+
+        self::assertSame([$topicA, $topicB], array_column($rows, 'topic_id'));
+        self::assertSame(2, $rows[0]['keyword_count']);
+        self::assertSame(2, $rows[0]['article_count']);
+        self::assertSame(2, $rows[0]['internal_link_count']);
+        self::assertSame(1, $rows[0]['locked_member_count']);
+        self::assertSame('Priority', $rows[0]['user_tags'][0]['name']);
+        self::assertGreaterThan(0, $rows[0]['topical_share']);
+        self::assertTrue($rows[1]['mcp_excluded']);
+
+        $tagged = $list->paginate(self::SITE_A, ['tag_ids' => [$tagId], 'per_page' => 10], ['vi']);
+        self::assertSame([$topicA], array_column($tagged->items(), 'topic_id'));
+        $membershipLocked = $list->paginate(self::SITE_A, ['lock_filter' => 'membership_locked'], ['vi']);
+        self::assertContains($topicA, array_column($membershipLocked->items(), 'topic_id'));
+        $manual = $list->paginate(self::SITE_A, ['source' => 'manual'], ['vi']);
+        self::assertContains($topicB, array_column($manual->items(), 'topic_id'));
+
+        foreach (['articles_desc', 'topical_share_desc'] as $sort) {
+            $sorted = $list->paginate(self::SITE_A, ['search' => 'Metric', 'sort' => $sort], ['vi']);
+            self::assertSame($topicA, $sorted->items()[0]['topic_id']);
+        }
+    }
+
     public function test_null_language_variants_keep_site_wide_topic_count_contract(): void
     {
         $stats = app(KeywordTopicAssignmentStats::class)->forSite(self::SITE_A, null);
@@ -465,6 +559,7 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
             $table->string('source')->default('auto');
             $table->string('status')->default('active');
             $table->boolean('is_locked')->default(false);
+            $table->boolean('mcp_excluded')->default(false);
             $table->timestamps();
         });
 
@@ -508,6 +603,20 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
             $table->unsignedBigInteger('keyword_id')->index();
             $table->string('value')->nullable();
             $table->timestamps();
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_topic_tags', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id')->index();
+            $table->string('name');
+            $table->string('slug');
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_topic_tag_assignments', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id')->index();
+            $table->unsignedBigInteger('topic_id')->index();
+            $table->unsignedBigInteger('tag_id')->index();
         });
     }
 }
