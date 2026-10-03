@@ -137,6 +137,73 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         }
     }
 
+    public function test_dictionary_rows_project_visibility_lock_and_site_scoped_article_counts(): void
+    {
+        $linkedArticle = $this->createArticle(self::SITE_A, 'vi', 'Projected linked article');
+        $linkedKeywordId = $this->createInventoryKeyword('projected linked keyword', $linkedArticle, withFocus: false);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            [
+                'keyword_id' => $linkedKeywordId,
+                'meta_key' => KeywordMetaKey::SeoHidden->value,
+                'meta_value' => '1',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'keyword_id' => $linkedKeywordId,
+                'meta_key' => KeywordMetaKey::McpExcluded->value,
+                'meta_value' => '1',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+        $projectId = (int) DB::connection('omi_seo_ai')->table('seo_projects')->insertGetId([
+            'status' => 'running',
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_project_tasks')->insert([
+            'project_id' => $projectId,
+            'type' => 'create',
+            'source_content' => '  PROJECTED LINKED KEYWORD  ',
+        ]);
+
+        $row = app(KeywordDictionaryQuery::class)
+            ->filtered(self::SITE_A, ['vi'])
+            ->whereKey($linkedKeywordId)
+            ->firstOrFail();
+
+        self::assertTrue((bool) $row->seo_hidden);
+        self::assertTrue((bool) $row->mcp_excluded);
+        self::assertTrue((bool) $row->locked_by_active_job);
+        self::assertSame(0, (int) $row->focus_article_count);
+        self::assertSame(1, (int) $row->linked_article_count);
+
+        $focusArticle = $this->createArticle(self::SITE_A, 'vi', 'Projected focus article');
+        $focusKeywordId = $this->createInventoryKeyword('projected focus keyword', $focusArticle, withFocus: true);
+        $focusRow = app(KeywordDictionaryQuery::class)
+            ->filtered(self::SITE_A, ['vi'])
+            ->whereKey($focusKeywordId)
+            ->firstOrFail();
+
+        self::assertSame(1, (int) $focusRow->focus_article_count);
+        self::assertSame(0, (int) $focusRow->linked_article_count);
+    }
+
+    public function test_dictionary_page_size_does_not_add_per_row_queries(): void
+    {
+        $connection = DB::connection('omi_seo_ai');
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+
+        app(KeywordDictionaryQuery::class)->filtered(self::SITE_A, ['vi'])->limit(10)->get();
+        $tenRowQueries = count($connection->getQueryLog());
+
+        $connection->flushQueryLog();
+        app(KeywordDictionaryQuery::class)->filtered(self::SITE_A, ['vi'])->limit(25)->get();
+        $twentyFiveRowQueries = count($connection->getQueryLog());
+
+        self::assertSame($tenRowQueries, $twentyFiveRowQueries);
+    }
+
     public function test_null_language_variants_keep_site_wide_topic_count_contract(): void
     {
         $stats = app(KeywordTopicAssignmentStats::class)->forSite(self::SITE_A, null);
@@ -419,6 +486,19 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
             $table->unsignedBigInteger('keyword_id')->index();
             $table->boolean('is_seo_keyword')->default(true);
             $table->timestamps();
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_projects', function (Blueprint $table): void {
+            $table->id();
+            $table->string('status');
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_project_tasks', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('project_id');
+            $table->string('type');
+            $table->text('source_content')->nullable();
+            $table->softDeletes();
         });
 
         Schema::connection('omi_seo_ai')->create('seo_topic_keyword_dna', function (Blueprint $table): void {

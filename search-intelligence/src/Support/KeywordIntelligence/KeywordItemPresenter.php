@@ -45,9 +45,10 @@ final class KeywordItemPresenter
         $siteId = is_int($siteId) && $siteId > 0 ? $siteId : null;
 
         $keywordId = (int) $keyword->id;
-        $panel = app(KeywordLinkDetailPanelPresenter::class);
-        $focusArticleCount = $this->resolveFocusArticleCount($keyword, $siteId, $panel);
-        $linkedArticleCount = $this->resolveLinkedArticleCount($keyword, $siteId, $panel);
+        $isDictionary = $context === self::CONTEXT_DICTIONARY;
+        $panel = $isDictionary ? null : app(KeywordLinkDetailPanelPresenter::class);
+        $focusArticleCount = $this->resolveFocusArticleCount($keyword, $siteId, $panel, $isDictionary);
+        $linkedArticleCount = $this->resolveLinkedArticleCount($keyword, $siteId, $panel, $isDictionary);
 
         $focusArticleCountLabel = __('seo-content-ai::filament.keyword.keyword_row_focus_count', [
             'count' => number_format($focusArticleCount),
@@ -56,9 +57,20 @@ final class KeywordItemPresenter
             'count' => number_format($linkedArticleCount),
         ]);
 
-        $isHidden = $this->hideService->isHidden($keywordId);
-        $isMcpSkipped = $this->mcpSkipService->isSkipped($keywordId);
-        $groupedTags = $this->groupedTags($keyword);
+        $attributes = $keyword->getAttributes();
+        $isHidden = $isDictionary
+            ? (bool) ($attributes['seo_hidden'] ?? false)
+            : $this->hideService->isHidden($keywordId);
+        $isMcpSkipped = $isDictionary
+            ? (bool) ($attributes['mcp_excluded'] ?? false)
+            : $this->mcpSkipService->isSkipped($keywordId);
+        $groupedTags = $isDictionary
+            ? $this->groupResolvedTags($this->tags->resolve([
+                'seo_hidden' => $isHidden,
+                'internal_link_count' => (int) ($attributes['site_links_count'] ?? 0),
+                'manual_error' => $keyword->isManualError(),
+            ]))
+            : $this->groupedTags($keyword);
         if ($isHidden) {
             array_unshift($groupedTags['planning'], [
                 'code' => 'seo_hidden',
@@ -104,16 +116,20 @@ final class KeywordItemPresenter
             'show_article_meta' => true,
             'show_cluster' => false,
             'context' => $context,
-            'can_edit_phrase' => KeywordResource::canEdit($keyword),
+            'can_edit_phrase' => $isDictionary
+                ? KeywordResource::canEditFromListState($keyword)
+                : KeywordResource::canEdit($keyword),
             'can_mutate' => SeoAccessControl::canMutateInSeoPanel()
                 && ($siteId === null || SeoAccessControl::canAccessSite($siteId)),
             'is_hidden' => $isHidden,
             'is_mcp_skipped' => $isMcpSkipped,
-            'can_hide' => KeywordResource::canMutateKeywordVisibility($keyword) && ! $isHidden,
-            'can_restore' => KeywordResource::canMutateKeywordVisibility($keyword) && $isHidden,
-            'can_skip_mcp' => KeywordResource::canMutateKeywordVisibility($keyword) && ! $isHidden && ! $isMcpSkipped,
-            'can_restore_mcp' => KeywordResource::canMutateKeywordVisibility($keyword) && ! $isHidden && $isMcpSkipped,
-            'can_delete' => KeywordResource::canDelete($keyword),
+            'can_hide' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden,
+            'can_restore' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && $isHidden,
+            'can_skip_mcp' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && ! $isMcpSkipped,
+            'can_restore_mcp' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && $isMcpSkipped,
+            'can_delete' => $isDictionary
+                ? KeywordResource::canDeleteFromListState($keyword)
+                : KeywordResource::canDelete($keyword),
         ];
     }
 
@@ -122,10 +138,29 @@ final class KeywordItemPresenter
      */
     public function groupedTags(Keyword $keyword): array
     {
+        return $this->groupResolvedTags($this->tags->displayTags($keyword));
+    }
+
+    /**
+     * @param  list<string>|list<array{code: string, label: string, badge_class: string}>  $tags
+     * @return array{operational: list<array{code: string, label: string, badge_class: string}>, planning: list<array{code: string, label: string, badge_class: string}>}
+     */
+    private function groupResolvedTags(array $tags): array
+    {
         $operational = [];
         $planning = [];
 
-        foreach ($this->tags->displayTags($keyword) as $tag) {
+        foreach ($tags as $tag) {
+            if (is_string($tag)) {
+                if (! KeywordTag::isKnown($tag)) {
+                    continue;
+                }
+                $tag = [
+                    'code' => $tag,
+                    'label' => KeywordTag::label($tag),
+                    'badge_class' => KeywordTag::badgeClass($tag),
+                ];
+            }
             $code = (string) ($tag['code'] ?? '');
             if ($code === KeywordTag::SEO_EXCLUDED) {
                 $planning[] = [
@@ -154,14 +189,15 @@ final class KeywordItemPresenter
     private function resolveFocusArticleCount(
         Keyword $keyword,
         ?int $siteId,
-        KeywordLinkDetailPanelPresenter $panel,
+        ?KeywordLinkDetailPanelPresenter $panel,
+        bool $listOnly = false,
     ): int {
         $attributes = $keyword->getAttributes();
         if (array_key_exists('focus_article_count', $attributes) && $attributes['focus_article_count'] !== null) {
             return max(0, (int) $attributes['focus_article_count']);
         }
 
-        return $panel->focusArticleCount($keyword, $siteId);
+        return $listOnly || $panel === null ? 0 : $panel->focusArticleCount($keyword, $siteId);
     }
 
     /**
@@ -171,13 +207,14 @@ final class KeywordItemPresenter
     private function resolveLinkedArticleCount(
         Keyword $keyword,
         ?int $siteId,
-        KeywordLinkDetailPanelPresenter $panel,
+        ?KeywordLinkDetailPanelPresenter $panel,
+        bool $listOnly = false,
     ): int {
         $attributes = $keyword->getAttributes();
         if (array_key_exists('linked_article_count', $attributes) && $attributes['linked_article_count'] !== null) {
             return max(0, (int) $attributes['linked_article_count']);
         }
 
-        return $panel->linkedArticleCount($keyword, $siteId);
+        return $listOnly || $panel === null ? 0 : $panel->linkedArticleCount($keyword, $siteId);
     }
 }

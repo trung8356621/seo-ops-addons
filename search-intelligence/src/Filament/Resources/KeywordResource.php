@@ -161,6 +161,26 @@ class KeywordResource extends SeoPanelResource
             && ! static::isKeywordLockedByActiveJobs($record);
     }
 
+    public static function canEditFromListState(Model $record): bool
+    {
+        return static::allowsSeoPanelMutation()
+            && SeoAccessControl::canAccessPlannerFeatures()
+            && $record instanceof Keyword
+            && ! (bool) ($record->getAttributes()['locked_by_active_job'] ?? false);
+    }
+
+    public static function canDeleteFromListState(Model $record): bool
+    {
+        return static::canEditFromListState($record)
+            && $record instanceof Keyword
+            && static::isUnused($record);
+    }
+
+    public static function canMutateKeywordVisibilityFromListState(Model $record): bool
+    {
+        return static::canEditFromListState($record);
+    }
+
     public static function getModelLabel(): string
     {
         return __('seo-content-ai::filament.nav.keyword');
@@ -1250,7 +1270,6 @@ class KeywordResource extends SeoPanelResource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->with(KeywordTagResolver::tableEagerLoad())
             ->selectRaw('keywords.*, '.static::wordCountExpression().' as word_count')
             ->withCount([
                 'mainArticles as main_articles_count',
@@ -1600,6 +1619,8 @@ class KeywordResource extends SeoPanelResource
      */
     public static function saveKeywordFromFormData(Keyword $record, array $data): Keyword
     {
+        abort_unless(static::canEdit($record), 403);
+
         unset($data['tags']);
 
         $record->update($data);

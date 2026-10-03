@@ -11,8 +11,6 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordDetailDrawer;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordItemActions;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
@@ -304,16 +302,9 @@ class ListKeywords extends ListRecords
                     ->openUrlInNewTab(),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
-                    ->visible(function (Keyword $record): bool {
-                        if (! KeywordResource::canMutateKeywordVisibility($record)) {
-                            return false;
-                        }
-
-                        $hidden = app(HideKeywordFromSeoService::class)->isHidden((int) $record->id);
-                        $skipped = app(SkipKeywordFromMcpService::class)->isSkipped((int) $record->id);
-
-                        return ! $hidden && ! $skipped;
-                    })
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                        && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false)
+                        && ! (bool) ($record->getAttributes()['mcp_excluded'] ?? false))
                     ->requiresConfirmation()
                     ->modalHeading(fn (Keyword $record): string => __('seo-content-ai::filament.keyword.keyword_item_skip_mcp_confirm_heading_named', [
                         'phrase' => (string) $record->phrase,
@@ -323,26 +314,19 @@ class ListKeywords extends ListRecords
                     ->action(fn (Keyword $record): mixed => $this->skipKeywordFromMcp((int) $record->id)),
                 Tables\Actions\Action::make('item_restore_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_mcp'))
-                    ->visible(function (Keyword $record): bool {
-                        if (! KeywordResource::canMutateKeywordVisibility($record)) {
-                            return false;
-                        }
-
-                        $hidden = app(HideKeywordFromSeoService::class)->isHidden((int) $record->id);
-                        $skipped = app(SkipKeywordFromMcpService::class)->isSkipped((int) $record->id);
-
-                        return ! $hidden && $skipped;
-                    })
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                        && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false)
+                        && (bool) ($record->getAttributes()['mcp_excluded'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->restoreKeywordMcp((int) $record->id)),
                 Tables\Actions\Action::make('item_exclude_seo')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_exclude_seo'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibility($record)
-                        && ! app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                        && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->hideKeywordFromSeo((int) $record->id)),
                 Tables\Actions\Action::make('item_restore_seo')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_seo'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibility($record)
-                        && app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                        && (bool) ($record->getAttributes()['seo_hidden'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->restoreHiddenKeyword((int) $record->id)),
             ])
                 ->label(__('seo-content-ai::filament.keyword.keyword_item_actions'))
@@ -362,10 +346,13 @@ class ListKeywords extends ListRecords
                 ->mutateFormDataUsing(fn (array $data, Keyword $record): array => KeywordResource::mutateKeywordFormDataForFill($data, $record))
                 ->using(fn (Keyword $record, array $data): Keyword => KeywordResource::saveKeywordFromFormData($record, $data))
                 ->extraAttributes(['class' => 'keyword-ta-sr-action'])
-                ->authorize(fn (Keyword $record): bool => KeywordResource::canEdit($record)),
+                ->authorize(fn (Keyword $record): bool => KeywordResource::canEditFromListState($record)),
             Tables\Actions\DeleteAction::make()
                 ->extraAttributes(['class' => 'keyword-ta-sr-action'])
-                ->authorize(fn (Keyword $record): bool => KeywordResource::canDelete($record))
+                ->authorize(fn (Keyword $record): bool => KeywordResource::canDeleteFromListState($record))
+                ->before(function (Keyword $record): void {
+                    abort_unless(KeywordResource::canDelete($record), 403);
+                })
                 ->after(function (): void {
                     $this->selectedKeywordId = null;
                     $this->dispatch('keyword-detail-close');

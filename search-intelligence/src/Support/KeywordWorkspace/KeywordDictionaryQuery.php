@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
@@ -50,6 +55,7 @@ final class KeywordDictionaryQuery
     public function applyTo(Builder $query, ?int $siteId, ?array $languageVariants = null, array $filters = []): Builder
     {
         $query = $this->inventory->apply($query, $siteId, $languageVariants);
+        $query = $this->withListState($query, $siteId);
 
         if (($filters['focus'] ?? false) === true) {
             $query->whereHas('mainArticles');
@@ -63,6 +69,83 @@ final class KeywordDictionaryQuery
             $query,
             $siteId,
             isset($filters['topic_assignment']) ? (string) $filters['topic_assignment'] : null,
+        );
+
+        return $query;
+    }
+
+    /**
+     * Project the complete Dictionary-row contract with bounded correlated subqueries.
+     * No relationship graph is hydrated and row presentation needs no fallback queries.
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public function withListState(Builder $query, ?int $siteId): Builder
+    {
+        $siteId = (int) ($siteId ?? 0);
+        $focusMetaKey = $siteId > 0 ? KeywordMetaKey::siteMainArticleId($siteId) : '';
+
+        $query->withExists([
+            'metas as seo_hidden' => static fn (Builder $meta): Builder => $meta
+                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                ->where('meta_value', '1'),
+            'metas as mcp_excluded' => static fn (Builder $meta): Builder => $meta
+                ->where('meta_key', KeywordMetaKey::McpExcluded->value)
+                ->where('meta_value', '1'),
+        ]);
+
+        if (Schema::connection('omi_seo_ai')->hasTable('seo_project_tasks')) {
+            $locked = DB::connection('omi_seo_ai')->table('seo_project_tasks as list_tasks')
+                ->selectRaw('1')
+                ->join('seo_projects as list_projects', 'list_projects.id', '=', 'list_tasks.project_id')
+                ->where('list_tasks.type', SeoProjectTask::TYPE_NEW_KEYWORD)
+                ->whereNull('list_tasks.deleted_at')
+                ->whereColumn(DB::raw('LOWER(TRIM(list_tasks.source_content))'), DB::raw('LOWER(TRIM(keywords.phrase))'))
+                ->whereIn('list_projects.status', [
+                    SeoProject::STATUS_PENDING,
+                    SeoProject::STATUS_MANUAL,
+                    SeoProject::STATUS_RUNNING,
+                ])
+                ->limit(1);
+            $query->selectSub($locked, 'locked_by_active_job');
+        } else {
+            $query->selectRaw('0 as locked_by_active_job');
+        }
+
+        if ($siteId <= 0) {
+            return $query->selectRaw('0 as focus_article_count, 0 as linked_article_count');
+        }
+
+        $focusArticleIdSql = '(SELECT COALESCE('
+            .'MAX(CASE WHEN focus_meta.meta_key = ? THEN CAST(focus_meta.meta_value AS UNSIGNED) END), '
+            .'MAX(CASE WHEN focus_meta.meta_key = ? THEN CAST(focus_meta.meta_value AS UNSIGNED) END)'
+            .') FROM keyword_meta focus_meta WHERE focus_meta.keyword_id = keywords.id)';
+
+        $query->selectRaw(
+            '(SELECT COUNT(*) FROM articles focus_articles '
+            .'WHERE focus_articles.id = '.$focusArticleIdSql.' AND focus_articles.site_id = ?) as focus_article_count',
+            [$focusMetaKey, KeywordMetaKey::MainArticleId->value, $siteId],
+        );
+        $query->selectRaw(
+            '(SELECT COUNT(DISTINCT list_maps.source_article_id) '
+            .'FROM seo_link_maps list_maps '
+            .'INNER JOIN articles list_sources ON list_sources.id = list_maps.source_article_id '
+            .'WHERE list_maps.keyword_id = keywords.id '
+            .'AND list_maps.source_article_id IS NOT NULL '
+            .'AND list_maps.status != ? '
+            .'AND list_sources.deleted_at IS NULL '
+            .'AND list_sources.site_id = ? '
+            .'AND ('.$focusArticleIdSql.' IS NULL '
+            .'OR list_maps.source_article_id != '.$focusArticleIdSql.')) as linked_article_count',
+            [
+                SeoLinkMapStatus::Ignored->value,
+                $siteId,
+                $focusMetaKey,
+                KeywordMetaKey::MainArticleId->value,
+                $focusMetaKey,
+                KeywordMetaKey::MainArticleId->value,
+            ],
         );
 
         return $query;
