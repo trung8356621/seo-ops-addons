@@ -120,6 +120,7 @@
 .agent-test-result__heading { display: flex; align-items: center; gap: 8px; }
 .agent-test-result__heading span { margin-left: auto; font-size: 12px; opacity: .7; }
 .agent-test-result__summary { margin: 0; opacity: .75; }
+.agent-test-result__models { margin: 0; font-size: 12px; opacity: .68; }
 .agent-test-result pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .agent-test-result img, .agent-test-result video { width: 100%; max-height: 520px; object-fit: contain; border-radius: 8px; }
 .agent-test-result__error { color: #b42318; }

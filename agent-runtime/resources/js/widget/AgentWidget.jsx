@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
+import { executedModelsText } from '../projects/testModelPresentation.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
 import { ModelDebugModal } from './ModelDebugModal.jsx';
@@ -1070,6 +1071,9 @@ export function AgentWidget({
                                             <strong>{testResult.target_label}</strong>
                                             <span>{testResult.status}</span>
                                         </div>
+                                        {executedModelsText(testResult.models) ? (
+                                            <p className="agent-test-result__models">{executedModelsText(testResult.models)}</p>
+                                        ) : null}
                                         <p className="agent-test-result__summary">{testResult.context_summary}</p>
                                         {testResult.output ? <pre>{testResult.output}</pre> : null}
                                         {testResult.error ? <p className="agent-test-result__error">{testResult.error}</p> : null}

@@ -19,6 +19,7 @@ class AgentTestExecutionService
         private readonly AgentTestInputResolver $inputs,
         private readonly PromptRunnerService $prompts,
         private readonly SystemWorkflowClient $workflows,
+        private readonly AgentTestModelEvidenceService $modelEvidence,
     ) {}
 
     /** @param array<string, mixed> $payload */
@@ -69,6 +70,7 @@ class AgentTestExecutionService
                 $this->canonicalPromptMedia($output, $outputType),
                 $outputType,
             ),
+            'models' => $this->modelEvidence->forPromptResult($result),
             'error' => $result->error_message ?: null,
         ];
     }
@@ -111,6 +113,7 @@ class AgentTestExecutionService
             'ordered_steps' => $this->safeSteps($steps),
             'output' => $output,
             'media' => $media,
+            'models' => $this->modelEvidence->forWorkflow($steps, $workflow->artifacts, $workflow->meta),
             'error' => $workflow->errorMessage ?? $workflow->errorCode,
         ];
     }
@@ -262,6 +265,7 @@ class AgentTestExecutionService
             'ordered_steps' => [],
             'output' => '',
             'media' => [],
+            'models' => [],
             'error' => $exception->getMessage(),
         ];
     }
