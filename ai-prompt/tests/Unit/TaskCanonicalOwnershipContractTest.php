@@ -11,7 +11,6 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTask;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\ListTasks;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TaskWorkflowBuilder;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use ReflectionClass;
@@ -95,7 +94,6 @@ final class TaskCanonicalOwnershipContractTest extends TestCase
             EditTask::class,
             EditTaskWorkflow::class,
             TaskWorkflowBuilder::class,
-            TestTask::class,
         ] as $page) {
             $ref = new ReflectionClass($page);
             $props = $ref->getDefaultProperties();

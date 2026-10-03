@@ -77,9 +77,13 @@ test('Test utility renders one shared shell and never enters normal Agent scope 
     assert.equal(source.includes('<option value="article">Article</option>'), true);
     assert.equal(source.includes('<option value="raw">Raw input</option>'), true);
     assert.equal(source.includes('Article picker/search'), true);
-    assert.equal(source.includes('Test results will be stored in Agent conversation'), true);
-    assert.equal(source.includes('className="agent-test-run" disabled'), true);
-    assert.equal(source.includes('if (isTestMode || !currentScopeRef)'), true);
+    assert.equal(source.includes("testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs'"), true);
+    assert.equal(source.includes('onSubmit={onRunTest}'), true);
+    assert.equal(source.includes('setTestResult(payload?.data || null)'), true);
+    assert.equal(source.includes('testResult.output_type'), true);
+    assert.equal(source.includes("media.type === 'image'"), true);
+    assert.equal(source.includes("? (testSiteId ? `site:${testSiteId}` : null)"), true);
+    assert.equal(source.includes('if (!currentScopeRef)'), true);
 });
 
 test('main entry point exports canonical widget, mount adapter, and sets window.AgentRuntime', () => {

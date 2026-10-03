@@ -11,7 +11,6 @@ use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\PromptResultRoutingAttempt;
 use Omnichannel\Addons\AiPrompt\Models\PromptVersion;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
-use Omnichannel\Addons\AiPrompt\Models\TaskTestResult;
 
 /**
  * Destructive dev/test reset of AI History / execution runtime rows.
@@ -30,7 +29,6 @@ final class AiHistoryResetService
             'prompt_result_routing_attempts' => 0,
             'seo_prompt_result_links' => 0,
             'prompt_results' => 0,
-            'task_test_results' => 0,
             'prompts_preserved' => 0,
             'prompt_versions_preserved' => 0,
         ];
@@ -51,11 +49,6 @@ final class AiHistoryResetService
         if (Schema::connection($coreConn)->hasTable('prompt_results')) {
             $counts['prompt_results'] = (int) PromptResult::query()->count();
             PromptResult::query()->delete();
-        }
-
-        if (Schema::connection($coreConn)->hasTable('task_test_results')) {
-            $counts['task_test_results'] = (int) TaskTestResult::query()->count();
-            TaskTestResult::query()->delete();
         }
 
         if (Schema::connection($seoConn)->hasTable('articles')

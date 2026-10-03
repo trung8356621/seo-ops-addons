@@ -14,7 +14,6 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTask;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\ListTasks;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TaskWorkflowBuilder;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use ReflectionClass;
@@ -56,12 +55,10 @@ final class TaskAdminDualRegistrationContractTest extends TestCase
             'filament.admin.resources.tasks.create' => 'admin/tasks/create',
             'filament.admin.resources.tasks.edit' => 'admin/tasks/{record}/edit',
             'filament.admin.resources.tasks.builder' => 'admin/tasks/{record}/builder',
-            'filament.admin.resources.tasks.test' => 'admin/tasks/{record}/test',
             'filament.seo-main.resources.tasks.index' => 'seo/tasks',
             'filament.seo-main.resources.tasks.create' => 'seo/tasks/create',
             'filament.seo-main.resources.tasks.edit' => 'seo/tasks/{record}/edit',
             'filament.seo-main.resources.tasks.builder' => 'seo/tasks/{record}/builder',
-            'filament.seo-main.resources.tasks.test' => 'seo/tasks/{record}/test',
         ] as $name => $uri) {
             $route = $router->getByName($name);
             self::assertNotNull($route, $name);
@@ -108,16 +105,10 @@ final class TaskAdminDualRegistrationContractTest extends TestCase
             TaskWorkflowBuilder::class,
             EditTask::class,
             EditTaskWorkflow::class,
-            TestTask::class,
         ] as $page) {
             $path = (string) (new ReflectionClass($page))->getFileName();
             self::assertStringContainsString('TaskResource'.DIRECTORY_SEPARATOR.'Pages', $path);
         }
-
-        $test = (string) file_get_contents((new ReflectionClass(TestTask::class))->getFileName());
-        self::assertStringContainsString('SystemWorkflowClient', $test);
-        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $test);
-        self::assertStringContainsString("view = 'seo-content-ai::filament.resources.task-resource.pages.test-task'", $test);
 
         $workflow = (string) file_get_contents((new ReflectionClass(EditTaskWorkflow::class))->getFileName());
         self::assertStringContainsString('task-workflow-builder', $workflow);

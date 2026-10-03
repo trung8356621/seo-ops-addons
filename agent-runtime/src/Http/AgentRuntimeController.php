@@ -8,6 +8,7 @@ use Omnichannel\Addons\AgentRuntime\Catalog\AgentTestCatalogService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use InvalidArgumentException;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
@@ -19,9 +20,58 @@ use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
+use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
 
 final class AgentRuntimeController
 {
+    public function testRun(
+        Request $request,
+        AgentTestExecutionService $tests,
+        SiteDirectory $sites,
+        AgentThreadRepository $threads,
+        AgentTurnPersistence $persistence,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $siteId = (int) $request->input('site_id', 0);
+        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+        $app = AgentApp::findByKey((string) $request->input('app_key', 'seo-ops')) ?? AgentApp::findByKey('seo-ops');
+        if ($app === null) {
+            return new JsonResponse(['message' => 'Agent app not found.'], 422);
+        }
+
+        $ownerId = (method_exists($user, 'accountOwnerId') ? $user->accountOwnerId() : null) ?? $userId;
+        try {
+            $result = $tests->run((int) $ownerId, $siteId, $request->all());
+        } catch (InvalidArgumentException $exception) {
+            return new JsonResponse(['message' => $exception->getMessage()], 422);
+        } catch (ModelNotFoundException) {
+            return new JsonResponse(['message' => 'Test target not found.'], 404);
+        }
+
+        $thread = $threads->createThread($app, 'user', (string) $userId, $userId, (int) $ownerId, 'site', 'site:'.$siteId, 'Test · '.$result['target_label']);
+        $input = (string) ($result['context_summary'] ?? 'Agent Test');
+        $userMessage = $persistence->persistUserMessage($thread, $input);
+        $run = $persistence->startRun($thread, $userMessage, $app->app_key, 'site', 'site:'.$siteId, $userId);
+        $assistant = $persistence->completeRun($run, new AgentResponse(
+            message: (string) (($result['output'] ?? '') !== '' ? $result['output'] : ($result['error'] ?? $result['status'])),
+            blocks: [['type' => 'test_result', 'data' => $result]],
+            actions: [],
+            sources: [],
+        ));
+        $threads->touchLastMessage($thread);
+        $result['thread_ulid'] = $thread->ulid;
+        $result['assistant_message_id'] = $assistant->id;
+
+        return new JsonResponse(['data' => $result]);
+    }
+
     public function testCatalog(Request $request, AgentTestCatalogService $catalog): JsonResponse
     {
         abort_unless($request->user() !== null, 401);

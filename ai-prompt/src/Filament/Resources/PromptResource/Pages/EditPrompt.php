@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages;
 
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\VersionNotFound;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeSettingsResolver;
-use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Filament\Actions;
@@ -22,20 +20,7 @@ class EditPrompt extends SeoEditRecord
 
     protected function getHeaderActions(): array
     {
-        $readiness = app(AiModelsReadinessService::class);
-        $record = $this->getRecord();
-        $isReady = $readiness->isPromptReady($record);
-
         return [
-            Actions\Action::make('test')
-                ->label($isReady ? 'Run test' : 'Sync models')
-                ->icon($isReady ? 'heroicon-o-play' : 'heroicon-o-cpu-chip')
-                ->color($isReady ? 'success' : 'warning')
-                ->url(
-                    $isReady
-                        ? PromptResource::getUrl('test', ['record' => $record])
-                        : SeoSettingsOverview::getUrl(panel: 'admin'),
-                ),
             Actions\DeleteAction::make()
                 ->form(function (): array {
                     $record = $this->getRecord();

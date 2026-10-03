@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 use Filament\Facades\Filament;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use ReflectionClass;
@@ -43,7 +42,6 @@ final class TaskAdminCanonicalCutoverContractTest extends TestCase
         self::assertStringContainsString('/admin/tasks', TaskResource::getUrl('index'));
         self::assertStringContainsString('/admin/tasks/1/edit', TaskResource::getUrl('edit', ['record' => 1]));
         self::assertStringContainsString('/admin/tasks/1/builder', TaskResource::getUrl('builder', ['record' => 1]));
-        self::assertStringContainsString('/admin/tasks/1/test', TaskResource::getUrl('test', ['record' => 1]));
 
         self::assertContains(TaskResource::class, Filament::getPanel('admin')->getResources());
         self::assertContains(TaskResource::class, Filament::getPanel('seo-main')->getResources());
@@ -72,12 +70,6 @@ final class TaskAdminCanonicalCutoverContractTest extends TestCase
 
         $vite = (string) file_get_contents(base_path('vite.config.js'));
         self::assertSame(1, substr_count($vite, 'addons/content-projects/resources/js/task-builder.jsx'));
-
-        $test = (string) file_get_contents((new ReflectionClass(TestTask::class))->getFileName());
-        self::assertStringContainsString('SystemWorkflowClient', $test);
-        self::assertStringContainsString('WorkflowExecutionMode::FullRun', $test);
-        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $test);
-        self::assertStringNotContainsString('use Omnichannel\\Addons\\AiPrompt\\Services\\TaskWorkflowTestRunner', $test);
 
         $workflow = (string) file_get_contents((new ReflectionClass(EditTaskWorkflow::class))->getFileName());
         self::assertStringContainsString('function persistTaskFlow', $workflow);

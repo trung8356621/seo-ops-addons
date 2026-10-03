@@ -105,8 +105,6 @@ final class AiPromptServiceProvider extends ServiceProvider
                 \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\EditTaskWorkflow::class,
             'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder' =>
                 \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TaskWorkflowBuilder::class,
-            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TestTask' =>
-                \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\TestTask::class,
             'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow' =>
                 \Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow::class,
         ];

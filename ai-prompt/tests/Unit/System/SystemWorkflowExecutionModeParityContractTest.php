@@ -10,7 +10,7 @@ use App\System\Workflow\Dto\WorkflowExecutionMode;
 use App\System\Workflow\Dto\WorkflowRunRequest;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\AiPrompt\System\LegacySeoTaskWorkflowRuntimePort;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\TestTask;
+use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -57,27 +57,15 @@ final class SystemWorkflowExecutionModeParityContractTest extends TestCase
         self::assertStringNotContainsString("'execution' => 'deferred'", $src);
     }
 
-    public function test_test_task_full_run_and_rerun_use_system_workflow_client(): void
+    public function test_agent_test_full_run_uses_system_workflow_client(): void
     {
-        $src = (string) file_get_contents((new ReflectionClass(TestTask::class))->getFileName());
+        $src = (string) file_get_contents((new ReflectionClass(AgentTestExecutionService::class))->getFileName());
         self::assertStringContainsString('SystemWorkflowClient', $src);
         self::assertStringContainsString('WorkflowExecutionMode::FullRun', $src);
-        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $src);
         self::assertStringNotContainsString('use Omnichannel\\Addons\\AiPrompt\\Services\\TaskWorkflowTestRunner', $src);
-
-        preg_match('/public function runTest\([\s\S]*?\n    \}/', $src, $runTestMatch);
-        self::assertNotSame([], $runTestMatch);
-        self::assertStringContainsString('$workflows->run', $runTestMatch[0]);
-        self::assertStringNotContainsString('$runner->run', $runTestMatch[0]);
-
-        preg_match('/public function rerunStep\([\s\S]*?\n    \}/', $src, $rerunMatch);
-        self::assertNotSame([], $rerunMatch);
-        $rerun = $rerunMatch[0];
-        self::assertStringContainsString('SystemWorkflowClient $workflows', $rerun);
-        self::assertStringContainsString('WorkflowExecutionMode::SingleStep', $rerun);
-        self::assertStringContainsString('$workflows->run', $rerun);
-        self::assertStringNotContainsString('TaskWorkflowTestRunner', $rerun);
-        self::assertStringNotContainsString('$runner->runSingleStep', $rerun);
+        self::assertStringContainsString("'source' => 'agent_test'", $src);
+        self::assertStringContainsString("'capability' => 'workflow.agent_test'", $src);
+        self::assertStringContainsString('$this->workflows->run', $src);
     }
 
     public function test_production_callers_use_system_workflow_client(): void

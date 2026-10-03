@@ -37,8 +37,6 @@ final class ContentProjectsServiceProvider extends ServiceProvider
                 'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\EditTaskWorkflow',
             'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder' =>
                 'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\TaskWorkflowBuilder',
-            'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\TestTask' =>
-                'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\TestTask',
             'Omnichannel\\Addons\\ContentProjects\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow' =>
                 'Omnichannel\\Addons\\AiPrompt\\Filament\\Resources\\TaskResource\\Pages\\Concerns\\InteractsWithTaskWorkflow',
         ];

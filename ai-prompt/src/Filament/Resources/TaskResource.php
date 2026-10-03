@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Filament\Resources;
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\TaskResource\Pages;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
-use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use Filament\Facades\Filament;
@@ -158,19 +156,6 @@ class TaskResource extends SeoPanelResource
             ])
             ->defaultSort('updated_at', 'desc')
             ->actions([
-                Tables\Actions\Action::make('test')
-                    ->label(fn (): string => app(AiModelsReadinessService::class)->userHasReadyAiConnection()
-                        ? 'Test'
-                        : __('seo-content-ai::filament.prompt.sync_model'))
-                    ->icon(fn (): string => app(AiModelsReadinessService::class)->userHasReadyAiConnection()
-                        ? 'heroicon-o-play'
-                        : 'heroicon-o-cpu-chip')
-                    ->color(fn (): string => app(AiModelsReadinessService::class)->userHasReadyAiConnection()
-                        ? 'success'
-                        : 'warning')
-                    ->url(fn (SeoTask $record): string => app(AiModelsReadinessService::class)->userHasReadyAiConnection()
-                        ? static::getUrl('test', ['record' => $record])
-                        : SeoSettingsOverview::getUrl()),
                 Tables\Actions\Action::make('open_builder')
                     ->label(__('seo-content-ai::filament.task.open_builder'))
                     ->icon('heroicon-o-squares-2x2')
@@ -204,7 +189,6 @@ class TaskResource extends SeoPanelResource
             'create' => Pages\TaskWorkflowBuilder::route('/create'),
             'edit' => Pages\EditTask::route('/{record}/edit'),
             'builder' => Pages\EditTaskWorkflow::route('/{record}/builder'),
-            'test' => Pages\TestTask::route('/{record}/test'),
         ];
     }
 }

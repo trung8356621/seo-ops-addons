@@ -190,6 +190,7 @@ export function AgentWidget({
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
         testCatalogUrl: propTestCatalogUrl || rawEndpoints?.testCatalogUrl || '/agent-runtime/test-catalog',
+        testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs',
     };
 
     // Initialize initial scope based on hostContext or fallback to global
@@ -228,6 +229,8 @@ export function AgentWidget({
     const [testArticleTitle, setTestArticleTitle] = useState('');
     const [testArticleKeyword, setTestArticleKeyword] = useState('');
     const [testRawInput, setTestRawInput] = useState('');
+    const [testRunning, setTestRunning] = useState(false);
+    const [testResult, setTestResult] = useState(null);
     const textareaRef = useRef(null);
 
     useEffect(() => {
@@ -299,7 +302,7 @@ export function AgentWidget({
     const isTestMode = selected?.type === 'utility' && selected?.key === 'test';
     const siteProjects = projects.filter((project) => project.type === 'site');
     const currentScopeRef = isTestMode
-        ? null
+        ? (testSiteId ? `site:${testSiteId}` : null)
         : (selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global'));
     const globalUnsupported = selected.retrieval === 'unsupported';
     const isDrawer = mode === 'drawer';
@@ -565,7 +568,7 @@ export function AgentWidget({
 
     // Scope change / initial mount effect: sync threads list and restore stored active thread
     useEffect(() => {
-        if (isTestMode || !currentScopeRef) {
+        if (!currentScopeRef) {
             return;
         }
         fetchThreads(currentScopeRef);
@@ -581,7 +584,7 @@ export function AgentWidget({
             resetDebugState();
             setDebugOpen(false);
         }
-    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState, isTestMode]);
+    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
     async function copyText(text) {
         await copyPlainText(text);
@@ -696,6 +699,37 @@ export function AgentWidget({
             setProcessingStatus(null);
         } finally {
             setBusy(false);
+        }
+    }
+
+    async function onRunTest(event) {
+        event.preventDefault();
+        if (testRunning) return;
+        const target = testTargets.find((item) => `${item.type}:${item.id}` === testTargetKey);
+        if (!target || !testSiteId) {
+            setError('Select a target and concrete site.');
+            return;
+        }
+        setTestRunning(true);
+        setTestResult(null);
+        setError('');
+        try {
+            const payload = await postJson(endpoints.testRunUrl, csrf, {
+                target_type: target.type,
+                target_id: target.id,
+                site_id: Number(testSiteId),
+                input_source: testInputSource,
+                title: testArticleTitle.trim() || testArticleSearch.trim(),
+                keyword: testArticleKeyword.trim(),
+                raw_input: testRawInput,
+                app_key: hostContext.appKey || 'seo-ops',
+            });
+            setTestResult(payload?.data || null);
+            fetchThreads(`site:${testSiteId}`);
+        } catch (caught) {
+            setError(caught.message || 'Test execution failed.');
+        } finally {
+            setTestRunning(false);
         }
     }
 
@@ -915,7 +949,7 @@ export function AgentWidget({
 
                     <div className="agent-messages" role="log" aria-live="polite">
                         {isTestMode ? (
-                            <form className="agent-test-workspace" aria-label="Unified Test workspace" onSubmit={(event) => event.preventDefault()}>
+                            <form className="agent-test-workspace" aria-label="Unified Test workspace" onSubmit={onRunTest}>
                                 <div>
                                     <p className="agent-kicker">Unified Test</p>
                                     <h2>Test</h2>
@@ -972,8 +1006,27 @@ export function AgentWidget({
                                     </div>
                                 )}
 
-                                <p className="agent-test-note">Execution will use the selected target contract in the next runtime phase.</p>
-                                <button type="submit" className="agent-test-run" disabled>Run</button>
+                                <button type="submit" className="agent-test-run" disabled={testRunning || !testTargetKey || !testSiteId}>
+                                    {testRunning ? <><Loader2 size={15} className="agent-spinner" /> Running…</> : 'Run'}
+                                </button>
+
+                                {testResult ? (
+                                    <section className="agent-test-result" aria-live="polite">
+                                        <div className="agent-test-result__heading">
+                                            <MediaTypeIcon outputType={testResult.output_type} />
+                                            <strong>{testResult.target_label}</strong>
+                                            <span>{testResult.status}</span>
+                                        </div>
+                                        <p className="agent-test-result__summary">{testResult.context_summary}</p>
+                                        {testResult.output ? <pre>{testResult.output}</pre> : null}
+                                        {testResult.error ? <p className="agent-test-result__error">{testResult.error}</p> : null}
+                                        {(testResult.media || []).map((media, index) => media.type === 'image' ? (
+                                            <img key={`${media.url}-${index}`} src={media.url} alt={`${testResult.target_label} result`} loading="lazy" />
+                                        ) : (
+                                            <video key={`${media.url}-${index}`} src={media.url} controls preload="metadata" />
+                                        ))}
+                                    </section>
+                                ) : null}
                             </form>
                         ) : null}
 
@@ -1250,11 +1303,7 @@ export function AgentWidget({
                     </div>
 
                     <div className="agent-history-sidebar__body">
-                        {isTestMode ? (
-                            <div className="agent-history-empty agent-history-empty--test">
-                                Test results will be stored in Agent conversation after execution is connected.
-                            </div>
-                        ) : loadingThreads ? (
+                        {loadingThreads ? (
                             <div className="agent-history-loading">
                                 <Loader2 size={16} className="agent-spinner" />
                                 <span>{locale === 'vi' ? 'Đang tải…' : 'Loading…'}</span>

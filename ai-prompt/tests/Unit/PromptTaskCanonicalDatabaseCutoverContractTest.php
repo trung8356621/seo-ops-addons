@@ -17,7 +17,6 @@ use Omnichannel\Addons\AiPrompt\Models\PromptVersion;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
-use Omnichannel\Addons\AiPrompt\Models\TaskTestResult;
 use Tests\TestCase;
 
 final class PromptTaskCanonicalDatabaseCutoverContractTest extends TestCase
@@ -27,7 +26,6 @@ final class PromptTaskCanonicalDatabaseCutoverContractTest extends TestCase
         parent::setUp();
 
         // Ensure sqlite in-memory tables exist for testing
-        Schema::dropIfExists('task_test_results');
         Schema::dropIfExists('seo_tasks');
         Schema::dropIfExists('prompt_result_routing_attempts');
         Schema::dropIfExists('prompt_results');
@@ -118,19 +116,6 @@ final class PromptTaskCanonicalDatabaseCutoverContractTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('task_test_results', function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('task_id');
-            $table->unsignedBigInteger('user_id')->default(1)->index();
-            $table->string('status', 32)->default('completed');
-            $table->json('input_snapshot')->nullable();
-            $table->json('resolved_context')->nullable();
-            $table->json('step_results')->nullable();
-            $table->text('error_message')->nullable();
-            $table->timestamp('started_at')->nullable();
-            $table->timestamp('finished_at')->nullable();
-            $table->timestamps();
-        });
     }
 
     public function test_canonical_models_use_core_database_trait(): void
@@ -141,7 +126,6 @@ final class PromptTaskCanonicalDatabaseCutoverContractTest extends TestCase
             PromptResult::class,
             PromptResultRoutingAttempt::class,
             SeoTask::class,
-            TaskTestResult::class,
         ];
 
         foreach ($models as $modelClass) {
