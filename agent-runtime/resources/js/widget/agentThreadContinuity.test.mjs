@@ -59,7 +59,8 @@ test('first Send uses /turns and stores thread_ulid while subsequent Send reuses
     assert.equal(source.includes(': endpoints.turnUrl'), true);
 
     // Storing returned thread_ulid
-    assert.equal(source.includes('returnedUlid = payload?.data?.thread_ulid'), true);
+    assert.equal(source.includes('const data = payload?.data || {};'), true);
+    assert.equal(source.includes('const returnedUlid = data.thread_ulid;'), true);
     assert.equal(source.includes('setActiveThreadUlid(returnedUlid)'), true);
     assert.equal(source.includes('setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid)'), true);
 });

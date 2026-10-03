@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { buildProjectItems, PROJECT_SIDEBAR_ACTIONS, scopePayload, switchProject } from './projectCatalog.js';
 
-test('sidebar lists All Sites then each site and has no add-website action', () => {
+test('sidebar lists All Sites, Test utility, then each site and has no add-website action', () => {
     const sites = [
         { id: 7, domain: 'congtybalo.com' },
         { id: 8, domain: 'xuongmaytuikhongdet.com' },
@@ -12,11 +12,14 @@ test('sidebar lists All Sites then each site and has no add-website action', () 
     assert.equal(items[0].type, 'global');
     assert.equal(items[0].label, 'All Sites');
     assert.equal(items[0].siteId, undefined);
-    assert.deepEqual(items.slice(1).map((item) => item.label), [
+    assert.equal(items[1].type, 'utility');
+    assert.equal(items[1].key, 'test');
+    assert.equal(items[1].label, '/** Test');
+    assert.deepEqual(items.slice(2).map((item) => item.label), [
         'congtybalo.com',
         'xuongmaytuikhongdet.com',
     ]);
-    assert.equal(items[1].siteRef, 'site:7');
+    assert.equal(items[2].siteRef, 'site:7');
     assert.deepEqual(PROJECT_SIDEBAR_ACTIONS, []);
     assert.equal(JSON.stringify(items).includes('Add website'), false);
     assert.equal(JSON.stringify(items).includes('Add Website'), false);
@@ -26,7 +29,8 @@ test('All Sites scope is not a fake site id', () => {
     const items = buildProjectItems([{ id: 7, domain: 'congtybalo.com' }]);
     assert.deepEqual(scopePayload(items[0]), { type: 'global' });
     assert.equal(scopePayload(items[0]).siteId, undefined);
-    assert.deepEqual(scopePayload(items[1]), {
+    assert.throws(() => scopePayload(items[1]), /not an AgentProjectScope/);
+    assert.deepEqual(scopePayload(items[2]), {
         type: 'site',
         siteId: 7,
         siteRef: 'site:7',
@@ -40,7 +44,7 @@ test('switching projects does not mutate website rows', () => {
     const selected = switchProject(items, 'site:7');
     selected.label = 'changed.example';
     assert.deepEqual(sites, before);
-    assert.equal(items[1].label, 'congtybalo.com');
+    assert.equal(items[2].label, 'congtybalo.com');
 });
 
 test('global retrieval stays unsupported', () => {
@@ -61,6 +65,18 @@ test('canonical agent widget blocks global turn execution and displays clear uns
     assert.equal(source.includes('All Sites retrieval is unsupported'), true);
     assert.equal(source.includes('setError'), true);
     assert.equal(source.includes('normalizeHostContext'), true);
+});
+
+test('Test utility renders one shared shell and never enters normal Agent scope flow', () => {
+    const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
+    assert.equal(source.includes("selected.type === 'utility'"), true);
+    assert.equal(source.includes('TestTargetPicker'), true);
+    assert.equal(source.includes('ImageIcon'), true);
+    assert.equal(source.includes('<Video'), true);
+    assert.equal(source.includes('Select a concrete site'), true);
+    assert.equal(source.includes('<option value="article">Article</option>'), true);
+    assert.equal(source.includes('<option value="raw">Raw input</option>'), true);
+    assert.equal(source.includes('if (isTestMode || !currentScopeRef)'), true);
 });
 
 test('main entry point exports canonical widget, mount adapter, and sets window.AgentRuntime', () => {

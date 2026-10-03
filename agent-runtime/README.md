@@ -4,6 +4,12 @@ New Agent peer addon. This is not a continuation of `addons/agent`.
 
 `addons/agent` stays **LEGACY / REFERENCE-ONLY**. This addon must not import `Omnichannel\Addons\Agent\...` and must not recreate `seo_agent_*` tables.
 
+## Unified Test catalog
+
+`GET /agent-runtime/test-catalog` returns the account-scoped Test picker catalog. It contains active standalone Prompts and active Tasks only, exposing just `type`, `id`, `label`, and `output_type`; it does not load Prompt bodies, execution history, or Task graphs.
+
+The project selector exposes `/** Test` as a utility workspace. Utility entries are not `AgentProjectScope` values and fail closed if passed to `scopePayload`. This phase provides the shared catalog and input shell only; it does not add a second execution engine.
+
 ## Flow
 
 ```text

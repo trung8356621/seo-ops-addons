@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { ResponseView } from '../response/ResponseBlocks.jsx';
@@ -69,6 +69,47 @@ function groupConversation(messages) {
     return turns;
 }
 
+function MediaTypeIcon({ outputType, size = 15 }) {
+    if (outputType === 'image') return <ImageIcon size={size} aria-label="Image output" />;
+    if (outputType === 'video') return <Video size={size} aria-label="Video output" />;
+    return null;
+}
+
+function TestTargetPicker({ targets, value, onChange, loading }) {
+    const selectedTarget = targets.find((target) => `${target.type}:${target.id}` === value) || null;
+
+    return (
+        <details className="agent-test-target-picker">
+            <summary className="agent-test-target-picker__summary">
+                <span>{selectedTarget?.label || (loading ? 'Loading targets…' : 'Select a Prompt or Task')}</span>
+                {selectedTarget ? <MediaTypeIcon outputType={selectedTarget.output_type} /> : null}
+            </summary>
+            <div className="agent-test-target-picker__menu" role="listbox" aria-label="Test target">
+                {targets.map((target) => {
+                    const key = `${target.type}:${target.id}`;
+                    return (
+                        <button
+                            key={key}
+                            type="button"
+                            role="option"
+                            aria-selected={key === value}
+                            className={key === value ? 'is-selected' : ''}
+                            onClick={(event) => {
+                                onChange(key);
+                                event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                        >
+                            <span>{target.label}</span>
+                            <MediaTypeIcon outputType={target.output_type} />
+                        </button>
+                    );
+                })}
+                {!loading && targets.length === 0 ? <p>No test targets available.</p> : null}
+            </div>
+        </details>
+    );
+}
+
 const I18N = {
     vi: {
         welcomeTitle: 'Trợ lý AI SEO Operations',
@@ -133,6 +174,7 @@ export function AgentWidget({
     threadsUrl: propThreadsUrl,
     copyUrl: propCopyUrl,
     modelDebugApplyUrl: propModelDebugApplyUrl,
+    testCatalogUrl: propTestCatalogUrl,
     csrf = '',
     mode = 'standalone',
     onClose = null,
@@ -147,6 +189,7 @@ export function AgentWidget({
         threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
+        testCatalogUrl: propTestCatalogUrl || rawEndpoints?.testCatalogUrl || '/agent-runtime/test-catalog',
     };
 
     // Initialize initial scope based on hostContext or fallback to global
@@ -176,6 +219,14 @@ export function AgentWidget({
     const [busy, setBusy] = useState(false);
     const [copyState, setCopyState] = useState('');
     const [error, setError] = useState('');
+    const [testTargets, setTestTargets] = useState([]);
+    const [testCatalogLoading, setTestCatalogLoading] = useState(false);
+    const [testTargetKey, setTestTargetKey] = useState('');
+    const [testSiteId, setTestSiteId] = useState('');
+    const [testInputSource, setTestInputSource] = useState('article');
+    const [testArticleTitle, setTestArticleTitle] = useState('');
+    const [testArticleKeyword, setTestArticleKeyword] = useState('');
+    const [testRawInput, setTestRawInput] = useState('');
     const textareaRef = useRef(null);
 
     useEffect(() => {
@@ -244,10 +295,35 @@ export function AgentWidget({
     }, [endpoints.projectsUrl, initialKey]);
 
     const selected = switchProject(projects, selectedKey);
-    const currentScopeRef = selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global');
+    const isTestMode = selected.type === 'utility' && selected.utility === 'test';
+    const siteProjects = projects.filter((project) => project.type === 'site');
+    const currentScopeRef = isTestMode
+        ? null
+        : (selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global'));
     const globalUnsupported = selected.retrieval === 'unsupported';
     const isDrawer = mode === 'drawer';
     const showSidebar = !isDrawer && (mode !== 'embedded' || !initialScope || initialScope.type === 'global');
+
+    useEffect(() => {
+        if (!isTestMode || !endpoints.testCatalogUrl || testTargets.length > 0) return;
+        let cancelled = false;
+        setTestCatalogLoading(true);
+        fetch(endpoints.testCatalogUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then((response) => {
+                if (!response.ok) throw new Error('Could not load Test catalog.');
+                return response.json();
+            })
+            .then((payload) => {
+                if (!cancelled) setTestTargets(Array.isArray(payload?.data?.targets) ? payload.data.targets : []);
+            })
+            .catch((caught) => {
+                if (!cancelled) setError(caught.message || 'Could not load Test catalog.');
+            })
+            .finally(() => {
+                if (!cancelled) setTestCatalogLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [isTestMode, endpoints.testCatalogUrl, testTargets.length]);
 
     // Fetch both active and archived threads list for current scope
     const fetchThreads = useCallback(async (scopeRef) => {
@@ -488,6 +564,9 @@ export function AgentWidget({
 
     // Scope change / initial mount effect: sync threads list and restore stored active thread
     useEffect(() => {
+        if (isTestMode || !currentScopeRef) {
+            return;
+        }
         fetchThreads(currentScopeRef);
 
         const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef);
@@ -501,7 +580,7 @@ export function AgentWidget({
             resetDebugState();
             setDebugOpen(false);
         }
-    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
+    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState, isTestMode]);
 
     async function copyText(text) {
         await copyPlainText(text);
@@ -834,7 +913,65 @@ export function AgentWidget({
                     ) : null}
 
                     <div className="agent-messages" role="log" aria-live="polite">
-                        {conversationTurns.length === 0 ? (
+                        {isTestMode ? (
+                            <form className="agent-test-workspace" aria-label="Unified Test workspace" onSubmit={(event) => event.preventDefault()}>
+                                <div>
+                                    <p className="agent-kicker">Unified Test</p>
+                                    <h2>Test Prompt or Task</h2>
+                                    <p>Use one input shell for standalone Prompts and complete Tasks.</p>
+                                </div>
+
+                                <div className="agent-test-field">
+                                    <label>Target</label>
+                                    <TestTargetPicker
+                                        targets={testTargets}
+                                        value={testTargetKey}
+                                        onChange={setTestTargetKey}
+                                        loading={testCatalogLoading}
+                                    />
+                                </div>
+
+                                <div className="agent-test-field">
+                                    <label htmlFor="agent-test-site">Site</label>
+                                    <select id="agent-test-site" value={testSiteId} onChange={(event) => setTestSiteId(event.target.value)}>
+                                        <option value="">Select a concrete site</option>
+                                        {siteProjects.map((site) => (
+                                            <option key={site.key} value={site.siteId}>{site.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="agent-test-field">
+                                    <label htmlFor="agent-test-input-source">Input source</label>
+                                    <select id="agent-test-input-source" value={testInputSource} onChange={(event) => setTestInputSource(event.target.value)}>
+                                        <option value="article">Article</option>
+                                        <option value="raw">Raw input</option>
+                                    </select>
+                                </div>
+
+                                {testInputSource === 'article' ? (
+                                    <div className="agent-test-article-fallback">
+                                        <div className="agent-test-field">
+                                            <label htmlFor="agent-test-article-title">Article title</label>
+                                            <input id="agent-test-article-title" value={testArticleTitle} onChange={(event) => setTestArticleTitle(event.target.value)} placeholder="Article title" />
+                                        </div>
+                                        <div className="agent-test-field">
+                                            <label htmlFor="agent-test-article-keyword">Keyword</label>
+                                            <input id="agent-test-article-keyword" value={testArticleKeyword} onChange={(event) => setTestArticleKeyword(event.target.value)} placeholder="Primary keyword" />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="agent-test-field">
+                                        <label htmlFor="agent-test-raw-input">Raw input</label>
+                                        <textarea id="agent-test-raw-input" rows={7} value={testRawInput} onChange={(event) => setTestRawInput(event.target.value)} placeholder="Paste test input…" />
+                                    </div>
+                                )}
+
+                                <p className="agent-test-note">Execution will use the selected target contract in the next runtime phase.</p>
+                            </form>
+                        ) : null}
+
+                        {!isTestMode && conversationTurns.length === 0 ? (
                             <div className="agent-welcome agent-empty">
                                 <div className="agent-welcome__icon-wrap">
                                     <Sparkles size={26} className="agent-sparkles-icon agent-welcome__icon" />
@@ -880,7 +1017,7 @@ export function AgentWidget({
                             </div>
                         ) : null}
 
-                        {conversationTurns.map((turn) => {
+                        {!isTestMode ? conversationTurns.map((turn) => {
                             const requestedIndex = selectedVersions[turn.id];
                             const versionIndex = Math.min(
                                 requestedIndex ?? (turn.versions.length > 0 ? turn.versions.length - 1 : 0),
@@ -992,9 +1129,9 @@ export function AgentWidget({
                                     ) : null}
                                 </div>
                             );
-                        })}
+                        }) : null}
 
-                        {processingStatus ? (
+                        {!isTestMode && processingStatus ? (
                             <article className="agent-message is-assistant agent-processing-status" role="status">
                                 <div className="agent-status-indicator">
                                     <Loader2 size={16} className="agent-spinner" />
@@ -1006,7 +1143,7 @@ export function AgentWidget({
                         {error ? <div className="agent-error-banner">{error}</div> : null}
                     </div>
 
-                    {isViewingArchived ? (
+                    {isTestMode ? null : isViewingArchived ? (
                         <div className="agent-archived-banner" role="status">
                             <span>{locale === 'vi' ? t.archivedBanner : 'This conversation is archived and read-only.'}</span>
                             <button

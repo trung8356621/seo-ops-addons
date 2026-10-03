@@ -9,6 +9,7 @@ Route::middleware(['web', 'auth'])
     ->prefix('agent-runtime')
     ->group(static function (): void {
         Route::get('/projects', [AgentRuntimeController::class, 'projects'])->name('agent-runtime.projects');
+        Route::get('/test-catalog', [AgentRuntimeController::class, 'testCatalog'])->name('agent-runtime.test-catalog');
         Route::post('/turns', [AgentRuntimeController::class, 'turn'])->name('agent-runtime.turns');
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');

@@ -6,9 +6,11 @@ const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8
 const modal = readFileSync(new URL('./ModelDebugModal.jsx', import.meta.url), 'utf8');
 const clipboard = readFileSync(new URL('./clipboard.js', import.meta.url), 'utf8');
 
-test('header uses the canonical Dev mode selector and normal Send carries debug_mode', () => {
-    assert.match(widget, /<select[\s\S]*className="agent-dev-select"[\s\S]*value=\{developerMode\}/);
-    assert.equal(widget.includes('className="agent-dev-mode-label"'), true);
+test('header keeps the canonical Dev mode tabs and normal Send carries debug_mode', () => {
+    assert.equal(widget.includes('className="agent-dev-tabs"'), true);
+    assert.equal(widget.includes("aria-selected={developerMode === 'normal'}"), true);
+    assert.equal(widget.includes("aria-selected={developerMode === 'debug'}"), true);
+    assert.equal(widget.includes("aria-selected={developerMode === 'diag'}"), true);
     assert.equal(widget.includes('agent-model-debug-btn'), false);
     assert.equal(widget.includes('startModelDebug'), false);
     assert.equal(widget.includes('debug_mode: isDebugMode'), true);
@@ -96,7 +98,7 @@ test('debug pauses show manual waiting status and Apply restores Thinking while 
 });
 
 test('processing status is frontend-only and lifecycle resets clear it', () => {
-    assert.match(widget, /\{processingStatus \? \([\s\S]*role="status"[\s\S]*\{processingStatus\}/);
+    assert.match(widget, /\{!isTestMode && processingStatus \? \([\s\S]*role="status"[\s\S]*\{processingStatus\}/);
     assert.equal(widget.includes("role: 'status'"), false);
     assert.equal(widget.includes("content: processingStatus"), false);
 

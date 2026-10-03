@@ -10,6 +10,13 @@ export function buildProjectItems(sites) {
             label: 'All Sites',
             retrieval: 'unsupported',
         },
+        {
+            type: 'utility',
+            key: 'test',
+            label: '/** Test',
+            utility: 'test',
+            retrieval: 'utility',
+        },
     ];
 
     for (const site of sites) {
@@ -53,9 +60,12 @@ export function scopePayload(item) {
     if (!item || item.type === 'global') {
         return { type: 'global' };
     }
-    return {
-        type: 'site',
-        siteId: item.siteId,
-        siteRef: item.siteRef,
-    };
+    if (item.type === 'site' && Number.isInteger(item.siteId) && item.siteId > 0) {
+        return {
+            type: 'site',
+            siteId: item.siteId,
+            siteRef: item.siteRef,
+        };
+    }
+    throw new TypeError(`Project item [${item.type || 'unknown'}] is not an AgentProjectScope.`);
 }

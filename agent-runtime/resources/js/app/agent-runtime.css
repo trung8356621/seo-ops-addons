@@ -2,6 +2,112 @@
     min-height: calc(100vh - 4rem);
 }
 
+.agent-test-workspace {
+    width: min(680px, 100%);
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    gap: 18px;
+}
+
+.agent-test-workspace h2,
+.agent-test-workspace p {
+    margin: 0;
+}
+
+.agent-test-field {
+    display: grid;
+    gap: 7px;
+}
+
+.agent-test-field > label {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.agent-test-field select,
+.agent-test-field input,
+.agent-test-field textarea,
+.agent-test-target-picker__summary {
+    width: 100%;
+    border: 1px solid var(--agent-border, #d1d5db);
+    border-radius: 10px;
+    background: var(--agent-surface, #fff);
+    color: inherit;
+    padding: 10px 12px;
+    box-sizing: border-box;
+}
+
+.agent-test-target-picker {
+    position: relative;
+}
+
+.agent-test-target-picker__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    list-style: none;
+}
+
+.agent-test-target-picker__summary::-webkit-details-marker {
+    display: none;
+}
+
+.agent-test-target-picker__menu {
+    position: absolute;
+    z-index: 20;
+    inset: calc(100% + 6px) 0 auto;
+    max-height: 280px;
+    overflow: auto;
+    padding: 6px;
+    border: 1px solid var(--agent-border, #d1d5db);
+    border-radius: 10px;
+    background: var(--agent-surface, #fff);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 14%);
+}
+
+.agent-test-target-picker__menu button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.agent-test-target-picker__menu button:hover,
+.agent-test-target-picker__menu button.is-selected {
+    background: rgb(148 163 184 / 16%);
+}
+
+.agent-test-article-fallback {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.agent-test-note {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+    .agent-test-workspace {
+        padding: 16px;
+    }
+
+    .agent-test-article-fallback {
+        grid-template-columns: 1fr;
+    }
+}
+
 .fi-body:has(.agent-runtime-root) .fi-sidebar,
 .fi-body:has(.agent-runtime-root) .fi-sidebar-close-overlay {
     display: none !important;

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Http;
 
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentTestCatalogService;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -20,6 +22,17 @@ use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
 
 final class AgentRuntimeController
 {
+    public function testCatalog(Request $request, AgentTestCatalogService $catalog): JsonResponse
+    {
+        abort_unless($request->user() !== null, 401);
+
+        return new JsonResponse([
+            'data' => [
+                'targets' => $catalog->forOwner(SeoAccessControl::accountSiteOwnerId()),
+            ],
+        ]);
+    }
+
     public function projects(Request $request, SiteDirectory $sites): JsonResponse
     {
         $user = $request->user();
