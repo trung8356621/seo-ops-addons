@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use Illuminate\Translation\ArrayLoader;
+use Illuminate\Translation\Translator;
+use InvalidArgumentException;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptHookPresentationService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Seo\Support\CommentSeedingOutputParser;
-use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 final class PromptOwnershipModelTest extends TestCase
@@ -24,6 +26,20 @@ final class PromptOwnershipModelTest extends TestCase
         $loader->clearCache();
 
         return new PromptHookEditorCatalog(new PromptHookRuntimeRegistry($loader));
+    }
+
+    private function usePromptHookLocale(string $locale): void
+    {
+        $repoRoot = dirname((string) (new \ReflectionClass(PromptHookPresentationService::class))->getFileName(), 5);
+        $loader = new ArrayLoader;
+        $loader->addMessages(
+            $locale,
+            'prompt_hooks',
+            require $repoRoot.'/seo-content-ai-compat/lang/'.$locale.'/prompt_hooks.php',
+            'seo-content-ai',
+        );
+
+        app()->instance('translator', new Translator($loader, $locale));
     }
 
     public function test_settings_visible_hooks_include_title_meta_comment_not_gallery(): void
@@ -82,6 +98,100 @@ final class PromptOwnershipModelTest extends TestCase
         self::assertStringNotContainsString('{{', $view['inputs'][0]['label']);
         self::assertStringNotContainsString('spec_version', json_encode($view, JSON_THROW_ON_ERROR));
         self::assertStringNotContainsString('input_schema', json_encode($view, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_comment_variable_labels_follow_current_locale(): void
+    {
+        $service = new PromptHookPresentationService($this->catalog());
+        $expected = [
+            'vi' => [
+                'post_title' => 'Tiêu đề bài viết',
+                'comment_count' => 'Số bình luận cần tạo',
+                'post_excerpt' => 'Nội dung tóm tắt',
+                'post_type' => 'Loại bài viết',
+                'site_short_description' => 'Mô tả ngắn của website',
+            ],
+            'en' => [
+                'post_title' => 'Article title',
+                'comment_count' => 'Number of comments to generate',
+                'post_excerpt' => 'Content excerpt',
+                'post_type' => 'Post type',
+                'site_short_description' => 'Website short description',
+            ],
+        ];
+
+        try {
+            foreach ($expected as $locale => $labels) {
+                $this->usePromptHookLocale($locale);
+                $view = $service->forHook('article.comment.generate');
+                self::assertNotNull($view);
+                self::assertSame($labels, collect($view['inputs'])->pluck('label', 'key')->all());
+            }
+        } finally {
+            app()->forgetInstance('translator');
+        }
+    }
+
+    public function test_variable_label_fallback_keeps_declared_and_humanized_labels(): void
+    {
+        try {
+            $this->usePromptHookLocale('en');
+            $service = new PromptHookPresentationService($this->catalog());
+            $method = new \ReflectionMethod($service, 'resolveVariableLabel');
+
+            self::assertSame('Declared label', $method->invoke($service, 'unknown_variable', 'Declared label'));
+            self::assertSame('Unknown Variable', $method->invoke($service, 'unknown_variable', ''));
+        } finally {
+            app()->forgetInstance('translator');
+        }
+    }
+
+    public function test_all_exposed_hook_inputs_have_shared_vi_and_en_labels(): void
+    {
+        $service = new PromptHookPresentationService($this->catalog());
+        $repoRoot = dirname((string) (new \ReflectionClass($service))->getFileName(), 5);
+        $keys = [];
+        foreach ($this->catalog()->settingsVisibleHooks() as $hook) {
+            $view = $service->forHook($hook['hook_key']);
+            foreach ($view['inputs'] ?? [] as $input) {
+                $keys[] = $input['key'];
+            }
+        }
+        $keys = array_values(array_unique($keys));
+        sort($keys);
+
+        foreach (['vi', 'en'] as $locale) {
+            $dictionary = require $repoRoot.'/seo-content-ai-compat/lang/'.$locale.'/prompt_hooks.php';
+            $translated = array_keys($dictionary['variables'] ?? []);
+            $missing = array_values(array_diff($keys, $translated));
+            self::assertSame([], $missing, $locale.' missing shared variable labels: '.implode(', ', $missing));
+        }
+    }
+
+    public function test_industry_context_variable_labels_match_shared_locales(): void
+    {
+        $repoRoot = dirname((string) (new \ReflectionClass(PromptHookPresentationService::class))->getFileName(), 5);
+        $expected = [
+            'vi' => [
+                'context_name' => 'Tên ngữ cảnh ngành',
+                'market' => 'Thị trường mục tiêu',
+                'core_context' => 'Industry Core Context',
+                'notes' => 'Ghi chú',
+            ],
+            'en' => [
+                'context_name' => 'Context name',
+                'market' => 'Target market',
+                'core_context' => 'Core Industry Context',
+                'notes' => 'Notes',
+            ],
+        ];
+
+        foreach ($expected as $locale => $labels) {
+            $dictionary = require $repoRoot.'/seo-content-ai-compat/lang/'.$locale.'/prompt_hooks.php';
+            foreach ($labels as $key => $label) {
+                self::assertSame($label, $dictionary['variables'][$key] ?? null, $locale.'.'.$key);
+            }
+        }
     }
 
     public function test_all_settings_visible_hooks_have_presentation_view_model(): void

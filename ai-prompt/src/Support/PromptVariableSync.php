@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Support;
 
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
-use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
 
 /**
  * Đồng bộ cột prompts.variables từ placeholder {{name}} trong markdown_content.
@@ -25,7 +24,7 @@ final class PromptVariableSync
     }
 
     /**
-     * Gộp biến khai báo thủ công với biến dò từ markdown; giữ ghi chú đã nhập.
+     * Generate persisted variables from markdown; matching legacy descriptions may be retained.
      *
      * @param  array<int, array<string, mixed>>|null  $declared
      * @return array<int, array{name: string, description: ?string}>
@@ -55,20 +54,6 @@ final class PromptVariableSync
             $merged[] = [
                 'name' => $name,
                 'description' => $description !== '' ? $description : null,
-            ];
-        }
-
-        $mergedNames = collect($merged)->pluck('name')->all();
-
-        foreach ($declared as $row) {
-            $name = trim((string) ($row['name'] ?? ''));
-            if ($name === '' || in_array($name, $mergedNames, true)) {
-                continue;
-            }
-
-            $merged[] = [
-                'name' => $name,
-                'description' => filled($row['description'] ?? null) ? (string) $row['description'] : null,
             ];
         }
 

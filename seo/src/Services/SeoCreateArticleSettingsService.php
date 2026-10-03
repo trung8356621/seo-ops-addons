@@ -658,7 +658,24 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
 
     public function getRenewFaqPromptId(): ?int
     {
-        return $this->getBoundPromptId('article.faq.generate');
+        $bound = $this->getBoundPromptId('article.faq.generate');
+        if ($bound !== null) {
+            return $bound;
+        }
+
+        try {
+            if (class_exists(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultFaqPromptInstaller::class)) {
+                $installer = app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultFaqPromptInstaller::class);
+                $result = $installer->install();
+                if (! empty($result['prompt_id'])) {
+                    return (int) $result['prompt_id'];
+                }
+            }
+        } catch (\Throwable) {
+            // fall through
+        }
+
+        return null;
     }
 
     /**

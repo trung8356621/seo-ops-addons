@@ -9,6 +9,7 @@ use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Support\Colors\Color;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -220,45 +221,16 @@ class PromptResource extends SeoPanelResource
                                             ->label('')
                                             ->content(fn (): HtmlString => self::executionProfileAiCenterLinkHtml()),
                                     ]),
-                                ...PromptHookFormSchema::section(),
                             ])
                             ->columnSpan(['default' => 12, 'lg' => 4]),
 
                         Forms\Components\Group::make()
                             ->schema([
-                                Forms\Components\Section::make(
-                                    function (Get $get): string {
-                                        $hookKey = (string) ($get('hook_key') ?? '');
-                                        if (blank($hookKey)) {
-                                            return (string) __('seo-content-ai::filament.prompt.content_markdown');
-                                        }
-
-                                        $legacy = PromptHookFormSchema::usesLegacyPromptTemplate(
-                                            $hookKey,
-                                            (string) ($get('hook_version') ?? ''),
-                                        );
-
-                                        return $legacy
-                                            ? (string) __('seo-content-ai::filament.prompt.content_prompt_own')
-                                            : (string) __('seo-content-ai::filament.prompt.content_managed_by_hook');
-                                    }
-                                )
-                                    ->description(function (Get $get): string {
-                                        $hookKey = (string) ($get('hook_key') ?? '');
-                                        if (blank($hookKey)) {
-                                            return (string) __('seo-content-ai::filament.prompt.content_markdown_hint');
-                                        }
-
-                                        $legacy = PromptHookFormSchema::usesLegacyPromptTemplate(
-                                            $hookKey,
-                                            (string) ($get('hook_version') ?? ''),
-                                        );
-
-                                        return $legacy
-                                            ? (string) __('seo-content-ai::filament.prompt.content_prompt_own_hint')
-                                            : (string) __('seo-content-ai::filament.prompt.content_prompt_locked_hint');
-                                    })
+                                Forms\Components\Section::make(__('seo-content-ai::filament.prompt.content_when_hook'))
+                                    ->description(__('seo-content-ai::filament.prompt.content_flow_hint'))
                                     ->schema([
+                                        ...PromptHookFormSchema::fields(),
+                                        ...PromptHookFormSchema::variableBadgeFields(),
                                         Forms\Components\Placeholder::make('hook_inline_template_notice')
                                             ->label('')
                                             ->content(new \Illuminate\Support\HtmlString(
@@ -308,36 +280,10 @@ class PromptResource extends SeoPanelResource
                                             ->live()
                                             ->dehydrated(false),
                                     ])
+                                    ->collapsible()
+                                    ->collapsed()
                                     ->visible(fn (Get $get): bool => filled($get('hook_key'))
                                         || filled(trim((string) ($get('markdown_content') ?? '')))),
-
-                                ...PromptHookFormSchema::guidanceSection(),
-
-                                Forms\Components\Section::make(__('seo-content-ai::filament.prompt.variables'))
-                                    ->description(__('seo-content-ai::filament.prompt.variables_hint'))
-                                    ->schema([
-                                        Forms\Components\Placeholder::make('system_default_variables')
-                                            ->label(__('seo-content-ai::filament.prompt.variables_system_title'))
-                                            ->content(fn (Get $get): \Illuminate\Support\HtmlString => self::systemDefaultVariablesHtml($get))
-                                            ->visible(fn (Get $get): bool => self::systemDefaultVariableRows($get) !== []),
-                                        Forms\Components\Repeater::make('variables')
-                                            ->label(__('seo-content-ai::filament.prompt.variables_custom_title'))
-                                            ->schema([
-                                                Forms\Components\TextInput::make('name')
-                                                    ->label(__('seo-content-ai::filament.prompt.variable_name'))
-                                                    ->required()
-                                                    ->maxLength(128),
-                                                Forms\Components\TextInput::make('description')
-                                                    ->label(__('seo-content-ai::filament.prompt.variable_note'))
-                                                    ->maxLength(255),
-                                            ])
-                                            ->defaultItems(0)
-                                            ->addActionLabel(__('seo-content-ai::filament.prompt.add_variable'))
-                                            ->reorderable()
-                                            ->collapsible(),
-                                    ])
-                                    ->collapsed(false)
-                                    ->collapsible(),
 
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.post_processing.title'))
                                     ->description(__('seo-content-ai::filament.prompt.post_processing.description'))
@@ -871,37 +817,10 @@ class PromptResource extends SeoPanelResource
                     ->searchable()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('hook_key')
-                    ->label(__('seo-content-ai::filament.prompt.hook'))
-                    ->formatStateUsing(function (?string $state): string {
-                        if ($state === null || trim($state) === '') {
-                            return (string) __('seo-content-ai::filament.prompt.hook_unassigned');
-                        }
-                        $key = trim($state);
-                        $catalog = app(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog::class);
-                        if ($catalog->isLegacyCompatibilityHook($key)) {
-                            return $catalog->labelWithHookKey('Rewrite article content (Legacy)', $key);
-                        }
-                        try {
-                            $name = $catalog->latestPinnedOrFail($key)->name;
-
-                            return $catalog->labelWithHookKey($name !== '' ? $name : $key, $key);
-                        } catch (\Throwable) {
-                            try {
-                                $name = app(\Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookRegistry::class)
-                                    ->get($key)
-                                    ->label();
-
-                                return $catalog->labelWithHookKey($name, $key);
-                            } catch (\Throwable) {
-                                return '['.$key.']';
-                            }
-                        }
-                    })
+                    ->label('Module')
+                    ->formatStateUsing(fn (?string $state): string => \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptHookPresentationService::moduleForHook($state) ?? '—')
                     ->badge()
-                    ->color(fn (?string $state): string => app(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog::class)
-                        ->isLegacyCompatibilityHook((string) $state)
-                        ? 'warning'
-                        : 'gray')
+                    ->color(fn (?string $state): string|array => self::moduleBadgeColorForHook($state))
                     ->searchable()
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('routing_profile_key')
@@ -1055,6 +974,25 @@ class PromptResource extends SeoPanelResource
                         }),
                 ]),
             ]));
+    }
+
+    /**
+     * @return string|array<int, string>
+     */
+    public static function moduleBadgeColorForHook(?string $hookKey): string|array
+    {
+        $module = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptHookPresentationService::moduleForHook($hookKey);
+
+        return match ($module) {
+            'article' => 'info',
+            'industry' => Color::Purple,
+            'keyword' => 'success',
+            'seeding' => 'warning',
+            'seo_audit' => 'danger',
+            'seo_keywords' => Color::Cyan,
+            'agent' => Color::Yellow,
+            default => 'gray',
+        };
     }
 
     public static function getEloquentQuery(): Builder

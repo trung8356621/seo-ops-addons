@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use Illuminate\Validation\ValidationException;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry;
 use Omnichannel\Addons\Media\Support\ImageToolType;
-use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 final class PromptHookFormSchemaTest extends TestCase
@@ -105,5 +106,66 @@ final class PromptHookFormSchemaTest extends TestCase
         ]);
         self::assertSame('article.outline.generate', $data['hook_key']);
         self::assertSame('0.1.0', $data['hook_version']);
+    }
+
+    public function test_hook_variables_only_come_from_selected_hook_definition(): void
+    {
+        $variables = PromptHookFormSchema::hookVariables('article.comment.generate');
+        $keys = array_column($variables, 'name');
+
+        self::assertNotEmpty($variables);
+        self::assertContains('post_title', $keys);
+        self::assertContains('comment_count', $keys);
+        self::assertNotContains('article_length_product', $keys);
+        self::assertNotContains('keyword_density_default', $keys);
+    }
+
+    public function test_hook_variables_keep_required_and_optional_metadata(): void
+    {
+        $variables = collect(PromptHookFormSchema::hookVariables('article.comment.generate'))
+            ->keyBy('name');
+
+        self::assertTrue($variables->get('post_title')['required']);
+        self::assertFalse($variables->get('comment_count')['required']);
+        self::assertNotSame('', $variables->get('post_title')['label']);
+        self::assertNotSame('', $variables->get('post_title')['description']);
+    }
+
+    public function test_no_hook_has_no_hook_variables(): void
+    {
+        self::assertSame([], PromptHookFormSchema::hookVariables(''));
+    }
+
+    public function test_hook_variable_badges_copy_exact_placeholder(): void
+    {
+        $html = PromptHookFormSchema::hookVariablesHtml('article.comment.generate')->toHtml();
+
+        self::assertStringContainsString('{{post_title}}', $html);
+        self::assertStringContainsString('window.omiCopyText', $html);
+        self::assertStringContainsString('execCommand', $html);
+        self::assertStringNotContainsString('article_length_product', $html);
+    }
+
+    public function test_prompt_resource_form_keeps_hook_key_above_prompt_editor(): void
+    {
+        $source = (string) file_get_contents((new \ReflectionClass(PromptResource::class))->getFileName());
+        $hookFields = strpos($source, '...PromptHookFormSchema::fields()');
+        $editor = strpos($source, "MarkdownCodeEditor::make('markdown_content')");
+
+        self::assertNotFalse($hookFields);
+        self::assertNotFalse($editor);
+        self::assertLessThan($editor, $hookFields);
+        self::assertStringContainsString("Select::make('hook_key')", (string) file_get_contents(
+            (new \ReflectionClass(PromptHookFormSchema::class))->getFileName(),
+        ));
+    }
+
+    public function test_prompt_resource_omits_custom_variables_and_hook_guidance(): void
+    {
+        $source = (string) file_get_contents((new \ReflectionClass(PromptResource::class))->getFileName());
+
+        self::assertStringNotContainsString("Repeater::make('variables')", $source);
+        self::assertStringNotContainsString('PromptHookFormSchema::guidanceSection()', $source);
+        self::assertStringContainsString('...PromptHookFormSchema::variableBadgeFields()', $source);
     }
 }

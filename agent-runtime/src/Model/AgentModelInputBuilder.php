@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Model;
 
-use Omnichannel\Addons\AgentRuntime\Decision\RoutingRuntimeInstructions;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCapabilityCatalog;
+use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 
 /**
  * SSOT for model-visible input. Copy and Send both use the returned object.
@@ -16,6 +16,7 @@ final class AgentModelInputBuilder
 {
     public function __construct(
         private readonly SecretRedactor $redactor = new SecretRedactor(),
+        private readonly ?ResolvesSettingsPromptHook $promptBindings = null,
     ) {}
 
     /**
@@ -39,7 +40,7 @@ final class AgentModelInputBuilder
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return PreparedModelInput::make('routing', [
-            ['role' => 'system', 'content' => RoutingRuntimeInstructions::system()],
+            ['role' => 'system', 'content' => $this->systemInstruction('agent.routing.decide')],
             ['role' => 'user', 'content' => is_string($user) ? $user : ''],
         ], $this->redactor);
     }
@@ -63,7 +64,7 @@ final class AgentModelInputBuilder
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return PreparedModelInput::make('answer', [
-            ['role' => 'system', 'content' => \Omnichannel\Addons\AgentRuntime\Answer\AnswerRuntimeInstructions::system()],
+            ['role' => 'system', 'content' => $this->systemInstruction('agent.response.compose')],
             ['role' => 'user', 'content' => is_string($user) ? $user : ''],
         ], $this->redactor);
     }
@@ -95,5 +96,16 @@ final class AgentModelInputBuilder
         }
 
         return $out;
+    }
+
+    private function systemInstruction(string $hookKey): string
+    {
+        $resolver = $this->promptBindings ?? app(ResolvesSettingsPromptHook::class);
+        $content = trim((string) $resolver->resolveSettingsHook($hookKey)->markdown_content);
+        if ($content === '') {
+            throw new \RuntimeException("Bound Agent Runtime prompt [{$hookKey}] has empty markdown_content.");
+        }
+
+        return $content;
     }
 }

@@ -41,6 +41,26 @@ final class AgentRuntimeContractTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->app->instance(
+            \Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook::class,
+            new class implements \Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook {
+                public function resolveSettingsHook(string $hookKey): \Omnichannel\Addons\AiPrompt\Models\SeoPrompt
+                {
+                    $type = match ($hookKey) {
+                        'agent.routing.decide' => 'routing',
+                        'agent.response.compose' => 'response',
+                        default => throw new \RuntimeException("Missing prompt binding: {$hookKey}"),
+                    };
+                    $prompt = new \Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+                    $prompt->forceFill([
+                        'hook_key' => $hookKey,
+                        'markdown_content' => \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown($type),
+                    ]);
+
+                    return $prompt;
+                }
+            },
+        );
         if (!\Illuminate\Support\Facades\Schema::hasTable('agent_apps')) {
             $this->artisan('migrate', ['--path' => 'D:\work\omnichannel-addons\agent-runtime\database\migrations', '--realpath' => true]);
         }
@@ -405,7 +425,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_routing_prompt_encodes_business_module_question_archetypes(): void
     {
-        $prompt = \Omnichannel\Addons\AgentRuntime\Decision\RoutingRuntimeInstructions::system();
+        $prompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing');
         foreach (['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'] as $module) {
             self::assertStringContainsString($module, $prompt);
         }
@@ -842,8 +862,8 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_answer_prompt_requires_existing_and_clearly_labeled_new_opportunities_without_fabricated_metrics(): void
     {
-        $prompt = \Omnichannel\Addons\AgentRuntime\Answer\AnswerRuntimeInstructions::system();
-        $routing = \Omnichannel\Addons\AgentRuntime\Decision\RoutingRuntimeInstructions::system();
+        $prompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('response');
+        $routing = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing');
         self::assertStringContainsString('retrieved SEO/site data as evidence', $prompt);
         self::assertStringContainsString('existing data opportunities', $prompt);
         self::assertStringContainsString('new topic or content opportunities', $prompt);

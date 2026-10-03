@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\PromptHooks;
 
+use Filament\Forms;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Canonical\PromptHookDefinition;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Canonical\PromptHookStatus;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\DefinitionNotFound;
@@ -13,11 +18,6 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeSettingsResolver;
 use Omnichannel\Addons\Media\Support\ImageToolType;
-use Filament\Forms;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
-use Illuminate\Support\HtmlString;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Filament form: Hook select from canonical RuntimeRegistry catalog.
@@ -25,63 +25,132 @@ use Illuminate\Validation\ValidationException;
 final class PromptHookFormSchema
 {
     /**
-     * Hook selector + settings only (short fields).
+     * Hook selector + settings fields embedded in the Prompt content section.
      *
      * @return list<Forms\Components\Component>
      */
-    public static function section(): array
+    public static function fields(): array
     {
         return [
-            Forms\Components\Section::make(__('seo-content-ai::filament.prompt.hook_section'))
-                ->description(__('seo-content-ai::filament.prompt.hook_section_description'))
-                ->schema([
-                    Forms\Components\Placeholder::make('hook_quick_split_runtime_note')
-                        ->label('')
-                        ->content(__('seo-content-ai::filament.prompt.hook_quick_split_note'))
-                        ->visible(fn (Get $get): bool => ImageToolType::fromMixed($get('tools') ?? 'default')->isImagePipeline()
-                            && (bool) $get('settings.post_processing.split_enabled'))
-                        ->extraAttributes(['class' => 'text-sm text-gray-600 dark:text-gray-400']),
+            Forms\Components\Placeholder::make('hook_quick_split_runtime_note')
+                ->label('')
+                ->content(__('seo-content-ai::filament.prompt.hook_quick_split_note'))
+                ->visible(fn (Get $get): bool => ImageToolType::fromMixed($get('tools') ?? 'default')->isImagePipeline()
+                    && (bool) $get('settings.post_processing.split_enabled'))
+                ->extraAttributes(['class' => 'text-sm text-gray-600 dark:text-gray-400']),
 
-                    Forms\Components\Select::make('hook_key')
-                        ->label(__('seo-content-ai::filament.prompt.hook'))
-                        ->helperText(__('seo-content-ai::filament.prompt.hook_helper'))
-                        ->options(function (PromptHookEditorCatalog $catalog, Get $get): array {
-                            return array_merge(
-                                ['' => (string) __('seo-content-ai::prompt_hooks.none')],
-                                $catalog->selectOptionsForEditing((string) ($get('hook_key') ?? '')),
-                            );
-                        })
-                        ->placeholder(__('seo-content-ai::prompt_hooks.none'))
-                        ->nullable()
-                        ->searchable()
-                        ->native(false)
-                        ->live()
-                        ->afterStateUpdated(function (?string $state, Set $set, Get $get): void {
-                            self::onHookChanged($state, $set, $get);
-                        }),
+            Forms\Components\Select::make('hook_key')
+                ->label(__('seo-content-ai::filament.prompt.hook'))
+                ->helperText(__('seo-content-ai::filament.prompt.hook_helper'))
+                ->options(function (PromptHookEditorCatalog $catalog, Get $get): array {
+                    return array_merge(
+                        ['' => (string) __('seo-content-ai::prompt_hooks.none')],
+                        $catalog->selectOptionsForEditing((string) ($get('hook_key') ?? '')),
+                    );
+                })
+                ->placeholder(__('seo-content-ai::prompt_hooks.none'))
+                ->nullable()
+                ->searchable()
+                ->native(false)
+                ->live()
+                ->afterStateUpdated(function (?string $state, Set $set, Get $get): void {
+                    self::onHookChanged($state, $set, $get);
+                }),
 
-                    Forms\Components\Hidden::make('hook_version'),
+            Forms\Components\Hidden::make('hook_version'),
 
-                    Forms\Components\Placeholder::make('hook_legacy_rewrite_warning')
-                        ->label('')
-                        ->content(__('seo-content-ai::filament.prompt.hook_legacy_rewrite_warning'))
-                        ->visible(fn (Get $get, PromptHookEditorCatalog $catalog): bool => $catalog->isLegacyCompatibilityHook(
-                            (string) ($get('hook_key') ?? ''),
-                        )),
+            Forms\Components\Placeholder::make('hook_legacy_rewrite_warning')
+                ->label('')
+                ->content(__('seo-content-ai::filament.prompt.hook_legacy_rewrite_warning'))
+                ->visible(fn (Get $get, PromptHookEditorCatalog $catalog): bool => $catalog->isLegacyCompatibilityHook(
+                    (string) ($get('hook_key') ?? ''),
+                )),
 
-                    Forms\Components\Placeholder::make('hook_experimental_warning')
-                        ->label('')
-                        ->content(fn (Get $get): string => self::experimentalWarning((string) ($get('hook_key') ?? ''), (string) ($get('hook_version') ?? '')))
-                        ->visible(fn (Get $get): bool => self::isExperimentalSelected((string) ($get('hook_key') ?? ''), (string) ($get('hook_version') ?? ''))),
+            Forms\Components\Placeholder::make('hook_experimental_warning')
+                ->label('')
+                ->content(fn (Get $get): string => self::experimentalWarning((string) ($get('hook_key') ?? ''), (string) ($get('hook_version') ?? '')))
+                ->visible(fn (Get $get): bool => self::isExperimentalSelected((string) ($get('hook_key') ?? ''), (string) ($get('hook_version') ?? ''))),
 
-                    Forms\Components\Group::make()
-                        ->schema(fn (Get $get): array => self::settingsFields(
-                            (string) ($get('hook_key') ?? ''),
-                            (string) ($get('hook_version') ?? ''),
-                        ))
-                        ->visible(fn (Get $get): bool => filled($get('hook_key'))),
-                ]),
+            Forms\Components\Group::make()
+                ->schema(fn (Get $get): array => self::settingsFields(
+                    (string) ($get('hook_key') ?? ''),
+                    (string) ($get('hook_version') ?? ''),
+                ))
+                ->visible(fn (Get $get): bool => filled($get('hook_key'))),
         ];
+    }
+
+    /**
+     * Read-only variables accepted by the selected Hook.
+     *
+     * @return list<Forms\Components\Component>
+     */
+    public static function variableBadgeFields(): array
+    {
+        return [
+            Forms\Components\Placeholder::make('hook_variables')
+                ->label(__('seo-content-ai::filament.prompt.hook_variables_title'))
+                ->content(fn (Get $get): HtmlString => self::hookVariablesHtml(
+                    (string) ($get('hook_key') ?? ''),
+                ))
+                ->visible(fn (Get $get): bool => self::hookVariables((string) ($get('hook_key') ?? '')) !== []),
+        ];
+    }
+
+    /**
+     * @return list<array{name: string, key: string, label: string, description: string, required: bool}>
+     */
+    public static function hookVariables(string $hookKey): array
+    {
+        $view = self::presentationFor($hookKey);
+
+        if (! is_array($view) || ! is_array($view['inputs'] ?? null)) {
+            return [];
+        }
+
+        return array_values(array_map(static function (array $input): array {
+            $key = trim((string) ($input['key'] ?? ''));
+            $label = trim((string) ($input['label'] ?? $key));
+
+            return [
+                'name' => $key,
+                'key' => $key,
+                'label' => $label,
+                'description' => trim((string) ($input['description'] ?? $label)),
+                'required' => (bool) ($input['required'] ?? false),
+            ];
+        }, $view['inputs']));
+    }
+
+    public static function hookVariablesHtml(string $hookKey): HtmlString
+    {
+        $clipboard = view('seo-content-ai::components.safe-clipboard')->render();
+        $badges = [];
+        foreach (self::hookVariables($hookKey) as $variable) {
+            $key = trim((string) ($variable['name'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+
+            $required = (bool) ($variable['required'] ?? false);
+            $status = (string) __($required
+                ? 'seo-content-ai::filament.prompt.hook_input_required'
+                : 'seo-content-ai::filament.prompt.hook_input_optional');
+            $tooltip = trim((string) ($variable['description'] ?? $variable['label'] ?? $key))."\n".$status;
+            $placeholder = '{{'.$key.'}}';
+
+            $badges[] = '<button type="button" title="'.e($tooltip).'"'
+                .' x-data="{ copied: false }"'
+                .' x-on:click.stop.prevent="const ok = await window.omiCopyText('.e(json_encode($placeholder, JSON_THROW_ON_ERROR)).'); if (ok) { copied = true; setTimeout(() => copied = false, 1500); }"'
+                .' class="inline-flex cursor-pointer items-center rounded-md bg-gray-100 px-2 py-1 font-mono text-xs text-gray-700 ring-1 ring-inset ring-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700 dark:hover:bg-gray-700">'
+                .'<span x-show="!copied">'.e($placeholder)
+                .($required ? '<span class="ml-0.5 text-danger-600" aria-hidden="true">*</span>' : '').'</span>'
+                .'<span x-cloak x-show="copied" class="text-success-600 dark:text-success-400">'
+                .e((string) __('seo-content-ai::filament.prompt.variable_copied')).'</span>'
+                .'</button>';
+        }
+
+        return new HtmlString($clipboard.'<div class="flex flex-wrap gap-2">'.implode('', $badges).'</div>');
     }
 
     /**

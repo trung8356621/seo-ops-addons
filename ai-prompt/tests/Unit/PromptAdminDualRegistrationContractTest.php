@@ -125,6 +125,22 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
         );
     }
 
+    public function test_prompt_variable_save_sync_uses_markdown_without_manual_rows(): void
+    {
+        $variables = PromptVariableSync::mergeFromMarkdown(
+            'Hello {{post_title}} and {{custom_context}}',
+            [['name' => 'legacy_manual_only', 'description' => 'Old row']],
+        );
+
+        self::assertSame(['custom_context', 'post_title'], array_column($variables, 'name'));
+        self::assertNotContains('legacy_manual_only', array_column($variables, 'name'));
+
+        foreach ([CreatePrompt::class, EditPrompt::class] as $pageClass) {
+            $source = (string) file_get_contents((new ReflectionClass($pageClass))->getFileName());
+            self::assertStringContainsString('mergeVariablesFromMarkdown', $source);
+        }
+    }
+
     public function test_admin_context_list_scope_matches_seo_and_sees_prompt_26_for_owner_two(): void
     {
         try {

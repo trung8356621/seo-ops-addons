@@ -30,7 +30,7 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
  *     default_instructions: list<string>,
  *     output_format: list<string>,
  *     notes: list<string>,
- *     inputs: list<array{key: string, label: string, required: bool}>
+ *     inputs: list<array{key: string, label: string, description: string, required: bool}>
  * }
  */
 final class PromptHookPresentationService
@@ -42,6 +42,20 @@ final class PromptHookPresentationService
     public function __construct(
         private readonly PromptHookEditorCatalog $catalog,
     ) {}
+
+    public static function moduleForHook(?string $hookKey): ?string
+    {
+        $hookKey = trim((string) $hookKey);
+        if ($hookKey === '') {
+            return null;
+        }
+
+        if (str_starts_with($hookKey, 'product.gallery.')) {
+            return 'article';
+        }
+
+        return explode('.', $hookKey, 2)[0];
+    }
 
     /**
      * @return PresentationView|null
@@ -184,7 +198,7 @@ final class PromptHookPresentationService
     }
 
     /**
-     * @param  list<array{key: string, label: string, required: bool}>  $inputs
+     * @param  list<array{key: string, label: string, description?: string, required: bool}>  $inputs
      */
     public function formatInputsHtml(array $inputs): string
     {
@@ -318,7 +332,7 @@ final class PromptHookPresentationService
 
     /**
      * @param  array<string, mixed>  $presentation
-     * @return list<array{key: string, label: string, required: bool}>
+     * @return list<array{key: string, label: string, description: string, required: bool}>
      */
     private function resolveInputs(PromptHookDefinition $definition, array $presentation): array
     {
@@ -333,9 +347,14 @@ final class PromptHookPresentationService
                 if ($key === '') {
                     continue;
                 }
+                $schema = is_array($definition->inputSchema->fields[$key] ?? null)
+                    ? $definition->inputSchema->fields[$key]
+                    : [];
+                $label = $this->resolveVariableLabel($key, (string) ($row['label'] ?? ''));
                 $rows[] = [
                     'key' => $key,
-                    'label' => $this->resolveVariableLabel($key, (string) ($row['label'] ?? '')),
+                    'label' => $label,
+                    'description' => $this->resolveVariableDescription($row, $schema, $label),
                     'required' => (bool) ($row['required'] ?? false),
                 ];
             }
@@ -349,9 +368,11 @@ final class PromptHookPresentationService
                 continue;
             }
             $key = (string) $field;
+            $label = $this->resolveVariableLabel($key, (string) ($schema['label'] ?? ''));
             $rows[] = [
                 'key' => $key,
-                'label' => $this->resolveVariableLabel($key, (string) ($schema['label'] ?? '')),
+                'label' => $label,
+                'description' => $this->resolveVariableDescription([], $schema, $label),
                 'required' => (bool) ($schema['required'] ?? false),
             ];
         }
@@ -373,6 +394,22 @@ final class PromptHookPresentationService
         }
 
         return $this->humanizeKey($key);
+    }
+
+    /**
+     * @param  array<string, mixed>  $presentation
+     * @param  array<string, mixed>  $schema
+     */
+    private function resolveVariableDescription(array $presentation, array $schema, string $label): string
+    {
+        foreach ([$presentation['description'] ?? null, $schema['description'] ?? null, $schema['label'] ?? null] as $candidate) {
+            $description = trim((string) ($candidate ?? ''));
+            if ($description !== '') {
+                return $description;
+            }
+        }
+
+        return $label;
     }
 
     /**
