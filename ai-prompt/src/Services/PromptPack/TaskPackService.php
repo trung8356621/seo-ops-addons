@@ -56,6 +56,9 @@ final class TaskPackService
             'name' => (string) ($task->name ?? ''),
             'description' => $task->description !== null ? (string) $task->description : null,
             'is_active' => (bool) $task->is_active,
+            'output_type' => in_array((string) $task->output_type, ['text', 'image', 'video'], true)
+                ? (string) $task->output_type
+                : 'text',
             'flow_data' => $portableFlow,
         ];
     }
@@ -137,6 +140,9 @@ final class TaskPackService
             'name' => $name,
             'description' => isset($raw['description']) ? (string) $raw['description'] : null,
             'is_active' => (bool) ($raw['is_active'] ?? true),
+            'output_type' => in_array((string) ($raw['output_type'] ?? ''), ['text', 'image', 'video'], true)
+                ? (string) $raw['output_type']
+                : null,
             'flow_data' => $flowData,
         ];
 
@@ -191,6 +197,11 @@ final class TaskPackService
         // Resolve prompt references in flow nodes to local destination prompt IDs
         $flow = $this->resolveLocalFlowReferences($flow, $userId);
         $task->flow_data = $flow;
+        $metadata = app(\Omnichannel\Addons\AiPrompt\Services\TaskFlowPromptMetadataService::class);
+        $task->output_type = is_string($record['output_type'] ?? null)
+            ? $record['output_type']
+            : $metadata->outputType($flow);
+        $metadata->markFlowPrompts($flow);
 
         try {
             $connection = $task->getConnectionName();

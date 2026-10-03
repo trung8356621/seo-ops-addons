@@ -38,6 +38,7 @@ final class PromptPackRoundTripTest extends TestCase
             $table->json('settings')->nullable();
             $table->string('tools')->nullable();
             $table->boolean('is_active')->default(true);
+            $table->boolean('is_flow_prompt')->default(false);
             $table->string('routing_mode')->nullable();
             $table->string('routing_profile_key')->nullable();
             $table->unsignedBigInteger('ai_connection_id')->nullable();
@@ -82,6 +83,7 @@ MD;
             'hook_key' => 'article.content.generate',
             'tools' => ImageToolType::Default->value,
             'is_active' => true,
+            'is_flow_prompt' => true,
             'routing_mode' => 'auto',
             'routing_profile_key' => 'text.longform',
             'settings' => ['portable_uuid' => $uuid],
@@ -101,6 +103,7 @@ MD;
         $this->assertSame('text.longform', $imported->routing_profile_key);
         $this->assertNull($imported->ai_connection_id);
         $this->assertSame($uuid, $imported->settings['portable_uuid'] ?? null);
+        $this->assertTrue($imported->is_flow_prompt);
     }
 
     public function test_image_prompts_round_trip_tool_hook_and_profile(): void

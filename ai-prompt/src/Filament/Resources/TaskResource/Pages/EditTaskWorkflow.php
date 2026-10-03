@@ -90,7 +90,11 @@ class EditTaskWorkflow extends Page
         $task->update([
             'name' => $taskName,
             'flow_data' => $flowData,
+            'output_type' => app(\Omnichannel\Addons\AiPrompt\Services\TaskFlowPromptMetadataService::class)
+                ->outputType($flowData),
         ]);
+        app(\Omnichannel\Addons\AiPrompt\Services\TaskFlowPromptMetadataService::class)
+            ->markFlowPrompts($flowData);
 
         Notification::make()
             ->title(__('Workflow saved successfully'))

@@ -10,7 +10,6 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\CreatePrompt;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\EditPrompt;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\ListPrompts;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\TestPrompt;
 use Omnichannel\Addons\AiPrompt\Services\PromptVersionService;
 use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
@@ -59,7 +58,6 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
             'Resources'.DIRECTORY_SEPARATOR.'PromptResource'.DIRECTORY_SEPARATOR.'Pages'.DIRECTORY_SEPARATOR.'ListPrompts.php',
             'Resources'.DIRECTORY_SEPARATOR.'PromptResource'.DIRECTORY_SEPARATOR.'Pages'.DIRECTORY_SEPARATOR.'CreatePrompt.php',
             'Resources'.DIRECTORY_SEPARATOR.'PromptResource'.DIRECTORY_SEPARATOR.'Pages'.DIRECTORY_SEPARATOR.'EditPrompt.php',
-            'Resources'.DIRECTORY_SEPARATOR.'PromptResource'.DIRECTORY_SEPARATOR.'Pages'.DIRECTORY_SEPARATOR.'TestPrompt.php',
             'Pages'.DIRECTORY_SEPARATOR.'SeoSettingsPrompt.php',
         ];
         foreach ($expected as $rel) {
@@ -95,7 +93,7 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
     public function test_existing_page_classes_unchanged(): void
     {
         self::assertSame(PromptResource::class, (new ReflectionClass(ListPrompts::class))->getDefaultProperties()['resource'] ?? PromptResource::class);
-        foreach ([ListPrompts::class, CreatePrompt::class, EditPrompt::class, TestPrompt::class] as $page) {
+        foreach ([ListPrompts::class, CreatePrompt::class, EditPrompt::class] as $page) {
             $props = (new ReflectionClass($page))->getDefaultProperties();
             self::assertSame(PromptResource::class, $props['resource'] ?? null);
         }
@@ -192,10 +190,11 @@ final class PromptAdminDualRegistrationContractTest extends TestCase
 
         self::assertStringContainsString('/admin/prompts/create', PromptResource::getUrl('create'));
         self::assertStringContainsString('/admin/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26]));
-        self::assertStringContainsString('/admin/prompts/26/test', PromptResource::getUrl('test', ['record' => 26]));
-
         self::assertStringContainsString('/seo/prompts/create', PromptResource::getUrl('create', panel: 'seo-main'));
         self::assertStringContainsString('/seo/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26], panel: 'seo-main'));
-        self::assertStringContainsString('/seo/prompts/26/test', PromptResource::getUrl('test', ['record' => 26], panel: 'seo-main'));
+
+        $src = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
+        self::assertStringNotContainsString("Pages\\TestPrompt::route", $src);
+        self::assertStringNotContainsString("Action::make('test')", $src);
     }
 }

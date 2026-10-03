@@ -8,8 +8,6 @@ use App\Models\Site;
 use App\Models\WpOption;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages\TestPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
@@ -18,8 +16,7 @@ use ReflectionClass;
 use Tests\TestCase;
 
 /**
- * TestPrompt mount must not crash when global SEO Site is absent.
- * Root cause was unresolved SeoAccessControl FQCN in PromptSiteContextVariable.
+ * Site context helpers remain safe after retiring the legacy Prompt Test page.
  */
 final class PromptTestPageSiteContextContractTest extends TestCase
 {
@@ -130,16 +127,6 @@ final class PromptTestPageSiteContextContractTest extends TestCase
         self::assertSame('', (string) $merged['site_domain']);
     }
 
-    public function test_test_prompt_mount_always_applies_site_defaults_via_shared_helper(): void
-    {
-        $src = (string) file_get_contents((new ReflectionClass(TestPrompt::class))->getFileName());
-        self::assertStringContainsString('applySiteContextDefaults(true)', $src);
-        self::assertStringContainsString('PromptSiteContextVariable::resolveForGlobalSite', $src);
-        self::assertStringNotContainsString("hook_key === 'seeding.comment.generate'", $src);
-        self::assertStringNotContainsString("panel === 'admin'", $src);
-        self::assertStringNotContainsString("getId() === 'admin'", $src);
-    }
-
     public function test_uses_in_prompt_detects_optional_site_vars_without_requiring_them(): void
     {
         $withSite = new SeoPrompt;
@@ -152,11 +139,4 @@ final class PromptTestPageSiteContextContractTest extends TestCase
         self::assertFalse(PromptSiteContextVariable::usesInPrompt($independent));
     }
 
-    public function test_no_cloned_test_prompt_ui_or_panel_fallback(): void
-    {
-        $resourceSrc = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
-        self::assertStringContainsString("'test' => Pages\\TestPrompt::route", $resourceSrc);
-        $props = (new ReflectionClass(TestPrompt::class))->getDefaultProperties();
-        self::assertSame(PromptResource::class, $props['resource'] ?? null);
-    }
 }

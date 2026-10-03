@@ -29,7 +29,9 @@ final class PromptAdminCanonicalCutoverContractTest extends TestCase
         self::assertStringContainsString('/seo/prompts', PromptResource::getUrl('index', panel: 'seo-main'));
         self::assertStringContainsString('/seo/prompts/create', PromptResource::getUrl('create', panel: 'seo-main'));
         self::assertStringContainsString('/seo/prompts/26/edit', PromptResource::getUrl('edit', ['record' => 26], panel: 'seo-main'));
-        self::assertStringContainsString('/seo/prompts/26/test', PromptResource::getUrl('test', ['record' => 26], panel: 'seo-main'));
+
+        $src = (string) file_get_contents((new ReflectionClass(PromptResource::class))->getFileName());
+        self::assertStringNotContainsString("Pages\\TestPrompt::route", $src);
     }
 
     public function test_admin_nav_shown_seo_nav_hidden(): void

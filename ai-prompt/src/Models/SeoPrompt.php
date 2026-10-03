@@ -30,6 +30,7 @@ class SeoPrompt extends Prompt
         'hook_settings' => 'array',
         'hook_version' => 'string',
         'is_active' => 'boolean',
+        'is_flow_prompt' => 'boolean',
         'markdown_content' => 'string',
     ];
 

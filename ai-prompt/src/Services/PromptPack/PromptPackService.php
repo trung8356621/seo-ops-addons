@@ -168,6 +168,7 @@ final class PromptPackService
             'hook_version' => (string) ($prompt->hook_version ?? ''),
             'tool' => ImageToolType::fromMixed($prompt->tools ?? 'default')->value,
             'enabled' => (bool) $prompt->is_active,
+            'is_flow_prompt' => (bool) $prompt->is_flow_prompt,
             'execution' => [
                 'mode' => in_array((string) ($prompt->routing_mode ?? 'auto'), ['auto', 'override'], true)
                     ? (string) $prompt->routing_mode
@@ -244,6 +245,7 @@ final class PromptPackService
             'hook_version' => (string) ($raw['hook_version'] ?? ''),
             'tool' => $tool,
             'enabled' => $enabled,
+            'is_flow_prompt' => (bool) ($raw['is_flow_prompt'] ?? false),
             'routing_mode' => $routingMode,
             'routing_profile_key' => $profile,
             'family_key' => (string) ($execution['family_key'] ?? ''),
@@ -297,6 +299,7 @@ final class PromptPackService
         $prompt->hook_version = (string) $record['hook_version'] !== '' ? (string) $record['hook_version'] : null;
         $prompt->tools = (string) $record['tool'];
         $prompt->is_active = (bool) $record['enabled'];
+        $prompt->is_flow_prompt = (bool) $record['is_flow_prompt'];
         $prompt->routing_mode = (string) $record['routing_mode'];
         $prompt->routing_profile_key = (string) $record['routing_profile_key'] !== '' ? (string) $record['routing_profile_key'] : null;
         $prompt->ai_connection_id = null;

@@ -20,6 +20,7 @@ class SeoTask extends Model
     protected $casts = [
         'flow_data' => 'json',
         'is_active' => 'boolean',
+        'output_type' => 'string',
     ];
 
     public function user(): BelongsTo

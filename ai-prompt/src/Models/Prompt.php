@@ -28,6 +28,7 @@ class Prompt extends Model
         'hook_settings' => 'array',
         'hook_version' => 'string',
         'is_active' => 'boolean',
+        'is_flow_prompt' => 'boolean',
         'routing_mode' => 'string',
     ];
 

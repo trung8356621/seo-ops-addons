@@ -18,11 +18,9 @@ use Illuminate\Support\HtmlString;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
-use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
 use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
@@ -157,6 +155,10 @@ class PromptResource extends SeoPanelResource
                                             ->default('default')
                                             ->inline()
                                             ->live(),
+                                        Forms\Components\Toggle::make('is_flow_prompt')
+                                            ->label('Flow-only Prompt')
+                                            ->helperText('Prompt này chỉ chạy bên trong Workflow/Task và sẽ không xuất hiện trong Agent Test.')
+                                            ->default(false),
                                     ]),
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.execution_profile_section'))
                                     ->schema([
@@ -832,48 +834,6 @@ class PromptResource extends SeoPanelResource
                         return $profile->displayName();
                     })
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('aiConnection.name')
-                    ->label(__('seo-content-ai::filament.prompt.ai_connection'))
-                    ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('usage')
-                    ->label(__('seo-content-ai::filament.prompt.usage'))
-                    ->state(function (SeoPrompt $record): string {
-                        return app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptUsageLocator::class)
-                            ->badge((int) $record->id)['badge'];
-                    })
-                    ->tooltip(function (SeoPrompt $record): ?string {
-                        return app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptUsageLocator::class)
-                            ->badge((int) $record->id)['tooltip'];
-                    })
-                    ->badge()
-                    ->color(function (SeoPrompt $record): string {
-                        $kind = app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptUsageLocator::class)
-                            ->badge((int) $record->id)['kind'];
-
-                        return match ($kind) {
-                            'workflow' => 'info',
-                            'settings' => 'success',
-                            'mixed' => 'warning',
-                            default => 'gray',
-                        };
-                    })
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('prompt_results_count')
-                    ->label(__('seo-content-ai::filament.prompt.usage_count'))
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('prompt_results_max_started_at')
-                    ->label(__('seo-content-ai::filament.prompt.last_used'))
-                    ->dateTime('d/m/Y H:i')
-                    ->placeholder('—')
-                    ->sortable()
-                    ->toggleable(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label(__('seo-content-ai::filament.prompt.created_at'))
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('hook_key')
@@ -883,19 +843,6 @@ class PromptResource extends SeoPanelResource
             ])
             ->defaultSort('updated_at', 'desc')
             ->actions([
-                Tables\Actions\Action::make('test')
-                    ->label(fn (SeoPrompt $record): string => app(AiModelsReadinessService::class)->isPromptReady($record)
-                        ? 'Test'
-                        : __('seo-content-ai::filament.prompt.sync_model'))
-                    ->icon(fn (SeoPrompt $record): string => app(AiModelsReadinessService::class)->isPromptReady($record)
-                        ? 'heroicon-o-play'
-                        : 'heroicon-o-cpu-chip')
-                    ->color(fn (SeoPrompt $record): string => app(AiModelsReadinessService::class)->isPromptReady($record)
-                        ? 'success'
-                        : 'warning')
-                    ->url(fn (SeoPrompt $record): string => app(AiModelsReadinessService::class)->isPromptReady($record)
-                        ? static::getUrl('test', ['record' => $record])
-                        : SeoSettingsOverview::getUrl(panel: 'admin')),
                 Tables\Actions\Action::make('duplicate')
                     ->label(__('seo-content-ai::filament.prompt.duplicate'))
                     ->icon('heroicon-o-document-duplicate')
@@ -998,9 +945,7 @@ class PromptResource extends SeoPanelResource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->with(['aiConnection', 'currentVersion'])
-            ->withCount('promptResults')
-            ->withMax('promptResults', 'started_at');
+            ->with('currentVersion');
 
         if (SeoAccessControl::shouldScopeToAccountOwner()) {
             $query->where('user_id', SeoAccessControl::accountSiteOwnerId());
@@ -1017,7 +962,6 @@ class PromptResource extends SeoPanelResource
             'index' => Pages\ListPrompts::route('/'),
             'create' => Pages\CreatePrompt::route('/create'),
             'edit' => Pages\EditPrompt::route('/{record}/edit'),
-            'test' => Pages\TestPrompt::route('/{record}/test'),
         ];
     }
 }

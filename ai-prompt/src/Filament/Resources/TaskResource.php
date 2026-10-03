@@ -127,6 +127,16 @@ class TaskResource extends SeoPanelResource
                 Forms\Components\Toggle::make('is_active')
                     ->label(__('seo-content-ai::filament.task.active'))
                     ->default(true),
+                Forms\Components\Select::make('output_type')
+                    ->label('Output type')
+                    ->options([
+                        'text' => 'Text',
+                        'image' => 'Image',
+                        'video' => 'Video',
+                    ])
+                    ->default('text')
+                    ->required()
+                    ->native(),
             ]);
     }
 
