@@ -48,6 +48,28 @@
             this.keywordOriginal = next;
             $wire.syncArticleMainKeyword(articleId, next);
         },
+        seoDetails: null,
+        isLoading: false,
+        loadSeoDetails() {
+            if (this.seoDetails !== null || this.isLoading) {
+                return;
+            }
+            this.isLoading = true;
+            fetch(`/api/seo/articles/${@js($record->id)}/list-seo-details`)
+                .then(response => response.ok ? response.json() : Promise.reject())
+                .then(data => {
+                    this.seoDetails = data;
+                    this.isLoading = false;
+                })
+                .catch(() => {
+                    this.isLoading = false;
+                });
+        },
+        $watch('open', (value) => {
+            if (value && this.seoDetails === null && !this.isLoading) {
+                this.loadSeoDetails();
+            }
+        }),
     }"
     x-on:click.outside="open = false"
     x-on:keydown.escape.window="open = false"
@@ -109,51 +131,70 @@
         x-transition.opacity.duration.150ms
         x-on:click.stop
     >
-        <p class="article-seo-line">
-            <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_type_label') }}:</span>
-            <span class="article-seo-line__value">{{ $seo['schema'] }}</span>
-        </p>
+        <template x-if="seoDetails === null && !isLoading">
+            <button
+                type="button"
+                class="article-seo-line__load-btn"
+                x-on:click="loadSeoDetails()"
+                :disabled="isLoading"
+            >
+                <span x-text="isLoading ? '{{ __('seo-content-ai::filament.article_list.loading') }}' : '{{ __('seo-content-ai::filament.article_list.load_seo_details') }}'"></span>
+            </button>
+        </template>
+        <template x-if="isLoading">
+            <p class="article-seo-line">
+                <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.loading') }}...</span>
+            </p>
+        </template>
+        <template x-if="seoDetails !== null">
+            <div>
+                <p class="article-seo-line">
+                    <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_type_label') }}:</span>
+                    <span class="article-seo-line__value" x-text="seoDetails.schema"></span>
+                </p>
 
-        <p class="article-seo-line">
-            <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_images_label') }}:</span>
-            <span class="article-seo-line__value">{{ $seo['image_count'] }}</span>
-        </p>
+                <p class="article-seo-line">
+                    <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_images_label') }}:</span>
+                    <span class="article-seo-line__value" x-text="seoDetails.image_count"></span>
+                </p>
 
-        <p class="article-seo-line">
-            <span class="article-seo-line__label">FAQ:</span>
-            <span class="article-seo-line__value">
-                {{ $seo['faq_count'] }} {{ __('seo-content-ai::filament.article_list.seo_faq_unit') }}
-                <span class="article-seo-line__sep" aria-hidden="true">·</span>
-                {{ $seo['faq_points'] }}/10 {{ __('seo-content-ai::filament.article_list.seo_points_unit') }}
-            </span>
-        </p>
+                <p class="article-seo-line">
+                    <span class="article-seo-line__label">FAQ:</span>
+                    <span class="article-seo-line__value">
+                        <span x-text="seoDetails.faq_count"></span> {{ __('seo-content-ai::filament.article_list.seo_faq_unit') }}
+                        <span class="article-seo-line__sep" aria-hidden="true">·</span>
+                        <span x-text="seoDetails.faq_points"></span>/10 {{ __('seo-content-ai::filament.article_list.seo_points_unit') }}
+                    </span>
+                </p>
 
-        <p class="article-seo-line">
-            <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_featured_snippet_label') }}:</span>
-            <span class="article-seo-line__value">
-                {{ $seo['featured_snippet_points'] }}/10 {{ __('seo-content-ai::filament.article_list.seo_points_unit') }}
-            </span>
-        </p>
+                <p class="article-seo-line">
+                    <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_featured_snippet_label') }}:</span>
+                    <span class="article-seo-line__value">
+                        <span x-text="seoDetails.featured_snippet_points"></span>/10 {{ __('seo-content-ai::filament.article_list.seo_points_unit') }}
+                    </span>
+                </p>
 
-        <p class="article-seo-line article-seo-line--links">
-            <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_links_label') }}:</span>
-            <span class="article-seo-links">
-                <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_total') }}">
-                    <x-filament::icon icon="heroicon-m-link" class="article-seo-links__icon" />
-                    {{ $seo['links_total'] }}
-                </span>
-                <span class="article-seo-links__sep" aria-hidden="true">|</span>
-                <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_external') }}">
-                    <x-filament::icon icon="heroicon-m-arrow-top-right-on-square" class="article-seo-links__icon" />
-                    {{ $seo['links_external'] }}
-                </span>
-                <span class="article-seo-links__sep" aria-hidden="true">|</span>
-                <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_internal') }}">
-                    <x-filament::icon icon="heroicon-m-arrow-uturn-left" class="article-seo-links__icon" />
-                    {{ $seo['links_internal'] }}
-                </span>
-            </span>
-        </p>
+                <p class="article-seo-line article-seo-line--links">
+                    <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_links_label') }}:</span>
+                    <span class="article-seo-links">
+                        <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_total') }}">
+                            <x-filament::icon icon="heroicon-m-link" class="article-seo-links__icon" />
+                            <span x-text="seoDetails.links_total"></span>
+                        </span>
+                        <span class="article-seo-links__sep" aria-hidden="true">|</span>
+                        <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_external') }}">
+                            <x-filament::icon icon="heroicon-m-arrow-top-right-on-square" class="article-seo-links__icon" />
+                            <span x-text="seoDetails.links_external"></span>
+                        </span>
+                        <span class="article-seo-links__sep" aria-hidden="true">|</span>
+                        <span class="article-seo-links__item" title="{{ __('seo-content-ai::filament.article_list.seo_links_internal') }}">
+                            <x-filament::icon icon="heroicon-m-arrow-uturn-left" class="article-seo-links__icon" />
+                            <span x-text="seoDetails.links_internal"></span>
+                        </span>
+                    </span>
+                </p>
+            </div>
+        </template>
     </div>
 </div>
 

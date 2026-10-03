@@ -1227,7 +1227,7 @@ class ArticleResource extends SeoPanelResource
     public static function getArticleQueueTableRowActions(): array
     {
         return [
-            static::makeApproveArticleTableAction(),
+            // Removed: static::makeApproveArticleTableAction(),
             Tables\Actions\Action::make('resync_sync_queue')
                 ->icon('heroicon-o-arrow-path')
                 ->iconButton()
@@ -1414,6 +1414,8 @@ class ArticleResource extends SeoPanelResource
             'list_ams.media_id as featured_media_id',
             'list_ams.status as featured_image_status',
             'list_ams.source as featured_image_source',
+            'list_spt.content_project_state as content_project_state',
+            'list_spt.content_project_id as content_project_id',
         ];
     }
 
@@ -1443,6 +1445,10 @@ class ArticleResource extends SeoPanelResource
 
         if (! static::queryHasJoinAlias($query, 'list_cai')) {
             $query->leftJoin('seo_content_archive_items as list_cai', 'list_cai.article_id', '=', 'articles.id');
+        }
+
+        if (! static::queryHasJoinAlias($query, 'list_spt')) {
+            $query->leftJoinSub(static::contentProjectStateSubquery(), 'list_spt', 'list_spt.article_id', '=', 'articles.id');
         }
 
         return $query;
@@ -1632,7 +1638,7 @@ class ArticleResource extends SeoPanelResource
                         ->success()
                         ->send();
                 }),
-            static::makeApproveArticleTableAction(),
+            // Removed: static::makeApproveArticleTableAction(),
             Tables\Actions\Action::make('view_content_project_runs')
                 ->icon('heroicon-o-folder-open')
                 ->iconButton()
@@ -2278,7 +2284,13 @@ class ArticleResource extends SeoPanelResource
 
     public static function articleAssignedContentProjectId(SeoArticle $article): ?int
     {
-        // Active Content Project only — archived project association is historical/reporting.
+        // Use projected field from list query if available
+        if (array_key_exists('content_project_id', $article->getAttributes())) {
+            $projectId = $article->getAttributes()['content_project_id'];
+            return $projectId !== null ? (int) $projectId : null;
+        }
+
+        // Fallback to per-row query for non-list contexts
         $directProjectId = SeoProjectTask::query()
             ->active()
             ->where('article_id', (int) $article->id)
@@ -2433,6 +2445,32 @@ class ArticleResource extends SeoPanelResource
     public static function getPluralModelLabel(): string
     {
         return __('seo-content-ai::filament.nav.articles');
+    }
+
+    /**
+     * Subquery to project Content Project state for Article List.
+     * Returns article_id, content_project_state, content_project_id.
+     */
+    private static function contentProjectStateSubquery(): Builder
+    {
+        return SeoProjectTask::query()
+            ->active()
+            ->whereIn('type', [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE])
+            ->whereNotNull('article_id')
+            ->whereHas('project', static function (Builder $builder): void {
+                $builder->whereNull('archived_at');
+            })
+            ->select([
+                'article_id',
+                DB::raw("CASE
+                    WHEN status = 'draft' THEN 'draft'
+                    WHEN status = 'pending' THEN 'pending'
+                    WHEN status = 'running' THEN 'running'
+                    WHEN status = 'completed' THEN 'completed'
+                    ELSE 'unknown'
+                END as content_project_state"),
+                'project_id as content_project_id',
+            ]);
     }
 
     public static function getPages(): array

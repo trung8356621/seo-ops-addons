@@ -49,7 +49,7 @@ final class ArticleListSeoSummary
 
         $skipped = ! $article->countsTowardSeoScore();
 
-        $score = $skipped ? null : SeoRuleViolationsResolver::scoreForArticle($article);
+        $score = $skipped ? null : ($article->seoProfile?->seo_score !== null ? (int) round((float) $article->seoProfile->seo_score) : null);
         $analyzedHash = trim((string) (
             $article->articleMetas->firstWhere('meta_key', SeoScoringRulesRegistry::META_KEY_ANALYZED_CONTENT_HASH)?->meta_value ?? ''
         ));

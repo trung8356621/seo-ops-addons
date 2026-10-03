@@ -19,6 +19,7 @@ use Omnichannel\Addons\Content\Http\Controllers\ArticleOutlineController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticlePreviewController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleRevisionController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleSeoPreviewController;
+use Omnichannel\Addons\Content\Http\Controllers\ArticleListSeoDetailsController;
 use Omnichannel\Addons\Seo\Http\Controllers\ArticleSeoScorePreviewController;
 use Omnichannel\Addons\WordPress\Http\Controllers\ArticleWpEditRedirectController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\GoogleSearchConsoleOAuthController;
@@ -654,6 +655,8 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.articles.media-picker');
                 Route::get('/articles/{article}/seo-preview', ArticleSeoPreviewController::class)
                     ->name('seo.articles.seo-preview');
+                Route::get('/articles/{article}/list-seo-details', \Omnichannel\Addons\Content\Http\Controllers\ArticleListSeoDetailsController::class)
+                    ->name('seo.articles.list-seo-details');
                 Route::get('/articles/{article}/preview', ArticlePreviewController::class)
                     ->name('seo.articles.preview');
                 Route::get('/articles/{article}/revisions', [SeoArticleRevisionController::class, 'compare'])
