@@ -2,6 +2,7 @@
     /** @var \Omnichannel\Addons\Content\Models\SeoArticle $record */
     use Omnichannel\Addons\Content\Support\ArticleListSeoSummary;
     use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+    use Illuminate\Support\Facades\Route;
 
     $record = $getRecord();
     $seo = ArticleListSeoSummary::for($record);
@@ -55,13 +56,20 @@
                 return;
             }
             this.isLoading = true;
-            fetch(`/api/seo/articles/${@js($record->id)}/list-seo-details`)
-                .then(response => response.ok ? response.json() : Promise.reject())
+            fetch(@js(route('seo.articles.list-seo-details', $record->id)))
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     this.seoDetails = data;
                     this.isLoading = false;
                 })
-                .catch(() => {
+                .catch((error) => {
+                    console.error('Failed to load SEO details:', error);
+                    this.seoDetails = { error: true };
                     this.isLoading = false;
                 });
         },
@@ -146,7 +154,12 @@
                 <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.loading') }}...</span>
             </p>
         </template>
-        <template x-if="seoDetails !== null">
+        <template x-if="seoDetails !== null && seoDetails.error">
+            <p class="article-seo-line article-seo-line--error">
+                <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_details_error') }}</span>
+            </p>
+        </template>
+        <template x-if="seoDetails !== null && !seoDetails.error">
             <div>
                 <p class="article-seo-line">
                     <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_type_label') }}:</span>
