@@ -190,6 +190,7 @@ export function AgentWidget({
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
         testCatalogUrl: propTestCatalogUrl || rawEndpoints?.testCatalogUrl || '/agent-runtime/test-catalog',
+        testArticlesUrl: rawEndpoints?.testArticlesUrl || '/agent-runtime/test-articles',
         testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs',
     };
 
@@ -226,6 +227,9 @@ export function AgentWidget({
     const [testSiteId, setTestSiteId] = useState('');
     const [testInputSource, setTestInputSource] = useState('article');
     const [testArticleSearch, setTestArticleSearch] = useState('');
+    const [testArticleId, setTestArticleId] = useState('');
+    const [testArticleResults, setTestArticleResults] = useState([]);
+    const [testArticlesLoading, setTestArticlesLoading] = useState(false);
     const [testArticleTitle, setTestArticleTitle] = useState('');
     const [testArticleKeyword, setTestArticleKeyword] = useState('');
     const [testRawInput, setTestRawInput] = useState('');
@@ -328,6 +332,31 @@ export function AgentWidget({
             });
         return () => { cancelled = true; };
     }, [isTestMode, endpoints.testCatalogUrl, testTargets.length]);
+
+    useEffect(() => {
+        if (!isTestMode || testInputSource !== 'article' || !testSiteId || testArticleId || !endpoints.testArticlesUrl) {
+            setTestArticleResults([]);
+            return undefined;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(async () => {
+            setTestArticlesLoading(true);
+            try {
+                const url = new URL(endpoints.testArticlesUrl, window.location.origin);
+                url.searchParams.set('site_id', testSiteId);
+                url.searchParams.set('q', testArticleSearch.trim());
+                const response = await fetch(url.toString(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+                if (!response.ok) throw new Error('Could not search articles.');
+                const payload = await response.json();
+                if (!cancelled) setTestArticleResults(Array.isArray(payload?.data?.articles) ? payload.data.articles : []);
+            } catch (caught) {
+                if (!cancelled) setError(caught.message || 'Could not search articles.');
+            } finally {
+                if (!cancelled) setTestArticlesLoading(false);
+            }
+        }, 250);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [isTestMode, testInputSource, testSiteId, testArticleId, testArticleSearch, endpoints.testArticlesUrl]);
 
     // Fetch both active and archived threads list for current scope
     const fetchThreads = useCallback(async (scopeRef) => {
@@ -719,6 +748,7 @@ export function AgentWidget({
                 target_id: target.id,
                 site_id: Number(testSiteId),
                 input_source: testInputSource,
+                article_id: testArticleId ? Number(testArticleId) : null,
                 title: testArticleTitle.trim() || testArticleSearch.trim(),
                 keyword: testArticleKeyword.trim(),
                 raw_input: testRawInput,
@@ -968,7 +998,7 @@ export function AgentWidget({
 
                                 <div className="agent-test-field">
                                     <label htmlFor="agent-test-site">Site</label>
-                                    <select id="agent-test-site" value={testSiteId} onChange={(event) => setTestSiteId(event.target.value)}>
+                                    <select id="agent-test-site" value={testSiteId} onChange={(event) => { setTestSiteId(event.target.value); setTestArticleId(''); setTestArticleSearch(''); }}>
                                         <option value="">Select a concrete site</option>
                                         {siteProjects.map((site) => (
                                             <option key={site.key} value={site.siteId}>{site.label}</option>
@@ -988,7 +1018,30 @@ export function AgentWidget({
                                     <div className="agent-test-article-fallback">
                                         <div className="agent-test-field agent-test-field--full">
                                             <label htmlFor="agent-test-article-search">Article picker/search</label>
-                                            <input id="agent-test-article-search" value={testArticleSearch} onChange={(event) => setTestArticleSearch(event.target.value)} placeholder="Search article by title…" />
+                                            <input id="agent-test-article-search" value={testArticleSearch} onChange={(event) => { setTestArticleSearch(event.target.value); setTestArticleId(''); }} placeholder="Search article by title…" />
+                                            {testArticlesLoading ? <span className="agent-test-article-status">Searching…</span> : null}
+                                            {testArticleResults.length > 0 ? (
+                                                <div className="agent-test-article-results" role="listbox" aria-label="Article results">
+                                                    {testArticleResults.map((article) => (
+                                                        <button
+                                                            type="button"
+                                                            role="option"
+                                                            aria-selected={String(article.id) === String(testArticleId)}
+                                                            className={String(article.id) === String(testArticleId) ? 'is-selected' : ''}
+                                                            key={article.id}
+                                                            onClick={() => { setTestArticleId(String(article.id)); setTestArticleSearch(article.title); setTestArticleResults([]); }}
+                                                        >
+                                                            {article.title}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                            {testArticleId ? (
+                                                <div className="agent-test-selected-article">
+                                                    <span>Selected article #{testArticleId}: {testArticleSearch}</span>
+                                                    <button type="button" onClick={() => { setTestArticleId(''); setTestArticleSearch(''); }}>Clear</button>
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div className="agent-test-field">
                                             <label htmlFor="agent-test-article-title">Article title</label>

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Http;
 
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentTestCatalogService;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentTestArticleCatalogService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,26 @@ use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
 
 final class AgentRuntimeController
 {
+    public function testArticles(Request $request, SiteDirectory $sites, AgentTestArticleCatalogService $articles): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $siteId = (int) $request->query('site_id', 0);
+        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+        $ownerId = (method_exists($user, 'accountOwnerId') ? $user->accountOwnerId() : null) ?? $userId;
+
+        return new JsonResponse(['data' => ['articles' => $articles->search(
+            (int) $ownerId,
+            $siteId,
+            (string) $request->query('q', ''),
+        )]]);
+    }
+
     public function testRun(
         Request $request,
         AgentTestExecutionService $tests,

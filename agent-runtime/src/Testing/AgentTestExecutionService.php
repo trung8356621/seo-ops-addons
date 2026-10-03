@@ -65,7 +65,10 @@ class AgentTestExecutionService
             'context_summary' => $summary,
             'status' => (string) ($result->status ?? 'completed'),
             'output' => $output,
-            'media' => $this->mediaFrom($output, $outputType),
+            'media' => $this->mediaFrom(
+                $this->canonicalPromptMedia($output, $outputType),
+                $outputType,
+            ),
             'error' => $result->error_message ?: null,
         ];
     }
@@ -96,7 +99,7 @@ class AgentTestExecutionService
         $steps = $workflow->meta['ordered_steps'] ?? $workflow->steps;
         $steps = is_array($steps) ? array_values($steps) : [];
         $output = $this->finalOutput($workflow->artifacts, $steps);
-        $media = $this->mediaFrom([$workflow->artifacts, $steps, $output], $outputType);
+        $media = $this->mediaFrom($workflow->artifacts, $outputType);
 
         return [
             'target_type' => 'task',
@@ -156,15 +159,34 @@ class AgentTestExecutionService
             return [];
         }
         $urls = [];
-        $visit = function (mixed $item) use (&$visit, &$urls): void {
-            if (is_array($item)) {
-                foreach ($item as $child) {
-                    $visit($child);
+        $visit = function (mixed $item, ?string $semanticKey = null) use (&$visit, &$urls, $outputType): void {
+            if (! is_array($item)) {
+                if (is_string($item) && in_array($semanticKey, ['image_url', 'video_url', 'media_url', 'url'], true)) {
+                    $url = trim($item);
+                    if ($this->isUrl($url)) {
+                        $urls[$url] = $url;
+                    }
                 }
-            } elseif (is_string($item)) {
-                preg_match_all('~https?://[^\s<>"\']+~i', $item, $matches);
-                foreach ($matches[0] ?? [] as $url) {
-                    $urls[$url] = $url;
+                return;
+            }
+
+            $declaredType = strtolower(trim((string) ($item['type'] ?? $item['media_type'] ?? '')));
+            if (isset($item['url']) && is_string($item['url']) && $declaredType === $outputType) {
+                $visit($item['url'], 'url');
+            }
+            foreach (['image_url', 'video_url', 'media_url'] as $key) {
+                if (isset($item[$key]) && is_string($item[$key])) {
+                    $expected = $key === 'video_url' ? 'video' : ($key === 'image_url' ? 'image' : $outputType);
+                    if ($expected === $outputType) {
+                        $visit($item[$key], $key);
+                    }
+                }
+            }
+            foreach (['media', 'artifacts', 'files', 'assets'] as $container) {
+                if (isset($item[$container]) && is_array($item[$container])) {
+                    foreach ($item[$container] as $child) {
+                        $visit($child);
+                    }
                 }
             }
         };
@@ -174,6 +196,38 @@ class AgentTestExecutionService
             static fn (string $url): array => ['type' => $outputType, 'url' => $url],
             $urls,
         ));
+    }
+
+    /** @return array{type: string, url: string}|array{} */
+    private function canonicalPromptMedia(string $output, string $outputType): array
+    {
+        $url = trim($output);
+        if (! $this->isMediaUrl($url, $outputType)) {
+            return [];
+        }
+
+        return ['type' => $outputType, 'url' => $url];
+    }
+
+    private function isMediaUrl(string $url, string $outputType): bool
+    {
+        if (! $this->isUrl($url)) {
+            return false;
+        }
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?? '');
+        $extensions = $outputType === 'video'
+            ? ['mp4', 'webm', 'mov', 'm4v']
+            : ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'];
+
+        return in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), $extensions, true);
+    }
+
+    private function isUrl(string $url): bool
+    {
+        return $url !== ''
+            && ! str_contains($url, "\n")
+            && ! str_contains($url, ' ')
+            && (str_starts_with($url, '/storage/') || filter_var($url, FILTER_VALIDATE_URL) !== false);
     }
 
     private function promptOutputType(mixed $tools): string

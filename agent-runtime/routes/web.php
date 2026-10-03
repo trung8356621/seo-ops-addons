@@ -10,6 +10,7 @@ Route::middleware(['web', 'auth'])
     ->group(static function (): void {
         Route::get('/projects', [AgentRuntimeController::class, 'projects'])->name('agent-runtime.projects');
         Route::get('/test-catalog', [AgentRuntimeController::class, 'testCatalog'])->name('agent-runtime.test-catalog');
+        Route::get('/test-articles', [AgentRuntimeController::class, 'testArticles'])->name('agent-runtime.test-articles');
         Route::post('/test-runs', [AgentRuntimeController::class, 'testRun'])->name('agent-runtime.test-runs');
         Route::post('/turns', [AgentRuntimeController::class, 'turn'])->name('agent-runtime.turns');
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');

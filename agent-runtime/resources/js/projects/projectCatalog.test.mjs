@@ -78,7 +78,10 @@ test('Test utility renders one shared shell and never enters normal Agent scope 
     assert.equal(source.includes('<option value="raw">Raw input</option>'), true);
     assert.equal(source.includes('Article picker/search'), true);
     assert.equal(source.includes("testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs'"), true);
+    assert.equal(source.includes("testArticlesUrl: rawEndpoints?.testArticlesUrl || '/agent-runtime/test-articles'"), true);
     assert.equal(source.includes('onSubmit={onRunTest}'), true);
+    assert.equal(source.includes('article_id: testArticleId ? Number(testArticleId) : null'), true);
+    assert.equal(source.includes('setTestArticleId(String(article.id))'), true);
     assert.equal(source.includes('setTestResult(payload?.data || null)'), true);
     assert.equal(source.includes('testResult.output_type'), true);
     assert.equal(source.includes("media.type === 'image'"), true);

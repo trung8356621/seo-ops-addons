@@ -95,7 +95,15 @@
 
 .agent-test-field--full {
     grid-column: 1 / -1;
+    position: relative;
 }
+
+.agent-test-article-status { font-size: 12px; opacity: .7; }
+.agent-test-article-results { display: grid; max-height: 220px; overflow-y: auto; border: 1px solid var(--agent-border); border-radius: 8px; }
+.agent-test-article-results button { padding: 9px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.agent-test-article-results button:hover, .agent-test-article-results button.is-selected { background: rgb(148 163 184 / 16%); }
+.agent-test-selected-article { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.agent-test-selected-article button { border: 0; background: transparent; color: inherit; text-decoration: underline; cursor: pointer; }
 
 .agent-test-run {
     justify-self: start;
