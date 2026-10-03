@@ -66,8 +66,6 @@ class TaskWorkflowBuilder extends Page
                 ->outputType($flowData),
             'is_active' => true,
         ]);
-        app(\Omnichannel\Addons\AiPrompt\Services\TaskFlowPromptMetadataService::class)
-            ->markFlowPrompts($flowData);
 
         $this->taskId = (int) $task->id;
 

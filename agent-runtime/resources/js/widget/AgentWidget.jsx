@@ -224,6 +224,7 @@ export function AgentWidget({
     const [testTargetKey, setTestTargetKey] = useState('');
     const [testSiteId, setTestSiteId] = useState('');
     const [testInputSource, setTestInputSource] = useState('article');
+    const [testArticleSearch, setTestArticleSearch] = useState('');
     const [testArticleTitle, setTestArticleTitle] = useState('');
     const [testArticleKeyword, setTestArticleKeyword] = useState('');
     const [testRawInput, setTestRawInput] = useState('');
@@ -295,7 +296,7 @@ export function AgentWidget({
     }, [endpoints.projectsUrl, initialKey]);
 
     const selected = switchProject(projects, selectedKey);
-    const isTestMode = selected.type === 'utility' && selected.utility === 'test';
+    const isTestMode = selected?.type === 'utility' && selected?.key === 'test';
     const siteProjects = projects.filter((project) => project.type === 'site');
     const currentScopeRef = isTestMode
         ? null
@@ -917,7 +918,7 @@ export function AgentWidget({
                             <form className="agent-test-workspace" aria-label="Unified Test workspace" onSubmit={(event) => event.preventDefault()}>
                                 <div>
                                     <p className="agent-kicker">Unified Test</p>
-                                    <h2>Test Prompt or Task</h2>
+                                    <h2>Test</h2>
                                     <p>Use one input shell for standalone Prompts and complete Tasks.</p>
                                 </div>
 
@@ -951,6 +952,10 @@ export function AgentWidget({
 
                                 {testInputSource === 'article' ? (
                                     <div className="agent-test-article-fallback">
+                                        <div className="agent-test-field agent-test-field--full">
+                                            <label htmlFor="agent-test-article-search">Article picker/search</label>
+                                            <input id="agent-test-article-search" value={testArticleSearch} onChange={(event) => setTestArticleSearch(event.target.value)} placeholder="Search article by title…" />
+                                        </div>
                                         <div className="agent-test-field">
                                             <label htmlFor="agent-test-article-title">Article title</label>
                                             <input id="agent-test-article-title" value={testArticleTitle} onChange={(event) => setTestArticleTitle(event.target.value)} placeholder="Article title" />
@@ -968,6 +973,7 @@ export function AgentWidget({
                                 )}
 
                                 <p className="agent-test-note">Execution will use the selected target contract in the next runtime phase.</p>
+                                <button type="submit" className="agent-test-run" disabled>Run</button>
                             </form>
                         ) : null}
 
@@ -1244,7 +1250,11 @@ export function AgentWidget({
                     </div>
 
                     <div className="agent-history-sidebar__body">
-                        {loadingThreads ? (
+                        {isTestMode ? (
+                            <div className="agent-history-empty agent-history-empty--test">
+                                Test results will be stored in Agent conversation after execution is connected.
+                            </div>
+                        ) : loadingThreads ? (
                             <div className="agent-history-loading">
                                 <Loader2 size={16} className="agent-spinner" />
                                 <span>{locale === 'vi' ? 'Đang tải…' : 'Loading…'}</span>

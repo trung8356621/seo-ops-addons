@@ -69,13 +69,16 @@ test('canonical agent widget blocks global turn execution and displays clear uns
 
 test('Test utility renders one shared shell and never enters normal Agent scope flow', () => {
     const source = readFileSync(new URL('../widget/AgentWidget.jsx', import.meta.url), 'utf8');
-    assert.equal(source.includes("selected.type === 'utility'"), true);
+    assert.equal(source.includes("selected?.type === 'utility' && selected?.key === 'test'"), true);
     assert.equal(source.includes('TestTargetPicker'), true);
     assert.equal(source.includes('ImageIcon'), true);
     assert.equal(source.includes('<Video'), true);
     assert.equal(source.includes('Select a concrete site'), true);
     assert.equal(source.includes('<option value="article">Article</option>'), true);
     assert.equal(source.includes('<option value="raw">Raw input</option>'), true);
+    assert.equal(source.includes('Article picker/search'), true);
+    assert.equal(source.includes('Test results will be stored in Agent conversation'), true);
+    assert.equal(source.includes('className="agent-test-run" disabled'), true);
     assert.equal(source.includes('if (isTestMode || !currentScopeRef)'), true);
 });
 

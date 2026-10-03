@@ -10,15 +10,6 @@ use Omnichannel\Addons\Media\Support\ImageToolType;
 final class TaskFlowPromptMetadataService
 {
     /** @param array<string, mixed> $flowData */
-    public function markFlowPrompts(array $flowData): void
-    {
-        $ids = $this->promptIds($flowData);
-        if ($ids !== []) {
-            SeoPrompt::query()->whereIn('id', $ids)->update(['is_flow_prompt' => true]);
-        }
-    }
-
-    /** @param array<string, mixed> $flowData */
     public function outputType(array $flowData): string
     {
         $ids = $this->promptIds($flowData);
@@ -43,7 +34,7 @@ final class TaskFlowPromptMetadataService
      * @param array<string, mixed> $flowData
      * @return list<int>
      */
-    public function promptIds(array $flowData): array
+    private function promptIds(array $flowData): array
     {
         $ids = [];
         foreach (is_array($flowData['nodes'] ?? null) ? $flowData['nodes'] : [] as $node) {

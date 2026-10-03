@@ -267,6 +267,7 @@ MD;
                     ['name' => 'distinctive_features', 'description' => 'Distinctive features'],
                     ['name' => 'negative_constraints', 'description' => 'Negative constraints'],
                 ],
+                true,
             ),
             'child' => $this->installOne(
                 self::HOOK_CHILD,
@@ -288,6 +289,7 @@ MD;
                     ['name' => 'shot_instruction', 'description' => 'Shot instruction'],
                     ['name' => 'parent_media_id', 'description' => 'Parent media id (debug)'],
                 ],
+                true,
             ),
         ];
     }
@@ -302,6 +304,7 @@ MD;
         string $markdown,
         string $tools,
         array $variables,
+        bool $isFlowPrompt = false,
     ): array {
         $existing = SeoPrompt::query()
             ->where('hook_key', $hookKey)
@@ -322,6 +325,7 @@ MD;
                 'ai_connection_id' => $this->defaultAiConnectionId(),
                 'tools' => $tools,
                 'is_active' => true,
+                'is_flow_prompt' => $isFlowPrompt,
                 'user_id' => $this->systemUserId(),
                 'settings' => [
                     'is_system_default' => true,
@@ -331,6 +335,11 @@ MD;
             ]);
             $existing->save();
             $created = true;
+        }
+
+        if ($isFlowPrompt && ! (bool) $existing->is_flow_prompt) {
+            $existing->is_flow_prompt = true;
+            $existing->save();
         }
 
         $promptId = (int) $existing->id;

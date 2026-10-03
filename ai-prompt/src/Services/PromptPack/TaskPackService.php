@@ -201,7 +201,6 @@ final class TaskPackService
         $task->output_type = is_string($record['output_type'] ?? null)
             ? $record['output_type']
             : $metadata->outputType($flow);
-        $metadata->markFlowPrompts($flow);
 
         try {
             $connection = $task->getConnectionName();
