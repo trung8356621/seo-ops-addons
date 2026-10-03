@@ -25,7 +25,7 @@ final class ArticleListPerformanceContractTest extends TestCase
         self::assertStringContainsString('function listSelectColumns', $source);
         self::assertStringContainsString('function applyListSelectColumns', $source);
         self::assertStringContainsString("'articles.title'", $source);
-        self::assertStringContainsString("'articles.internal_link_count'", $source);
+        self::assertStringContainsString("'list_sap.internal_link_count as internal_link_count'", $source);
         self::assertStringNotContainsString("'articles.body'", $source);
         self::assertStringNotContainsString("'articles.blocks'", $source);
         self::assertStringNotContainsString("'articles.editor_document'", $source);
@@ -66,13 +66,16 @@ final class ArticleListPerformanceContractTest extends TestCase
         );
     }
 
-    public function test_article_eager_loads_include_faqs_and_sync_flag_meta(): void
+    public function test_article_eager_loads_keep_seo_detail_relations_lazy(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource.php',
         );
 
-        self::assertStringContainsString("'faqs'", $source);
+        self::assertStringNotContainsString("'faqs',", $source);
+        self::assertStringNotContainsString("'seo_rule_violations',", $source);
+        self::assertStringNotContainsString("'wp_post_images',", $source);
+        self::assertStringContainsString("'seo_focus_keyword',", $source);
         self::assertStringContainsString('META_WP_DATA_OUT_OF_SYNC', $source);
     }
 

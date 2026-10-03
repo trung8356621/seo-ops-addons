@@ -1,31 +1,36 @@
 @php
     /** @var \Omnichannel\Addons\Content\Models\SeoArticle $record */
-    use Omnichannel\Addons\Content\Support\ArticleListSeoSummary;
     use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-    use Illuminate\Support\Facades\Route;
 
     $record = $getRecord();
-    $seo = ArticleListSeoSummary::for($record);
     $canEditMainKeyword = SeoAccessControl::canAccessPlannerFeatures();
+    $scoreSkipped = (bool) $record->getAttribute('skip_seo_score');
+    $storedScore = $record->getAttribute('seo_score');
+    $score = $storedScore !== null ? (int) round((float) $storedScore) : null;
+    $focusKeywordMeta = $record->relationLoaded('articleMetas')
+        ? $record->articleMetas->firstWhere('meta_key', 'seo_focus_keyword')
+        : null;
+    $mainKeywordValue = trim((string) ($focusKeywordMeta?->meta_value ?? ''));
 
-    if (! empty($seo['score_skipped'])) {
+    if ($scoreSkipped) {
         $scoreLabel = __('seo-content-ai::filament.article_list.seo_score_skipped_label');
         $scoreTone = 'skipped';
-    } elseif ($seo['score'] !== null) {
-        $scoreLabel = $seo['score'] . ' / 100';
-        $scoreTone = $seo['score_tone'];
-        if (! empty($seo['score_stale'])) {
-            $scoreLabel .= ' · '.__('seo-content-ai::filament.article_list.seo_score_stale');
-        }
+    } elseif ($score !== null) {
+        $scoreLabel = $score.' / 100';
+        $scoreTone = match (true) {
+            $score < 50 => 'danger',
+            $score < 70 => 'warning',
+            default => 'success',
+        };
     } else {
         $scoreLabel = '— / 100';
         $scoreTone = 'muted';
     }
 
-    $keywordLabel = filled($seo['keyword'])
-        ? (string) $seo['keyword']
+    $keywordLabel = filled($mainKeywordValue)
+        ? $mainKeywordValue
         : __('seo-content-ai::filament.article_list.seo_keyword_empty');
-    $mainKeywordValue = filled($seo['keyword']) ? (string) $seo['keyword'] : '';
+    $seoDetailsUrl = route('seo.articles.list-seo-details', ['article' => $record->getKey()]);
 @endphp
 
 <div
@@ -50,13 +55,23 @@
             $wire.syncArticleMainKeyword(articleId, next);
         },
         seoDetails: null,
-        isLoading: false,
+        seoDetailsLoading: false,
+        seoDetailsError: false,
+        toggleSeoDetails() {
+            this.open = !this.open;
+            if (this.open && this.seoDetails === null && !this.seoDetailsLoading) {
+                this.loadSeoDetails();
+            }
+        },
         loadSeoDetails() {
-            if (this.seoDetails !== null || this.isLoading) {
+            if (this.seoDetails !== null || this.seoDetailsLoading) {
                 return;
             }
-            this.isLoading = true;
-            fetch(@js(route('seo.articles.list-seo-details', $record->id)))
+            this.seoDetailsError = false;
+            this.seoDetailsLoading = true;
+            fetch(@js($seoDetailsUrl), {
+                headers: { 'Accept': 'application/json' },
+            })
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
@@ -65,19 +80,15 @@
                 })
                 .then(data => {
                     this.seoDetails = data;
-                    this.isLoading = false;
                 })
                 .catch((error) => {
                     console.error('Failed to load SEO details:', error);
-                    this.seoDetails = { error: true };
-                    this.isLoading = false;
+                    this.seoDetailsError = true;
+                })
+                .finally(() => {
+                    this.seoDetailsLoading = false;
                 });
         },
-        $watch('open', (value) => {
-            if (value && this.seoDetails === null && !this.isLoading) {
-                this.loadSeoDetails();
-            }
-        }),
     }"
     x-on:click.outside="open = false"
     x-on:keydown.escape.window="open = false"
@@ -104,7 +115,7 @@
             <button
                 type="button"
                 class="article-seo-dropdown__chevron-btn"
-                x-on:click.stop="open = !open"
+                x-on:click.stop="toggleSeoDetails()"
                 :aria-expanded="open"
                 aria-haspopup="true"
             >
@@ -117,7 +128,7 @@
         <button
             type="button"
             class="article-seo-dropdown__trigger"
-            x-on:click.stop="open = !open"
+            x-on:click.stop="toggleSeoDetails()"
             :aria-expanded="open"
             aria-haspopup="true"
             title="{{ $keywordLabel }}"
@@ -139,27 +150,20 @@
         x-transition.opacity.duration.150ms
         x-on:click.stop
     >
-        <template x-if="seoDetails === null && !isLoading">
-            <button
-                type="button"
-                class="article-seo-line__load-btn"
-                x-on:click="loadSeoDetails()"
-                :disabled="isLoading"
-            >
-                <span x-text="isLoading ? '{{ __('seo-content-ai::filament.article_list.loading') }}' : '{{ __('seo-content-ai::filament.article_list.load_seo_details') }}'"></span>
-            </button>
-        </template>
-        <template x-if="isLoading">
+        <template x-if="seoDetailsLoading">
             <p class="article-seo-line">
                 <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.loading') }}...</span>
             </p>
         </template>
-        <template x-if="seoDetails !== null && seoDetails.error">
+        <template x-if="seoDetailsError && !seoDetailsLoading">
             <p class="article-seo-line article-seo-line--error">
                 <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_details_error') }}</span>
+                <button type="button" class="article-seo-line__load-btn" x-on:click="loadSeoDetails()">
+                    {{ __('seo-content-ai::filament.article_list.load_seo_details') }}
+                </button>
             </p>
         </template>
-        <template x-if="seoDetails !== null && !seoDetails.error">
+        <template x-if="seoDetails !== null">
             <div>
                 <p class="article-seo-line">
                     <span class="article-seo-line__label">{{ __('seo-content-ai::filament.article_list.seo_type_label') }}:</span>

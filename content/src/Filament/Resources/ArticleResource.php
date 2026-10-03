@@ -1227,7 +1227,6 @@ class ArticleResource extends SeoPanelResource
     public static function getArticleQueueTableRowActions(): array
     {
         return [
-            // Removed: static::makeApproveArticleTableAction(),
             Tables\Actions\Action::make('resync_sync_queue')
                 ->icon('heroicon-o-arrow-path')
                 ->iconButton()
@@ -1414,8 +1413,16 @@ class ArticleResource extends SeoPanelResource
             'list_ams.media_id as featured_media_id',
             'list_ams.status as featured_image_status',
             'list_ams.source as featured_image_source',
-            'list_spt.content_project_state as content_project_state',
-            'list_spt.content_project_id as content_project_id',
+            DB::raw("CASE
+                WHEN list_cai.article_id IS NOT NULL THEN 'archive'
+                WHEN list_spt.active_project_id IS NOT NULL THEN 'content_project'
+                WHEN list_spt.draft_project_id IS NOT NULL THEN 'draft'
+                ELSE 'none'
+            END as content_project_state"),
+            DB::raw('CASE
+                WHEN list_cai.article_id IS NOT NULL THEN NULL
+                ELSE COALESCE(list_spt.active_project_id, list_spt.draft_project_id)
+            END as content_project_id'),
         ];
     }
 
@@ -1486,7 +1493,6 @@ class ArticleResource extends SeoPanelResource
         return [
             'user',
             'site',
-            'faqs',
             'wordpressLink',
             'articleMetas' => static fn ($query) => $query->whereIn('meta_key', [
                 // Classification keys must stay in the whitelist: ArticleMetaMap reads the
@@ -1495,9 +1501,7 @@ class ArticleResource extends SeoPanelResource
                 ArticleContentClassification::META_WP_IS_TERM,
                 ArticleContentClassification::META_WP_POST_TYPE,
                 'seo_focus_keyword',
-                'seo_rule_violations',
                 self::META_SKIP_SEO_AUDIT,
-                'wp_post_images',
                 'wp_featured_image_url',
                 ArticleMediaLocalService::META_FEATURED_ATTACHMENT_ID,
                 'wp_permalink',
@@ -1638,7 +1642,6 @@ class ArticleResource extends SeoPanelResource
                         ->success()
                         ->send();
                 }),
-            // Removed: static::makeApproveArticleTableAction(),
             Tables\Actions\Action::make('view_content_project_runs')
                 ->icon('heroicon-o-folder-open')
                 ->iconButton()
@@ -1653,11 +1656,7 @@ class ArticleResource extends SeoPanelResource
                         return null;
                     }
 
-                    $project = SeoProject::query()->find($projectId);
-
-                    return $project instanceof SeoProject
-                        ? SeoProjectResource::getProjectWorkspaceUrl($project)
-                        : null;
+                    return SeoProjectResource::getUrl('view', ['record' => $projectId]);
                 }),
             AssignToContentProjectActionFactory::tableRowAction(
                 resolvePayload: function (Model $record): array {
@@ -2449,28 +2448,38 @@ class ArticleResource extends SeoPanelResource
 
     /**
      * Subquery to project Content Project state for Article List.
-     * Returns article_id, content_project_state, content_project_id.
+     * One row per article, with active Content Project taking priority over Planning Draft.
+     * Archive priority is applied by listSelectColumns() from the canonical archive join.
      */
     private static function contentProjectStateSubquery(): Builder
     {
         return SeoProjectTask::query()
-            ->active()
-            ->whereIn('type', [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE])
-            ->whereNotNull('article_id')
-            ->whereHas('project', static function (Builder $builder): void {
-                $builder->whereNull('archived_at');
+            ->withoutGlobalScope(\Illuminate\Database\Eloquent\SoftDeletingScope::class)
+            ->from('seo_project_tasks as projected_tasks')
+            ->join('seo_projects as projected_projects', 'projected_projects.id', '=', 'projected_tasks.project_id')
+            ->whereNotNull('projected_tasks.article_id')
+            ->whereNull('projected_tasks.deleted_at')
+            ->whereNull('projected_tasks.archived_at')
+            ->where('projected_tasks.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->whereNull('projected_projects.archived_at')
+            ->where(static function (Builder $query): void {
+                $query->where('projected_projects.kind', '!=', SeoProject::KIND_ARCHIVE)
+                    ->orWhereNull('projected_projects.kind');
             })
             ->select([
-                'article_id',
-                DB::raw("CASE
-                    WHEN status = 'draft' THEN 'draft'
-                    WHEN status = 'pending' THEN 'pending'
-                    WHEN status = 'running' THEN 'running'
-                    WHEN status = 'completed' THEN 'completed'
-                    ELSE 'unknown'
-                END as content_project_state"),
-                'project_id as content_project_id',
-            ]);
+                'projected_tasks.article_id',
+                DB::raw("MAX(CASE
+                    WHEN projected_projects.status = '".SeoProject::STATUS_DRAFT."'
+                    THEN projected_projects.id
+                    ELSE NULL
+                END) as draft_project_id"),
+                DB::raw("MAX(CASE
+                    WHEN projected_projects.status != '".SeoProject::STATUS_DRAFT."'
+                    THEN projected_projects.id
+                    ELSE NULL
+                END) as active_project_id"),
+            ])
+            ->groupBy('projected_tasks.article_id');
     }
 
     public static function getPages(): array
