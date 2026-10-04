@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Persistence;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
@@ -103,14 +104,17 @@ class AgentTurnPersistence
         ]);
     }
 
-    public function pauseForConfirmation(AgentRun $run, AgentToolConfirmationProposal $proposal): void
+    /** @param array<string, mixed> $runtimeState */
+    public function pauseForConfirmation(AgentRun $run, AgentToolConfirmationProposal $proposal, array $runtimeState = []): void
     {
+        $confirmation = ['proposal' => $proposal->toArray()];
+        if ($runtimeState !== []) {
+            $confirmation['runtime_state'] = $runtimeState;
+        }
         $run->update([
             'status' => 'awaiting_confirmation',
             'retrieval_summary' => [
-                'confirmation' => [
-                    'proposal' => $proposal->toArray(),
-                ],
+                'confirmation' => $confirmation,
             ],
         ]);
     }
@@ -118,6 +122,30 @@ class AgentTurnPersistence
     public function resumeRun(AgentRun $run): void
     {
         $run->update(['status' => 'running']);
+    }
+
+    public function claimAwaitingConfirmation(string $runUlid, int $userId, bool $requireProposal = true): ?AgentRun
+    {
+        return DB::transaction(function () use ($runUlid, $userId, $requireProposal): ?AgentRun {
+            $run = AgentRun::query()
+                ->where('ulid', $runUlid)
+                ->where('user_id', $userId)
+                ->where('status', 'awaiting_confirmation')
+                ->lockForUpdate()
+                ->first();
+            if (! $run instanceof AgentRun) {
+                return null;
+            }
+
+            $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+            if ($requireProposal && ! is_array($summary['confirmation']['proposal'] ?? null)) {
+                return null;
+            }
+
+            $run->update(['status' => 'running']);
+
+            return $run->fresh();
+        });
     }
 
     /** @param array<string, mixed> $diagnostics */

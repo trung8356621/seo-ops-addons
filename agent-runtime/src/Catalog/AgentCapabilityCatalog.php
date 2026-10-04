@@ -20,11 +20,11 @@ final class AgentCapabilityCatalog
             'links.external' => self::capability('External Links', 'External and managed cross-site link inventory.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::links(external)', ['external_links']),
             'site.network' => self::capability('Site Network', 'Directional relationships across accessible managed sites.', true, 'direct', false, 'SiteNetworkReadModel', []),
             'industry.core' => self::capability('Industry Core', 'Full industry and business context for deep planning.', true, 'direct', false, 'IndustryContextProfile', []),
-            'gsc.performance' => self::capability('GSC Performance', 'Google Search Console performance for the requested period.', true, 'tool', true, 'SeoAccessBusinessModulesComposer::gsc', ['gsc']),
+            'gsc.performance' => self::capability('GSC Performance', 'Google Search Console performance for the requested period.', true, 'tool', true, 'RetrievalExecutor -> SeoAccessGscComposer::compose', ['gsc']),
             'content_projects.read' => self::capability('Content Projects Read', 'Planning, project state, and draft workflow information.', true, 'tool', true, 'ContentProjectAgentReadService', ['content_projects']),
             'seo_audit.worst_articles' => self::capability('SEO Audit – Worst Articles', 'Find a group of poor SEO article candidates for optimization planning.', true, 'tool', true, 'SeoAuditAgentReadService::listArticles', ['articles']),
-            'seo_audit.improve' => self::capability('SEO Audit – Improve Article', 'Start the supported SEO Audit or Draft improvement workflow.', true, 'tool', true, 'SeoAuditAgentReadService', ['articles']),
-            'seo_audit.publish' => self::capability('SEO Audit – Publish Article', 'Start the supported SEO Audit or Draft publishing workflow.', true, 'tool', true, 'SeoAuditAgentReadService', ['articles']),
+            'seo_audit.improve' => self::capability('SEO Audit – Improve Article', 'Start the supported SEO Audit or Draft improvement workflow.', true, 'tool', true, 'not_connected', ['articles'], 'not_connected'),
+            'seo_audit.publish' => self::capability('SEO Audit – Publish Article', 'Start the supported SEO Audit or Draft publishing workflow.', true, 'tool', true, 'not_connected', ['articles'], 'not_connected'),
             'industry.core_small' => self::capability('Industry Core Small', 'Compact companion industry context.', false, 'companion', false, 'IndustryContextProfile', []),
             'industry.discovery' => self::capability('Industry Discovery', '', false, 'internal', false, 'IndustryContextGenerationService::discovery', []),
             'industry.breakout' => self::capability('Industry Breakout', '', false, 'internal', false, 'IndustryContextGenerationService::breakout', []),
@@ -109,7 +109,7 @@ final class AgentCapabilityCatalog
     }
 
     /** @param list<string> $modules @return array<string, mixed> */
-    private static function capability(string $label, string $description, bool $selectable, string $mode, bool $confirmation, string $executor, array $modules): array
+    private static function capability(string $label, string $description, bool $selectable, string $mode, bool $confirmation, string $executor, array $modules, string $status = 'available'): array
     {
         return [
             'label' => $label,
@@ -117,7 +117,7 @@ final class AgentCapabilityCatalog
             'jev_selectable' => $selectable,
             'execution_mode' => $mode,
             'requires_confirmation' => $confirmation,
-            'status' => 'available',
+            'status' => $status,
             'executor' => $executor,
             'modules' => $modules,
         ];

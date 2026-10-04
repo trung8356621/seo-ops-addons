@@ -32,6 +32,8 @@ use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
+use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
 use Tests\TestCase;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 
@@ -583,9 +585,186 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(0, $answers->calls);
     }
 
+    public function test_confirmed_gsc_uses_frozen_proposal_without_second_decision_and_blocks_replay(): void
+    {
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $audit);
+
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Analyze GSC September',
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        self::assertSame([], $transport->calls);
+
+        $confirmed = $controller->confirmRun(
+            $this->createTurnRequest([], userId: 1),
+            $pending['run_ulid'],
+            $sites,
+            $persistence,
+            $threads,
+            $tools,
+            $coordinator,
+        );
+        self::assertSame(200, $confirmed->getStatusCode());
+        self::assertSame(1, $decisions->calls);
+        self::assertSame(1, $answers->calls);
+        self::assertStringContainsString('2026-09', $answers->lastExport);
+        self::assertStringContainsString('report', $answers->lastExport);
+        self::assertStringContainsString('/gsc?period=2026-09', $transport->calls[1]['url']);
+
+        $replay = $controller->confirmRun(
+            $this->createTurnRequest([], userId: 1),
+            $pending['run_ulid'],
+            $sites,
+            $persistence,
+            $threads,
+            $tools,
+            $coordinator,
+        );
+        self::assertSame(409, $replay->getStatusCode());
+        self::assertSame(1, $answers->calls);
+    }
+
+    public function test_confirmed_content_projects_uses_collection_projection_only(): void
+    {
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"projects","primary_capability":"content_projects.read","capabilities":["content_projects.read"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Projects this month',
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+
+        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('/content-projects?period=2026-09', $transport->calls[1]['url']);
+        self::assertStringNotContainsString('/content-projects/', $transport->calls[1]['url']);
+    }
+
+    public function test_confirmed_mixed_worst_articles_uses_low_score_adapter_and_keeps_zero_candidates(): void
+    {
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"prioritize","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $audit->expects(self::once())->method('listArticles')->with(
+            self::callback(static fn ($context): bool => $context->resolvedSiteId === 7),
+            ['low_score' => true, 'limit' => 20],
+        )->willReturn(['items' => [], 'total' => 0, 'post_type' => null]);
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $audit);
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Worst articles and keywords',
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        self::assertSame([], $transport->calls);
+
+        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(1, $answers->calls);
+        self::assertStringContainsString('SeoAuditAgentReadService::listArticles?low_score=true&limit=20', $answers->lastExport);
+        self::assertStringContainsString('"total":0', $answers->lastExport);
+        self::assertStringContainsString('/keywords', $transport->calls[1]['url']);
+        self::assertStringNotContainsString('/articles', implode(' ', array_column($transport->calls, 'url')));
+    }
+
+    public function test_cancel_finishes_without_tool_retrieval_or_answer(): void
+    {
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC',
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+
+        $response = $controller->cancelRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $persistence, $threads);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('Đã hủy yêu cầu.', $response->getData(true)['data']['message']);
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+        self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $pending['run_ulid'])->value('status'));
+    }
+
+    /** @dataProvider unsupportedConfirmedToolProvider */
+    public function test_unsupported_confirmed_tools_fail_closed(string $capability): void
+    {
+        $decisions = new RecordingDecisionGateway(json_encode([
+            'is_in_scope' => true, 'intent' => $capability, 'primary_capability' => $capability,
+            'capabilities' => [$capability], 'parameters' => ['article_ref' => 'article:123'],
+            'requires_parameter_extraction' => false, 'requires_user_confirmation' => false, 'response_template' => 'text',
+        ], JSON_THROW_ON_ERROR));
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7], 'message' => $capability,
+        ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+
+        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+    }
+
+    public static function unsupportedConfirmedToolProvider(): array
+    {
+        return [['seo_audit.improve'], ['seo_audit.publish']];
+    }
+
+    public function test_confirm_revalidates_site_access(): void
+    {
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $visible = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+        $pending = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC',
+        ]), $coordinator, $visible, $threads, $persistence)->getData(true)['data'];
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
+
+        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], new InMemorySiteDirectory(), $persistence, $threads, $tools, $coordinator);
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+    }
+
     public function test_debug_apply_persists_tool_confirmation_instead_of_answer_pause(): void
     {
-        $coordinator = $this->coordinator(new RecordingDecisionGateway('unused'), new RecordingAnswerGateway(), new RecordingTransport());
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator(new RecordingDecisionGateway('unused'), $answers, $transport);
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
@@ -610,6 +789,22 @@ final class AgentRuntimeContractTest extends TestCase
         $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $start['run_ulid'])->firstOrFail();
         self::assertSame('awaiting_confirmation', $run->status);
         self::assertArrayNotHasKey('model_call', $run->retrieval_summary);
+
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
+        $confirmed = $controller->confirmRun(
+            $this->createTurnRequest([], userId: 1),
+            $start['run_ulid'],
+            $sites,
+            $persistence,
+            $threads,
+            $tools,
+            $coordinator,
+            $resolver,
+        )->getData(true)['data'];
+        self::assertSame('paused', $confirmed['status']);
+        self::assertSame('answer', $confirmed['model_call']['key']);
+        self::assertSame(0, $answers->calls);
+        self::assertStringContainsString('low_score=true&limit=20', $confirmed['model_call']['full_prompt']);
     }
 
     public function test_unavailable_gsc_is_not_measured_zero(): void
@@ -2255,7 +2450,21 @@ final class AgentRuntimeContractTest extends TestCase
     private function coordinator(DecisionModelGateway $decisions, AnswerModelGateway $answers, ?SeoAccessTransport $transport = null): AgentTurnCoordinator
     {
         $transport ??= new RecordingTransport();
-        $executor = new RetrievalExecutor(
+        $executor = $this->retrievalExecutor($transport);
+
+        return new AgentTurnCoordinator(
+            new AgentModelInputBuilder(),
+            $decisions,
+            new RetrievalDecisionParser(),
+            $executor,
+            $answers,
+            new AgentResponseParser(),
+        );
+    }
+
+    private function retrievalExecutor(SeoAccessTransport $transport): RetrievalExecutor
+    {
+        return new RetrievalExecutor(
             new RetrievalPlanner(),
             new SeoAccessExecutor(
                 $transport,
@@ -2268,15 +2477,6 @@ final class AgentRuntimeContractTest extends TestCase
                 new SeoAccessUrlPolicy(),
                 'https://app.example.test',
             ),
-        );
-
-        return new AgentTurnCoordinator(
-            new AgentModelInputBuilder(),
-            $decisions,
-            new RetrievalDecisionParser(),
-            $executor,
-            $answers,
-            new AgentResponseParser(),
         );
     }
 

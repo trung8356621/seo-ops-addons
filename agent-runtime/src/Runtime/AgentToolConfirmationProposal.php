@@ -39,6 +39,28 @@ final readonly class AgentToolConfirmationProposal
         );
     }
 
+    /** @param array<string, mixed> $payload */
+    public static function fromArray(array $payload): self
+    {
+        $capabilities = self::stringList($payload['capabilities'] ?? null);
+        $tools = self::stringList($payload['tool_capabilities'] ?? null);
+        $parameters = $payload['parameters'] ?? null;
+        $scope = $payload['scope'] ?? null;
+        if ($capabilities === [] || $tools === [] || ! is_array($parameters) || ! is_array($scope)) {
+            throw new \InvalidArgumentException('Persisted confirmation proposal is invalid.');
+        }
+
+        return new self(
+            trim((string) ($payload['intent'] ?? '')),
+            trim((string) ($payload['primary_capability'] ?? '')),
+            $capabilities,
+            $parameters,
+            trim((string) ($payload['response_template'] ?? '')),
+            $tools,
+            $scope,
+        );
+    }
+
     /** @return array<string, mixed> */
     public function toArray(): array
     {
@@ -61,5 +83,18 @@ final readonly class AgentToolConfirmationProposal
             'tool_capabilities' => $this->toolCapabilities,
             'parameters' => $this->parameters,
         ];
+    }
+
+    /** @return list<string> */
+    private static function stringList(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $item): string => trim((string) $item),
+            $value,
+        ), static fn (string $item): bool => $item !== ''));
     }
 }

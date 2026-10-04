@@ -409,6 +409,36 @@ class AgentTurnCoordinator
         return $this->responses->parse($rawAnswerText, $bundle);
     }
 
+    /** @param list<array{role: string, content: string}> $history */
+    public function answerConfirmed(
+        int $userId,
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        RetrievalBundle $bundle,
+        string $responseTemplate,
+    ): AgentTurnResult {
+        $routingInput = $this->buildRoutingInput($scope, $message, $history);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate);
+        try {
+            $raw = $this->answers->complete($userId, $answerInput);
+            $response = $this->responses->parse($raw, $bundle);
+        } catch (Throwable) {
+            $response = $this->safeResponse(
+                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
+                $bundle,
+            );
+        }
+
+        return new AgentTurnResult(
+            $response,
+            $routingInput,
+            $answerInput,
+            true,
+            $this->failureCodeFromBundle($bundle),
+        );
+    }
+
     /**
      * @param  list<array{role: string, content: string}>  $history
      * @return array{routing: PreparedModelInput, answer: PreparedModelInput|null, bundle: RetrievalBundle|null, response: AgentResponse|null, confirmationProposal: AgentToolConfirmationProposal|null, failureCode: string|null, decisionDiagnostics?: array|null}

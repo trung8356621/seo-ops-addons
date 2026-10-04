@@ -21,11 +21,143 @@ use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
 
 final class AgentRuntimeController
 {
+    public function confirmRun(
+        Request $request,
+        string $runUlid,
+        SiteDirectory $sites,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AgentConfirmedToolExecutor $tools,
+        AgentTurnCoordinator $coordinator,
+        ?AssumedModelResolver $modelResolver = null,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $run = $persistence->claimAwaitingConfirmation($runUlid, $userId);
+        if (! $run instanceof AgentRun) {
+            return new JsonResponse(['message' => 'Confirmation run not found or already finished.'], 409);
+        }
+
+        try {
+            $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+            $proposal = AgentToolConfirmationProposal::fromArray((array) ($summary['confirmation']['proposal'] ?? []));
+            $scope = AgentProjectScope::fromArray($proposal->scope);
+            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+                $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
+
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+
+            $thread = $run->thread()->firstOrFail();
+            $userMessage = $run->userMessage()->firstOrFail();
+            $history = $this->historyBefore((int) $thread->id, (int) $userMessage->position);
+            $bundle = $tools->execute($proposal, $userId);
+            $confirmationState = (array) ($summary['confirmation']['runtime_state'] ?? []);
+            if (($confirmationState['debug'] ?? false) === true) {
+                $modelResolver ??= app()->bound(AssumedModelResolver::class) ? app(AssumedModelResolver::class) : null;
+                if (! $modelResolver instanceof AssumedModelResolver) {
+                    throw new \LogicException('Debug confirmation requires an assumed model resolver.');
+                }
+                $routingInput = $coordinator->buildRoutingInput($scope, (string) $userMessage->content, $history);
+                $answerInput = $coordinator->buildAnswerInput(
+                    $scope,
+                    (string) $userMessage->content,
+                    $history,
+                    $bundle,
+                    $proposal->responseTemplate,
+                );
+                $persistence->pauseRun($run, 'answer', [
+                    'routing_input' => ['stage' => $routingInput->stage, 'messages' => $routingInput->messages],
+                    'bundle' => $bundle->toArray(),
+                    'selected_response_template' => $proposal->responseTemplate,
+                    'turn' => ['scope' => $scope->toArray(), 'message' => (string) $userMessage->content, 'history' => $history],
+                ]);
+                $input = $answerInput->exportText();
+
+                return new JsonResponse(['data' => [
+                    'status' => 'paused',
+                    'run_ulid' => $run->ulid,
+                    'thread_ulid' => $thread->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'model_call' => [
+                        'key' => 'answer',
+                        'full_prompt' => $input,
+                        'prompt_size' => mb_strlen($input),
+                        'assumed_model' => $modelResolver->resolveAnswerModel($userId)->toArray(),
+                    ],
+                ]]);
+            }
+            $result = $coordinator->answerConfirmed(
+                $userId,
+                $scope,
+                (string) $userMessage->content,
+                $history,
+                $bundle,
+                $proposal->responseTemplate,
+            );
+            $meta = ['answer_model' => 'called'];
+            if ($result->failureCode !== null) {
+                $meta['failure_code'] = $result->failureCode;
+            }
+            $assistant = $persistence->completeRun($run, $result->response, $meta);
+            $threads->touchLastMessage($thread);
+            $data = $result->response->toArray();
+            $data['thread_ulid'] = $thread->ulid;
+            $data['run_ulid'] = $run->ulid;
+            $data['user_message_id'] = $run->user_message_id;
+            $data['assistant_message_id'] = $assistant->id;
+
+            return new JsonResponse(['data' => $data]);
+        } catch (InvalidArgumentException $e) {
+            $persistence->failRun($run, 'confirmed_tool_unavailable', $e->getMessage());
+
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            $persistence->failRun($run, 'error', $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function cancelRun(
+        Request $request,
+        string $runUlid,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $run = $persistence->claimAwaitingConfirmation($runUlid, (int) $user->id, false);
+        if (! $run instanceof AgentRun) {
+            return new JsonResponse(['message' => 'Confirmation run not found or already finished.'], 409);
+        }
+
+        $message = 'Đã hủy yêu cầu.';
+        $response = new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], []);
+        $assistant = $persistence->completeRun($run, $response);
+        $thread = $run->thread()->firstOrFail();
+        $threads->touchLastMessage($thread);
+
+        return new JsonResponse(['data' => [
+            ...$response->toArray(),
+            'thread_ulid' => $thread->ulid,
+            'run_ulid' => $run->ulid,
+            'user_message_id' => $run->user_message_id,
+            'assistant_message_id' => $assistant->id,
+        ]]);
+    }
+
     public function testArticles(Request $request, SiteDirectory $sites, AgentTestArticleCatalogService $articles): JsonResponse
     {
         $user = $request->user();
@@ -726,7 +858,10 @@ final class AgentRuntimeController
         array $turnState,
     ): JsonResponse {
         if ($progress->confirmationProposal !== null) {
-            $persistence->pauseForConfirmation($run, $progress->confirmationProposal);
+            $persistence->pauseForConfirmation($run, $progress->confirmationProposal, [
+                'debug' => true,
+                'turn' => $turnState,
+            ]);
 
             return new JsonResponse(['data' => [
                 'status' => 'awaiting_confirmation',
