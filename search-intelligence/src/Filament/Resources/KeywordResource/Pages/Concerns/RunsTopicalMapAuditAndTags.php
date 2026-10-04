@@ -22,6 +22,8 @@ trait RunsTopicalMapAuditAndTags
 
     public bool $aiAuditRunning = false;
 
+    public bool $aiAuditLoaded = false;
+
     /** @var array<string, mixed>|null */
     public ?array $aiAuditSnapshot = null;
 
@@ -58,7 +60,7 @@ trait RunsTopicalMapAuditAndTags
         $languageCode = method_exists($this, 'resolveKeywordLanguageFilterVariants')
             ? trim((string) ($this->keywordLanguageFilter ?? ''))
             : '';
-        if ($siteId <= 0) {
+        if ($siteId <= 0 || ! $this->aiAuditLoaded) {
             return [
                 'status' => TopicalMapAuditStatusService::STATUS_NEVER_RUN,
                 'can_run' => false,
@@ -108,10 +110,20 @@ trait RunsTopicalMapAuditAndTags
 
     public function refreshAiAuditSnapshot(): void
     {
+        $this->aiAuditLoaded = true;
         $this->aiAuditSnapshot = null;
         $this->latestAiAuditPresentation = null;
         $this->aiAuditStatusSnapshot();
         $this->latestAiAudit();
+    }
+
+    public function loadAiAuditSnapshot(): void
+    {
+        if ($this->aiAuditLoaded) {
+            return;
+        }
+
+        $this->refreshAiAuditSnapshot();
     }
 
     /**
@@ -122,7 +134,7 @@ trait RunsTopicalMapAuditAndTags
     public function latestAiAudit(): array
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        if ($siteId <= 0) {
+        if ($siteId <= 0 || ! $this->aiAuditLoaded) {
             return app(TopicalMapLatestAuditReadModel::class)->forSite(0);
         }
 

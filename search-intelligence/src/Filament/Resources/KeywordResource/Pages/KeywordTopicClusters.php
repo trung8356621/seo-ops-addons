@@ -83,7 +83,6 @@ final class KeywordTopicClusters extends Page
         $this->normalizeBuiltinFilters();
         $this->pruneInvalidTopicTagFilter();
         $this->syncReclusterStateFromCache();
-        $this->refreshAiAuditSnapshot();
     }
 
     public function applyClusterSearch(): void

@@ -172,6 +172,12 @@ final class TopicalMapLatestAuditPresentationTest extends TestCase
         self::assertStringContainsString('rel="noopener noreferrer"', $blade);
         self::assertStringContainsString('aiFindingsForTopic', $blade);
         self::assertStringContainsString('aiSeverityForTopic', $blade);
+        self::assertStringContainsString('wire:init="loadAiAuditSnapshot"', $blade);
+
+        $mount = $this->methodBody($page, 'mount');
+        self::assertStringNotContainsString('refreshAiAuditSnapshot', $mount);
+        self::assertStringContainsString('public bool $aiAuditLoaded = false', $trait);
+        self::assertStringContainsString('loadAiAuditSnapshot', $trait);
 
         // Coverage filter remains structural only.
         self::assertStringContainsString("wire:model.live=\"coverageFilter\"", $blade);

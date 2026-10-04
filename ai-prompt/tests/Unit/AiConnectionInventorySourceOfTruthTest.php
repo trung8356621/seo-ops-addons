@@ -103,6 +103,17 @@ final class AiConnectionInventorySourceOfTruthTest extends TestCase
         $this->assertSame(ApiConnectionType::Ai->value, (string) $row->getAttribute('connection_type'));
     }
 
+    public function test_custom_template_provider_is_classified_as_ai(): void
+    {
+        $owner = $this->user(1, User::ROLE_OWNER);
+        $this->connection((int) $owner->id, 'example-ai', 'Example AI', 'sk-test-key-long');
+
+        $row = $this->inventory->configuredAiConnections((int) $owner->id)->sole();
+
+        $this->assertTrue(ApiConnectionProviders::isAi('example-ai'));
+        $this->assertSame(ApiConnectionType::Ai->value, $row->getAttribute('connection_type'));
+    }
+
     public function test_empty_state_only_when_inventory_empty(): void
     {
         $owner = $this->user(1, User::ROLE_OWNER);

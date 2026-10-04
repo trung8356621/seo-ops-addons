@@ -25,7 +25,7 @@
     $seoEligibleCount = (int) ($summary['seo_eligible_keywords'] ?? 0);
 @endphp
 
-<x-filament-panels::page class="keyword-workspace-page topic-cluster-index-page max-w-full">
+<x-filament-panels::page class="keyword-workspace-page topic-cluster-index-page max-w-full" wire:init="loadAiAuditSnapshot">
     <x-seo-content-ai::content-project-ops-styles />
     @if (is_readable($workspaceCss))
         <style>{!! file_get_contents($workspaceCss) !!}</style>

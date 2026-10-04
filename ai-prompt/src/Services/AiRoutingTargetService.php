@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
 use Omnichannel\Addons\AiPrompt\Support\AiProductionRouteEligibility;
@@ -261,6 +262,27 @@ final class AiRoutingTargetService
         AiRoutingContext $context,
         int $modelId,
     ): ?RoutedAiCandidate {
+        $lookupStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        $exact = SeoAiModel::query()->with('apiConnection')->find($modelId);
+        if (! $exact instanceof SeoAiModel || ! $exact->apiConnection instanceof ApiConnection) {
+            if ($lookupStarted > 0) {
+                AiLatencyDiag::addMs('target_lookup_ms', (hrtime(true) - $lookupStarted) / 1_000_000);
+            }
+
+            return null;
+        }
+
+        $freshnessStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        $freshness = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+            ? app(AiModelCatalogFreshnessService::class)
+            : new AiModelCatalogFreshnessService();
+        $freshness->ensureFreshEnough($exact->apiConnection, $userId);
+        if ($freshnessStarted > 0) {
+            AiLatencyDiag::addMs('catalog_freshness_ms', (hrtime(true) - $freshnessStarted) / 1_000_000);
+        }
+
+        // A stale-catalog refresh may change status or membership; never use pre-refresh state.
+        $this->priorities->forgetMemo();
         $area = $context->isFreeOnly() ? AiModelArea::FreeModels : AiModelArea::fromProfile($profile);
         $model = null;
         foreach ($this->priorities->effectiveAreaModels($userId, $area) as $row) {
@@ -268,6 +290,9 @@ final class AiRoutingTargetService
                 $model = $row;
                 break;
             }
+        }
+        if ($lookupStarted > 0) {
+            AiLatencyDiag::addMs('target_lookup_ms', (hrtime(true) - $lookupStarted) / 1_000_000);
         }
         if (! $model instanceof SeoAiModel || (string) $model->status !== SeoAiModel::STATUS_ACTIVE) {
             return null;

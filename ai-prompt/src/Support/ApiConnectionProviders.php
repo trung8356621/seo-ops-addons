@@ -63,12 +63,16 @@ final class ApiConnectionProviders
 
     public static function connectionType(string $provider): ApiConnectionType
     {
-        return app(SeoProviderRegistry::class)->connectionTypeFor($provider);
+        $registry = app(SeoProviderRegistry::class);
+
+        return $registry->has($provider)
+            ? $registry->connectionTypeFor($provider)
+            : ApiConnectionType::Ai;
     }
 
     public static function isAi(?string $provider): bool
     {
-        if ($provider === null || ! app(SeoProviderRegistry::class)->has($provider)) {
+        if ($provider === null || trim($provider) === '') {
             return false;
         }
 
