@@ -32,9 +32,12 @@ final class ExactModelFastPathContractTest extends TestCase
     public function test_exact_lookup_reuses_freshness_membership_and_static_eligibility_gates(): void
     {
         $freshness = strpos($this->targets, 'ensureFreshEnough');
-        $membership = strpos($this->targets, 'effectiveAreaModels', $freshness === false ? 0 : $freshness);
+        $pool = strpos($this->targets, 'runtimeMemberById', $freshness === false ? 0 : $freshness);
+        $membership = strpos($this->targets, 'effectiveAreaModels', $pool === false ? 0 : $pool);
         self::assertIsInt($freshness);
+        self::assertIsInt($pool);
         self::assertIsInt($membership);
+        self::assertLessThan($pool, $freshness);
         self::assertLessThan($membership, $freshness);
         self::assertStringContainsString("SeoAiModel::STATUS_ACTIVE", $this->targets);
         self::assertStringContainsString("(string) \$connection->status !== 'active'", $this->targets);
@@ -42,6 +45,7 @@ final class ExactModelFastPathContractTest extends TestCase
         self::assertStringContainsString('satisfiesAll', $this->targets);
         self::assertStringContainsString('AiProductionRouteEligibility())->filter([$candidate]', $this->targets);
         self::assertStringContainsString('$context->isFreeOnly() && ! $candidate->isFree', $this->targets);
+        self::assertStringContainsString('filterCandidatesForCircuit($eligible)', $this->targets);
     }
 
     public function test_runtime_health_capacity_and_normal_routing_remain_in_shared_router(): void

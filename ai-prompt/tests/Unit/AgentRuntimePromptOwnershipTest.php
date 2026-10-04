@@ -45,8 +45,11 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
 
         self::assertStringContainsString('Return one routing JSON object and nothing else.', $routing);
         self::assertStringContainsString('First decide is_in_scope', $routing);
-        self::assertStringContainsString('Do not force them into an SEO module', $routing);
-        self::assertStringContainsString('Do not invent a site module', $routing);
+        self::assertStringContainsString('Do not force them into a capability', $routing);
+        self::assertStringContainsString('plain lookup or detail request for one specific article', $routing);
+        self::assertStringContainsString('Do not select articles.inventory merely because article_ref exists', $routing);
+        self::assertStringContainsString('primary_capability', $routing);
+        self::assertStringContainsString('capability_catalog', $routing);
         self::assertStringContainsString('requires_parameter_extraction', $routing);
         self::assertStringContainsString('response_template', $routing);
         self::assertStringContainsString('response_catalog', $routing);

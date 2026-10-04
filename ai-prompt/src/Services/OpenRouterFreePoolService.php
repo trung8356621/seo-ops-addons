@@ -105,6 +105,52 @@ final class OpenRouterFreePoolService
     }
 
     /**
+     * Resolve one runtime member without enumerating the catalog.
+     *
+     * @return array{model: SeoAiModel, anchor: SeoAiModel}|null
+     */
+    public function runtimeMemberById(int $userId, AiModelArea $area, int $modelId): ?array
+    {
+        if ((! $area->isTextPrimary() && ! $area->isFreeModels()) || $modelId <= 0) {
+            return null;
+        }
+
+        $model = SeoAiModel::query()->with('apiConnection')->find($modelId);
+        $connection = $model?->apiConnection;
+        if (! $model instanceof SeoAiModel || ! $connection instanceof ApiConnection) {
+            return null;
+        }
+        $ownedConnection = collect($this->openRouterConnections($userId))
+            ->first(static fn (ApiConnection $candidate): bool => (int) $candidate->id === (int) $connection->id);
+        if (! $ownedConnection instanceof ApiConnection) {
+            return null;
+        }
+        $model->setRelation('apiConnection', $ownedConnection);
+        $row = $this->catalogCandidate($model, $ownedConnection, $area);
+        if ($row === null
+            || ($this->isLanguageGateEnabled($userId)
+                && $row['language_state'] !== OpenRouterFreeLanguageState::Supported)
+        ) {
+            return null;
+        }
+
+        $anchor = SeoAiModel::query()
+            ->where('api_connection_id', (int) $ownedConnection->id)
+            ->where('raw_model_name', OpenRouterModelEconomics::FREE_ROUTER_ID)
+            ->where('status', SeoAiModel::STATUS_ACTIVE)
+            ->first();
+        if (! $anchor instanceof SeoAiModel
+            || ! $this->priorities->isExplicitlyAreaEnabled($anchor, $area)
+            || ! (new OpenRouterFreePoolHealthService())->allowsMemberExpansion($ownedConnection)
+        ) {
+            return null;
+        }
+        $anchor->setRelation('apiConnection', $ownedConnection);
+
+        return ['model' => $row['model'], 'anchor' => $anchor];
+    }
+
+    /**
      * Pool-level language-gate flag for the user's OpenRouter Free Pool.
      * English primary is always non-blocking (returns false).
      * Enabled if any OpenRouter connection has enabled=true for the primary language.
@@ -232,32 +278,10 @@ final class OpenRouterFreePoolService
                 ->orderBy('id')
                 ->get();
             foreach ($models as $model) {
-                $raw = (string) $model->raw_model_name;
-                if (OpenRouterModelEconomics::isOpenRouterFreeRouter($raw)) {
-                    continue;
+                $row = $this->catalogCandidate($model, $connection, $area);
+                if ($row !== null) {
+                    $rows[] = $row;
                 }
-                $caps = is_array($model->capabilities) ? $model->capabilities : [];
-                if (! OpenRouterModelEconomics::modelIsFree($model)
-                    && ! OpenRouterModelEconomics::isFree($caps, $raw)) {
-                    continue;
-                }
-                if (! OpenRouterModelEconomics::isChatTextModel($caps, $raw)) {
-                    continue;
-                }
-                if (! $this->supportsArea($connection, $raw, $area)) {
-                    continue;
-                }
-                if (! $this->primaryTypeFitsArea($model, $area)) {
-                    continue;
-                }
-                $this->language->ensurePendingIfMissing($model);
-                $model->refresh();
-                $rows[] = [
-                    'model' => $model,
-                    'language_state' => $this->language->effectiveState($model),
-                    'rank_score' => $this->openRouterRankScore($model),
-                    'provider_model_id' => $raw,
-                ];
             }
         }
         usort($rows, static function (array $a, array $b): int {
@@ -270,6 +294,36 @@ final class OpenRouterFreePoolService
         });
 
         return $rows;
+    }
+
+    /**
+     * @return array{model: SeoAiModel, language_state: OpenRouterFreeLanguageState, rank_score: float, provider_model_id: string}|null
+     */
+    private function catalogCandidate(SeoAiModel $model, ApiConnection $connection, AiModelArea $area): ?array
+    {
+        if ((string) $model->status !== SeoAiModel::STATUS_ACTIVE) {
+            return null;
+        }
+        $raw = (string) $model->raw_model_name;
+        $caps = is_array($model->capabilities) ? $model->capabilities : [];
+        if (OpenRouterModelEconomics::isOpenRouterFreeRouter($raw)
+            || (! OpenRouterModelEconomics::modelIsFree($model) && ! OpenRouterModelEconomics::isFree($caps, $raw))
+            || ! OpenRouterModelEconomics::isChatTextModel($caps, $raw)
+            || ! $this->supportsArea($connection, $raw, $area)
+            || ! $this->primaryTypeFitsArea($model, $area)
+        ) {
+            return null;
+        }
+        $this->language->ensurePendingIfMissing($model);
+        $model->refresh();
+        $model->setRelation('apiConnection', $connection);
+
+        return [
+            'model' => $model,
+            'language_state' => $this->language->effectiveState($model),
+            'rank_score' => $this->openRouterRankScore($model),
+            'provider_model_id' => $raw,
+        ];
     }
 
     /**

@@ -19,6 +19,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
 use Omnichannel\Addons\AiPrompt\Support\AiProductionRouteEligibility;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use App\Models\ApiConnection;
 
@@ -263,7 +264,11 @@ final class AiRoutingTargetService
         int $modelId,
     ): ?RoutedAiCandidate {
         $lookupStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        $rowStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $exact = SeoAiModel::query()->with('apiConnection')->find($modelId);
+        if ($rowStarted > 0) {
+            AiLatencyDiag::addMs('exact_model_row_lookup_ms', (hrtime(true) - $rowStarted) / 1_000_000);
+        }
         if (! $exact instanceof SeoAiModel || ! $exact->apiConnection instanceof ApiConnection) {
             if ($lookupStarted > 0) {
                 AiLatencyDiag::addMs('target_lookup_ms', (hrtime(true) - $lookupStarted) / 1_000_000);
@@ -285,10 +290,28 @@ final class AiRoutingTargetService
         $this->priorities->forgetMemo();
         $area = $context->isFreeOnly() ? AiModelArea::FreeModels : AiModelArea::fromProfile($profile);
         $model = null;
-        foreach ($this->priorities->effectiveAreaModels($userId, $area) as $row) {
-            if ((int) $row->id === $modelId) {
-                $model = $row;
-                break;
+        $poolAnchor = null;
+        $poolStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        if ($context->isFreeOnly()
+            && (string) $exact->apiConnection->provider === ApiConnectionProviders::OPENROUTER
+        ) {
+            $poolMatch = (new OpenRouterFreePoolService())->runtimeMemberById($userId, $area, $modelId);
+            $model = $poolMatch['model'] ?? null;
+            $poolAnchor = $poolMatch['anchor'] ?? null;
+        }
+        if ($poolStarted > 0) {
+            AiLatencyDiag::addMs('exact_free_pool_member_ms', (hrtime(true) - $poolStarted) / 1_000_000);
+        }
+        if (! $model instanceof SeoAiModel) {
+            $membershipStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+            foreach ($this->priorities->effectiveAreaModels($userId, $area) as $row) {
+                if ((int) $row->id === $modelId) {
+                    $model = $row;
+                    break;
+                }
+            }
+            if ($membershipStarted > 0) {
+                AiLatencyDiag::addMs('exact_area_membership_ms', (hrtime(true) - $membershipStarted) / 1_000_000);
             }
         }
         if ($lookupStarted > 0) {
@@ -326,7 +349,34 @@ final class AiRoutingTargetService
             return null;
         }
 
+        $eligibilityStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        if ($poolAnchor instanceof SeoAiModel) {
+            $anchorConnection = $poolAnchor->apiConnection;
+            $anchorKey = (string) $poolAnchor->raw_model_name;
+            if (! $anchorConnection instanceof ApiConnection
+                || ! $this->capabilities->satisfiesAll($anchorConnection, $anchorKey, $profile->requiredCapabilityKeys())
+                || (new AiProductionRouteEligibility())->filter([new RoutedAiCandidate(
+                    profile: $profile->value,
+                    connection: $anchorConnection,
+                    provider: (string) $anchorConnection->provider,
+                    model: $anchorKey,
+                    capabilities: $this->capabilities->capabilitiesFor($anchorConnection, $anchorKey),
+                    priority: $this->priorities->areaPriority($poolAnchor, $area, $anchorConnection),
+                    options: [],
+                    seoAiModelId: (int) $poolAnchor->id,
+                    isFree: true,
+                )], $profile, $context) === []
+            ) {
+                return null;
+            }
+        }
         $eligible = (new AiProductionRouteEligibility())->filter([$candidate], $profile, $context);
+        if ($eligible !== []) {
+            $eligible = (new OpenRouterFreePoolHealthService())->filterCandidatesForCircuit($eligible);
+        }
+        if ($eligibilityStarted > 0) {
+            AiLatencyDiag::addMs('exact_production_eligibility_ms', (hrtime(true) - $eligibilityStarted) / 1_000_000);
+        }
 
         return $eligible[0] ?? null;
     }

@@ -30,20 +30,4 @@ final class SeoAccessCapabilityCatalog
         ];
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    public static function modelVisible(): array
-    {
-        return [
-            'resources' => self::resources(),
-            'semantics' => 'Business modules only; the runtime maps modules to read resources.',
-            'keywords_topic_detail' => 'topic:{id} via parameters.topic_ref',
-            'gsc_period' => 'YYYY-MM via parameters.period',
-            'missing' => self::missing(),
-            'write' => [
-                'content_project.draft.intake' => 'not_connected',
-            ],
-        ];
-    }
 }

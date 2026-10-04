@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Tests\Unit;
 
 use InvalidArgumentException;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Answer\AnswerModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionRequest;
@@ -342,12 +343,31 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringContainsString('ngoài phạm vi Agent SEO nội bộ', $result->response->message);
     }
 
+    public function test_plain_single_article_detail_is_out_of_scope_without_retrieval_or_answer_model(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"is_in_scope":false,"intent":"single article detail lookup","primary_module":null,"modules":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}'),
+            $answers,
+            $transport,
+        );
+
+        $result = $coordinator->send(1, AgentProjectScope::site(7), 'Thông tin article:123', []);
+
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+        self::assertFalse($result->answerModelCalled);
+        self::assertSame([], $result->response->actions);
+        self::assertSame([], $result->response->sources);
+    }
+
     public function test_scope_contract_evaluation_matrix(): void
     {
         $cases = [
             ['Tình hình SEO site hiện tại?', true, 'site', ['site', 'gsc'], 'report'],
             ['Cho tôi 20 bài tệ nhất', true, 'articles', ['articles'], 'table'],
-            ['Thông tin article:123', true, 'articles', ['articles'], 'schema'],
+            ['Thông tin article:123', false, null, [], 'text'],
             ['Nên viết thêm gì?', true, 'topics', ['topics', 'keywords', 'site'], 'report'],
             ['Bạn có thể làm gì?', true, null, [], 'text'],
             ['Tóm tắt cuộc trao đổi này', true, null, [], 'text'],
@@ -386,7 +406,77 @@ final class AgentRuntimeContractTest extends TestCase
         foreach (['text', 'table', 'schema', 'report'] as $template) {
             self::assertStringContainsString('"key":"'.$template.'"', $routing);
         }
+        self::assertStringContainsString('"capability_catalog"', $routing);
+        self::assertStringContainsString('"key":"seo_audit.worst_articles"', $routing);
+        self::assertStringNotContainsString('"resource_catalog"', $routing);
+        self::assertStringNotContainsString('"requires_confirmation"', $routing);
+        self::assertStringNotContainsString('industry.core_small', $routing);
         self::assertStringContainsString('"selected_response_template":"report"', $answer);
+    }
+
+    public function test_agent_capability_catalog_visibility_and_metadata_invariants(): void
+    {
+        $visible = array_column(AgentCapabilityCatalog::modelVisible(), 'key');
+        foreach ([
+            'site.knowledge', 'keywords.landscape', 'keywords.relationship', 'articles.inventory',
+            'links.internal', 'links.external', 'site.network', 'industry.core',
+            'gsc.performance', 'content_projects.read', 'seo_audit.worst_articles',
+            'seo_audit.improve', 'seo_audit.publish',
+        ] as $key) {
+            self::assertContains($key, $visible);
+        }
+        foreach ([
+            'industry.core_small', 'industry.discovery', 'industry.breakout', 'seo.router',
+            'industry.match', 'content_project.draft.intake', 'content_project.write', 'domain.audit',
+        ] as $key) {
+            self::assertNotContains($key, $visible);
+        }
+
+        foreach (AgentCapabilityCatalog::all() as $metadata) {
+            if ($metadata['execution_mode'] === 'tool') {
+                self::assertTrue($metadata['jev_selectable']);
+                self::assertTrue($metadata['requires_confirmation']);
+            }
+            if ($metadata['execution_mode'] === 'direct') {
+                self::assertTrue($metadata['jev_selectable']);
+                self::assertFalse($metadata['requires_confirmation']);
+            }
+            if (in_array($metadata['execution_mode'], ['companion', 'internal'], true)) {
+                self::assertFalse($metadata['jev_selectable']);
+            }
+        }
+    }
+
+    public function test_capability_routing_contract_maps_to_internal_modules_and_fails_closed(): void
+    {
+        $parser = new RetrievalDecisionParser();
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"find poor articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        self::assertSame('seo_audit.worst_articles', $decision->primaryCapability);
+        self::assertSame(['seo_audit.worst_articles', 'keywords.landscape'], $decision->capabilities);
+        self::assertSame(['articles', 'keywords'], $decision->modules);
+
+        $noCapability = $parser->parse('{"is_in_scope":true,"intent":"explain capabilities","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        self::assertSame([], $noCapability->capabilities);
+        self::assertSame([], $noCapability->modules);
+
+        $outOfScope = $parser->parse('{"is_in_scope":false,"intent":"weather","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        self::assertFalse($outOfScope->isInScope);
+        self::assertSame([], $outOfScope->capabilities);
+
+        foreach ([
+            '{"is_in_scope":true,"intent":"x","primary_capability":"unknown","capabilities":["unknown"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.discovery","capabilities":["industry.discovery"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core_small","capabilities":["industry.core_small"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["site.knowledge","site.knowledge"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["keywords.landscape"],"parameters":{},"response_template":"text"}',
+        ] as $raw) {
+            try {
+                $parser->parse($raw);
+                self::fail('Invalid capability decision was accepted.');
+            } catch (InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
     }
 
     public function test_unavailable_gsc_is_not_measured_zero(): void
@@ -554,16 +644,14 @@ final class AgentRuntimeContractTest extends TestCase
         }
     }
 
-    public function test_routing_prompt_encodes_business_module_question_archetypes(): void
+    public function test_routing_prompt_encodes_capability_selection_boundaries(): void
     {
         $prompt = \Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing');
-        foreach (['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'] as $module) {
-            self::assertStringContainsString($module, $prompt);
-        }
-        self::assertStringContainsString('Concrete entity lists use their owner', $prompt);
-        self::assertStringContainsString('Ambiguous link questions include internal_links and external_links', $prompt);
-        self::assertStringContainsString('Existing-article improvement lists normally include articles, topics, keywords, internal_links, and gsc', $prompt);
-        self::assertStringContainsString('New-content planning normally includes topics, keywords, site, content_projects, gsc, and articles', $prompt);
+        self::assertStringContainsString('primary_capability', $prompt);
+        self::assertStringContainsString('Select only keys present in capability_catalog', $prompt);
+        self::assertStringContainsString('articles.inventory is collection-level', $prompt);
+        self::assertStringContainsString('backend capability metadata is authoritative', $prompt);
+        self::assertStringNotContainsString('Allowed modules:', $prompt);
         self::assertStringNotContainsString('probabilities from 0 to 1', $prompt);
     }
 

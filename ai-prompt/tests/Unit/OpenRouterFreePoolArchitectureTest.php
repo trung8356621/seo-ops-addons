@@ -18,6 +18,7 @@ use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreePoolService;
 use Omnichannel\Addons\AiPrompt\Services\OpenRouterModelEconomics;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\FreePoolHealthState;
 use Omnichannel\Addons\AiPrompt\Support\OpenRouterFreeLanguageState;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Tests\TestCase;
@@ -451,6 +452,63 @@ final class OpenRouterFreePoolArchitectureTest extends TestCase
         $pool->disableLanguageGate(122, 'vi');
         $this->assertFalse($pool->isLanguageGateEnabled(122));
         $this->assertCount(1, $pool->runtimeMembers(122, AiModelArea::TextFast));
+    }
+
+    public function test_exact_runtime_member_uses_enabled_pool_anchor_without_direct_membership(): void
+    {
+        $this->setPrimaryLanguage('en');
+        $or = $this->connection(123);
+        $anchor = $this->model($or, OpenRouterModelEconomics::FREE_ROUTER_ID, 'OpenRouter Free Pool', true);
+        $member = $this->model($or, 'vendor/exact:free', 'Exact', true);
+        $this->priorities->appendToArea(123, AiModelArea::FreeModels, [(int) $anchor->id]);
+
+        $match = (new OpenRouterFreePoolService())->runtimeMemberById(123, AiModelArea::FreeModels, (int) $member->id);
+
+        $this->assertSame((int) $member->id, (int) ($match['model']->id ?? 0));
+        $this->assertSame((int) $anchor->id, (int) ($match['anchor']->id ?? 0));
+        $this->assertFalse($this->priorities->isExplicitlyAreaEnabled($member, AiModelArea::FreeModels));
+    }
+
+    public function test_exact_runtime_member_rejects_missing_anchor_paid_and_inactive_connection(): void
+    {
+        $this->setPrimaryLanguage('en');
+        $or = $this->connection(124);
+        $anchor = $this->model($or, OpenRouterModelEconomics::FREE_ROUTER_ID, 'OpenRouter Free Pool', true);
+        $free = $this->model($or, 'vendor/free:free', 'Free', true);
+        $paid = $this->model($or, 'vendor/paid', 'Paid', false);
+        $pool = new OpenRouterFreePoolService();
+
+        $this->assertNull($pool->runtimeMemberById(124, AiModelArea::FreeModels, (int) $free->id));
+        $this->priorities->appendToArea(124, AiModelArea::FreeModels, [(int) $anchor->id]);
+        $this->assertNull($pool->runtimeMemberById(124, AiModelArea::FreeModels, (int) $paid->id));
+
+        $or->status = 'inactive';
+        $or->save();
+        $this->priorities->forgetMemo();
+        $this->assertNull((new OpenRouterFreePoolService())->runtimeMemberById(124, AiModelArea::FreeModels, (int) $free->id));
+    }
+
+    public function test_exact_runtime_member_respects_language_and_pool_circuit_gates(): void
+    {
+        $this->setPrimaryLanguage('vi');
+        $or = $this->connection(125);
+        $anchor = $this->model($or, OpenRouterModelEconomics::FREE_ROUTER_ID, 'OpenRouter Free Pool', true);
+        $member = $this->model($or, 'vendor/gated:free', 'Gated', true);
+        $this->priorities->appendToArea(125, AiModelArea::FreeModels, [(int) $anchor->id]);
+        $pool = new OpenRouterFreePoolService();
+        $pool->enableLanguageGate(125, 'vi');
+        $this->assertNull($pool->runtimeMemberById(125, AiModelArea::FreeModels, (int) $member->id));
+
+        (new OpenRouterFreeLanguageGateService())->recordEvaluation($member, 'vi', true, 0.9, 'ok');
+        $this->assertNotNull($pool->runtimeMemberById(125, AiModelArea::FreeModels, (int) $member->id));
+
+        $or->refresh();
+        $meta = is_array($or->metadata) ? $or->metadata : [];
+        $meta['openrouter_free_pool_health'] = ['free_pool_state' => FreePoolHealthState::Unavailable->value];
+        $or->metadata = $meta;
+        $or->save();
+        $this->priorities->forgetMemo();
+        $this->assertNull((new OpenRouterFreePoolService())->runtimeMemberById(125, AiModelArea::FreeModels, (int) $member->id));
     }
 
     public function test_g_snap_regression_unchanged_alias(): void

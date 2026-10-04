@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Decision;
 
 use InvalidArgumentException;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseTemplateCatalog;
 
 final class RetrievalDecisionParser
@@ -23,13 +24,28 @@ final class RetrievalDecisionParser
             throw new InvalidArgumentException('Retrieval decision is missing intent.');
         }
 
-        $isLegacyDecision = ! array_key_exists('primary_module', $decoded) && ! array_key_exists('modules', $decoded) && isset($decoded['needs']);
-        if (! $isLegacyDecision && (! array_key_exists('is_in_scope', $decoded) || ! is_bool($decoded['is_in_scope']))) {
+        $isScoreLegacy = ! array_key_exists('primary_capability', $decoded) && ! array_key_exists('capabilities', $decoded) && isset($decoded['needs']);
+        $isModuleLegacy = ! array_key_exists('primary_capability', $decoded) && ! array_key_exists('capabilities', $decoded) && (array_key_exists('primary_module', $decoded) || array_key_exists('modules', $decoded));
+        $isLegacyDecision = $isScoreLegacy || $isModuleLegacy;
+        if (! $isScoreLegacy && (! array_key_exists('is_in_scope', $decoded) || ! is_bool($decoded['is_in_scope']))) {
             throw new InvalidArgumentException('Retrieval decision is_in_scope is required and must be boolean.');
         }
-        $isInScope = $isLegacyDecision ? true : $decoded['is_in_scope'];
+        $isInScope = $isScoreLegacy ? true : $decoded['is_in_scope'];
 
-        [$primaryModule, $modules] = $this->modules($decoded, $isInScope, $isLegacyDecision);
+        if ($isLegacyDecision) {
+            [$primaryModule, $modules] = $this->legacyModules($decoded, $isInScope, $isScoreLegacy);
+            $capabilities = array_values(array_unique(array_filter(array_map(
+                static fn (string $module): ?string => AgentCapabilityCatalog::fromLegacyModule($module),
+                $modules,
+            ))));
+            $primaryCapability = $primaryModule === null ? null : AgentCapabilityCatalog::fromLegacyModule($primaryModule);
+        } else {
+            [$primaryCapability, $capabilities] = $this->capabilities($decoded, $isInScope);
+            $modules = AgentCapabilityCatalog::modulesFor($capabilities);
+            $primaryModule = $primaryCapability === null
+                ? null
+                : (AgentCapabilityCatalog::get($primaryCapability)['modules'][0] ?? null);
+        }
 
         $parameters = [];
         $paramsRaw = $decoded['parameters'] ?? [];
@@ -45,7 +61,7 @@ final class RetrievalDecisionParser
         }
         $this->validateParameters($parameters);
 
-        $responseTemplate = trim((string) ($decoded['response_template'] ?? ($isLegacyDecision ? 'text' : '')));
+        $responseTemplate = trim((string) ($decoded['response_template'] ?? ($isScoreLegacy ? 'text' : '')));
         if (! AgentResponseTemplateCatalog::supports($responseTemplate)) {
             throw new InvalidArgumentException('Retrieval decision response_template is missing or unknown.');
         }
@@ -59,6 +75,8 @@ final class RetrievalDecisionParser
         return new RetrievalDecision(
             isInScope: $isInScope,
             intent: $intent,
+            primaryCapability: $primaryCapability,
+            capabilities: $capabilities,
             primaryModule: $primaryModule,
             modules: $modules,
             parameters: $parameters,
@@ -69,9 +87,41 @@ final class RetrievalDecisionParser
     }
 
     /** @param array<string, mixed> $decoded @return array{string|null, list<string>} */
-    private function modules(array $decoded, bool $isInScope, bool $isLegacyDecision): array
+    private function capabilities(array $decoded, bool $isInScope): array
     {
-        if (! $isLegacyDecision) {
+        $primaryRaw = $decoded['primary_capability'] ?? null;
+        $primary = $primaryRaw === null ? null : trim((string) $primaryRaw);
+        $capabilities = $decoded['capabilities'] ?? null;
+        if (! is_array($capabilities) || ! array_is_list($capabilities)) {
+            throw new InvalidArgumentException('Retrieval decision capabilities are invalid.');
+        }
+        $normalized = array_map(static fn (mixed $value): string => trim((string) $value), $capabilities);
+        if ($normalized === []) {
+            if ($primary !== null) {
+                throw new InvalidArgumentException('A no-capability decision must use a null primary_capability.');
+            }
+
+            return [null, []];
+        }
+        if (! $isInScope || count($normalized) !== count(array_unique($normalized))) {
+            throw new InvalidArgumentException('Retrieval decision capabilities must be a valid unique list.');
+        }
+        foreach ($normalized as $capability) {
+            if (! AgentCapabilityCatalog::isSelectable($capability)) {
+                throw new InvalidArgumentException('Retrieval decision contains an unknown or hidden capability.');
+            }
+        }
+        if ($primary === null || ! AgentCapabilityCatalog::isSelectable($primary) || ! in_array($primary, $normalized, true)) {
+            throw new InvalidArgumentException('primary_capability must be selectable and included in capabilities.');
+        }
+
+        return [$primary, $normalized];
+    }
+
+    /** @param array<string, mixed> $decoded @return array{string|null, list<string>} */
+    private function legacyModules(array $decoded, bool $isInScope, bool $isScoreLegacy): array
+    {
+        if (! $isScoreLegacy) {
             $primaryRaw = $decoded['primary_module'] ?? null;
             $primary = $primaryRaw === null ? null : trim((string) $primaryRaw);
             $modules = $decoded['modules'] ?? null;

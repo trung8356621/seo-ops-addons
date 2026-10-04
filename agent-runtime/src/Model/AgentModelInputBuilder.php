@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Model;
 
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseTemplateCatalog;
@@ -28,12 +29,11 @@ final class AgentModelInputBuilder
         string $userMessage,
         array $history,
     ): PreparedModelInput {
-        $catalog = SeoAccessCapabilityCatalog::modelVisible();
         $user = json_encode([
             'scope' => $scope->toArray(),
             'message' => $userMessage,
             'conversation' => $this->compactHistory($history),
-            'resource_catalog' => $catalog,
+            'capability_catalog' => AgentCapabilityCatalog::modelVisible(),
             'response_catalog' => AgentResponseTemplateCatalog::modelVisible(),
             'facts' => [
                 'global_retrieval' => 'unsupported',
