@@ -1,5 +1,4 @@
 @php
-    \Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler::mark('list_keywords_blade_start');
     $keywordDetailPanelConfig = [
         'livewireId' => $this->getId(),
         'siteId' => $this->resolveKeywordWorkspaceSiteId(),
@@ -151,4 +150,3 @@
 
     @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-quick-copy-script')
 </x-filament-panels::page>
-@php(\Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler::mark('list_keywords_blade_end'))

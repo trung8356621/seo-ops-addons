@@ -252,6 +252,61 @@ final class AiRoutingTargetService
     }
 
     /**
+     * Resolve one explicitly required model without enumerating fallback lanes/catalog members.
+     * Uses the same area membership, connection, credential, capability and production gates.
+     */
+    public function eligibleExactCandidate(
+        int $userId,
+        AiExecutionProfile $profile,
+        AiRoutingContext $context,
+        int $modelId,
+    ): ?RoutedAiCandidate {
+        $area = $context->isFreeOnly() ? AiModelArea::FreeModels : AiModelArea::fromProfile($profile);
+        $model = null;
+        foreach ($this->priorities->effectiveAreaModels($userId, $area) as $row) {
+            if ((int) $row->id === $modelId) {
+                $model = $row;
+                break;
+            }
+        }
+        if (! $model instanceof SeoAiModel || (string) $model->status !== SeoAiModel::STATUS_ACTIVE) {
+            return null;
+        }
+
+        $connection = $model->apiConnection;
+        $modelKey = (string) $model->raw_model_name;
+        if (! $connection instanceof ApiConnection
+            || (string) $connection->status !== 'active'
+            || ! \Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($connection->api_key)
+            || ! $this->capabilities->satisfiesAll($connection, $modelKey, $profile->requiredCapabilityKeys())
+            || ! GeminiModelVersionPolicy::isEligibleForAutoRouting($modelKey)
+            || $this->families->aggregatorFamily($modelKey) === null
+        ) {
+            return null;
+        }
+
+        $candidate = new RoutedAiCandidate(
+            profile: $profile->value,
+            connection: $connection,
+            provider: (string) $connection->provider,
+            model: $modelKey,
+            capabilities: $this->capabilities->capabilitiesFor($connection, $modelKey),
+            priority: $this->priorities->areaPriority($model, $area, $connection),
+            options: [],
+            seoAiModelId: (int) $model->id,
+            isFree: \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromModel($model)->isFree()
+                || \Omnichannel\Addons\AiPrompt\Support\AiCandidateCostClass::fromCapabilities([], $modelKey)->isFree(),
+        );
+        if ($context->isFreeOnly() && ! $candidate->isFree) {
+            return null;
+        }
+
+        $eligible = (new AiProductionRouteEligibility())->filter([$candidate], $profile, $context);
+
+        return $eligible[0] ?? null;
+    }
+
+    /**
      * Free Models area members compatible with the profile capability.
      *
      * @return list<RoutedAiCandidate>

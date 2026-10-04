@@ -132,6 +132,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
      */
     public function resolveAll(string $profile, AiRoutingContext $context): array
     {
+        $resolveStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $parsed = AiExecutionProfile::tryFrom($profile);
         if ($parsed === null) {
             throw new AiRoutingException('Unknown routing profile: '.$profile);
@@ -142,12 +143,27 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $bootstrap = $this->bootstrapService();
 
         if ($userId > 0 && $targets !== null && $bootstrap !== null) {
+            $bootstrapStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
             if ($targets->targetsFor($userId, $parsed->value) === []) {
                 $bootstrap->bootstrapForUser($userId);
             }
+            if ($bootstrapStarted > 0) {
+                AiLatencyDiag::addMs('catalog_bootstrap_check_ms', (hrtime(true) - $bootstrapStarted) / 1_000_000);
+            }
+            $eligibleStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
             $candidates = $targets->eligibleCandidates($userId, $parsed, $context);
+            if ($eligibleStarted > 0) {
+                AiLatencyDiag::addMs('eligible_candidates_ms', (hrtime(true) - $eligibleStarted) / 1_000_000);
+            }
             if ($candidates !== []) {
-                return $this->applyItemRoutingPreferences($candidates, $context);
+                $preferencesStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+                $resolved = $this->applyItemRoutingPreferences($candidates, $context);
+                if ($preferencesStarted > 0) {
+                    AiLatencyDiag::addMs('routing_preferences_ms', (hrtime(true) - $preferencesStarted) / 1_000_000);
+                    AiLatencyDiag::addMs('routing_resolve_all_ms', (hrtime(true) - $resolveStarted) / 1_000_000);
+                }
+
+                return $resolved;
             }
         }
 
@@ -227,7 +243,29 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
     ): array {
         $routingPrepStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $parsed = AiExecutionProfile::tryFrom($profile);
-        $candidates = $this->resolveAll($profile, $context);
+        $exactFastPath = $parsed !== null
+            && $context->preferredModelId !== null
+            && $context->preferredModelId > 0
+            && $context->requirePreferredModel
+            && $context->maxAiAttempts === 1;
+        $exactUserId = $context->userId ?? (int) (auth()->id() ?? 0);
+        $exactCandidate = $exactFastPath && $exactUserId > 0
+            ? $this->targetsService()?->eligibleExactCandidate(
+                $exactUserId,
+                $parsed,
+                $context,
+                (int) $context->preferredModelId,
+            )
+            : null;
+        $candidates = $exactCandidate instanceof RoutedAiCandidate
+            ? [$exactCandidate]
+            : ($exactFastPath ? [] : $this->resolveAll($profile, $context));
+        if (AiLatencyDiag::isEnabled()) {
+            AiLatencyDiag::setMeta('routing_exact_model_fast_path', $exactCandidate instanceof RoutedAiCandidate);
+            if ($exactCandidate instanceof RoutedAiCandidate) {
+                AiLatencyDiag::setMs('routing_resolve_all_ms', (hrtime(true) - $routingPrepStarted) / 1_000_000);
+            }
+        }
         if ($candidates === []) {
             $eligibility = $this->eligibilityDiagnostics();
             $diagnostics = [
@@ -304,6 +342,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             }
         }
 
+        $ownerStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $userId = $context->userId !== null && $context->userId > 0
             ? $context->userId
             : app(AiRoutingOwnerResolver::class)->resolve(
@@ -314,18 +353,32 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         if ($userId <= 0) {
             $userId = (int) (auth()->id() ?? 0);
         }
-        $settings = $this->resilienceSettings()->get($userId);
+        if ($ownerStarted > 0) {
+            AiLatencyDiag::setMs('routing_owner_resolve_ms', (hrtime(true) - $ownerStarted) / 1_000_000);
+        }
+        $settingsStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        $settings = $exactCandidate instanceof RoutedAiCandidate
+            ? []
+            : $this->resilienceSettings()->get($userId);
         $maxAiAttempts = (int) ($context->maxAiAttempts
             ?? $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS]);
         $maxFreeAttempts = (int) ($context->maxFreeAttempts
             ?? $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS]);
+        if ($settingsStarted > 0) {
+            AiLatencyDiag::setMs('routing_resilience_settings_ms', (hrtime(true) - $settingsStarted) / 1_000_000);
+        }
         $classifier = $this->failureClassifier();
         $health = $this->runtimeHealth();
 
         $contextResolver = $this->routingContextResolver();
+        $enrichStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $enrichedContext = $contextResolver->enrich($context, $maxAiAttempts, $maxFreeAttempts);
         $routingMode = $enrichedContext->routingMode ?? $contextResolver->resolveMode($enrichedContext);
+        if ($enrichStarted > 0) {
+            AiLatencyDiag::setMs('routing_context_enrich_ms', (hrtime(true) - $enrichStarted) / 1_000_000);
+        }
 
+        $secondaryStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $fallbackAreas = $this->fallbackAreaResolver();
         $primaryAreaEnum = $parsed !== null
             ? $fallbackAreas->primaryAreaFor($parsed)
@@ -335,7 +388,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $secondaryAreaEnum = $primaryAreaEnum !== null
             ? $fallbackAreas->secondaryAreaFor($primaryAreaEnum)
             : null;
-        $secondaryCandidates = $this->resolveSecondaryPaidLaneCandidates(
+        $secondaryCandidates = $exactCandidate instanceof RoutedAiCandidate ? [] : $this->resolveSecondaryPaidLaneCandidates(
             profile: $profile,
             parsed: $parsed,
             context: $enrichedContext,
@@ -346,7 +399,11 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             primaryArea: $primaryAreaEnum,
             secondaryArea: $secondaryAreaEnum,
         );
+        if ($secondaryStarted > 0) {
+            AiLatencyDiag::setMs('routing_secondary_lane_ms', (hrtime(true) - $secondaryStarted) / 1_000_000);
+        }
 
+        $plannerStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         [$routingPlan, $candidates] = $this->candidatePlanner()->plan(
             profile: $profile,
             context: $enrichedContext,
@@ -359,6 +416,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             primaryArea: $primaryAreaKey,
             secondaryArea: $secondaryAreaEnum?->value,
         );
+        if ($plannerStarted > 0) {
+            AiLatencyDiag::setMs('routing_candidate_planner_ms', (hrtime(true) - $plannerStarted) / 1_000_000);
+        }
 
         if (AiLatencyDiag::isEnabled() && $routingPrepStarted > 0) {
             AiLatencyDiag::setMs('D_routing_candidate_planning_ms', (hrtime(true) - $routingPrepStarted) / 1_000_000);
@@ -438,6 +498,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $candidatesSkipped = 0;
         $lastException = null;
         $routeRevision = null;
+        $revisionStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         if ($parsed !== null) {
             try {
                 if (function_exists('app')) {
@@ -447,6 +508,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             } catch (\Throwable) {
                 $routeRevision = null;
             }
+        }
+        if ($revisionStarted > 0) {
+            AiLatencyDiag::setMs('routing_route_revision_ms', (hrtime(true) - $revisionStarted) / 1_000_000);
         }
 
         $eligibleModels = array_map(

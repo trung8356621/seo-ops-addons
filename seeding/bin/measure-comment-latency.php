@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiTextExecutionService;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
@@ -33,9 +34,15 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 $singleRuns = isset($argv[1]) && is_numeric($argv[1]) ? max(5, (int) $argv[1]) : 5;
 $userId = isset($argv[2]) && is_numeric($argv[2]) ? (int) $argv[2] : 0;
+$requiredModelName = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+$requiredModel = SeoAiModel::query()
+    ->with('apiConnection')
+    ->where('raw_model_name', $requiredModelName)
+    ->where('status', SeoAiModel::STATUS_ACTIVE)
+    ->first();
 $user = $userId > 0
     ? User::query()->find($userId)
-    : User::query()->whereIn('role', [User::ROLE_OWNER, User::ROLE_ADMIN])->orderBy('id')->first();
+    : User::query()->find((int) ($requiredModel?->apiConnection?->user_id ?? 0));
 if (! $user instanceof User) {
     fwrite(STDERR, json_encode(['error' => 'no_usable_user']).PHP_EOL);
     exit(1);
@@ -62,7 +69,7 @@ $baseContext = new AiRoutingContext(
 );
 $model = null;
 foreach ($router->resolveAll($profile->value, $baseContext) as $candidate) {
-    if (strtolower($candidate->provider) === 'openrouter' && str_ends_with(strtolower($candidate->model), ':free')) {
+    if (strtolower($candidate->provider) === 'openrouter' && $candidate->model === $requiredModelName) {
         $model = $candidate;
         break;
     }
@@ -103,6 +110,16 @@ $run = static function (string $mode, ?int $sequence, AiRoutingContext $context)
         'error' => $error,
         'logical_request_total_ms' => $logicalMs,
         'routing_candidate_planning_ms' => $diag['spans_ms']['D_routing_candidate_planning_ms'] ?? null,
+        'routing_resolve_all_ms' => $diag['spans_ms']['routing_resolve_all_ms'] ?? null,
+        'catalog_bootstrap_check_ms' => $diag['spans_ms']['catalog_bootstrap_check_ms'] ?? null,
+        'eligible_candidates_ms' => $diag['spans_ms']['eligible_candidates_ms'] ?? null,
+        'routing_preferences_ms' => $diag['spans_ms']['routing_preferences_ms'] ?? null,
+        'routing_owner_resolve_ms' => $diag['spans_ms']['routing_owner_resolve_ms'] ?? null,
+        'routing_resilience_settings_ms' => $diag['spans_ms']['routing_resilience_settings_ms'] ?? null,
+        'routing_context_enrich_ms' => $diag['spans_ms']['routing_context_enrich_ms'] ?? null,
+        'routing_secondary_lane_ms' => $diag['spans_ms']['routing_secondary_lane_ms'] ?? null,
+        'routing_candidate_planner_ms' => $diag['spans_ms']['routing_candidate_planner_ms'] ?? null,
+        'routing_route_revision_ms' => $diag['spans_ms']['routing_route_revision_ms'] ?? null,
         'budget_preflight_ms' => $diag['spans_ms']['budget_preflight_ms'] ?? null,
         'provider_adapter_prepare_ms' => $diag['spans_ms']['provider_adapter_prepare_ms'] ?? null,
         'outbound_budget_gate_ms' => $diag['spans_ms']['outbound_budget_gate_ms'] ?? null,
@@ -118,6 +135,7 @@ $run = static function (string $mode, ?int $sequence, AiRoutingContext $context)
         'fallback_count' => $diag['meta']['fallback_count'] ?? null,
         'candidates_tried' => $diag['meta']['candidates_tried'] ?? null,
         'candidates_skipped' => $diag['meta']['candidates_skipped'] ?? null,
+        'exact_model_fast_path' => $diag['meta']['routing_exact_model_fast_path'] ?? false,
         'attempts' => $diag['provider_attempts'],
     ];
 };

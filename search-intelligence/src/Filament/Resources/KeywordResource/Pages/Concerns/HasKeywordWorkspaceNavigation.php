@@ -240,10 +240,9 @@ trait HasKeywordWorkspaceNavigation
      */
     public function getKeywordWorkspaceNavItems(): array
     {
-        \Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler::start('keyword_workspace_nav_items');
         $counts = $this->keywordWorkspaceTabCounts;
 
-        $items = [
+        return [
             [
                 'key' => 'index',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_dictionary'),
@@ -280,10 +279,6 @@ trait HasKeywordWorkspaceNavigation
                 'url' => KeywordResource::getUrl('anchor-audit'),
             ],
         ];
-
-        \Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler::stop('keyword_workspace_nav_items');
-
-        return $items;
     }
 
     protected function appendKeywordWorkspaceSiteToUrl(string $url): string

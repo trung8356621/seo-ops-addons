@@ -27,7 +27,6 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\SiteNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicCrossSiteLinksController;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
-use Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapVite;
 
@@ -47,8 +46,6 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        KeywordRequestProfiler::register();
-
         $this->loadViewsFrom(
             dirname(__DIR__).DIRECTORY_SEPARATOR.'resources'.DIRECTORY_SEPARATOR.'views',
             'search-intelligence',
