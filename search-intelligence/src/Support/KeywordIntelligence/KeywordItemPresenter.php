@@ -37,6 +37,8 @@ final class KeywordItemPresenter
         ?int $siteId = null,
         ?array $dnaValues = null,
         string $clusterKey = '',
+        ?bool $listCanManage = null,
+        ?bool $listCanAccessSite = null,
     ): array {
         unset($clusterKey);
 
@@ -46,6 +48,9 @@ final class KeywordItemPresenter
 
         $keywordId = (int) $keyword->id;
         $isDictionary = $context === self::CONTEXT_DICTIONARY;
+        $canManageListRecord = $isDictionary
+            ? ($listCanManage ?? KeywordResource::canEditFromListState($keyword))
+            : null;
         $panel = $isDictionary ? null : app(KeywordLinkDetailPanelPresenter::class);
         $focusArticleCount = $this->resolveFocusArticleCount($keyword, $siteId, $panel, $isDictionary);
         $linkedArticleCount = $this->resolveLinkedArticleCount($keyword, $siteId, $panel, $isDictionary);
@@ -117,18 +122,20 @@ final class KeywordItemPresenter
             'show_cluster' => false,
             'context' => $context,
             'can_edit_phrase' => $isDictionary
-                ? KeywordResource::canEditFromListState($keyword)
+                ? $canManageListRecord
                 : KeywordResource::canEdit($keyword),
-            'can_mutate' => SeoAccessControl::canMutateInSeoPanel()
-                && ($siteId === null || SeoAccessControl::canAccessSite($siteId)),
+            'can_mutate' => $isDictionary && $listCanAccessSite !== null
+                ? $listCanAccessSite
+                : SeoAccessControl::canMutateInSeoPanel()
+                    && ($siteId === null || SeoAccessControl::canAccessSite($siteId)),
             'is_hidden' => $isHidden,
             'is_mcp_skipped' => $isMcpSkipped,
-            'can_hide' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden,
-            'can_restore' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && $isHidden,
-            'can_skip_mcp' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && ! $isMcpSkipped,
-            'can_restore_mcp' => ($isDictionary ? KeywordResource::canMutateKeywordVisibilityFromListState($keyword) : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && $isMcpSkipped,
+            'can_hide' => ($isDictionary ? $canManageListRecord : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden,
+            'can_restore' => ($isDictionary ? $canManageListRecord : KeywordResource::canMutateKeywordVisibility($keyword)) && $isHidden,
+            'can_skip_mcp' => ($isDictionary ? $canManageListRecord : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && ! $isMcpSkipped,
+            'can_restore_mcp' => ($isDictionary ? $canManageListRecord : KeywordResource::canMutateKeywordVisibility($keyword)) && ! $isHidden && $isMcpSkipped,
             'can_delete' => $isDictionary
-                ? KeywordResource::canDeleteFromListState($keyword)
+                ? $canManageListRecord
                 : KeywordResource::canDelete($keyword),
         ];
     }

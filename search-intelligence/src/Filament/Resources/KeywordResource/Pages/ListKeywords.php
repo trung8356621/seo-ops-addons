@@ -50,6 +50,10 @@ class ListKeywords extends ListRecords
     /** @var array{total: int, active: int, errors: int, no_topic?: int, mode?: string}|null */
     public ?array $dictionaryStats = null;
 
+    private ?bool $canManageDictionaryRows = null;
+
+    private ?bool $canAccessDictionarySite = null;
+
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
@@ -63,6 +67,7 @@ class ListKeywords extends ListRecords
 
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
+        $this->canAccessDictionarySite = null;
         $this->resetPage();
         $this->flushCachedTableRecords();
     }
@@ -358,7 +363,7 @@ class ListKeywords extends ListRecords
                     ->openUrlInNewTab(),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                    ->visible(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record)
                         && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false)
                         && ! (bool) ($record->getAttributes()['mcp_excluded'] ?? false))
                     ->requiresConfirmation()
@@ -370,18 +375,18 @@ class ListKeywords extends ListRecords
                     ->action(fn (Keyword $record): mixed => $this->skipKeywordFromMcp((int) $record->id)),
                 Tables\Actions\Action::make('item_restore_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_mcp'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                    ->visible(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record)
                         && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false)
                         && (bool) ($record->getAttributes()['mcp_excluded'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->restoreKeywordMcp((int) $record->id)),
                 Tables\Actions\Action::make('item_exclude_seo')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_exclude_seo'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                    ->visible(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record)
                         && ! (bool) ($record->getAttributes()['seo_hidden'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->hideKeywordFromSeo((int) $record->id)),
                 Tables\Actions\Action::make('item_restore_seo')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_seo'))
-                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibilityFromListState($record)
+                    ->visible(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record)
                         && (bool) ($record->getAttributes()['seo_hidden'] ?? false))
                     ->action(fn (Keyword $record): mixed => $this->restoreHiddenKeyword((int) $record->id)),
             ])
@@ -393,19 +398,17 @@ class ListKeywords extends ListRecords
                     'class' => 'keyword-row-action keyword-row-action--menu',
                     'title' => __('seo-content-ai::filament.keyword.keyword_item_actions'),
                 ])
-                ->visible(fn (Keyword $record): bool => SeoAccessControl::canMutateInSeoPanel()
-                    && (($siteId = $this->resolveKeywordWorkspaceSiteId()) === null
-                        || SeoAccessControl::canAccessSite((int) $siteId))),
+                ->visible(fn (Keyword $record): bool => $this->canAccessKeywordListSite()),
             Tables\Actions\EditAction::make()
                 ->modalHeading(__('seo-content-ai::filament.keyword.edit'))
                 ->form(fn (Keyword $record): array => KeywordResource::editKeywordFormSchema($record))
                 ->mutateFormDataUsing(fn (array $data, Keyword $record): array => KeywordResource::mutateKeywordFormDataForFill($data, $record))
                 ->using(fn (Keyword $record, array $data): Keyword => KeywordResource::saveKeywordFromFormData($record, $data))
                 ->extraAttributes(['class' => 'keyword-ta-sr-action'])
-                ->authorize(fn (Keyword $record): bool => KeywordResource::canEditFromListState($record)),
+                ->authorize(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record)),
             Tables\Actions\DeleteAction::make()
                 ->extraAttributes(['class' => 'keyword-ta-sr-action'])
-                ->authorize(fn (Keyword $record): bool => KeywordResource::canDeleteFromListState($record))
+                ->authorize(fn (Keyword $record): bool => $this->canManageKeywordListRecord($record))
                 ->before(function (Keyword $record): void {
                     abort_unless(KeywordResource::canDelete($record), 403);
                 })
@@ -445,6 +448,28 @@ class ListKeywords extends ListRecords
                     $this->flushCachedTableRecords();
                 }),
         ];
+    }
+
+    public function canManageKeywordListRecord(Keyword $record): bool
+    {
+        $canManage = $this->canManageDictionaryRows ??= SeoAccessControl::canMutateInSeoPanel()
+            && SeoAccessControl::canAccessPlannerFeatures();
+
+        return $canManage
+            && ! (bool) ($record->getAttributes()['locked_by_active_job'] ?? false);
+    }
+
+    public function canAccessKeywordListSite(): bool
+    {
+        return $this->canAccessDictionarySite ??= (function (): bool {
+            if (! SeoAccessControl::canMutateInSeoPanel()) {
+                return false;
+            }
+
+            $siteId = $this->resolveKeywordWorkspaceSiteId();
+
+            return $siteId === null || SeoAccessControl::canAccessSite((int) $siteId);
+        })();
     }
 
     protected function getTableQuery(): ?Builder

@@ -70,7 +70,11 @@ final class KeywordDictionaryListPerformanceContractTest extends TestCase
 
         self::assertStringNotContainsString('HideKeywordFromSeoService', $list);
         self::assertStringNotContainsString('SkipKeywordFromMcpService', $list);
-        self::assertStringContainsString('canMutateKeywordVisibilityFromListState', $list);
+        self::assertStringContainsString('canManageKeywordListRecord', $list);
+        self::assertStringContainsString('canAccessKeywordListSite', $list);
+        self::assertStringContainsString('listCanManage', $this->source(KeywordItemPresenter::class));
+        self::assertSame(1, substr_count($list, 'SeoAccessControl::canAccessPlannerFeatures()'));
+        self::assertSame(1, substr_count($list, 'SeoAccessControl::canAccessSite((int) $siteId)'));
         self::assertStringContainsString('canDelete($record)', $list);
         self::assertStringContainsString('canMutateKeywordVisibility($keyword)', $actions);
         self::assertStringContainsString('canEdit($record)', $this->methodBody($resource, 'saveKeywordFromFormData'));

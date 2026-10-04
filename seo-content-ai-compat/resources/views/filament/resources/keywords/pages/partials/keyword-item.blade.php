@@ -20,6 +20,14 @@
         context: $context,
         siteId: $siteId,
         dnaValues: $dnaValues,
+        listCanManage: $context === KeywordItemPresenter::CONTEXT_DICTIONARY
+            && method_exists($this, 'canManageKeywordListRecord')
+                ? $this->canManageKeywordListRecord($keyword)
+                : null,
+        listCanAccessSite: $context === KeywordItemPresenter::CONTEXT_DICTIONARY
+            && method_exists($this, 'canAccessKeywordListSite')
+                ? $this->canAccessKeywordListSite()
+                : null,
     );
 @endphp
 
