@@ -31,16 +31,53 @@ final class KeywordUiInventoryQuery
     {
         $query = KeywordResource::excludeStagingSuggestTypes($query);
 
-        if ($siteId !== null && $siteId > 0) {
+        $hasConcreteSiteLanguage = $siteId !== null
+            && $siteId > 0
+            && $languageVariants !== null
+            && $languageVariants !== [];
+
+        // The language predicate below already binds its article evidence to the
+        // selected site. Avoid adding the broader forSite() OR graph as well.
+        if ($siteId !== null && $siteId > 0 && ! $hasConcreteSiteLanguage) {
             $query->forSite($siteId);
         }
 
-        $query->whereHas(
-            'linkMaps',
-            static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
-        );
+        if ($hasConcreteSiteLanguage) {
+            $query->where(function (Builder $inventory) use ($siteId, $languageVariants): void {
+                $inventory
+                    ->whereHas(
+                        'linkMaps',
+                        static fn (Builder $maps): Builder => $maps
+                            ->whereNotNull('source_article_id')
+                            ->whereHas(
+                                'sourceArticle',
+                                static fn (Builder $articles): Builder => $articles
+                                    ->where('site_id', $siteId)
+                                    ->whereIn('language', $languageVariants),
+                            ),
+                    )
+                    ->orWhere(function (Builder $focusInventory) use ($siteId, $languageVariants): void {
+                        $focusInventory
+                            ->whereHas(
+                                'mainArticles',
+                                static fn (Builder $articles): Builder => $articles
+                                    ->where('site_id', $siteId)
+                                    ->whereIn('language', $languageVariants),
+                            )
+                            ->whereHas(
+                                'linkMaps',
+                                static fn (Builder $maps): Builder => $maps->whereNotNull('source_article_id'),
+                            );
+                    });
+            });
+        } else {
+            $query->whereHas(
+                'linkMaps',
+                static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
+            );
+        }
 
-        if ($languageVariants !== null && $languageVariants !== []) {
+        if (! $hasConcreteSiteLanguage && $languageVariants !== null && $languageVariants !== []) {
             $query = KeywordWorkspaceLanguageScope::applyToKeywordQuery($query, $languageVariants, $siteId);
         }
 

@@ -67,7 +67,7 @@ final class KeywordItemPresenter
         $groupedTags = $isDictionary
             ? $this->groupResolvedTags($this->tags->resolve([
                 'seo_hidden' => $isHidden,
-                'internal_link_count' => (int) ($attributes['site_links_count'] ?? 0),
+                'internal_link_count' => (int) ($attributes['has_site_links'] ?? false),
                 'manual_error' => $keyword->isManualError(),
             ]))
             : $this->groupedTags($keyword);

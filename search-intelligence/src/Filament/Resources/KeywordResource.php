@@ -4,36 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources;
 
-
-
-use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
-use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
-use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages;
-use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
-use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
-use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
-use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
-use Omnichannel\Addons\Seo\Services\DomainOverviewService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordDebugRescrapeService;
-use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
-use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
-use Omnichannel\Addons\Seo\Services\SeoNotificationService;
-use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
-use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
-use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
-use Omnichannel\Addons\Seo\Support\DomainContextResolver;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -45,8 +15,32 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
+use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
+use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
+use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages;
+use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordDebugRescrapeService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
+use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
+use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 
 class KeywordResource extends SeoPanelResource
 {
@@ -61,9 +55,6 @@ class KeywordResource extends SeoPanelResource
     protected static ?string $navigationIcon = 'heroicon-o-magnifying-glass-circle';
 
     protected static ?string $navigationGroup = null;
-
-
-
 
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 
@@ -619,6 +610,10 @@ class KeywordResource extends SeoPanelResource
 
     public static function keywordHasSiteLinks(Keyword $record): bool
     {
+        if ((bool) ($record->getAttributes()['has_site_links'] ?? false)) {
+            return true;
+        }
+
         if ((int) ($record->site_links_count ?? 0) > 0) {
             return true;
         }
@@ -1274,7 +1269,7 @@ class KeywordResource extends SeoPanelResource
                 'mainArticles as main_articles_count',
                 ...Keyword::linkMapCountRelations(),
                 'linkMaps as inbound_links_count',
-                            ]);
+            ]);
 
         $query = static::excludeStagingSuggestTypes($query);
 
@@ -1302,7 +1297,7 @@ class KeywordResource extends SeoPanelResource
                 'mainArticles as main_articles_count',
                 ...Keyword::linkMapCountRelations(),
                 'linkMaps as inbound_links_count',
-                            ])
+            ])
             ->whereIn('review_status', [
                 KeywordReviewStatus::Danger->value,
                 KeywordReviewStatus::Warning->value,

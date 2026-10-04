@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
@@ -137,7 +138,7 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
         }
     }
 
-    public function test_dictionary_rows_project_visibility_lock_and_site_scoped_article_counts(): void
+    public function test_dictionary_rows_project_visibility_and_site_scoped_article_counts_without_job_lock_sql(): void
     {
         $linkedArticle = $this->createArticle(self::SITE_A, 'vi', 'Projected linked article');
         $linkedKeywordId = $this->createInventoryKeyword('projected linked keyword', $linkedArticle, withFocus: false);
@@ -173,7 +174,9 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
 
         self::assertTrue((bool) $row->seo_hidden);
         self::assertTrue((bool) $row->mcp_excluded);
-        self::assertTrue((bool) $row->locked_by_active_job);
+        self::assertArrayNotHasKey('locked_by_active_job', $row->getAttributes());
+        self::assertTrue((bool) $row->has_site_links);
+        self::assertTrue(KeywordResource::isKeywordLockedByActiveJobs($row));
         self::assertSame(0, (int) $row->focus_article_count);
         self::assertSame(1, (int) $row->linked_article_count);
 
@@ -550,6 +553,7 @@ final class KeywordWorkspaceLanguageScopeRegressionTest extends TestCase
             $table->string('meta_key');
             $table->text('meta_value')->nullable();
             $table->timestamps();
+            $table->unique(['keyword_id', 'meta_key']);
         });
 
         Schema::connection('omi_seo_ai')->create('seo_topics', function (Blueprint $table): void {

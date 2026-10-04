@@ -6,14 +6,11 @@ namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 
 /**
  * Single filtered base query for Keyword Dictionary UI.
@@ -70,8 +67,7 @@ final class KeywordDictionaryQuery
         ?array $languageVariants = null,
         array $filters = [],
         bool $withListState = true,
-    ): Builder
-    {
+    ): Builder {
         $query = $this->inventory->apply($query, $siteId, $languageVariants);
         if ($withListState) {
             $query = $this->withListState($query, $siteId);
@@ -95,7 +91,7 @@ final class KeywordDictionaryQuery
     }
 
     /**
-     * Project the complete Dictionary-row contract with bounded correlated subqueries.
+     * Project the complete Dictionary-row contract with bounded SQL work.
      * No relationship graph is hydrated and row presentation needs no fallback queries.
      *
      * @param  Builder<Keyword>  $query
@@ -111,8 +107,8 @@ final class KeywordDictionaryQuery
             'keywords.phrase',
             'keywords.type',
             'keywords.review_status',
-        ])->withCount([
-            'linkMaps as site_links_count' => static fn (Builder $maps): Builder => $maps
+        ])->withExists([
+            'linkMaps as has_site_links' => static fn (Builder $maps): Builder => $maps
                 ->where('status', '!=', SeoLinkMapStatus::Ignored->value),
         ]);
 
@@ -125,38 +121,30 @@ final class KeywordDictionaryQuery
                 ->where('meta_value', '1'),
         ]);
 
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_project_tasks')) {
-            $locked = DB::connection('omi_seo_ai')->table('seo_project_tasks as list_tasks')
-                ->selectRaw('1')
-                ->join('seo_projects as list_projects', 'list_projects.id', '=', 'list_tasks.project_id')
-                ->where('list_tasks.type', SeoProjectTask::TYPE_NEW_KEYWORD)
-                ->whereNull('list_tasks.deleted_at')
-                ->whereColumn(DB::raw('LOWER(TRIM(list_tasks.source_content))'), DB::raw('LOWER(TRIM(keywords.phrase))'))
-                ->whereIn('list_projects.status', [
-                    SeoProject::STATUS_PENDING,
-                    SeoProject::STATUS_MANUAL,
-                    SeoProject::STATUS_RUNNING,
-                ])
-                ->limit(1);
-            $query->selectSub($locked, 'locked_by_active_job');
-        } else {
-            $query->selectRaw('0 as locked_by_active_job');
-        }
-
         if ($siteId <= 0) {
             return $query->selectRaw('0 as focus_article_count, 0 as linked_article_count');
         }
 
-        $focusArticleIdSql = '(SELECT COALESCE('
-            .'MAX(CASE WHEN focus_meta.meta_key = ? THEN CAST(focus_meta.meta_value AS UNSIGNED) END), '
-            .'MAX(CASE WHEN focus_meta.meta_key = ? THEN CAST(focus_meta.meta_value AS UNSIGNED) END)'
-            .') FROM keyword_meta focus_meta WHERE focus_meta.keyword_id = keywords.id)';
+        // keyword_meta guarantees one row per (keyword_id, meta_key), so these
+        // joins cannot multiply Dictionary rows or distort paginator counts.
+        $query
+            ->leftJoin('keyword_meta as list_site_focus_meta', function ($join) use ($focusMetaKey): void {
+                $join->on('list_site_focus_meta.keyword_id', '=', 'keywords.id')
+                    ->where('list_site_focus_meta.meta_key', '=', $focusMetaKey);
+            })
+            ->leftJoin('keyword_meta as list_legacy_focus_meta', function ($join): void {
+                $join->on('list_legacy_focus_meta.keyword_id', '=', 'keywords.id')
+                    ->where('list_legacy_focus_meta.meta_key', '=', KeywordMetaKey::MainArticleId->value);
+            })
+            ->leftJoin('articles as list_focus_article', function ($join) use ($siteId): void {
+                $join->on('list_focus_article.id', '=', DB::raw(
+                    'COALESCE(list_site_focus_meta.meta_value, list_legacy_focus_meta.meta_value)',
+                ))
+                    ->where('list_focus_article.site_id', '=', $siteId)
+                    ->whereNull('list_focus_article.deleted_at');
+            })
+            ->selectRaw('CASE WHEN list_focus_article.id IS NULL THEN 0 ELSE 1 END as focus_article_count');
 
-        $query->selectRaw(
-            '(SELECT COUNT(*) FROM articles focus_articles '
-            .'WHERE focus_articles.id = '.$focusArticleIdSql.' AND focus_articles.site_id = ?) as focus_article_count',
-            [$focusMetaKey, KeywordMetaKey::MainArticleId->value, $siteId],
-        );
         $query->selectRaw(
             '(SELECT COUNT(DISTINCT list_maps.source_article_id) '
             .'FROM seo_link_maps list_maps '
@@ -166,15 +154,11 @@ final class KeywordDictionaryQuery
             .'AND list_maps.status != ? '
             .'AND list_sources.deleted_at IS NULL '
             .'AND list_sources.site_id = ? '
-            .'AND ('.$focusArticleIdSql.' IS NULL '
-            .'OR list_maps.source_article_id != '.$focusArticleIdSql.')) as linked_article_count',
+            .'AND (list_focus_article.id IS NULL '
+            .'OR list_maps.source_article_id != list_focus_article.id)) as linked_article_count',
             [
                 SeoLinkMapStatus::Ignored->value,
                 $siteId,
-                $focusMetaKey,
-                KeywordMetaKey::MainArticleId->value,
-                $focusMetaKey,
-                KeywordMetaKey::MainArticleId->value,
             ],
         );
 

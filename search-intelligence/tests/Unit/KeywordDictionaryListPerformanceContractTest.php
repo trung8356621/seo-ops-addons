@@ -21,11 +21,15 @@ final class KeywordDictionaryListPerformanceContractTest extends TestCase
         self::assertStringContainsString('withListState', $source);
         self::assertStringContainsString("'metas as seo_hidden'", $source);
         self::assertStringContainsString("'metas as mcp_excluded'", $source);
-        self::assertStringContainsString("'locked_by_active_job'", $source);
+        self::assertStringContainsString("'linkMaps as has_site_links'", $source);
+        self::assertStringNotContainsString('locked_by_active_job', $source);
+        self::assertStringNotContainsString('LOWER(TRIM(list_tasks.source_content))', $source);
         self::assertStringContainsString('as focus_article_count', $source);
         self::assertStringContainsString('as linked_article_count', $source);
         self::assertStringContainsString('COUNT(DISTINCT list_maps.source_article_id)', $source);
         self::assertStringContainsString('list_sources.site_id = ?', $source);
+        self::assertStringContainsString('leftJoin(\'keyword_meta as list_site_focus_meta\'', $source);
+        self::assertSame(1, substr_count($source, 'COALESCE(list_site_focus_meta.meta_value, list_legacy_focus_meta.meta_value)'));
     }
 
     public function test_normal_dictionary_query_does_not_eager_load_rich_tag_graph(): void
