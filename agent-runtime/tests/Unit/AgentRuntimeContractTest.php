@@ -421,13 +421,13 @@ final class AgentRuntimeContractTest extends TestCase
         $visible = array_column(AgentCapabilityCatalog::modelVisible(), 'key');
         foreach ([
             'site.knowledge', 'keywords.landscape', 'keywords.relationship', 'articles.inventory',
-            'links.internal', 'links.external', 'site.network', 'industry.core',
+            'links.internal', 'links.external',
             'gsc.performance', 'content_projects.read', 'seo_audit.worst_articles',
-            'seo_audit.improve', 'seo_audit.publish',
         ] as $key) {
             self::assertContains($key, $visible);
         }
         foreach ([
+            'site.network', 'industry.core', 'seo_audit.improve', 'seo_audit.publish',
             'industry.core_small', 'industry.discovery', 'industry.breakout', 'seo.router',
             'industry.match', 'content_project.draft.intake', 'content_project.write', 'domain.audit',
         ] as $key) {
@@ -446,6 +446,11 @@ final class AgentRuntimeContractTest extends TestCase
             if (in_array($metadata['execution_mode'], ['companion', 'internal'], true)) {
                 self::assertFalse($metadata['jev_selectable']);
             }
+        }
+        foreach (['site.network', 'industry.core', 'seo_audit.improve', 'seo_audit.publish'] as $key) {
+            self::assertSame('not_connected', AgentCapabilityCatalog::get($key)['status']);
+            self::assertTrue(AgentCapabilityCatalog::isSelectable($key));
+            self::assertFalse(AgentCapabilityCatalog::isAvailable($key));
         }
     }
 
@@ -469,6 +474,10 @@ final class AgentRuntimeContractTest extends TestCase
             '{"is_in_scope":true,"intent":"x","primary_capability":"unknown","capabilities":["unknown"],"parameters":{},"response_template":"text"}',
             '{"is_in_scope":true,"intent":"x","primary_capability":"industry.discovery","capabilities":["industry.discovery"],"parameters":{},"response_template":"text"}',
             '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core_small","capabilities":["industry.core_small"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.network","capabilities":["site.network"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core","capabilities":["industry.core"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.improve","capabilities":["seo_audit.improve"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.publish","capabilities":["seo_audit.publish"],"parameters":{},"response_template":"text"}',
             '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["site.knowledge","site.knowledge"],"parameters":{},"response_template":"text"}',
             '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["keywords.landscape"],"parameters":{},"response_template":"text"}',
         ] as $raw) {
@@ -711,11 +720,7 @@ final class AgentRuntimeContractTest extends TestCase
     /** @dataProvider unsupportedConfirmedToolProvider */
     public function test_unsupported_confirmed_tools_fail_closed(string $capability): void
     {
-        $decisions = new RecordingDecisionGateway(json_encode([
-            'is_in_scope' => true, 'intent' => $capability, 'primary_capability' => $capability,
-            'capabilities' => [$capability], 'parameters' => ['article_ref' => 'article:123'],
-            'requires_parameter_extraction' => false, 'requires_user_confirmation' => false, 'response_template' => 'text',
-        ], JSON_THROW_ON_ERROR));
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -727,6 +732,13 @@ final class AgentRuntimeContractTest extends TestCase
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => $capability,
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $pending['run_ulid'])->firstOrFail();
+        $summary = $run->retrieval_summary;
+        $summary['confirmation']['proposal']['intent'] = $capability;
+        $summary['confirmation']['proposal']['primary_capability'] = $capability;
+        $summary['confirmation']['proposal']['capabilities'] = [$capability];
+        $summary['confirmation']['proposal']['tool_capabilities'] = [$capability];
+        $run->update(['retrieval_summary' => $summary]);
 
         $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
         self::assertSame(422, $response->getStatusCode());

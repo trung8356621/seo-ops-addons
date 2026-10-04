@@ -101,6 +101,7 @@ final class AgentConfirmedToolExecutor
         foreach ($proposal->capabilities as $capability) {
             $metadata = AgentCapabilityCatalog::get($capability);
             if (($metadata['jev_selectable'] ?? false) !== true
+                || ($metadata['status'] ?? null) !== 'available'
                 || in_array((string) ($metadata['execution_mode'] ?? ''), ['hidden', 'internal'], true)) {
                 throw new InvalidArgumentException("Frozen capability [{$capability}] is no longer available.");
             }

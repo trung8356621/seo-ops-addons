@@ -107,12 +107,15 @@ final class RetrievalDecisionParser
             throw new InvalidArgumentException('Retrieval decision capabilities must be a valid unique list.');
         }
         foreach ($normalized as $capability) {
-            if (! AgentCapabilityCatalog::isSelectable($capability)) {
-                throw new InvalidArgumentException('Retrieval decision contains an unknown or hidden capability.');
+            if (! AgentCapabilityCatalog::isSelectable($capability) || ! AgentCapabilityCatalog::isAvailable($capability)) {
+                throw new InvalidArgumentException('Retrieval decision contains an unknown, hidden, or unavailable capability.');
             }
         }
-        if ($primary === null || ! AgentCapabilityCatalog::isSelectable($primary) || ! in_array($primary, $normalized, true)) {
-            throw new InvalidArgumentException('primary_capability must be selectable and included in capabilities.');
+        if ($primary === null
+            || ! AgentCapabilityCatalog::isSelectable($primary)
+            || ! AgentCapabilityCatalog::isAvailable($primary)
+            || ! in_array($primary, $normalized, true)) {
+            throw new InvalidArgumentException('primary_capability must be available, selectable, and included in capabilities.');
         }
 
         return [$primary, $normalized];

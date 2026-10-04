@@ -18,8 +18,8 @@ final class AgentCapabilityCatalog
             'articles.inventory' => self::capability('Articles Inventory', 'Collection-level article inventory and SEO signals; never a plain detail lookup for one article.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::articles', ['articles']),
             'links.internal' => self::capability('Internal Links', 'Internal link inventory and relationships.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::links(internal)', ['internal_links']),
             'links.external' => self::capability('External Links', 'External and managed cross-site link inventory.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::links(external)', ['external_links']),
-            'site.network' => self::capability('Site Network', 'Directional relationships across accessible managed sites.', true, 'direct', false, 'SiteNetworkReadModel', []),
-            'industry.core' => self::capability('Industry Core', 'Full industry and business context for deep planning.', true, 'direct', false, 'IndustryContextProfile', []),
+            'site.network' => self::capability('Site Network', 'Directional relationships across accessible managed sites.', true, 'direct', false, 'SiteNetworkReadModel', [], 'not_connected'),
+            'industry.core' => self::capability('Industry Core', 'Full industry and business context for deep planning.', true, 'direct', false, 'IndustryContextProfile', [], 'not_connected'),
             'gsc.performance' => self::capability('GSC Performance', 'Google Search Console performance for the requested period.', true, 'tool', true, 'RetrievalExecutor -> SeoAccessGscComposer::compose', ['gsc']),
             'content_projects.read' => self::capability('Content Projects Read', 'Planning, project state, and draft workflow information.', true, 'tool', true, 'ContentProjectAgentReadService', ['content_projects']),
             'seo_audit.worst_articles' => self::capability('SEO Audit – Worst Articles', 'Find a group of poor SEO article candidates for optimization planning.', true, 'tool', true, 'SeoAuditAgentReadService::listArticles', ['articles']),
@@ -38,7 +38,7 @@ final class AgentCapabilityCatalog
     {
         $visible = [];
         foreach (self::all() as $key => $metadata) {
-            if ($metadata['jev_selectable'] === true) {
+            if ($metadata['jev_selectable'] === true && $metadata['status'] === 'available') {
                 $visible[] = ['key' => $key, 'description' => $metadata['description']];
             }
         }
@@ -60,6 +60,11 @@ final class AgentCapabilityCatalog
     public static function isSelectable(string $key): bool
     {
         return (self::all()[$key]['jev_selectable'] ?? false) === true;
+    }
+
+    public static function isAvailable(string $key): bool
+    {
+        return (self::all()[$key]['status'] ?? null) === 'available';
     }
 
     public static function requiresConfirmation(string $key): bool
