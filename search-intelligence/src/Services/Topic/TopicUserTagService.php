@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTag;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTagAssignment;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Throwable;
 
 /**
@@ -268,6 +269,8 @@ final class TopicUserTagService
             ];
         }
 
+        $this->invalidateTagMetrics($siteId);
+
         return [
             'ok' => true,
             'error' => null,
@@ -303,6 +306,7 @@ final class TopicUserTagService
         }
 
         $this->attachManualPair($topicId, $tagId);
+        $this->invalidateTagMetrics($siteId);
 
         // Tag-only metadata — do NOT promote Topic auto→manual / do NOT promote auto→manual.
 
@@ -560,6 +564,8 @@ final class TopicUserTagService
             ->where('tag_id', $tagId)
             ->delete();
 
+        $this->invalidateTagMetrics($siteId);
+
         return ['ok' => true, 'error' => null, 'tags' => $this->listForTopic($siteId, $topicId)];
     }
 
@@ -585,6 +591,7 @@ final class TopicUserTagService
 
         $detached = SeoTopicTagAssignment::query()->where('tag_id', $tagId)->delete();
         SeoTopicTag::query()->where('site_id', $siteId)->where('id', $tagId)->delete();
+        $this->invalidateTagMetrics($siteId);
 
         return ['ok' => true, 'error' => null, 'detached' => (int) $detached];
     }
@@ -635,5 +642,13 @@ final class TopicUserTagService
             ->where('site_id', $siteId)
             ->where('id', $topicId)
             ->exists();
+    }
+
+    private function invalidateTagMetrics(int $siteId): void
+    {
+        app(KeywordWorkspaceMetricCache::class)->invalidateNamespace(
+            $siteId,
+            KeywordWorkspaceMetricCache::TAGS,
+        );
     }
 }

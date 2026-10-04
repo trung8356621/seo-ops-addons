@@ -37,6 +37,16 @@ final class KeywordDictionaryListPerformanceContractTest extends TestCase
         self::assertStringNotContainsString('->with(', $method);
     }
 
+    public function test_list_page_uses_dedicated_dictionary_query_not_generic_resource_query(): void
+    {
+        $source = $this->source(ListKeywords::class);
+        $method = $this->methodBody($source, 'buildDictionaryFilteredQuery');
+
+        self::assertStringContainsString('->filtered(', $method);
+        self::assertStringNotContainsString('parent::getTableQuery()', $method);
+        self::assertStringNotContainsString('getEloquentQuery()', $method);
+    }
+
     public function test_dictionary_presenter_uses_projected_state_without_fallback_services(): void
     {
         $source = $this->source(KeywordItemPresenter::class);

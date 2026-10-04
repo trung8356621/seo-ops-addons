@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 trait InteractsWithKeywordItemActions
 {
@@ -169,6 +170,13 @@ trait InteractsWithKeywordItemActions
 
     protected function afterKeywordItemMutation(): void
     {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId > 0) {
+            $metrics = app(KeywordWorkspaceMetricCache::class);
+            $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::DICTIONARY);
+            $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::FOCUS);
+        }
+
         if (method_exists($this, 'flushCachedTableRecords')) {
             $this->flushCachedTableRecords();
         }

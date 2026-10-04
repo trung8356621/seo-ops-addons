@@ -17,6 +17,7 @@ use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
@@ -206,7 +207,26 @@ class ListKeywords extends ListRecords
      */
     public function getDictionaryStats(): array
     {
-        $query = $this->buildDictionaryFilteredQuery();
+        if ($this->canUseCachedDictionaryStats()) {
+            $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+            $metrics = app(KeywordWorkspaceMetricCache::class)->rememberMetrics(
+                $siteId,
+                $this->keywordLanguageFilter,
+                KeywordWorkspaceMetricCache::DICTIONARY,
+                ['total', 'active', 'errors', 'no_topic'],
+                fn (): array => $this->computeDictionaryStats(),
+            );
+
+            return [...$metrics, 'mode' => 'default'];
+        }
+
+        return $this->computeDictionaryStats();
+    }
+
+    /** @return array{total: int, active: int, errors: int, no_topic: int, mode: string} */
+    private function computeDictionaryStats(): array
+    {
+        $query = $this->buildDictionarySummaryQuery();
 
         if (! $query instanceof Builder) {
             return [
@@ -247,7 +267,7 @@ class ListKeywords extends ListRecords
         $noTopic = 0;
         if ($siteId !== null && $siteId > 0) {
             $noTopic = (int) $dictionaryQuery
-                ->filtered(
+                ->filteredForSummary(
                     $siteId,
                     $this->resolveKeywordLanguageFilterVariants(),
                     ['topic_assignment' => 'unassigned'],
@@ -262,6 +282,18 @@ class ListKeywords extends ListRecords
             'no_topic' => $noTopic,
             'mode' => 'default',
         ];
+    }
+
+    private function canUseCachedDictionaryStats(): bool
+    {
+        $filters = $this->currentDictionaryFilterBag();
+
+        return $this->getKeywordWorkspaceMode() === 'dictionary'
+            && trim((string) ($filters['search'] ?? '')) === ''
+            && ($filters['seo_hidden'] ?? null) === null
+            && ($filters['tags'] ?? []) === []
+            && ($filters['types'] ?? []) === []
+            && ($filters['topic_assignment'] ?? null) === null;
     }
 
     public function applyDictionaryStatFilter(string $statKey): void
@@ -316,8 +348,7 @@ class ListKeywords extends ListRecords
                 Tables\Actions\Action::make('item_relationships')
                     ->label(__('seo-content-ai::filament.keyword.relationship_action'))
                     ->url(function (Keyword $record): string {
-                        $siteId = KeywordResource::resolveKeywordSiteId($record)
-                            ?? $this->resolveKeywordWorkspaceSiteId();
+                        $siteId = $this->resolveKeywordWorkspaceSiteId();
 
                         return \Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordRelationshipAppPage::appUrl(
                             (int) $record->id,
@@ -363,7 +394,7 @@ class ListKeywords extends ListRecords
                     'title' => __('seo-content-ai::filament.keyword.keyword_item_actions'),
                 ])
                 ->visible(fn (Keyword $record): bool => SeoAccessControl::canMutateInSeoPanel()
-                    && (($siteId = KeywordResource::resolveKeywordSiteId($record)) === null
+                    && (($siteId = $this->resolveKeywordWorkspaceSiteId()) === null
                         || SeoAccessControl::canAccessSite((int) $siteId))),
             Tables\Actions\EditAction::make()
                 ->modalHeading(__('seo-content-ai::filament.keyword.edit'))
@@ -379,6 +410,12 @@ class ListKeywords extends ListRecords
                     abort_unless(KeywordResource::canDelete($record), 403);
                 })
                 ->after(function (): void {
+                    $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                    if ($siteId > 0) {
+                        $metrics = app(KeywordWorkspaceMetricCache::class);
+                        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::DICTIONARY);
+                        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::FOCUS);
+                    }
                     $this->selectedKeywordId = null;
                     $this->dispatch('keyword-detail-close');
                 }),
@@ -427,22 +464,27 @@ class ListKeywords extends ListRecords
 
     protected function buildDictionaryFilteredQuery(): ?Builder
     {
-        $query = parent::getTableQuery();
-        if (! $query instanceof Builder) {
-            return $query;
-        }
-
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         $languageVariants = $this->resolveKeywordLanguageFilterVariants();
 
         return app(KeywordDictionaryQuery::class)
-            ->applyTo(
-                $query,
+            ->filtered(
                 $siteId > 0 ? $siteId : null,
                 $languageVariants,
                 $this->currentDictionaryFilterBag(),
             )
             ->orderBy('phrase');
+    }
+
+    protected function buildDictionarySummaryQuery(): Builder
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return app(KeywordDictionaryQuery::class)->filteredForSummary(
+            $siteId > 0 ? $siteId : null,
+            $this->resolveKeywordLanguageFilterVariants(),
+            $this->currentDictionaryFilterBag(),
+        );
     }
 
     /**

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
  * Move keyword membership between Topics on the same site.
@@ -74,6 +75,10 @@ final class TopicMoveKeywordService
             $this->rebuildTopicDna($siteId, $fromTopicId);
         }
         $this->rebuildTopicDna($siteId, $toTopicId);
+
+        $metrics = app(KeywordWorkspaceMetricCache::class);
+        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::TOPICS);
+        $metrics->invalidateMetric($siteId, KeywordWorkspaceMetricCache::DICTIONARY, 'no_topic');
 
         return ['ok' => true, 'error' => null];
     }

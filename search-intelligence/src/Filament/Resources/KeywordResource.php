@@ -172,8 +172,7 @@ class KeywordResource extends SeoPanelResource
     public static function canDeleteFromListState(Model $record): bool
     {
         return static::canEditFromListState($record)
-            && $record instanceof Keyword
-            && static::isUnused($record);
+            && $record instanceof Keyword;
     }
 
     public static function canMutateKeywordVisibilityFromListState(Model $record): bool
@@ -1624,6 +1623,18 @@ class KeywordResource extends SeoPanelResource
         unset($data['tags']);
 
         $record->update($data);
+        $siteId = static::resolveKeywordSiteId($record);
+        if ($siteId !== null && $siteId > 0) {
+            $metrics = app(\Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache::class);
+            $metrics->invalidateNamespace(
+                $siteId,
+                \Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache::DICTIONARY,
+            );
+            $metrics->invalidateNamespace(
+                $siteId,
+                \Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache::FOCUS,
+            );
+        }
 
         return $record->fresh();
     }

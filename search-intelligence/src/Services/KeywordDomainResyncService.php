@@ -13,6 +13,7 @@ use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordSyncIsolation;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Illuminate\Support\Facades\DB;
 
 final class KeywordDomainResyncService
@@ -52,7 +53,7 @@ final class KeywordDomainResyncService
             ];
         }
 
-        return KeywordSyncIsolation::runWithinDomainResync(function () use ($siteId): array {
+        $result = KeywordSyncIsolation::runWithinDomainResync(function () use ($siteId): array {
             $ctaDeleteStats = $this->deleteCtaBlacklistedKeywordsForSite($siteId);
             $deleteStats = $this->deleteLinkedKeywordsForSite($siteId);
             $resyncStats = $this->resyncKeywordsFromArticles($siteId);
@@ -67,6 +68,13 @@ final class KeywordDomainResyncService
                 'quality_recomputed' => $qualityRecomputed,
             ]);
         });
+
+        $metrics = app(KeywordWorkspaceMetricCache::class);
+        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::DICTIONARY);
+        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::FOCUS);
+        $metrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::EXTERNAL);
+
+        return $result;
     }
 
     /**

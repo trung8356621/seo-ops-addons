@@ -1,10 +1,9 @@
 @php
-    use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
     use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter;
 
     /** @var \Omnichannel\Addons\SearchFoundation\Models\Keyword $record */
     $record = $getRecord();
-    $siteId = (int) (KeywordResource::resolveKeywordSiteId($record) ?? 0) ?: null;
+    $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0) ?: null;
 @endphp
 
 @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-item', [

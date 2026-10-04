@@ -8,6 +8,7 @@ use Livewire\Attributes\On;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait HasKeywordWorkspaceNavigation
@@ -159,22 +160,67 @@ trait HasKeywordWorkspaceNavigation
             return $this->keywordWorkspaceTabCountsCache;
         }
 
-        $total = app(KeywordUiInventoryQuery::class)->count($siteId, $languageVariants);
+        $metricCache = app(KeywordWorkspaceMetricCache::class);
+        $languageCode = $this->keywordLanguageFilter;
+        $dictionaryMetrics = $metricCache->rememberMetrics(
+            (int) ($siteId ?? 0),
+            $languageCode,
+            KeywordWorkspaceMetricCache::DICTIONARY,
+            ['total'],
+            fn (): array => [
+                'total' => app(KeywordUiInventoryQuery::class)->count($siteId, $languageVariants),
+            ],
+        );
+        $focusMetrics = $metricCache->rememberMetrics(
+            (int) ($siteId ?? 0),
+            $languageCode,
+            KeywordWorkspaceMetricCache::FOCUS,
+            ['total'],
+            fn (): array => [
+                'total' => (int) app(KeywordDictionaryQuery::class)
+                    ->filteredForSummary($siteId, $languageVariants, ['focus' => true])
+                    ->count(),
+            ],
+        );
+        $total = (int) ($dictionaryMetrics['total'] ?? 0);
         $dictionary = $total;
-        $focus = (int) app(KeywordDictionaryQuery::class)
-            ->filtered($siteId, $languageVariants, ['focus' => true])
-            ->count();
+        $focus = (int) ($focusMetrics['total'] ?? 0);
         $topics = 0;
         $tags = 0;
         $external = 0;
         if ($siteId !== null && $siteId > 0) {
-            $topics = (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
-                ->summary($siteId, $languageVariants)['topic_count'];
-            $tags = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService::class)
-                ->countForSite($siteId);
-            $riskCounts = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordExternalRelationshipReadModel::class)
-                ->riskCounts($siteId);
-            $external = (int) $riskCounts['all'];
+            $topics = (int) ($metricCache->rememberMetrics(
+                $siteId,
+                $languageCode,
+                KeywordWorkspaceMetricCache::TOPICS,
+                ['total'],
+                fn (): array => [
+                    'total' => (int) app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery::class)
+                        ->summary($siteId, $languageVariants)['topic_count'],
+                ],
+            )['total'] ?? 0);
+            $tags = (int) ($metricCache->rememberMetrics(
+                $siteId,
+                null,
+                KeywordWorkspaceMetricCache::TAGS,
+                ['total'],
+                fn (): array => [
+                    'total' => app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService::class)
+                        ->countForSite($siteId),
+                ],
+            )['total'] ?? 0);
+            $external = (int) ($metricCache->rememberMetrics(
+                $siteId,
+                null,
+                KeywordWorkspaceMetricCache::EXTERNAL,
+                ['total'],
+                function () use ($siteId): array {
+                    $riskCounts = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\KeywordExternalRelationshipReadModel::class)
+                        ->riskCounts($siteId);
+
+                    return ['total' => (int) $riskCounts['all']];
+                },
+            )['total'] ?? 0);
         }
 
         $this->keywordWorkspaceTabCountsCacheKey = $cacheKey;

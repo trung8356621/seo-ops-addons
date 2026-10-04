@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
  * Targeted membership reconcile for one site Topic (manual create / repair).
@@ -176,6 +177,12 @@ final class TopicMembershipReconcileService
 
         foreach (array_keys($affectedTopicIds) as $affectedId) {
             $this->rebuildDna($siteId, (int) $affectedId);
+        }
+
+        if ($attached > 0 || $moved > 0) {
+            $workspaceMetrics = app(KeywordWorkspaceMetricCache::class);
+            $workspaceMetrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::TOPICS);
+            $workspaceMetrics->invalidateMetric($siteId, KeywordWorkspaceMetricCache::DICTIONARY, 'no_topic');
         }
 
         return [

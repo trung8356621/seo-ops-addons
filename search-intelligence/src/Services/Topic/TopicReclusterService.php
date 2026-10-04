@@ -13,6 +13,7 @@ use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
  * Recluster(site_id) — site-isolated Topic rebuild from Link List + product_cat seeds.
@@ -186,6 +187,14 @@ final class TopicReclusterService
             $metrics['topics_reused'] = $written['topics_reused'];
             $metrics['topics_created'] = $written['topics_created'];
             $metrics['discovered_topics_dissolved'] = $written['discovered_topics_dissolved'];
+
+            $workspaceMetrics = app(KeywordWorkspaceMetricCache::class);
+            $workspaceMetrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::TOPICS);
+            $workspaceMetrics->invalidateMetric(
+                $siteId,
+                KeywordWorkspaceMetricCache::DICTIONARY,
+                'no_topic',
+            );
 
             return TopicReclusterResult::ok($metrics);
         } catch (\Throwable $e) {

@@ -41,7 +41,19 @@ final class KeywordDictionaryQuery
      */
     public function filtered(?int $siteId, ?array $languageVariants = null, array $filters = []): Builder
     {
-        return $this->applyTo(Keyword::query(), $siteId, $languageVariants, $filters);
+        return $this->applyTo(Keyword::query(), $siteId, $languageVariants, $filters, true);
+    }
+
+    /**
+     * Filtered Dictionary population without row-only projections.
+     *
+     * @param  list<string>|null  $languageVariants
+     * @param  array<string, mixed>  $filters
+     * @return Builder<Keyword>
+     */
+    public function filteredForSummary(?int $siteId, ?array $languageVariants = null, array $filters = []): Builder
+    {
+        return $this->applyTo(Keyword::query(), $siteId, $languageVariants, $filters, false);
     }
 
     /**
@@ -52,10 +64,18 @@ final class KeywordDictionaryQuery
      * @param  array<string, mixed>  $filters
      * @return Builder<Keyword>
      */
-    public function applyTo(Builder $query, ?int $siteId, ?array $languageVariants = null, array $filters = []): Builder
+    public function applyTo(
+        Builder $query,
+        ?int $siteId,
+        ?array $languageVariants = null,
+        array $filters = [],
+        bool $withListState = true,
+    ): Builder
     {
         $query = $this->inventory->apply($query, $siteId, $languageVariants);
-        $query = $this->withListState($query, $siteId);
+        if ($withListState) {
+            $query = $this->withListState($query, $siteId);
+        }
 
         if (($filters['focus'] ?? false) === true) {
             $query->whereHas('mainArticles');
@@ -85,6 +105,16 @@ final class KeywordDictionaryQuery
     {
         $siteId = (int) ($siteId ?? 0);
         $focusMetaKey = $siteId > 0 ? KeywordMetaKey::siteMainArticleId($siteId) : '';
+
+        $query->select([
+            'keywords.id',
+            'keywords.phrase',
+            'keywords.type',
+            'keywords.review_status',
+        ])->withCount([
+            'linkMaps as site_links_count' => static fn (Builder $maps): Builder => $maps
+                ->where('status', '!=', SeoLinkMapStatus::Ignored->value),
+        ]);
 
         $query->withExists([
             'metas as seo_hidden' => static fn (Builder $meta): Builder => $meta

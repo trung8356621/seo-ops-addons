@@ -11,6 +11,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -112,7 +113,7 @@ final class KeywordReviewService
             $this->assertKeywordLinkedToArticle($keyword, $articleId);
         }
 
-        return DB::connection('omi_seo_ai')->transaction(function () use (
+        $result = DB::connection('omi_seo_ai')->transaction(function () use (
             $keyword,
             $severity,
             $reviewedBy,
@@ -148,6 +149,10 @@ final class KeywordReviewService
                 'history_id' => (int) $history->id,
             ];
         });
+
+        $this->invalidateDictionaryMetrics($keyword);
+
+        return $result;
     }
 
     public function restoreKeyword(
@@ -160,7 +165,7 @@ final class KeywordReviewService
             throw new InvalidArgumentException('reviewed_by is required.');
         }
 
-        return DB::connection('omi_seo_ai')->transaction(function () use ($keyword, $reviewedBy, $source, $note): Keyword {
+        $restored = DB::connection('omi_seo_ai')->transaction(function () use ($keyword, $reviewedBy, $source, $note): Keyword {
             $fromStatus = KeywordReviewStatus::tryFrom((string) $keyword->review_status)
                 ?? KeywordReviewStatus::Active;
 
@@ -193,6 +198,21 @@ final class KeywordReviewService
 
             return $keyword->fresh() ?? $keyword;
         });
+
+        $this->invalidateDictionaryMetrics($keyword);
+
+        return $restored;
+    }
+
+    private function invalidateDictionaryMetrics(Keyword $keyword): void
+    {
+        $siteId = $keyword->resolveSiteId(SeoAccessControl::globalSiteId());
+        if ($siteId !== null && $siteId > 0) {
+            app(KeywordWorkspaceMetricCache::class)->invalidateNamespace(
+                $siteId,
+                KeywordWorkspaceMetricCache::DICTIONARY,
+            );
+        }
     }
 
     public function assertKeywordAccessible(Keyword $keyword): void
