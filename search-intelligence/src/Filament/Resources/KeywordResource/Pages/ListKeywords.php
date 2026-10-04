@@ -46,6 +46,9 @@ class ListKeywords extends ListRecords
     #[Url(as: 'stat')]
     public ?string $dictionaryStatFilter = null;
 
+    /** @var array{total: int, active: int, errors: int, no_topic?: int, mode?: string}|null */
+    public ?array $dictionaryStats = null;
+
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
@@ -67,6 +70,26 @@ class ListKeywords extends ListRecords
     {
         $this->resetPage();
         $this->flushCachedTableRecords();
+        $this->clearKeywordDictionaryStats();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
+    }
+
+    public function updatedTableSearch(): void
+    {
+        parent::updatedTableSearch();
+        $this->flushCachedTableRecords();
+        $this->clearKeywordDictionaryStats();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
+    }
+
+    public function loadKeywordDictionaryStats(): void
+    {
+        $this->dictionaryStats = $this->getDictionaryStats();
+    }
+
+    public function clearKeywordDictionaryStats(): void
+    {
+        $this->dictionaryStats = null;
     }
 
     protected function getActiveKeywordWorkspaceKey(): string
@@ -254,6 +277,8 @@ class ListKeywords extends ListRecords
         $this->dictionaryStatFilter = $this->dictionaryStatFilter === $statKey ? null : $statKey;
         $this->resetPage();
         $this->flushCachedTableRecords();
+        $this->clearKeywordDictionaryStats();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
     }
 
     public function getSubheading(): ?string

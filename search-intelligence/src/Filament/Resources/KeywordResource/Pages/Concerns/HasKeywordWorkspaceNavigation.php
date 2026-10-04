@@ -16,6 +16,11 @@ trait HasKeywordWorkspaceNavigation
 
     public ?int $keywordWorkspaceSiteId = null;
 
+    public bool $keywordWorkspaceStatisticsLoaded = false;
+
+    /** @var array{total: int, dictionary: int, focus: int, topics: int, tags: int, external: int}|null */
+    public ?array $keywordWorkspaceTabCounts = null;
+
     /**
      * Request-scoped inventory tab counts (not table search/filter counts).
      *
@@ -35,6 +40,28 @@ trait HasKeywordWorkspaceNavigation
     {
         $this->keywordWorkspaceTabCountsCache = null;
         $this->keywordWorkspaceTabCountsCacheKey = null;
+        $this->keywordWorkspaceTabCounts = null;
+        $this->keywordWorkspaceStatisticsLoaded = false;
+
+        if (method_exists($this, 'clearKeywordDictionaryStats')) {
+            $this->clearKeywordDictionaryStats();
+        }
+    }
+
+    public function loadKeywordWorkspaceStatistics(): void
+    {
+        $this->keywordWorkspaceTabCounts = $this->getKeywordWorkspaceTabCounts();
+
+        if (method_exists($this, 'loadKeywordDictionaryStats')) {
+            $this->loadKeywordDictionaryStats();
+        }
+
+        $this->keywordWorkspaceStatisticsLoaded = true;
+    }
+
+    protected function reloadKeywordWorkspaceStatisticsAfterRender(): void
+    {
+        $this->dispatch('keyword-workspace-statistics-reload');
     }
 
     #[On('domain-context-changed')]
@@ -54,6 +81,7 @@ trait HasKeywordWorkspaceNavigation
         }
 
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
     }
 
     public function shouldShowKeywordWorkspaceSiteFilter(): bool
@@ -104,9 +132,9 @@ trait HasKeywordWorkspaceNavigation
      * Same SSOT as Dictionary base ({@see KeywordUiInventoryQuery}) — not Dictionary+Focus.
      * Respects global Keywords language selector.
      */
-    public function getKeywordWorkspaceTotalKeywords(): int
+    public function getKeywordWorkspaceTotalKeywords(): ?int
     {
-        return $this->getKeywordWorkspaceTabCounts()['total'];
+        return $this->keywordWorkspaceTabCounts['total'] ?? null;
     }
 
     /**
@@ -166,38 +194,38 @@ trait HasKeywordWorkspaceNavigation
      */
     public function getKeywordWorkspaceNavItems(): array
     {
-        $counts = $this->getKeywordWorkspaceTabCounts();
+        $counts = $this->keywordWorkspaceTabCounts;
 
         return [
             [
                 'key' => 'index',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_dictionary'),
                 'url' => KeywordResource::getUrl('index'),
-                'count' => $counts['dictionary'],
+                'count' => $counts['dictionary'] ?? null,
             ],
             [
                 'key' => 'focus',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_focus'),
                 'url' => KeywordResource::getUrl('focus'),
-                'count' => $counts['focus'],
+                'count' => $counts['focus'] ?? null,
             ],
             [
                 'key' => 'clusters',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
                 'url' => KeywordResource::getUrl('clusters'),
-                'count' => $counts['topics'],
+                'count' => $counts['topics'] ?? null,
             ],
             [
                 'key' => 'tags',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_tags'),
                 'url' => KeywordResource::getUrl('topic-tags'),
-                'count' => $counts['tags'],
+                'count' => $counts['tags'] ?? null,
             ],
             [
                 'key' => 'external',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_external'),
                 'url' => KeywordResource::getUrl('external'),
-                'count' => $counts['external'],
+                'count' => $counts['external'] ?? null,
             ],
             [
                 'key' => 'anchor-audit',

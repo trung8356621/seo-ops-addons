@@ -7,11 +7,15 @@
         ? $this->getKeywordModuleHeading()
         : (string) __('seo-content-ai::filament.keyword.module_heading_fallback'));
     $totalKeywords = method_exists($this, 'getKeywordWorkspaceTotalKeywords')
-        ? (int) $this->getKeywordWorkspaceTotalKeywords()
+        ? $this->getKeywordWorkspaceTotalKeywords()
         : null;
 @endphp
 
-<div class="keyword-module-chrome">
+<div
+    class="keyword-module-chrome"
+    wire:init="loadKeywordWorkspaceStatistics"
+    x-on:keyword-workspace-statistics-reload.window="$wire.loadKeywordWorkspaceStatistics()"
+>
     <header class="keyword-module-header">
         <h1 class="keyword-module-header__title">
             <span class="keyword-module-header__heading">{{ $moduleHeading }}</span>

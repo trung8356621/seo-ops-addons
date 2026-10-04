@@ -1,8 +1,10 @@
 @php
-    $stats = $this->getDictionaryStats();
+    $stats = $this->dictionaryStats;
     $activeFilter = $this->dictionaryStatFilter;
-    $mode = (string) ($stats['mode'] ?? 'default');
-    $cards = $mode === 'no_topic'
+    $mode = (string) (($stats ?? [])['mode'] ?? 'default');
+    $cards = $stats === null
+        ? []
+        : ($mode === 'no_topic'
         ? [
             'no_topic' => [
                 'label' => __('seo-content-ai::filament.keyword.stat_no_topic'),
@@ -34,10 +36,25 @@
                 'icon' => 'heroicon-o-x-circle',
                 'clickable' => true,
             ],
-        ];
+        ]);
 @endphp
 
 <div class="keyword-dictionary-stats" aria-label="{{ __('seo-content-ai::filament.keyword.dictionary_stats_label') }}">
+    @if ($stats === null)
+        @foreach (['active', 'errors'] as $placeholderKey)
+            <div
+                wire:key="dictionary-stat-loading-{{ $placeholderKey }}"
+                class="keyword-dictionary-stat-card animate-pulse"
+                aria-hidden="true"
+            >
+                <div class="keyword-dictionary-stat-card__top">
+                    <span class="keyword-dictionary-stat-card__icon bg-gray-200 dark:bg-gray-700"></span>
+                </div>
+                <p class="keyword-dictionary-stat-card__label">&mdash;</p>
+                <p class="keyword-dictionary-stat-card__value">&mdash;</p>
+            </div>
+        @endforeach
+    @endif
     @foreach ($cards as $statKey => $stat)
         @if ($stat['clickable'] ?? true)
             <button

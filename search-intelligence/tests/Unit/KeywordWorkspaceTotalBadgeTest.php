@@ -164,6 +164,47 @@ final class KeywordWorkspaceTotalBadgeTest extends TestCase
         self::assertStringContainsString('$dictionary = $total', $nav);
     }
 
+    public function test_workspace_counts_and_dictionary_stats_are_lazy_after_initial_render(): void
+    {
+        $navTrait = (string) file_get_contents(dirname(__DIR__, 2)
+            .'/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php');
+        $listPage = (string) file_get_contents(dirname(__DIR__, 2)
+            .'/src/Filament/Resources/KeywordResource/Pages/ListKeywords.php');
+        $navBlade = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/partials/keyword-workspace-nav.blade.php',
+        ));
+        $statsBlade = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/partials/keyword-dictionary-stats.blade.php',
+        ));
+
+        self::assertStringContainsString('wire:init="loadKeywordWorkspaceStatistics"', $navBlade);
+        self::assertStringContainsString('keyword-workspace-statistics-reload', $navBlade);
+        self::assertStringContainsString('loadKeywordWorkspaceStatistics', $navTrait);
+        self::assertStringContainsString('$this->keywordWorkspaceTabCounts', $navTrait);
+        self::assertStringNotContainsString('$this->getKeywordWorkspaceTabCounts()', $this->methodBody($navTrait, 'getKeywordWorkspaceNavItems'));
+        self::assertStringContainsString('loadKeywordDictionaryStats', $listPage);
+        self::assertStringContainsString('$this->dictionaryStats', $statsBlade);
+        self::assertStringNotContainsString('getDictionaryStats()', $statsBlade);
+        self::assertStringContainsString('animate-pulse', $statsBlade);
+    }
+
+    private function methodBody(string $source, string $method): string
+    {
+        $pattern = '/function\s+'.preg_quote($method, '/').'\s*\([^)]*\)\s*(?::\s*[^\{]+)?\{/';
+        self::assertSame(1, preg_match($pattern, $source, $match, PREG_OFFSET_CAPTURE));
+        $start = (int) $match[0][1] + strlen($match[0][0]);
+        $depth = 1;
+        for ($offset = $start, $length = strlen($source); $offset < $length; $offset++) {
+            if ($source[$offset] === '{') {
+                $depth++;
+            } elseif ($source[$offset] === '}' && --$depth === 0) {
+                return substr($source, $start, $offset - $start);
+            }
+        }
+
+        self::fail('Method body not closed: '.$method);
+    }
+
     private function createInventoryKeyword(string $phrase, int $sourceArticleId, bool $withFocus): int
     {
         $keyword = Keyword::query()->create([
