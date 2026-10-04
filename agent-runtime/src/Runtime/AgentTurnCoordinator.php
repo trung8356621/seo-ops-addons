@@ -226,6 +226,15 @@ class AgentTurnCoordinator
                 ));
             }
 
+            if ($processed['response'] instanceof AgentResponse) {
+                return AgentTurnProgress::completed(new AgentTurnResult(
+                    $processed['response'],
+                    $routingInput,
+                    $processed['answerInput'],
+                    false,
+                ));
+            }
+
             return AgentTurnProgress::paused(new InterceptedModelCall('answer', $processed['answerInput'], [
                 'routing_input' => $state['routing_input'],
                 'bundle' => $processed['bundle']->toArray(),
@@ -284,7 +293,7 @@ class AgentTurnCoordinator
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{bundle: RetrievalBundle, answerInput: PreparedModelInput, decision: \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecision|null, error: string|null}
+     * @return array{bundle: RetrievalBundle, answerInput: PreparedModelInput, decision: \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecision|null, response: AgentResponse|null, error: string|null}
      */
     public function processDecisionAndRetrieve(
         AgentProjectScope $scope,
@@ -305,6 +314,7 @@ class AgentTurnCoordinator
                 'bundle' => $bundle,
                 'answerInput' => $answerInput,
                 'decision' => null,
+                'response' => null,
                 'error' => 'All Sites is selected, but a global SEO Access API is not available. Ask again inside a site project.',
             ];
         }
@@ -319,17 +329,31 @@ class AgentTurnCoordinator
                 'bundle' => $bundle,
                 'answerInput' => $answerInput,
                 'decision' => null,
+                'response' => null,
                 'error' => $e->getMessage() ?: 'The routing model did not return a usable decision, so no SEO data was fetched.',
             ];
         }
 
-        $bundle = $this->retrieval->execute($decision, $scope);
+        $bundle = $decision->modules === []
+            ? new RetrievalBundle($scope, [])
+            : $this->retrieval->execute($decision, $scope);
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $decision->responseTemplate);
+
+        if (! $decision->isInScope) {
+            return [
+                'bundle' => $bundle,
+                'answerInput' => $answerInput,
+                'decision' => $decision,
+                'response' => $this->outOfScopeResponse(),
+                'error' => null,
+            ];
+        }
 
         return [
             'bundle' => $bundle,
             'answerInput' => $answerInput,
             'decision' => $decision,
+            'response' => null,
             'error' => null,
         ];
     }
@@ -410,6 +434,17 @@ class AgentTurnCoordinator
             ];
         }
 
+        if ($processed['response'] instanceof AgentResponse) {
+            return [
+                'routing' => $routingInput,
+                'answer' => $processed['answerInput'],
+                'bundle' => $processed['bundle'],
+                'response' => $processed['response'],
+                'failureCode' => null,
+                'decisionDiagnostics' => null,
+            ];
+        }
+
         if (! $this->draftIntake->isConnected()) {
             // Write stays unwired. The answer instructions already forbid inventing the call.
         }
@@ -473,6 +508,13 @@ class AgentTurnCoordinator
             [],
             array_map(static fn ($source) => $source->toArray(), $bundle->sources),
         );
+    }
+
+    private function outOfScopeResponse(): AgentResponse
+    {
+        $message = 'Yêu cầu này nằm ngoài phạm vi Agent SEO nội bộ. Hãy hỏi về website, nội dung, keyword, GSC, SEO Audit, Content Projects hoặc Industry Context.';
+
+        return new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], []);
     }
 }
 

@@ -11,8 +11,9 @@ final readonly class RetrievalDecision
      * @param  array<string, scalar|null>  $parameters
      */
     public function __construct(
+        public bool $isInScope,
         public string $intent,
-        public string $primaryModule,
+        public ?string $primaryModule,
         public array $modules,
         public array $parameters,
         public bool $requiresParameterExtraction,
@@ -26,6 +27,7 @@ final readonly class RetrievalDecision
     public function toArray(): array
     {
         return [
+            'is_in_scope' => $this->isInScope,
             'intent' => $this->intent,
             'primary_module' => $this->primaryModule,
             'modules' => $this->modules,

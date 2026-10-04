@@ -23,7 +23,13 @@ final class RetrievalDecisionParser
             throw new InvalidArgumentException('Retrieval decision is missing intent.');
         }
 
-        [$primaryModule, $modules] = $this->modules($decoded);
+        $isLegacyDecision = ! array_key_exists('primary_module', $decoded) && ! array_key_exists('modules', $decoded) && isset($decoded['needs']);
+        if (! $isLegacyDecision && (! array_key_exists('is_in_scope', $decoded) || ! is_bool($decoded['is_in_scope']))) {
+            throw new InvalidArgumentException('Retrieval decision is_in_scope is required and must be boolean.');
+        }
+        $isInScope = $isLegacyDecision ? true : $decoded['is_in_scope'];
+
+        [$primaryModule, $modules] = $this->modules($decoded, $isInScope, $isLegacyDecision);
 
         $parameters = [];
         $paramsRaw = $decoded['parameters'] ?? [];
@@ -39,35 +45,49 @@ final class RetrievalDecisionParser
         }
         $this->validateParameters($parameters);
 
-        $isLegacyDecision = ! isset($decoded['primary_module'], $decoded['modules']) && isset($decoded['needs']);
         $responseTemplate = trim((string) ($decoded['response_template'] ?? ($isLegacyDecision ? 'text' : '')));
         if (! AgentResponseTemplateCatalog::supports($responseTemplate)) {
             throw new InvalidArgumentException('Retrieval decision response_template is missing or unknown.');
         }
 
+        $requiresParameterExtraction = (bool) ($decoded['requires_parameter_extraction'] ?? false);
+        $requiresUserConfirmation = (bool) ($decoded['requires_user_confirmation'] ?? false);
+        if (! $isInScope && ($parameters !== [] || $requiresParameterExtraction || $requiresUserConfirmation || $responseTemplate !== 'text')) {
+            throw new InvalidArgumentException('Out-of-scope retrieval decision must use the canonical no-retrieval text shape.');
+        }
+
         return new RetrievalDecision(
+            isInScope: $isInScope,
             intent: $intent,
             primaryModule: $primaryModule,
             modules: $modules,
             parameters: $parameters,
-            requiresParameterExtraction: (bool) ($decoded['requires_parameter_extraction'] ?? false),
-            requiresUserConfirmation: (bool) ($decoded['requires_user_confirmation'] ?? false),
+            requiresParameterExtraction: $requiresParameterExtraction,
+            requiresUserConfirmation: $requiresUserConfirmation,
             responseTemplate: $responseTemplate,
         );
     }
 
-    /** @param array<string, mixed> $decoded @return array{string, list<string>} */
-    private function modules(array $decoded): array
+    /** @param array<string, mixed> $decoded @return array{string|null, list<string>} */
+    private function modules(array $decoded, bool $isInScope, bool $isLegacyDecision): array
     {
-        if (isset($decoded['primary_module']) || isset($decoded['modules'])) {
-            $primary = trim((string) ($decoded['primary_module'] ?? ''));
+        if (! $isLegacyDecision) {
+            $primaryRaw = $decoded['primary_module'] ?? null;
+            $primary = $primaryRaw === null ? null : trim((string) $primaryRaw);
             $modules = $decoded['modules'] ?? null;
-            if (! in_array($primary, self::MODULES, true) || ! is_array($modules) || ! array_is_list($modules)) {
+            if (! is_array($modules) || ! array_is_list($modules)) {
                 throw new InvalidArgumentException('Retrieval decision modules are invalid.');
             }
             $normalized = array_map(static fn (mixed $v): string => trim((string) $v), $modules);
-            if ($normalized === [] || count($normalized) !== count(array_unique($normalized))) {
-                throw new InvalidArgumentException('Retrieval decision modules must be a unique non-empty list.');
+            if ($normalized === []) {
+                if ($primary !== null) {
+                    throw new InvalidArgumentException('A no-retrieval decision must use a null primary_module.');
+                }
+
+                return [null, []];
+            }
+            if (! $isInScope || ! in_array($primary, self::MODULES, true) || count($normalized) !== count(array_unique($normalized))) {
+                throw new InvalidArgumentException('Retrieval decision modules must be a valid unique list.');
             }
             foreach ($normalized as $module) {
                 if (! in_array($module, self::MODULES, true)) {

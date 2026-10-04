@@ -248,7 +248,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_module_aware_routing_decision_schema_and_parameters(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"improve articles","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
         self::assertSame('2026-09', $decision->parameters['period']);
         self::assertSame('articles', $decision->primaryModule);
         self::assertSame(15, $decision->parameters['limit_min']);
@@ -265,8 +265,8 @@ final class AgentRuntimeContractTest extends TestCase
         $parser = new RetrievalDecisionParser();
 
         foreach ([
-            '{"intent":"x","primary_module":"site","modules":["site"],"parameters":{}}',
-            '{"intent":"x","primary_module":"site","modules":["site"],"parameters":{},"response_template":"dashboard"}',
+            '{"is_in_scope":true,"intent":"x","primary_module":"site","modules":["site"],"parameters":{}}',
+            '{"is_in_scope":true,"intent":"x","primary_module":"site","modules":["site"],"parameters":{},"response_template":"dashboard"}',
         ] as $raw) {
             try {
                 $parser->parse($raw);
@@ -278,6 +278,102 @@ final class AgentRuntimeContractTest extends TestCase
 
         $legacy = $parser->parse('{"intent":"legacy","needs":{"site":1},"parameters":{}}');
         self::assertSame('text', $legacy->responseTemplate);
+        self::assertTrue($legacy->isInScope);
+    }
+
+    public function test_scope_contract_accepts_no_retrieval_and_rejects_contradictions(): void
+    {
+        $parser = new RetrievalDecisionParser();
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"summarize conversation","primary_module":null,"modules":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        self::assertTrue($decision->isInScope);
+        self::assertNull($decision->primaryModule);
+        self::assertSame([], $decision->modules);
+
+        foreach ([
+            '{"intent":"missing scope","primary_module":"site","modules":["site"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":false,"intent":"weather","primary_module":"gsc","modules":["gsc"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":false,"intent":"weather","primary_module":"site","modules":[],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":false,"intent":"weather","primary_module":null,"modules":[],"parameters":{},"response_template":"report"}',
+        ] as $raw) {
+            try {
+                $parser->parse($raw);
+                self::fail('Contradictory scope decision was accepted.');
+            } catch (InvalidArgumentException) {
+                self::assertTrue(true);
+            }
+        }
+    }
+
+    public function test_in_scope_no_retrieval_skips_retrieval_and_runs_answer_stage(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"summarize conversation","primary_module":null,"modules":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}'),
+            $answers,
+            $transport,
+        );
+
+        $result = $coordinator->send(1, AgentProjectScope::site(7), 'Tóm tắt cuộc trao đổi này', []);
+
+        self::assertSame([], $transport->calls);
+        self::assertSame(1, $answers->calls);
+        self::assertTrue($result->answerModelCalled);
+        self::assertStringContainsString('"selected_response_template":"text"', $result->answerInput->exportText());
+    }
+
+    public function test_out_of_scope_stops_before_retrieval_and_answer_model(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator(
+            new ScriptedDecisionGateway('{"is_in_scope":false,"intent":"weather request","primary_module":null,"modules":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}'),
+            $answers,
+            $transport,
+        );
+
+        $result = $coordinator->send(1, AgentProjectScope::site(7), 'Thời tiết hôm nay?', []);
+
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+        self::assertFalse($result->answerModelCalled);
+        self::assertSame([], $result->response->actions);
+        self::assertSame([], $result->response->sources);
+        self::assertStringContainsString('ngoài phạm vi Agent SEO nội bộ', $result->response->message);
+    }
+
+    public function test_scope_contract_evaluation_matrix(): void
+    {
+        $cases = [
+            ['Tình hình SEO site hiện tại?', true, 'site', ['site', 'gsc'], 'report'],
+            ['Cho tôi 20 bài tệ nhất', true, 'articles', ['articles'], 'table'],
+            ['Thông tin article:123', true, 'articles', ['articles'], 'schema'],
+            ['Nên viết thêm gì?', true, 'topics', ['topics', 'keywords', 'site'], 'report'],
+            ['Bạn có thể làm gì?', true, null, [], 'text'],
+            ['Tóm tắt cuộc trao đổi này', true, null, [], 'text'],
+            ['Thời tiết hôm nay?', false, null, [], 'text'],
+            ['Viết game React', false, null, [], 'text'],
+            ['Ai là tổng thống Mỹ?', false, null, [], 'text'],
+            ['Kể chuyện cười', false, null, [], 'text'],
+        ];
+        $parser = new RetrievalDecisionParser();
+
+        foreach ($cases as [$request, $isInScope, $primary, $modules, $template]) {
+            $decision = $parser->parse(json_encode([
+                'is_in_scope' => $isInScope,
+                'intent' => $request,
+                'primary_module' => $primary,
+                'modules' => $modules,
+                'parameters' => [],
+                'requires_parameter_extraction' => false,
+                'requires_user_confirmation' => false,
+                'response_template' => $template,
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+
+            self::assertSame($isInScope, $decision->isInScope, $request);
+            self::assertSame($modules !== [], $decision->modules !== [], $request);
+            self::assertSame($template, $decision->responseTemplate, $request);
+        }
     }
 
     public function test_routing_catalog_and_selected_template_reach_model_inputs(): void
@@ -379,7 +475,7 @@ final class AgentRuntimeContractTest extends TestCase
             'https://app.example.test',
         );
         $planner = new RetrievalPlanner();
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
+        $decision = (new RetrievalDecisionParser())->parse('{"is_in_scope":true,"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
         $bundle = $executor->execute($planner->plan($decision, AgentProjectScope::site(7)));
 
         self::assertSame(['https://app.example.test/api/v1/services/seo/access'], array_values(array_unique(array_map(
@@ -464,8 +560,8 @@ final class AgentRuntimeContractTest extends TestCase
         foreach (['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'] as $module) {
             self::assertStringContainsString($module, $prompt);
         }
-        self::assertStringContainsString('concrete entity list', $prompt);
-        self::assertStringContainsString('ambiguous link questions include both internal_links and external_links', $prompt);
+        self::assertStringContainsString('Concrete entity lists use their owner', $prompt);
+        self::assertStringContainsString('Ambiguous link questions include internal_links and external_links', $prompt);
         self::assertStringContainsString('Existing-article improvement lists normally include articles, topics, keywords, internal_links, and gsc', $prompt);
         self::assertStringContainsString('New-content planning normally includes topics, keywords, site, content_projects, gsc, and articles', $prompt);
         self::assertStringNotContainsString('probabilities from 0 to 1', $prompt);
@@ -473,7 +569,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_business_modules_map_to_distinct_read_resources(): void
     {
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"links","primary_module":"internal_links","modules":["internal_links","external_links","topics","content_projects"],"parameters":{"period":"2026-09"},"response_template":"table"}');
+        $decision = (new RetrievalDecisionParser())->parse('{"is_in_scope":true,"intent":"links","primary_module":"internal_links","modules":["internal_links","external_links","topics","content_projects"],"parameters":{"period":"2026-09"},"response_template":"table"}');
         $transport = new RecordingTransport();
         (new SeoAccessExecutor($transport, new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } }, new SeoAccessUrlPolicy(), 'https://app.example.test'))
             ->execute((new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7)));
@@ -494,7 +590,7 @@ final class AgentRuntimeContractTest extends TestCase
             AgentProjectScope::site(7),
             'Tháng 9 này cần sửa những bài nào? gợi ý 15-30 bài',
             [],
-            '{"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"response_template":"table"}',
+            '{"is_in_scope":true,"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"response_template":"table"}',
         );
         self::assertSame('articles', $processed['decision']->primaryModule);
         self::assertStringContainsString('article:41', $processed['answerInput']->exportText());
@@ -1018,7 +1114,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $decision = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $run->ulid,
-            'manual_result' => '{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"response_template":"report"}',
+            'manual_result' => '{"is_in_scope":true,"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"response_template":"report"}',
         ]), $coordinator, $threads, $persistence, $resolver);
         $decisionData = $decision->getData(true)['data'];
         self::assertSame('paused', $decisionData['status']);
@@ -1237,7 +1333,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_article_ref_reaches_article_retrieval(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"inspect article","primary_module":"articles","modules":["articles"],"parameters":{"article_ref":"article:41"},"response_template":"schema"}');
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"inspect article","primary_module":"articles","modules":["articles"],"parameters":{"article_ref":"article:41"},"response_template":"schema"}');
         $planner = new RetrievalPlanner();
         $plan = $planner->plan($decision, AgentProjectScope::site(7));
 
@@ -1279,7 +1375,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_task_improve_affects_article_read_projection(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles"],"parameters":{"task":"improve","limit_max":20},"response_template":"table"}');
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"improve articles","primary_module":"articles","modules":["articles"],"parameters":{"task":"improve","limit_max":20},"response_template":"table"}');
         $planner = new RetrievalPlanner();
         $plan = $planner->plan($decision, AgentProjectScope::site(7));
 
@@ -1554,7 +1650,7 @@ final class AgentRuntimeContractTest extends TestCase
             }
         };
 
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"check status","primary_module":"articles","modules":["articles","gsc"],"parameters":{},"response_template":"report"}');
+        $decision = (new RetrievalDecisionParser())->parse('{"is_in_scope":true,"intent":"check status","primary_module":"articles","modules":["articles","gsc"],"parameters":{},"response_template":"report"}');
         $plan = (new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7));
         $bundle = (new SeoAccessExecutor(
             $transport,
@@ -1572,7 +1668,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_no_global_agent_behavior_is_enabled(): void
     {
         $global = AgentProjectScope::global();
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"test","primary_module":"site","modules":["site"],"parameters":{},"response_template":"text"}');
+        $decision = (new RetrievalDecisionParser())->parse('{"is_in_scope":true,"intent":"test","primary_module":"site","modules":["site"],"parameters":{},"response_template":"text"}');
         $plan = (new RetrievalPlanner())->plan($decision, $global);
 
         self::assertTrue($plan->globalUnsupported);

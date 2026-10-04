@@ -43,7 +43,10 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         $routing = DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing');
         $response = DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('response');
 
-        self::assertStringContainsString('Return one JSON object and nothing else.', $routing);
+        self::assertStringContainsString('Return one routing JSON object and nothing else.', $routing);
+        self::assertStringContainsString('First decide is_in_scope', $routing);
+        self::assertStringContainsString('Do not force them into an SEO module', $routing);
+        self::assertStringContainsString('Do not invent a site module', $routing);
         self::assertStringContainsString('requires_parameter_extraction', $routing);
         self::assertStringContainsString('response_template', $routing);
         self::assertStringContainsString('response_catalog', $routing);
