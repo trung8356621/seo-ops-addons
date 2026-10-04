@@ -56,6 +56,17 @@ class ListKeywords extends ListRecords
 
     public function mount(): void
     {
+        if (app()->environment('local')) {
+            \Illuminate\Support\Facades\Log::info('KEYWORD_RUNTIME_FRESHNESS_V1', [
+                'source' => __FILE__,
+                'php_version' => PHP_VERSION,
+                'php_ini' => php_ini_loaded_file(),
+                'opcache_enabled' => ini_get('opcache.enable'),
+                'opcache_validate_timestamps' => ini_get('opcache.validate_timestamps'),
+                'opcache_revalidate_freq' => ini_get('opcache.revalidate_freq'),
+            ]);
+        }
+
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->dispatchKeywordWorkspaceLanguageContext();
     }
