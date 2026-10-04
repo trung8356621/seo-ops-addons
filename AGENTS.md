@@ -17,9 +17,11 @@ For all coding, editing, debugging, testing, and implementation tasks, always ap
 
 - `seo-ops-execution-guard`
 - `seo-ops-token-discipline`
+- `compact-coding`
 
 `seo-ops-execution-guard` controls when to stop, change strategy, or ask the user.
-`seo-ops-token-discipline` controls context loading, reasoning/narration, tool-call volume, discovery, and verification cost.
+`seo-ops-token-discipline` controls context loading, tool-call volume, discovery, and verification cost.
+`compact-coding` requires deep execution, proper verification, and minimal reporting.
 
 These skills are mandatory unless the user explicitly overrides them.
 
