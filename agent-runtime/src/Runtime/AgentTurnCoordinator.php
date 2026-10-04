@@ -23,13 +23,14 @@ use Throwable;
 final class AgentTurnResult
 {
     public function __construct(
-        public AgentResponse $response,
+        public ?AgentResponse $response,
         public PreparedModelInput $routingInput,
-        public PreparedModelInput $answerInput,
+        public ?PreparedModelInput $answerInput,
         public bool $answerModelCalled,
         public ?string $failureCode = null,
         public ?array $answerDiagnostics = null,
         public ?array $modelDiagnostics = null,
+        public ?AgentToolConfirmationProposal $confirmationProposal = null,
     ) {}
 
     /**
@@ -38,9 +39,9 @@ final class AgentTurnResult
     public function toArray(): array
     {
         $data = [
-            'response' => $this->response->toArray(),
+            'response' => $this->response?->toArray(),
             'copy' => [
-                'answer' => $this->answerInput->exportText(),
+                'answer' => $this->answerInput?->exportText(),
                 'routing' => $this->routingInput->exportText(),
             ],
             'answer_model_called' => $this->answerModelCalled,
@@ -73,16 +74,22 @@ final readonly class AgentTurnProgress
     private function __construct(
         public ?AgentTurnResult $result,
         public ?InterceptedModelCall $modelCall,
+        public ?AgentToolConfirmationProposal $confirmationProposal,
     ) {}
 
     public static function paused(InterceptedModelCall $call): self
     {
-        return new self(null, $call);
+        return new self(null, $call, null);
     }
 
     public static function completed(AgentTurnResult $result): self
     {
-        return new self($result, null);
+        return new self($result, null, null);
+    }
+
+    public static function confirmationRequired(AgentToolConfirmationProposal $proposal): self
+    {
+        return new self(null, null, $proposal);
     }
 }
 
@@ -125,6 +132,16 @@ class AgentTurnCoordinator
                 $prepared['failureCode'],
                 null,
                 $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
+            );
+        }
+
+        if ($prepared['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            return new AgentTurnResult(
+                null,
+                $prepared['routing'],
+                null,
+                false,
+                confirmationProposal: $prepared['confirmationProposal'],
             );
         }
 
@@ -235,6 +252,10 @@ class AgentTurnCoordinator
                 ));
             }
 
+            if ($processed['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+                return AgentTurnProgress::confirmationRequired($processed['confirmationProposal']);
+            }
+
             return AgentTurnProgress::paused(new InterceptedModelCall('answer', $processed['answerInput'], [
                 'routing_input' => $state['routing_input'],
                 'bundle' => $processed['bundle']->toArray(),
@@ -266,6 +287,15 @@ class AgentTurnCoordinator
     public function copy(int $userId, AgentProjectScope $scope, string $message, array $history): AgentTurnResult
     {
         $prepared = $this->prepare($userId, $scope, $message, $history);
+        if ($prepared['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            return new AgentTurnResult(
+                null,
+                $prepared['routing'],
+                null,
+                false,
+                confirmationProposal: $prepared['confirmationProposal'],
+            );
+        }
         $response = $prepared['response'] instanceof AgentResponse
             ? $prepared['response']
             : $this->safeResponse('Model input is ready. Copy does not call the model.', $prepared['bundle']);
@@ -293,7 +323,7 @@ class AgentTurnCoordinator
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{bundle: RetrievalBundle, answerInput: PreparedModelInput, decision: \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecision|null, response: AgentResponse|null, error: string|null}
+     * @return array{bundle: RetrievalBundle|null, answerInput: PreparedModelInput|null, decision: \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecision|null, response: AgentResponse|null, confirmationProposal: AgentToolConfirmationProposal|null, error: string|null}
      */
     public function processDecisionAndRetrieve(
         AgentProjectScope $scope,
@@ -315,6 +345,7 @@ class AgentTurnCoordinator
                 'answerInput' => $answerInput,
                 'decision' => null,
                 'response' => null,
+                'confirmationProposal' => null,
                 'error' => 'All Sites is selected, but a global SEO Access API is not available. Ask again inside a site project.',
             ];
         }
@@ -330,7 +361,20 @@ class AgentTurnCoordinator
                 'answerInput' => $answerInput,
                 'decision' => null,
                 'response' => null,
+                'confirmationProposal' => null,
                 'error' => $e->getMessage() ?: 'The routing model did not return a usable decision, so no SEO data was fetched.',
+            ];
+        }
+
+        $confirmationProposal = AgentToolConfirmationProposal::fromDecision($decision, $scope);
+        if ($confirmationProposal !== null) {
+            return [
+                'bundle' => null,
+                'answerInput' => null,
+                'decision' => $decision,
+                'response' => null,
+                'confirmationProposal' => $confirmationProposal,
+                'error' => null,
             ];
         }
 
@@ -345,6 +389,7 @@ class AgentTurnCoordinator
                 'answerInput' => $answerInput,
                 'decision' => $decision,
                 'response' => $this->outOfScopeResponse(),
+                'confirmationProposal' => null,
                 'error' => null,
             ];
         }
@@ -354,6 +399,7 @@ class AgentTurnCoordinator
             'answerInput' => $answerInput,
             'decision' => $decision,
             'response' => null,
+            'confirmationProposal' => null,
             'error' => null,
         ];
     }
@@ -365,7 +411,7 @@ class AgentTurnCoordinator
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{routing: PreparedModelInput, answer: PreparedModelInput, bundle: RetrievalBundle, response: AgentResponse|null, failureCode: string|null, decisionDiagnostics?: array|null}
+     * @return array{routing: PreparedModelInput, answer: PreparedModelInput|null, bundle: RetrievalBundle|null, response: AgentResponse|null, confirmationProposal: AgentToolConfirmationProposal|null, failureCode: string|null, decisionDiagnostics?: array|null}
      */
     private function prepare(int $userId, AgentProjectScope $scope, string $message, array $history, bool $diagnostics = false): array
     {
@@ -384,6 +430,7 @@ class AgentTurnCoordinator
                 ),
                 'failureCode' => 'global_access_unsupported',
                 'decisionDiagnostics' => null,
+                'confirmationProposal' => null,
             ];
         }
 
@@ -408,6 +455,7 @@ class AgentTurnCoordinator
                 ),
                 'failureCode' => $decisionResult->failureCode ?? 'decision_unavailable',
                 'decisionDiagnostics' => $decisionDiagnostics,
+                'confirmationProposal' => null,
             ];
         }
 
@@ -431,6 +479,19 @@ class AgentTurnCoordinator
                 ),
                 'failureCode' => 'routing_decision_invalid',
                 'decisionDiagnostics' => $decisionDiagnostics,
+                'confirmationProposal' => null,
+            ];
+        }
+
+        if ($processed['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            return [
+                'routing' => $routingInput,
+                'answer' => null,
+                'bundle' => null,
+                'response' => null,
+                'confirmationProposal' => $processed['confirmationProposal'],
+                'failureCode' => null,
+                'decisionDiagnostics' => null,
             ];
         }
 
@@ -442,6 +503,7 @@ class AgentTurnCoordinator
                 'response' => $processed['response'],
                 'failureCode' => null,
                 'decisionDiagnostics' => null,
+                'confirmationProposal' => null,
             ];
         }
 
@@ -456,6 +518,7 @@ class AgentTurnCoordinator
             'response' => null,
             'failureCode' => $this->failureCodeFromBundle($processed['bundle']),
             'decisionDiagnostics' => null,
+            'confirmationProposal' => null,
         ];
     }
 

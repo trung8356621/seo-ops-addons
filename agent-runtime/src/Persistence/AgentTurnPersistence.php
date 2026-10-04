@@ -9,6 +9,7 @@ use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal;
 
 class AgentTurnPersistence
 {
@@ -98,6 +99,18 @@ class AgentTurnPersistence
             'retrieval_summary' => [
                 'model_call' => $callKey,
                 'runtime_state' => $state,
+            ],
+        ]);
+    }
+
+    public function pauseForConfirmation(AgentRun $run, AgentToolConfirmationProposal $proposal): void
+    {
+        $run->update([
+            'status' => 'awaiting_confirmation',
+            'retrieval_summary' => [
+                'confirmation' => [
+                    'proposal' => $proposal->toArray(),
+                ],
             ],
         ]);
     }

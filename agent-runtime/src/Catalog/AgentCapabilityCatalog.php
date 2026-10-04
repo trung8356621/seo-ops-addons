@@ -62,6 +62,25 @@ final class AgentCapabilityCatalog
         return (self::all()[$key]['jev_selectable'] ?? false) === true;
     }
 
+    public static function requiresConfirmation(string $key): bool
+    {
+        return (self::get($key)['requires_confirmation'] ?? false) === true;
+    }
+
+    public static function executionMode(string $key): string
+    {
+        return (string) (self::get($key)['execution_mode'] ?? '');
+    }
+
+    /** @param list<string> $capabilities @return list<string> */
+    public static function toolCapabilities(array $capabilities): array
+    {
+        return array_values(array_filter(
+            $capabilities,
+            static fn (string $key): bool => self::executionMode($key) === 'tool' && self::requiresConfirmation($key),
+        ));
+    }
+
     /** @param list<string> $capabilities @return list<string> */
     public static function modulesFor(array $capabilities): array
     {

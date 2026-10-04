@@ -479,6 +479,139 @@ final class AgentRuntimeContractTest extends TestCase
         }
     }
 
+    public function test_tool_capabilities_pause_whole_decision_before_retrieval_or_answer(): void
+    {
+        foreach ([
+            ['gsc.performance', ['gsc.performance'], ['period' => '2026-09']],
+            ['seo_audit.worst_articles', ['seo_audit.worst_articles'], ['limit_max' => 20]],
+            ['seo_audit.worst_articles', ['seo_audit.worst_articles', 'keywords.landscape'], ['limit_max' => 20]],
+        ] as [$primary, $capabilities, $parameters]) {
+            $answers = new RecordingAnswerGateway();
+            $transport = new RecordingTransport();
+            $raw = json_encode([
+                'is_in_scope' => true,
+                'intent' => 'tool request',
+                'primary_capability' => $primary,
+                'capabilities' => $capabilities,
+                'parameters' => $parameters,
+                'requires_parameter_extraction' => false,
+                'requires_user_confirmation' => false,
+                'response_template' => $primary === 'gsc.performance' ? 'report' : 'table',
+            ], JSON_THROW_ON_ERROR);
+            $result = $this->coordinator(new ScriptedDecisionGateway($raw), $answers, $transport)
+                ->send(1, AgentProjectScope::site(7), 'Run tool', []);
+
+            self::assertNotNull($result->confirmationProposal);
+            self::assertSame([$primary], $result->confirmationProposal->toolCapabilities);
+            self::assertSame($capabilities, $result->confirmationProposal->capabilities);
+            self::assertSame(['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'], $result->confirmationProposal->scope);
+            self::assertSame([], $transport->calls);
+            self::assertSame(0, $answers->calls);
+            self::assertNull($result->answerInput);
+            self::assertNull($result->response);
+        }
+    }
+
+    public function test_registry_ignores_model_confirmation_flag_for_direct_capability(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $result = $this->coordinator(
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report"}'),
+            $answers,
+            $transport,
+        )->send(1, AgentProjectScope::site(7), 'Keywords?', []);
+
+        self::assertNull($result->confirmationProposal);
+        self::assertNotEmpty($transport->calls);
+        self::assertSame(1, $answers->calls);
+    }
+
+    public function test_confirmation_run_is_persisted_and_blocks_thread_archive(): void
+    {
+        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}'), new RecordingAnswerGateway(), new RecordingTransport());
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $controller = new AgentRuntimeController();
+
+        $response = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Analyze GSC September',
+        ]), $coordinator, $sites, $threads, $persistence);
+        $data = $response->getData(true)['data'];
+        self::assertSame('awaiting_confirmation', $data['status']);
+        self::assertSame(['intent' => 'analyze GSC', 'tool_capabilities' => ['gsc.performance'], 'parameters' => ['period' => '2026-09']], $data['confirmation']);
+
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $data['run_ulid'])->firstOrFail();
+        self::assertSame('awaiting_confirmation', $run->status);
+        self::assertSame([
+            'intent' => 'analyze GSC',
+            'primary_capability' => 'gsc.performance',
+            'capabilities' => ['gsc.performance'],
+            'parameters' => ['period' => '2026-09'],
+            'response_template' => 'report',
+            'tool_capabilities' => ['gsc.performance'],
+            'scope' => ['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'],
+        ], $run->retrieval_summary['confirmation']['proposal']);
+
+        $archive = $controller->archiveThread($this->createTurnRequest([], userId: 1), $data['thread_ulid'], $threads);
+        self::assertSame(422, $archive->getStatusCode());
+    }
+
+    public function test_intercepted_tool_decision_yields_confirmation_not_answer_pause(): void
+    {
+        $answers = new RecordingAnswerGateway();
+        $transport = new RecordingTransport();
+        $coordinator = $this->coordinator(new RecordingDecisionGateway('unused'), $answers, $transport);
+        $scope = AgentProjectScope::site(7);
+        $start = $coordinator->startIntercepted($scope, 'Analyze GSC', []);
+
+        $progress = $coordinator->resumeIntercepted(
+            $scope,
+            'Analyze GSC',
+            [],
+            'decision',
+            '{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}',
+            $start->modelCall->state,
+        );
+
+        self::assertNotNull($progress->confirmationProposal);
+        self::assertNull($progress->modelCall);
+        self::assertNull($progress->result);
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
+    }
+
+    public function test_debug_apply_persists_tool_confirmation_instead_of_answer_pause(): void
+    {
+        $coordinator = $this->coordinator(new RecordingDecisionGateway('unused'), new RecordingAnswerGateway(), new RecordingTransport());
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $resolver = new MockAssumedModelResolver();
+        $controller = new AgentRuntimeController();
+
+        $start = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Find worst articles',
+            'debug_mode' => true,
+        ]), $coordinator, $sites, $threads, $persistence, $resolver)->getData(true)['data'];
+        self::assertSame('decision', $start['model_call']['key']);
+
+        $applied = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $start['run_ulid'],
+            'manual_result' => '{"is_in_scope":true,"intent":"find worst articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}',
+        ]), $coordinator, $threads, $persistence, $resolver)->getData(true)['data'];
+
+        self::assertSame('awaiting_confirmation', $applied['status']);
+        self::assertArrayNotHasKey('model_call', $applied);
+        self::assertSame(['seo_audit.worst_articles'], $applied['confirmation']['tool_capabilities']);
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $start['run_ulid'])->firstOrFail();
+        self::assertSame('awaiting_confirmation', $run->status);
+        self::assertArrayNotHasKey('model_call', $run->retrieval_summary);
+    }
+
     public function test_unavailable_gsc_is_not_measured_zero(): void
     {
         $bundle = new RetrievalBundle(AgentProjectScope::site(7), [
@@ -678,7 +811,7 @@ final class AgentRuntimeContractTest extends TestCase
             AgentProjectScope::site(7),
             'Tháng 9 này cần sửa những bài nào? gợi ý 15-30 bài',
             [],
-            '{"is_in_scope":true,"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"response_template":"table"}',
+            '{"is_in_scope":true,"intent":"review article inventory","primary_capability":"articles.inventory","capabilities":["articles.inventory","keywords.landscape"],"parameters":{"limit_min":15,"limit_max":30},"response_template":"table"}',
         );
         self::assertSame('articles', $processed['decision']->primaryModule);
         self::assertStringContainsString('article:41', $processed['answerInput']->exportText());
@@ -845,12 +978,12 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertArrayNotHasKey('answer_model_called', $data);
     }
 
-    public function test_unavailable_gsc_metadata_is_preserved_in_controller_response(): void
+    public function test_gsc_controller_turn_requires_confirmation_before_access(): void
     {
         $transport = new RecordingTransport();
         $answers = new RecordingAnswerGateway();
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"traffic","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_user_confirmation":false,"response_template":"report"}'),
             $answers,
             $transport,
         );
@@ -866,25 +999,17 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
 
         $data = $response->getData(true)['data'];
-        self::assertNotEmpty($data['sources']);
-        $gscSource = null;
-        foreach ($data['sources'] as $src) {
-            if (($src['name'] ?? null) === 'gsc') {
-                $gscSource = $src;
-                break;
-            }
-        }
-        self::assertNotNull($gscSource);
-        self::assertSame('unavailable', $gscSource['status']);
-        self::assertSame('no_synced_data', $gscSource['reason']);
-        self::assertSame(['period' => '2026-07'], $gscSource['data']['latest_available']);
+        self::assertSame('awaiting_confirmation', $data['status']);
+        self::assertSame(['gsc.performance'], $data['confirmation']['tool_capabilities']);
+        self::assertSame([], $transport->calls);
+        self::assertSame(0, $answers->calls);
     }
 
     public function test_model_input_copy_endpoint_shares_prepared_input_without_model_completion(): void
     {
         $answers = new RecordingAnswerGateway();
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report"}'),
             $answers,
         );
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
@@ -892,7 +1017,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $request = $this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7],
-            'message' => 'Thang 9 traffic co van de gi?',
+            'message' => 'Keyword landscape thế nào?',
         ], userId: 1);
 
         $copyResponse = $controller->modelInput($request, $coordinator, $sites);
@@ -1202,7 +1327,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $decision = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $run->ulid,
-            'manual_result' => '{"is_in_scope":true,"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"response_template":"report"}',
+            'manual_result' => '{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report"}',
         ]), $coordinator, $threads, $persistence, $resolver);
         $decisionData = $decision->getData(true)['data'];
         self::assertSame('paused', $decisionData['status']);
@@ -1246,7 +1371,7 @@ final class AgentRuntimeContractTest extends TestCase
             'actions' => [],
         ], JSON_THROW_ON_ERROR));
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report"}'),
             $answers,
             new RecordingTransport('no_gsc_property'),
         );

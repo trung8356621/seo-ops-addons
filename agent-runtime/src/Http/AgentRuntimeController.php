@@ -273,6 +273,14 @@ final class AgentRuntimeController
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
         $result = $coordinator->copy($userId, $scope, $message, $history);
 
+        if ($result->confirmationProposal !== null) {
+            return new JsonResponse(['data' => [
+                'status' => 'awaiting_confirmation',
+                'confirmation' => $result->confirmationProposal->clientPayload(),
+                'copy' => ['routing' => $result->routingInput->exportText(), 'answer' => null],
+            ]]);
+        }
+
         return new JsonResponse([
             'data' => [
                 'copy' => [
@@ -461,7 +469,7 @@ final class AgentRuntimeController
         }
 
         $activeRunsCount = $thread->runs()
-            ->whereIn('status', ['running', 'awaiting_model'])
+            ->whereIn('status', ['running', 'awaiting_model', 'awaiting_confirmation'])
             ->count();
         if ($activeRunsCount > 0) {
             return new JsonResponse(['message' => 'Cannot archive thread with an active run.'], 422);
@@ -639,6 +647,17 @@ final class AgentRuntimeController
             }
 
             $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics);
+            if ($result->confirmationProposal !== null) {
+                $persistence->pauseForConfirmation($run, $result->confirmationProposal);
+
+                return new JsonResponse(['data' => [
+                    'status' => 'awaiting_confirmation',
+                    'run_ulid' => $run->ulid,
+                    'thread_ulid' => $thread->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'confirmation' => $result->confirmationProposal->clientPayload(),
+                ]]);
+            }
             $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
             if ($result->failureCode !== null) {
                 $meta['failure_code'] = $result->failureCode;
@@ -706,6 +725,18 @@ final class AgentRuntimeController
         int $userId,
         array $turnState,
     ): JsonResponse {
+        if ($progress->confirmationProposal !== null) {
+            $persistence->pauseForConfirmation($run, $progress->confirmationProposal);
+
+            return new JsonResponse(['data' => [
+                'status' => 'awaiting_confirmation',
+                'run_ulid' => $run->ulid,
+                'thread_ulid' => $thread->ulid,
+                'user_message_id' => $run->user_message_id,
+                'confirmation' => $progress->confirmationProposal->clientPayload(),
+            ]]);
+        }
+
         if ($progress->modelCall !== null) {
             $call = $progress->modelCall;
             $state = $call->state;
