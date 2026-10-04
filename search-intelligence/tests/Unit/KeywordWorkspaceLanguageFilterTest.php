@@ -33,6 +33,21 @@ final class KeywordWorkspaceLanguageFilterTest extends TestCase
         $this->assertStringContainsString('<x-select', $nav);
     }
 
+    public function test_workspace_nav_skips_redundant_bootstrap_language_update(): void
+    {
+        $nav = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/partials/keyword-workspace-nav.blade.php',
+        ));
+
+        $this->assertStringContainsString('selectedLanguage: @js($selectedLanguage)', $nav);
+        $this->assertStringContainsString("selectedLanguage: String(config.selectedLanguage ?? '')", $nav);
+        $this->assertStringContainsString('candidate !== this.selectedLanguage', $nav);
+        $this->assertStringContainsString("this.\$wire.set('keywordLanguageFilter', candidate)", $nav);
+        $this->assertStringContainsString('this.selectedLanguage = candidate', $nav);
+        $this->assertStringContainsString("this.selectedLanguage = String(detail?.selectedLanguage ?? '')", $nav);
+        $this->assertStringContainsString('wire:init="loadKeywordWorkspaceStatistics"', $nav);
+    }
+
     public function test_language_scope_supports_legacy_variants(): void
     {
         $scope = (string) file_get_contents(dirname(__DIR__, 2)

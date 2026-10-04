@@ -42,6 +42,7 @@
                 x-data="keywordWorkspaceLanguageFilter({
                     siteId: @js((int) $languageSiteId),
                     primaryLanguage: @js($primaryLanguage),
+                    selectedLanguage: @js($selectedLanguage),
                     optionCodes: @js(array_keys($languageOptions)),
                     storageKeyPrefix: 'keywordWorkspace.language.',
                 })"
@@ -73,6 +74,7 @@
             return {
                 siteId: config.siteId ?? 0,
                 primaryLanguage: config.primaryLanguage ?? '',
+                selectedLanguage: String(config.selectedLanguage ?? ''),
                 optionCodes: Array.isArray(config.optionCodes) ? config.optionCodes : [],
                 storageKeyPrefix: config.storageKeyPrefix ?? 'keywordWorkspace.language.',
                 init() {
@@ -99,6 +101,8 @@
                     } catch (error) {
                         // ignore storage failures
                     }
+
+                    this.selectedLanguage = normalized;
                 },
                 applyStoredSelection() {
                     const stored = this.readStored();
@@ -115,13 +119,15 @@
                         select.value = candidate;
                     }
 
-                    if (this.$wire && typeof this.$wire.set === 'function') {
+                    if (candidate !== this.selectedLanguage && this.$wire && typeof this.$wire.set === 'function') {
                         this.$wire.set('keywordLanguageFilter', candidate);
+                        this.selectedLanguage = candidate;
                     }
                 },
                 onSiteChanged(detail) {
                     this.siteId = Number(detail?.siteId ?? 0);
                     this.primaryLanguage = String(detail?.primaryLanguage ?? '');
+                    this.selectedLanguage = String(detail?.selectedLanguage ?? '');
                     this.optionCodes = Array.isArray(detail?.optionCodes) ? detail.optionCodes : [];
                     this.$nextTick(() => this.applyStoredSelection());
                 },
