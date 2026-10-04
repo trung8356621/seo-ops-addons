@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\AiPrompt\DataTransfer\NormalizedAiProviderTemplate;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiProviderTemplateException;
 use Omnichannel\Addons\AiPrompt\Support\AiProviderAuthType;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 
 final class AiProviderSecureHttpClient
 {
@@ -40,7 +41,14 @@ final class AiProviderSecureHttpClient
 
         $path = $this->urls->assertRelativePath((string) ($endpoint['path'] ?? ''));
         $url = $template->baseUrl.$path;
-        $this->urls->assertSafeUrl($url);
+        $dnsStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        try {
+            $this->urls->assertSafeUrl($url);
+        } finally {
+            if ($dnsStarted > 0) {
+                AiLatencyDiag::addAttemptMs('url_guard_dns_ms', (hrtime(true) - $dnsStarted) / 1_000_000);
+            }
+        }
 
         $headers = $template->headers;
         foreach ($extraHeaders as $name => $value) {
@@ -58,10 +66,17 @@ final class AiProviderSecureHttpClient
             $pending = $pending->withHeaders($headers);
         }
 
-        $response = match ($method) {
-            'GET' => $pending->get($url, $query),
-            default => $pending->post($url, $jsonBody ?? []),
-        };
+        $httpStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
+        try {
+            $response = match ($method) {
+                'GET' => $pending->get($url, $query),
+                default => $pending->post($url, $jsonBody ?? []),
+            };
+        } finally {
+            if ($httpStarted > 0) {
+                AiLatencyDiag::addAttemptMs('http_roundtrip_ms', (hrtime(true) - $httpStarted) / 1_000_000);
+            }
+        }
 
         return $response;
     }

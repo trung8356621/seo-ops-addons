@@ -22,6 +22,9 @@ final class AiLatencyDiag
     /** @var list<array<string, mixed>> */
     private static array $providerAttempts = [];
 
+    /** @var array<string, float> */
+    private static array $attemptSpansMs = [];
+
     public static function enable(): void
     {
         self::$forcedOn = true;
@@ -53,6 +56,7 @@ final class AiLatencyDiag
         self::$spansMs = [];
         self::$meta = [];
         self::$providerAttempts = [];
+        self::$attemptSpansMs = [];
     }
 
     /**
@@ -90,6 +94,33 @@ final class AiLatencyDiag
         }
 
         self::$spansMs[$name] = round($ms, 3);
+    }
+
+    public static function beginProviderAttempt(): void
+    {
+        if (self::isEnabled()) {
+            self::$attemptSpansMs = [];
+        }
+    }
+
+    public static function addAttemptMs(string $name, float $ms): void
+    {
+        if (! self::isEnabled()) {
+            return;
+        }
+
+        $ms = round($ms, 3);
+        self::$spansMs[$name] = round((self::$spansMs[$name] ?? 0.0) + $ms, 3);
+        self::$attemptSpansMs[$name] = round((self::$attemptSpansMs[$name] ?? 0.0) + $ms, 3);
+    }
+
+    /** @return array<string, float> */
+    public static function consumeProviderAttemptSpans(): array
+    {
+        $spans = self::$attemptSpansMs;
+        self::$attemptSpansMs = [];
+
+        return $spans;
     }
 
     public static function setMeta(string $key, mixed $value): void

@@ -16,6 +16,7 @@ use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProto
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 use RuntimeException;
 
 /**
@@ -159,6 +160,7 @@ final class CanonicalAiTextExecutionService
         string $hookKey,
         array $options,
     ): array {
+        $preflightStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $preflight = $this->budgetPreflight();
         $capability = $preflight->capabilities()->resolve($routed);
         $strategy = $preflight->strategies()->forHook($hookKey);
@@ -192,7 +194,13 @@ final class CanonicalAiTextExecutionService
             'minimum_required_output_tokens' => max(64, (int) floor($desired * 0.35)),
         ];
 
-        $budgetPlan = $preflight->assertSendable($routed, $compiledPrompt, $hookKey, $planOptions);
+        try {
+            $budgetPlan = $preflight->assertSendable($routed, $compiledPrompt, $hookKey, $planOptions);
+        } finally {
+            if ($preflightStarted > 0) {
+                AiLatencyDiag::addAttemptMs('budget_preflight_ms', (hrtime(true) - $preflightStarted) / 1_000_000);
+            }
+        }
 
         $callOptions = array_merge($routed->options, $options, [
             'max_output' => $budgetPlan->requestedMaxOutputTokens > 0

@@ -18,6 +18,7 @@ use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
+use Omnichannel\Addons\SearchIntelligence\Support\Diagnostics\KeywordRequestProfiler;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
@@ -56,8 +57,10 @@ class ListKeywords extends ListRecords
 
     public function mount(): void
     {
+        KeywordRequestProfiler::start('list_keywords_mount');
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->dispatchKeywordWorkspaceLanguageContext();
+        KeywordRequestProfiler::stop('list_keywords_mount');
     }
 
     public function getKeywordWorkspaceMode(): string
@@ -188,6 +191,7 @@ class ListKeywords extends ListRecords
 
     public function table(Table $table): Table
     {
+        KeywordRequestProfiler::start('list_keywords_table_definition');
         $table = KeywordResource::table($table);
 
         $table
@@ -198,8 +202,12 @@ class ListKeywords extends ListRecords
                 return $this->applyTopicAssignmentTableFilter($query);
             });
 
-        return $table
+        $table = $table
             ->actions($this->listPageTableActions());
+
+        KeywordRequestProfiler::stop('list_keywords_table_definition');
+
+        return $table;
     }
 
     public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
@@ -474,7 +482,11 @@ class ListKeywords extends ListRecords
 
     protected function getTableQuery(): ?Builder
     {
-        return $this->buildDictionaryFilteredQuery();
+        KeywordRequestProfiler::start('list_keywords_query_build');
+        $query = $this->buildDictionaryFilteredQuery();
+        KeywordRequestProfiler::stop('list_keywords_query_build');
+
+        return $query;
     }
 
     protected function applyFiltersToTableQuery(Builder $query): Builder

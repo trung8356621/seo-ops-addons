@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\NormalizedAiProviderTemplate;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiProviderTemplateException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Support\AiProviderProtocol;
+use Omnichannel\Addons\AiPrompt\Support\AiLatencyDiag;
 
 final class OpenAiCompatibleProtocolAdapter
 {
@@ -86,6 +87,7 @@ final class OpenAiCompatibleProtocolAdapter
      */
     public function generate(ApiConnection $connection, string $prompt, string $model, array $options = []): array
     {
+        $prepareStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $template = $this->templateForConnection($connection);
         if (empty($template->endpoints['text']['enabled'])) {
             throw new PromptRunException('Text endpoint is not configured.');
@@ -110,6 +112,11 @@ final class OpenAiCompatibleProtocolAdapter
             $payload['max_tokens'] = (int) $options['max_output'];
         }
 
+        if ($prepareStarted > 0) {
+            AiLatencyDiag::addAttemptMs('provider_adapter_prepare_ms', (hrtime(true) - $prepareStarted) / 1_000_000);
+        }
+
+        $gateStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         if (! $omitCeiling && function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
             $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
                 app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
@@ -126,6 +133,9 @@ final class OpenAiCompatibleProtocolAdapter
             if ($plan->requestedMaxOutputTokens > 0 && ! isset($payload['max_tokens'])) {
                 $payload['max_tokens'] = $plan->requestedMaxOutputTokens;
             }
+        }
+        if ($gateStarted > 0) {
+            AiLatencyDiag::addAttemptMs('outbound_budget_gate_ms', (hrtime(true) - $gateStarted) / 1_000_000);
         }
 
         $response = $this->http->request(
@@ -148,6 +158,7 @@ final class OpenAiCompatibleProtocolAdapter
             );
         }
 
+        $parseStarted = AiLatencyDiag::isEnabled() ? hrtime(true) : 0;
         $json = $response->json();
         if (! is_array($json)) {
             throw new PromptRunException(
@@ -196,6 +207,10 @@ final class OpenAiCompatibleProtocolAdapter
         if ($resolved !== '') {
             $usageBag['requested_model'] = $model;
             $usageBag['resolved_model'] = $resolved;
+        }
+
+        if ($parseStarted > 0) {
+            AiLatencyDiag::addAttemptMs('response_parse_ms', (hrtime(true) - $parseStarted) / 1_000_000);
         }
 
         return [$text, $usageBag !== [] ? $usageBag : null];
