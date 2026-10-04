@@ -248,15 +248,49 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_module_aware_routing_decision_schema_and_parameters(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
+        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
         self::assertSame('2026-09', $decision->parameters['period']);
         self::assertSame('articles', $decision->primaryModule);
         self::assertSame(15, $decision->parameters['limit_min']);
         self::assertSame(30, $decision->parameters['limit_max']);
         self::assertContains('internal_links', $decision->modules);
+        self::assertSame('table', $decision->responseTemplate);
 
         $this->expectException(InvalidArgumentException::class);
         $parser->parse('{"intent":"bad","primary_module":"unknown","modules":["unknown"],"parameters":{}}');
+    }
+
+    public function test_response_template_contract_fails_closed_for_missing_or_unknown_values(): void
+    {
+        $parser = new RetrievalDecisionParser();
+
+        foreach ([
+            '{"intent":"x","primary_module":"site","modules":["site"],"parameters":{}}',
+            '{"intent":"x","primary_module":"site","modules":["site"],"parameters":{},"response_template":"dashboard"}',
+        ] as $raw) {
+            try {
+                $parser->parse($raw);
+                self::fail('Invalid response template was accepted.');
+            } catch (InvalidArgumentException $e) {
+                self::assertStringContainsString('response_template', $e->getMessage());
+            }
+        }
+
+        $legacy = $parser->parse('{"intent":"legacy","needs":{"site":1},"parameters":{}}');
+        self::assertSame('text', $legacy->responseTemplate);
+    }
+
+    public function test_routing_catalog_and_selected_template_reach_model_inputs(): void
+    {
+        $scope = AgentProjectScope::site(7);
+        $builder = new AgentModelInputBuilder();
+        $routing = $builder->buildRoutingInput($scope, 'Analyze the site', [])->exportText();
+        $answer = $builder->buildAnswerInput($scope, 'Analyze the site', [], new RetrievalBundle($scope, []), 'report')->exportText();
+
+        foreach (['text', 'table', 'schema', 'report'] as $template) {
+            self::assertStringContainsString('"key":"'.$template.'"', $routing);
+        }
+        self::assertStringContainsString('"selected_response_template":"report"', $answer);
     }
 
     public function test_unavailable_gsc_is_not_measured_zero(): void
@@ -345,7 +379,7 @@ final class AgentRuntimeContractTest extends TestCase
             'https://app.example.test',
         );
         $planner = new RetrievalPlanner();
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false}');
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
         $bundle = $executor->execute($planner->plan($decision, AgentProjectScope::site(7)));
 
         self::assertSame(['https://app.example.test/api/v1/services/seo/access'], array_values(array_unique(array_map(
@@ -364,6 +398,7 @@ final class AgentRuntimeContractTest extends TestCase
             'use svc_live_secret_value and Authorization: Bearer svc_live_secret_value',
             [],
             $bundle,
+            'report',
         )->exportText();
         self::assertStringNotContainsString('svc_live_secret_value', $export);
         self::assertStringContainsString('no_synced_data', $export);
@@ -438,7 +473,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_business_modules_map_to_distinct_read_resources(): void
     {
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"links","primary_module":"internal_links","modules":["internal_links","external_links","topics","content_projects"],"parameters":{"period":"2026-09"}}');
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"links","primary_module":"internal_links","modules":["internal_links","external_links","topics","content_projects"],"parameters":{"period":"2026-09"},"response_template":"table"}');
         $transport = new RecordingTransport();
         (new SeoAccessExecutor($transport, new class implements SeoAccessCredential { public function bearer(): ?string { return 'svc_live_x'; } }, new SeoAccessUrlPolicy(), 'https://app.example.test'))
             ->execute((new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7)));
@@ -459,7 +494,7 @@ final class AgentRuntimeContractTest extends TestCase
             AgentProjectScope::site(7),
             'Tháng 9 này cần sửa những bài nào? gợi ý 15-30 bài',
             [],
-            '{"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30}}',
+            '{"intent":"identify existing articles to improve","primary_module":"articles","modules":["articles","topics","keywords","internal_links","gsc"],"parameters":{"period":"2026-09","task":"improve","limit_min":15,"limit_max":30},"response_template":"table"}',
         );
         self::assertSame('articles', $processed['decision']->primaryModule);
         self::assertStringContainsString('article:41', $processed['answerInput']->exportText());
@@ -983,13 +1018,14 @@ final class AgentRuntimeContractTest extends TestCase
 
         $decision = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $run->ulid,
-            'manual_result' => '{"intent":"traffic","needs":{"gsc":0.9},"parameters":{"period":"2026-09"}}',
+            'manual_result' => '{"intent":"traffic","primary_module":"gsc","modules":["gsc"],"parameters":{"period":"2026-09"},"response_template":"report"}',
         ]), $coordinator, $threads, $persistence, $resolver);
         $decisionData = $decision->getData(true)['data'];
         self::assertSame('paused', $decisionData['status']);
         self::assertSame($run->ulid, $decisionData['run_ulid']);
         self::assertSame('answer', $decisionData['model_call']['key']);
         self::assertNotEmpty($decisionData['model_call']['full_prompt']);
+        self::assertStringContainsString('"selected_response_template":"report"', $decisionData['model_call']['full_prompt']);
         $retrievalCalls = count($transport->calls);
         self::assertGreaterThan(0, $retrievalCalls);
 
@@ -1201,7 +1237,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_article_ref_reaches_article_retrieval(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"inspect article","primary_module":"articles","modules":["articles"],"parameters":{"article_ref":"article:41"}}');
+        $decision = $parser->parse('{"intent":"inspect article","primary_module":"articles","modules":["articles"],"parameters":{"article_ref":"article:41"},"response_template":"schema"}');
         $planner = new RetrievalPlanner();
         $plan = $planner->plan($decision, AgentProjectScope::site(7));
 
@@ -1243,7 +1279,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_task_improve_affects_article_read_projection(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles"],"parameters":{"task":"improve","limit_max":20}}');
+        $decision = $parser->parse('{"intent":"improve articles","primary_module":"articles","modules":["articles"],"parameters":{"task":"improve","limit_max":20},"response_template":"table"}');
         $planner = new RetrievalPlanner();
         $plan = $planner->plan($decision, AgentProjectScope::site(7));
 
@@ -1347,6 +1383,7 @@ final class AgentRuntimeContractTest extends TestCase
             'Gợi ý các bài cần sửa',
             [],
             $bundle,
+            'table',
         );
         $export = $input->exportText();
         self::assertStringContainsString('article:101', $export);
@@ -1517,7 +1554,7 @@ final class AgentRuntimeContractTest extends TestCase
             }
         };
 
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"check status","primary_module":"articles","modules":["articles","gsc"],"parameters":{}}');
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"check status","primary_module":"articles","modules":["articles","gsc"],"parameters":{},"response_template":"report"}');
         $plan = (new RetrievalPlanner())->plan($decision, AgentProjectScope::site(7));
         $bundle = (new SeoAccessExecutor(
             $transport,
@@ -1535,7 +1572,7 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_no_global_agent_behavior_is_enabled(): void
     {
         $global = AgentProjectScope::global();
-        $decision = (new RetrievalDecisionParser())->parse('{"intent":"test","primary_module":"site","modules":["site"],"parameters":{}}');
+        $decision = (new RetrievalDecisionParser())->parse('{"intent":"test","primary_module":"site","modules":["site"],"parameters":{},"response_template":"text"}');
         $plan = (new RetrievalPlanner())->plan($decision, $global);
 
         self::assertTrue($plan->globalUnsupported);

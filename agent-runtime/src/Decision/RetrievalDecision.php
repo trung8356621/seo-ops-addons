@@ -17,6 +17,7 @@ final readonly class RetrievalDecision
         public array $parameters,
         public bool $requiresParameterExtraction,
         public bool $requiresUserConfirmation,
+        public string $responseTemplate,
     ) {}
 
     /**
@@ -31,6 +32,7 @@ final readonly class RetrievalDecision
             'parameters' => $this->parameters,
             'requires_parameter_extraction' => $this->requiresParameterExtraction,
             'requires_user_confirmation' => $this->requiresUserConfirmation,
+            'response_template' => $this->responseTemplate,
         ];
     }
 }

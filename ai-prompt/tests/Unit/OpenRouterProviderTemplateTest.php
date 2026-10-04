@@ -18,6 +18,7 @@ use Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateStore;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Tests\TestCase;
+use Tests\Support\TestDatabaseGuard;
 
 final class OpenRouterProviderTemplateTest extends TestCase
 {
@@ -26,6 +27,9 @@ final class OpenRouterProviderTemplateTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        $connectionName = Schema::getConnection()->getName();
+        TestDatabaseGuard::make()->assertBeforeDestructiveSchema($connectionName);
 
         foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'ai_provider_templates'] as $table) {
             Schema::dropIfExists($table);

@@ -345,7 +345,13 @@ final class AgentRuntimeController
             $thread = $run->thread()->firstOrFail();
             $model = $modelResolver->resolveAnswerModel($userId);
             $bundle = \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle::fromArray((array) ($state['bundle'] ?? []));
-            $answerInput = $coordinator->buildAnswerInput($scope, (string) ($turn['message'] ?? ''), (array) ($turn['history'] ?? []), $bundle);
+            $answerInput = $coordinator->buildAnswerInput(
+                $scope,
+                (string) ($turn['message'] ?? ''),
+                (array) ($turn['history'] ?? []),
+                $bundle,
+                (string) ($state['selected_response_template'] ?? ''),
+            );
             $input = $answerInput->exportText();
 
             return new JsonResponse([

@@ -175,7 +175,7 @@ class AgentTurnCoordinator
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         if ($scope->isGlobal()) {
             $bundle = RetrievalBundle::unsupportedGlobal($scope);
-            $answer = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+            $answer = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text');
 
             return AgentTurnProgress::completed(new AgentTurnResult(
                 $this->safeResponse(
@@ -229,6 +229,7 @@ class AgentTurnCoordinator
             return AgentTurnProgress::paused(new InterceptedModelCall('answer', $processed['answerInput'], [
                 'routing_input' => $state['routing_input'],
                 'bundle' => $processed['bundle']->toArray(),
+                'selected_response_template' => $processed['decision']->responseTemplate,
             ]));
         }
 
@@ -237,7 +238,8 @@ class AgentTurnCoordinator
         }
 
         $bundle = RetrievalBundle::fromArray($state['bundle']);
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+        $selectedResponseTemplate = (string) ($state['selected_response_template'] ?? '');
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate);
         $response = $this->responses->parse($rawCompletion, $bundle);
 
         return AgentTurnProgress::completed(new AgentTurnResult(
@@ -275,9 +277,9 @@ class AgentTurnCoordinator
     /**
      * @param  list<array{role: string, content: string}>  $history
      */
-    public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle): PreparedModelInput
+    public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle, string $selectedResponseTemplate): PreparedModelInput
     {
-        return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+        return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate);
     }
 
     /**
@@ -297,7 +299,7 @@ class AgentTurnCoordinator
 
         if ($scope->isGlobal()) {
             $bundle = RetrievalBundle::unsupportedGlobal($scope);
-            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text');
 
             return [
                 'bundle' => $bundle,
@@ -311,7 +313,7 @@ class AgentTurnCoordinator
             $decision = $this->decisionParser->parse($rawDecisionJson);
         } catch (InvalidArgumentException $e) {
             $bundle = new RetrievalBundle($scope, [], ['routing_decision_invalid']);
-            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text');
 
             return [
                 'bundle' => $bundle,
@@ -322,7 +324,7 @@ class AgentTurnCoordinator
         }
 
         $bundle = $this->retrieval->execute($decision, $scope);
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $decision->responseTemplate);
 
         return [
             'bundle' => $bundle,
@@ -349,7 +351,7 @@ class AgentTurnCoordinator
 
             return [
                 'routing' => $routingInput,
-                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle),
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text'),
                 'bundle' => $bundle,
                 'response' => $this->safeResponse(
                     'All Sites is selected, but a global SEO Access API is not available. Ask again inside a site project.',
@@ -373,7 +375,7 @@ class AgentTurnCoordinator
 
             return [
                 'routing' => $routingInput,
-                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle),
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text'),
                 'bundle' => $bundle,
                 'response' => $this->safeResponse(
                     $this->decisionFailureMessage($decisionResult->failureCode),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Decision;
 
 use InvalidArgumentException;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponseTemplateCatalog;
 
 final class RetrievalDecisionParser
 {
@@ -38,6 +39,12 @@ final class RetrievalDecisionParser
         }
         $this->validateParameters($parameters);
 
+        $isLegacyDecision = ! isset($decoded['primary_module'], $decoded['modules']) && isset($decoded['needs']);
+        $responseTemplate = trim((string) ($decoded['response_template'] ?? ($isLegacyDecision ? 'text' : '')));
+        if (! AgentResponseTemplateCatalog::supports($responseTemplate)) {
+            throw new InvalidArgumentException('Retrieval decision response_template is missing or unknown.');
+        }
+
         return new RetrievalDecision(
             intent: $intent,
             primaryModule: $primaryModule,
@@ -45,6 +52,7 @@ final class RetrievalDecisionParser
             parameters: $parameters,
             requiresParameterExtraction: (bool) ($decoded['requires_parameter_extraction'] ?? false),
             requiresUserConfirmation: (bool) ($decoded['requires_user_confirmation'] ?? false),
+            responseTemplate: $responseTemplate,
         );
     }
 

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\AgentRuntime\Model;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCapabilityCatalog;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponseTemplateCatalog;
 use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 
 /**
@@ -33,6 +34,7 @@ final class AgentModelInputBuilder
             'message' => $userMessage,
             'conversation' => $this->compactHistory($history),
             'resource_catalog' => $catalog,
+            'response_catalog' => AgentResponseTemplateCatalog::modelVisible(),
             'facts' => [
                 'global_retrieval' => 'unsupported',
                 'gsc_force_sync' => 'unsupported',
@@ -53,7 +55,11 @@ final class AgentModelInputBuilder
         string $userMessage,
         array $history,
         RetrievalBundle $bundle,
+        string $selectedResponseTemplate,
     ): PreparedModelInput {
+        if (! AgentResponseTemplateCatalog::supports($selectedResponseTemplate)) {
+            throw new \InvalidArgumentException('Selected response template is unknown.');
+        }
         $user = json_encode([
             'scope' => $scope->toArray(),
             'message' => $userMessage,
@@ -61,6 +67,7 @@ final class AgentModelInputBuilder
             'retrieval_bundle' => $bundle->toArray(),
             'missing_capabilities' => SeoAccessCapabilityCatalog::missing(),
             'response_contract' => 'AgentResponse JSON with message, blocks, actions. Chart and table numbers must come from retrieval_bundle sources whose status is ok.',
+            'selected_response_template' => $selectedResponseTemplate,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return PreparedModelInput::make('answer', [

@@ -28,6 +28,7 @@ final class AgentModelInputBuilderPromptTest extends TestCase
             'answer this',
             [],
             new RetrievalBundle(AgentProjectScope::site(7), []),
+            'text',
         )->messages;
 
         self::assertSame('editable routing instruction', $routing[0]['content']);

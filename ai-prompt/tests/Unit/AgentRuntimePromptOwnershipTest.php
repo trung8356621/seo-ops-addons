@@ -45,7 +45,11 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
 
         self::assertStringContainsString('Return one JSON object and nothing else.', $routing);
         self::assertStringContainsString('requires_parameter_extraction', $routing);
+        self::assertStringContainsString('response_template', $routing);
+        self::assertStringContainsString('response_catalog', $routing);
         self::assertStringContainsString('Return exactly one valid JSON object matching AgentResponse', $response);
+        self::assertStringContainsString('selected_response_template', $response);
+        self::assertStringContainsString('do not infer or replace the template', $response);
         self::assertStringContainsString('NEW SUGGESTED IDEAS', $response);
     }
 
