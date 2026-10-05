@@ -23,6 +23,7 @@ final class AgentResponseParser
 
         $evidence = EvidenceNumberIndex::fromBundle($bundle);
         $links = EvidenceLinkIndex::fromBundle($bundle);
+        $links->assertMarkdown($message);
         $blocks = [];
         foreach ($blocksRaw as $block) {
             if (! is_array($block)) {
@@ -31,7 +32,7 @@ final class AgentResponseParser
             $blocks[] = $this->block($block, $evidence, $links);
         }
 
-        return new AgentResponse(
+        $response = new AgentResponse(
             $message,
             $blocks,
             $this->actions(is_array($decoded['actions'] ?? null) ? $decoded['actions'] : []),
@@ -40,6 +41,8 @@ final class AgentResponseParser
                 $bundle->sources,
             ),
         );
+
+        return AgentEntityPresentationIndex::fromBundle($bundle)->decorate($response);
     }
 
     /**

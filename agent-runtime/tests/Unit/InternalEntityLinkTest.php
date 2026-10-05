@@ -63,16 +63,91 @@ final class InternalEntityLinkTest extends TestCase
         self::assertSame('https://seo-ops.test/seo/keywords/clusters/82?site_id=6', $topic['ui_href']);
     }
 
-    public function test_parser_accepts_evidence_backed_internal_markdown_link(): void
+    public function test_plain_topic_text_is_linked_from_evidence(): void
     {
         $href = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
         $response = (new AgentResponseParser())->parse(json_encode([
             'message' => 'Topic found.',
-            'blocks' => [['type' => 'markdown', 'text' => "[Topic Name]({$href}) — 0 articles"]],
+            'blocks' => [['type' => 'markdown', 'text' => 'Topic Name has 14 DNA and no articles.']],
             'actions' => [],
         ], JSON_THROW_ON_ERROR), $this->bundleWithHref($href));
 
-        self::assertSame("[Topic Name]({$href}) — 0 articles", $response->blocks[0]['text']);
+        self::assertSame("[Topic Name]({$href}) has 14 DNA and no articles.", $response->blocks[0]['text']);
+    }
+
+    public function test_topic_list_items_are_linked_without_breaking_list_markup(): void
+    {
+        $first = 'https://seo-ops.test/seo/keywords/clusters/2382?site_id=6';
+        $second = 'https://seo-ops.test/seo/keywords/clusters/2383?site_id=6';
+        $bundle = new RetrievalBundle(AgentProjectScope::site(6), [
+            new RetrievalSource('topics', 'ok', 'GET /keywords', ['topics' => [
+                ['topic_ref' => 'topic:2382', 'name' => 'Backpack Factory', 'ui_href' => $first],
+                ['topic_ref' => 'topic:2383', 'name' => 'Anti-hunchback Backpacks', 'ui_href' => $second],
+            ]]),
+        ]);
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'Topics found.',
+            'blocks' => [['type' => 'markdown', 'text' => "- Backpack Factory\n- Anti-hunchback Backpacks"]],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), $bundle);
+
+        self::assertSame("- [Backpack Factory]({$first})\n- [Anti-hunchback Backpacks]({$second})", $response->blocks[0]['text']);
+    }
+
+    public function test_unknown_and_ambiguous_topic_names_remain_plain_text(): void
+    {
+        $bundle = new RetrievalBundle(AgentProjectScope::site(6), [
+            new RetrievalSource('topics', 'ok', 'GET /keywords', ['topics' => [
+                ['topic_ref' => 'topic:1', 'name' => 'Shared Topic', 'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/1?site_id=6'],
+                ['topic_ref' => 'topic:2', 'name' => 'Shared Topic', 'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/2?site_id=6'],
+            ]]),
+        ]);
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'Unknown Topic',
+            'blocks' => [['type' => 'markdown', 'text' => 'Shared Topic and Unknown Topic']],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), $bundle);
+
+        self::assertSame('Unknown Topic', $response->message);
+        self::assertSame('Shared Topic and Unknown Topic', $response->blocks[0]['text']);
+    }
+
+    public function test_existing_trusted_markdown_link_is_not_double_wrapped(): void
+    {
+        $href = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
+        $markdown = "[Topic Name]({$href})";
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'Topic found.',
+            'blocks' => [['type' => 'markdown', 'text' => $markdown]],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), $this->bundleWithHref($href));
+
+        self::assertSame($markdown, $response->blocks[0]['text']);
+    }
+
+    public function test_linkification_preserves_markdown_code_urls_and_partial_words(): void
+    {
+        $href = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
+        $markdown = implode("\n", [
+            '# **Topic Name**',
+            '`Topic Name`',
+            '```',
+            'Topic Name',
+            '```',
+            'https://example.test/TopicName',
+            '| Topic Name | Topic Names |',
+        ]);
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'Topic found.',
+            'blocks' => [['type' => 'markdown', 'text' => $markdown]],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), $this->bundleWithHref($href));
+
+        self::assertSame(2, substr_count($response->blocks[0]['text'], "[Topic Name]({$href})"));
+        self::assertStringContainsString('`Topic Name`', $response->blocks[0]['text']);
+        self::assertStringContainsString("```\nTopic Name\n```", $response->blocks[0]['text']);
+        self::assertStringContainsString('https://example.test/TopicName', $response->blocks[0]['text']);
+        self::assertStringContainsString('Topic Names', $response->blocks[0]['text']);
     }
 
     public function test_parser_rejects_invented_internal_markdown_link(): void
@@ -98,13 +173,12 @@ final class InternalEntityLinkTest extends TestCase
         ], JSON_THROW_ON_ERROR), new RetrievalBundle(AgentProjectScope::site(6), []));
     }
 
-    public function test_response_prompt_instructs_exact_trusted_ui_href_usage(): void
+    public function test_response_prompt_does_not_assign_internal_link_creation_to_model(): void
     {
         $prompt = DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('response');
 
-        self::assertStringContainsString('trusted ui_href', $prompt);
-        self::assertStringContainsString('using exactly that ui_href', $prompt);
-        self::assertStringContainsString('Never invent or alter an internal URL', $prompt);
+        self::assertStringNotContainsString('trusted ui_href', $prompt);
+        self::assertStringNotContainsString('using exactly that ui_href', $prompt);
     }
 
     private function bundleWithHref(string $href): RetrievalBundle
