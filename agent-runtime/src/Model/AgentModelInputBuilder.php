@@ -19,6 +19,7 @@ final class AgentModelInputBuilder
     public function __construct(
         private readonly SecretRedactor $redactor = new SecretRedactor(),
         private readonly ?ResolvesSettingsPromptHook $promptBindings = null,
+        private readonly AgentModelEvidenceSanitizer $evidenceSanitizer = new AgentModelEvidenceSanitizer(),
     ) {}
 
     /**
@@ -64,7 +65,7 @@ final class AgentModelInputBuilder
             'scope' => $scope->toArray(),
             'message' => $userMessage,
             'conversation' => $this->compactHistory($history),
-            'retrieval_bundle' => $bundle->toArray(),
+            'retrieval_bundle' => $this->evidenceSanitizer->sanitize($bundle),
             'missing_capabilities' => SeoAccessCapabilityCatalog::missing(),
             'response_contract' => 'AgentResponse JSON with message, blocks, actions. Chart and table numbers must come from retrieval_bundle sources whose status is ok.',
             'selected_response_template' => $selectedResponseTemplate,
