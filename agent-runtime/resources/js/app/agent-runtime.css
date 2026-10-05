@@ -718,6 +718,28 @@
     font-size: 11px;
 }
 
+.agent-confirmation-action {
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 12px;
+}
+
+.agent-confirmation-action.is-confirm {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.agent-confirmation-action:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
 .agent-sources {
     margin-top: 14px;
     padding-top: 10px;

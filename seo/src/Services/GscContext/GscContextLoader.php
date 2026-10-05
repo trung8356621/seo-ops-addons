@@ -23,4 +23,6 @@ interface GscContextLoader
      * Never inferred from property existence alone.
      */
     public function latestSyncedPeriodOnOrBefore(int $siteId, string $onOrBeforePeriod): ?string;
+
+    public function latestSyncedPeriod(int $siteId): ?string;
 }

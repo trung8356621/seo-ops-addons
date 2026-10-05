@@ -220,6 +220,7 @@ export function AgentWidget({
     const [draft, setDraft] = useState('');
     const [messages, setMessages] = useState([]);
     const [busy, setBusy] = useState(false);
+    const [confirmationBusyRunUlid, setConfirmationBusyRunUlid] = useState('');
     const [copyState, setCopyState] = useState('');
     const [error, setError] = useState('');
     const [testTargets, setTestTargets] = useState([]);
@@ -732,6 +733,58 @@ export function AgentWidget({
         }
     }
 
+    async function onConfirmationAction(action) {
+        const runUlid = String(action?.run_ulid || '');
+        const decision = action?.action === 'confirm' ? 'confirm' : action?.action === 'reject' ? 'reject' : '';
+        if (!runUlid || !decision || busy || confirmationBusyRunUlid) return;
+
+        setBusy(true);
+        setConfirmationBusyRunUlid(runUlid);
+        setError('');
+        setProcessingStatus(decision === 'confirm' ? 'Đang xác nhận…' : 'Đang từ chối…');
+        try {
+            const payload = await postJson(`/agent-runtime/runs/${encodeURIComponent(runUlid)}/${decision}`, csrf, {});
+            const data = payload?.data || {};
+            setMessages((current) => current.map((message) => {
+                if (message?.response?.run_ulid !== runUlid) return message;
+                if (data.status === 'paused') {
+                    return {
+                        ...message,
+                        content: 'Đã xác nhận. Đang chờ kết quả Answer.',
+                        response: {
+                            message: 'Đã xác nhận. Đang chờ kết quả Answer.',
+                            blocks: [], actions: [], sources: [], run_ulid: runUlid,
+                        },
+                    };
+                }
+                return {
+                    ...message,
+                    id: data.assistant_message_id || message.id,
+                    content: data.message || '',
+                    response: data,
+                };
+            }));
+
+            if (data.status === 'paused') {
+                setDebugRunUlid(data.run_ulid || '');
+                setDebugCall(data.model_call || null);
+                setDebugManualResult('');
+                setDebugParserError('');
+                setDebugOpen(true);
+                setProcessingStatus(waitingForManualModel(data.model_call));
+            } else {
+                setProcessingStatus(null);
+                fetchThreads(currentScopeRef);
+            }
+        } catch (caught) {
+            setError(caught.message || 'Could not resolve confirmation.');
+            setProcessingStatus(null);
+        } finally {
+            setConfirmationBusyRunUlid('');
+            setBusy(false);
+        }
+    }
+
     async function onRunTest(event) {
         event.preventDefault();
         if (testRunning) return;
@@ -1212,7 +1265,11 @@ export function AgentWidget({
                                                 </div>
                                             </div>
                                             <div className="agent-message__body">
-                                                <ResponseView response={version.response} />
+                                                <ResponseView
+                                                    response={version.response}
+                                                    onAction={onConfirmationAction}
+                                                    actionsBusy={confirmationBusyRunUlid === version?.response?.run_ulid}
+                                                />
                                                 {(() => {
                                                     const modelDiag = version?.response?.model_diagnostics;
                                                     const answerDiag = version?.response?.answer_diagnostics;

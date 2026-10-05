@@ -68,13 +68,23 @@ function TableBlock({ block }) {
     );
 }
 
-function ActionsBlock({ actions }) {
+function ActionsBlock({ actions, onAction, busy }) {
     if (!actions || actions.length === 0) {
         return null;
     }
     return (
         <div className="agent-actions">
-            {actions.map((action, index) => (
+            {actions.map((action, index) => action.type === 'confirmation' ? (
+                <button
+                    key={index}
+                    type="button"
+                    className={`agent-confirmation-action is-${action.action}`}
+                    disabled={busy}
+                    onClick={() => onAction?.(action)}
+                >
+                    {busy ? 'Đang xử lý…' : (action.label || action.action)}
+                </button>
+            ) : (
                 <div key={index} className="agent-action-item">
                     <span className="agent-action-label">{action.label || action.action}</span>
                     {action.status ? <span className="agent-action-status">({action.status})</span> : null}
@@ -108,7 +118,7 @@ function SourcesBlock({ sources }) {
     );
 }
 
-export function ResponseView({ response }) {
+export function ResponseView({ response, onAction, actionsBusy = false }) {
     if (!response) {
         return null;
     }
@@ -143,7 +153,7 @@ export function ResponseView({ response }) {
                 <p className="agent-empty">No response content.</p>
             ) : null}
 
-            <ActionsBlock actions={response.actions} />
+            <ActionsBlock actions={response.actions} onAction={onAction} busy={actionsBusy} />
             <SourcesBlock sources={response.sources} />
         </div>
     );

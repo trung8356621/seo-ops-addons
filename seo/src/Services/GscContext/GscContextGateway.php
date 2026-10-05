@@ -38,6 +38,11 @@ final class GscContextGateway implements GscContextLoader
         return $this->builder->latestSyncedPeriodOnOrBefore($siteId, $onOrBeforePeriod);
     }
 
+    public function latestSyncedPeriod(int $siteId): ?string
+    {
+        return $this->builder->latestSyncedPeriod($siteId);
+    }
+
     /**
      * Future API / MCP-ready outer envelope.
      *

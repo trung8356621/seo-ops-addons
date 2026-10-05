@@ -34,7 +34,7 @@ final class AgentConfirmedToolExecutor
             throw new InvalidArgumentException('Confirmed Tool execution requires a site scope.');
         }
 
-        $this->assertRegistryContract($proposal);
+        $this->validateProposal($proposal);
         foreach ($proposal->toolCapabilities as $capability) {
             if (! in_array($capability, self::CONNECTED_TOOLS, true)) {
                 throw new InvalidArgumentException("Confirmed Tool capability [{$capability}] is not connected.");
@@ -90,7 +90,7 @@ final class AgentConfirmedToolExecutor
         );
     }
 
-    private function assertRegistryContract(AgentToolConfirmationProposal $proposal): void
+    public function validateProposal(AgentToolConfirmationProposal $proposal): void
     {
         if ($proposal->capabilities === [] || $proposal->toolCapabilities === []) {
             throw new InvalidArgumentException('Frozen confirmation proposal has no Tool capabilities.');

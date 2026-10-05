@@ -39,4 +39,9 @@ final class GscContextSource
     {
         return $this->gateway->latestSyncedPeriodOnOrBefore($siteId, $onOrBeforePeriod);
     }
+
+    public function latestSyncedPeriod(int $siteId): ?string
+    {
+        return $this->gateway->latestSyncedPeriod($siteId);
+    }
 }

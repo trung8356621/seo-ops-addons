@@ -16,7 +16,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');
         Route::post('/runs/{runUlid}/confirm', [AgentRuntimeController::class, 'confirmRun'])->name('agent-runtime.runs.confirm');
-        Route::post('/runs/{runUlid}/cancel', [AgentRuntimeController::class, 'cancelRun'])->name('agent-runtime.runs.cancel');
+        Route::post('/runs/{runUlid}/reject', [AgentRuntimeController::class, 'rejectRun'])->name('agent-runtime.runs.reject');
 
         // Thread management
         Route::post('/threads', [AgentRuntimeController::class, 'createThread'])->name('agent-runtime.threads.create');

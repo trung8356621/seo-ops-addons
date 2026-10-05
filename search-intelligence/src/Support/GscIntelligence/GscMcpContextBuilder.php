@@ -138,6 +138,34 @@ final class GscMcpContextBuilder
         }
     }
 
+    /** Latest YYYY-MM with persisted Search Performance rows for the site. */
+    public function latestSyncedPeriod(int $siteId): ?string
+    {
+        $property = $this->resolveProperty($siteId);
+        if ($property === null) {
+            return null;
+        }
+
+        try {
+            if (! Schema::connection('omi_seo_ai')->hasTable('seo_gsc_daily_metrics')) {
+                return null;
+            }
+            $maxDate = SeoGscDailyMetric::query()
+                ->where('property_id', (int) $property->id)
+                ->max('metric_date');
+            if ($maxDate === null || $maxDate === '') {
+                return null;
+            }
+            $period = $maxDate instanceof \DateTimeInterface
+                ? $maxDate->format('Y-m')
+                : substr((string) $maxDate, 0, 7);
+
+            return preg_match('/^\d{4}-\d{2}$/', $period) === 1 ? $period : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     /**
      * @param  list<array<string, mixed>>  $currentRows
      * @param  list<array<string, mixed>>  $previousRows

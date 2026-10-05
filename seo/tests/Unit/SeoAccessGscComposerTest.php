@@ -182,6 +182,11 @@ final class SeoAccessGscComposerTest extends TestCase
             {
                 return $this->latestSynced;
             }
+
+            public function latestSyncedPeriod(int $siteId): ?string
+            {
+                return $this->latestSynced;
+            }
         };
 
         return new SeoAccessGscComposer(new GscContextSource($loader));

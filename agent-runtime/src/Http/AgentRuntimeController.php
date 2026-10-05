@@ -25,6 +25,10 @@ use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
+use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
+use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
 
 final class AgentRuntimeController
 {
@@ -128,34 +132,118 @@ final class AgentRuntimeController
         }
     }
 
-    public function cancelRun(
+    public function rejectRun(
         Request $request,
         string $runUlid,
+        SiteDirectory $sites,
         AgentTurnPersistence $persistence,
         AgentThreadRepository $threads,
+        AgentConfirmedToolExecutor $tools,
+        AgentTurnCoordinator $coordinator,
+        GscContextSource $gsc,
     ): JsonResponse {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
             return new JsonResponse(['message' => 'Unauthenticated.'], 401);
         }
-        $run = $persistence->claimAwaitingConfirmation($runUlid, (int) $user->id, false);
+        $userId = (int) $user->id;
+        $run = $persistence->claimAwaitingConfirmation($runUlid, $userId);
         if (! $run instanceof AgentRun) {
             return new JsonResponse(['message' => 'Confirmation run not found or already finished.'], 409);
         }
 
-        $message = 'Đã hủy yêu cầu.';
-        $response = new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], []);
-        $assistant = $persistence->completeRun($run, $response);
-        $thread = $run->thread()->firstOrFail();
-        $threads->touchLastMessage($thread);
+        try {
+            $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+            $proposal = AgentToolConfirmationProposal::fromArray((array) ($summary['confirmation']['proposal'] ?? []));
+            $scope = AgentProjectScope::fromArray($proposal->scope);
+            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+                $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
 
-        return new JsonResponse(['data' => [
-            ...$response->toArray(),
-            'thread_ulid' => $thread->ulid,
-            'run_ulid' => $run->ulid,
-            'user_message_id' => $run->user_message_id,
-            'assistant_message_id' => $assistant->id,
-        ]]);
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+            $tools->validateProposal($proposal);
+            $thread = $run->thread()->firstOrFail();
+
+            if ($proposal->toolCapabilities !== ['gsc.performance']) {
+                return $this->completeDeterministicRun(
+                    $run,
+                    $thread,
+                    $persistence,
+                    $threads,
+                    'Đã từ chối yêu cầu.',
+                );
+            }
+
+            $latestPeriod = $gsc->latestSyncedPeriod((int) $scope->siteId);
+            if ($latestPeriod === null) {
+                return $this->completeDeterministicRun(
+                    $run,
+                    $thread,
+                    $persistence,
+                    $threads,
+                    'Không có dữ liệu GSC đã đồng bộ để sử dụng thay thế.',
+                );
+            }
+
+            $requestedPeriod = is_string($proposal->parameters['period'] ?? null)
+                ? $proposal->parameters['period']
+                : null;
+            $fallbackProposal = new AgentToolConfirmationProposal(
+                $proposal->intent,
+                $proposal->primaryCapability,
+                $proposal->capabilities,
+                [...$proposal->parameters, 'period' => $latestPeriod],
+                $proposal->responseTemplate,
+                $proposal->toolCapabilities,
+                $proposal->scope,
+            );
+            $bundle = $tools->execute($fallbackProposal, $userId);
+            $bundle = new RetrievalBundle(
+                $bundle->scope,
+                [...$bundle->sources, new RetrievalSource('gsc_fallback_policy', 'ok', 'backend_policy', [
+                    'requested_period' => $requestedPeriod,
+                    'fallback_period' => $latestPeriod,
+                    'reason' => 'requested_gsc_tool_rejected',
+                ])],
+                $bundle->warnings,
+            );
+            $userMessage = $run->userMessage()->firstOrFail();
+            $history = $this->historyBefore((int) $thread->id, (int) $userMessage->position);
+            $result = $coordinator->answerConfirmed(
+                $userId,
+                $scope,
+                (string) $userMessage->content,
+                $history,
+                $bundle,
+                $proposal->responseTemplate,
+            );
+            $notice = 'Bạn đã từ chối dữ liệu GSC theo kỳ yêu cầu. Agent sử dụng dữ liệu đã đồng bộ gần nhất: '
+                .$this->formatPeriod($latestPeriod).'.';
+            $modelResponse = $result->response;
+            $response = new AgentResponse(
+                trim($notice.' '.($modelResponse?->message ?? '')),
+                [['type' => 'markdown', 'text' => $notice], ...($modelResponse?->blocks ?? [])],
+                $modelResponse?->actions ?? [],
+                $modelResponse?->sources ?? [],
+            );
+            $assistant = $persistence->completeRun($run, $response, ['answer_model' => 'called']);
+            $threads->touchLastMessage($thread);
+
+            return new JsonResponse(['data' => [
+                ...$response->toArray(),
+                'thread_ulid' => $thread->ulid,
+                'run_ulid' => $run->ulid,
+                'user_message_id' => $run->user_message_id,
+                'assistant_message_id' => $assistant->id,
+            ]]);
+        } catch (InvalidArgumentException $e) {
+            $persistence->failRun($run, 'confirmed_tool_unavailable', $e->getMessage());
+
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            $persistence->failRun($run, 'error', $e->getMessage());
+            throw $e;
+        }
     }
 
     public function testArticles(Request $request, SiteDirectory $sites, AgentTestArticleCatalogService $articles): JsonResponse
@@ -783,6 +871,7 @@ final class AgentRuntimeController
                 $persistence->pauseForConfirmation($run, $result->confirmationProposal);
 
                 return new JsonResponse(['data' => [
+                    ...$this->confirmationResponse($result->confirmationProposal, (string) $run->ulid)->toArray(),
                     'status' => 'awaiting_confirmation',
                     'run_ulid' => $run->ulid,
                     'thread_ulid' => $thread->ulid,
@@ -864,6 +953,7 @@ final class AgentRuntimeController
             ]);
 
             return new JsonResponse(['data' => [
+                ...$this->confirmationResponse($progress->confirmationProposal, (string) $run->ulid)->toArray(),
                 'status' => 'awaiting_confirmation',
                 'run_ulid' => $run->ulid,
                 'thread_ulid' => $thread->ulid,
@@ -920,5 +1010,55 @@ final class AgentRuntimeController
     private function makeThreadTitle(string $message): string {
         $title = trim(preg_replace('/\s+/', ' ', $message));
         return mb_substr($title, 0, 80);
+    }
+
+    private function confirmationResponse(AgentToolConfirmationProposal $proposal, string $runUlid): AgentResponse
+    {
+        $labels = [];
+        foreach ($proposal->toolCapabilities as $capability) {
+            $label = trim((string) (AgentCapabilityCatalog::get($capability)['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = $label;
+            }
+        }
+        $toolLabel = implode(', ', array_values(array_unique($labels)));
+        $message = 'Yêu cầu này cần xác nhận trước khi sử dụng '.$toolLabel.'.';
+
+        return new AgentResponse(
+            $message,
+            [['type' => 'markdown', 'text' => $message]],
+            [
+                ['type' => 'confirmation', 'action' => 'confirm', 'label' => 'Xác nhận', 'run_ulid' => $runUlid],
+                ['type' => 'confirmation', 'action' => 'reject', 'label' => 'Từ chối', 'run_ulid' => $runUlid],
+            ],
+            [],
+        );
+    }
+
+    private function completeDeterministicRun(
+        AgentRun $run,
+        \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread $thread,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        string $message,
+    ): JsonResponse {
+        $response = new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], []);
+        $assistant = $persistence->completeRun($run, $response);
+        $threads->touchLastMessage($thread);
+
+        return new JsonResponse(['data' => [
+            ...$response->toArray(),
+            'thread_ulid' => $thread->ulid,
+            'run_ulid' => $run->ulid,
+            'user_message_id' => $run->user_message_id,
+            'assistant_message_id' => $assistant->id,
+        ]]);
+    }
+
+    private function formatPeriod(string $period): string
+    {
+        return preg_match('/^(\d{4})-(\d{2})$/', $period, $matches) === 1
+            ? $matches[2].'/'.$matches[1]
+            : $period;
     }
 }

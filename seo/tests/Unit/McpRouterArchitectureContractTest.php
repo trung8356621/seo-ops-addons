@@ -351,6 +351,11 @@ final class McpRouterArchitectureContractTest extends TestCase
             {
                 return null;
             }
+
+            public function latestSyncedPeriod(int $siteId): ?string
+            {
+                return null;
+            }
         };
 
         $source = new GscContextSource($gateway);
