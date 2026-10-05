@@ -20,6 +20,8 @@ use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
+use Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput;
+use Omnichannel\Addons\AgentRuntime\Decision\RoutingDecisionRejected;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnProgress;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal;
@@ -573,6 +575,33 @@ final class AgentRuntimeController
                 $userId,
                 $turn,
             );
+        } catch (RoutingDecisionRejected $e) {
+            $persistence->pauseRun($run, 'decision', $state);
+            $thread = $run->thread()->firstOrFail();
+            $routingData = (array) ($state['routing_input'] ?? []);
+            $routingInput = new PreparedModelInput(
+                (string) ($routingData['stage'] ?? 'decision'),
+                (array) ($routingData['messages'] ?? []),
+            );
+            $input = $routingInput->exportText();
+
+            return new JsonResponse([
+                'message' => 'Routing result rejected: '.$e->getMessage(),
+                'validation_error' => $e->getMessage(),
+                'data' => [
+                    'status' => 'paused',
+                    'run_ulid' => $run->ulid,
+                    'thread_ulid' => $thread->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'model_call' => [
+                        'key' => 'decision',
+                        'full_prompt' => $input,
+                        'prompt_size' => mb_strlen($input),
+                        'assumed_model' => $modelResolver->resolveDecisionModel($userId)->toArray(),
+                    ],
+                    'error' => $e->getMessage(),
+                ],
+            ], 422);
         } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected $e) {
             $persistence->pauseRun($run, $callKey, $state);
             $thread = $run->thread()->firstOrFail();

@@ -9,6 +9,7 @@ use Omnichannel\Addons\AgentRuntime\Answer\AnswerModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionRequest;
 use Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecisionParser;
+use Omnichannel\Addons\AgentRuntime\Decision\RoutingDecisionRejected;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput;
@@ -230,17 +231,9 @@ class AgentTurnCoordinator
         if ($callKey === 'decision') {
             $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $rawCompletion);
             if ($processed['error'] !== null || $processed['decision'] === null) {
-                return AgentTurnProgress::completed(new AgentTurnResult(
-                    $this->safeResponse(
-                        'The routing model did not return a usable decision, so no SEO data was fetched.',
-                        $processed['bundle'],
-                        'routing_decision_invalid',
-                    ),
-                    $routingInput,
-                    $processed['answerInput'],
-                    false,
-                    'routing_decision_invalid',
-                ));
+                throw new RoutingDecisionRejected(
+                    $processed['error'] ?? 'The routing model did not return a usable decision.',
+                );
             }
 
             if ($processed['response'] instanceof AgentResponse) {

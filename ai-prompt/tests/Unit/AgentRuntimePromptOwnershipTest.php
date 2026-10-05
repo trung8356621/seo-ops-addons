@@ -25,13 +25,13 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         $catalog = new PromptHookEditorCatalog($registry);
         $visible = array_column($catalog->settingsVisibleHooks(), 'hook_key');
 
-        foreach (['agent.routing.decide', 'agent.response.compose'] as $hookKey) {
-            $definition = $registry->get($hookKey, '0.1.0');
+        foreach (['agent.routing.decide' => '0.2.0', 'agent.response.compose' => '0.1.0'] as $hookKey => $version) {
+            $definition = $registry->get($hookKey, $version);
             self::assertTrue($definition->settingsVisible);
             self::assertSame('agent', $definition->category);
             self::assertEmpty($definition->inputSchema->fields);
             self::assertSame('json', $definition->outputSchema->type);
-            $specPath = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.$hookKey.'@0.1.0.json';
+            $specPath = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.$hookKey.'@'.$version.'.json';
             $spec = json_decode((string) file_get_contents($specPath), true, 512, JSON_THROW_ON_ERROR);
             self::assertSame([], $spec['side_effects'] ?? null);
             self::assertContains($hookKey, $visible);
@@ -88,6 +88,17 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         $source = (string) file_get_contents($path);
         self::assertStringContainsString('DefaultAgentRuntimePromptInstaller', $source);
         self::assertStringContainsString('->install()', $source);
+        self::assertStringNotContainsString('catch (Throwable', $source);
+        self::assertStringNotContainsString('catch (\\Throwable', $source);
+    }
+
+    public function test_routing_contract_upgrade_migration_uses_routing_installer_only(): void
+    {
+        $path = ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_10_05_110000_upgrade_agent_routing_contract_to_v020.php';
+        self::assertFileExists($path);
+        $source = (string) file_get_contents($path);
+        self::assertStringContainsString('DefaultAgentRuntimePromptInstaller', $source);
+        self::assertStringContainsString("->installType('routing')", $source);
         self::assertStringNotContainsString('catch (Throwable', $source);
         self::assertStringNotContainsString('catch (\\Throwable', $source);
     }

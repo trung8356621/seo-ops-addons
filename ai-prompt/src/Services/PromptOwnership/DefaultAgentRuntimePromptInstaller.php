@@ -12,12 +12,10 @@ use RuntimeException;
 
 final class DefaultAgentRuntimePromptInstaller
 {
-    public const HOOK_VERSION = '0.1.0';
-
-    /** @var array<string, array{hook: string, name: string}> */
+    /** @var array<string, array{hook: string, name: string, version: string}> */
     private const TYPES = [
-        'routing' => ['hook' => 'agent.routing.decide', 'name' => 'Agent Routing / JEV'],
-        'response' => ['hook' => 'agent.response.compose', 'name' => 'Agent Response Composer'],
+        'routing' => ['hook' => 'agent.routing.decide', 'name' => 'Agent Routing / JEV', 'version' => '0.2.0'],
+        'response' => ['hook' => 'agent.response.compose', 'name' => 'Agent Response Composer', 'version' => '0.1.0'],
     ];
 
     public function __construct(private readonly SeoCreateArticleSettingsService $settings) {}
@@ -55,7 +53,7 @@ final class DefaultAgentRuntimePromptInstaller
                 'markdown_content' => self::canonicalDefaultMarkdown($type),
                 'description' => self::canonicalDescription($type),
                 'hook_key' => $config['hook'],
-                'hook_version' => self::HOOK_VERSION,
+                'hook_version' => $config['version'],
                 'variables' => [],
                 'tools' => 'default',
                 'is_active' => true,
@@ -75,10 +73,10 @@ final class DefaultAgentRuntimePromptInstaller
             $settings['ownership'] = 'settings_binding';
             $prompt->settings = $settings;
 
-            if ($restoreCanonical) {
+            if ($restoreCanonical || trim((string) $prompt->hook_version) !== $config['version']) {
                 $prompt->markdown_content = self::canonicalDefaultMarkdown($type);
                 $prompt->description = self::canonicalDescription($type);
-                $prompt->hook_version = self::HOOK_VERSION;
+                $prompt->hook_version = $config['version'];
                 $prompt->variables = [];
                 $prompt->is_active = true;
                 $restored = true;
@@ -116,31 +114,19 @@ final class DefaultAgentRuntimePromptInstaller
         return $markdown;
     }
 
-    public function repairIncompatibleRoutingContract(SeoPrompt $prompt): bool
+    public function reconcileRoutingContractVersion(SeoPrompt $prompt): bool
     {
         $settings = is_array($prompt->settings) ? $prompt->settings : [];
         if ((string) $prompt->hook_key !== self::TYPES['routing']['hook']
             || (string) $prompt->name !== self::TYPES['routing']['name']
             || ($settings['is_system_default'] ?? false) !== true
             || ($settings['ownership'] ?? null) !== 'settings_binding'
-            || self::hasCurrentRoutingContract((string) $prompt->markdown_content)
+            || trim((string) $prompt->hook_version) === self::TYPES['routing']['version']
         ) {
             return false;
         }
 
-        $this->installType('routing', true);
-
-        return true;
-    }
-
-    private static function hasCurrentRoutingContract(string $markdown): bool
-    {
-        $requiredFields = ['is_in_scope', 'primary_capability', 'capabilities', 'response_template', 'response_language'];
-        foreach ($requiredFields as $field) {
-            if (preg_match('/["\']'.preg_quote($field, '/').'["\']\s*:/', $markdown) !== 1) {
-                return false;
-            }
-        }
+        $this->installType('routing');
 
         return true;
     }
@@ -149,7 +135,7 @@ final class DefaultAgentRuntimePromptInstaller
     private static function loadCanonicalSpec(string $type): array
     {
         $config = self::TYPES[$type] ?? throw new RuntimeException("Unknown Agent Runtime prompt type [{$type}].");
-        $path = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.$config['hook'].'@'.self::HOOK_VERSION.'.json';
+        $path = PromptHookDefinitionLoader::defaultV01Directory().DIRECTORY_SEPARATOR.$config['hook'].'@'.$config['version'].'.json';
         $decoded = json_decode((string) file_get_contents($path), true);
         if (! is_array($decoded)) {
             throw new RuntimeException("Canonical Agent Runtime Hook JSON is invalid for [{$type}].");

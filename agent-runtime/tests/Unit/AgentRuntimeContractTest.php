@@ -2323,6 +2323,70 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame('done', $runModel->fresh()->status);
     }
 
+    public function test_debug_manual_decision_parser_rejection_keeps_same_checkpoint_retryable(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $coordinator = $this->coordinator(new RecordingDecisionGateway(), new RecordingAnswerGateway());
+        $resolver = new MockAssumedModelResolver();
+        $controller = new AgentRuntimeController();
+
+        $initial = $controller->turn(
+            $this->createTurnRequest([
+                'scope' => ['type' => 'site', 'siteId' => 7],
+                'message' => 'Debug Decision retry test',
+                'debug_mode' => true,
+            ]),
+            $coordinator,
+            $sites,
+            $threads,
+            $persistence,
+            $resolver,
+        )->getData(true)['data'];
+        $runUlid = $initial['run_ulid'];
+
+        $rejected = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"is_in_scope":true,"intent":"site status","primary_capability":"site.knowledge","capabilities":["site.knowledge"],"parameters":{},"response_template":"report"}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(422, $rejected->getStatusCode());
+        $rejectedData = $rejected->getData(true);
+        self::assertSame('Retrieval decision response_language is missing or unknown.', $rejectedData['validation_error']);
+        self::assertSame('Routing result rejected: Retrieval decision response_language is missing or unknown.', $rejectedData['message']);
+        self::assertSame('paused', $rejectedData['data']['status']);
+        self::assertSame('decision', $rejectedData['data']['model_call']['key']);
+        self::assertNotEmpty($rejectedData['data']['model_call']['full_prompt']);
+
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->firstOrFail();
+        self::assertSame('awaiting_model', $run->status);
+        self::assertSame('decision', $run->retrieval_summary['model_call']);
+        self::assertNull($run->assistant_message_id);
+        self::assertSame(0, $run->thread->messages()->where('role', 'assistant')->count());
+
+        $corrected = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"is_in_scope":true,"intent":"site status","primary_capability":"site.knowledge","capabilities":["site.knowledge"],"parameters":{},"response_template":"report","response_language":"en"}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+
+        self::assertSame(200, $corrected->getStatusCode());
+        self::assertSame('paused', $corrected->getData(true)['data']['status']);
+        self::assertSame('answer', $corrected->getData(true)['data']['model_call']['key']);
+    }
+
     public function test_debug_rerun_manual_answer_parser_rejection_has_identical_retry_semantics(): void
     {
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);

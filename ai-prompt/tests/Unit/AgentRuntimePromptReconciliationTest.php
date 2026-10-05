@@ -68,23 +68,33 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         $installer = app(DefaultAgentRuntimePromptInstaller::class);
         $installer->installType('routing');
         $routing = SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->firstOrFail();
-        $routing->description = 'Admin-preserved description';
+        $routingId = (int) $routing->id;
+        $bindingId = app(SeoCreateArticleSettingsService::class)->getBoundPromptId('agent.routing.decide');
+        $routing->hook_version = '0.1.0';
+        $routing->markdown_content = 'Previous routing contract body';
         $routing->save();
         $versionsBeforeMigration = PromptVersion::query()->count();
 
         $migration = require dirname((new ReflectionClass(DefaultAgentRuntimePromptInstaller::class))->getFileName(), 4)
-            .'/database/migrations/2026_10_05_100000_reconcile_default_agent_runtime_prompt_bindings.php';
+            .'/database/migrations/2026_10_05_110000_upgrade_agent_routing_contract_to_v020.php';
         $migration->up();
 
-        $this->assertFinalInventory();
-        self::assertSame('Admin-preserved description', $routing->fresh()->description);
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
+        $routing->refresh();
+        self::assertSame($routingId, (int) $routing->id);
+        self::assertSame($bindingId, app(SeoCreateArticleSettingsService::class)->getBoundPromptId('agent.routing.decide'));
+        self::assertSame('0.2.0', $routing->hook_version);
+        self::assertSame(DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing'), $routing->markdown_content);
+        self::assertStringContainsString('"response_language"', $routing->markdown_content);
         self::assertSame($versionsBeforeMigration + 1, PromptVersion::query()->count());
+        $previousVersion = PromptVersion::query()->where('prompt_id', $routingId)->where('hook_version', '0.1.0')->first();
+        self::assertNotNull($previousVersion);
+        self::assertSame('Previous routing contract body', $previousVersion->markdown_content);
 
         $versionsAfterReconciliation = PromptVersion::query()->count();
         $migration->up();
 
-        $this->assertFinalInventory();
-        self::assertSame(2, SeoPrompt::query()->count());
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
         self::assertSame($versionsAfterReconciliation, PromptVersion::query()->count());
     }
 
@@ -193,6 +203,7 @@ MARKDOWN;
 Return JSON:
 {"intent":"...","primary_module":"site","modules":["site"],"parameters":{}}
 MARKDOWN;
+        $prompt->hook_version = '0.1.0';
         $prompt->save();
 
         $resolved = $this->resolver()->resolve('agent.routing.decide');
@@ -221,6 +232,7 @@ Admin guidance with previous modern schema:
 {"is_in_scope":true,"primary_capability":null,"capabilities":[],"response_template":"text"}
 MARKDOWN;
         $prompt->markdown_content = $previousModernContent;
+        $prompt->hook_version = '0.1.0';
         $prompt->save();
 
         $resolved = $this->resolver()->resolve('agent.routing.decide');
@@ -250,6 +262,7 @@ MARKDOWN;
 
         $resolved = $this->resolver()->resolve('agent.routing.decide');
 
+        self::assertSame('0.2.0', $resolved->hook_version);
         self::assertSame($currentAdminContent, $resolved->markdown_content);
         self::assertSame($versionCount, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
         self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
@@ -282,6 +295,7 @@ MARKDOWN;
             self::assertTrue((bool) $prompts->first()?->is_active);
             self::assertTrue((bool) data_get($prompts->first()?->settings, 'is_system_default'));
             self::assertSame('settings_binding', data_get($prompts->first()?->settings, 'ownership'));
+            self::assertSame($hook === 'agent.routing.decide' ? '0.2.0' : '0.1.0', $prompts->first()?->hook_version);
             self::assertSame(1, PromptVersion::query()->where('prompt_id', $prompts->first()?->id)->count());
         }
 
