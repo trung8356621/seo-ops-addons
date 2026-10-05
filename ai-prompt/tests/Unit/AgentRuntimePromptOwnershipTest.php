@@ -25,7 +25,7 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         $catalog = new PromptHookEditorCatalog($registry);
         $visible = array_column($catalog->settingsVisibleHooks(), 'hook_key');
 
-        foreach (['agent.routing.decide' => '0.2.0', 'agent.response.compose' => '0.1.0'] as $hookKey => $version) {
+        foreach (['agent.routing.decide' => '0.2.0', 'agent.response.compose' => '0.2.0'] as $hookKey => $version) {
             $definition = $registry->get($hookKey, $version);
             self::assertTrue($definition->settingsVisible);
             self::assertSame('agent', $definition->category);
@@ -56,6 +56,9 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         self::assertStringContainsString('Return exactly one valid JSON object matching AgentResponse', $response);
         self::assertStringContainsString('selected_response_template', $response);
         self::assertStringContainsString('do not infer or replace the template', $response);
+        self::assertStringContainsString('headings, explanations, recommendations, warning text, table titles and column labels, and chart titles and series labels', $response);
+        self::assertStringContainsString('Translate generic presentation and SEO terms', $response);
+        self::assertStringContainsString('Preserve exact retrieved entity, product, brand, and proper names', $response);
         self::assertStringContainsString('NEW SUGGESTED IDEAS', $response);
     }
 
@@ -99,6 +102,18 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         $source = (string) file_get_contents($path);
         self::assertStringContainsString('DefaultAgentRuntimePromptInstaller', $source);
         self::assertStringContainsString("->installType('routing')", $source);
+        self::assertStringNotContainsString('catch (Throwable', $source);
+        self::assertStringNotContainsString('catch (\\Throwable', $source);
+    }
+
+    public function test_response_contract_upgrade_migration_uses_response_installer_only(): void
+    {
+        $path = ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_10_05_120000_upgrade_agent_response_contract_to_v020.php';
+        self::assertFileExists($path);
+        $source = (string) file_get_contents($path);
+        self::assertStringContainsString('DefaultAgentRuntimePromptInstaller', $source);
+        self::assertStringContainsString("->installType('response')", $source);
+        self::assertStringNotContainsString("->installType('routing')", $source);
         self::assertStringNotContainsString('catch (Throwable', $source);
         self::assertStringNotContainsString('catch (\\Throwable', $source);
     }

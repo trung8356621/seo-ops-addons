@@ -98,6 +98,49 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         self::assertSame($versionsAfterReconciliation, PromptVersion::query()->count());
     }
 
+    public function test_forward_migration_reconciles_response_only_upgrade_without_duplicates(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('routing');
+        $installer->installType('response');
+        $routing = SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->firstOrFail();
+        $routing->markdown_content = 'Current customized routing instructions';
+        $routing->save();
+        $routingVersionsBeforeMigration = PromptVersion::query()->where('prompt_id', $routing->id)->count();
+        $response = SeoPrompt::query()->where('hook_key', 'agent.response.compose')->firstOrFail();
+        $responseId = (int) $response->id;
+        $bindingId = app(SeoCreateArticleSettingsService::class)->getBoundPromptId('agent.response.compose');
+        $response->hook_version = '0.1.0';
+        $response->markdown_content = 'Previous response composer contract body';
+        $response->save();
+        $versionsBeforeMigration = PromptVersion::query()->count();
+
+        $migration = require dirname((new ReflectionClass(DefaultAgentRuntimePromptInstaller::class))->getFileName(), 4)
+            .'/database/migrations/2026_10_05_120000_upgrade_agent_response_contract_to_v020.php';
+        $migration->up();
+
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.response.compose')->count());
+        $response->refresh();
+        self::assertSame($responseId, (int) $response->id);
+        self::assertSame($bindingId, app(SeoCreateArticleSettingsService::class)->getBoundPromptId('agent.response.compose'));
+        self::assertSame('0.2.0', $response->hook_version);
+        self::assertSame(DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('response'), $response->markdown_content);
+        self::assertSame($versionsBeforeMigration + 1, PromptVersion::query()->count());
+        $previousVersion = PromptVersion::query()->where('prompt_id', $responseId)->where('hook_version', '0.1.0')->first();
+        self::assertNotNull($previousVersion);
+        self::assertSame('Previous response composer contract body', $previousVersion->markdown_content);
+        $routing->refresh();
+        self::assertSame('0.2.0', $routing->hook_version);
+        self::assertSame('Current customized routing instructions', $routing->markdown_content);
+        self::assertSame($routingVersionsBeforeMigration, PromptVersion::query()->where('prompt_id', $routing->id)->count());
+
+        $versionsAfterReconciliation = PromptVersion::query()->count();
+        $migration->up();
+
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.response.compose')->count());
+        self::assertSame($versionsAfterReconciliation, PromptVersion::query()->count());
+    }
+
     public function test_forward_migration_fails_visibly_instead_of_swallowing_throwables(): void
     {
         $path = dirname((new ReflectionClass(DefaultAgentRuntimePromptInstaller::class))->getFileName(), 4)
@@ -268,6 +311,35 @@ MARKDOWN;
         self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
     }
 
+    public function test_old_managed_response_contract_self_heals_once_and_current_custom_content_is_preserved(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('response');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.response.compose')->firstOrFail();
+        $prompt->hook_version = '0.1.0';
+        $prompt->markdown_content = 'Old response composer instructions';
+        $prompt->save();
+
+        $resolved = $this->resolver()->resolve('agent.response.compose');
+        $versionsAfterRepair = PromptVersion::query()->where('prompt_id', $prompt->id)->count();
+
+        self::assertSame('0.2.0', $resolved->hook_version);
+        self::assertSame(DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('response'), $resolved->markdown_content);
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.response.compose')->count());
+
+        $resolvedAgain = $this->resolver()->resolve('agent.response.compose');
+        self::assertSame((int) $resolved->id, (int) $resolvedAgain->id);
+        self::assertSame($versionsAfterRepair, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
+
+        $resolvedAgain->markdown_content = 'Current customized response instructions';
+        $resolvedAgain->save();
+        $versionsBeforeCurrentResolve = PromptVersion::query()->where('prompt_id', $prompt->id)->count();
+
+        $current = $this->resolver()->resolve('agent.response.compose');
+        self::assertSame('Current customized response instructions', $current->markdown_content);
+        self::assertSame($versionsBeforeCurrentResolve, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
+    }
+
     private function resolver(): SettingsPromptBindingResolver
     {
         $loader = new PromptHookDefinitionLoader(
@@ -295,7 +367,7 @@ MARKDOWN;
             self::assertTrue((bool) $prompts->first()?->is_active);
             self::assertTrue((bool) data_get($prompts->first()?->settings, 'is_system_default'));
             self::assertSame('settings_binding', data_get($prompts->first()?->settings, 'ownership'));
-            self::assertSame($hook === 'agent.routing.decide' ? '0.2.0' : '0.1.0', $prompts->first()?->hook_version);
+            self::assertSame('0.2.0', $prompts->first()?->hook_version);
             self::assertSame(1, PromptVersion::query()->where('prompt_id', $prompts->first()?->id)->count());
         }
 

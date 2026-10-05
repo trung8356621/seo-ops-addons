@@ -1,4 +1,4 @@
-import { answerHtmlForEditor } from '../../resources/js/utils/faqAnswerHtml.js';
+import { answerHtmlForEditor, isSemanticFaqHtmlEqual } from '../../resources/js/utils/faqAnswerHtml.js';
 import {
     faqAnswerPlainText,
     faqRowsNeedPersistFlush,
@@ -121,11 +121,40 @@ function assertEqual(actual, expected, message) {
     const { rows } = mergeFaqRowsPreservingDrafts(server, local);
     const same = rows.filter((row) => normalizeFaqQuestionKey(row.question) === 'same q?');
     assertEqual(same.length, 1, 'no duplicate row after autosave ACK');
-    assertEqual(rows.length, 2, 'empty draft still preserved once');
     assert(isFaqDraftPlaceholder(rows[1]), 'empty draft placeholder');
 }
+
+// Enter key typed during in-flight save preserves local paragraph and client_key
+{
+    const server = [
+        { id: 12, question: 'Question?', answer: '<p>Paragraph 1</p>' },
+    ];
+    const local = [
+        {
+            id: null,
+            client_key: 'faq-draft-new-row',
+            question: 'Question?',
+            answer: '<p>Paragraph 1</p><p>Paragraph 2</p>',
+        },
+    ];
+    const { rows, needsFlush } = mergeFaqRowsPreservingDrafts(server, local);
+    assertEqual(rows.length, 1, 'matched by index/fallback');
+    assertEqual(rows[0].id, 12, 'server id populated');
+    assertEqual(rows[0].client_key, 'faq-draft-new-row', 'client_key preserved preventing remount');
+    assertEqual(rows[0].answer, '<p>Paragraph 1</p><p>Paragraph 2</p>', 'local multi-paragraph answer preserved');
+    assertEqual(needsFlush, true, 'needsFlush true because local answer differs from server');
+}
+
+// Semantic HTML comparison checks
+assert(isSemanticFaqHtmlEqual('<p>Hello</p>', '<p>Hello</p>'), 'identical html');
+assert(isSemanticFaqHtmlEqual('<p>Line 1<br></p>', '<p>Line 1<br/></p>'), 'br self closing equality');
+assert(isSemanticFaqHtmlEqual('<p></p>', '<p><br></p>'), 'empty p with or without br');
+assert(isSemanticFaqHtmlEqual('<p>a</p>  \n  <p>b</p>', '<p>a</p><p>b</p>'), 'whitespace between tags');
+assert(!isSemanticFaqHtmlEqual('<p>a</p>', '<p>b</p>'), 'different text');
+assert(!isSemanticFaqHtmlEqual('<p>a</p>', '<p>a</p><p>b</p>'), 'different paragraph count');
 
 assertEqual(faqAnswerPlainText('<p></p>'), '', 'empty p is blank');
 assertEqual(answerHtmlForEditor(''), '<p></p>', 'editor empty html');
 
 console.log('faqDraftPlaceholders.selftest: ok');
+

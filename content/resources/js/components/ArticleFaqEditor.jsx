@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Plus, Trash2, AlertCircle, Sparkles, FileCode, ListTree } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, AlertCircle, Sparkles, ListTree } from 'lucide-react';
 import FaqAnswerEditor from './FaqAnswerEditor';
 import { answerHtmlForEditor } from '../utils/faqAnswerHtml';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
@@ -261,11 +261,14 @@ export default function ArticleFaqEditor({
     const generationState = useFaqGenerationState();
     const [renewingIndex, setRenewingIndex] = useState(null);
     const [generatingAll, setGeneratingAll] = useState(false);
-    const [markdownImportOpen, setMarkdownImportOpen] = useState(false);
-    const [markdownImportDraft, setMarkdownImportDraft] = useState('');
-    const [importingMarkdown, setImportingMarkdown] = useState(false);
     const [hasEditorSelection, setHasEditorSelection] = useState(false);
     const [saveStatus, setSaveStatus] = useState('saved');
+
+    const isGeneratingPreview = generationState.phase === 'opening'
+        || generationState.phase === 'generating'
+        || (generatingAll && !aiPreviewPending);
+    const isApplyingPreview = generationState.phase === 'applying'
+        || (generatingAll && aiPreviewPending);
 
     useEffect(() => {
         const onSelection = (event) => {
@@ -308,8 +311,21 @@ export default function ArticleFaqEditor({
                     localNow,
                 );
                 const next = normalizeFaqRows(rows.rows);
-                faqsRef.current = next;
-                setFaqs(next);
+                // Do not replace identical rows to avoid useless children re-renders
+                const hasChanges = next.length !== localNow.length || next.some((row, i) => {
+                    const prev = localNow[i];
+                    return !prev
+                        || prev.id !== row.id
+                        || prev.client_key !== row.client_key
+                        || prev.question !== row.question
+                        || prev.answer !== row.answer
+                        || prev.duplicate !== row.duplicate
+                        || prev.duplicate_scope !== row.duplicate_scope;
+                });
+                if (hasChanges) {
+                    faqsRef.current = next;
+                    setFaqs(next);
+                }
                 if (next.some(isFaqUnpersistedLocal)) {
                     saveFaqDraft(articleId, next);
                 } else {
@@ -433,10 +449,12 @@ export default function ArticleFaqEditor({
                                   ...row,
                                   question: question ?? row.question,
                                   answer: answer ?? row.answer,
+                                  _externalRev: (row._externalRev ?? 0) + 1,
                               }
                             : row,
                     ),
                 );
+                faqsRef.current = next;
                 setSaveStatus('pending');
                 debouncedSave(next);
 
@@ -474,8 +492,12 @@ export default function ArticleFaqEditor({
             }
 
             setExtractDebug(null);
-            const next = normalizeFaqRows(incoming);
+            const next = normalizeFaqRows(incoming).map((row) => ({
+                ...row,
+                _externalRev: (row._externalRev ?? 0) + 1,
+            }));
             setFaqs(next);
+            faqsRef.current = next;
             saveFaqDraft(articleId, next);
             setSaveStatus('saved');
         };
@@ -502,15 +524,6 @@ export default function ArticleFaqEditor({
         window.addEventListener('article-faq-extract-debug-cleared', onExtractDebugCleared);
         window.addEventListener('flush-article-faqs', flushFaqs);
         window.addEventListener('article-faqs-save-finished', onFaqsSaveFinished);
-        const onMarkdownImportFinished = (event) => {
-            setImportingMarkdown(false);
-            if (event?.detail?.success === true) {
-                setMarkdownImportDraft('');
-                setMarkdownImportOpen(false);
-            }
-        };
-
-        window.addEventListener('article-faq-markdown-import-finished', onMarkdownImportFinished);
 
         return () => {
             window.removeEventListener('article-faq-renewed', onRenewed);
@@ -520,23 +533,8 @@ export default function ArticleFaqEditor({
             window.removeEventListener('article-faq-extract-debug-cleared', onExtractDebugCleared);
             window.removeEventListener('flush-article-faqs', flushFaqs);
             window.removeEventListener('article-faqs-save-finished', onFaqsSaveFinished);
-            window.removeEventListener('article-faq-markdown-import-finished', onMarkdownImportFinished);
         };
     }, [articleId, debouncedSave, flushFaqs]);
-
-    const importMarkdownFaq = () => {
-        const markdown = String(markdownImportDraft ?? '').trim();
-        if (!markdown || importingMarkdown) {
-            return;
-        }
-
-        setImportingMarkdown(true);
-        window.dispatchEvent(
-            new CustomEvent('import-markdown-faq-debug', {
-                detail: { markdown },
-            }),
-        );
-    };
 
     const generateAllFaqs = useCallback((request = null) => {
         const requestId = typeof request === 'object' ? request?.requestId ?? null : request;
@@ -558,7 +556,10 @@ export default function ArticleFaqEditor({
                     : '';
                 noteFaqGenerationEvent('generate-preview started');
                 const preview = await generateFaqPreview(articleId, html);
-                const generated = normalizeFaqRows(preview?.faqs ?? []);
+                const generated = normalizeFaqRows(preview?.faqs ?? []).map((row) => ({
+                    ...row,
+                    _externalRev: (row._externalRev ?? 0) + 1,
+                }));
                 // Additive preview: keep manual / existing rows; dedupe by question.
                 const merged = normalizeFaqRows(
                     mergeGeneratedFaqsWithExisting(faqsRef.current ?? [], generated),
@@ -614,7 +615,10 @@ export default function ArticleFaqEditor({
                     result?.faq_snapshot
                         ? itemsFromFaqSnapshot(result.faq_snapshot)
                         : (faqsRef.current ?? [])
-                );
+                ).map((row) => ({
+                    ...row,
+                    _externalRev: (row._externalRev ?? 0) + 1,
+                }));
                 setFaqs(appliedRows);
                 faqsRef.current = appliedRows;
                 clearFaqDraft(articleId);
@@ -718,35 +722,25 @@ export default function ArticleFaqEditor({
                         <button
                             type="button"
                             className="seo-faq-btn-generate"
-                            disabled={generationState.phase !== 'idle'}
+                            disabled={isGeneratingPreview || isApplyingPreview}
                             onClick={requestGenerateAllFaqs}
                             title={t('faq_generate_ai')}
                         >
-                            <Sparkles size={14} className={generationState.phase !== 'idle' ? 'animate-pulse' : ''} />
-                            {generationState.phase !== 'idle' ? t('faq_generate_ai_loading') : t('faq_generate_ai')}
+                            <Sparkles size={14} className={isGeneratingPreview ? 'animate-pulse' : ''} />
+                            {isGeneratingPreview ? t('faq_generate_ai_loading') : t('faq_generate_ai')}
                         </button>
                     ) : null}
                     {aiPreviewPending ? (
                         <button
                             type="button"
                             className="seo-faq-btn-generate"
-                            disabled={generatingAll}
+                            disabled={isApplyingPreview || isGeneratingPreview}
                             onClick={applyAiFaqPreview}
                             title={t('faq_apply_ai_preview') || 'Apply AI FAQ'}
                         >
-                            {t('faq_apply_ai_preview') || 'Apply AI FAQ'}
-                        </button>
-                    ) : null}
-                    {canImportMarkdownFaq ? (
-                        <button
-                            type="button"
-                            className="seo-faq-btn-import-md"
-                            disabled={importingMarkdown}
-                            onClick={() => setMarkdownImportOpen((open) => !open)}
-                            title={t('faq_import_markdown_debug')}
-                        >
-                            <FileCode size={14} />
-                            {importingMarkdown ? t('faq_import_markdown_loading') : t('faq_import_markdown_debug')}
+                            {isApplyingPreview
+                                ? (t('faq_saving') || 'Đang áp dụng...')
+                                : (t('faq_apply_ai_preview') || 'Áp dụng FAQ AI')}
                         </button>
                     ) : null}
                     <button type="button" className="seo-faq-btn-add" onClick={addFaq}>
@@ -756,36 +750,6 @@ export default function ArticleFaqEditor({
                 </div>
             </div>
             <div className="wp-postbox-inside space-y-4">
-                {canImportMarkdownFaq && markdownImportOpen ? (
-                    <div className="seo-faq-markdown-import">
-                        <p className="seo-faq-markdown-import__hint">{t('faq_import_markdown_hint')}</p>
-                        <textarea
-                            className="seo-faq-markdown-import__textarea"
-                            rows={8}
-                            value={markdownImportDraft}
-                            onChange={(event) => setMarkdownImportDraft(event.target.value)}
-                            placeholder={t('faq_import_markdown_placeholder')}
-                        />
-                        <div className="seo-faq-markdown-import__actions">
-                            <button
-                                type="button"
-                                className="seo-faq-btn-import-md is-primary"
-                                disabled={importingMarkdown || markdownImportDraft.trim() === ''}
-                                onClick={importMarkdownFaq}
-                            >
-                                {importingMarkdown ? t('faq_import_markdown_loading') : t('faq_import_markdown_submit')}
-                            </button>
-                            <button
-                                type="button"
-                                className="seo-faq-btn-import-md"
-                                disabled={importingMarkdown}
-                                onClick={() => setMarkdownImportOpen(false)}
-                            >
-                                {t('cancel')}
-                            </button>
-                        </div>
-                    </div>
-                ) : null}
                 <FaqExtractDebugBanner
                     debug={extractDebug}
                     onDismiss={() => setExtractDebug(null)}
@@ -855,6 +819,7 @@ export default function ArticleFaqEditor({
                             <FaqAnswerEditor
                                 key={faqRowClientKey(row, index)}
                                 html={row.answer}
+                                externalRevision={row._externalRev ?? 0}
                                 onChange={(html) => updateRow(index, { answer: html })}
                             />
                         </div>

@@ -70,8 +70,9 @@ final class SettingsPromptBindingResolver
             );
         }
 
-        if ($hookKey === 'agent.routing.decide'
-            && $this->agentPromptInstaller->reconcileRoutingContractVersion($prompt)
+        $agentPromptType = self::AGENT_SELF_HEAL_TYPES[$hookKey] ?? null;
+        if ($agentPromptType !== null
+            && $this->agentPromptInstaller->reconcileContractVersion($agentPromptType, $prompt)
         ) {
             $prompt = SeoPrompt::query()->findOrFail($promptId);
         }

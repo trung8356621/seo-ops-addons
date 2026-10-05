@@ -1,4 +1,4 @@
-import { answerHtmlForEditor } from './faqAnswerHtml.js';
+import { answerHtmlForEditor, isSemanticFaqHtmlEqual } from './faqAnswerHtml.js';
 
 /**
  * Plain text from FAQ answer HTML — empty `<p></p>` counts as blank.
@@ -155,6 +155,7 @@ export function mergeFaqRowsPreservingDrafts(serverRows, localRows) {
                 isFaqDraftPlaceholder(candidate)
                 || candidateKey === ''
                 || candidateKey === sQuestionKey
+                || candidate?.id == null
             ) {
                 localIndex = index;
             }
@@ -173,15 +174,19 @@ export function mergeFaqRowsPreservingDrafts(serverRows, localRows) {
             index + 1,
         );
 
-        // Concurrent edit during in-flight save: keep newer local Q/A on same identity.
-        if (localMatch && !isFaqUnpersistedLocal(localMatch)) {
+        // Local-first: routine save ACK must NEVER revert active local edits (e.g. typing or Enter during in-flight save).
+        if (localMatch) {
+            next.question = localMatch.question != null ? String(localMatch.question) : next.question;
+            next.answer = localMatch.answer != null ? answerHtmlForEditor(localMatch.answer) : next.answer;
+            if (localMatch._externalRev) {
+                next._externalRev = localMatch._externalRev;
+            }
+
             const localQ = String(localMatch.question ?? '').trim();
             const localA = String(localMatch.answer ?? '');
             const serverQ = String(sRow?.question ?? '').trim();
             const serverA = String(sRow?.answer ?? '');
-            if (localQ !== serverQ || faqAnswerPlainText(localA) !== faqAnswerPlainText(serverA)) {
-                next.question = localQ || next.question;
-                next.answer = answerHtmlForEditor(localA || next.answer);
+            if (localQ !== serverQ || !isSemanticFaqHtmlEqual(localA, serverA)) {
                 needsFlush = true;
             }
         }

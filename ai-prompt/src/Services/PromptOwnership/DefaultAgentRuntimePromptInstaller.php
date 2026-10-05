@@ -15,7 +15,7 @@ final class DefaultAgentRuntimePromptInstaller
     /** @var array<string, array{hook: string, name: string, version: string}> */
     private const TYPES = [
         'routing' => ['hook' => 'agent.routing.decide', 'name' => 'Agent Routing / JEV', 'version' => '0.2.0'],
-        'response' => ['hook' => 'agent.response.compose', 'name' => 'Agent Response Composer', 'version' => '0.1.0'],
+        'response' => ['hook' => 'agent.response.compose', 'name' => 'Agent Response Composer', 'version' => '0.2.0'],
     ];
 
     public function __construct(private readonly SeoCreateArticleSettingsService $settings) {}
@@ -114,19 +114,20 @@ final class DefaultAgentRuntimePromptInstaller
         return $markdown;
     }
 
-    public function reconcileRoutingContractVersion(SeoPrompt $prompt): bool
+    public function reconcileContractVersion(string $type, SeoPrompt $prompt): bool
     {
+        $config = self::TYPES[$type] ?? throw new RuntimeException("Unknown Agent Runtime prompt type [{$type}].");
         $settings = is_array($prompt->settings) ? $prompt->settings : [];
-        if ((string) $prompt->hook_key !== self::TYPES['routing']['hook']
-            || (string) $prompt->name !== self::TYPES['routing']['name']
+        if ((string) $prompt->hook_key !== $config['hook']
+            || (string) $prompt->name !== $config['name']
             || ($settings['is_system_default'] ?? false) !== true
             || ($settings['ownership'] ?? null) !== 'settings_binding'
-            || trim((string) $prompt->hook_version) === self::TYPES['routing']['version']
+            || trim((string) $prompt->hook_version) === $config['version']
         ) {
             return false;
         }
 
-        $this->installType('routing');
+        $this->installType($type);
 
         return true;
     }

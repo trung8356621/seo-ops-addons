@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { getDefaultArticleEditorRuntime } from '../editor/runtime/defaultArticleEditorRuntime';
-import { answerHtmlForEditor } from '../utils/faqAnswerHtml';
+import { answerHtmlForEditor, isSemanticFaqHtmlEqual } from '../utils/faqAnswerHtml';
 import BlockFormatToolbar from './BlockFormatToolbar';
 
 const FAQ_ANSWER_EDITOR_PROPS = Object.freeze({
@@ -28,10 +28,15 @@ export function safeFaqEditorHtml(editor) {
     }
 }
 
-export default function FaqAnswerEditor({ html, onChange, onFocus }) {
+export default function FaqAnswerEditor({ html, onChange, onFocus, externalRevision = 0 }) {
     const initialContent = useMemo(() => answerHtmlForEditor(html), []);
     const onChangeRef = useRef(onChange);
     const onFocusRef = useRef(onFocus);
+    const localHtmlRef = useRef(initialContent);
+    const lastExternalRevRef = useRef(externalRevision);
+    const isFocusedRef = useRef(false);
+    const isDirtyRef = useRef(false);
+
     onChangeRef.current = onChange;
     onFocusRef.current = onFocus;
 
@@ -50,26 +55,70 @@ export default function FaqAnswerEditor({ html, onChange, onFocus }) {
             if (next == null) {
                 return;
             }
+            localHtmlRef.current = next;
+            isDirtyRef.current = true;
             onChangeRef.current?.(next);
         },
-        onFocus: () => onFocusRef.current?.(),
+        onFocus: () => {
+            isFocusedRef.current = true;
+            onFocusRef.current?.();
+        },
+        onBlur: () => {
+            isFocusedRef.current = false;
+        },
     }, []);
 
     useEffect(() => {
         if (!editor || editor.isDestroyed || !editor.view) {
             return;
         }
-        const next = answerHtmlForEditor(html);
+        const incoming = answerHtmlForEditor(html);
         const current = safeFaqEditorHtml(editor);
-        if (current == null || current === next) {
+        if (current == null) {
             return;
         }
+
+        // 1. Explicit external replacement (AI Renew of this row, AI Apply preview, external restore).
+        const isExplicitExternal = typeof externalRevision === 'number'
+            && externalRevision > (lastExternalRevRef.current ?? 0);
+
+        if (isExplicitExternal) {
+            lastExternalRevRef.current = externalRevision;
+            localHtmlRef.current = incoming;
+            isDirtyRef.current = false;
+            try {
+                editor.commands.setContent(incoming, false);
+            } catch {
+                // Ignore setContent races during unmount/remount.
+            }
+            return;
+        }
+
+        // 2. Routine parent prop updates (local keystroke echo, autosave ACK):
+        // If incoming matches exact current DOM or what we just emitted:
+        if (incoming === current || incoming === localHtmlRef.current) {
+            return;
+        }
+
+        // 3. Semantic equality check (whitespace, empty paragraphs, br tags):
+        if (isSemanticFaqHtmlEqual(incoming, current)) {
+            return;
+        }
+
+        // 4. Local-first guard:
+        // When active editor is focused or dirty, NEVER call setContent() from routine autosave ACK.
+        if (editor.isFocused || isFocusedRef.current || isDirtyRef.current) {
+            return;
+        }
+
+        // 5. Inactive editor receiving non-conflicting external value:
         try {
-            editor.commands.setContent(next, false);
+            localHtmlRef.current = incoming;
+            editor.commands.setContent(incoming, false);
         } catch {
             // Ignore setContent races during unmount/remount.
         }
-    }, [html, editor]);
+    }, [html, externalRevision, editor]);
 
     useEffect(() => () => {
         if (editor && !editor.isDestroyed) {
