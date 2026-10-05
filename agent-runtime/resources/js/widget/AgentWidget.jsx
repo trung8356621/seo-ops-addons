@@ -126,6 +126,7 @@ const I18N = {
         noArchived: 'Chưa có cuộc trò chuyện nào được lưu trữ cho website này.',
         archivedBanner: 'Cuộc trò chuyện này đã được lưu trữ và chỉ có thể đọc.',
         startNewChat: 'Bắt đầu chat mới',
+        deleteConfirm: 'Xóa hội thoại này?',
     },
     en: {
         welcomeTitle: 'SEO Operations Agent',
@@ -141,6 +142,7 @@ const I18N = {
         noArchived: 'No archived conversations for this site.',
         archivedBanner: 'This conversation is archived and read-only.',
         startNewChat: 'Start new chat',
+        deleteConfirm: 'Delete this conversation?',
     },
 };
 
@@ -525,7 +527,7 @@ export function AgentWidget({
         if (!ulid || !endpoints.threadsUrl) {
             return;
         }
-        if (!window.confirm('Delete this archived conversation?')) {
+        if (!window.confirm(t.deleteConfirm)) {
             return;
         }
         try {
@@ -541,14 +543,14 @@ export function AgentWidget({
                 const errData = await res.json().catch(() => ({}));
                 throw new Error(errData.message || 'Could not delete conversation.');
             }
-            if (viewingThreadUlid === ulid) {
+            if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
                 onNewConversation();
             }
             fetchThreads(currentScopeRef);
         } catch (err) {
             setError(err.message || 'Could not delete conversation.');
         }
-    }, [endpoints.threadsUrl, csrf, viewingThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
+    }, [endpoints.threadsUrl, csrf, t.deleteConfirm, viewingThreadUlid, activeThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
 
     async function onApplyDebugResult() {
         if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
@@ -1444,19 +1446,34 @@ export function AgentWidget({
                                                     {formatTimeAgo(t.last_message_at || t.created_at)}
                                                 </span>
                                             </button>
-                                            <button
-                                                type="button"
-                                                className="agent-history-archive-btn"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onArchiveThread(t.ulid);
-                                                }}
-                                                disabled={busy || debugBusy}
-                                                title="Archive conversation"
-                                                aria-label="Archive conversation"
-                                            >
-                                                <Archive size={13} />
-                                            </button>
+                                            <span className="agent-history-action-group">
+                                                <button
+                                                    type="button"
+                                                    className="agent-history-archive-btn"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onArchiveThread(t.ulid);
+                                                    }}
+                                                    disabled={busy || debugBusy}
+                                                    title="Archive conversation"
+                                                    aria-label="Archive conversation"
+                                                >
+                                                    <Archive size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="agent-history-delete-btn"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onDeleteThread(t.ulid);
+                                                    }}
+                                                    disabled={busy || debugBusy}
+                                                    title="Delete conversation"
+                                                    aria-label="Delete conversation"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </span>
                                         </li>
                                     ))}
                                 </ul>

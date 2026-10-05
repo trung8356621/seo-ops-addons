@@ -16,9 +16,15 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
  */
 final class SettingsPromptBindingResolver
 {
+    private const AGENT_SELF_HEAL_TYPES = [
+        'agent.routing.decide' => 'routing',
+        'agent.response.compose' => 'response',
+    ];
+
     public function __construct(
         private readonly SeoCreateArticleSettingsService $settings,
         private readonly PromptHookEditorCatalog $catalog,
+        private readonly DefaultAgentRuntimePromptInstaller $agentPromptInstaller,
     ) {}
 
     public function resolve(string $hookKey): SeoPrompt
@@ -37,6 +43,10 @@ final class SettingsPromptBindingResolver
         }
 
         $promptId = $this->settings->getBoundPromptId($hookKey);
+        if ($promptId === null && isset(self::AGENT_SELF_HEAL_TYPES[$hookKey])) {
+            $this->agentPromptInstaller->installType(self::AGENT_SELF_HEAL_TYPES[$hookKey]);
+            $promptId = $this->settings->getBoundPromptId($hookKey);
+        }
         if ($promptId === null) {
             throw new PromptHookException(
                 PromptHookErrorCode::HookPromptNotConfigured,
@@ -58,6 +68,12 @@ final class SettingsPromptBindingResolver
                 PromptHookErrorCode::HookPromptMismatch,
                 "Settings binding [{$hookKey}] points to prompt #{$promptId} with hook_key [{$promptHook}].",
             );
+        }
+
+        if ($hookKey === 'agent.routing.decide'
+            && $this->agentPromptInstaller->repairLegacyRoutingContract($prompt)
+        ) {
+            $prompt = SeoPrompt::query()->findOrFail($promptId);
         }
 
         return $prompt;

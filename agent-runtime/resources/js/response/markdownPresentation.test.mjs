@@ -54,6 +54,16 @@ Visit [Google Search Console]\(https\://search.google.com/search-console\) for d
     assert.equal(html.includes(String.raw`\)`), false);
 });
 
+test('trusted topic http links render as safe anchors', () => {
+    const html = modelMarkdownToHtml('[Topic Name](https://seo-ops.test/seo/keywords/clusters/82?site_id=6)');
+    assert.equal(html, '<p><a href="https://seo-ops.test/seo/keywords/clusters/82?site_id=6" target="_blank" rel="noopener noreferrer">Topic Name</a></p>');
+});
+
+test('unsafe URI schemes never render as anchors', () => {
+    const html = modelMarkdownToHtml('[Click](javascript:alert(1))');
+    assert.equal(html.includes('<a '), false);
+});
+
 test('legitimate code and backslashes are not globally stripped', () => {
     const input = [
         'Path C:\\work\\site and regex \\d+ in regular text',

@@ -27,6 +27,8 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\SiteNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicCrossSiteLinksController;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
+use Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver;
+use Omnichannel\Addons\SearchIntelligence\Services\AgentTopicInternalLinkResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapVite;
 
@@ -41,6 +43,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
     {
         $this->app->singleton(TopicalMapVite::class);
         $this->app->singleton(TopicalMapAccess::class);
+        $this->app->singleton(AgentInternalLinkResolver::class, AgentTopicInternalLinkResolver::class);
         $this->registerCapabilities();
     }
 

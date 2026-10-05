@@ -2479,6 +2479,42 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame('rejected', $reloaded->retrieval_summary['model_diagnostics']['decision']['status']);
     }
 
+    public function test_user_message_persistence_trims_only_outer_whitespace(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+        $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', 'Trim');
+
+        $trimmed = $persistence->persistUserMessage($thread, "\n\n  Bạn có thể làm gì?  \r\n");
+        $multiline = $persistence->persistUserMessage($thread, "Dòng 1\n\nDòng 2");
+
+        self::assertSame('Bạn có thể làm gì?', $trimmed->content);
+        self::assertSame("Dòng 1\n\nDòng 2", $multiline->content);
+    }
+
+    public function test_user_message_persistence_rejects_whitespace_only_content(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+        $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', 'Empty');
+        $before = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage::query()
+            ->where('thread_id', $thread->id)->count();
+
+        try {
+            $persistence->persistUserMessage($thread, " \n\r\t ");
+            self::fail('Expected whitespace-only user message to fail.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertSame('User message content must not be empty.', $exception->getMessage());
+        }
+
+        self::assertSame($before, \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage::query()
+            ->where('thread_id', $thread->id)->count());
+    }
+
     public function test_thread_archive_and_delete_lifecycle_and_principal_isolation(): void
     {
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
@@ -2540,6 +2576,73 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(200, $deleteRes->getStatusCode());
         self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::find($thread->id));
         self::assertNotNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
+    }
+
+    public function test_completed_active_thread_can_be_deleted_without_archive(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+        $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', 'Direct delete');
+        $message = $persistence->persistUserMessage($thread, 'Completed request');
+        $run = $persistence->startRun($thread, $message, 'seo-ops', 'site', 'site:7', 1);
+        $run->update(['status' => 'done', 'finished_at' => now()]);
+
+        $response = (new AgentRuntimeController())->deleteThread(
+            $this->createTurnRequest([], userId: 1),
+            $thread->ulid,
+            $threads,
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('active', $thread->status);
+        self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::find($thread->id));
+    }
+
+    public function test_direct_delete_rejects_unresolved_runs_and_preserves_threads(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+
+        foreach (['awaiting_model', 'awaiting_confirmation'] as $status) {
+            $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', $status);
+            $message = $persistence->persistUserMessage($thread, 'Pending request');
+            $run = $persistence->startRun($thread, $message, 'seo-ops', 'site', 'site:7', 1);
+            $run->update(['status' => $status]);
+
+            $response = (new AgentRuntimeController())->deleteThread(
+                $this->createTurnRequest([], userId: 1),
+                $thread->ulid,
+                $threads,
+            );
+
+            self::assertSame(422, $response->getStatusCode());
+            self::assertSame('Cannot delete thread with an active run.', $response->getData(true)['message']);
+            self::assertNotNull($thread->fresh());
+        }
+    }
+
+    public function test_history_ui_offers_archive_and_delete_for_active_threads(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 2).'/resources/js/widget/AgentWidget.jsx');
+        $activeStart = strpos($source, '{activeThreads.map((t) => (');
+        $archivedStart = strpos($source, '{archivedThreads.map((t) => (');
+        self::assertNotFalse($activeStart);
+        self::assertNotFalse($archivedStart);
+        $activeMarkup = substr($source, $activeStart, $archivedStart - $activeStart);
+        $archivedMarkup = substr($source, $archivedStart);
+
+        self::assertStringContainsString('onArchiveThread(t.ulid)', $activeMarkup);
+        self::assertStringContainsString('onDeleteThread(t.ulid)', $activeMarkup);
+        self::assertStringContainsString('<Archive size={13} />', $activeMarkup);
+        self::assertStringContainsString('<Trash2 size={13} />', $activeMarkup);
+        self::assertStringContainsString('onDeleteThread(t.ulid)', $archivedMarkup);
+        self::assertStringContainsString("deleteConfirm: 'Xóa hội thoại này?'", $source);
+        self::assertStringContainsString("deleteConfirm: 'Delete this conversation?'", $source);
+        self::assertStringNotContainsString('Delete this archived conversation?', $source);
     }
 
     private function retired_global_scope_remains_unsupported_in_model_debug(): void

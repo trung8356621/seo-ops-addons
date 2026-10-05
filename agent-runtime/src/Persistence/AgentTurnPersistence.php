@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AgentRuntime\Persistence;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread;
@@ -18,6 +19,11 @@ class AgentTurnPersistence
         AgentThread $thread,
         string $content,
     ): AgentMessage {
+        $content = trim($content);
+        if ($content === '') {
+            throw new InvalidArgumentException('User message content must not be empty.');
+        }
+
         $position = AgentMessage::where('thread_id', $thread->id)->max('position') ?? 0;
 
         return AgentMessage::create([

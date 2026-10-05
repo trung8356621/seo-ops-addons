@@ -22,12 +22,13 @@ final class AgentResponseParser
         }
 
         $evidence = EvidenceNumberIndex::fromBundle($bundle);
+        $links = EvidenceLinkIndex::fromBundle($bundle);
         $blocks = [];
         foreach ($blocksRaw as $block) {
             if (! is_array($block)) {
                 throw new AgentResponseRejected('Agent response block is malformed.');
             }
-            $blocks[] = $this->block($block, $evidence);
+            $blocks[] = $this->block($block, $evidence, $links);
         }
 
         return new AgentResponse(
@@ -45,12 +46,12 @@ final class AgentResponseParser
      * @param  array<string, mixed>  $block
      * @return array<string, mixed>
      */
-    private function block(array $block, EvidenceNumberIndex $evidence): array
+    private function block(array $block, EvidenceNumberIndex $evidence, EvidenceLinkIndex $links): array
     {
         $type = (string) ($block['type'] ?? '');
 
         return match ($type) {
-            'markdown', 'text' => $this->textBlock($block),
+            'markdown', 'text' => $this->textBlock($block, $links),
             'warning' => [
                 'type' => 'warning',
                 'text' => $this->requiredText($block),
@@ -65,11 +66,14 @@ final class AgentResponseParser
      * @param  array<string, mixed>  $block
      * @return array<string, mixed>
      */
-    private function textBlock(array $block): array
+    private function textBlock(array $block, EvidenceLinkIndex $links): array
     {
+        $text = $this->requiredText($block);
+        $links->assertMarkdown($text);
+
         return [
             'type' => 'markdown',
-            'text' => $this->requiredText($block),
+            'text' => $text,
         ];
     }
 

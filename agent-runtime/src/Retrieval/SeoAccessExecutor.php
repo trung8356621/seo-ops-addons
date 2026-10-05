@@ -17,6 +17,7 @@ final class SeoAccessExecutor
         private readonly SeoAccessCredential $credential,
         private readonly SeoAccessUrlPolicy $policy,
         private readonly string $apiBase,
+        private readonly ?AgentEvidenceLinkEnricher $linkEnricher = null,
     ) {}
 
     public function execute(RetrievalPlan $plan): RetrievalBundle
@@ -55,6 +56,10 @@ final class SeoAccessExecutor
         $sources = [];
         foreach ($plan->steps as $step) {
             $sources[] = $this->readResource($plan->scope, $minted['access_url'], $minted['expires_at'], $mintUrl, $bearer, $step);
+        }
+
+        if ($this->linkEnricher !== null) {
+            $sources = $this->linkEnricher->enrich($sources, $plan->scope);
         }
 
         return new RetrievalBundle($plan->scope, $sources, $warnings);

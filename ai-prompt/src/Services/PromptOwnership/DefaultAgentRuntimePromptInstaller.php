@@ -116,6 +116,42 @@ final class DefaultAgentRuntimePromptInstaller
         return $markdown;
     }
 
+    public function repairLegacyRoutingContract(SeoPrompt $prompt): bool
+    {
+        $settings = is_array($prompt->settings) ? $prompt->settings : [];
+        if ((string) $prompt->hook_key !== self::TYPES['routing']['hook']
+            || (string) $prompt->name !== self::TYPES['routing']['name']
+            || ($settings['is_system_default'] ?? false) !== true
+            || ($settings['ownership'] ?? null) !== 'settings_binding'
+            || ! self::hasClearlyLegacyRoutingContract((string) $prompt->markdown_content)
+        ) {
+            return false;
+        }
+
+        $this->installType('routing', true);
+
+        return true;
+    }
+
+    private static function hasClearlyLegacyRoutingContract(string $markdown): bool
+    {
+        $legacyFields = ['"primary_module"', '"modules"'];
+        $currentFields = ['"is_in_scope"', '"primary_capability"', '"capabilities"', '"response_template"'];
+
+        foreach ($legacyFields as $field) {
+            if (! str_contains($markdown, $field)) {
+                return false;
+            }
+        }
+        foreach ($currentFields as $field) {
+            if (str_contains($markdown, $field)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** @return array<string, mixed> */
     private static function loadCanonicalSpec(string $type): array
     {

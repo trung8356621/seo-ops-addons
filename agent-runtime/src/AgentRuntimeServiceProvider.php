@@ -55,6 +55,11 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
                 $app->make(SeoAccessCredential::class),
                 $app->make(SeoAccessUrlPolicy::class),
                 $base,
+                $app->bound(\Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver::class)
+                    ? new \Omnichannel\Addons\AgentRuntime\Retrieval\AgentEvidenceLinkEnricher(
+                        $app->make(\Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver::class),
+                    )
+                    : null,
             );
         });
         $this->app->singleton(RetrievalExecutor::class);

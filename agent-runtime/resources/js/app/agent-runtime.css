@@ -1486,6 +1486,12 @@
     margin-top: 2px;
 }
 
+.agent-history-action-group {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+}
+
 .agent-history-archive-btn,
 .agent-history-delete-btn {
     border: 0;
