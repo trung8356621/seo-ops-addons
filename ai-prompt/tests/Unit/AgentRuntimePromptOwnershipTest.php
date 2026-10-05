@@ -80,4 +80,15 @@ final class AgentRuntimePromptOwnershipTest extends TestCase
         self::assertStringContainsString('->install()', $source);
         self::assertStringContainsString('public function down(): void {}', $source);
     }
+
+    public function test_forward_reconciliation_migration_uses_current_installer_without_silent_failure(): void
+    {
+        $path = ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_10_05_100000_reconcile_default_agent_runtime_prompt_bindings.php';
+        self::assertFileExists($path);
+        $source = (string) file_get_contents($path);
+        self::assertStringContainsString('DefaultAgentRuntimePromptInstaller', $source);
+        self::assertStringContainsString('->install()', $source);
+        self::assertStringNotContainsString('catch (Throwable', $source);
+        self::assertStringNotContainsString('catch (\\Throwable', $source);
+    }
 }
