@@ -71,7 +71,7 @@ final class SettingsPromptBindingResolver
         }
 
         if ($hookKey === 'agent.routing.decide'
-            && $this->agentPromptInstaller->repairLegacyRoutingContract($prompt)
+            && $this->agentPromptInstaller->repairIncompatibleRoutingContract($prompt)
         ) {
             $prompt = SeoPrompt::query()->findOrFail($promptId);
         }

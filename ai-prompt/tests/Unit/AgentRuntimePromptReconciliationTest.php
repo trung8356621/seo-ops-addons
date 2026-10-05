@@ -129,7 +129,10 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         $installer = app(DefaultAgentRuntimePromptInstaller::class);
         $installer->installType('routing');
         $prompt = SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->firstOrFail();
-        $prompt->markdown_content = 'Admin customized routing prompt';
+        $prompt->markdown_content = <<<'MARKDOWN'
+Admin customized routing prompt:
+{"is_in_scope":true,"primary_capability":null,"capabilities":[],"response_template":"text","response_language":"en"}
+MARKDOWN;
         $prompt->save();
         $promptCount = SeoPrompt::query()->count();
         $versionCount = PromptVersion::query()->count();
@@ -137,7 +140,7 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         $resolved = $this->resolver()->resolve('agent.routing.decide');
 
         self::assertSame((int) $prompt->id, (int) $resolved->id);
-        self::assertSame('Admin customized routing prompt', $resolved->markdown_content);
+        self::assertSame($prompt->markdown_content, $resolved->markdown_content);
         self::assertSame($promptCount, SeoPrompt::query()->count());
         self::assertSame($versionCount, PromptVersion::query()->count());
     }
@@ -153,6 +156,32 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
 
         self::assertSame(0, SeoPrompt::query()->count());
         self::assertSame([], app(SeoCreateArticleSettingsService::class)->getPromptHookBindings());
+    }
+
+    public function test_bound_non_agent_prompt_is_not_self_healed(): void
+    {
+        $prompt = SeoPrompt::query()->create([
+            'name' => 'Custom Hook Prompt',
+            'title' => 'Custom Hook Prompt',
+            'markdown_content' => 'Custom content without Agent routing fields.',
+            'hook_key' => 'something.custom',
+            'hook_version' => '1.0.0',
+            'variables' => [],
+            'tools' => 'default',
+            'is_active' => true,
+            'user_id' => 1,
+            'settings' => ['is_system_default' => true, 'ownership' => 'settings_binding'],
+        ]);
+        app(SeoCreateArticleSettingsService::class)->savePromptHookBindings([
+            'something.custom' => (int) $prompt->id,
+        ]);
+        $versionCount = PromptVersion::query()->where('prompt_id', $prompt->id)->count();
+
+        $resolved = $this->resolver()->resolve('something.custom');
+
+        self::assertSame((int) $prompt->id, (int) $resolved->id);
+        self::assertSame('Custom content without Agent routing fields.', $resolved->markdown_content);
+        self::assertSame($versionCount, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
     }
 
     public function test_legacy_managed_routing_contract_is_repaired_once_from_canonical_source(): void
@@ -174,6 +203,7 @@ MARKDOWN;
         self::assertStringContainsString('"primary_capability"', $resolved->markdown_content);
         self::assertStringContainsString('"capabilities"', $resolved->markdown_content);
         self::assertStringContainsString('"response_template"', $resolved->markdown_content);
+        self::assertStringContainsString('"response_language"', $resolved->markdown_content);
 
         $resolvedAgain = $this->resolver()->resolve('agent.routing.decide');
         self::assertSame((int) $resolved->id, (int) $resolvedAgain->id);
@@ -181,23 +211,48 @@ MARKDOWN;
         self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
     }
 
-    public function test_modern_admin_edited_routing_contract_is_preserved(): void
+    public function test_previous_modern_routing_contract_missing_language_is_repaired_once(): void
     {
         $installer = app(DefaultAgentRuntimePromptInstaller::class);
         $installer->installType('routing');
         $prompt = SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->firstOrFail();
-        $modernAdminContent = <<<'MARKDOWN'
-Admin guidance with current schema:
+        $previousModernContent = <<<'MARKDOWN'
+Admin guidance with previous modern schema:
 {"is_in_scope":true,"primary_capability":null,"capabilities":[],"response_template":"text"}
 MARKDOWN;
-        $prompt->markdown_content = $modernAdminContent;
+        $prompt->markdown_content = $previousModernContent;
+        $prompt->save();
+
+        $resolved = $this->resolver()->resolve('agent.routing.decide');
+        $versionsAfterRepair = PromptVersion::query()->where('prompt_id', $prompt->id)->count();
+
+        self::assertSame(DefaultAgentRuntimePromptInstaller::canonicalDefaultMarkdown('routing'), $resolved->markdown_content);
+        self::assertStringContainsString('"response_language"', $resolved->markdown_content);
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
+
+        $resolvedAgain = $this->resolver()->resolve('agent.routing.decide');
+        self::assertSame((int) $resolved->id, (int) $resolvedAgain->id);
+        self::assertSame($versionsAfterRepair, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
+    }
+
+    public function test_current_admin_edited_routing_contract_is_preserved(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('routing');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->firstOrFail();
+        $currentAdminContent = <<<'MARKDOWN'
+Admin customized instructions with current contract:
+{"is_in_scope":true,"primary_capability":null,"capabilities":[],"response_template":"text","response_language":"vi"}
+MARKDOWN;
+        $prompt->markdown_content = $currentAdminContent;
         $prompt->save();
         $versionCount = PromptVersion::query()->where('prompt_id', $prompt->id)->count();
 
         $resolved = $this->resolver()->resolve('agent.routing.decide');
 
-        self::assertSame($modernAdminContent, $resolved->markdown_content);
+        self::assertSame($currentAdminContent, $resolved->markdown_content);
         self::assertSame($versionCount, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.routing.decide')->count());
     }
 
     private function resolver(): SettingsPromptBindingResolver
