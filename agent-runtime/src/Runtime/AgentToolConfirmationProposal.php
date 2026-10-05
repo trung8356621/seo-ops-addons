@@ -17,6 +17,7 @@ final readonly class AgentToolConfirmationProposal
         public array $capabilities,
         public array $parameters,
         public string $responseTemplate,
+        public string $responseLanguage,
         public array $toolCapabilities,
         public array $scope,
     ) {}
@@ -34,6 +35,7 @@ final readonly class AgentToolConfirmationProposal
             $decision->capabilities,
             $decision->parameters,
             $decision->responseTemplate,
+            $decision->responseLanguage,
             $tools,
             $scope->toArray(),
         );
@@ -56,6 +58,9 @@ final readonly class AgentToolConfirmationProposal
             $capabilities,
             $parameters,
             trim((string) ($payload['response_template'] ?? '')),
+            in_array(($payload['response_language'] ?? null), ['vi', 'en'], true)
+                ? (string) $payload['response_language']
+                : self::legacyResponseLanguage(),
             $tools,
             $scope,
         );
@@ -70,6 +75,7 @@ final readonly class AgentToolConfirmationProposal
             'capabilities' => $this->capabilities,
             'parameters' => $this->parameters,
             'response_template' => $this->responseTemplate,
+            'response_language' => $this->responseLanguage,
             'tool_capabilities' => $this->toolCapabilities,
             'scope' => $this->scope,
         ];
@@ -96,5 +102,12 @@ final readonly class AgentToolConfirmationProposal
             static fn (mixed $item): string => trim((string) $item),
             $value,
         ), static fn (string $item): bool => $item !== ''));
+    }
+
+    private static function legacyResponseLanguage(): string
+    {
+        $locale = function_exists('app') ? strtolower((string) app()->getLocale()) : 'en';
+
+        return in_array($locale, ['vi', 'en'], true) ? $locale : 'en';
     }
 }

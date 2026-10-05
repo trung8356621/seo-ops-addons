@@ -14,7 +14,10 @@ export function responseToPlainText(response) {
             if (columns.length) {
                 parts.push(columns.map((column) => column.label || column.key).join(' | '));
                 for (const row of Array.isArray(block.rows) ? block.rows : []) {
-                    parts.push(columns.map((column) => row[column.key] ?? '').join(' | '));
+                    parts.push(columns.map((column) => {
+                        const value = row[column.key];
+                        return value && typeof value === 'object' ? (value.label ?? '') : (value ?? '');
+                    }).join(' | '));
                 }
             }
         } else if (block.type === 'chart' && block.title) {

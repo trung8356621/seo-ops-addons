@@ -65,6 +65,12 @@ final class RetrievalDecisionParser
         if (! AgentResponseTemplateCatalog::supports($responseTemplate)) {
             throw new InvalidArgumentException('Retrieval decision response_template is missing or unknown.');
         }
+        $responseLanguage = $isLegacyDecision
+            ? $this->legacyResponseLanguage()
+            : trim((string) ($decoded['response_language'] ?? ''));
+        if (! in_array($responseLanguage, ['vi', 'en'], true)) {
+            throw new InvalidArgumentException('Retrieval decision response_language is missing or unknown.');
+        }
 
         $requiresParameterExtraction = (bool) ($decoded['requires_parameter_extraction'] ?? false);
         $requiresUserConfirmation = (bool) ($decoded['requires_user_confirmation'] ?? false);
@@ -83,6 +89,7 @@ final class RetrievalDecisionParser
             requiresParameterExtraction: $requiresParameterExtraction,
             requiresUserConfirmation: $requiresUserConfirmation,
             responseTemplate: $responseTemplate,
+            responseLanguage: $responseLanguage,
         );
     }
 
@@ -219,5 +226,21 @@ final class RetrievalDecisionParser
         }
 
         return $decoded;
+    }
+
+    private function legacyResponseLanguage(): string
+    {
+        if (function_exists('app')) {
+            try {
+                $locale = strtolower((string) app()->getLocale());
+                if (in_array($locale, ['vi', 'en'], true)) {
+                    return $locale;
+                }
+            } catch (\Throwable) {
+                // Legacy persisted decisions fall back safely when no app is bootstrapped.
+            }
+        }
+
+        return 'en';
     }
 }

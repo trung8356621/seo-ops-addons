@@ -79,11 +79,13 @@ final class AgentRuntimeController
                     $history,
                     $bundle,
                     $proposal->responseTemplate,
+                    $proposal->responseLanguage,
                 );
                 $persistence->pauseRun($run, 'answer', [
                     'routing_input' => ['stage' => $routingInput->stage, 'messages' => $routingInput->messages],
                     'bundle' => $bundle->toArray(),
                     'selected_response_template' => $proposal->responseTemplate,
+                    'selected_response_language' => $proposal->responseLanguage,
                     'turn' => ['scope' => $scope->toArray(), 'message' => (string) $userMessage->content, 'history' => $history],
                 ]);
                 $input = $answerInput->exportText();
@@ -108,6 +110,7 @@ final class AgentRuntimeController
                 $history,
                 $bundle,
                 $proposal->responseTemplate,
+                $proposal->responseLanguage,
             );
             $meta = ['answer_model' => 'called'];
             if ($result->failureCode !== null) {
@@ -194,6 +197,7 @@ final class AgentRuntimeController
                 $proposal->capabilities,
                 [...$proposal->parameters, 'period' => $latestPeriod],
                 $proposal->responseTemplate,
+                $proposal->responseLanguage,
                 $proposal->toolCapabilities,
                 $proposal->scope,
             );
@@ -216,6 +220,7 @@ final class AgentRuntimeController
                 $history,
                 $bundle,
                 $proposal->responseTemplate,
+                $proposal->responseLanguage,
             );
             $notice = 'Bạn đã từ chối dữ liệu GSC theo kỳ yêu cầu. Agent sử dụng dữ liệu đã đồng bộ gần nhất: '
                 .$this->formatPeriod($latestPeriod).'.';
@@ -579,6 +584,7 @@ final class AgentRuntimeController
                 (array) ($turn['history'] ?? []),
                 $bundle,
                 (string) ($state['selected_response_template'] ?? ''),
+                (string) ($state['selected_response_language'] ?? 'en'),
             );
             $input = $answerInput->exportText();
 

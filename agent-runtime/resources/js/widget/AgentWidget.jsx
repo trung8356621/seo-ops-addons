@@ -530,6 +530,13 @@ export function AgentWidget({
         if (!window.confirm(t.deleteConfirm)) {
             return;
         }
+        const activeSnapshot = activeThreads;
+        const archivedSnapshot = archivedThreads;
+        setActiveThreads((current) => current.filter((thread) => thread.ulid !== ulid));
+        setArchivedThreads((current) => current.filter((thread) => thread.ulid !== ulid));
+        if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
+            onNewConversation();
+        }
         try {
             const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
                 method: 'DELETE',
@@ -543,14 +550,12 @@ export function AgentWidget({
                 const errData = await res.json().catch(() => ({}));
                 throw new Error(errData.message || 'Could not delete conversation.');
             }
-            if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
-                onNewConversation();
-            }
-            fetchThreads(currentScopeRef);
         } catch (err) {
+            setActiveThreads(activeSnapshot);
+            setArchivedThreads(archivedSnapshot);
             setError(err.message || 'Could not delete conversation.');
         }
-    }, [endpoints.threadsUrl, csrf, t.deleteConfirm, viewingThreadUlid, activeThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
+    }, [endpoints.threadsUrl, csrf, t.deleteConfirm, activeThreads, archivedThreads, viewingThreadUlid, activeThreadUlid, onNewConversation]);
 
     async function onApplyDebugResult() {
         if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
@@ -747,17 +752,10 @@ export function AgentWidget({
         try {
             const payload = await postJson(`/agent-runtime/runs/${encodeURIComponent(runUlid)}/${decision}`, csrf, {});
             const data = payload?.data || {};
-            setMessages((current) => current.map((message) => {
+            setMessages((current) => current.flatMap((message) => {
                 if (message?.response?.run_ulid !== runUlid) return message;
                 if (data.status === 'paused') {
-                    return {
-                        ...message,
-                        content: 'Đã xác nhận. Đang chờ kết quả Answer.',
-                        response: {
-                            message: 'Đã xác nhận. Đang chờ kết quả Answer.',
-                            blocks: [], actions: [], sources: [], run_ulid: runUlid,
-                        },
-                    };
+                    return [];
                 }
                 return {
                     ...message,

@@ -57,9 +57,13 @@ final class AgentModelInputBuilder
         array $history,
         RetrievalBundle $bundle,
         string $selectedResponseTemplate,
+        string $selectedResponseLanguage = 'en',
     ): PreparedModelInput {
         if (! AgentResponseTemplateCatalog::supports($selectedResponseTemplate)) {
             throw new \InvalidArgumentException('Selected response template is unknown.');
+        }
+        if (! in_array($selectedResponseLanguage, ['vi', 'en'], true)) {
+            throw new \InvalidArgumentException('Selected response language is unknown.');
         }
         $user = json_encode([
             'scope' => $scope->toArray(),
@@ -69,6 +73,7 @@ final class AgentModelInputBuilder
             'missing_capabilities' => SeoAccessCapabilityCatalog::missing(),
             'response_contract' => 'AgentResponse JSON with message, blocks, actions. Chart and table numbers must come from retrieval_bundle sources whose status is ok.',
             'selected_response_template' => $selectedResponseTemplate,
+            'selected_response_language' => $selectedResponseLanguage,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return PreparedModelInput::make('answer', [

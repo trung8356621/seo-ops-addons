@@ -37,6 +37,11 @@ final class AgentEntityPresentationIndex
         $blocks = array_map(function (array $block): array {
             if (($block['type'] ?? null) === 'markdown' && is_string($block['text'] ?? null)) {
                 $block['text'] = $this->decorateMarkdown($block['text']);
+            } elseif (($block['type'] ?? null) === 'table' && is_array($block['rows'] ?? null)) {
+                $block['rows'] = array_map(fn (array $row): array => array_map(
+                    fn (mixed $value): mixed => $this->decorateTableCell($value),
+                    $row,
+                ), $block['rows']);
             }
 
             return $block;
@@ -56,18 +61,21 @@ final class AgentEntityPresentationIndex
             return $markdown;
         }
 
-        $labels = array_map(static fn (string $label): string => preg_quote($label, '~'), array_keys($this->entities));
+        $labels = array_map(static fn (string $label): string => implode('\\s+', array_map(
+            static fn (string $part): string => preg_quote($part, '~'),
+            preg_split('/\s+/u', $label) ?: [],
+        )), array_keys($this->entities));
         $entityPattern = '(?<![\p{L}\p{N}_])('.implode('|', $labels).')(?![\p{L}\p{N}_])';
         $protectedPattern = '(```[\s\S]*?```|`[^`\n]*`|!?\[[^\]\n]+\]\([^\s)]+\)|https?://[^\s<>()]+)';
         $result = preg_replace_callback(
-            '~'.$protectedPattern.'|'.$entityPattern.'~u',
+            '~'.$protectedPattern.'|'.$entityPattern.'~iu',
             function (array $match): string {
                 if (($match[1] ?? '') !== '') {
                     return $match[1];
                 }
 
                 $label = (string) ($match[2] ?? '');
-                $entity = $this->entities[$label] ?? null;
+                $entity = $this->entities[self::normalizeLabel($label)] ?? null;
 
                 return $entity === null ? $label : '['.$label.']('.$entity['href'].')';
             },
@@ -90,8 +98,9 @@ final class AgentEntityPresentationIndex
             && is_string($label) && trim($label) !== ''
             && is_string($href) && self::isHttpUrl($href)) {
             $label = trim($label);
+            $normalizedLabel = self::normalizeLabel($label);
             $identity = $ref."\0".$href;
-            $byLabel[$label][$identity] = [
+            $byLabel[$normalizedLabel][$identity] = [
                 'ref' => $ref,
                 'label' => $label,
                 'href' => $href,
@@ -110,5 +119,20 @@ final class AgentEntityPresentationIndex
     {
         return filter_var($url, FILTER_VALIDATE_URL) !== false
             && in_array(strtolower((string) parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true);
+    }
+
+    private function decorateTableCell(mixed $value): mixed
+    {
+        if (! is_string($value)) {
+            return $value;
+        }
+        $entity = $this->entities[self::normalizeLabel($value)] ?? null;
+
+        return $entity === null ? $value : ['label' => $value, 'href' => $entity['href']];
+    }
+
+    private static function normalizeLabel(string $label): string
+    {
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $label)));
     }
 }

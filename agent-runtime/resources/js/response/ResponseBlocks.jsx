@@ -43,6 +43,10 @@ function ChartBlock({ block }) {
 }
 
 function TableBlock({ block }) {
+    const renderCell = (value) => value && typeof value === 'object' && value.label && value.href
+        ? <a href={value.href} target="_blank" rel="noopener noreferrer">{value.label}</a>
+        : (value ?? '');
+
     return (
         <div className="agent-table-wrap">
             {block.title ? <h3>{block.title}</h3> : null}
@@ -58,7 +62,7 @@ function TableBlock({ block }) {
                     {(block.rows || []).map((row, index) => (
                         <tr key={index}>
                             {(block.columns || []).map((column) => (
-                                <td key={column.key}>{row[column.key] ?? ''}</td>
+                                <td key={column.key}>{renderCell(row[column.key])}</td>
                             ))}
                         </tr>
                     ))}

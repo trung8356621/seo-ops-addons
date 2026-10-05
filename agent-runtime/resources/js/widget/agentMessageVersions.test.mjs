@@ -18,8 +18,16 @@ test('user and assistant messages expose lightweight Copy and assistant Rerun', 
     assert.equal(widget.includes('title="Copy question" aria-label="Copy question"><Copy'), true);
     assert.equal(widget.includes('copyText(responseToPlainText(version.response))'), true);
     assert.equal(widget.includes('title="Copy answer" aria-label="Copy answer"><Copy'), true);
+    assert.equal((widget.match(/aria-label="Copy answer"/g) || []).length, 1);
     assert.equal(widget.includes('title="Rerun" aria-label="Rerun"><RotateCcw'), true);
     assert.equal(clipboard.includes("document.execCommand('copy')"), true);
+});
+
+test('internal model pauses remain ephemeral and never become assistant versions', () => {
+    const confirmation = widget.slice(widget.indexOf('async function onConfirmationAction'), widget.indexOf('async function onRunTest'));
+    assert.equal(confirmation.includes("if (data.status === 'paused')"), true);
+    assert.equal(confirmation.includes('return [];'), true);
+    assert.equal(confirmation.includes('Đã xác nhận. Đang chờ kết quả Answer.'), false);
 });
 
 test('Developer mode is a canonical header segmented tab control shared by Send and Rerun', () => {
@@ -77,6 +85,15 @@ test('desktop history sidebar is docked on right, lists active chats by default,
     assert.equal(widget.includes('This conversation is archived and read-only.'), true);
     assert.equal(widget.includes('No conversations for this site yet.'), true);
     assert.equal(widget.includes('No archived conversations for this site.'), true);
+});
+
+test('thread delete removes locally first, rolls back on failure, and does not refetch history', () => {
+    const deletion = widget.slice(widget.indexOf('const onDeleteThread'), widget.indexOf('async function onApplyDebugResult'));
+    assert.equal(deletion.includes('setActiveThreads((current) => current.filter'), true);
+    assert.equal(deletion.includes('setArchivedThreads((current) => current.filter'), true);
+    assert.equal(deletion.includes('setActiveThreads(activeSnapshot)'), true);
+    assert.equal(deletion.includes('setArchivedThreads(archivedSnapshot)'), true);
+    assert.equal(deletion.includes('fetchThreads('), false);
 });
 
 test('GSC availability uses muted styling without weakening real warnings', () => {

@@ -260,6 +260,7 @@ class AgentTurnCoordinator
                 'routing_input' => $state['routing_input'],
                 'bundle' => $processed['bundle']->toArray(),
                 'selected_response_template' => $processed['decision']->responseTemplate,
+                'selected_response_language' => $processed['decision']->responseLanguage,
             ]));
         }
 
@@ -269,7 +270,8 @@ class AgentTurnCoordinator
 
         $bundle = RetrievalBundle::fromArray($state['bundle']);
         $selectedResponseTemplate = (string) ($state['selected_response_template'] ?? '');
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate);
+        $selectedResponseLanguage = (string) ($state['selected_response_language'] ?? $this->legacyResponseLanguage());
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
         $response = $this->responses->parse($rawCompletion, $bundle);
 
         return AgentTurnProgress::completed(new AgentTurnResult(
@@ -316,9 +318,9 @@ class AgentTurnCoordinator
     /**
      * @param  list<array{role: string, content: string}>  $history
      */
-    public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle, string $selectedResponseTemplate): PreparedModelInput
+    public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle, string $selectedResponseTemplate, string $selectedResponseLanguage = 'en'): PreparedModelInput
     {
-        return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate);
+        return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
     }
 
     /**
@@ -381,14 +383,14 @@ class AgentTurnCoordinator
         $bundle = $decision->modules === []
             ? new RetrievalBundle($scope, [])
             : $this->retrieval->execute($decision, $scope);
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $decision->responseTemplate);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $decision->responseTemplate, $decision->responseLanguage);
 
         if (! $decision->isInScope) {
             return [
                 'bundle' => $bundle,
                 'answerInput' => $answerInput,
                 'decision' => $decision,
-                'response' => $this->outOfScopeResponse(),
+                'response' => $this->outOfScopeResponse($decision->responseLanguage),
                 'confirmationProposal' => null,
                 'error' => null,
             ];
@@ -417,9 +419,10 @@ class AgentTurnCoordinator
         array $history,
         RetrievalBundle $bundle,
         string $responseTemplate,
+        string $responseLanguage,
     ): AgentTurnResult {
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate, $responseLanguage);
         try {
             $raw = $this->answers->complete($userId, $answerInput);
             $response = $this->responses->parse($raw, $bundle);
@@ -603,11 +606,20 @@ class AgentTurnCoordinator
         );
     }
 
-    private function outOfScopeResponse(): AgentResponse
+    private function outOfScopeResponse(string $responseLanguage): AgentResponse
     {
-        $message = 'Yêu cầu này nằm ngoài phạm vi Agent SEO nội bộ. Hãy hỏi về website, nội dung, keyword, GSC, SEO Audit, Content Projects hoặc Industry Context.';
+        $message = $responseLanguage === 'vi'
+            ? 'Yêu cầu này nằm ngoài phạm vi Agent SEO nội bộ. Hãy hỏi về website, nội dung, keyword, GSC, SEO Audit, Content Projects hoặc Industry Context.'
+            : 'This request is outside the internal SEO Agent scope. Ask about websites, content, keywords, GSC, SEO Audit, Content Projects, or Industry Context.';
 
         return new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], []);
+    }
+
+    private function legacyResponseLanguage(): string
+    {
+        $locale = function_exists('app') ? strtolower((string) app()->getLocale()) : 'en';
+
+        return in_array($locale, ['vi', 'en'], true) ? $locale : 'en';
     }
 }
 

@@ -137,6 +137,22 @@ final class AgentModelInputBuilderPromptTest extends TestCase
 
         self::assertSame($externalEvidenceUrl, $sanitized['sources'][0]['data']['links'][0]['url']);
     }
+
+    public function test_answer_input_carries_selected_response_language(): void
+    {
+        $scope = AgentProjectScope::site(7);
+        $resolver = new InMemoryAgentPromptResolver(['agent.response.compose' => 'response instruction']);
+        $input = (new AgentModelInputBuilder(new SecretRedactor(), $resolver))->buildAnswerInput(
+            $scope,
+            'Tình hình SEO site hiện tại? tiếng Việt thôi',
+            [],
+            new RetrievalBundle($scope, []),
+            'report',
+            'vi',
+        )->exportText();
+
+        self::assertStringContainsString('"selected_response_language":"vi"', $input);
+    }
 }
 
 final class InMemoryAgentPromptResolver implements ResolvesSettingsPromptHook

@@ -460,29 +460,29 @@ final class AgentRuntimeContractTest extends TestCase
     public function test_capability_routing_contract_maps_to_internal_modules_and_fails_closed(): void
     {
         $parser = new RetrievalDecisionParser();
-        $decision = $parser->parse('{"is_in_scope":true,"intent":"find poor articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $decision = $parser->parse('{"is_in_scope":true,"intent":"find poor articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table","response_language":"en"}');
         self::assertSame('seo_audit.worst_articles', $decision->primaryCapability);
         self::assertSame(['seo_audit.worst_articles', 'keywords.landscape'], $decision->capabilities);
         self::assertSame(['articles', 'keywords'], $decision->modules);
 
-        $noCapability = $parser->parse('{"is_in_scope":true,"intent":"explain capabilities","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $noCapability = $parser->parse('{"is_in_scope":true,"intent":"explain capabilities","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         self::assertSame([], $noCapability->capabilities);
         self::assertSame([], $noCapability->modules);
 
-        $outOfScope = $parser->parse('{"is_in_scope":false,"intent":"weather","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $outOfScope = $parser->parse('{"is_in_scope":false,"intent":"weather","primary_capability":null,"capabilities":[],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         self::assertFalse($outOfScope->isInScope);
         self::assertSame([], $outOfScope->capabilities);
 
         foreach ([
-            '{"is_in_scope":true,"intent":"x","primary_capability":"unknown","capabilities":["unknown"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.discovery","capabilities":["industry.discovery"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core_small","capabilities":["industry.core_small"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"site.network","capabilities":["site.network"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core","capabilities":["industry.core"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.improve","capabilities":["seo_audit.improve"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.publish","capabilities":["seo_audit.publish"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["site.knowledge","site.knowledge"],"parameters":{},"response_template":"text"}',
-            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["keywords.landscape"],"parameters":{},"response_template":"text"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"unknown","capabilities":["unknown"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.discovery","capabilities":["industry.discovery"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core_small","capabilities":["industry.core_small"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.network","capabilities":["site.network"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"industry.core","capabilities":["industry.core"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.improve","capabilities":["seo_audit.improve"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"seo_audit.publish","capabilities":["seo_audit.publish"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["site.knowledge","site.knowledge"],"parameters":{},"response_template":"text","response_language":"en"}',
+            '{"is_in_scope":true,"intent":"x","primary_capability":"site.knowledge","capabilities":["keywords.landscape"],"parameters":{},"response_template":"text","response_language":"en"}',
         ] as $raw) {
             try {
                 $parser->parse($raw);
@@ -531,7 +531,7 @@ final class AgentRuntimeContractTest extends TestCase
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $result = $this->coordinator(
-            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report"}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report","response_language":"en"}'),
             $answers,
             $transport,
         )->send(1, AgentProjectScope::site(7), 'Keywords?', []);
@@ -543,7 +543,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_confirmation_run_is_persisted_and_blocks_thread_archive(): void
     {
-        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}'), new RecordingAnswerGateway(), new RecordingTransport());
+        $coordinator = $this->coordinator(new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}'), new RecordingAnswerGateway(), new RecordingTransport());
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
@@ -591,7 +591,7 @@ final class AgentRuntimeContractTest extends TestCase
             'Analyze GSC',
             [],
             'decision',
-            '{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}',
+            '{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}',
             $start->modelCall->state,
         );
 
@@ -604,7 +604,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_confirmed_gsc_uses_frozen_proposal_without_second_decision_and_blocks_replay(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"analyze GSC","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -657,7 +657,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_confirmed_content_projects_uses_collection_projection_only(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"projects","primary_capability":"content_projects.read","capabilities":["content_projects.read"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"projects","primary_capability":"content_projects.read","capabilities":["content_projects.read"],"parameters":{"period":"2026-09"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -679,7 +679,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_confirmed_mixed_worst_articles_uses_low_score_adapter_and_keeps_zero_candidates(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"prioritize","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"prioritize","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -755,7 +755,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_gsc_reject_uses_latest_synced_period_and_answers_once(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -783,7 +783,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_gsc_reject_without_synced_data_is_deterministic(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -807,7 +807,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_gsc_reject_with_direct_capability_executes_both_frozen_reads(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc keywords","primary_capability":"gsc.performance","capabilities":["gsc.performance","keywords.landscape"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc keywords","primary_capability":"gsc.performance","capabilities":["gsc.performance","keywords.landscape"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -833,7 +833,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_gsc_reject_with_another_tool_rejects_everything(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc projects","primary_capability":"gsc.performance","capabilities":["gsc.performance","content_projects.read"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc projects","primary_capability":"gsc.performance","capabilities":["gsc.performance","content_projects.read"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -858,7 +858,7 @@ final class AgentRuntimeContractTest extends TestCase
     /** @dataProvider unsupportedConfirmedToolProvider */
     public function test_unsupported_confirmed_tools_fail_closed(string $capability): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -891,7 +891,7 @@ final class AgentRuntimeContractTest extends TestCase
 
     public function test_confirm_revalidates_site_access(): void
     {
-        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text"}');
+        $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
         $transport = new RecordingTransport();
         $coordinator = $this->coordinator($decisions, $answers, $transport);
@@ -930,7 +930,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $applied = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $start['run_ulid'],
-            'manual_result' => '{"is_in_scope":true,"intent":"find worst articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table"}',
+            'manual_result' => '{"is_in_scope":true,"intent":"find worst articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table","response_language":"en"}',
         ]), $coordinator, $threads, $persistence, $resolver)->getData(true)['data'];
 
         self::assertSame('awaiting_confirmation', $applied['status']);
@@ -1156,7 +1156,7 @@ final class AgentRuntimeContractTest extends TestCase
             AgentProjectScope::site(7),
             'Tháng 9 này cần sửa những bài nào? gợi ý 15-30 bài',
             [],
-            '{"is_in_scope":true,"intent":"review article inventory","primary_capability":"articles.inventory","capabilities":["articles.inventory","keywords.landscape"],"parameters":{"limit_min":15,"limit_max":30},"response_template":"table"}',
+            '{"is_in_scope":true,"intent":"review article inventory","primary_capability":"articles.inventory","capabilities":["articles.inventory","keywords.landscape"],"parameters":{"limit_min":15,"limit_max":30},"response_template":"table","response_language":"en"}',
         );
         self::assertSame('articles', $processed['decision']->primaryModule);
         self::assertStringContainsString('article:41', $processed['answerInput']->exportText());
@@ -1328,7 +1328,7 @@ final class AgentRuntimeContractTest extends TestCase
         $transport = new RecordingTransport();
         $answers = new RecordingAnswerGateway();
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"traffic","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_user_confirmation":false,"response_template":"report"}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"traffic","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-09"},"requires_user_confirmation":false,"response_template":"report","response_language":"en"}'),
             $answers,
             $transport,
         );
@@ -1354,7 +1354,7 @@ final class AgentRuntimeContractTest extends TestCase
     {
         $answers = new RecordingAnswerGateway();
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report"}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"requires_parameter_extraction":false,"requires_user_confirmation":true,"response_template":"report","response_language":"en"}'),
             $answers,
         );
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
@@ -1672,7 +1672,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $decision = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $run->ulid,
-            'manual_result' => '{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report"}',
+            'manual_result' => '{"is_in_scope":true,"intent":"keyword landscape","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report","response_language":"en"}',
         ]), $coordinator, $threads, $persistence, $resolver);
         $decisionData = $decision->getData(true)['data'];
         self::assertSame('paused', $decisionData['status']);
@@ -1716,7 +1716,7 @@ final class AgentRuntimeContractTest extends TestCase
             'actions' => [],
         ], JSON_THROW_ON_ERROR));
         $coordinator = $this->coordinator(
-            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report"}'),
+            new ScriptedDecisionGateway('{"is_in_scope":true,"intent":"keywords","primary_capability":"keywords.landscape","capabilities":["keywords.landscape"],"parameters":{},"response_template":"report","response_language":"en"}'),
             $answers,
             new RecordingTransport('no_gsc_property'),
         );

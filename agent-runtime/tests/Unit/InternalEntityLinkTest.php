@@ -75,6 +75,43 @@ final class InternalEntityLinkTest extends TestCase
         self::assertSame("[Topic Name]({$href}) has 14 DNA and no articles.", $response->blocks[0]['text']);
     }
 
+    public function test_topic_matching_normalizes_case_and_internal_whitespace_while_preserving_visible_text(): void
+    {
+        $href = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'backpack factory / BACKPACK   FACTORY',
+            'blocks' => [['type' => 'markdown', 'text' => 'Backpack Factory']],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), new RetrievalBundle(AgentProjectScope::site(6), [
+            new RetrievalSource('topics', 'ok', 'GET /keywords', ['topics' => [[
+                'topic_ref' => 'topic:82', 'name' => 'Backpack Factory', 'ui_href' => $href,
+            ]]]),
+        ]));
+
+        self::assertSame("[backpack factory]({$href}) / [BACKPACK   FACTORY]({$href})", $response->message);
+    }
+
+    public function test_exact_topic_table_cell_is_enriched_with_trusted_link(): void
+    {
+        $href = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
+        $response = (new AgentResponseParser())->parse(json_encode([
+            'message' => 'Topic found.',
+            'blocks' => [[
+                'type' => 'table',
+                'columns' => [['key' => 'topic', 'label' => 'Topic']],
+                'rows' => [['topic' => 'BACKPACK FACTORY'], ['topic' => 'Unknown Topic']],
+            ]],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR), new RetrievalBundle(AgentProjectScope::site(6), [
+            new RetrievalSource('topics', 'ok', 'GET /keywords', ['topics' => [[
+                'topic_ref' => 'topic:82', 'name' => 'Backpack Factory', 'ui_href' => $href,
+            ]]]),
+        ]));
+
+        self::assertSame(['label' => 'BACKPACK FACTORY', 'href' => $href], $response->blocks[0]['rows'][0]['topic']);
+        self::assertSame('Unknown Topic', $response->blocks[0]['rows'][1]['topic']);
+    }
+
     public function test_topic_list_items_are_linked_without_breaking_list_markup(): void
     {
         $first = 'https://seo-ops.test/seo/keywords/clusters/2382?site_id=6';
@@ -99,7 +136,7 @@ final class InternalEntityLinkTest extends TestCase
         $bundle = new RetrievalBundle(AgentProjectScope::site(6), [
             new RetrievalSource('topics', 'ok', 'GET /keywords', ['topics' => [
                 ['topic_ref' => 'topic:1', 'name' => 'Shared Topic', 'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/1?site_id=6'],
-                ['topic_ref' => 'topic:2', 'name' => 'Shared Topic', 'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/2?site_id=6'],
+                ['topic_ref' => 'topic:2', 'name' => 'shared   topic', 'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/2?site_id=6'],
             ]]),
         ]);
         $response = (new AgentResponseParser())->parse(json_encode([

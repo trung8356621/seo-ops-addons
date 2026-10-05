@@ -59,6 +59,7 @@ final class AgentConfirmedToolExecutor
                 false,
                 false,
                 $proposal->responseTemplate,
+                $proposal->responseLanguage,
             ), $scope);
 
         if (! in_array('seo_audit.worst_articles', $proposal->toolCapabilities, true)) {

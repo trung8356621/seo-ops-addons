@@ -22,6 +22,7 @@ final readonly class RetrievalDecision
         public bool $requiresParameterExtraction,
         public bool $requiresUserConfirmation,
         public string $responseTemplate,
+        public string $responseLanguage,
     ) {}
 
     /**
@@ -38,6 +39,7 @@ final readonly class RetrievalDecision
             'requires_parameter_extraction' => $this->requiresParameterExtraction,
             'requires_user_confirmation' => $this->requiresUserConfirmation,
             'response_template' => $this->responseTemplate,
+            'response_language' => $this->responseLanguage,
         ];
     }
 }
