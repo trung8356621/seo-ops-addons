@@ -728,7 +728,7 @@ final class AgentRuntimeController
         }
 
         $activeRunsCount = $thread->runs()
-            ->whereIn('status', ['running', 'awaiting_model', 'awaiting_confirmation'])
+            ->where('status', 'running')
             ->count();
         if ($activeRunsCount > 0) {
             return new JsonResponse(['message' => 'Cannot delete thread with an active run.'], 422);

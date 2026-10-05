@@ -2571,11 +2571,11 @@ final class AgentRuntimeContractTest extends TestCase
         $unauthDelete = $controller->deleteThread($this->createTurnRequest([], userId: 2), $threadUlid, $threads);
         self::assertSame(404, $unauthDelete->getStatusCode());
 
-        // User 1 deletes thread (soft delete)
+        // User 1 deletes thread and database cascades remove its workflow.
         $deleteRes = $controller->deleteThread($this->createTurnRequest([], userId: 1), $threadUlid, $threads);
         self::assertSame(200, $deleteRes->getStatusCode());
         self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::find($thread->id));
-        self::assertNotNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
+        self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
     }
 
     public function test_completed_active_thread_can_be_deleted_without_archive(): void
@@ -2598,9 +2598,33 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('active', $thread->status);
         self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::find($thread->id));
+        self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
     }
 
-    public function test_direct_delete_rejects_unresolved_runs_and_preserves_threads(): void
+    public function test_direct_delete_rejects_running_run_and_preserves_thread(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $app = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::findByKey('seo-ops')
+            ?? \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp::create(['app_key' => 'seo-ops', 'name' => 'SEO Ops', 'default_scope_type' => 'site']);
+
+        $thread = $threads->createThread($app, 'user', '1', 1, 1, 'site', 'site:7', 'running');
+        $message = $persistence->persistUserMessage($thread, 'Running request');
+        $run = $persistence->startRun($thread, $message, 'seo-ops', 'site', 'site:7', 1);
+
+        $response = (new AgentRuntimeController())->deleteThread(
+            $this->createTurnRequest([], userId: 1),
+            $thread->ulid,
+            $threads,
+        );
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('Cannot delete thread with an active run.', $response->getData(true)['message']);
+        self::assertNotNull($thread->fresh());
+        self::assertNotNull($run->fresh());
+    }
+
+    public function test_direct_delete_discards_paused_runs_by_thread_cascade(): void
     {
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
@@ -2619,9 +2643,10 @@ final class AgentRuntimeContractTest extends TestCase
                 $threads,
             );
 
-            self::assertSame(422, $response->getStatusCode());
-            self::assertSame('Cannot delete thread with an active run.', $response->getData(true)['message']);
-            self::assertNotNull($thread->fresh());
+            self::assertSame(200, $response->getStatusCode());
+            self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread::withTrashed()->find($thread->id));
+            self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::find($run->id));
+            self::assertNull(\Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage::find($message->id));
         }
     }
 

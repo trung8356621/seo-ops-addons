@@ -104,6 +104,6 @@ class AgentThreadRepository
 
     public function deleteThread(AgentThread $thread): void
     {
-        $thread->delete();
+        $thread->forceDelete();
     }
 }

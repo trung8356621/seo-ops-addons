@@ -77,6 +77,9 @@ test('drawer header has no visible close button while existing controls remain',
 test('desktop history sidebar is docked on right, lists active chats by default, separates archived, and supports archive/delete', () => {
     assert.equal(widget.includes('className="agent-history-sidebar"'), true);
     assert.equal(widget.includes('className="agent-history-tabs"'), true);
+    assert.equal(widget.includes('const [historyTab, setHistoryTab] = useState(null)'), true);
+    assert.equal(widget.includes("const visibleHistoryTab = historyTab ?? 'chats'"), true);
+    assert.equal(widget.includes("visibleHistoryTab === 'chats'"), true);
     assert.equal(widget.includes("historyTab === 'chats'"), true);
     assert.equal(widget.includes("historyTab === 'archived'"), true);
     assert.equal(widget.includes('onArchiveThread(t.ulid)'), true);
@@ -85,15 +88,19 @@ test('desktop history sidebar is docked on right, lists active chats by default,
     assert.equal(widget.includes('This conversation is archived and read-only.'), true);
     assert.equal(widget.includes('No conversations for this site yet.'), true);
     assert.equal(widget.includes('No archived conversations for this site.'), true);
+    assert.equal(widget.includes('activeThreads[0]'), false);
+    assert.equal(widget.includes('t.ulid === viewingThreadUlid && !isViewingArchived'), true);
 });
 
-test('thread delete removes locally first, rolls back on failure, and does not refetch history', () => {
+test('thread delete keeps the current workspace until success and rolls back only sidebar state on failure', () => {
     const deletion = widget.slice(widget.indexOf('const onDeleteThread'), widget.indexOf('async function onApplyDebugResult'));
     assert.equal(deletion.includes('setActiveThreads((current) => current.filter'), true);
     assert.equal(deletion.includes('setArchivedThreads((current) => current.filter'), true);
     assert.equal(deletion.includes('setActiveThreads(activeSnapshot)'), true);
     assert.equal(deletion.includes('setArchivedThreads(archivedSnapshot)'), true);
     assert.equal(deletion.includes('fetchThreads('), false);
+    assert.ok(deletion.indexOf("if (!res.ok)") < deletion.indexOf('onNewConversation()'));
+    assert.ok(deletion.indexOf('onNewConversation()') < deletion.indexOf('} catch (err)'));
 });
 
 test('GSC availability uses muted styling without weakening real warnings', () => {

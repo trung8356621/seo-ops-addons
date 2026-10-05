@@ -215,7 +215,8 @@ export function AgentWidget({
 
     const [activeThreads, setActiveThreads] = useState([]);
     const [archivedThreads, setArchivedThreads] = useState([]);
-    const [historyTab, setHistoryTab] = useState('chats'); // 'chats' | 'archived'
+    const [historyTab, setHistoryTab] = useState(null); // null | 'chats' | 'archived'
+    const visibleHistoryTab = historyTab ?? 'chats';
     const [showHistoryMobile, setShowHistoryMobile] = useState(false);
     const [loadingThreads, setLoadingThreads] = useState(false);
 
@@ -534,9 +535,6 @@ export function AgentWidget({
         const archivedSnapshot = archivedThreads;
         setActiveThreads((current) => current.filter((thread) => thread.ulid !== ulid));
         setArchivedThreads((current) => current.filter((thread) => thread.ulid !== ulid));
-        if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
-            onNewConversation();
-        }
         try {
             const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
                 method: 'DELETE',
@@ -549,6 +547,9 @@ export function AgentWidget({
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
                 throw new Error(errData.message || 'Could not delete conversation.');
+            }
+            if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
+                onNewConversation();
             }
         } catch (err) {
             setActiveThreads(activeSnapshot);
@@ -1422,7 +1423,7 @@ export function AgentWidget({
                                 <Loader2 size={16} className="agent-spinner" />
                                 <span>{locale === 'vi' ? 'Đang tải…' : 'Loading…'}</span>
                             </div>
-                        ) : historyTab === 'chats' ? (
+                        ) : visibleHistoryTab === 'chats' ? (
                             activeThreads.length === 0 ? (
                                 <div className="agent-history-empty">
                                     {locale === 'vi' ? t.noConversations : 'No conversations for this site yet.'}
@@ -1433,7 +1434,7 @@ export function AgentWidget({
                                         <li key={t.ulid} className="agent-history-item-wrap">
                                             <button
                                                 type="button"
-                                                className={`agent-history-item ${t.ulid === (viewingThreadUlid || activeThreadUlid) && !isViewingArchived ? 'is-active' : ''}`}
+                                                className={`agent-history-item ${t.ulid === viewingThreadUlid && !isViewingArchived ? 'is-active' : ''}`}
                                                 onClick={() => {
                                                     loadThread(t.ulid, currentScopeRef, false);
                                                     setShowHistoryMobile(false);
