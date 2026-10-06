@@ -152,7 +152,11 @@ final class KeywordPersistenceService
         return $targetUrl !== '' ? $targetUrl : null;
     }
 
-    private function findByPhrase(string $phrase): ?Keyword
+    /**
+     * Canonical identity lookup. Callers must pass a phrase already prepared via
+     * {@see Keyword::preparePhraseForStorage()}.
+     */
+    public function findByPhrase(string $phrase): ?Keyword
     {
         $query = Keyword::query();
         // MySQL CI collation; SQLite (phpunit :memory:) has no utf8mb4_unicode_ci.
