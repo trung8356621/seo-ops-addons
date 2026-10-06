@@ -25,23 +25,7 @@ final class ContentProjectOpsMetrics
         $now = now();
 
         try {
-            DB::connection(self::CONNECTION)->statement(
-                'INSERT INTO seo_content_project_ops_metrics
-                    (metric_key, bucket_date, site_id, project_id, value, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE
-                    value = value + VALUES(value),
-                    updated_at = VALUES(updated_at)',
-                [
-                    $key,
-                    $now->toDateString(),
-                    $siteId ?? 0,
-                    $projectId ?? 0,
-                    $by,
-                    $now,
-                    $now,
-                ],
-            );
+            $this->atomicIncrement($key, $by, $siteId, $projectId, $now);
         } catch (Throwable) {
             // metrics never break business path
         }
@@ -82,6 +66,31 @@ final class ContentProjectOpsMetrics
         } catch (Throwable) {
             return [];
         }
+    }
+
+    /**
+     * MySQL atomic increment. Laravel upsert() cannot add to an existing value
+     * without a lost-update race. See DB_DIALECT_EXCEPTIONS.md.
+     */
+    private function atomicIncrement(string $key, int $by, ?int $siteId, ?int $projectId, Carbon $now): void
+    {
+        DB::connection(self::CONNECTION)->statement(
+            'INSERT INTO seo_content_project_ops_metrics
+                (metric_key, bucket_date, site_id, project_id, value, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                value = value + VALUES(value),
+                updated_at = VALUES(updated_at)',
+            [
+                $key,
+                $now->toDateString(),
+                $siteId ?? 0,
+                $projectId ?? 0,
+                $by,
+                $now,
+                $now,
+            ],
+        );
     }
 
     private function tableExists(): bool

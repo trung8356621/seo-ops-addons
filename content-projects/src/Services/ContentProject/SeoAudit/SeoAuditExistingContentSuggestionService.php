@@ -18,6 +18,7 @@ use Omnichannel\Addons\Seo\Services\SeoAuditScanService;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Models\Site;
+use App\Support\Database\LegacyFlatJsonIdListSql;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
@@ -553,7 +554,7 @@ final class SeoAuditExistingContentSuggestionService
                 ->from('article_meta')
                 ->where('meta_key', 'category_ids')
                 ->whereRaw(
-                    'FIND_IN_SET(?, REPLACE(REPLACE(REPLACE(`meta_value`, " ", ""), "[", ""), "]", "")) > 0',
+                    LegacyFlatJsonIdListSql::contains(),
                     [$termId],
                 );
         });

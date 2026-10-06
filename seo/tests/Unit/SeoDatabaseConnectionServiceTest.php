@@ -63,6 +63,8 @@ final class SeoDatabaseConnectionServiceTest extends TestCase
         $this->assertSame('seo_custom', $resolved['database']);
         $this->assertSame('seo_user', $resolved['username']);
         $this->assertSame('secret', $resolved['password']);
+        $this->assertSame('mysql', $resolved['driver']);
+        $this->assertSame('utf8mb4_unicode_ci', $resolved['collation']);
     }
 
     public function test_hash_format_validation(): void

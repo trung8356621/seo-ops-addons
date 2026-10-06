@@ -12,6 +12,7 @@ use App\Models\Site;
 use App\Models\SiteService;
 use App\Models\User;
 use App\Services\SiteServiceBindingService;
+use App\Support\Database\DriverAwareConnectionConfig;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
@@ -252,7 +253,7 @@ final class SeoDatabaseConnectionService
         }
 
         $legacyDatabase = (string) config('seo-content-ai.legacy_shared_database', 'omi_seo_ai');
-        $config = $this->mergeMysqlBase($mysql, ['database' => $legacyDatabase]);
+        $config = DriverAwareConnectionConfig::overlayOnCoreMysql(['database' => $legacyDatabase]);
         $fingerprint = md5(json_encode($config));
 
         if ((self::$bootstrappedHashes['_legacy'] ?? null) === $fingerprint) {
@@ -618,7 +619,10 @@ final class SeoDatabaseConnectionService
             $database = 'omi_seo_ai_auto_'.$connection->getKey();
         }
 
-        return $this->mergeMysqlBase($mysql, ['database' => $database]);
+        return DriverAwareConnectionConfig::overlayOnCoreMysql([
+            'database' => $database,
+            'driver' => $connection->getAttribute('driver'),
+        ]);
     }
 
     /**
@@ -633,32 +637,14 @@ final class SeoDatabaseConnectionService
             throw new RuntimeException('Cấu hình DB thủ công thiếu tên database hoặc username.');
         }
 
-        $mysql = Config::get('database.connections.mysql', []);
-
-        return $this->mergeMysqlBase($mysql, [
-            'host' => filled($connection->host) ? (string) $connection->host : '127.0.0.1',
-            'port' => filled($connection->port) ? (string) $connection->port : '3306',
+        return DriverAwareConnectionConfig::fromCredentials([
+            'driver' => $connection->getAttribute('driver'),
+            'host' => $connection->host,
+            'port' => $connection->port,
             'database' => $database,
             'username' => $username,
             'password' => $this->plainPasswordFromModel($connection),
         ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $mysql
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
-    private function mergeMysqlBase(array $mysql, array $overrides): array
-    {
-        return array_merge($mysql, [
-            'driver' => 'mysql',
-            'charset' => $mysql['charset'] ?? 'utf8mb4',
-            'collation' => $mysql['collation'] ?? 'utf8mb4_unicode_ci',
-            'prefix' => $mysql['prefix'] ?? '',
-            'strict' => $mysql['strict'] ?? true,
-            'engine' => $mysql['engine'] ?? null,
-        ], $overrides);
     }
 
     /**
@@ -708,6 +694,7 @@ final class SeoDatabaseConnectionService
             'is_active' => true,
         ]);
         $connection->id = 0;
+        $connection->setAttribute('driver', $row?->driver ?? ($runtime['driver'] ?? 'mysql'));
 
         return $connection;
     }

@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\User;
+use App\Support\Database\SqlExpressions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
@@ -148,7 +149,7 @@ final class ArticleCompletedArchiveQueryService
         $months = SeoContentArchiveItem::query()
             ->whereIn('site_id', $siteIds)
             ->whereNotNull('archived_at')
-            ->selectRaw("DATE_FORMAT(archived_at, '%Y-%m') as month_key")
+            ->selectRaw(SqlExpressions::yearMonth('archived_at').' as month_key')
             ->distinct()
             ->orderByDesc('month_key')
             ->pluck('month_key')

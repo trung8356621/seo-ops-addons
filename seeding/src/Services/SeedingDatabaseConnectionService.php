@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seeding\Services;
 use App\Models\SeedingDatabaseConnection;
 use App\Services\ServiceDatabaseConnectionResolver;
 use App\Services\ServiceIdentity;
+use App\Support\Database\DriverAwareConnectionConfig;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -176,23 +177,13 @@ final class SeedingDatabaseConnectionService
             throw new RuntimeException('Seeding không được trỏ database sang omi_seo_ai.');
         }
 
-        $mysql = Config::get('database.connections.mysql', []);
-        if (! is_array($mysql)) {
-            $mysql = [];
-        }
-
-        return array_merge($mysql, [
-            'driver' => 'mysql',
-            'host' => filled($connection->host) ? (string) $connection->host : '127.0.0.1',
-            'port' => filled($connection->port) ? (string) $connection->port : '3306',
+        return DriverAwareConnectionConfig::fromCredentials([
+            'driver' => $connection->getAttribute('driver'),
+            'host' => $connection->host,
+            'port' => $connection->port,
             'database' => $database,
             'username' => $username,
             'password' => (string) ($connection->password ?? ''),
-            'charset' => $mysql['charset'] ?? 'utf8mb4',
-            'collation' => $mysql['collation'] ?? 'utf8mb4_unicode_ci',
-            'prefix' => $mysql['prefix'] ?? '',
-            'strict' => $mysql['strict'] ?? true,
-            'engine' => $mysql['engine'] ?? null,
         ]);
     }
 
@@ -213,7 +204,7 @@ final class SeedingDatabaseConnectionService
         }
 
         return array_merge($existing, [
-            'driver' => 'mysql',
+            'driver' => DriverAwareConnectionConfig::normalizeDriver($existing['driver'] ?? null),
             'database' => $database,
         ]);
     }

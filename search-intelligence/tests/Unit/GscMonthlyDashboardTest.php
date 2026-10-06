@@ -50,4 +50,13 @@ final class GscMonthlyDashboardTest extends TestCase
         self::assertStringContainsString('GscMonthlyPeriod::normalize', $source);
         self::assertStringContainsString('openGscMcpDrawer', $source);
     }
+
+    public function test_months_with_data_uses_driver_aware_year_month_not_raw_date_format(): void
+    {
+        $path = dirname(__DIR__, 2).'/src/Services/GscMonthlyDashboardService.php';
+        $source = (string) file_get_contents($path);
+
+        self::assertStringContainsString('SqlExpressions::yearMonth', $source);
+        self::assertStringNotContainsString('DATE_FORMAT(metric_date', $source);
+    }
 }

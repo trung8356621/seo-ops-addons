@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services;
 
+use App\Support\Database\SqlExpressions;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Enums\Gsc\GscPropertyStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscDailyMetric;
@@ -202,7 +203,7 @@ final class GscMonthlyDashboardService
 
             return SeoGscDailyMetric::query()
                 ->where('property_id', $propertyId)
-                ->selectRaw('DATE_FORMAT(metric_date, "%Y-%m") as month_key')
+                ->selectRaw(SqlExpressions::yearMonth('metric_date', 'omi_seo_ai').' as month_key')
                 ->groupBy('month_key')
                 ->orderByDesc('month_key')
                 ->pluck('month_key')

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Media\Models;
 
+use App\Support\Database\SqlExpressions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Arr;
@@ -263,7 +264,7 @@ class SeoMediaBuilder extends Builder
                 ->where('seo_media_meta.meta_key', $metaKey)
                 ->whereNotNull('seo_media_meta.meta_value')
                 ->where('seo_media_meta.meta_value', '!=', '')
-                ->whereRaw("{$qualifiedColumn} {$operator} CAST(seo_media_meta.meta_value AS DATETIME)");
+                ->whereRaw("{$qualifiedColumn} {$operator} ".SqlExpressions::asDateTime('seo_media_meta.meta_value'));
         }, $boolean);
 
         return $this;
@@ -310,13 +311,13 @@ class SeoMediaBuilder extends Builder
                 ->where('seo_media_meta.meta_key', 'article_id')
                 ->where(function (QueryBuilder $inner) use ($articleIds): void {
                     foreach ($articleIds as $index => $articleId) {
-                        $jsonNeedle = (string) json_encode($articleId, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-                        $innerMethod = $index === 0 ? 'whereRaw' : 'orWhereRaw';
-                        $inner->{$innerMethod}('JSON_CONTAINS(seo_media_meta.meta_value, ?)', [$jsonNeedle]);
-
-                        $innerScalarMethod = $index === 0 ? 'orWhere' : 'orWhere';
-                        $inner->{$innerScalarMethod}('seo_media_meta.meta_value', '=', (string) $articleId);
+                        if ($index === 0) {
+                            $inner->whereJsonContains('seo_media_meta.meta_value', $articleId)
+                                ->orWhere('seo_media_meta.meta_value', '=', (string) $articleId);
+                        } else {
+                            $inner->orWhereJsonContains('seo_media_meta.meta_value', $articleId)
+                                ->orWhere('seo_media_meta.meta_value', '=', (string) $articleId);
+                        }
                     }
                 });
         };

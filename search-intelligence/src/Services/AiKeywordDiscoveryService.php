@@ -232,7 +232,10 @@ PROMPT;
                     });
             })
             ->with('apiConnection')
-            ->orderByRaw('FIELD(category, ?, ?)', [AiModelCategory::GEMINI_FLASH, AiModelCategory::GEMINI_PRO])
+            ->orderByRaw(
+                'CASE category WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END',
+                [AiModelCategory::GEMINI_FLASH, AiModelCategory::GEMINI_PRO],
+            )
             ->orderByDesc('priority')
             ->first();
 

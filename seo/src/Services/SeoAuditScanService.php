@@ -249,7 +249,7 @@ final class SeoAuditScanService
                     continue;
                 }
 
-                $orGroup->orWhereHas('articleMetas', static function (Builder $meta) use ($ruleKey): void {
+                $orGroup->orWhereHas('articleMetas', function (Builder $meta) use ($ruleKey): void {
                     $meta->where('meta_key', SeoScoringRulesRegistry::META_KEY_VIOLATIONS)
                         ->whereRaw(
                             '(JSON_VALID(meta_value) = 1 AND JSON_CONTAINS(meta_value, ?))',

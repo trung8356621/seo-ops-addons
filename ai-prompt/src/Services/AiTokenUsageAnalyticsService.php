@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use App\Support\Database\SqlExpressions;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Facades\DB;
@@ -126,8 +127,8 @@ class AiTokenUsageAnalyticsService
         $rows = PromptResultRoutingAttempt::query()
             ->where('attempted', true)
             ->whereBetween('created_at', [$dates['start'], $dates['end']])
-            ->selectRaw('DATE(created_at) as log_date, addon, COALESCE(SUM(total_tokens), 0) as total_tokens')
-            ->groupBy(DB::raw('DATE(created_at)'), 'addon')
+            ->selectRaw(SqlExpressions::calendarDate('created_at').' as log_date, addon, COALESCE(SUM(total_tokens), 0) as total_tokens')
+            ->groupBy(DB::raw(SqlExpressions::calendarDate('created_at')), 'addon')
             ->get();
 
         $map = [];

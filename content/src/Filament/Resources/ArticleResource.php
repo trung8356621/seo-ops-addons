@@ -40,6 +40,7 @@ use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
 use App\Models\User;
+use App\Support\Database\LegacyFlatJsonIdListSql;
 use Carbon\Carbon;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -1272,14 +1273,12 @@ class ArticleResource extends SeoPanelResource
     }
 
     /**
-     * MariaDB không hỗ trợ CAST(... AS JSON); dùng FIND_IN_SET trên mảng ID phẳng trong meta_value.
+     * Legacy flat category_ids list (JSON-ish or CSV). MySQL FIND_IN_SET — see
+     * docs/current/architecture/DB_DIALECT_EXCEPTIONS.md.
      */
     private static function articleMetaContainsCategoryWpIdSql(string $categoryWpIdExpression = '?'): string
     {
-        return sprintf(
-            'FIND_IN_SET(%s, REPLACE(REPLACE(REPLACE(`meta_value`, " ", ""), "[", ""), "]", "")) > 0',
-            $categoryWpIdExpression,
-        );
+        return LegacyFlatJsonIdListSql::contains($categoryWpIdExpression);
     }
 
     /**
