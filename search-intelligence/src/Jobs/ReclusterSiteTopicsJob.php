@@ -11,6 +11,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
@@ -37,6 +38,7 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         public readonly int $siteId,
         public readonly string $requestedAlgorithmVersion = TopicReclusterAlgorithm::VERSION,
+        public readonly string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
     ) {
         // Prefer seo queue (ahead of default backlog) so Topic recluster is not starved.
         $this->onQueue('seo');
@@ -105,7 +107,10 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
     private function handleSemanticAnalyze(TopicGroupingAnalysisService $analysis): void
     {
         TopicReclusterUiState::markQueued($this->siteId, TopicGroupingProviderMode::SEMANTIC_HTTP);
-        $run = $analysis->analyzeSite($this->siteId);
+        $run = $analysis->analyzeSite(
+            $this->siteId,
+            TopicGroupingRebuildMode::normalize($this->rebuildMode),
+        );
         if ($run->status === TopicGroupingRunStatus::PROPOSAL_READY) {
             return;
         }

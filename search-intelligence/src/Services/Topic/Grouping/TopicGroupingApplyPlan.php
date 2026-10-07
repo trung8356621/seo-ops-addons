@@ -35,6 +35,7 @@ final class TopicGroupingApplyPlan
         public readonly array $identityMigration = [],
         /** @var array<string, mixed> */
         public readonly array $businessState = [],
+        public readonly string $rebuildMode = 'preserve_existing',
     ) {}
 
     /**
@@ -44,6 +45,7 @@ final class TopicGroupingApplyPlan
     {
         return [
             'plan_hash' => $this->planHash,
+            'rebuild_mode' => $this->rebuildMode,
             'business_snapshot_hash' => $this->businessSnapshotHash,
             'counts' => $this->counts,
             'topic_actions' => $this->topicActions,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
@@ -25,7 +26,21 @@ final class TopicGroupingApplyPlanBuilder
         private readonly TopicGroupingBusinessStatePlanner $businessStatePlanner = new TopicGroupingBusinessStatePlanner,
     ) {}
 
-    public function build(int $siteId, TopicGroupingProposal $proposal): TopicGroupingApplyPlan
+    public function build(
+        int $siteId,
+        TopicGroupingProposal $proposal,
+        string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
+    ): TopicGroupingApplyPlan {
+        $rebuildMode = TopicGroupingRebuildMode::normalize($rebuildMode);
+
+        if (TopicGroupingRebuildMode::isFullReset($rebuildMode)) {
+            return $this->buildFullReset($siteId, $proposal);
+        }
+
+        return $this->buildPreserveExisting($siteId, $proposal);
+    }
+
+    private function buildPreserveExisting(int $siteId, TopicGroupingProposal $proposal): TopicGroupingApplyPlan
     {
         $locked = $this->loadLockedState($siteId);
         $manualIds = $this->loadManualTopicIds($siteId);
@@ -56,6 +71,98 @@ final class TopicGroupingApplyPlanBuilder
         $topicActions = $this->buildTopicActions($clusters, $currentTopics, $manualIds, $locked, $proposal);
         $keywordActions = $this->buildKeywordActions($desired, $currentMembership, $locked, $proposal);
 
+        return $this->finalizePlan(
+            $siteId,
+            $proposal,
+            $clusters,
+            $topicActions,
+            $keywordActions,
+            $currentTopics,
+            $identityDiag,
+            $businessSnapshotHash,
+            TopicGroupingRebuildMode::PRESERVE_EXISTING,
+        );
+    }
+
+    /**
+     * full_reset: semantic proposal is sole Topic-structure authority.
+     * Bypasses seed/discovered/continuity identity and manual/lock identity protection.
+     */
+    private function buildFullReset(int $siteId, TopicGroupingProposal $proposal): TopicGroupingApplyPlan
+    {
+        $emptyLocked = [
+            'locked_topic_ids' => [],
+            'preserved_topic_ids' => [],
+            'locked_keyword_ids' => [],
+            'locked_memberships_by_topic' => [],
+            'topics' => [],
+        ];
+        $currentMembership = $this->loadCurrentMembership($siteId);
+        $currentTopics = $this->loadCurrentTopics($siteId);
+
+        $businessSnapshotHash = $this->hashBusinessSnapshot(
+            $currentTopics,
+            $currentMembership,
+            $emptyLocked,
+            [],
+            $this->loadTagAssignmentFingerprint($siteId, array_keys($currentTopics)),
+        );
+
+        $clusters = $this->mapper->toReclusterClusters($proposal);
+        foreach ($clusters as $i => $cluster) {
+            $clusters[$i]['topic_id'] = null;
+            $clusters[$i]['is_locked'] = false;
+            foreach ($cluster['members'] as $j => $member) {
+                $clusters[$i]['members'][$j]['is_locked'] = false;
+            }
+        }
+
+        $identityDiag = [
+            'reused' => 0,
+            'one_to_one' => [],
+            'splits' => [],
+            'merges' => [],
+            'ambiguous' => [],
+            'no_successor' => [],
+            'matches' => [],
+            'thresholds' => [],
+        ];
+
+        $desired = $this->desiredMembershipFullReset($clusters);
+        $topicActions = $this->buildTopicActionsFullReset($clusters, $currentTopics, $proposal);
+        $keywordActions = $this->buildKeywordActions($desired, $currentMembership, $emptyLocked, $proposal);
+
+        return $this->finalizePlan(
+            $siteId,
+            $proposal,
+            $clusters,
+            $topicActions,
+            $keywordActions,
+            $currentTopics,
+            $identityDiag,
+            $businessSnapshotHash,
+            TopicGroupingRebuildMode::FULL_RESET,
+        );
+    }
+
+    /**
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  list<array{topic_id: int|null, name: string, action: string, member_count: int, group_key: string|null, mean_similarity: float|null, min_similarity: float|null, cohesion: float|null, low_confidence_count: int, warning: string|null}>  $topicActions
+     * @param  list<array{keyword_id: int, text: string, from_topic_id: int|null, to_topic_id: int|null, action: string, similarity: float|null, confidence: float|null, protected: bool}>  $keywordActions
+     * @param  array<int, array{id: int, name: string, source: string, is_locked: bool}>  $currentTopics
+     * @param  array<string, mixed>  $identityDiag
+     */
+    private function finalizePlan(
+        int $siteId,
+        TopicGroupingProposal $proposal,
+        array $clusters,
+        array $topicActions,
+        array $keywordActions,
+        array $currentTopics,
+        array $identityDiag,
+        string $businessSnapshotHash,
+        string $rebuildMode,
+    ): TopicGroupingApplyPlan {
         $counts = [
             'topics_reused' => count(array_filter($topicActions, static fn (array $a): bool => $a['action'] === 'reuse')),
             'topics_created' => count(array_filter($topicActions, static fn (array $a): bool => $a['action'] === 'create')),
@@ -75,13 +182,17 @@ final class TopicGroupingApplyPlanBuilder
                 $topicActions,
                 static fn (array $a): bool => in_array($a['action'], ['reuse', 'create', 'protect'], true),
             )),
-            'identity_one_to_one' => count($identityDiag['one_to_one']),
-            'identity_splits' => count($identityDiag['splits']),
-            'identity_merges' => count($identityDiag['merges']),
-            'identity_ambiguous' => count($identityDiag['ambiguous']),
-            'identity_no_successor' => count($identityDiag['no_successor']),
-            'identity_continuity_reused' => (int) $identityDiag['reused'],
+            'identity_one_to_one' => count($identityDiag['one_to_one'] ?? []),
+            'identity_splits' => count($identityDiag['splits'] ?? []),
+            'identity_merges' => count($identityDiag['merges'] ?? []),
+            'identity_ambiguous' => count($identityDiag['ambiguous'] ?? []),
+            'identity_no_successor' => count($identityDiag['no_successor'] ?? []),
+            'identity_continuity_reused' => (int) ($identityDiag['reused'] ?? 0),
         ];
+        if (TopicGroupingRebuildMode::isFullReset($rebuildMode)) {
+            $counts['existing_topics'] = count($currentTopics);
+            $counts['rebuild_mode'] = TopicGroupingRebuildMode::FULL_RESET;
+        }
 
         $identityMigration = $this->buildIdentityMigration(
             $siteId,
@@ -91,8 +202,12 @@ final class TopicGroupingApplyPlanBuilder
             $identityDiag,
             $counts,
         );
-        $businessState = $this->businessStatePlanner->plan($siteId, $topicActions, $identityMigration);
+        $identityMigration['rebuild_mode'] = $rebuildMode;
+        $businessState = $this->businessStatePlanner->plan($siteId, $topicActions, $identityMigration, $rebuildMode);
         $warnings = $this->buildWarnings($proposal, $topicActions, $counts, $identityMigration, $businessState);
+        if (TopicGroupingRebuildMode::isFullReset($rebuildMode)) {
+            array_unshift($warnings, 'full_reset:Apply sẽ thay thế toàn bộ cấu trúc Topic hiện tại.');
+        }
 
         $protectedTopics = [];
         foreach ($topicActions as $action) {
@@ -121,6 +236,7 @@ final class TopicGroupingApplyPlanBuilder
             $businessSnapshotHash,
             $identityMigration,
             $businessState,
+            $rebuildMode,
         );
 
         return new TopicGroupingApplyPlan(
@@ -135,7 +251,100 @@ final class TopicGroupingApplyPlanBuilder
             $businessSnapshotHash,
             $identityMigration,
             $businessState,
+            $rebuildMode,
         );
+    }
+
+    /**
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @return array<int, array{topic_id: int, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>
+     */
+    private function desiredMembershipFullReset(array $clusters): array
+    {
+        /** @var array<int, array{topic_id: int, source: string, is_seed: bool, confidence: float|null, is_locked: bool}> $desired */
+        $desired = [];
+        foreach ($clusters as $cluster) {
+            $sentinel = -1 * (abs(crc32($cluster['name'])) % 100000000 + 1);
+            foreach ($cluster['members'] as $member) {
+                $keywordId = (int) $member['keyword_id'];
+                if ($keywordId <= 0) {
+                    continue;
+                }
+                $desired[$keywordId] = [
+                    'topic_id' => $sentinel,
+                    'source' => (string) ($member['source'] !== '' ? $member['source'] : 'semantic'),
+                    'is_seed' => (bool) $member['is_seed'],
+                    'confidence' => $member['confidence'],
+                    'is_locked' => false,
+                ];
+            }
+        }
+
+        return $desired;
+    }
+
+    /**
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  array<int, array{id: int, name: string, source: string, is_locked: bool}>  $currentTopics
+     * @return list<array{topic_id: int|null, name: string, action: string, member_count: int, group_key: string|null, mean_similarity: float|null, min_similarity: float|null, cohesion: float|null, low_confidence_count: int, warning: string|null}>
+     */
+    private function buildTopicActionsFullReset(
+        array $clusters,
+        array $currentTopics,
+        TopicGroupingProposal $proposal,
+    ): array {
+        $actions = [];
+        $metaByLabel = [];
+        foreach ($proposal->groups as $group) {
+            $metaByLabel[$group->suggestedLabel] = $group;
+        }
+
+        foreach ($clusters as $cluster) {
+            $memberCount = count($cluster['members']);
+            $group = $metaByLabel[$cluster['name']] ?? null;
+            $lowConf = 0;
+            if ($group !== null) {
+                foreach ($group->members as $m) {
+                    if ($m->confidence !== null && $m->confidence < 0.35) {
+                        $lowConf++;
+                    }
+                }
+            }
+            $actions[] = [
+                'topic_id' => null,
+                'name' => $cluster['name'],
+                'action' => 'create',
+                'member_count' => $memberCount,
+                'group_key' => $group?->groupKey,
+                'mean_similarity' => isset($group?->metadata['mean_similarity']) ? (float) $group->metadata['mean_similarity'] : null,
+                'min_similarity' => isset($group?->metadata['min_similarity']) ? (float) $group->metadata['min_similarity'] : null,
+                'cohesion' => isset($group?->metadata['cohesion']) ? (float) $group->metadata['cohesion'] : null,
+                'low_confidence_count' => $lowConf,
+                'warning' => 'full_reset_new_identity',
+            ];
+        }
+
+        foreach ($currentTopics as $tid => $topic) {
+            $actions[] = [
+                'topic_id' => $tid,
+                'name' => $topic['name'],
+                'action' => 'dissolve',
+                'member_count' => 0,
+                'group_key' => null,
+                'mean_similarity' => null,
+                'min_similarity' => null,
+                'cohesion' => null,
+                'low_confidence_count' => 0,
+                'warning' => 'full_reset_replace',
+            ];
+        }
+
+        usort($actions, static function (array $a, array $b): int {
+            return [$a['action'], (string) $a['name'], (int) ($a['topic_id'] ?? 0)]
+                <=> [$b['action'], (string) $b['name'], (int) ($b['topic_id'] ?? 0)];
+        });
+
+        return $actions;
     }
 
     /**
@@ -735,8 +944,10 @@ final class TopicGroupingApplyPlanBuilder
         string $businessSnapshotHash,
         array $identityMigration = [],
         array $businessState = [],
+        string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
     ): string {
         $payload = [
+            'rebuild_mode' => TopicGroupingRebuildMode::normalize($rebuildMode),
             'business_snapshot_hash' => $businessSnapshotHash,
             'counts' => $counts,
             'topics' => array_map(static fn (array $a): array => [

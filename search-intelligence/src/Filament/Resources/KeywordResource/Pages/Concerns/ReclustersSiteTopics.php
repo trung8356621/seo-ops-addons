@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns;
 
 use Filament\Notifications\Notification;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingApplyResult;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingApplyService;
@@ -18,6 +19,9 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 trait ReclustersSiteTopics
 {
     public bool $confirmRecluster = false;
+
+    /** UI checkbox only; authoritative mode is persisted on the grouping run / job payload. */
+    public bool $fullResetTopicStructure = false;
 
     public bool $reclusterRunning = false;
 
@@ -39,6 +43,20 @@ trait ReclustersSiteTopics
             && $siteId !== null
             && $siteId > 0
             && SeoAccessControl::canAccessSite($siteId);
+    }
+
+    public function canUseFullResetRebuildMode(): bool
+    {
+        return TopicGroupingProviderMode::isSemanticHttp();
+    }
+
+    public function selectedRebuildMode(): string
+    {
+        if (! $this->canUseFullResetRebuildMode() || ! $this->fullResetTopicStructure) {
+            return TopicGroupingRebuildMode::PRESERVE_EXISTING;
+        }
+
+        return TopicGroupingRebuildMode::FULL_RESET;
     }
 
     public function isTopicMutationLocked(): bool
@@ -173,13 +191,14 @@ trait ReclustersSiteTopics
 
         $version = TopicReclusterAlgorithm::VERSION;
         $semantic = TopicGroupingProviderMode::isSemanticHttp();
+        $rebuildMode = $this->selectedRebuildMode();
 
         if ($sync) {
             if ($semantic) {
                 TopicReclusterUiState::markQueued($siteId, TopicGroupingProviderMode::SEMANTIC_HTTP);
                 $this->reclusterRunning = true;
                 $this->reclusterResult = TopicReclusterUiState::get($siteId);
-                $run = app(TopicGroupingAnalysisService::class)->analyzeSite($siteId);
+                $run = app(TopicGroupingAnalysisService::class)->analyzeSite($siteId, $rebuildMode);
                 $this->reclusterResult = TopicReclusterUiState::get($siteId);
                 $this->reclusterRunning = TopicReclusterUiState::isAnalyzeActive($siteId);
                 if ($run->isProposalReady()) {
@@ -189,10 +208,11 @@ trait ReclustersSiteTopics
                     Notification::make()
                         ->title('Topic proposal ready')
                         ->body(sprintf(
-                            '%d groups · %d unassigned · %d low confidence (not applied)',
+                            '%d groups · %d unassigned · %d low confidence (not applied)%s',
                             (int) ($metrics['group_count'] ?? $run->group_count),
                             (int) ($metrics['unassigned_count'] ?? $run->unassigned_count),
                             (int) ($metrics['low_confidence_count'] ?? $run->low_confidence_count),
+                            $run->isFullReset() ? ' · full_reset' : '',
                         ))
                         ->success()
                         ->send();
@@ -249,13 +269,15 @@ trait ReclustersSiteTopics
         );
         $this->reclusterRunning = true;
         $this->reclusterResult = TopicReclusterUiState::get($siteId);
-        ReclusterSiteTopicsJob::dispatch($siteId, $version);
+        ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode);
         Notification::make()
             ->title($semantic
                 ? 'Topic analysis queued'
                 : __('seo-content-ai::filament.keyword.topic_recluster_queued_title'))
             ->body($semantic
-                ? 'Analyzing… proposal only (not applied)'
+                ? (TopicGroupingRebuildMode::isFullReset($rebuildMode)
+                    ? 'Analyzing (full reset)… proposal only — Topic structure chưa bị xóa'
+                    : 'Analyzing… proposal only (not applied)')
                 : __('seo-content-ai::filament.keyword.topic_recluster_running'))
             ->success()
             ->send();
@@ -389,6 +411,7 @@ trait ReclustersSiteTopics
             'run_id' => $runId,
             'input_hash' => (string) ($result->metrics['input_hash'] ?? ''),
             'plan_hash' => $plan->planHash,
+            'rebuild_mode' => $plan->rebuildMode,
             'counts' => $plan->counts,
             'topic_actions' => $plan->topicActions,
             'keyword_actions' => array_values(array_filter(

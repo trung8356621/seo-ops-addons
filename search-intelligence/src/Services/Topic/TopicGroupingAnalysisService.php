@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
@@ -40,8 +41,16 @@ final class TopicGroupingAnalysisService
         return Schema::connection('omi_seo_ai')->hasTable('seo_topic_grouping_runs');
     }
 
-    public function analyzeSite(int $siteId): SeoTopicGroupingRun
-    {
+    public function analyzeSite(
+        int $siteId,
+        string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
+    ): SeoTopicGroupingRun {
+        $rebuildMode = TopicGroupingRebuildMode::normalize($rebuildMode);
+        // full_reset is semantic-only; legacy provider must never take destructive rebuild semantics.
+        if (! TopicGroupingProviderMode::isSemanticHttp()) {
+            $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING;
+        }
+
         if ($siteId <= 0) {
             return $this->failedStub($siteId, 'site_required', 'site_id required');
         }
@@ -56,6 +65,7 @@ final class TopicGroupingAnalysisService
         $run = SeoTopicGroupingRun::query()->create([
             'site_id' => $siteId,
             'provider' => $provider,
+            'rebuild_mode' => $rebuildMode,
             'input_hash' => '',
             'status' => TopicGroupingRunStatus::QUEUED,
             'started_at' => now(),

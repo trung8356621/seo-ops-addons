@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticInvalidResponseException;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticTimeoutException;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticTransportException;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticUnavailableException;
 
@@ -15,12 +16,14 @@ use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticU
  * Thin HTTP client for seo-ops-semantic.
  *
  * Knows transport only — not Topic business rules or proposal mapping.
+ * No automatic retry on POST (analysis is not idempotent).
  */
 final class SemanticAnalyticsClient
 {
     public function __construct(
         private readonly ?string $baseUrl = null,
         private readonly ?int $timeoutSeconds = null,
+        private readonly ?int $connectTimeoutSeconds = null,
     ) {}
 
     /**
@@ -58,6 +61,7 @@ final class SemanticAnalyticsClient
     ): array {
         $url = $this->url($path);
         $pending = Http::baseUrl($this->resolvedBaseUrl())
+            ->connectTimeout($this->resolvedConnectTimeout())
             ->timeout($this->resolvedTimeout())
             ->acceptJson()
             ->asJson();
@@ -74,6 +78,10 @@ final class SemanticAnalyticsClient
                 default => throw new \InvalidArgumentException('Unsupported HTTP method: '.$method),
             };
         } catch (ConnectionException $e) {
+            if ($this->isTimeoutMessage($e->getMessage())) {
+                throw SemanticTimeoutException::requestTimedOut($e->getMessage(), $e);
+            }
+
             throw SemanticUnavailableException::connectionFailed($e->getMessage(), $e);
         }
 
@@ -123,8 +131,24 @@ final class SemanticAnalyticsClient
 
     private function resolvedTimeout(): int
     {
-        $timeout = $this->timeoutSeconds ?? (int) config('semantic.timeout', 30);
+        $timeout = $this->timeoutSeconds ?? (int) config('semantic.timeout', 120);
 
         return max(1, $timeout);
+    }
+
+    private function resolvedConnectTimeout(): int
+    {
+        $timeout = $this->connectTimeoutSeconds ?? (int) config('semantic.connect_timeout', 5);
+
+        return max(1, $timeout);
+    }
+
+    private function isTimeoutMessage(string $message): bool
+    {
+        $lower = strtolower($message);
+
+        return str_contains($lower, 'timed out')
+            || str_contains($lower, 'operation timed out')
+            || str_contains($lower, 'curl error 28');
     }
 }

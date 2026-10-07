@@ -29,6 +29,12 @@
     $businessSummary = is_array($businessState['summary'] ?? null) ? $businessState['summary'] : [];
     $businessHardBlock = (bool) ($businessState['hard_block'] ?? false);
     $highChurnPreview = (bool) ($proposalPreview['high_churn'] ?? false);
+    $canFullResetRebuild = (bool) $this->canUseFullResetRebuildMode();
+    $runRebuildMode = (string) (
+        $proposalPreview['rebuild_mode']
+        ?? ($this->reclusterResult['metrics']['rebuild_mode'] ?? 'preserve_existing')
+    );
+    $isFullResetRun = $runRebuildMode === 'full_reset';
 
     $assignedCount = (int) ($summary['assigned'] ?? $summary['clustered'] ?? 0);
     $unassignedCount = (int) ($summary['unassigned'] ?? $summary['unclustered'] ?? 0);
@@ -152,26 +158,44 @@
                             <div class="topic-index-stale-alert__confirm">
                                 <div class="topic-index-stale-alert__confirm-copy">
                                     <div class="topic-index-stale-alert__confirm-title">
-                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                        @if ($canFullResetRebuild && $this->fullResetTopicStructure)
+                                            Phân tích tách lại hoàn toàn (chưa xóa Topic)
+                                        @else
+                                            {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                        @endif
                                     </div>
                                     <p class="topic-index-stale-alert__confirm-hint">
-                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                        @if ($canFullResetRebuild && $this->fullResetTopicStructure)
+                                            Analyze chỉ tạo proposal. Cấu trúc Topic chỉ bị thay thế khi bạn Apply sau này.
+                                            Keywords, Articles và Focus Article không bị xóa. Topic ID / manual / lock / tags cũ sẽ không được giữ khi Apply.
+                                        @else
+                                            {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                        @endif
                                     </p>
                                 </div>
                                 <div class="topic-index-stale-alert__confirm-actions">
                                     <x-filament::button type="button" size="sm" color="gray" wire:click="cancelConfirmRecluster">
                                         {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
                                     </x-filament::button>
-                                    <x-filament::button type="button" size="sm" color="warning" wire:click="runTopicRecluster">
+                                    <x-filament::button type="button" size="sm" color="{{ ($canFullResetRebuild && $this->fullResetTopicStructure) ? 'danger' : 'warning' }}" wire:click="runTopicRecluster">
                                         {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                                     </x-filament::button>
                                 </div>
                             </div>
                         @else
-                            <div class="topic-index-stale-alert__confirm-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <div class="topic-index-stale-alert__confirm-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
                                 <x-filament::button type="button" size="sm" color="warning" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                     {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                                 </x-filament::button>
+                                @if ($canFullResetRebuild)
+                                    <label class="inline-flex max-w-xs items-start gap-2 text-xs text-rose-800 dark:text-rose-200">
+                                        <input type="checkbox" class="mt-0.5" wire:model.live="fullResetTopicStructure" @disabled($reclusterActive || $topicMutationsLocked)>
+                                        <span>
+                                            <span class="font-medium">Xóa cấu trúc Topic cũ và tách lại từ đầu</span>
+                                            <span class="mt-0.5 block text-[11px] opacity-80">Chỉ xóa cấu trúc Topic khi bạn bấm Apply. Keywords, Articles và Focus Article không bị xóa.</span>
+                                        </span>
+                                    </label>
+                                @endif
                                 @php $aiHistoryUrlDirty = $this->aiHistoryUrl(); @endphp
                                 @if (is_string($aiHistoryUrlDirty) && $aiHistoryUrlDirty !== '')
                                     <x-filament::button
@@ -215,26 +239,44 @@
                         <div class="topic-index-stale-alert__confirm">
                             <div class="topic-index-stale-alert__confirm-copy">
                                 <div class="topic-index-stale-alert__confirm-title">
-                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                    @if ($canFullResetRebuild && $this->fullResetTopicStructure)
+                                        Phân tích tách lại hoàn toàn (chưa xóa Topic)
+                                    @else
+                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                    @endif
                                 </div>
                                 <p class="topic-index-stale-alert__confirm-hint">
-                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                    @if ($canFullResetRebuild && $this->fullResetTopicStructure)
+                                        Analyze chỉ tạo proposal. Cấu trúc Topic chỉ bị thay thế khi bạn Apply sau này.
+                                        Keywords, Articles và Focus Article không bị xóa. Topic ID / manual / lock / tags cũ sẽ không được giữ khi Apply.
+                                    @else
+                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                    @endif
                                 </p>
                             </div>
                             <div class="topic-index-stale-alert__confirm-actions">
                                 <x-filament::button type="button" size="sm" color="gray" wire:click="cancelConfirmRecluster">
                                     {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
                                 </x-filament::button>
-                                <x-filament::button type="button" size="sm" color="warning" wire:click="runTopicRecluster">
+                                <x-filament::button type="button" size="sm" color="{{ ($canFullResetRebuild && $this->fullResetTopicStructure) ? 'danger' : 'warning' }}" wire:click="runTopicRecluster">
                                     {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                                 </x-filament::button>
                             </div>
                         </div>
                     @else
-                        <div class="topic-index-recluster-idle__row">
+                        <div class="topic-index-recluster-idle__row" style="flex-wrap:wrap;align-items:center;gap:0.5rem;">
                             <x-filament::button type="button" size="sm" color="gray" wire:click="beginConfirmRecluster" :disabled="$reclusterActive || $topicMutationsLocked">
                                 {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                             </x-filament::button>
+                            @if ($canFullResetRebuild)
+                                <label class="inline-flex max-w-sm items-start gap-2 text-xs text-rose-800 dark:text-rose-200">
+                                    <input type="checkbox" class="mt-0.5" wire:model.live="fullResetTopicStructure" @disabled($reclusterActive || $topicMutationsLocked)>
+                                    <span>
+                                        <span class="font-medium">Xóa cấu trúc Topic cũ và tách lại từ đầu</span>
+                                        <span class="mt-0.5 block text-[11px] opacity-80">Chỉ xóa cấu trúc Topic khi bạn bấm Apply. Keywords, Articles và Focus Article không bị xóa.</span>
+                                    </span>
+                                </label>
+                            @endif
                             @php
                                 $aiAuditCan = $this->canRunAiAuditAndTags();
                                 $aiAuditLabel = $this->aiAuditButtonLabel();
@@ -621,9 +663,15 @@
                 @endif
             </div>
         @elseif ($reclusterStatus === 'proposal_ready')
-            @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
-            <div class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100">
+            @php $m = $this->reclusterResult['metrics'] ?? []; $readyMode = (string) ($m['rebuild_mode'] ?? 'preserve_existing'); @endphp
+            <div class="rounded-lg border {{ $readyMode === 'full_reset' ? 'border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100' : 'border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100' }} px-3 py-2 text-xs">
                 <div class="font-medium">Proposal ready (chưa áp dụng)</div>
+                <p class="mt-1 font-medium">
+                    Mode: {{ $readyMode === 'full_reset' ? 'Tách lại hoàn toàn' : 'Giữ cấu trúc hiện tại' }}
+                </p>
+                @if ($readyMode === 'full_reset')
+                    <p class="mt-1 font-semibold">Apply sẽ thay thế toàn bộ cấu trúc Topic hiện tại.</p>
+                @endif
                 <p class="mt-1">
                     {{ number_format((int) ($m['group_count'] ?? 0)) }} groups
                     · {{ number_format((int) ($m['unassigned_count'] ?? 0)) }} unassigned
@@ -700,6 +748,14 @@
                             run #{{ (int) ($proposalPreview['run_id'] ?? 0) }}
                             · plan {{ \Illuminate\Support\Str::limit((string) ($proposalPreview['plan_hash'] ?? ''), 12, '') }}
                         </p>
+                        <p class="mt-1 text-xs font-medium {{ $isFullResetRun ? 'text-rose-700 dark:text-rose-300' : 'text-sky-700 dark:text-sky-300' }}">
+                            Mode: {{ $isFullResetRun ? 'Tách lại hoàn toàn' : 'Giữ cấu trúc hiện tại' }}
+                        </p>
+                        @if ($isFullResetRun)
+                            <p class="mt-1 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                                Apply sẽ thay thế toàn bộ cấu trúc Topic hiện tại.
+                            </p>
+                        @endif
                     </div>
                     <x-filament::button type="button" size="xs" color="gray" wire:click="closeProposalPreview">Đóng</x-filament::button>
                 </div>
@@ -722,10 +778,10 @@
                     </div>
                 </div>
                 <div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs dark:border-emerald-800 dark:bg-emerald-950/40">
-                    <div class="font-medium">Business state preservation</div>
+                    <div class="font-medium">{{ $isFullResetRun ? 'Business state (full reset)' : 'Business state preservation' }}</div>
                     <div class="mt-1 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                        <div>Manual Topic state: <strong>preserved</strong></div>
-                        <div>Locks: <strong>preserved</strong></div>
+                        <div>Manual Topic state: <strong>{{ $isFullResetRun ? 'reset' : 'preserved' }}</strong></div>
+                        <div>Locks: <strong>{{ $isFullResetRun ? 'reset' : 'preserved' }}</strong></div>
                         <div>Focus bindings: <strong>unaffected / keyword-owned</strong></div>
                         <div>Manual Topic tags:
                             <strong>{{ (int) ($businessSummary['manual_tag_migrations'] ?? 0) }} migrate</strong>
@@ -838,7 +894,17 @@
                 <div class="mt-4 flex flex-wrap gap-2">
                     @if ($confirmApplyProposal)
                         <div class="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
-                            @if ($highChurnPreview)
+                            @if ($isFullResetRun)
+                                <div class="font-semibold">XÁC NHẬN TÁCH LẠI HOÀN TOÀN — thay thế cấu trúc Topic</div>
+                                <p class="mt-1">
+                                    {{ (int) ($previewCounts['topics_dissolved'] ?? $identityMigration['dissolved_ids'] ?? 0) }} Topic hiện tại sẽ bị thay thế
+                                    · {{ (int) ($previewCounts['topics_created'] ?? 0) }} Topic mới sẽ được tạo
+                                    · {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0)) }} keyword sẽ được gán vào Topic mới
+                                    · {{ (int) ($previewCounts['keywords_unassigned'] ?? $previewCounts['semantic_unassigned'] ?? 0) }} keyword không được semantic gán
+                                </p>
+                                <p class="mt-1 font-medium">Keywords / Articles / Focus Article không bị xóa.</p>
+                                <p class="mt-1 opacity-90">Topic ID cũ, manual/lock, DNA, tags Topic và MCP exclusion Topic sẽ bị reset.</p>
+                            @elseif ($highChurnPreview)
                                 <div class="font-semibold">Đây là lần tái cấu trúc Topic lớn.</div>
                                 <p class="mt-1">
                                     {{ (int) ($previewCounts['keywords_moved'] ?? 0) }} keyword sẽ chuyển Topic.
@@ -849,18 +915,20 @@
                             @else
                                 Apply sẽ thay đổi Topic memberships.
                             @endif
-                            <p class="mt-1">
-                                {{ (int) ($previewCounts['semantic_groups'] ?? 0) }} semantic groups →
-                                {{ (int) ($previewCounts['effective_topics_after'] ?? 0) }} effective topics;
-                                {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
-                                {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
-                                {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence;
-                                Focus-keyword Topics changing identity: {{ (int) ($identityMigration['topics_with_focus_keywords_changing_identity'] ?? $identityMigration['topics_with_focus_dissolved'] ?? 0) }}
-                                (Focus bindings remain keyword-owned).
-                            </p>
+                            @if (! $isFullResetRun)
+                                <p class="mt-1">
+                                    {{ (int) ($previewCounts['semantic_groups'] ?? 0) }} semantic groups →
+                                    {{ (int) ($previewCounts['effective_topics_after'] ?? 0) }} effective topics;
+                                    {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
+                                    {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
+                                    {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence;
+                                    Focus-keyword Topics changing identity: {{ (int) ($identityMigration['topics_with_focus_keywords_changing_identity'] ?? $identityMigration['topics_with_focus_dissolved'] ?? 0) }}
+                                    (Focus bindings remain keyword-owned).
+                                </p>
+                            @endif
                             <div class="mt-2 flex gap-2">
                                 <x-filament::button type="button" size="xs" color="danger" wire:click="applyProposal" wire:loading.attr="disabled">
-                                    Xác nhận Apply
+                                    {{ $isFullResetRun ? 'Xác nhận tách lại hoàn toàn' : 'Xác nhận Apply' }}
                                 </x-filament::button>
                                 <x-filament::button type="button" size="xs" color="gray" wire:click="cancelConfirmApplyProposal">Hủy</x-filament::button>
                             </div>
@@ -868,7 +936,7 @@
                     @else
                         <x-filament::button type="button" size="sm" color="danger" wire:click="beginConfirmApplyProposal"
                             :disabled="! $this->canApplyProposal()">
-                            Apply proposal
+                            {{ $isFullResetRun ? 'Apply full reset' : 'Apply proposal' }}
                         </x-filament::button>
                         <x-filament::button type="button" size="sm" color="gray" wire:click="discardProposal"
                             wire:confirm="Discard proposal?">

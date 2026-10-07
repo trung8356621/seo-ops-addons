@@ -255,6 +255,7 @@ final class TopicReclusterUiState
                 'external_analysis_id' => (string) ($run->external_analysis_id ?? ''),
                 'input_hash' => (string) ($run->input_hash ?? ''),
                 'plan_hash' => (string) ($run->plan_hash ?? ''),
+                'rebuild_mode' => $run->rebuildMode(),
             ],
             'error' => null,
             'failure_reason' => null,

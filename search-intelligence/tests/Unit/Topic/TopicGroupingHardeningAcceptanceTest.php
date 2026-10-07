@@ -173,9 +173,13 @@ final class TopicGroupingHardeningAcceptanceTest extends TestCase
 
         $forcingPlanner = new class extends \Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingBusinessStatePlanner
         {
-            public function plan(int $siteId, array $topicActions, array $identityMigration): array
-            {
-                $base = parent::plan($siteId, $topicActions, $identityMigration);
+            public function plan(
+                int $siteId,
+                array $topicActions,
+                array $identityMigration,
+                string $rebuildMode = \Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode::PRESERVE_EXISTING,
+            ): array {
+                $base = parent::plan($siteId, $topicActions, $identityMigration, $rebuildMode);
                 $base['hard_block'] = false;
                 $base['metadata_review_required'] = [];
                 $base['policy_migrations'] = [[
@@ -380,6 +384,7 @@ final class TopicGroupingHardeningAcceptanceTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('site_id');
             $table->string('provider');
+            $table->string('rebuild_mode')->default('preserve_existing');
             $table->string('external_analysis_id')->nullable();
             $table->string('input_hash');
             $table->string('plan_hash')->nullable();

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
 
 /**
@@ -20,6 +21,7 @@ final class SeoTopicGroupingRun extends Model
     protected $fillable = [
         'site_id',
         'provider',
+        'rebuild_mode',
         'external_analysis_id',
         'input_hash',
         'plan_hash',
@@ -81,5 +83,17 @@ final class SeoTopicGroupingRun extends Model
     {
         return $this->status === TopicGroupingRunStatus::PROPOSAL_READY
             || $this->status === TopicGroupingRunStatus::APPLY_FAILED;
+    }
+
+    public function rebuildMode(): string
+    {
+        return TopicGroupingRebuildMode::normalize(
+            is_string($this->rebuild_mode ?? null) ? $this->rebuild_mode : null,
+        );
+    }
+
+    public function isFullReset(): bool
+    {
+        return TopicGroupingRebuildMode::isFullReset($this->rebuildMode());
     }
 }

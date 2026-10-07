@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTagAssignment;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
@@ -27,8 +28,17 @@ class TopicGroupingBusinessStatePlanner
      *     hard_block: bool
      * }
      */
-    public function plan(int $siteId, array $topicActions, array $identityMigration): array
-    {
+    public function plan(
+        int $siteId,
+        array $topicActions,
+        array $identityMigration,
+        string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
+    ): array {
+        $rebuildMode = TopicGroupingRebuildMode::normalize($rebuildMode);
+        if (TopicGroupingRebuildMode::isFullReset($rebuildMode)) {
+            return $this->planFullReset($siteId, $topicActions, $identityMigration);
+        }
+
         $dissolveIds = [];
         $reuseIds = [];
         $protectIds = [];
@@ -194,6 +204,63 @@ class TopicGroupingBusinessStatePlanner
             'policy_migrations' => $policyMigrations,
             'metadata_review_required' => $reviewRequired,
             'hard_block' => $reviewRequired !== [],
+        ];
+    }
+
+    /**
+     * full_reset: Topic-owned tags/MCP/locks are disposable; Focus stays keyword-owned.
+     * hard_block only for unresolved hard downstream SeoTopic refs (currently none detected).
+     *
+     * @param  list<array{topic_id: int|null, name: string, action: string}>  $topicActions
+     * @param  array<string, mixed>  $identityMigration
+     * @return array{
+     *     summary: array<string, int|bool|string>,
+     *     metadata_migrations: list<array<string, mixed>>,
+     *     policy_migrations: list<array<string, mixed>>,
+     *     metadata_review_required: list<array<string, mixed>>,
+     *     hard_block: bool,
+     *     rebuild_mode: string
+     * }
+     */
+    private function planFullReset(int $siteId, array $topicActions, array $identityMigration): array
+    {
+        $dissolveCount = count(array_filter(
+            $topicActions,
+            static fn (array $a): bool => $a['action'] === 'dissolve',
+        ));
+        $createCount = count(array_filter(
+            $topicActions,
+            static fn (array $a): bool => $a['action'] === 'create',
+        ));
+        $focusChanging = (int) ($identityMigration['topics_with_focus_keywords_changing_identity']
+            ?? $identityMigration['topics_with_focus_dissolved']
+            ?? 0);
+
+        // Reserved: if a future hard FK/consumer appears, set hard_downstream_refs + hard_block.
+        $hardDownstreamRefs = 0;
+
+        return [
+            'summary' => [
+                'manual_topics_preserved' => false,
+                'locks_preserved' => false,
+                'focus_bindings_keyword_owned' => true,
+                'topics_with_focus_keywords_changing_identity' => $focusChanging,
+                'manual_tag_migrations' => 0,
+                'manual_tag_review_required' => 0,
+                'mcp_exclusions_preserved' => 0,
+                'mcp_exclusions_on_dissolve' => 0,
+                'mcp_exclusion_propagations' => 0,
+                'derived_dna_cache_rebuild' => true,
+                'hard_downstream_refs' => $hardDownstreamRefs,
+                'topics_marked_dissolve' => $dissolveCount,
+                'topics_marked_create' => $createCount,
+                'topic_owned_state_reset' => true,
+            ],
+            'metadata_migrations' => [],
+            'policy_migrations' => [],
+            'metadata_review_required' => [],
+            'hard_block' => $hardDownstreamRefs > 0,
+            'rebuild_mode' => TopicGroupingRebuildMode::FULL_RESET,
         ];
     }
 

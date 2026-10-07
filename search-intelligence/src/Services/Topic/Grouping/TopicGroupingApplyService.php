@@ -6,8 +6,12 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
@@ -68,7 +72,7 @@ final class TopicGroupingApplyService
             return TopicGroupingApplyResult::failed('empty_proposal', 'proposal_payload missing');
         }
 
-        $plan = $this->planBuilder->build((int) $run->site_id, $proposal);
+        $plan = $this->planBuilder->build((int) $run->site_id, $proposal, $run->rebuildMode());
         $this->persistPreviewPlan($run, $plan);
 
         return TopicGroupingApplyResult::okWithPlan($plan, [
@@ -76,6 +80,7 @@ final class TopicGroupingApplyService
             'site_id' => (int) $run->site_id,
             'input_hash' => (string) $run->input_hash,
             'plan_hash' => $plan->planHash,
+            'rebuild_mode' => $run->rebuildMode(),
             'counts' => $plan->counts,
         ]);
     }
@@ -126,7 +131,7 @@ final class TopicGroupingApplyService
                     return TopicGroupingApplyResult::failed('empty_proposal', 'proposal_payload missing');
                 }
 
-                $plan = $this->planBuilder->build((int) $run->site_id, $proposal);
+                $plan = $this->planBuilder->build((int) $run->site_id, $proposal, $run->rebuildMode());
                 if (! hash_equals($expectedPlanHash, $plan->planHash)) {
                     $run->status = TopicGroupingRunStatus::STALE;
                     $run->apply_error_code = 'plan_hash_mismatch';
@@ -136,6 +141,19 @@ final class TopicGroupingApplyService
                     return TopicGroupingApplyResult::stale(
                         'plan_hash_mismatch',
                         'Business state changed since preview — re-preview required',
+                        $plan,
+                    );
+                }
+
+                if ($plan->rebuildMode !== $run->rebuildMode()) {
+                    $run->status = TopicGroupingRunStatus::STALE;
+                    $run->apply_error_code = 'rebuild_mode_mismatch';
+                    $run->apply_error_message = 'Rebuild mode drift between run and plan';
+                    $run->save();
+
+                    return TopicGroupingApplyResult::stale(
+                        'rebuild_mode_mismatch',
+                        'Rebuild mode mismatch — re-analyze required',
                         $plan,
                     );
                 }
@@ -163,16 +181,40 @@ final class TopicGroupingApplyService
 
                 TopicReclusterUiState::markApplying((int) $run->site_id, $run);
 
-                // Tag migrations before dissolve deletes assignments.
-                $this->executeMetadataMigrations((int) $run->site_id, $plan);
+                $fullReset = TopicGroupingRebuildMode::isFullReset($run->rebuildMode());
+                if ($fullReset) {
+                    // Inside the same Apply transaction: clear Topic-owned protections so
+                    // persistResolvedClusters can dissolve historical manual/locked structure.
+                    $this->prepareFullResetTopicStructure((int) $run->site_id);
+                } else {
+                    // Tag migrations before dissolve deletes assignments.
+                    $this->executeMetadataMigrations((int) $run->site_id, $plan);
+                }
+
+                $emptyLocked = [
+                    'locked_topic_ids' => [],
+                    'preserved_topic_ids' => [],
+                    'locked_keyword_ids' => [],
+                    'locked_memberships_by_topic' => [],
+                    'topics' => [],
+                ];
 
                 $written = is_callable($this->persistClusters)
                     ? (array) ($this->persistClusters)((int) $run->site_id, $plan->resolvedClusters)
-                    : $this->recluster()->persistResolvedClusters(
-                        (int) $run->site_id,
-                        $plan->resolvedClusters,
-                        false,
-                    );
+                    : ($fullReset
+                        ? $this->recluster()->persistResolvedClusters(
+                            (int) $run->site_id,
+                            $plan->resolvedClusters,
+                            false,
+                            $emptyLocked,
+                            [],
+                            [],
+                        )
+                        : $this->recluster()->persistResolvedClusters(
+                            (int) $run->site_id,
+                            $plan->resolvedClusters,
+                            false,
+                        ));
 
                 /** @var array<string, int> $topicIdsByGroupKey */
                 $topicIdsByGroupKey = [];
@@ -185,7 +227,10 @@ final class TopicGroupingApplyService
                 }
 
                 // MCP exclusion propagation after create/reuse IDs exist — by group_key only.
-                $this->executePolicyMigrations((int) $run->site_id, $plan, $topicIdsByGroupKey);
+                // full_reset intentionally drops Topic-owned MCP quarantine (no migration).
+                if (! $fullReset) {
+                    $this->executePolicyMigrations((int) $run->site_id, $plan, $topicIdsByGroupKey);
+                }
 
                 $run->status = TopicGroupingRunStatus::APPLIED;
                 $run->applied_at = now();
@@ -304,6 +349,7 @@ final class TopicGroupingApplyService
     {
         return [
             'plan_hash' => $plan->planHash,
+            'rebuild_mode' => $plan->rebuildMode,
             'business_snapshot_hash' => $plan->businessSnapshotHash,
             'counts' => $plan->counts,
             'topic_actions' => $plan->topicActions,
@@ -336,6 +382,30 @@ final class TopicGroupingApplyService
                 'hard_block' => (bool) ($plan->businessState['hard_block'] ?? false),
             ],
         ];
+    }
+
+    /**
+     * Clear Topic-owned locks / manual freeze / MCP flags so persistence can rebuild from proposal.
+     * Does not delete keyword/article/focus rows.
+     */
+    private function prepareFullResetTopicStructure(int $siteId): void
+    {
+        SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->update([
+                'is_locked' => false,
+                'source' => TopicSource::AUTO,
+            ]);
+
+        if (TopicMcpExclusionService::columnReady()) {
+            SeoTopic::query()
+                ->where('site_id', $siteId)
+                ->update(['mcp_excluded' => false]);
+        }
+
+        SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->update(['is_locked' => false]);
     }
 
     private function executeMetadataMigrations(int $siteId, TopicGroupingApplyPlan $plan): void

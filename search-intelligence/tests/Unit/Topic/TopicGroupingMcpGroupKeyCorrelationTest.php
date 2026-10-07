@@ -554,6 +554,7 @@ final class TopicGroupingMcpGroupKeyCorrelationTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('site_id');
             $table->string('provider');
+            $table->string('rebuild_mode')->default('preserve_existing');
             $table->string('external_analysis_id')->nullable();
             $table->string('input_hash');
             $table->string('plan_hash')->nullable();
