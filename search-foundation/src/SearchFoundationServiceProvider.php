@@ -34,6 +34,10 @@ final class SearchFoundationServiceProvider extends ServiceProvider
             \Omnichannel\Addons\SearchFoundation\Contracts\MatchResearch\MatchResearchRegistry::class,
             \Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchRegistryService::class,
         );
+        $this->app->singleton(
+            \Omnichannel\Addons\SearchFoundation\Contracts\IndustryGroup\IndustryGroupProvider::class,
+            \Omnichannel\Addons\SearchFoundation\Services\IndustryGroup\IndustryGroupReadModel::class,
+        );
     }
 
     public function boot(): void

@@ -3407,6 +3407,105 @@ body.keyword-drawer-open {
     color: rgb(224 231 255);
 }
 
+.keyword-group-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.keyword-group-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25;
+    background: transparent;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+.keyword-group-action__icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    flex-shrink: 0;
+}
+
+.keyword-group-action--recheck {
+    border-color: rgb(165 180 252);
+    color: rgb(67 56 202);
+    background: rgb(238 242 255);
+}
+
+.keyword-group-action--recheck:hover:not(:disabled) {
+    border-color: rgb(129 140 248);
+    background: rgb(224 231 255);
+}
+
+.dark .keyword-group-action--recheck {
+    border-color: rgb(99 102 241);
+    color: rgb(199 210 254);
+    background: rgb(49 46 129);
+}
+
+.dark .keyword-group-action--recheck:hover:not(:disabled) {
+    background: rgb(67 56 202);
+}
+
+.keyword-group-action--lock {
+    border-color: rgb(253 186 116);
+    color: rgb(180 83 9);
+    background: rgb(255 247 237);
+}
+
+.keyword-group-action--lock:hover:not(:disabled) {
+    border-color: rgb(251 146 60);
+    background: rgb(255 237 213);
+}
+
+.dark .keyword-group-action--lock {
+    border-color: rgb(234 88 12);
+    color: rgb(254 215 170);
+    background: rgb(124 45 18);
+}
+
+.dark .keyword-group-action--lock:hover:not(:disabled) {
+    background: rgb(154 52 18);
+}
+
+.keyword-group-action--delete {
+    border-color: rgb(252 165 165);
+    color: rgb(185 28 28);
+    background: rgb(254 242 242);
+    padding-inline: 0.4rem;
+}
+
+.keyword-group-action--delete:hover:not(:disabled) {
+    border-color: rgb(248 113 113);
+    background: rgb(254 226 226);
+}
+
+.dark .keyword-group-action--delete {
+    border-color: rgb(248 113 113);
+    color: rgb(254 202 202);
+    background: rgb(127 29 29);
+}
+
+.dark .keyword-group-action--delete:hover:not(:disabled) {
+    background: rgb(153 27 27);
+}
+
+.keyword-group-action:disabled,
+.keyword-group-action[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: grayscale(0.35);
+    pointer-events: none;
+}
+
 .keyword-group-rename-field {
     display: flex;
     flex-wrap: wrap;

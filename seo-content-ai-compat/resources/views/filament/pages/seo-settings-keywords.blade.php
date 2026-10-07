@@ -60,7 +60,7 @@
 
                 @if ($activeOriginTab === 'industry')
                     <div class="mx-auto max-w-3xl space-y-4">
-                        <x-filament::section heading="Industry Rules" description="Read-only generated research from the active Match & Research revision. Ambiguities are not tags.">
+                        <x-filament::section heading="Industry Groups" description="Read-only concept groups from the active Industry Match & Research taxonomy. Not Keywords, Topics, or Tags.">
                             @if ($industryProvenance)
                                 <div class="mb-4 flex flex-wrap gap-3 text-sm">
                                     <span><strong>Industry Context:</strong> {{ $industryProvenance['industry_context_key'] }}</span>
@@ -69,30 +69,55 @@
                                         {{ ($industryProvenance['stale'] ?? true) ? 'Stale' : 'Fresh' }}
                                     </x-filament::badge>
                                 </div>
-                                <div class="mb-4 max-h-64 space-y-1 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-300">
-                                    @foreach ($registryIndustry as $row)
+
+                                @php
+                                    $typeLabels = [
+                                        'products' => 'Products',
+                                        'product_families' => 'Product Families',
+                                        'materials' => 'Materials',
+                                        'services' => 'Services',
+                                        'audiences' => 'Audiences',
+                                        'use_cases' => 'Use Cases',
+                                        'features' => 'Features',
+                                        'adjacent_products' => 'Adjacent Products',
+                                    ];
+                                @endphp
+                                <div class="space-y-5">
+                                    @foreach ($typeLabels as $type => $label)
+                                        @php($items = $industryGroupsByType[$type] ?? [])
                                         <div>
-                                            {{ $row['key'] }}
-                                            · {{ $row['kind'] }}
-                                            · tag={{ ($row['capabilities']['can_tag'] ?? false) ? '1' : '0' }}
-                                            · {{ $row['label'] }}
-                                        </div>
-                                    @endforeach
-                                </div>
-                                <div class="space-y-4">
-                                    @foreach ($industryRules as $group => $entries)
-                                        <div>
-                                            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ str($group)->replace('_', ' ')->title() }}</h3>
-                                            <div class="mt-2 flex flex-wrap gap-2">
-                                                @forelse ($entries as $entry)
-                                                    @php($label = is_array($entry) ? ($entry['canonical'] ?? $entry['term'] ?? '') : (string) $entry)
-                                                    @if ($label !== '')
-                                                        <x-filament::badge color="gray">{{ $label }}</x-filament::badge>
-                                                    @endif
-                                                @empty
-                                                    <span class="text-sm text-gray-500">—</span>
-                                                @endforelse
-                                            </div>
+                                            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ $label }}</h3>
+                                            @if ($items === [])
+                                                <p class="mt-1 text-sm text-gray-500">—</p>
+                                            @else
+                                                <ul class="mt-2 space-y-2">
+                                                    @foreach ($items as $item)
+                                                        <li class="rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <span class="font-medium">{{ $item['name'] }}</span>
+                                                                <span class="font-mono text-xs text-gray-500">{{ $item['key'] }}</span>
+                                                                @if (! empty($item['match_mode']))
+                                                                    <x-filament::badge color="gray">{{ $item['match_mode'] }}</x-filament::badge>
+                                                                @endif
+                                                                <x-filament::badge :color="($item['localized'] ?? false) ? 'success' : 'warning'">
+                                                                    {{ ($item['localized'] ?? false) ? 'Localized' : 'Source locale' }}
+                                                                    · {{ $item['effective_locale'] ?? $item['source_locale'] }}
+                                                                </x-filament::badge>
+                                                                @if ($item['stale'] ?? false)
+                                                                    <x-filament::badge color="warning">Stale</x-filament::badge>
+                                                                @endif
+                                                            </div>
+                                                            @if (($item['aliases'] ?? []) !== [])
+                                                                <div class="mt-1.5 flex flex-wrap gap-1.5">
+                                                                    @foreach ($item['aliases'] as $alias)
+                                                                        <x-filament::badge color="gray">{{ $alias }}</x-filament::badge>
+                                                                    @endforeach
+                                                                </div>
+                                                            @endif
+                                                        </li>
+                                                    @endforeach
+                                                </ul>
+                                            @endif
                                         </div>
                                     @endforeach
                                 </div>
@@ -103,6 +128,21 @@
                                 @endif
                             @endif
                         </x-filament::section>
+
+                        @if ($industryProvenance && ($industryNonGroupResources ?? []) !== [])
+                            <x-filament::section heading="Other Industry Rules" description="Topic rules, aliases, and ambiguities — Match & Research knowledge, not Industry Groups.">
+                                <div class="space-y-2 font-mono text-xs text-gray-600 dark:text-gray-300">
+                                    @foreach ($industryNonGroupResources as $row)
+                                        <div>
+                                            {{ $row['key'] }}
+                                            · {{ $row['kind'] }}
+                                            · {{ $row['payload']['group'] ?? ($row['provenance']['group'] ?? '') }}
+                                            · {{ $row['label'] }}
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </x-filament::section>
+                        @endif
                     </div>
                 @endif
 

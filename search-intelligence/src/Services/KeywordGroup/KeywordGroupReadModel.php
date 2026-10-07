@@ -43,10 +43,10 @@ final class KeywordGroupReadModel
             return new Paginator([], 0, $perPage, $page);
         }
 
+        // Stable identity order — mutable Group name must not reshuffle cards.
         $paginator = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
             ->withCount('memberships')
-            ->orderBy('name')
             ->orderBy('id')
             ->paginate($perPage, ['*'], 'page', $page);
 
@@ -164,23 +164,18 @@ final class KeywordGroupReadModel
         }
 
         $perPage = max(1, min(50, $perPage));
-        $group = SeoKeywordGroup::query()
+        $exists = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
             ->whereKey($groupId)
-            ->first(['id', 'name']);
-        if (! $group instanceof SeoKeywordGroup) {
+            ->exists();
+        if (! $exists) {
             return null;
         }
 
+        // Same authority as paginateGroups(): orderBy id.
         $position = (int) SeoKeywordGroup::query()
             ->where('site_id', $siteId)
-            ->where(function (Builder $query) use ($group): void {
-                $query->where('name', '<', (string) $group->name)
-                    ->orWhere(function (Builder $sameName) use ($group): void {
-                        $sameName->where('name', (string) $group->name)
-                            ->where('id', '<=', (int) $group->id);
-                    });
-            })
+            ->where('id', '<=', $groupId)
             ->count();
 
         if ($position <= 0) {

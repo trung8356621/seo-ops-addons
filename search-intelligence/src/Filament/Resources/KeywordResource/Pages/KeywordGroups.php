@@ -180,7 +180,7 @@ final class KeywordGroups extends Page
 
     public function addKeywordToGroup(int $groupId, int $keywordId): void
     {
-        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0) {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0 || $this->isRecheckBusy()) {
             return;
         }
 
@@ -198,12 +198,12 @@ final class KeywordGroups extends Page
 
         unset($this->semanticSuggestions[$groupId]);
         $this->loadGroupMembers($groupId, reset: true);
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: true);
     }
 
     public function removeKeywordFromGroup(int $groupId, int $keywordId): void
     {
-        if (! $this->canMutateKeywordGroups() || $keywordId <= 0) {
+        if (! $this->canMutateKeywordGroups() || $keywordId <= 0 || $this->isRecheckBusy()) {
             return;
         }
 
@@ -222,12 +222,12 @@ final class KeywordGroups extends Page
         if ($groupId > 0) {
             $this->loadGroupMembers($groupId, reset: true);
         }
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: true);
     }
 
     public function toggleTopicCandidate(int $groupId, int $keywordId): void
     {
-        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0) {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0 || $this->isRecheckBusy()) {
             return;
         }
 
@@ -257,12 +257,12 @@ final class KeywordGroups extends Page
         }
 
         $this->loadGroupMembers($groupId, reset: true);
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: false);
     }
 
     public function createGroup(): void
     {
-        if (! $this->canMutateKeywordGroups()) {
+        if (! $this->canMutateKeywordGroups() || $this->isRecheckBusy()) {
             return;
         }
 
@@ -281,7 +281,7 @@ final class KeywordGroups extends Page
         $this->newGroupName = '';
         $this->focusGroupId = (int) $group->id;
         $this->focusGroupPageIfNeeded();
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: true);
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.keyword_group_created'))
             ->success()
@@ -297,7 +297,7 @@ final class KeywordGroups extends Page
             return false;
         }
 
-        if (isset($this->renameInFlight[$groupId]) || isset($this->recheckInFlight[$groupId])) {
+        if (isset($this->renameInFlight[$groupId]) || $this->isRecheckBusy()) {
             return false;
         }
 
@@ -318,6 +318,7 @@ final class KeywordGroups extends Page
             }
 
             // Rename is committed first; semantic enrichment must not roll it back.
+            // Do NOT resetPage / focusGroupPageIfNeeded — stable id order keeps position.
             $enrichment = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
                 $siteId,
                 $groupId,
@@ -327,7 +328,7 @@ final class KeywordGroups extends Page
 
             unset($this->semanticSuggestions[$groupId]);
             $this->loadGroupMembers($groupId, reset: true);
-            $this->afterGroupMutation();
+            $this->afterGroupMutation(countsMayChange: count($enrichment['appended_ids']) > 0);
 
             if ($enrichment['semantic_failed'] === true) {
                 Notification::make()
@@ -351,7 +352,7 @@ final class KeywordGroups extends Page
             return;
         }
 
-        if (isset($this->recheckInFlight[$groupId]) || isset($this->renameInFlight[$groupId])) {
+        if ($this->isRecheckBusy() || isset($this->renameInFlight[$groupId])) {
             return;
         }
 
@@ -395,7 +396,7 @@ final class KeywordGroups extends Page
             $appended = count($enrichment['appended_ids']);
             unset($this->semanticSuggestions[$groupId]);
             $this->loadGroupMembers($groupId, reset: true);
-            $this->afterGroupMutation();
+            $this->afterGroupMutation(countsMayChange: $appended > 0);
 
             if ($appended === 0) {
                 Notification::make()
@@ -415,9 +416,48 @@ final class KeywordGroups extends Page
         }
     }
 
+    public function deleteGroup(int $groupId): void
+    {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $this->isRecheckBusy()) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        try {
+            $result = app(KeywordGroupManualService::class)->delete($siteId, $groupId);
+        } catch (InvalidArgumentException) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.keyword_group_delete_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        unset(
+            $this->loadedMembers[$groupId],
+            $this->memberHasMore[$groupId],
+            $this->memberTotals[$groupId],
+            $this->semanticSuggestions[$groupId],
+        );
+        if ((int) ($this->focusGroupId ?? 0) === $groupId) {
+            $this->focusGroupId = null;
+        }
+
+        $this->clampGroupPageAfterDelete();
+        $this->afterGroupMutation(countsMayChange: true);
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.keyword.keyword_group_deleted', [
+                'count' => (int) ($result['deleted_members'] ?? 0),
+            ]))
+            ->success()
+            ->send();
+    }
+
     public function toggleLock(int $groupId): void
     {
-        if (! $this->canMutateKeywordGroups() || $groupId <= 0) {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $this->isRecheckBusy()) {
             return;
         }
 
@@ -440,7 +480,7 @@ final class KeywordGroups extends Page
             return;
         }
 
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: false);
     }
 
     public function refreshSemanticGroups(): void
@@ -468,11 +508,31 @@ final class KeywordGroups extends Page
 
         $this->semanticSuggestions = [];
         $this->resetMemberState();
-        $this->afterGroupMutation();
+        $this->afterGroupMutation(countsMayChange: true);
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.keyword_group_refresh_done'))
             ->success()
             ->send();
+    }
+
+    private function isRecheckBusy(): bool
+    {
+        return $this->recheckInFlight !== [];
+    }
+
+    private function clampGroupPageAfterDelete(): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || ! KeywordGroupSchema::tablesReady()) {
+            return;
+        }
+
+        $perPage = KeywordGroupReadModel::DEFAULT_PER_PAGE;
+        $total = (int) SeoKeywordGroup::query()->where('site_id', $siteId)->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        if ($this->getPage() > $lastPage) {
+            $this->setPage($lastPage);
+        }
     }
 
     private function loadGroupMembers(int $groupId, bool $reset): void
@@ -523,12 +583,16 @@ final class KeywordGroups extends Page
         $this->memberTotals = [];
     }
 
-    private function afterGroupMutation(): void
+    private function afterGroupMutation(bool $countsMayChange = true): void
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         if ($siteId > 0) {
             app(KeywordWorkspaceMetricCache::class)->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::GROUPS);
         }
+        if (! $countsMayChange) {
+            return;
+        }
+
         $this->clearKeywordWorkspaceTabCountsCache();
         $this->reloadKeywordWorkspaceStatisticsAfterRender();
     }

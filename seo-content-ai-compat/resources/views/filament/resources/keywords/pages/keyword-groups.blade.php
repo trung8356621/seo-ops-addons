@@ -76,6 +76,7 @@
             @endphp
             <article
                 id="keyword-group-{{ $groupId }}"
+                wire:key="keyword-group-card-{{ $groupId }}"
                 class="rounded-xl border bg-white p-4 dark:bg-gray-900 {{ $focused ? 'border-primary-500' : 'border-gray-200 dark:border-gray-800' }}"
                 @if ($canMutate)
                     x-data="{
@@ -110,6 +111,13 @@
                             }
                             this.value = this.original;
                             this.editing = false;
+                        },
+                        confirmDelete() {
+                            const msg = @js(__('seo-content-ai::filament.keyword.keyword_group_delete_confirm', ['name' => $group['name']]));
+                            if (! window.confirm(msg)) {
+                                return;
+                            }
+                            $wire.deleteGroup({{ $groupId }});
                         }
                     }"
                     @if ($focused) x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
@@ -141,7 +149,7 @@
                                     x-model="value"
                                     :disabled="saving"
                                     wire:loading.attr="disabled"
-                                    wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                                    wire:target="renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
                                     @keydown.enter.prevent="save()"
                                     @keydown.escape.prevent="cancel()"
                                     @blur="save()"
@@ -196,20 +204,20 @@
                         @endif
                     </div>
                     @if ($canMutate)
-                        <div class="flex flex-wrap items-center gap-2">
+                        <div class="keyword-group-actions">
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
+                                class="keyword-group-action keyword-group-action--recheck"
                                 wire:click="recheckGroup({{ $groupId }})"
                                 wire:loading.attr="disabled"
-                                wire:target="recheckGroup({{ $groupId }}), renameGroup({{ $groupId }})"
+                                wire:target="recheckGroup, renameGroup({{ $groupId }}), deleteGroup"
                                 :disabled="saving"
                                 title="{{ __('seo-content-ai::filament.keyword.keyword_group_recheck_hint') }}"
                                 aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_recheck_hint') }}"
                                 data-group-recheck="{{ $groupId }}"
                             >
                                 <svg
-                                    class="h-3.5 w-3.5 animate-spin"
+                                    class="keyword-group-action__icon animate-spin"
                                     wire:loading
                                     wire:target="recheckGroup({{ $groupId }})"
                                     viewBox="0 0 24 24"
@@ -218,6 +226,18 @@
                                 >
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <svg
+                                    class="keyword-group-action__icon"
+                                    wire:loading.remove
+                                    wire:target="recheckGroup({{ $groupId }})"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    aria-hidden="true"
+                                >
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                 </svg>
                                 <span wire:loading.remove wire:target="recheckGroup({{ $groupId }})">
                                     {{ __('seo-content-ai::filament.keyword.keyword_group_recheck') }}
@@ -228,15 +248,38 @@
                             </button>
                             <button
                                 type="button"
-                                class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
+                                class="keyword-group-action keyword-group-action--lock"
                                 wire:click="toggleLock({{ $groupId }})"
                                 wire:loading.attr="disabled"
-                                wire:target="toggleLock({{ $groupId }}), renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                                wire:target="toggleLock({{ $groupId }}), renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
                                 :disabled="saving"
                             >
-                                {{ $group['is_locked']
-                                    ? __('seo-content-ai::filament.keyword.keyword_group_unlock')
-                                    : __('seo-content-ai::filament.keyword.keyword_group_lock') }}
+                                @if ($group['is_locked'])
+                                    <svg class="keyword-group-action__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                                    </svg>
+                                    <span>{{ __('seo-content-ai::filament.keyword.keyword_group_unlock') }}</span>
+                                @else
+                                    <svg class="keyword-group-action__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                    <span>{{ __('seo-content-ai::filament.keyword.keyword_group_lock') }}</span>
+                                @endif
+                            </button>
+                            <button
+                                type="button"
+                                class="keyword-group-action keyword-group-action--delete"
+                                @click="confirmDelete()"
+                                wire:loading.attr="disabled"
+                                wire:target="recheckGroup, deleteGroup, renameGroup({{ $groupId }})"
+                                :disabled="saving"
+                                title="{{ __('seo-content-ai::filament.keyword.keyword_group_delete') }}"
+                                aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_delete') }}"
+                                data-group-delete="{{ $groupId }}"
+                            >
+                                <svg class="keyword-group-action__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
                             </button>
                         </div>
                     @endif
@@ -246,7 +289,7 @@
                     class="mt-3 space-y-3"
                     @if ($canMutate)
                         wire:loading.class="pointer-events-none opacity-60"
-                        wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                        wire:target="renameGroup({{ $groupId }}), recheckGroup, deleteGroup({{ $groupId }})"
                         x-bind:class="saving ? 'pointer-events-none opacity-60' : ''"
                     @endif
                 >
@@ -285,7 +328,7 @@
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
                                 placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_search_unassigned') }}"
                                 wire:loading.attr="disabled"
-                                wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                                wire:target="renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
                             />
                             <div
                                 class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow dark:border-gray-700 dark:bg-gray-900"
@@ -317,7 +360,7 @@
                     <div
                         class="keyword-group-member-chips"
                         wire:loading.class="opacity-50"
-                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup({{ $groupId }}), removeKeywordFromGroup, toggleTopicCandidate, renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup({{ $groupId }}), removeKeywordFromGroup, toggleTopicCandidate, renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
                     >
                         @forelse ($members as $member)
                             @php
@@ -327,7 +370,7 @@
                                 $memberKey = (int) ($member['keyword_id'] ?? 0);
                             @endphp
                             <span
-                                wire:key="kg-member-{{ $groupId }}-{{ $memberKey }}-{{ $topicCandidate ? '1' : '0' }}"
+                                wire:key="keyword-group-member-{{ $groupId }}-{{ $memberKey }}"
                                 @class([
                                     'keyword-group-member-chip',
                                     'keyword-group-member-chip--topic-blocked' => ! $topicCandidate,
@@ -344,7 +387,7 @@
                                         class="keyword-group-member-chip__topic"
                                         wire:click="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }})"
                                         wire:loading.attr="disabled"
-                                        wire:target="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }})"
+                                        wire:target="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }}), recheckGroup"
                                         title="{{ $topicCandidate
                                             ? __('seo-content-ai::filament.keyword.keyword_group_topic_block')
                                             : __('seo-content-ai::filament.keyword.keyword_group_topic_allow') }}"
@@ -358,7 +401,7 @@
                                         class="keyword-group-member-chip__remove"
                                         wire:click="removeKeywordFromGroup({{ $groupId }}, {{ $memberKey }})"
                                         wire:loading.attr="disabled"
-                                        wire:target="removeKeywordFromGroup({{ $groupId }}, {{ $memberKey }})"
+                                        wire:target="removeKeywordFromGroup({{ $groupId }}, {{ $memberKey }}), recheckGroup"
                                         aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_remove') }}"
                                     >×</button>
                                 @endif

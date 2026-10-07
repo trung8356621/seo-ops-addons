@@ -9,6 +9,7 @@ use InvalidArgumentException;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 
 /**
@@ -63,6 +64,51 @@ final class KeywordGroupManualService
         $group->save();
 
         return $group;
+    }
+
+    /**
+     * Delete Group + memberships. Keywords/Topics/DNA remain.
+     * Detaches seo_topics.keyword_group_id when linked.
+     *
+     * @return array{deleted_members: int, detached_topics: int}
+     */
+    public function delete(int $siteId, int $groupId): array
+    {
+        $this->assertReady($siteId);
+        if ($groupId <= 0) {
+            throw new InvalidArgumentException('keyword_group_not_found');
+        }
+
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId): array {
+            $group = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->whereKey($groupId)
+                ->lockForUpdate()
+                ->first();
+            if (! $group instanceof SeoKeywordGroup) {
+                throw new InvalidArgumentException('keyword_group_not_found');
+            }
+
+            $deletedMembers = (int) SeoKeywordGroupKeyword::query()
+                ->where('site_id', $siteId)
+                ->where('group_id', $groupId)
+                ->delete();
+
+            $detachedTopics = 0;
+            if (KeywordGroupSchema::topicLinkReady()) {
+                $detachedTopics = (int) SeoTopic::query()
+                    ->where('site_id', $siteId)
+                    ->where('keyword_group_id', $groupId)
+                    ->update(['keyword_group_id' => null]);
+            }
+
+            $group->delete();
+
+            return [
+                'deleted_members' => $deletedMembers,
+                'detached_topics' => $detachedTopics,
+            ];
+        });
     }
 
     public function assignKeyword(int $siteId, int $keywordId, ?int $targetGroupId): void

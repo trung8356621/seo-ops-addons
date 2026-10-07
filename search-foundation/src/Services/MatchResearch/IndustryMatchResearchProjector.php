@@ -7,16 +7,13 @@ namespace Omnichannel\Addons\SearchFoundation\Services\MatchResearch;
 use Omnichannel\Addons\SearchFoundation\Contracts\IndustryMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\DTO\MatchResearch\MatchResearchCapabilities;
 use Omnichannel\Addons\SearchFoundation\DTO\MatchResearch\MatchResearchResource;
+use Omnichannel\Addons\SearchFoundation\Enums\IndustryGroupType;
 use Omnichannel\Addons\SearchFoundation\Enums\MatchResearchKind;
 use Omnichannel\Addons\SearchFoundation\Enums\MatchResearchOrigin;
 
 final class IndustryMatchResearchProjector
 {
-    private const TAXONOMY_GROUPS = [
-        'products', 'product_families', 'materials', 'services',
-        'audiences', 'use_cases', 'features', 'adjacent_products',
-    ];
-
+    /** Taxonomy groups that qualify as Industry Groups (see IndustryGroupType). */
     private const TOPIC_RULE_GROUPS = ['generic_cores', 'service_intent_terms'];
 
     public function __construct(
@@ -34,9 +31,11 @@ final class IndustryMatchResearchProjector
         }
 
         $resources = [];
-        foreach ([...self::TAXONOMY_GROUPS, ...self::TOPIC_RULE_GROUPS, 'aliases'] as $group) {
+        $taxonomyGroups = IndustryGroupType::values();
+        foreach ([...$taxonomyGroups, ...self::TOPIC_RULE_GROUPS, 'aliases'] as $group) {
             $isTopicRule = in_array($group, self::TOPIC_RULE_GROUPS, true);
             $isAlias = $group === 'aliases';
+            $isIndustryGroup = in_array($group, $taxonomyGroups, true);
             foreach ((array) ($rules[$group] ?? []) as $entry) {
                 if (! is_array($entry)) {
                     continue;
@@ -54,7 +53,9 @@ final class IndustryMatchResearchProjector
                     label: $canonical,
                     description: $isTopicRule
                         ? 'Industry topic rule: '.$group
-                        : ($isAlias ? 'Industry alias group' : 'Industry taxonomy: '.$group),
+                        : ($isAlias
+                            ? 'Industry alias group'
+                            : ($isIndustryGroup ? 'Industry Group ('.$group.')' : 'Industry taxonomy: '.$group)),
                     matchMode: isset($entry['match_mode']) ? (string) $entry['match_mode'] : 'phrase',
                     payload: [
                         'group' => $group,
@@ -65,13 +66,17 @@ final class IndustryMatchResearchProjector
                     ],
                     capabilities: new MatchResearchCapabilities(
                         canMatch: true,
-                        canTag: ! $isTopicRule && ! $isAlias,
+                        // Industry Groups are concepts for future semantic evidence — not Keyword Tags.
+                        canTag: false,
                         canExclude: $isTopicRule,
                         canRank: false,
                     ),
                     editable: false,
                     deletable: false,
-                    provenance: array_merge($provenance, ['group' => $group]),
+                    provenance: array_merge($provenance, [
+                        'group' => $group,
+                        'industry_group' => $isIndustryGroup,
+                    ]),
                 );
             }
         }

@@ -571,17 +571,109 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertSame('balo quà tặng', SeoKeywordGroup::query()->find($group->id)?->name);
     }
 
+    public function test_rename_keeps_stable_pagination_position_by_id(): void
+    {
+        $a = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'aaa early',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        $b = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'mmm middle',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        $c = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'zzz late',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+
+        $reader = app(KeywordGroupReadModel::class);
+        $before = $reader->paginateGroups(self::SITE, 1, 20);
+        $idsBefore = array_column($before->items(), 'id');
+        self::assertSame([(int) $a->id, (int) $b->id, (int) $c->id], $idsBefore);
+        self::assertSame(1, $reader->pageForGroup(self::SITE, (int) $b->id, 20));
+
+        app(KeywordGroupManualService::class)->rename(self::SITE, (int) $b->id, 'aaa first alphabetically');
+
+        $after = $reader->paginateGroups(self::SITE, 1, 20);
+        $idsAfter = array_column($after->items(), 'id');
+        self::assertSame($idsBefore, $idsAfter);
+        self::assertSame('aaa first alphabetically', $after->items()[1]['name']);
+        self::assertSame(1, $reader->pageForGroup(self::SITE, (int) $b->id, 20));
+    }
+
+    public function test_delete_group_unassigns_keywords_and_detaches_topics(): void
+    {
+        $kw = Keyword::query()->create([
+            'phrase' => 'balo quà tặng',
+            'type' => Keyword::TYPE_NORMAL,
+            'review_status' => 'active',
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'balo',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $group->id,
+            'keyword_id' => $kw->id,
+            'source' => KeywordGroupSource::MANUAL,
+            'is_topic_candidate' => true,
+        ]);
+
+        $topicId = (int) DB::connection('omi_seo_ai')->table('seo_topics')->insertGetId([
+            'site_id' => self::SITE,
+            'name' => 'Topic keep',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_topics')
+            ->where('id', $topicId)
+            ->update(['keyword_group_id' => $group->id]);
+
+        $otherSite = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE + 1,
+            'name' => 'other site',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+
+        $result = app(KeywordGroupManualService::class)->delete(self::SITE, (int) $group->id);
+        self::assertSame(1, $result['deleted_members']);
+        self::assertSame(1, $result['detached_topics']);
+        self::assertNull(SeoKeywordGroup::query()->find($group->id));
+        self::assertSame(0, SeoKeywordGroupKeyword::query()->where('keyword_id', $kw->id)->count());
+        self::assertNotNull(Keyword::query()->find($kw->id));
+        self::assertNull(DB::connection('omi_seo_ai')->table('seo_topics')->where('id', $topicId)->value('keyword_group_id'));
+        self::assertSame('Topic keep', DB::connection('omi_seo_ai')->table('seo_topics')->where('id', $topicId)->value('name'));
+        self::assertNotNull(SeoKeywordGroup::query()->find($otherSite->id));
+    }
+
     public function test_ui_exposes_rename_enrichment_and_blocked_chip_state(): void
     {
         $page = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php');
         self::assertStringContainsString('enrichGroupFromSemantic', $page);
         self::assertStringContainsString('recheckGroup', $page);
+        self::assertStringContainsString('deleteGroup', $page);
         self::assertStringContainsString('toggleTopicCandidate', $page);
         self::assertStringContainsString('keyword_group_rename_semantic_failed', $page);
         self::assertStringContainsString('keyword_group_recheck_failed', $page);
         self::assertStringContainsString('renameInFlight', $page);
         self::assertStringContainsString('recheckInFlight', $page);
+        self::assertStringContainsString('isRecheckBusy', $page);
         self::assertStringContainsString('public function renameGroup(int $groupId, string $name): bool', $page);
+        self::assertStringNotContainsString('focusGroupPageIfNeeded();', substr(
+            $page,
+            (int) strpos($page, 'function renameGroup'),
+            800,
+        ));
 
         $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-groups.blade.php');
         self::assertStringContainsString('@dblclick', $blade);
@@ -594,11 +686,17 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('keyword_group_recheck', $blade);
         self::assertStringContainsString('keyword_group_recheck_loading', $blade);
         self::assertStringContainsString('wire:click="recheckGroup({{ $groupId }})"', $blade);
+        self::assertStringContainsString('wire:target="recheckGroup,', $blade);
         self::assertStringContainsString('wire:target="recheckGroup({{ $groupId }})"', $blade);
         self::assertStringContainsString('data-group-recheck="{{ $groupId }}"', $blade);
+        self::assertStringContainsString('data-group-delete="{{ $groupId }}"', $blade);
+        self::assertStringContainsString('wire:key="keyword-group-card-{{ $groupId }}"', $blade);
+        self::assertStringContainsString('wire:key="keyword-group-member-{{ $groupId }}-{{ $memberKey }}"', $blade);
+        self::assertStringContainsString('keyword-group-action--recheck', $blade);
+        self::assertStringContainsString('keyword-group-action--lock', $blade);
+        self::assertStringContainsString('keyword-group-action--delete', $blade);
+        self::assertStringContainsString('confirmDelete', $blade);
         self::assertStringContainsString('if (this.saving)', $blade);
-        self::assertStringContainsString('data-rename-loading-target="renameGroup({{ $groupId }})"', $blade);
-        self::assertStringContainsString('keyword-group-rename-input--busy', $blade);
         self::assertStringContainsString('wire:target="createGroup"', $blade);
         self::assertStringNotContainsString("\$wire.renameGroup({{ \$groupId }}, name)", $blade);
         self::assertStringNotContainsString('<x-select', $blade);
@@ -611,6 +709,13 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         );
         self::assertStringContainsString('.keyword-group-rename-input--busy', $css);
         self::assertStringContainsString('.keyword-group-rename-status', $css);
+        self::assertStringContainsString('.keyword-group-action--recheck', $css);
+        self::assertStringContainsString('.keyword-group-action--lock', $css);
+        self::assertStringContainsString('.keyword-group-action--delete', $css);
+        self::assertStringContainsString('opacity: 0.45', $css);
+        self::assertStringContainsString('orderBy(\'id\')', (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Services/KeywordGroup/KeywordGroupReadModel.php'
+        ));
     }
 
     public function test_rename_in_flight_guard_blocks_duplicate_submit(): void
@@ -619,7 +724,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php'
         );
         self::assertStringContainsString(
-            'if (isset($this->renameInFlight[$groupId]) || isset($this->recheckInFlight[$groupId]))',
+            'if (isset($this->renameInFlight[$groupId]) || $this->isRecheckBusy())',
             $pageSource,
         );
         self::assertStringContainsString('unset($this->renameInFlight[$groupId])', $pageSource);
@@ -730,6 +835,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('site_id');
             $table->string('name');
+            $table->unsignedBigInteger('keyword_group_id')->nullable();
             $table->timestamps();
         });
     }

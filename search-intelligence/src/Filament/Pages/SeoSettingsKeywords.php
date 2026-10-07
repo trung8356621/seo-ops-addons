@@ -13,8 +13,10 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Omnichannel\Addons\SearchFoundation\Contracts\IndustryGroup\IndustryGroupProvider;
 use Omnichannel\Addons\SearchFoundation\Contracts\IndustryMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\Contracts\MatchResearch\MatchResearchRegistry;
+use Omnichannel\Addons\SearchFoundation\Enums\IndustryGroupType;
 use Omnichannel\Addons\SearchFoundation\Enums\MatchResearchOrigin;
 use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\CustomMatchResearchStore;
 use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationImporter;
@@ -70,6 +72,16 @@ class SeoSettingsKeywords extends Page implements HasForms
     /** @var list<array<string, mixed>> */
     public array $registryCustom = [];
 
+    /**
+     * Industry Groups keyed by group_type (products, services, …).
+     *
+     * @var array<string, list<array<string, mixed>>>
+     */
+    public array $industryGroupsByType = [];
+
+    /** @var list<array<string, mixed>> */
+    public array $industryNonGroupResources = [];
+
     public string $localizationResourceKey = '';
 
     public string $localizationTargetLocale = 'en';
@@ -94,6 +106,7 @@ class SeoSettingsKeywords extends Page implements HasForms
         SeoKeywordSettingsService $settings,
         IndustryMatchRuleProvider $industryProvider,
         MatchResearchRegistry $registry,
+        IndustryGroupProvider $industryGroups,
     ): void {
         $this->keywordSettingsData = $settings->getSettings();
         $this->form->fill($this->keywordSettingsData);
@@ -103,7 +116,7 @@ class SeoSettingsKeywords extends Page implements HasForms
         $this->industryContextKey = trim((string) $site?->getMeta('seo_industry_context_key')) ?: null;
         $this->industryRules = $industryProvider->rulesForKey($this->industryContextKey);
         $this->industryProvenance = $industryProvider->provenanceForKey($this->industryContextKey);
-        $this->refreshRegistry($registry, $siteId);
+        $this->refreshRegistry($registry, $industryGroups, $siteId);
     }
 
     public function form(Form $form): Form
@@ -149,8 +162,11 @@ class SeoSettingsKeywords extends Page implements HasForms
         }
     }
 
-    public function saveCustomConcept(CustomMatchResearchStore $store, MatchResearchRegistry $registry): void
-    {
+    public function saveCustomConcept(
+        CustomMatchResearchStore $store,
+        MatchResearchRegistry $registry,
+        IndustryGroupProvider $industryGroups,
+    ): void {
         $siteId = SeoAccessControl::globalSiteId();
         if ($siteId === null || $siteId <= 0) {
             Notification::make()->title('Select a site before creating custom concepts.')->warning()->send();
@@ -187,7 +203,7 @@ class SeoSettingsKeywords extends Page implements HasForms
         }
 
         $this->resetCustomForm();
-        $this->refreshRegistry($registry, $siteId);
+        $this->refreshRegistry($registry, $industryGroups, $siteId);
         Notification::make()->title('Custom concept saved')->success()->send();
     }
 
@@ -213,8 +229,12 @@ class SeoSettingsKeywords extends Page implements HasForms
         }
     }
 
-    public function deleteCustomConcept(string $key, CustomMatchResearchStore $store, MatchResearchRegistry $registry): void
-    {
+    public function deleteCustomConcept(
+        string $key,
+        CustomMatchResearchStore $store,
+        MatchResearchRegistry $registry,
+        IndustryGroupProvider $industryGroups,
+    ): void {
         $siteId = SeoAccessControl::globalSiteId();
         if ($siteId === null) {
             return;
@@ -229,7 +249,7 @@ class SeoSettingsKeywords extends Page implements HasForms
         if ($this->editingCustomKey === $key) {
             $this->resetCustomForm();
         }
-        $this->refreshRegistry($registry, $siteId);
+        $this->refreshRegistry($registry, $industryGroups, $siteId);
         Notification::make()->title('Custom concept deleted')->success()->send();
     }
 
@@ -256,6 +276,7 @@ class SeoSettingsKeywords extends Page implements HasForms
         MatchResearchRegistry $registry,
         MatchResearchLocalizationImporter $importer,
         MatchResearchLocaleOverlayStore $overlays,
+        IndustryGroupProvider $industryGroups,
     ): void {
         $siteId = SeoAccessControl::globalSiteId();
         $resource = $registry->find($this->localizationResourceKey, $siteId, $this->industryContextKey);
@@ -277,7 +298,7 @@ class SeoSettingsKeywords extends Page implements HasForms
 
         $overlaySiteId = $resource->origin === MatchResearchOrigin::Custom ? $siteId : 0;
         $overlays->put($resource->key, $this->localizationTargetLocale, $result['payload'], $overlaySiteId);
-        $this->refreshRegistry($registry, $siteId);
+        $this->refreshRegistry($registry, $industryGroups, $siteId);
         $this->localizationImportJson = '';
         Notification::make()->title('Localized result imported')->success()->send();
     }
@@ -365,20 +386,39 @@ class SeoSettingsKeywords extends Page implements HasForms
         return SeoAccessControl::canAccessManagerFeatures();
     }
 
-    private function refreshRegistry(MatchResearchRegistry $registry, ?int $siteId): void
-    {
+    private function refreshRegistry(
+        MatchResearchRegistry $registry,
+        IndustryGroupProvider $industryGroups,
+        ?int $siteId,
+    ): void {
         $this->registrySystem = array_map(
             static fn ($r) => $r->toArray(),
             $registry->list($siteId, MatchResearchOrigin::System, $this->industryContextKey),
         );
-        $this->registryIndustry = array_map(
-            static fn ($r) => $r->toArray(),
-            $registry->list($siteId, MatchResearchOrigin::Industry, $this->industryContextKey),
-        );
+        $industryResources = $registry->list($siteId, MatchResearchOrigin::Industry, $this->industryContextKey);
+        $this->registryIndustry = array_map(static fn ($r) => $r->toArray(), $industryResources);
         $this->registryCustom = array_map(
             static fn ($r) => $r->toArray(),
             $registry->list($siteId, MatchResearchOrigin::Custom, $this->industryContextKey),
         );
+
+        $byType = [];
+        foreach (IndustryGroupType::cases() as $type) {
+            $byType[$type->value] = [];
+        }
+        foreach ($industryGroups->list($siteId, $this->industryContextKey) as $group) {
+            $byType[$group->groupType->value][] = $group->toArray();
+        }
+        $this->industryGroupsByType = $byType;
+
+        $this->industryNonGroupResources = [];
+        foreach ($industryResources as $resource) {
+            $group = (string) ($resource->provenance['group'] ?? '');
+            if (IndustryGroupType::tryFromGroup($group) !== null) {
+                continue;
+            }
+            $this->industryNonGroupResources[] = $resource->toArray();
+        }
     }
 
     private function resetCustomForm(): void

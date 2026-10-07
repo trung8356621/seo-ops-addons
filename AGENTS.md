@@ -45,6 +45,7 @@ These skills are mandatory unless the user explicitly overrides them.
 | Social Profile / manual share | `social/` |
 | Seeding Topic V2 / Link Intelligence | `seeding/` |
 | **Site Link Policy** (consumer composition) | `search-foundation/` — see `docs/modules/SITE_LINK_POLICY.md` |
+| **Industry Group** (Match & Research read model) | `search-foundation/` — see `docs/modules/INDUSTRY_GROUP.md` |
 
 ## Website type (Manufacturer ≠ production)
 
