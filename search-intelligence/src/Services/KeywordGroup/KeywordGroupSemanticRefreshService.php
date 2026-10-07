@@ -273,6 +273,9 @@ final class KeywordGroupSemanticRefreshService
                     if (\Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::topicCandidateReady()) {
                         $payload['is_topic_candidate'] = true;
                     }
+                    if (\Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::topicCandidateOverrideReady()) {
+                        $payload['topic_candidate_override'] = null;
+                    }
                     SeoKeywordGroupKeyword::query()->create($payload);
                 }
             }

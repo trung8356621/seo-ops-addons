@@ -31,4 +31,12 @@ final class KeywordGroupSchema
         return $schema->hasTable('seo_keyword_group_keywords')
             && $schema->hasColumn('seo_keyword_group_keywords', 'is_topic_candidate');
     }
+
+    public static function topicCandidateOverrideReady(): bool
+    {
+        $schema = Schema::connection('omi_seo_ai');
+
+        return $schema->hasTable('seo_keyword_group_keywords')
+            && $schema->hasColumn('seo_keyword_group_keywords', 'topic_candidate_override');
+    }
 }

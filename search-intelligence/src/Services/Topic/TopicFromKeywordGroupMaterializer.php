@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupTopicCandidatePolicy;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 
 /**
@@ -31,6 +32,7 @@ final class TopicFromKeywordGroupMaterializer
         private readonly TopicReclusterService $recluster,
         private readonly TopicSeedResolver $seeds,
         private readonly TopicMembershipMatcher $matcher,
+        private readonly ?TopicLinkedArticleCounter $focusCounter = null,
         private readonly ?IndustryMatchRuntime $industryRules = null,
         private readonly ?GlobalMatchRuleProvider $globalRules = null,
     ) {}
@@ -160,16 +162,31 @@ final class TopicFromKeywordGroupMaterializer
 
         $keywordIds = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
         $phrases = Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id')->all();
+        $focusMap = KeywordGroupSchema::topicCandidateOverrideReady()
+            ? ($this->focusCounter ?? app(TopicLinkedArticleCounter::class))
+                ->focusArticleIdMapForKeywords($siteId, $keywordIds)
+            : [];
 
         /** @var array<int, array{keyword_id: int, phrase: string, is_topic_candidate: bool}> $members */
         $members = [];
         /** @var array<int, true> $candidateSet */
         $candidateSet = [];
+        $overrideReady = KeywordGroupSchema::topicCandidateOverrideReady();
         foreach ($memberships as $row) {
             $kid = (int) $row->keyword_id;
-            $isCandidate = KeywordGroupSchema::topicCandidateReady()
-                ? (bool) ($row->is_topic_candidate ?? true)
-                : true;
+            if ($overrideReady) {
+                $override = $row instanceof SeoKeywordGroupKeyword
+                    ? $row->topicCandidateOverride()
+                    : null;
+                $isCandidate = KeywordGroupTopicCandidatePolicy::effectiveCandidate(
+                    isset($focusMap[$kid]),
+                    $override,
+                );
+            } else {
+                $isCandidate = KeywordGroupSchema::topicCandidateReady()
+                    ? (bool) ($row->is_topic_candidate ?? true)
+                    : true;
+            }
             $phrase = (string) ($phrases[$kid] ?? '');
             $members[$kid] = [
                 'keyword_id' => $kid,
@@ -250,12 +267,11 @@ final class TopicFromKeywordGroupMaterializer
                     continue;
                 }
                 $seedKid = $this->primarySeedKeywordId($siteId, $topicId);
-                if ($seedKid !== null && ! isset($candidateSet[$seedKid])) {
-                    // Seed no longer a candidate — still reuse identity if group link exists,
-                    // but do not treat blocked keyword as a new anchor identity.
-                    $seedKid = null;
+                // Auto reusable identity requires an effective Topic candidate seed.
+                if ($seedKid === null || ! isset($candidateSet[$seedKid])) {
+                    continue;
                 }
-                if ($seedKid !== null && isset($claimedAnchorKeywords[$seedKid])) {
+                if (isset($claimedAnchorKeywords[$seedKid])) {
                     continue;
                 }
                 $anchors[] = [
@@ -266,9 +282,7 @@ final class TopicFromKeywordGroupMaterializer
                     'source' => TopicSource::AUTO,
                 ];
                 $claimedTopicIds[$topicId] = true;
-                if ($seedKid !== null) {
-                    $claimedAnchorKeywords[$seedKid] = true;
-                }
+                $claimedAnchorKeywords[$seedKid] = true;
             }
         }
 
@@ -491,12 +505,18 @@ final class TopicFromKeywordGroupMaterializer
         $conn = DB::connection('omi_seo_ai');
         $groups = (int) $conn->table('seo_keyword_groups')->where('site_id', $siteId)->count();
         $memberships = (int) $conn->table('seo_keyword_group_keywords')->where('site_id', $siteId)->count();
-        $blocked = KeywordGroupSchema::topicCandidateReady()
-            ? (int) $conn->table('seo_keyword_group_keywords')
+        $blocked = 0;
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            $blocked = (int) $conn->table('seo_keyword_group_keywords')
+                ->where('site_id', $siteId)
+                ->where('topic_candidate_override', false)
+                ->count();
+        } elseif (KeywordGroupSchema::topicCandidateReady()) {
+            $blocked = (int) $conn->table('seo_keyword_group_keywords')
                 ->where('site_id', $siteId)
                 ->where('is_topic_candidate', false)
-                ->count()
-            : 0;
+                ->count();
+        }
         $names = $conn->table('seo_keyword_groups')
             ->where('site_id', $siteId)
             ->orderBy('id')

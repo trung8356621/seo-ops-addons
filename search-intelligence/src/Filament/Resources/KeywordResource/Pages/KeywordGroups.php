@@ -225,6 +225,45 @@ final class KeywordGroups extends Page
         $this->afterGroupMutation(countsMayChange: true);
     }
 
+    /**
+     * @param  string  $mode  auto|allow|block  → override null|true|false
+     */
+    public function setTopicCandidateOverride(int $groupId, int $keywordId, string $mode): void
+    {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0 || $this->isRecheckBusy()) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if (! KeywordGroupSchema::topicCandidateReady()) {
+            return;
+        }
+
+        if (! in_array($mode, ['auto', 'allow', 'block'], true)) {
+            return;
+        }
+        $override = match ($mode) {
+            'allow' => true,
+            'block' => false,
+            default => null,
+        };
+
+        try {
+            app(KeywordGroupManualService::class)->setTopicCandidateOverride(
+                $siteId,
+                $groupId,
+                $keywordId,
+                $override,
+            );
+        } catch (InvalidArgumentException) {
+            return;
+        }
+
+        $this->loadGroupMembers($groupId, reset: true);
+        $this->afterGroupMutation(countsMayChange: false);
+    }
+
+    /** @deprecated Prefer setTopicCandidateOverride */
     public function toggleTopicCandidate(int $groupId, int $keywordId): void
     {
         if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0 || $this->isRecheckBusy()) {
@@ -240,24 +279,18 @@ final class KeywordGroups extends Page
             ->where('site_id', $siteId)
             ->where('group_id', $groupId)
             ->where('keyword_id', $keywordId)
-            ->first(['id', 'is_topic_candidate']);
+            ->first();
         if ($membership === null) {
             return;
         }
 
-        try {
-            app(KeywordGroupManualService::class)->setTopicCandidate(
-                $siteId,
-                $groupId,
-                $keywordId,
-                ! (bool) $membership->is_topic_candidate,
-            );
-        } catch (InvalidArgumentException) {
-            return;
-        }
+        $overrideReady = KeywordGroupSchema::topicCandidateOverrideReady();
+        $current = $overrideReady
+            ? $membership->topicCandidateOverride()
+            : ((bool) ($membership->is_topic_candidate ?? true) ? null : false);
+        $nextMode = $current === false ? 'auto' : 'block';
 
-        $this->loadGroupMembers($groupId, reset: true);
-        $this->afterGroupMutation(countsMayChange: false);
+        $this->setTopicCandidateOverride($groupId, $keywordId, $nextMode);
     }
 
     public function createGroup(): void

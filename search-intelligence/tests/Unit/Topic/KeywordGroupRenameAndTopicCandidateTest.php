@@ -40,6 +40,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         $this->ensureTables();
         (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_180000_create_seo_keyword_groups.php')->up();
         (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_190000_add_is_topic_candidate_to_seo_keyword_group_keywords.php')->up();
+        (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_200000_add_topic_candidate_override_to_seo_keyword_group_keywords.php')->up();
     }
 
     public function test_rename_enrichment_appends_only_accepted_unassigned_matches(): void
@@ -303,12 +304,15 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             'keyword_id' => 77,
             'source' => KeywordGroupSource::MANUAL,
             'is_topic_candidate' => false,
+            'topic_candidate_override' => false,
         ]);
 
         $chunk = app(KeywordGroupReadModel::class)->groupMembers(self::SITE, (int) $group->id, 50, 0);
         self::assertCount(1, $chunk['members']);
         self::assertArrayHasKey('is_topic_candidate', $chunk['members'][0]);
         self::assertFalse($chunk['members'][0]['is_topic_candidate']);
+        self::assertFalse($chunk['members'][0]['topic_candidate_override']);
+        self::assertFalse($chunk['members'][0]['effective_topic_candidate']);
     }
 
     public function test_topic_candidate_flag_toggles_without_leaving_group_or_changing_count(): void
@@ -325,17 +329,21 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             'keyword_id' => 77,
             'source' => KeywordGroupSource::MANUAL,
             'is_topic_candidate' => true,
+            'topic_candidate_override' => null,
         ]);
 
         $manual = app(KeywordGroupManualService::class);
         $manual->setTopicCandidate(self::SITE, (int) $group->id, 77, false);
         $row = SeoKeywordGroupKeyword::query()->where('keyword_id', 77)->first();
         self::assertFalse((bool) $row?->is_topic_candidate);
+        self::assertFalse($row?->topicCandidateOverride());
         self::assertSame((int) $group->id, (int) $row?->group_id);
         self::assertSame(1, SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count());
 
         $manual->setTopicCandidate(self::SITE, (int) $group->id, 77, true);
-        self::assertTrue((bool) SeoKeywordGroupKeyword::query()->where('keyword_id', 77)->value('is_topic_candidate'));
+        $restored = SeoKeywordGroupKeyword::query()->where('keyword_id', 77)->first();
+        self::assertTrue((bool) $restored?->is_topic_candidate);
+        self::assertNull($restored?->topicCandidateOverride());
         self::assertSame(1, SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count());
     }
 
@@ -353,6 +361,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             'keyword_id' => 88,
             'source' => KeywordGroupSource::MANUAL,
             'is_topic_candidate' => false,
+            'topic_candidate_override' => false,
         ]);
 
         app(KeywordGroupManualService::class)->assignKeyword(self::SITE, 88, null);
@@ -374,6 +383,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             'keyword_id' => 10,
             'source' => KeywordGroupSource::MANUAL,
             'is_topic_candidate' => false,
+            'topic_candidate_override' => false,
         ]);
 
         Http::fake([
@@ -409,16 +419,20 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             ['keyword_id' => 20, 'phrase' => 'new semantic'],
         ]);
 
-        self::assertFalse((bool) SeoKeywordGroupKeyword::query()
+        $kept = SeoKeywordGroupKeyword::query()
             ->where('group_id', $manual->id)
             ->where('keyword_id', 10)
-            ->value('is_topic_candidate'));
+            ->first();
+        self::assertFalse((bool) $kept?->is_topic_candidate);
+        self::assertFalse($kept?->topicCandidateOverride());
         $new = SeoKeywordGroup::query()->where('semantic_group_ref', 'g-new')->first();
         self::assertNotNull($new);
-        self::assertTrue((bool) SeoKeywordGroupKeyword::query()
+        $fresh = SeoKeywordGroupKeyword::query()
             ->where('group_id', $new->id)
             ->where('keyword_id', 20)
-            ->value('is_topic_candidate'));
+            ->first();
+        self::assertTrue((bool) $fresh?->is_topic_candidate);
+        self::assertNull($fresh?->topicCandidateOverride());
     }
 
     public function test_recheck_uses_current_name_and_same_enrichment_path(): void
@@ -662,6 +676,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('enrichGroupFromSemantic', $page);
         self::assertStringContainsString('recheckGroup', $page);
         self::assertStringContainsString('deleteGroup', $page);
+        self::assertStringContainsString('setTopicCandidateOverride', $page);
         self::assertStringContainsString('toggleTopicCandidate', $page);
         self::assertStringContainsString('keyword_group_rename_semantic_failed', $page);
         self::assertStringContainsString('keyword_group_recheck_failed', $page);
@@ -677,10 +692,13 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
 
         $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-groups.blade.php');
         self::assertStringContainsString('@dblclick', $blade);
-        self::assertStringContainsString('toggleTopicCandidate', $blade);
+        self::assertStringContainsString('setTopicCandidateOverride', $blade);
         self::assertStringContainsString('keyword-group-member-chip--topic-blocked', $blade);
-        self::assertStringContainsString('aria-pressed', $blade);
+        self::assertStringContainsString('keyword-group-member-chip--no-focus', $blade);
+        self::assertStringContainsString('keyword-group-member-chip--force-allow', $blade);
+        self::assertStringContainsString('+Topic', $blade);
         self::assertStringContainsString('data-topic-candidate', $blade);
+        self::assertStringContainsString('data-has-focus', $blade);
         self::assertStringContainsString('keyword_group_rename_hint', $blade);
         self::assertStringContainsString('keyword_group_rename_saving', $blade);
         self::assertStringContainsString('keyword_group_recheck', $blade);

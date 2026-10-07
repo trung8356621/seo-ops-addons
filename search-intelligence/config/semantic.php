@@ -27,4 +27,13 @@ return [
         'TOPIC_GROUPING_PROVIDER',
         (string) env('SEMANTIC_TOPIC_PROVIDER', 'legacy'),
     ),
+
+    /**
+     * Entity batch size for POST /v1/concept-matches/analyses.
+     * Concepts are reused across batches; entities are chunked.
+     */
+    'concept_match_entity_batch_size' => max(
+        1,
+        (int) env('SEMANTIC_CONCEPT_MATCH_ENTITY_BATCH_SIZE', 100),
+    ),
 ];

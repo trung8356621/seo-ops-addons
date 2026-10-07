@@ -1,6 +1,7 @@
 # Industry Group
 
-> Owner: `search-foundation` (read model) · Authoring source: Industry Context → Match & Research revision  
+> Owner: `search-foundation` (read model) · Runtime bridge: `search-intelligence`  
+> Authoring source: Industry Context → Match & Research revision  
 > Stable project term: **Industry Group**
 
 ## Definition
@@ -25,14 +26,47 @@ Industry Match revision (authoring)
     ↓
 MatchResearchResource (registry)
     ↓
-Industry Group (read-only projection)
+Industry Group (read-only projection / IndustryGroupProvider)
     ↓
-future seo-ops-semantic Concept Matching
+IndustryGroupSemanticDefinition
     ↓
-keyword ↔ Industry Group evidence
+ConceptMatchingClient → POST /v1/concept-matches/analyses
     ↓
-Keyword Grouping → Topic
+typed Industry Group match evidence
+    ↓
+(deferred) keyword ↔ Industry Group membership → Keyword Grouping → Topic
 ```
+
+## Runtime path (V1 bridge)
+
+```text
+IndustryGroupProvider
+    ↓
+IndustryGroupSemanticMatcher
+    ↓
+ConceptMatchingClient (wraps SemanticAnalyticsClient)
+    ↓
+seo-ops-semantic Concept Matching
+    ↓
+IndustryGroupMatchEvidence
+```
+
+### V1 matching policy
+
+| Setting | Value |
+|---|---|
+| `matching_strategy` | `hybrid` |
+| `semantic_fallback` | `false` |
+
+**Reason:** short Industry Group anchors (e.g. `balo`) cannot rely on cosine similarity alone — unrelated strings can score similarly. Deterministic lexical evidence is authoritative when explicit terms exist. Semantic cosine scores are retained as calibration evidence only and do **not** create membership by themselves in V1.
+
+No baked production `min_positive_score` (0.55 / 0.70 / 0.80).
+
+### Deferred
+
+- No keyword ↔ Industry Group membership persistence
+- No Keyword Grouping integration
+- No Topic clustering integration
 
 ## V1 qualifying group types
 
@@ -68,6 +102,8 @@ Industry Groups are projections of:
 
 When the active Match revision changes, Industry Groups change with it. No sync job.
 
+Stale / disabled groups are skipped by the runtime matcher (`stale_groups_skipped` / disabled diagnostics). Empty active set → no Python call.
+
 ## Locale
 
 Identity is language-neutral (`industry.{group}.{normalized}.{suffix}`).
@@ -77,20 +113,29 @@ Identity is language-neutral (`industry.{group}.{normalized}.{suffix}`).
 - Missing overlay → source-locale fallback with explicit `localized=false` / `effective_locale=source_locale`.
 - No auto-translation / LLM.
 
-## Semantic input (future)
+## Semantic input
 
 `IndustryGroupSemanticDefinition` prepares transport examples:
 
-`name` + `aliases` + `positive_examples` (deduped)
+`name` + `aliases` + `positive_examples` (deduped) + `match_mode`
 
-Laravel does **not** run similarity, fuzzy, token-overlap, or LIKE matching. Semantic meaning belongs to `seo-ops-semantic`.
+Laravel does **not** run similarity, fuzzy, token-overlap, or LIKE matching. Matching authority is `seo-ops-semantic`.
+
+Diagnostic CLI (no DB writes):
+
+```bash
+php artisan semantic:industry-groups:match --industry=bags --site=4 --locale=vi \
+  --text="balo học sinh cấp 1" --text="Zalo 0909983833"
+```
 
 ## Code
 
 | Piece | Location |
 |---|---|
-| Types | `Enums/IndustryGroupType` |
+| Types | `search-foundation` `Enums/IndustryGroupType` |
 | DTO | `DTO/IndustryGroup/IndustryGroup` |
 | Semantic DTO | `DTO/IndustryGroup/IndustryGroupSemanticDefinition` |
 | Provider | `Contracts/IndustryGroup/IndustryGroupProvider` |
 | Read model | `Services/IndustryGroup/IndustryGroupReadModel` |
+| Concept Matching client | `search-intelligence` `Services/Semantic/ConceptMatching/*` |
+| Matcher | `Services/IndustryGroup/IndustryGroupSemanticMatcher` |

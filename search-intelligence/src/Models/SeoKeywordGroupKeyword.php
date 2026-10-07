@@ -24,6 +24,7 @@ final class SeoKeywordGroupKeyword extends Model
         'source',
         'similarity_score',
         'is_topic_candidate',
+        'topic_candidate_override',
     ];
 
     protected $casts = [
@@ -32,7 +33,21 @@ final class SeoKeywordGroupKeyword extends Model
         'keyword_id' => 'integer',
         'similarity_score' => 'float',
         'is_topic_candidate' => 'boolean',
+        // topic_candidate_override stays uncast — nullable bool (null ≠ false).
     ];
+
+    public function topicCandidateOverride(): ?bool
+    {
+        if (! array_key_exists('topic_candidate_override', $this->attributes)) {
+            return null;
+        }
+        $raw = $this->attributes['topic_candidate_override'];
+        if ($raw === null) {
+            return null;
+        }
+
+        return (bool) $raw;
+    }
 
     public function group(): BelongsTo
     {

@@ -104,7 +104,7 @@ trait ReclustersSiteTopics
     /**
      * Cheap snapshot embedded at page render — do not query on modal open.
      *
-     * @return array{group_count: int, topic_candidate_count: int, topic_blocked_count: int}
+     * @return array{group_count: int, topic_candidate_count: int, topic_no_focus_count: int, topic_blocked_count: int}
      */
     public function topicFromGroupSnapshot(): array
     {

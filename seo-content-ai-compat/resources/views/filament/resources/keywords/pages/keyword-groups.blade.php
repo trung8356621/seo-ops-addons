@@ -363,42 +363,86 @@
                     <div
                         class="keyword-group-member-chips"
                         wire:loading.class="opacity-50"
-                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup({{ $groupId }}), removeKeywordFromGroup, toggleTopicCandidate, renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
+                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup({{ $groupId }}), removeKeywordFromGroup, setTopicCandidateOverride, toggleTopicCandidate, renameGroup({{ $groupId }}), recheckGroup, deleteGroup"
                     >
                         @forelse ($members as $member)
                             @php
-                                $topicCandidate = array_key_exists('is_topic_candidate', $member)
-                                    ? (bool) $member['is_topic_candidate']
-                                    : true;
                                 $memberKey = (int) ($member['keyword_id'] ?? 0);
+                                $hasFocus = (bool) ($member['has_focus_article'] ?? false);
+                                $override = array_key_exists('topic_candidate_override', $member)
+                                    ? $member['topic_candidate_override']
+                                    : null;
+                                $effective = array_key_exists('effective_topic_candidate', $member)
+                                    ? (bool) $member['effective_topic_candidate']
+                                    : (bool) ($member['is_topic_candidate'] ?? true);
+                                $chipState = $override === false
+                                    ? 'blocked'
+                                    : ($override === true
+                                        ? 'force-allow'
+                                        : ($hasFocus ? 'auto-eligible' : 'no-focus'));
+                                $chipTitle = match ($chipState) {
+                                    'blocked' => __('seo-content-ai::filament.keyword.keyword_group_topic_status_blocked'),
+                                    'force-allow' => __('seo-content-ai::filament.keyword.keyword_group_topic_status_force_allow'),
+                                    'auto-eligible' => __('seo-content-ai::filament.keyword.keyword_group_topic_status_auto_eligible'),
+                                    default => __('seo-content-ai::filament.keyword.keyword_group_topic_status_no_focus'),
+                                };
                             @endphp
                             <span
                                 wire:key="keyword-group-member-{{ $groupId }}-{{ $memberKey }}"
                                 @class([
                                     'keyword-group-member-chip',
-                                    'keyword-group-member-chip--topic-blocked' => ! $topicCandidate,
+                                    'keyword-group-member-chip--topic-blocked' => $chipState === 'blocked',
+                                    'keyword-group-member-chip--no-focus' => $chipState === 'no-focus',
+                                    'keyword-group-member-chip--force-allow' => $chipState === 'force-allow',
                                 ])
-                                data-topic-candidate="{{ $topicCandidate ? '1' : '0' }}"
+                                data-topic-candidate="{{ $effective ? '1' : '0' }}"
+                                data-topic-override="{{ $override === null ? 'auto' : ($override ? 'allow' : 'block') }}"
+                                data-has-focus="{{ $hasFocus ? '1' : '0' }}"
+                                title="{{ $chipTitle }}"
                             >
-                                @if (! $topicCandidate)
-                                    <span class="keyword-group-member-chip__blocked-mark" aria-hidden="true">⊘</span>
-                                @endif
                                 <span class="keyword-group-member-chip__label">{{ $member['phrase'] }}</span>
                                 @if ($canMutate)
-                                    <button
-                                        type="button"
-                                        class="keyword-group-member-chip__topic"
-                                        wire:click="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }})"
-                                        wire:loading.attr="disabled"
-                                        wire:target="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }}), recheckGroup"
-                                        title="{{ $topicCandidate
-                                            ? __('seo-content-ai::filament.keyword.keyword_group_topic_block')
-                                            : __('seo-content-ai::filament.keyword.keyword_group_topic_allow') }}"
-                                        aria-label="{{ $topicCandidate
-                                            ? __('seo-content-ai::filament.keyword.keyword_group_topic_block')
-                                            : __('seo-content-ai::filament.keyword.keyword_group_topic_allow') }}"
-                                        aria-pressed="{{ $topicCandidate ? 'false' : 'true' }}"
-                                    >⊘</button>
+                                    @if ($chipState === 'auto-eligible')
+                                        <button
+                                            type="button"
+                                            class="keyword-group-member-chip__topic"
+                                            wire:click="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'block')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'block'), recheckGroup"
+                                            title="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_block') }}"
+                                            aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_block') }}"
+                                        >⊘</button>
+                                    @elseif ($chipState === 'no-focus')
+                                        <button
+                                            type="button"
+                                            class="keyword-group-member-chip__topic keyword-group-member-chip__topic--force"
+                                            wire:click="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'allow')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'allow'), recheckGroup"
+                                            title="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_force_allow') }}"
+                                            aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_force_allow') }}"
+                                        >+Topic</button>
+                                    @elseif ($chipState === 'force-allow')
+                                        <button
+                                            type="button"
+                                            class="keyword-group-member-chip__topic keyword-group-member-chip__topic--force-on"
+                                            wire:click="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'auto')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'auto'), recheckGroup"
+                                            title="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_clear_force') }}"
+                                            aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_clear_force') }}"
+                                        >✓Topic</button>
+                                    @else
+                                        <button
+                                            type="button"
+                                            class="keyword-group-member-chip__topic"
+                                            wire:click="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'auto')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="setTopicCandidateOverride({{ $groupId }}, {{ $memberKey }}, 'auto'), recheckGroup"
+                                            title="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_restore_auto') }}"
+                                            aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_topic_restore_auto') }}"
+                                        >↺</button>
+                                    @endif
                                     <button
                                         type="button"
                                         class="keyword-group-member-chip__remove"

@@ -17,8 +17,11 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Omnichannel\Addons\SearchIntelligence\Console\PreviewTopicSeedEvidenceCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\AnalyzeSiteTopicGroupingCommand;
+use Omnichannel\Addons\SearchIntelligence\Console\IndustryGroupConceptMatchCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\SemanticDoctorCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\SemanticMonitorCommand;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\ConceptMatching\ConceptMatchingClient;
 use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticServiceHealthMonitor;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticServiceHealthProbe;
@@ -62,6 +65,8 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 healthReporter: $app->make(SemanticServiceHealthReporter::class),
             );
         });
+        $this->app->singleton(ConceptMatchingClient::class);
+        $this->app->singleton(IndustryGroupSemanticMatcher::class);
 
         // Centralized provider selection — default remains legacy (safe).
         $this->app->singleton(TopicGroupingProvider::class, function ($app) {
@@ -93,6 +98,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 PreviewTopicSeedEvidenceCommand::class,
                 SemanticDoctorCommand::class,
                 SemanticMonitorCommand::class,
+                IndustryGroupConceptMatchCommand::class,
                 AnalyzeSiteTopicGroupingCommand::class,
             ]);
         }

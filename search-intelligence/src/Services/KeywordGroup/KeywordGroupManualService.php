@@ -166,9 +166,7 @@ final class KeywordGroupManualService
                 'source' => KeywordGroupSource::MANUAL,
                 'similarity_score' => null,
             ];
-            if (KeywordGroupSchema::topicCandidateReady()) {
-                $payload['is_topic_candidate'] = true;
-            }
+            $this->applyDefaultTopicCandidateFields($payload);
             SeoKeywordGroupKeyword::query()->create($payload);
             $this->promoteToManual($target);
             if ((int) ($target->representative_keyword_id ?? 0) <= 0) {
@@ -229,9 +227,7 @@ final class KeywordGroupManualService
                     'source' => KeywordGroupSource::MANUAL,
                     'similarity_score' => null,
                 ];
-                if (KeywordGroupSchema::topicCandidateReady()) {
-                    $payload['is_topic_candidate'] = true;
-                }
+                $this->applyDefaultTopicCandidateFields($payload);
                 SeoKeywordGroupKeyword::query()->create($payload);
                 $appended[] = $keywordId;
             }
@@ -248,7 +244,18 @@ final class KeywordGroupManualService
         });
     }
 
+    /**
+     * @deprecated Prefer setTopicCandidateOverride. enabled=false → FORCE_BLOCK; true → AUTO (null).
+     */
     public function setTopicCandidate(int $siteId, int $groupId, int $keywordId, bool $enabled): void
+    {
+        $this->setTopicCandidateOverride($siteId, $groupId, $keywordId, $enabled ? null : false);
+    }
+
+    /**
+     * @param  bool|null  $override  null=AUTO, true=FORCE_ALLOW, false=FORCE_BLOCK
+     */
+    public function setTopicCandidateOverride(int $siteId, int $groupId, int $keywordId, ?bool $override): void
     {
         $this->assertReady($siteId);
         if ($groupId <= 0 || $keywordId <= 0 || ! KeywordGroupSchema::topicCandidateReady()) {
@@ -265,8 +272,24 @@ final class KeywordGroupManualService
             throw new InvalidArgumentException('keyword_group_membership_not_found');
         }
 
-        $membership->is_topic_candidate = $enabled;
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            $membership->topic_candidate_override = $override;
+        }
+        $membership->is_topic_candidate = KeywordGroupTopicCandidatePolicy::legacyIsTopicCandidate($override);
         $membership->save();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyDefaultTopicCandidateFields(array &$payload): void
+    {
+        if (KeywordGroupSchema::topicCandidateReady()) {
+            $payload['is_topic_candidate'] = true;
+        }
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            $payload['topic_candidate_override'] = null;
+        }
     }
 
     private function assertReady(int $siteId): void

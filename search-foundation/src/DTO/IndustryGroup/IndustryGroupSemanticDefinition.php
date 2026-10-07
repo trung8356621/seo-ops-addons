@@ -21,6 +21,7 @@ final class IndustryGroupSemanticDefinition
         public readonly array $negativeExamples = [],
         public readonly ?string $groupType = null,
         public readonly ?string $locale = null,
+        public readonly ?string $matchMode = null,
     ) {}
 
     /** @return array<string, mixed> */
@@ -33,6 +34,7 @@ final class IndustryGroupSemanticDefinition
             'negative_examples' => $this->negativeExamples,
             'group_type' => $this->groupType,
             'locale' => $this->locale,
+            'match_mode' => $this->matchMode,
         ];
     }
 }

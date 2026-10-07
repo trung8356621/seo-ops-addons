@@ -30,6 +30,11 @@ final class TopicGroupingReclusterModalTest extends TestCase
         self::assertStringContainsString('topic_rebuild_full_reset_label', $blade);
         self::assertStringContainsString('fullReset', $blade);
         self::assertStringContainsString('$wire.startTopicRebuildFromGroups(fullReset)', $blade);
+        self::assertStringNotContainsString(
+            'startTopicRebuildFromGroups(fullReset); rebuildModalOpen = false',
+            $blade,
+        );
+        self::assertStringContainsString('submitting', $blade);
         self::assertStringContainsString('topic_recluster_action', $blade);
         self::assertStringNotContainsString('nhóm lại toàn bộ keyword', $blade);
         self::assertStringNotContainsString('wire:click="startTopicAnalysis"', $blade);

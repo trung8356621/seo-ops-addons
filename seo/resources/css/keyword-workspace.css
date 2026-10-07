@@ -3643,10 +3643,49 @@ body.keyword-drawer-open {
     background: rgb(120 53 15);
 }
 
-.keyword-group-member-chip__blocked-mark {
-    font-size: 0.85rem;
-    line-height: 1;
-    opacity: 0.9;
+.keyword-group-member-chip.keyword-group-member-chip--no-focus {
+    border-color: rgb(148 163 184);
+    background: rgb(241 245 249);
+    color: rgb(71 85 105);
+    font-weight: 500;
+}
+
+.keyword-group-member-chip.keyword-group-member-chip--no-focus:hover {
+    background: rgb(226 232 240);
+    border-color: rgb(100 116 139);
+}
+
+.dark .keyword-group-member-chip.keyword-group-member-chip--no-focus {
+    border-color: rgb(100 116 139);
+    background: rgb(51 65 85);
+    color: rgb(203 213 225);
+}
+
+.dark .keyword-group-member-chip.keyword-group-member-chip--no-focus:hover {
+    background: rgb(71 85 105);
+    border-color: rgb(148 163 184);
+}
+
+.keyword-group-member-chip.keyword-group-member-chip--force-allow {
+    border-color: rgb(167 139 250);
+    background: rgb(245 243 255);
+    color: rgb(91 33 182);
+}
+
+.keyword-group-member-chip.keyword-group-member-chip--force-allow:hover {
+    background: rgb(237 233 254);
+    border-color: rgb(139 92 246);
+}
+
+.dark .keyword-group-member-chip.keyword-group-member-chip--force-allow {
+    border-color: rgb(167 139 250);
+    background: rgb(76 29 149);
+    color: rgb(237 233 254);
+}
+
+.dark .keyword-group-member-chip.keyword-group-member-chip--force-allow:hover {
+    background: rgb(91 33 182);
+    border-color: rgb(196 181 253);
 }
 
 .keyword-group-member-chip__topic,
@@ -3655,12 +3694,15 @@ body.keyword-drawer-open {
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    width: 1.35rem;
+    min-width: 1.35rem;
     height: 1.35rem;
+    padding: 0 0.25rem;
     margin-left: 0.1rem;
     border-radius: 9999px;
-    font-size: 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
     line-height: 1;
+    white-space: nowrap;
 }
 
 .keyword-group-member-chip__topic {
@@ -3670,6 +3712,24 @@ body.keyword-drawer-open {
 .keyword-group-member-chip__topic:hover {
     color: rgb(154 52 18);
     background: rgb(254 243 199);
+}
+
+.keyword-group-member-chip__topic--force {
+    color: rgb(71 85 105);
+}
+
+.keyword-group-member-chip__topic--force:hover {
+    color: rgb(91 33 182);
+    background: rgb(237 233 254);
+}
+
+.keyword-group-member-chip__topic--force-on {
+    color: rgb(91 33 182);
+}
+
+.keyword-group-member-chip__topic--force-on:hover {
+    color: rgb(76 29 149);
+    background: rgb(237 233 254);
 }
 
 .keyword-group-member-chip__remove {

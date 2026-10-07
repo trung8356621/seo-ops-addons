@@ -53,6 +53,7 @@ final class IndustryGroup
             negativeExamples: self::dedupeExamples($this->negativeExamples),
             groupType: $this->groupType->value,
             locale: $this->effectiveLocale,
+            matchMode: $this->matchMode,
         );
     }
 

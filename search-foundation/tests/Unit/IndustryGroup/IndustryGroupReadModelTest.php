@@ -158,6 +158,7 @@ final class IndustryGroupReadModelTest extends TestCase
         self::assertSame('balo', $def->name);
         self::assertSame(['balo', 'ba lô', 'backpack', 'xưởng may'], $def->positiveExamples);
         self::assertSame([], $def->negativeExamples);
+        self::assertSame('phrase', $def->matchMode);
 
         $defs = (new IndustryGroupReadModel($this->registry([$product])))->semanticDefinitions();
         self::assertCount(1, $defs);

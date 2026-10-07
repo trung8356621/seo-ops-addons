@@ -31,6 +31,7 @@
     $topicGroupSnapshot = $this->topicFromGroupSnapshot();
     $topicGroupCount = (int) ($topicGroupSnapshot['group_count'] ?? 0);
     $topicCandidateCount = (int) ($topicGroupSnapshot['topic_candidate_count'] ?? 0);
+    $topicNoFocusCount = (int) ($topicGroupSnapshot['topic_no_focus_count'] ?? 0);
     $topicBlockedCount = (int) ($topicGroupSnapshot['topic_blocked_count'] ?? 0);
     $showProgressModal = $showReclusterModal && $reclusterModalStep !== 'configure';
 
@@ -64,8 +65,8 @@
     <div
         class="keyword-workspace-shell max-w-full space-y-4"
         {!! $reclusterPollAttr !!}
-        x-data="{ rebuildModalOpen: false, fullReset: false }"
-        x-on:keydown.escape.window="if (rebuildModalOpen && !@js($reclusterActive)) rebuildModalOpen = false"
+        x-data="{ rebuildModalOpen: false, fullReset: false, submitting: false }"
+        x-on:keydown.escape.window="if (rebuildModalOpen && !submitting && !@js($reclusterActive) && !@js($showProgressModal)) { rebuildModalOpen = false; fullReset = false }"
     >
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
@@ -598,9 +599,9 @@
             </div>
         @endif
 
-        {{-- Configure: Alpine-only (no Livewire round-trip). Snapshot from page render. --}}
+        {{-- Configure: Alpine-only until Livewire queues job; stay open while submitting. --}}
         <div
-            x-show="rebuildModalOpen && !@js($reclusterActive) && !@js($showProgressModal)"
+            x-show="(rebuildModalOpen || submitting) && !@js($showProgressModal)"
             x-cloak
             class="topic-ai-audit-modal"
             role="dialog"
@@ -608,7 +609,10 @@
             aria-labelledby="topic-rebuild-modal-title"
             style="display: none;"
         >
-            <div class="topic-ai-audit-modal__backdrop" x-on:click="rebuildModalOpen = false; fullReset = false"></div>
+            <div
+                class="topic-ai-audit-modal__backdrop"
+                x-on:click="if (!submitting) { rebuildModalOpen = false; fullReset = false }"
+            ></div>
             <div class="topic-ai-audit-modal__panel" style="max-width:36rem;max-height:85vh;overflow:auto;">
                 <h3 id="topic-rebuild-modal-title" class="topic-ai-audit-modal__title">
                     {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
@@ -619,13 +623,17 @@
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ __('seo-content-ai::filament.keyword.topic_rebuild_summary_groups', ['count' => number_format($topicGroupCount)]) }}
                     · {{ __('seo-content-ai::filament.keyword.topic_rebuild_summary_candidates', ['count' => number_format($topicCandidateCount)]) }}
+                    · {{ __('seo-content-ai::filament.keyword.topic_rebuild_summary_no_focus', ['count' => number_format($topicNoFocusCount)]) }}
                     · {{ __('seo-content-ai::filament.keyword.topic_rebuild_summary_blocked', ['count' => number_format($topicBlockedCount)]) }}
                 </p>
                 <label class="mt-3 flex items-start gap-2 text-sm text-rose-800 dark:text-rose-200">
-                    <input type="checkbox" class="mt-1" x-model="fullReset">
+                    <input type="checkbox" class="mt-1" x-model="fullReset" x-bind:disabled="submitting">
                     <span class="font-medium">{{ __('seo-content-ai::filament.keyword.topic_rebuild_full_reset_label') }}</span>
                 </label>
-                <ul class="mt-3 space-y-0.5 text-xs text-gray-600 dark:text-gray-300">
+                <p class="mt-2 text-xs font-medium text-rose-700 dark:text-rose-200" x-show="fullReset" x-cloak>
+                    {{ __('seo-content-ai::filament.keyword.topic_rebuild_mode_full_reset') }}
+                </p>
+                <ul class="mt-3 space-y-0.5 text-xs text-gray-600 dark:text-gray-300" x-show="!submitting">
                     <li>· {{ __('seo-content-ai::filament.keyword.topic_rebuild_bullet_from_groups') }}</li>
                     <li>· {{ __('seo-content-ai::filament.keyword.topic_rebuild_bullet_no_regroup') }}</li>
                     <li>· {{ __('seo-content-ai::filament.keyword.topic_rebuild_bullet_blocked') }}</li>
@@ -634,8 +642,18 @@
                     <li>· {{ __('seo-content-ai::filament.keyword.topic_rebuild_bullet_focus') }}</li>
                     <li>· {{ __('seo-content-ai::filament.keyword.topic_rebuild_bullet_groups') }}</li>
                 </ul>
+                <p class="mt-3 text-sm font-medium inline-flex items-center gap-2" x-show="submitting" x-cloak>
+                    <x-filament::loading-indicator class="h-4 w-4" />
+                    {{ __('seo-content-ai::filament.keyword.topic_rebuild_starting') }}
+                </p>
                 <div class="topic-ai-audit-modal__actions mt-4">
-                    <x-filament::button type="button" size="sm" color="gray" x-on:click="rebuildModalOpen = false; fullReset = false">
+                    <x-filament::button
+                        type="button"
+                        size="sm"
+                        color="gray"
+                        x-bind:disabled="submitting"
+                        x-on:click="if (!submitting) { rebuildModalOpen = false; fullReset = false }"
+                    >
                         {{ __('seo-content-ai::filament.keyword.topic_recluster_cancel') }}
                     </x-filament::button>
                     <x-filament::button
@@ -643,16 +661,28 @@
                         size="sm"
                         color="warning"
                         x-bind:class="fullReset ? 'fi-color-danger' : ''"
+                        x-bind:disabled="submitting"
                         wire:loading.attr="disabled"
                         wire:target="startTopicRebuildFromGroups"
-                        x-on:click="$wire.startTopicRebuildFromGroups(fullReset); rebuildModalOpen = false"
+                        x-on:click="
+                            if (submitting) return;
+                            submitting = true;
+                            $wire.startTopicRebuildFromGroups(fullReset)
+                                .then(() => {
+                                    submitting = false;
+                                    if ($wire.showReclusterModal) {
+                                        rebuildModalOpen = false;
+                                    }
+                                })
+                                .catch(() => { submitting = false; })
+                        "
                     >
-                        <span wire:loading.remove wire:target="startTopicRebuildFromGroups" class="inline-flex items-center gap-2">
+                        <span x-show="!submitting" class="inline-flex items-center gap-2">
                             {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                         </span>
-                        <span wire:loading wire:target="startTopicRebuildFromGroups" class="inline-flex items-center gap-2">
+                        <span x-show="submitting" class="inline-flex items-center gap-2" x-cloak>
                             <x-filament::loading-indicator class="h-4 w-4" />
-                            {{ __('seo-content-ai::filament.keyword.topic_recluster_action_running') }}
+                            {{ __('seo-content-ai::filament.keyword.topic_rebuild_starting') }}
                         </span>
                     </x-filament::button>
                 </div>

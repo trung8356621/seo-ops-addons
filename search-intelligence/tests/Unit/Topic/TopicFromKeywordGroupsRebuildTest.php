@@ -43,6 +43,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
         $this->ensureTables();
         (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_180000_create_seo_keyword_groups.php')->up();
         (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_190000_add_is_topic_candidate_to_seo_keyword_group_keywords.php')->up();
+        (require dirname(__DIR__, 3).'/database/migrations/2026_10_07_200000_add_topic_candidate_override_to_seo_keyword_group_keywords.php')->up();
     }
 
     public function test_ui_contract_alpine_open_and_new_job_dispatch(): void
@@ -66,6 +67,11 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
         self::assertGreaterThanOrEqual(2, substr_count($blade, 'x-on:click="rebuildModalOpen = true; fullReset = false"'));
         self::assertStringNotContainsString('wire:click="startTopicAnalysis"', $blade);
         self::assertStringContainsString('$wire.startTopicRebuildFromGroups(fullReset)', $blade);
+        self::assertStringNotContainsString(
+            'startTopicRebuildFromGroups(fullReset); rebuildModalOpen = false',
+            $blade,
+        );
+        self::assertStringContainsString('submitting', $blade);
         self::assertStringNotContainsString('nhóm lại toàn bộ keyword', $blade);
         self::assertStringContainsString('topic_rebuild_bullet_no_regroup', $blade);
         self::assertStringContainsString('topicFromGroupSnapshot', $concern);
@@ -106,7 +112,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
         self::assertStringNotContainsString('/v1/topic/analyses', $src);
         self::assertStringNotContainsString('/v1/keyword-groups/analyses', $src);
         self::assertStringContainsString('persistResolvedClusters', $src);
-        self::assertStringContainsString('is_topic_candidate', $src);
+        self::assertStringContainsString('KeywordGroupTopicCandidatePolicy', $src);
         self::assertStringContainsString('keyword_group_id', $src);
     }
 
@@ -128,6 +134,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             'keyword_id' => $a,
             'source' => KeywordGroupSource::SEMANTIC,
             'is_topic_candidate' => true,
+            'topic_candidate_override' => true,
         ]);
         SeoKeywordGroupKeyword::query()->create([
             'site_id' => self::SITE,
@@ -135,6 +142,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             'keyword_id' => $b,
             'source' => KeywordGroupSource::SEMANTIC,
             'is_topic_candidate' => true,
+            'topic_candidate_override' => true,
         ]);
         SeoKeywordGroupKeyword::query()->create([
             'site_id' => self::SITE,
@@ -142,11 +150,13 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             'keyword_id' => $c,
             'source' => KeywordGroupSource::SEMANTIC,
             'is_topic_candidate' => false,
+            'topic_candidate_override' => false,
         ]);
 
         $snap = TopicFromGroupSnapshot::forSite(self::SITE);
         self::assertSame(1, $snap['group_count']);
         self::assertSame(2, $snap['topic_candidate_count']);
+        self::assertSame(0, $snap['topic_no_focus_count']);
         self::assertSame(1, $snap['topic_blocked_count']);
     }
 
@@ -186,6 +196,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
                 'keyword_id' => $kid,
                 'source' => KeywordGroupSource::SEMANTIC,
                 'is_topic_candidate' => $cand,
+                'topic_candidate_override' => $cand ? true : false,
             ]);
         }
 
@@ -194,7 +205,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             'memberships' => SeoKeywordGroupKeyword::query()->where('site_id', self::SITE)->count(),
             'blocked' => SeoKeywordGroupKeyword::query()
                 ->where('site_id', self::SITE)
-                ->where('is_topic_candidate', false)
+                ->where('topic_candidate_override', false)
                 ->count(),
         ];
 
@@ -228,11 +239,11 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
         self::assertSame($groupBefore['memberships'], SeoKeywordGroupKeyword::query()->where('site_id', self::SITE)->count());
         self::assertSame($groupBefore['blocked'], SeoKeywordGroupKeyword::query()
             ->where('site_id', self::SITE)
-            ->where('is_topic_candidate', false)
+            ->where('topic_candidate_override', false)
             ->count());
         self::assertFalse((bool) SeoKeywordGroupKeyword::query()
             ->where('keyword_id', $blockedA)
-            ->value('is_topic_candidate'));
+            ->value('topic_candidate_override'));
 
         self::assertGreaterThanOrEqual(1, $builtA['anchor_count']);
         self::assertGreaterThanOrEqual(1, $builtB['anchor_count']);
@@ -279,6 +290,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
                 'keyword_id' => $kid,
                 'source' => KeywordGroupSource::SEMANTIC,
                 'is_topic_candidate' => true,
+                'topic_candidate_override' => true,
             ]);
         }
 
@@ -329,6 +341,7 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             'keyword_id' => $blocked,
             'source' => KeywordGroupSource::SEMANTIC,
             'is_topic_candidate' => false,
+            'topic_candidate_override' => false,
         ]);
 
         $matcher = new TopicMembershipMatcher(
@@ -404,6 +417,19 @@ final class TopicFromKeywordGroupsRebuildTest extends TestCase
             $table->unsignedBigInteger('site_id');
             $table->unsignedBigInteger('topic_id');
             $table->timestamps();
+        });
+        $schema->create('articles', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->string('title')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+            $table->timestamps();
+        });
+        $schema->create('keyword_meta', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('keyword_id');
+            $table->string('meta_key');
+            $table->text('meta_value')->nullable();
         });
     }
 }

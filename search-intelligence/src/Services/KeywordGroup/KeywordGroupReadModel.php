@@ -11,6 +11,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicLinkedArticleCounter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 
@@ -24,6 +25,10 @@ final class KeywordGroupReadModel
     public const MEMBER_PAGE_SIZE = 50;
 
     public const SEARCH_LIMIT = 20;
+
+    public function __construct(
+        private readonly ?TopicLinkedArticleCounter $focusCounter = null,
+    ) {}
 
     /**
      * @param  list<string>|null  $languageVariants
@@ -100,7 +105,7 @@ final class KeywordGroupReadModel
      * First member batch only for Groups on the current page.
      *
      * @param  list<int>  $groupIds
-     * @return array<int, array{members: list<array{keyword_id: int, phrase: string}>, has_more: bool}>
+     * @return array<int, array{members: list<array<string, mixed>>, has_more: bool}>
      */
     private function firstMemberBatches(int $siteId, array $groupIds, int $limit): array
     {
@@ -119,6 +124,9 @@ final class KeywordGroupReadModel
         if (KeywordGroupSchema::topicCandidateReady()) {
             $select[] = 'is_topic_candidate';
         }
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            $select[] = 'topic_candidate_override';
+        }
         $memberships = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
             ->whereIn('group_id', array_keys($out))
@@ -128,6 +136,8 @@ final class KeywordGroupReadModel
 
         $counts = [];
         $selectedIds = [];
+        /** @var list<array{group_id: int, keyword_id: int, override: ?bool}> $pending */
+        $pending = [];
         foreach ($memberships as $membership) {
             $groupId = (int) $membership->group_id;
             $keywordId = (int) $membership->keyword_id;
@@ -135,12 +145,11 @@ final class KeywordGroupReadModel
             if (count($out[$groupId]['members']) >= $limit) {
                 continue;
             }
-            $out[$groupId]['members'][] = [
+            $override = $this->readOverride($membership);
+            $pending[] = [
+                'group_id' => $groupId,
                 'keyword_id' => $keywordId,
-                'phrase' => '',
-                'is_topic_candidate' => KeywordGroupSchema::topicCandidateReady()
-                    ? (bool) ($membership->is_topic_candidate ?? true)
-                    : true,
+                'override' => $override,
             ];
             $selectedIds[$keywordId] = $keywordId;
         }
@@ -148,11 +157,20 @@ final class KeywordGroupReadModel
         $phrases = $selectedIds === []
             ? []
             : Keyword::query()->whereIn('id', array_values($selectedIds))->pluck('phrase', 'id')->all();
+        $focusMap = $this->batchFocusMap($siteId, array_values($selectedIds));
+
+        foreach ($pending as $row) {
+            $groupId = $row['group_id'];
+            $keywordId = $row['keyword_id'];
+            $out[$groupId]['members'][] = $this->memberPayload(
+                $keywordId,
+                (string) ($phrases[$keywordId] ?? ''),
+                $row['override'],
+                isset($focusMap[$keywordId]),
+            );
+        }
 
         foreach ($out as $groupId => $payload) {
-            foreach ($payload['members'] as $index => $member) {
-                $out[$groupId]['members'][$index]['phrase'] = (string) ($phrases[$member['keyword_id']] ?? '');
-            }
             $out[$groupId]['has_more'] = ($counts[$groupId] ?? 0) > $limit;
         }
 
@@ -192,7 +210,7 @@ final class KeywordGroupReadModel
 
     /**
      * @return array{
-     *     members: list<array{keyword_id: int, phrase: string, is_topic_candidate: bool}>,
+     *     members: list<array<string, mixed>>,
      *     has_more: bool,
      *     total: int
      * }
@@ -223,6 +241,9 @@ final class KeywordGroupReadModel
         if (KeywordGroupSchema::topicCandidateReady()) {
             $select[] = 'is_topic_candidate';
         }
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            $select[] = 'topic_candidate_override';
+        }
         $memberships = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
             ->where('group_id', $groupId)
@@ -235,17 +256,17 @@ final class KeywordGroupReadModel
         $phrases = $ids === []
             ? []
             : Keyword::query()->whereIn('id', $ids)->pluck('phrase', 'id')->all();
+        $focusMap = $this->batchFocusMap($siteId, $ids);
 
         $members = [];
         foreach ($memberships as $membership) {
             $keywordId = (int) $membership->keyword_id;
-            $members[] = [
-                'keyword_id' => $keywordId,
-                'phrase' => (string) ($phrases[$keywordId] ?? ''),
-                'is_topic_candidate' => KeywordGroupSchema::topicCandidateReady()
-                    ? (bool) ($membership->is_topic_candidate ?? true)
-                    : true,
-            ];
+            $members[] = $this->memberPayload(
+                $keywordId,
+                (string) ($phrases[$keywordId] ?? ''),
+                $this->readOverride($membership),
+                isset($focusMap[$keywordId]),
+            );
         }
 
         return [
@@ -359,6 +380,60 @@ final class KeywordGroupReadModel
         }
 
         return $out;
+    }
+
+    /**
+     * @return array{
+     *     keyword_id: int,
+     *     phrase: string,
+     *     has_focus_article: bool,
+     *     topic_candidate_override: ?bool,
+     *     effective_topic_candidate: bool,
+     *     is_topic_candidate: bool
+     * }
+     */
+    private function memberPayload(int $keywordId, string $phrase, ?bool $override, bool $hasFocus): array
+    {
+        $effective = KeywordGroupSchema::topicCandidateOverrideReady()
+            ? KeywordGroupTopicCandidatePolicy::effectiveCandidate($hasFocus, $override)
+            : ($override !== false);
+
+        return [
+            'keyword_id' => $keywordId,
+            'phrase' => $phrase,
+            'has_focus_article' => $hasFocus,
+            'topic_candidate_override' => KeywordGroupSchema::topicCandidateOverrideReady() ? $override : null,
+            'effective_topic_candidate' => $effective,
+            // BC: legacy "blocked" flag — false only when FORCE_BLOCK.
+            'is_topic_candidate' => KeywordGroupTopicCandidatePolicy::legacyIsTopicCandidate($override),
+        ];
+    }
+
+    private function readOverride(SeoKeywordGroupKeyword $membership): ?bool
+    {
+        if (KeywordGroupSchema::topicCandidateOverrideReady()) {
+            return $membership->topicCandidateOverride();
+        }
+        if (KeywordGroupSchema::topicCandidateReady()) {
+            return (bool) ($membership->is_topic_candidate ?? true) ? null : false;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<int>  $keywordIds
+     * @return array<int, int>
+     */
+    private function batchFocusMap(int $siteId, array $keywordIds): array
+    {
+        if ($keywordIds === [] || ! KeywordGroupSchema::topicCandidateOverrideReady()) {
+            return [];
+        }
+
+        $counter = $this->focusCounter ?? app(TopicLinkedArticleCounter::class);
+
+        return $counter->focusArticleIdMapForKeywords($siteId, $keywordIds);
     }
 
     /**
