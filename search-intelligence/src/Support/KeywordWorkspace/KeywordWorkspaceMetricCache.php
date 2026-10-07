@@ -12,6 +12,7 @@ final class KeywordWorkspaceMetricCache
     public const DICTIONARY = 'dictionary';
     public const FOCUS = 'focus';
     public const TOPICS = 'topics';
+    public const GROUPS = 'groups';
     public const TAGS = 'tags';
     public const EXTERNAL = 'external';
 

@@ -228,6 +228,11 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.resources.keywords.focus');
     }
 
+    public static function isKeywordsGroupsNav(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.resources.keywords.groups');
+    }
+
     public static function isKeywordsClustersNav(?string $route = null): bool
     {
         return self::check($route,

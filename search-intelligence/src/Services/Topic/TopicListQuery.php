@@ -10,8 +10,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
@@ -90,6 +92,9 @@ final class TopicListQuery
         if (TopicMcpExclusionService::columnReady()) {
             $query->addSelect('mcp_excluded');
         }
+        if (KeywordGroupSchema::topicLinkReady()) {
+            $query->addSelect('keyword_group_id');
+        }
 
         $this->applyBaseFilters($query, $siteId, $filters, $allowedKeywordIds);
         $this->addListAggregates($query, $siteId, $allowedKeywordIds);
@@ -146,6 +151,7 @@ final class TopicListQuery
             $eligibleExclusions !== [] ? $eligibleExclusions : null,
         );
         $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
+        $groupNames = $this->keywordGroupNames($siteId, $topics);
 
         $rows = $topics->map(function ($topic) use (
             $siteId,
@@ -155,6 +161,7 @@ final class TopicListQuery
             $shareDenominator,
             $tagMetrics,
             $userTagsByTopic,
+            $groupNames,
         ): array {
             $topicId = (int) $topic->id;
             $isMcpExcluded = (bool) ($topic->mcp_excluded ?? false);
@@ -193,7 +200,7 @@ final class TopicListQuery
                     : round(((int) ($eligibleArticleCounts[$topicId] ?? 0) / $shareDenominator) * 100, 1),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
-            ];
+            ] + $this->keywordGroupFields($topic, $groupNames);
         });
 
         $paginator->setCollection($rows);
@@ -230,6 +237,9 @@ final class TopicListQuery
         $query = SeoTopic::query()
             ->where('site_id', $siteId)
             ->select(['id', 'site_id', 'name', 'source', 'status', 'is_locked', 'created_at', 'updated_at']);
+        if (KeywordGroupSchema::topicLinkReady()) {
+            $query->addSelect('keyword_group_id');
+        }
 
         if ($search !== '') {
             $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], mb_strtolower($search)).'%';
@@ -330,6 +340,7 @@ final class TopicListQuery
 
         $tagMetrics = $this->tagMetrics->forTopics($siteId, $mcpEligibleTopicIds, $mcpArticleCounts, $excludedKeywordIds);
         $userTagsByTopic = $this->userTags()->mapForTopics($siteId, $topicIds);
+        $groupNames = $this->keywordGroupNames($siteId, $topics);
 
         $rows = [];
         foreach ($topics as $topic) {
@@ -392,7 +403,7 @@ final class TopicListQuery
                 'topical_share' => $isMcpExcluded ? 0.0 : (float) ($shares[$topicId] ?? 0.0),
                 'state' => $keywordCount === 0 ? 'planned' : 'active',
                 'updated_at' => $topic->updated_at?->toIso8601String(),
-            ];
+            ] + $this->keywordGroupFields($topic, $groupNames);
         }
 
         $rows = $this->sortRows($rows, $sort);
@@ -403,6 +414,56 @@ final class TopicListQuery
         return new Paginator($slice, $total, $perPage, $page, [
             'path' => Paginator::resolveCurrentPath(),
         ]);
+    }
+
+    /**
+     * @param  iterable<int, SeoTopic>  $topics
+     * @return array<int, string>
+     */
+    private function keywordGroupNames(int $siteId, iterable $topics): array
+    {
+        if (! KeywordGroupSchema::topicLinkReady()) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($topics as $topic) {
+            $id = (int) ($topic->keyword_group_id ?? 0);
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        if ($ids === []) {
+            return [];
+        }
+
+        return SeoKeywordGroup::query()
+            ->where('site_id', $siteId)
+            ->whereIn('id', array_values($ids))
+            ->pluck('name', 'id')
+            ->map(static fn ($name): string => (string) $name)
+            ->all();
+    }
+
+    /**
+     * @param  array<int, string>  $groupNames
+     * @return array{keyword_group_id: ?int, keyword_group_name: ?string}
+     */
+    private function keywordGroupFields(object $topic, array $groupNames): array
+    {
+        $id = (int) ($topic->keyword_group_id ?? 0);
+        $name = trim((string) ($groupNames[$id] ?? ''));
+        if ($id <= 0 || $name === '') {
+            return [
+                'keyword_group_id' => null,
+                'keyword_group_name' => null,
+            ];
+        }
+
+        return [
+            'keyword_group_id' => $id,
+            'keyword_group_name' => $name,
+        ];
     }
 
     /** @param array<string, mixed> $filters */

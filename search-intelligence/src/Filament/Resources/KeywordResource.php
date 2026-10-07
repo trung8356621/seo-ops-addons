@@ -108,6 +108,9 @@ class KeywordResource extends SeoPanelResource
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_focus'))
                         ->url(static::getUrl('focus'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsFocusNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_groups'))
+                        ->url(static::getUrl('groups'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsGroupsNav()),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_two'))
                         ->url(static::getUrl('clusters'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsClustersNav()),
@@ -1658,6 +1661,7 @@ class KeywordResource extends SeoPanelResource
         return [
             'index' => Pages\ListKeywords::route('/'),
             'focus' => Pages\ListFocusKeywords::route('/focus'),
+            'groups' => Pages\KeywordGroups::route('/groups'),
             'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
             'topical-map' => Pages\KeywordTopicalMap::route('/topical-map'),
             'relationships' => Pages\KeywordRelationshipView::route('/relationships/{keyword}'),

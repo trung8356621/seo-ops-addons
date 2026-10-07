@@ -8,6 +8,9 @@
 @endphp
 
 <div class="cluster-tag-row">
+    @if (! empty($groupChipRow) && is_array($groupChipRow))
+        @include('seo-content-ai::filament.resources.keywords.pages.partials.topic-group-chip', ['row' => $groupChipRow])
+    @endif
     @if ($intentLabel !== '')
         <span class="cluster-tag cluster-tag--intent">{{ $intentLabel }}</span>
     @endif

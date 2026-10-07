@@ -3389,6 +3389,24 @@ body.keyword-drawer-open {
     color: rgb(71 85 105);
 }
 
+.topic-group-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.2;
+    background: rgb(224 231 255);
+    color: rgb(55 48 163);
+    text-decoration: none;
+}
+
+.dark .topic-group-chip {
+    background: rgb(49 46 129);
+    color: rgb(224 231 255);
+}
+
 .cluster-detail-header {
     display: flex;
     flex-wrap: wrap;

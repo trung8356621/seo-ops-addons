@@ -19,13 +19,13 @@ trait HasKeywordWorkspaceNavigation
 
     public bool $keywordWorkspaceStatisticsLoaded = false;
 
-    /** @var array{total: int, dictionary: int, focus: int, topics: int, tags: int, external: int}|null */
+    /** @var array{total: int, dictionary: int, focus: int, groups: int, topics: int, tags: int, external: int}|null */
     public ?array $keywordWorkspaceTabCounts = null;
 
     /**
      * Request-scoped inventory tab counts (not table search/filter counts).
      *
-     * @var array{total: int, dictionary: int, focus: int, topics: int, tags: int}|null
+     * @var array{total: int, dictionary: int, focus: int, groups: int, topics: int, tags: int}|null
      */
     private ?array $keywordWorkspaceTabCountsCache = null;
 
@@ -139,13 +139,13 @@ trait HasKeywordWorkspaceNavigation
     }
 
     /**
-     * Inventory counts for Dictionary / Focus / Topics / Tags tabs + header Total badge.
+     * Inventory counts for Dictionary / Focus / Groups / Topics / Tags tabs + header Total badge.
      * Scoped by site + language filter only — ignores table search/filters.
      * Topics tab count = Topics with ≥1 keyword in the selected language inventory
      * (Topics have no language column; membership is the language gate).
      * Tags tab count = custom Topic tags for current site only (not built-in badges).
      *
-     * @return array{total: int, dictionary: int, focus: int, topics: int, tags: int, external: int}
+     * @return array{total: int, dictionary: int, focus: int, groups: int, topics: int, tags: int, external: int}
      */
     public function getKeywordWorkspaceTabCounts(): array
     {
@@ -186,9 +186,27 @@ trait HasKeywordWorkspaceNavigation
         $dictionary = $total;
         $focus = (int) ($focusMetrics['total'] ?? 0);
         $topics = 0;
+        $groups = 0;
         $tags = 0;
         $external = 0;
         if ($siteId !== null && $siteId > 0) {
+            $groups = (int) ($metricCache->rememberMetrics(
+                $siteId,
+                null,
+                KeywordWorkspaceMetricCache::GROUPS,
+                ['total'],
+                function () use ($siteId): array {
+                    if (! \Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::tablesReady()) {
+                        return ['total' => 0];
+                    }
+
+                    return [
+                        'total' => (int) \Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup::query()
+                            ->where('site_id', $siteId)
+                            ->count(),
+                    ];
+                },
+            )['total'] ?? 0);
             $topics = (int) ($metricCache->rememberMetrics(
                 $siteId,
                 $languageCode,
@@ -229,6 +247,7 @@ trait HasKeywordWorkspaceNavigation
             'total' => $total,
             'dictionary' => $dictionary,
             'focus' => $focus,
+            'groups' => $groups,
             'topics' => $topics,
             'tags' => $tags,
             'external' => $external,
@@ -254,6 +273,12 @@ trait HasKeywordWorkspaceNavigation
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_focus'),
                 'url' => KeywordResource::getUrl('focus'),
                 'count' => $counts['focus'] ?? null,
+            ],
+            [
+                'key' => 'groups',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_groups'),
+                'url' => KeywordResource::getUrl('groups'),
+                'count' => $counts['groups'] ?? null,
             ],
             [
                 'key' => 'clusters',

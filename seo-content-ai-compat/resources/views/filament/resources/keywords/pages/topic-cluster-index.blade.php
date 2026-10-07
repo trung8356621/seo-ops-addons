@@ -858,6 +858,7 @@
 
                                 @if ($rowCanEdit)
                                     <div class="cluster-tag-row">
+                                        @include('seo-content-ai::filament.resources.keywords.pages.partials.topic-group-chip', ['row' => $row])
                                         <span
                                             class="cluster-tag cluster-tag--intent"
                                             x-show="intent"
@@ -960,6 +961,7 @@
                                         'canonicalSource' => $row['canonical_source'] ?? 'auto',
                                         'state' => $row['state'] ?? 'active',
                                         'keywordCount' => $row['keyword_count'] ?? 0,
+                                        'groupChipRow' => $row,
                                     ])
                                     @if ($isMcpExcluded)
                                         <span class="cluster-tag cluster-tag--planned">
