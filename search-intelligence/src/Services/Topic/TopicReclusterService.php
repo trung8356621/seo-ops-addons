@@ -199,7 +199,7 @@ final class TopicReclusterService
      * Shared business mutation path for legacy recluster and semantic Apply.
      * Does not analyze. Does not call semantic HTTP.
      *
-     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
      * @param  array{
      *     locked_topic_ids: array<int, true>,
      *     preserved_topic_ids: array<int, true>,
@@ -216,7 +216,8 @@ final class TopicReclusterService
      *     topics_dissolved: int,
      *     topics_reused: int,
      *     topics_created: int,
-     *     discovered_topics_dissolved: int
+     *     discovered_topics_dissolved: int,
+     *     topic_ids_by_group_key: array<string, int>
      * }
      */
     public function persistResolvedClusters(
@@ -546,7 +547,7 @@ final class TopicReclusterService
     /**
      * Persist proposals without deleting first. Stale unlocked Topics dissolve last.
      *
-     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
      * @param  array{
      *     locked_topic_ids: array<int, true>,
      *     preserved_topic_ids: array<int, true>,
@@ -563,7 +564,8 @@ final class TopicReclusterService
      *     topics_dissolved: int,
      *     topics_reused: int,
      *     topics_created: int,
-     *     discovered_topics_dissolved: int
+     *     discovered_topics_dissolved: int,
+     *     topic_ids_by_group_key: array<string, int>
      * }
      */
     private function persistClusters(
@@ -589,6 +591,8 @@ final class TopicReclusterService
         $desiredByKeyword = [];
         /** @var array<int, true> $dnaTopicIds */
         $dnaTopicIds = [];
+        /** @var array<string, int> $topicIdsByGroupKey */
+        $topicIdsByGroupKey = [];
 
         $membershipsWritten = 0;
         $topicsReused = 0;
@@ -617,6 +621,11 @@ final class TopicReclusterService
             $keepTopicIds[$topicId] = true;
             $claimedTopicIds[$topicId] = true;
             $dnaTopicIds[$topicId] = true;
+
+            $groupKey = trim((string) ($cluster['group_key'] ?? ''));
+            if ($groupKey !== '') {
+                $topicIdsByGroupKey[$groupKey] = $topicId;
+            }
 
             if ($resolved['created']) {
                 $topicsCreated++;
@@ -841,11 +850,12 @@ final class TopicReclusterService
             'topics_reused' => $topicsReused,
             'topics_created' => $topicsCreated,
             'discovered_topics_dissolved' => $discoveredDissolved,
+            'topic_ids_by_group_key' => $topicIdsByGroupKey,
         ];
     }
 
     /**
-     * @param  array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}  $cluster
+     * @param  array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}  $cluster
      * @param  array<int, true>  $keepTopicIds
      * @param  array<int, true>  $claimedTopicIds
      * @return array{topic: SeoTopic, created: bool}

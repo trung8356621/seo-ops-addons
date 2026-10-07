@@ -14,7 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService;
  * Plans Topic-owned business/policy state migrations for Apply.
  * Focus Article is keyword-owned — never migrated here.
  */
-final class TopicGroupingBusinessStatePlanner
+class TopicGroupingBusinessStatePlanner
 {
     /**
      * @param  list<array{topic_id: int|null, name: string, action: string}>  $topicActions
@@ -22,7 +22,7 @@ final class TopicGroupingBusinessStatePlanner
      * @return array{
      *     summary: array<string, int|bool>,
      *     metadata_migrations: list<array{type: string, from_topic_id: int, to_topic_id: int, tag_id: int, source: string}>,
-     *     policy_migrations: list<array{type: string, topic_id?: int, from_topic_id?: int, group_name?: string}>,
+     *     policy_migrations: list<array{type: string, topic_id?: int, from_topic_id?: int, group_key?: string, group_name?: string}>,
      *     metadata_review_required: list<array{topic_id: int, name: string, reason: string, detail?: mixed}>,
      *     hard_block: bool
      * }
@@ -127,7 +127,7 @@ final class TopicGroupingBusinessStatePlanner
             }
         }
 
-        // Split: retained ID keeps mcp_excluded; new sibling groups must stay excluded.
+        // Split: retained ID keeps mcp_excluded; new sibling groups must stay excluded via group_key.
         foreach ($identityMigration['splits'] ?? [] as $split) {
             if (! is_array($split)) {
                 continue;
@@ -140,14 +140,22 @@ final class TopicGroupingBusinessStatePlanner
                 if (! is_array($og)) {
                     continue;
                 }
-                $groupName = trim((string) ($og['group_name'] ?? ''));
-                if ($groupName === '') {
+                $groupKey = trim((string) ($og['group_key'] ?? ''));
+                if ($groupKey === '') {
+                    $reviewRequired[] = [
+                        'topic_id' => $fromId,
+                        'name' => $names[$fromId] ?? '',
+                        'reason' => 'mcp_exclusion_split_missing_group_key',
+                        'detail' => ['group_name' => (string) ($og['group_name'] ?? '')],
+                    ];
                     continue;
                 }
                 $policyMigrations[] = [
-                    'type' => 'mcp_exclude_by_group_name',
-                    'group_name' => $groupName,
+                    'type' => 'mcp_exclude_group',
+                    'group_key' => $groupKey,
                     'from_topic_id' => $fromId,
+                    // Display/debug only — never used as execution identity.
+                    'group_name' => (string) ($og['group_name'] ?? ''),
                 ];
             }
         }

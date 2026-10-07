@@ -12,6 +12,7 @@ final class TopicGroupingProposalMapper
 {
     /**
      * @return list<array{
+     *     group_key: string,
      *     name: string,
      *     topic_id: int|null,
      *     is_locked: bool,
@@ -39,7 +40,9 @@ final class TopicGroupingProposalMapper
                 $topicId = null;
             }
 
+            // group_key = proposal-local correlation only; never persisted on seo_topics.
             $clusters[] = [
+                'group_key' => $group->groupKey,
                 'name' => $group->suggestedLabel,
                 'topic_id' => $topicId,
                 'is_locked' => (bool) ($group->metadata[TopicGroupingGroup::META_IS_LOCKED] ?? false),

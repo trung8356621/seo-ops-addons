@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
-use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
@@ -25,7 +24,7 @@ final class TopicGroupingApplyService
 {
     /**
      * @param  (callable(int): string)|null  $inputHashResolver  test hook
-     * @param  (callable(int, list<array<string, mixed>>): array<string, int>)|null  $persistClusters  test hook
+     * @param  (callable(int, list<array<string, mixed>>): array<string, mixed>)|null  $persistClusters  test hook
      */
     public function __construct(
         private readonly TopicGroupingApplyPlanBuilder $planBuilder = new TopicGroupingApplyPlanBuilder,
@@ -174,8 +173,18 @@ final class TopicGroupingApplyService
                         false,
                     );
 
-                // MCP exclusion propagation after create/reuse IDs exist.
-                $this->executePolicyMigrations((int) $run->site_id, $plan);
+                /** @var array<string, int> $topicIdsByGroupKey */
+                $topicIdsByGroupKey = [];
+                foreach (($written['topic_ids_by_group_key'] ?? []) as $gk => $tid) {
+                    $key = trim((string) $gk);
+                    $id = (int) $tid;
+                    if ($key !== '' && $id > 0) {
+                        $topicIdsByGroupKey[$key] = $id;
+                    }
+                }
+
+                // MCP exclusion propagation after create/reuse IDs exist — by group_key only.
+                $this->executePolicyMigrations((int) $run->site_id, $plan, $topicIdsByGroupKey);
 
                 $run->status = TopicGroupingRunStatus::APPLIED;
                 $run->applied_at = now();
@@ -330,8 +339,14 @@ final class TopicGroupingApplyService
         }
     }
 
-    private function executePolicyMigrations(int $siteId, TopicGroupingApplyPlan $plan): void
-    {
+    /**
+     * @param  array<string, int>  $topicIdsByGroupKey  actual persistence map (group_key → topic_id)
+     */
+    private function executePolicyMigrations(
+        int $siteId,
+        TopicGroupingApplyPlan $plan,
+        array $topicIdsByGroupKey,
+    ): void {
         if (! TopicMcpExclusionService::columnReady()) {
             return;
         }
@@ -343,24 +358,22 @@ final class TopicGroupingApplyService
             $type = (string) ($row['type'] ?? '');
             if ($type === 'mcp_exclude') {
                 $topicId = (int) ($row['topic_id'] ?? 0);
-                if ($topicId > 0) {
-                    $mcp->exclude($siteId, $topicId);
+                if ($topicId <= 0) {
+                    throw new \RuntimeException('mcp_policy_missing_topic_id');
                 }
+                $mcp->exclude($siteId, $topicId);
                 continue;
             }
-            if ($type === 'mcp_exclude_by_group_name') {
-                $groupName = trim((string) ($row['group_name'] ?? ''));
-                if ($groupName === '') {
-                    continue;
+            if ($type === 'mcp_exclude_group') {
+                $groupKey = trim((string) ($row['group_key'] ?? ''));
+                if ($groupKey === '') {
+                    throw new \RuntimeException('mcp_policy_missing_group_key');
                 }
-                $topic = SeoTopic::query()
-                    ->where('site_id', $siteId)
-                    ->where('name', $groupName)
-                    ->orderByDesc('id')
-                    ->first(['id']);
-                if ($topic !== null) {
-                    $mcp->exclude($siteId, (int) $topic->id);
+                $topicId = (int) ($topicIdsByGroupKey[$groupKey] ?? 0);
+                if ($topicId <= 0) {
+                    throw new \RuntimeException('mcp_policy_group_key_unresolved:'.$groupKey);
                 }
+                $mcp->exclude($siteId, $topicId);
             }
         }
     }

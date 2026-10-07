@@ -42,10 +42,10 @@ final class TopicGroupingIdentityMatcher
     public const MIN_EXISTING_COVERAGE_STRONG = 0.35;
 
     /**
-     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
      * @param  list<array{topic_id: int, name: string, member_keyword_ids: list<int>, member_count: int, is_locked: bool, has_focus?: bool}>  $inventory  eligible auto/unlocked Topics not yet claimed
      * @return array{
-     *     clusters: list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>,
+     *     clusters: list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>,
      *     diagnostics: array{
      *         reused: int,
      *         one_to_one: list<array<string, mixed>>,
@@ -311,6 +311,7 @@ final class TopicGroupingIdentityMatcher
                     continue;
                 }
                 $otherGroups[] = [
+                    'group_key' => (string) ($clusters[$cand['gi']]['group_key'] ?? ''),
                     'group_name' => $clusters[$cand['gi']]['name'],
                     'group_index' => $cand['gi'],
                     'existing_coverage' => round($cand['existing_coverage'], 4),
@@ -335,6 +336,7 @@ final class TopicGroupingIdentityMatcher
                     'topic_id' => $tid,
                     'topic_name' => $prior['name'],
                     'retained_group' => $clusters[$chosenGi]['name'],
+                    'retained_group_key' => (string) ($clusters[$chosenGi]['group_key'] ?? ''),
                     'retained_existing_coverage' => round($chosen[$tid]['existing_coverage'], 4),
                     'other_groups' => array_slice($otherGroups, 0, 6),
                 ];
@@ -343,6 +345,7 @@ final class TopicGroupingIdentityMatcher
                     'surviving_topic_id' => $tid,
                     'surviving_topic_name' => $prior['name'],
                     'group_name' => $clusters[$chosenGi]['name'],
+                    'group_key' => (string) ($clusters[$chosenGi]['group_key'] ?? ''),
                     'merged_from' => array_slice($mergeOthers, 0, 6),
                 ];
             } else {
@@ -350,6 +353,7 @@ final class TopicGroupingIdentityMatcher
                     'topic_id' => $tid,
                     'topic_name' => $prior['name'],
                     'group_name' => $clusters[$chosenGi]['name'],
+                    'group_key' => (string) ($clusters[$chosenGi]['group_key'] ?? ''),
                     'jaccard' => round($chosen[$tid]['jaccard'], 4),
                     'existing_coverage' => round($chosen[$tid]['existing_coverage'], 4),
                 ];
