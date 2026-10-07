@@ -16,12 +16,23 @@ final class TopicGroupingProviderMode
 
     public static function current(): string
     {
-        $value = strtolower(trim((string) config('semantic.topic_provider', self::LEGACY)));
+        return self::normalize((string) config('semantic.topic_provider', self::LEGACY));
+    }
+
+    /** Normalize a provider key (explicit run/job override or config). */
+    public static function normalize(string $value): string
+    {
+        $value = strtolower(trim($value));
 
         return match ($value) {
             self::SEMANTIC_HTTP, SemanticHttpTopicGroupingProvider::KEY => self::SEMANTIC_HTTP,
             default => self::LEGACY,
         };
+    }
+
+    public static function isSemanticProvider(string $value): bool
+    {
+        return self::normalize($value) === self::SEMANTIC_HTTP;
     }
 
     public static function isSemanticHttp(): bool

@@ -23,8 +23,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
 /**
  * Site-scoped Topic recluster.
  *
- * semantic_http: Analyze → internal plan → Apply on the SAME run (no user Preview).
- * legacy: existing recluster apply path.
+ * UI Topic action always dispatches provider=semantic_http (Analyze → plan → Apply).
+ * Explicit provider=legacy remains for internal/compat callers only — never via global config re-read.
  */
 final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
 {
@@ -40,6 +40,7 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
         public readonly int $siteId,
         public readonly string $requestedAlgorithmVersion = TopicReclusterAlgorithm::VERSION,
         public readonly string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
+        public readonly string $provider = TopicGroupingProviderMode::SEMANTIC_HTTP,
     ) {
         // Prefer seo queue (ahead of default backlog) so Topic recluster is not starved.
         $this->onQueue('seo');
@@ -67,7 +68,8 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
         TopicGroupingAnalysisService $analysis,
         TopicGroupingApplyService $apply,
     ): void {
-        if (TopicGroupingProviderMode::isSemanticHttp()) {
+        // Authoritative for this job instance — do NOT re-read TOPIC_GROUPING_PROVIDER.
+        if (TopicGroupingProviderMode::isSemanticProvider($this->provider)) {
             $this->handleSemanticAnalyzeAndApply($analysis, $apply);
 
             return;
@@ -111,21 +113,23 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
         TopicGroupingApplyService $apply,
     ): void {
         $rebuildMode = TopicGroupingRebuildMode::normalize($this->rebuildMode);
+        $provider = TopicGroupingProviderMode::SEMANTIC_HTTP;
         TopicReclusterUiState::markQueued(
             $this->siteId,
-            TopicGroupingProviderMode::SEMANTIC_HTTP,
+            $provider,
             $rebuildMode,
         );
 
-        $run = $analysis->analyzeSite($this->siteId, $rebuildMode);
+        // Explicit provider — ignores global TOPIC_GROUPING_PROVIDER=legacy.
+        $run = $analysis->analyzeSite($this->siteId, $rebuildMode, $provider);
         if ($run->status !== TopicGroupingRunStatus::PROPOSAL_READY) {
             if ($run->status !== TopicGroupingRunStatus::FAILED) {
                 TopicReclusterUiState::markFailed(
                     $this->siteId,
                     $run->error_message ?? 'analysis_failed',
-                    ['run_id' => $run->id, 'rebuild_mode' => $rebuildMode],
+                    ['run_id' => $run->id, 'rebuild_mode' => $rebuildMode, 'provider' => $provider],
                     $run->error_code ?? 'analysis_failed',
-                    TopicGroupingProviderMode::SEMANTIC_HTTP,
+                    $provider,
                 );
             }
 
@@ -141,10 +145,11 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
                 [
                     'run_id' => (int) $run->id,
                     'rebuild_mode' => $rebuildMode,
+                    'provider' => $provider,
                     'status' => $preview->status,
                 ],
                 $preview->errorCode ?? 'plan_build_failed',
-                TopicGroupingProviderMode::SEMANTIC_HTTP,
+                $provider,
             );
 
             return;
@@ -157,10 +162,11 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
                 [
                     'run_id' => (int) $run->id,
                     'rebuild_mode' => $rebuildMode,
+                    'provider' => $provider,
                     'counts' => $preview->plan->counts,
                 ],
                 'business_state_hard_block',
-                TopicGroupingProviderMode::SEMANTIC_HTTP,
+                $provider,
             );
 
             return;

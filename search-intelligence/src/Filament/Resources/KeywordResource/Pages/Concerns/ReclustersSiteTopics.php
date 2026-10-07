@@ -58,18 +58,23 @@ trait ReclustersSiteTopics
             && SeoAccessControl::canAccessSite($siteId);
     }
 
+    /** Full-reset checkbox is always available on the Topic UI (semantic pipeline). */
     public function canUseFullResetRebuildMode(): bool
     {
-        return TopicGroupingProviderMode::isSemanticHttp();
+        return true;
     }
 
     public function selectedRebuildMode(): string
     {
-        if (! $this->canUseFullResetRebuildMode() || ! $this->fullResetTopicStructure) {
-            return TopicGroupingRebuildMode::PRESERVE_EXISTING;
-        }
+        return $this->fullResetTopicStructure
+            ? TopicGroupingRebuildMode::FULL_RESET
+            : TopicGroupingRebuildMode::PRESERVE_EXISTING;
+    }
 
-        return TopicGroupingRebuildMode::FULL_RESET;
+    /** User-facing Topic recluster always uses semantic_http (not global TOPIC_GROUPING_PROVIDER). */
+    public function selectedGroupingProvider(): string
+    {
+        return TopicGroupingProviderMode::SEMANTIC_HTTP;
     }
 
     public function persistedRebuildMode(): string
@@ -245,25 +250,21 @@ trait ReclustersSiteTopics
         }
 
         $version = TopicReclusterAlgorithm::VERSION;
-        $semantic = TopicGroupingProviderMode::isSemanticHttp();
-        // Capture mode at dispatch — do not re-read checkbox later in the worker.
+        // Capture at dispatch — Job must not re-read checkbox or global TOPIC_GROUPING_PROVIDER.
         $rebuildMode = $this->selectedRebuildMode();
+        $provider = $this->selectedGroupingProvider();
 
         $this->showReclusterModal = true;
         $this->confirmRecluster = true;
         $this->reclusterModalError = null;
 
-        TopicReclusterUiState::markQueued(
-            $siteId,
-            $semantic ? TopicGroupingProviderMode::SEMANTIC_HTTP : $version,
-            $semantic ? $rebuildMode : null,
-        );
+        TopicReclusterUiState::markQueued($siteId, $provider, $rebuildMode);
         $this->reclusterRunning = true;
         $this->reclusterResult = TopicReclusterUiState::get($siteId);
         $this->reclusterModalStep = self::RECLUSTER_STEP_ANALYZING;
 
         if ($sync) {
-            ReclusterSiteTopicsJob::dispatchSync($siteId, $version, $rebuildMode);
+            ReclusterSiteTopicsJob::dispatchSync($siteId, $version, $rebuildMode, $provider);
             $this->syncReclusterStateFromCache();
             $this->hydrateReclusterModalStepFromState();
             $status = is_array($this->reclusterResult)
@@ -296,14 +297,12 @@ trait ReclustersSiteTopics
             return;
         }
 
-        ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode);
+        ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode, $provider);
         Notification::make()
-            ->title($semantic ? 'Đang tách lại chủ đề…' : __('seo-content-ai::filament.keyword.topic_recluster_queued_title'))
-            ->body($semantic
-                ? (TopicGroupingRebuildMode::isFullReset($rebuildMode)
-                    ? 'Mode: Xóa cấu trúc Topic cũ và tách lại từ đầu'
-                    : 'Mode: Giữ cấu trúc Topic hiện tại')
-                : __('seo-content-ai::filament.keyword.topic_recluster_running'))
+            ->title('Đang tách lại chủ đề…')
+            ->body(TopicGroupingRebuildMode::isFullReset($rebuildMode)
+                ? 'Mode: Xóa cấu trúc Topic cũ và tách lại từ đầu'
+                : 'Mode: Giữ cấu trúc Topic hiện tại')
             ->success()
             ->send();
     }

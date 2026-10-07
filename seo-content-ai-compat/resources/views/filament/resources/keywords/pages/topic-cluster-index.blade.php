@@ -24,7 +24,6 @@
     $reclusterPollAttr = ($reclusterActive || ($showReclusterModal && in_array($reclusterModalStep, ['analyzing', 'preparing_apply', 'applying'], true)))
         ? 'wire:poll.5s="pollReclusterResult"'
         : '';
-    $canFullResetRebuild = (bool) $this->canUseFullResetRebuildMode();
     $runRebuildMode = (string) $this->persistedRebuildMode();
     $isFullResetRun = $runRebuildMode === 'full_reset';
     // Operational progress only — never a "pending proposal review" CTA.
@@ -586,37 +585,31 @@
                     </h3>
 
                     @if ($reclusterModalStep === 'configure')
-                        @if ($canFullResetRebuild)
-                            <label class="mt-3 flex items-start gap-2 text-sm text-rose-800 dark:text-rose-200">
-                                <input type="checkbox" class="mt-1" wire:model.live="fullResetTopicStructure">
-                                <span>
-                                    <span class="font-medium">Xóa cấu trúc Topic cũ và tách lại từ đầu</span>
-                                    @if ($this->fullResetTopicStructure)
-                                        <span class="mt-2 block text-xs space-y-0.5">
-                                            <span class="block">· bỏ cấu trúc Topic hiện tại</span>
-                                            <span class="block">· nhóm lại toàn bộ keyword bằng semantic</span>
-                                            <span class="block">· Keywords được giữ nguyên</span>
-                                            <span class="block">· Articles được giữ nguyên</span>
-                                            <span class="block">· Focus Article được giữ nguyên</span>
-                                        </span>
-                                    @endif
-                                </span>
-                            </label>
-                        @else
-                            <p class="topic-ai-audit-modal__notice mt-3">
-                                Provider hiện tại: legacy — tách lại theo thuật toán cũ (không có full reset).
-                            </p>
-                        @endif
+                        <label class="mt-3 flex items-start gap-2 text-sm text-rose-800 dark:text-rose-200">
+                            <input type="checkbox" class="mt-1" wire:model.live="fullResetTopicStructure">
+                            <span>
+                                <span class="font-medium">Xóa cấu trúc Topic cũ và tách lại từ đầu</span>
+                                @if ($this->fullResetTopicStructure)
+                                    <span class="mt-2 block text-xs space-y-0.5">
+                                        <span class="block">· nhóm lại toàn bộ keyword</span>
+                                        <span class="block">· bỏ cấu trúc Topic hiện tại khi Apply</span>
+                                        <span class="block">· Keywords được giữ</span>
+                                        <span class="block">· Articles được giữ</span>
+                                        <span class="block">· Focus Article được giữ</span>
+                                    </span>
+                                @endif
+                            </span>
+                        </label>
                         <div class="topic-ai-audit-modal__actions mt-4">
                             <x-filament::button type="button" size="sm" color="gray" wire:click="closeReclusterModal">Hủy</x-filament::button>
-                            <x-filament::button type="button" size="sm" color="{{ ($canFullResetRebuild && $this->fullResetTopicStructure) ? 'danger' : 'warning' }}" wire:click="startTopicAnalysis" wire:loading.attr="disabled">
+                            <x-filament::button type="button" size="sm" color="{{ $this->fullResetTopicStructure ? 'danger' : 'warning' }}" wire:click="startTopicAnalysis" wire:loading.attr="disabled">
                                 Tách lại chủ đề
                             </x-filament::button>
                         </div>
                     @elseif ($reclusterModalStep === 'analyzing')
                         <p class="mt-3 text-sm font-medium">Đang phân tích từ khóa…</p>
                         <p class="mt-1 text-xs">
-                            Mode: {{ ($this->fullResetTopicStructure && $canFullResetRebuild) || $isFullResetRun ? 'Xóa cấu trúc Topic cũ và tách lại từ đầu' : 'Giữ cấu trúc Topic hiện tại' }}
+                            Mode: {{ $this->fullResetTopicStructure || $isFullResetRun ? 'Xóa cấu trúc Topic cũ và tách lại từ đầu' : 'Giữ cấu trúc Topic hiện tại' }}
                         </p>
                         <div class="topic-ai-audit-modal__actions mt-4">
                             <x-filament::button type="button" size="sm" color="gray" wire:click="closeReclusterModal">Đóng</x-filament::button>

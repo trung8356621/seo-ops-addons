@@ -15,6 +15,8 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\TopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\LegacyTopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTopicGroupingProvider;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputFactory;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputHasher;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposal;
@@ -32,6 +34,8 @@ final class TopicGroupingAnalysisService
         private readonly TopicSeedResolver $seeds,
         private readonly TopicGroupingProvider $grouping,
         private readonly TopicGroupingInputHasher $hasher,
+        private readonly SemanticHttpTopicGroupingProvider $semanticHttp,
+        private readonly LegacyTopicGroupingProvider $legacy,
         private readonly ?IndustryMatchRuntime $industryRules = null,
         private readonly ?GlobalMatchRuleProvider $globalRules = null,
     ) {}
@@ -41,27 +45,32 @@ final class TopicGroupingAnalysisService
         return Schema::connection('omi_seo_ai')->hasTable('seo_topic_grouping_runs');
     }
 
+    /**
+     * @param  string|null  $providerOverride  Explicit provider for this run (e.g. UI recluster).
+     *                                         Null keeps global TOPIC_GROUPING_PROVIDER selection (CLI/compat).
+     */
     public function analyzeSite(
         int $siteId,
         string $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING,
+        ?string $providerOverride = null,
     ): SeoTopicGroupingRun {
         $rebuildMode = TopicGroupingRebuildMode::normalize($rebuildMode);
+        $provider = $this->resolveProviderKey($providerOverride);
         // full_reset is semantic-only; legacy provider must never take destructive rebuild semantics.
-        if (! TopicGroupingProviderMode::isSemanticHttp()) {
+        if (! TopicGroupingProviderMode::isSemanticProvider($provider)) {
             $rebuildMode = TopicGroupingRebuildMode::PRESERVE_EXISTING;
         }
 
         if ($siteId <= 0) {
-            return $this->failedStub($siteId, 'site_required', 'site_id required');
+            return $this->failedStub($siteId, 'site_required', 'site_id required', $provider);
         }
         if (! TopicReclusterService::tablesReady()) {
-            return $this->failedStub($siteId, 'topic_tables_missing', 'Topic Core tables missing');
+            return $this->failedStub($siteId, 'topic_tables_missing', 'Topic Core tables missing', $provider);
         }
         if (! self::runsTableReady()) {
-            return $this->failedStub($siteId, 'grouping_runs_table_missing', 'seo_topic_grouping_runs missing');
+            return $this->failedStub($siteId, 'grouping_runs_table_missing', 'seo_topic_grouping_runs missing', $provider);
         }
 
-        $provider = TopicGroupingProviderMode::providerKey();
         $run = SeoTopicGroupingRun::query()->create([
             'site_id' => $siteId,
             'provider' => $provider,
@@ -97,7 +106,7 @@ final class TopicGroupingAnalysisService
             $run->status = TopicGroupingRunStatus::ANALYZING;
             $run->save();
 
-            $proposal = $this->grouping->analyze($input);
+            $proposal = $this->resolveGrouping($providerOverride)->analyze($input);
             $this->persistProposalReady($run, $proposal, $inputHash);
 
             TopicReclusterUiState::markProposalReady($siteId, $run->fresh() ?? $run, $provider);
@@ -259,11 +268,38 @@ final class TopicGroupingAnalysisService
         return $run->fresh() ?? $run;
     }
 
-    private function failedStub(int $siteId, string $code, string $message): SeoTopicGroupingRun
+    private function resolveProviderKey(?string $providerOverride): string
     {
+        if ($providerOverride === null || trim($providerOverride) === '') {
+            return TopicGroupingProviderMode::providerKey();
+        }
+
+        return TopicGroupingProviderMode::isSemanticProvider($providerOverride)
+            ? SemanticHttpTopicGroupingProvider::KEY
+            : LegacyTopicGroupingProvider::KEY;
+    }
+
+    private function resolveGrouping(?string $providerOverride): TopicGroupingProvider
+    {
+        if ($providerOverride === null || trim($providerOverride) === '') {
+            return $this->grouping;
+        }
+
+        return TopicGroupingProviderMode::isSemanticProvider($providerOverride)
+            ? $this->semanticHttp
+            : $this->legacy;
+    }
+
+    private function failedStub(
+        int $siteId,
+        string $code,
+        string $message,
+        ?string $provider = null,
+    ): SeoTopicGroupingRun {
+        $providerKey = $provider ?? TopicGroupingProviderMode::providerKey();
         $run = new SeoTopicGroupingRun([
             'site_id' => $siteId,
-            'provider' => TopicGroupingProviderMode::providerKey(),
+            'provider' => $providerKey,
             'input_hash' => '',
             'status' => TopicGroupingRunStatus::FAILED,
             'error_code' => $code,
@@ -274,7 +310,7 @@ final class TopicGroupingAnalysisService
         if ($siteId > 0 && self::runsTableReady()) {
             $run->save();
         }
-        TopicReclusterUiState::markFailed($siteId, $message, [], $code);
+        TopicReclusterUiState::markFailed($siteId, $message, [], $code, $providerKey);
 
         return $run;
     }
