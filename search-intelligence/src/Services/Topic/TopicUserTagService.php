@@ -615,6 +615,57 @@ final class TopicUserTagService
         SeoTopicTagAssignment::query()->whereIn('topic_id', $topicIds)->delete();
     }
 
+    /**
+     * Move a tag assignment from one Topic to another (manual provenance preserved).
+     * Idempotent if destination already has the tag (promotes AI→manual when needed).
+     */
+    public function reassignTag(int $siteId, int $fromTopicId, int $toTopicId, int $tagId, string $source = TopicTagAssignmentSource::MANUAL): void
+    {
+        if (! self::tablesReady() || $siteId <= 0 || $fromTopicId <= 0 || $toTopicId <= 0 || $tagId <= 0) {
+            return;
+        }
+        if ($fromTopicId === $toTopicId) {
+            return;
+        }
+        if (! $this->topicBelongsToSite($siteId, $fromTopicId) || ! $this->topicBelongsToSite($siteId, $toTopicId)) {
+            throw new \RuntimeException('tag_reassign_topic_site_mismatch');
+        }
+
+        $provenance = self::provenanceReady();
+        $desiredSource = TopicTagAssignmentSource::normalize($source);
+
+        $existing = SeoTopicTagAssignment::query()
+            ->where('topic_id', $toTopicId)
+            ->where('tag_id', $tagId)
+            ->first();
+        if ($existing instanceof SeoTopicTagAssignment) {
+            if ($provenance
+                && TopicTagAssignmentSource::isAi((string) ($existing->source ?? ''))
+                && $desiredSource === TopicTagAssignmentSource::MANUAL
+            ) {
+                $existing->source = TopicTagAssignmentSource::MANUAL;
+                $existing->save();
+            }
+        } else {
+            $attrs = [
+                'topic_id' => $toTopicId,
+                'tag_id' => $tagId,
+                'created_at' => now(),
+            ];
+            if ($provenance) {
+                $attrs['source'] = $desiredSource;
+            }
+            SeoTopicTagAssignment::query()->create($attrs);
+        }
+
+        SeoTopicTagAssignment::query()
+            ->where('topic_id', $fromTopicId)
+            ->where('tag_id', $tagId)
+            ->delete();
+
+        $this->invalidateTagMetrics($siteId);
+    }
+
     /** @deprecated BC alias used by dissolve/recluster callers */
     public function deleteForTopics(array $topicIds): void
     {

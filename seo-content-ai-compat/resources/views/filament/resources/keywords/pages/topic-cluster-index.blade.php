@@ -25,6 +25,9 @@
     $proposalPreview = is_array($this->proposalPreview ?? null) ? $this->proposalPreview : null;
     $previewCounts = is_array($proposalPreview['counts'] ?? null) ? $proposalPreview['counts'] : [];
     $identityMigration = is_array($proposalPreview['identity_migration'] ?? null) ? $proposalPreview['identity_migration'] : [];
+    $businessState = is_array($proposalPreview['business_state'] ?? null) ? $proposalPreview['business_state'] : [];
+    $businessSummary = is_array($businessState['summary'] ?? null) ? $businessState['summary'] : [];
+    $businessHardBlock = (bool) ($businessState['hard_block'] ?? false);
     $highChurnPreview = (bool) ($proposalPreview['high_churn'] ?? false);
 
     $assignedCount = (int) ($summary['assigned'] ?? $summary['clustered'] ?? 0);
@@ -715,8 +718,38 @@
                         </div>
                         <div>Ambiguous: <strong>{{ count($identityMigration['ambiguous'] ?? []) }}</strong></div>
                         <div>No-successor: <strong>{{ count($identityMigration['no_successor'] ?? []) }}</strong></div>
-                        <div>Focus Topics dissolved: <strong>{{ (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0) }}</strong></div>
+                        <div>Focus-keyword Topics changing identity: <strong>{{ (int) ($identityMigration['topics_with_focus_keywords_changing_identity'] ?? $identityMigration['topics_with_focus_dissolved'] ?? 0) }}</strong></div>
                     </div>
+                </div>
+                <div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs dark:border-emerald-800 dark:bg-emerald-950/40">
+                    <div class="font-medium">Business state preservation</div>
+                    <div class="mt-1 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                        <div>Manual Topic state: <strong>preserved</strong></div>
+                        <div>Locks: <strong>preserved</strong></div>
+                        <div>Focus bindings: <strong>unaffected / keyword-owned</strong></div>
+                        <div>Manual Topic tags:
+                            <strong>{{ (int) ($businessSummary['manual_tag_migrations'] ?? 0) }} migrate</strong>
+                            / <strong>{{ (int) ($businessSummary['manual_tag_review_required'] ?? 0) }} review</strong>
+                        </div>
+                        <div>MCP exclusions:
+                            <strong>{{ (int) ($businessSummary['mcp_exclusion_propagations'] ?? 0) }} propagated</strong>
+                            @if ((int) ($businessSummary['mcp_exclusions_on_dissolve'] ?? 0) > 0)
+                                / <strong class="text-rose-700">{{ (int) $businessSummary['mcp_exclusions_on_dissolve'] }} blocked</strong>
+                            @endif
+                        </div>
+                        <div>Hard references:
+                            <strong>{{ (int) ($businessSummary['hard_downstream_refs'] ?? 0) }}</strong>
+                        </div>
+                        <div>Derived DNA/cache: <strong>rebuilt</strong></div>
+                    </div>
+                    @if ($businessHardBlock)
+                        <div class="mt-2 font-semibold text-rose-700 dark:text-rose-300">HARD BLOCK — unresolved business-state review required before Apply.</div>
+                        <ul class="mt-1 list-disc pl-5 text-rose-800 dark:text-rose-200">
+                            @foreach (array_slice($businessState['metadata_review_required'] ?? [], 0, 8) as $review)
+                                <li>#{{ (int) ($review['topic_id'] ?? 0) }} {{ $review['name'] ?? '' }} — {{ $review['reason'] ?? 'review' }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
                 </div>
                 <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                     <div>Semantic groups: <strong>{{ (int) ($previewCounts['semantic_groups'] ?? 0) }}</strong></div>
@@ -822,7 +855,8 @@
                                 {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
                                 {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
                                 {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence;
-                                Focus Topics dissolved: {{ (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0) }}.
+                                Focus-keyword Topics changing identity: {{ (int) ($identityMigration['topics_with_focus_keywords_changing_identity'] ?? $identityMigration['topics_with_focus_dissolved'] ?? 0) }}
+                                (Focus bindings remain keyword-owned).
                             </p>
                             <div class="mt-2 flex gap-2">
                                 <x-filament::button type="button" size="xs" color="danger" wire:click="applyProposal" wire:loading.attr="disabled">

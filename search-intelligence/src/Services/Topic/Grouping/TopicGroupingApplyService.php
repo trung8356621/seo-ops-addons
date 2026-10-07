@@ -6,10 +6,13 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService;
 
 /**
  * Preview + Apply for persisted Topic grouping proposals.
@@ -137,6 +140,20 @@ final class TopicGroupingApplyService
                     );
                 }
 
+                if ($plan->isHardBlocked()) {
+                    $run->apply_error_code = 'business_state_hard_block';
+                    $run->apply_error_message = 'Unresolved Topic-owned business state — review required';
+                    $run->apply_plan_payload = $this->compactPlanPayload($plan);
+                    $run->plan_hash = $plan->planHash;
+                    $run->save();
+
+                    return TopicGroupingApplyResult::failed(
+                        'business_state_hard_block',
+                        'Unresolved Topic-owned business state — review required before Apply',
+                        $plan,
+                    );
+                }
+
                 $run->status = TopicGroupingRunStatus::APPLYING;
                 $run->plan_hash = $plan->planHash;
                 $run->apply_plan_payload = $this->compactPlanPayload($plan);
@@ -146,6 +163,9 @@ final class TopicGroupingApplyService
 
                 TopicReclusterUiState::markApplying((int) $run->site_id, $run);
 
+                // Tag migrations before dissolve deletes assignments.
+                $this->executeMetadataMigrations((int) $run->site_id, $plan);
+
                 $written = is_callable($this->persistClusters)
                     ? (array) ($this->persistClusters)((int) $run->site_id, $plan->resolvedClusters)
                     : $this->recluster()->persistResolvedClusters(
@@ -153,6 +173,9 @@ final class TopicGroupingApplyService
                         $plan->resolvedClusters,
                         false,
                     );
+
+                // MCP exclusion propagation after create/reuse IDs exist.
+                $this->executePolicyMigrations((int) $run->site_id, $plan);
 
                 $run->status = TopicGroupingRunStatus::APPLIED;
                 $run->applied_at = now();
@@ -164,6 +187,7 @@ final class TopicGroupingApplyService
                     'site_id' => (int) $run->site_id,
                     'plan_hash' => $plan->planHash,
                     'counts' => $plan->counts,
+                    'business_state' => $plan->businessState['summary'] ?? [],
                 ]);
 
                 TopicReclusterUiState::markApplied((int) $run->site_id, $run, $metrics);
@@ -276,10 +300,69 @@ final class TopicGroupingApplyService
                 'merges' => array_slice($plan->identityMigration['merges'] ?? [], 0, 30),
                 'ambiguous' => array_slice($plan->identityMigration['ambiguous'] ?? [], 0, 20),
                 'no_successor' => array_slice($plan->identityMigration['no_successor'] ?? [], 0, 40),
-                'topics_with_focus_dissolved' => $plan->identityMigration['topics_with_focus_dissolved'] ?? 0,
+                'topics_with_focus_keywords_changing_identity' => $plan->identityMigration['topics_with_focus_keywords_changing_identity'] ?? 0,
                 'thresholds' => $plan->identityMigration['thresholds'] ?? [],
             ],
+            'business_state' => [
+                'summary' => $plan->businessState['summary'] ?? [],
+                'metadata_migrations' => $plan->businessState['metadata_migrations'] ?? [],
+                'policy_migrations' => $plan->businessState['policy_migrations'] ?? [],
+                'metadata_review_required' => $plan->businessState['metadata_review_required'] ?? [],
+                'hard_block' => (bool) ($plan->businessState['hard_block'] ?? false),
+            ],
         ];
+    }
+
+    private function executeMetadataMigrations(int $siteId, TopicGroupingApplyPlan $plan): void
+    {
+        $tags = app(TopicUserTagService::class);
+        foreach ($plan->businessState['metadata_migrations'] ?? [] as $row) {
+            if (! is_array($row) || ($row['type'] ?? '') !== 'tag_reassign') {
+                continue;
+            }
+            $tags->reassignTag(
+                $siteId,
+                (int) ($row['from_topic_id'] ?? 0),
+                (int) ($row['to_topic_id'] ?? 0),
+                (int) ($row['tag_id'] ?? 0),
+                (string) ($row['source'] ?? 'manual'),
+            );
+        }
+    }
+
+    private function executePolicyMigrations(int $siteId, TopicGroupingApplyPlan $plan): void
+    {
+        if (! TopicMcpExclusionService::columnReady()) {
+            return;
+        }
+        $mcp = app(TopicMcpExclusionService::class);
+        foreach ($plan->businessState['policy_migrations'] ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = (string) ($row['type'] ?? '');
+            if ($type === 'mcp_exclude') {
+                $topicId = (int) ($row['topic_id'] ?? 0);
+                if ($topicId > 0) {
+                    $mcp->exclude($siteId, $topicId);
+                }
+                continue;
+            }
+            if ($type === 'mcp_exclude_by_group_name') {
+                $groupName = trim((string) ($row['group_name'] ?? ''));
+                if ($groupName === '') {
+                    continue;
+                }
+                $topic = SeoTopic::query()
+                    ->where('site_id', $siteId)
+                    ->where('name', $groupName)
+                    ->orderByDesc('id')
+                    ->first(['id']);
+                if ($topic !== null) {
+                    $mcp->exclude($siteId, (int) $topic->id);
+                }
+            }
+        }
     }
 
     private function markApplyFailed(int $runId, string $code, string $message): void

@@ -343,12 +343,17 @@ trait ReclustersSiteTopics
         }
         $status = (string) ($this->reclusterResult['status'] ?? '');
 
-        return in_array($status, [
+        if (! in_array($status, [
             TopicReclusterUiState::STATUS_PROPOSAL_READY,
             TopicReclusterUiState::STATUS_APPLY_FAILED,
         ], true)
-            && is_array($this->proposalPreview)
-            && (string) ($this->proposalPreview['plan_hash'] ?? '') !== '';
+            || ! is_array($this->proposalPreview)
+            || (string) ($this->proposalPreview['plan_hash'] ?? '') === ''
+        ) {
+            return false;
+        }
+
+        return ! (bool) ($this->proposalPreview['business_state']['hard_block'] ?? false);
     }
 
     public function openProposalPreview(): void
@@ -394,6 +399,7 @@ trait ReclustersSiteTopics
             'protected_keywords' => $plan->protectedKeywords,
             'warnings' => $plan->warnings,
             'identity_migration' => $plan->identityMigration,
+            'business_state' => $plan->businessState,
             'high_churn' => $this->isHighChurnPlan($plan->counts),
         ];
         $this->showProposalPreview = true;

@@ -20,6 +20,7 @@ final class TopicGroupingApplyPlanBuilder
         private readonly TopicGroupingProposalMapper $mapper = new TopicGroupingProposalMapper,
         private readonly TopicSeedIdentityResolver $seedIdentity = new TopicSeedIdentityResolver,
         private readonly TopicGroupingIdentityMatcher $identityMatcher = new TopicGroupingIdentityMatcher,
+        private readonly TopicGroupingBusinessStatePlanner $businessStatePlanner = new TopicGroupingBusinessStatePlanner,
     ) {}
 
     public function build(int $siteId, TopicGroupingProposal $proposal): TopicGroupingApplyPlan
@@ -87,7 +88,8 @@ final class TopicGroupingApplyPlanBuilder
             $identityDiag,
             $counts,
         );
-        $warnings = $this->buildWarnings($proposal, $topicActions, $counts, $identityMigration);
+        $businessState = $this->businessStatePlanner->plan($siteId, $topicActions, $identityMigration);
+        $warnings = $this->buildWarnings($proposal, $topicActions, $counts, $identityMigration, $businessState);
 
         $protectedTopics = [];
         foreach ($topicActions as $action) {
@@ -109,7 +111,14 @@ final class TopicGroupingApplyPlanBuilder
             }
         }
 
-        $planHash = $this->hashPlan($counts, $topicActions, $keywordActions, $businessSnapshotHash, $identityMigration);
+        $planHash = $this->hashPlan(
+            $counts,
+            $topicActions,
+            $keywordActions,
+            $businessSnapshotHash,
+            $identityMigration,
+            $businessState,
+        );
 
         return new TopicGroupingApplyPlan(
             $planHash,
@@ -122,6 +131,7 @@ final class TopicGroupingApplyPlanBuilder
             $clusters,
             $businessSnapshotHash,
             $identityMigration,
+            $businessState,
         );
     }
 
@@ -497,11 +507,15 @@ final class TopicGroupingApplyPlanBuilder
      * @param  array<string, mixed>  $identityMigration
      * @return list<string>
      */
+    /**
+     * @param  array<string, mixed>  $businessState
+     */
     private function buildWarnings(
         TopicGroupingProposal $proposal,
         array $topicActions,
         array $counts,
         array $identityMigration,
+        array $businessState = [],
     ): array {
         $warnings = [];
         $low = (int) ($proposal->metadata['low_confidence_member_count']
@@ -531,9 +545,9 @@ final class TopicGroupingApplyPlanBuilder
         if ($unassignedRatio >= 0.15) {
             $warnings[] = 'elevated_unassigned_ratio:'.round($unassignedRatio, 3);
         }
-        $focusDissolved = (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0);
-        if ($focusDissolved > 0) {
-            $warnings[] = "topics_with_focus_being_dissolved:{$focusDissolved}";
+        $focusChanging = (int) ($identityMigration['topics_with_focus_keywords_changing_identity'] ?? 0);
+        if ($focusChanging > 0) {
+            $warnings[] = "topics_with_focus_keywords_changing_identity:{$focusChanging}";
         }
         $ambiguous = (int) ($counts['identity_ambiguous'] ?? 0);
         if ($ambiguous > 0) {
@@ -541,6 +555,12 @@ final class TopicGroupingApplyPlanBuilder
         }
         if ((int) ($counts['topics_protected'] ?? 0) > 0 || (int) ($counts['keywords_protected'] ?? 0) > 0) {
             $warnings[] = 'protected_conflicts:'.((int) $counts['topics_protected'] + (int) $counts['keywords_protected']);
+        }
+        foreach ($businessState['metadata_review_required'] ?? [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $warnings[] = 'hard_block:'.((string) ($row['reason'] ?? 'review')).':'.((int) ($row['topic_id'] ?? 0));
         }
 
         return array_values(array_unique($warnings));
@@ -561,14 +581,14 @@ final class TopicGroupingApplyPlanBuilder
         array $identityDiag,
         array $counts,
     ): array {
-        $focusDissolved = 0;
+        $focusChanging = 0;
         $focusTopicIds = $this->loadFocusTopicIds($siteId, array_keys($currentTopics));
         foreach ($topicActions as $action) {
             if ($action['action'] !== 'dissolve' || $action['topic_id'] === null) {
                 continue;
             }
             if (isset($focusTopicIds[(int) $action['topic_id']])) {
-                $focusDissolved++;
+                $focusChanging++;
             }
         }
 
@@ -598,7 +618,8 @@ final class TopicGroupingApplyPlanBuilder
             'no_successor' => $identityDiag['no_successor'],
             'matches' => $identityDiag['matches'],
             'thresholds' => $identityDiag['thresholds'],
-            'topics_with_focus_dissolved' => $focusDissolved,
+            // Focus is keyword-owned; dissolving Topic identity does not delete Focus bindings.
+            'topics_with_focus_keywords_changing_identity' => $focusChanging,
             'identity_mapping' => $mapping,
         ];
     }
@@ -701,12 +722,16 @@ final class TopicGroupingApplyPlanBuilder
      * @param  list<array<string, mixed>>  $keywordActions
      * @param  array<string, mixed>  $identityMigration
      */
+    /**
+     * @param  array<string, mixed>  $businessState
+     */
     private function hashPlan(
         array $counts,
         array $topicActions,
         array $keywordActions,
         string $businessSnapshotHash,
         array $identityMigration = [],
+        array $businessState = [],
     ): string {
         $payload = [
             'business_snapshot_hash' => $businessSnapshotHash,
@@ -725,6 +750,9 @@ final class TopicGroupingApplyPlanBuilder
                 'protected' => $a['protected'],
             ], $keywordActions),
             'identity_mapping' => $identityMigration['identity_mapping'] ?? [],
+            'metadata_migrations' => $businessState['metadata_migrations'] ?? [],
+            'policy_migrations' => $businessState['policy_migrations'] ?? [],
+            'metadata_review_required' => $businessState['metadata_review_required'] ?? [],
         ];
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($json === false) {

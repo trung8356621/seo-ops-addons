@@ -33,6 +33,8 @@ final class TopicGroupingApplyPlan
         public readonly array $resolvedClusters,
         public readonly string $businessSnapshotHash,
         public readonly array $identityMigration = [],
+        /** @var array<string, mixed> */
+        public readonly array $businessState = [],
     ) {}
 
     /**
@@ -50,7 +52,13 @@ final class TopicGroupingApplyPlan
             'protected_keywords' => $this->protectedKeywords,
             'warnings' => $this->warnings,
             'identity_migration' => $this->identityMigration,
+            'business_state' => $this->businessState,
             'resolved_clusters' => $this->resolvedClusters,
         ];
+    }
+
+    public function isHardBlocked(): bool
+    {
+        return (bool) ($this->businessState['hard_block'] ?? false);
     }
 }
