@@ -10,17 +10,23 @@ use Omnichannel\Addons\SearchFoundation\Services\MatchRules\IndustryMatchRuntime
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicKeywordSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\TopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputFactory;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
- * Targeted membership reconcile for one site Topic (manual create / repair).
+ * Targeted membership reconcile for one site Topic (manual create / rescan).
  *
- * Does not run global recluster. One keyword remains one Topic per site.
+ * LEGACY PROVIDER PATH: match analysis is TopicGroupingProvider
+ * (scope topic_membership_scan → LegacyTopicGroupingProvider → lexical matcher).
+ * This service applies lock, seed, move/attach, DNA, and cache. It does not
+ * persist from the proposal itself and does not run global recluster.
+ * One keyword remains one Topic per site.
  */
 final class TopicMembershipReconcileService
 {
     public function __construct(
-        private readonly TopicMembershipMatcher $matcher,
+        private readonly TopicGroupingProvider $grouping,
         private readonly TopicSiteKeywordService $siteKeywords,
         private readonly TopicDnaService $dna,
         private readonly ?IndustryMatchRuntime $industryRules = null,
@@ -65,11 +71,27 @@ final class TopicMembershipReconcileService
         }
 
         $topicName = TopicNaming::canonicalName((string) $topic->name) ?: (string) $topic->name;
-        $matcher = $this->matcher->withRules(
+        $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
+        $proposal = $this->grouping->analyze(TopicGroupingInputFactory::topicMembershipScan(
+            $siteId,
+            $topicId,
+            $topicName,
+            $eligible,
             $this->industryRules?->rulesForSite($siteId) ?? [],
             $this->globalRules?->globalMatchRules() ?? [],
-        );
-        $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
+        ));
+        /** @var array<int, true> $matchedKeywordIds */
+        $matchedKeywordIds = [];
+        foreach ($proposal->groups as $group) {
+            if ($group->existingTopicRef !== $topicId) {
+                continue;
+            }
+            foreach ($group->members as $member) {
+                if ($member->keywordRef > 0) {
+                    $matchedKeywordIds[$member->keywordRef] = true;
+                }
+            }
+        }
 
         /** @var array<int, SeoTopicKeyword> $memberships */
         $memberships = SeoTopicKeyword::query()
@@ -98,9 +120,8 @@ final class TopicMembershipReconcileService
         DB::connection('omi_seo_ai')->transaction(function () use (
             $siteId,
             $topicId,
-            $topicName,
-            $matcher,
             $eligible,
+            $matchedKeywordIds,
             $memberships,
             $lockedTopicIds,
             &$checked,
@@ -118,7 +139,7 @@ final class TopicMembershipReconcileService
                 if ($keywordId <= 0 || $phrase === '') {
                     continue;
                 }
-                if (! $matcher->matches($phrase, $topicName)) {
+                if (! isset($matchedKeywordIds[$keywordId])) {
                     continue;
                 }
                 $matched++;

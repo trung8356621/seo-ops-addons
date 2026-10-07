@@ -11,6 +11,9 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 
 /**
  * Create / reuse a site-scoped manual Topic without synthesizing a Keyword row.
+ *
+ * Automatic membership after create goes through TopicMembershipReconcileService,
+ * which asks TopicGroupingProvider for a scan proposal and then applies business rules.
  */
 final class TopicManualCreateService
 {

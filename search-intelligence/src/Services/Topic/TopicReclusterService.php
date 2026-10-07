@@ -13,6 +13,10 @@ use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\TopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputFactory;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposal;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposalMapper;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
@@ -24,13 +28,16 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorksp
  * Discovered Topics (auto + zero seeds) reuse topic_id via membership overlap.
  * Does not migrate legacy cluster-key / DNA. Does not force Focus⇒Topic.
  * Respects topic + membership locks (separate from source=manual).
+ *
+ * Grouping analysis goes through TopicGroupingProvider. This service keeps
+ * identity reuse, manual freeze, locks, persistence, DNA, and cache.
  */
 final class TopicReclusterService
 {
     public function __construct(
         private readonly TopicSiteKeywordService $siteKeywords,
         private readonly TopicSeedResolver $seeds,
-        private readonly TopicClusterEngine $engine,
+        private readonly TopicGroupingProvider $grouping,
         private readonly TopicDnaService $dna,
         private readonly TopicSeedIdentityResolver $identity = new TopicSeedIdentityResolver,
         private readonly TopicDiscoveredIdentityResolver $discoveredIdentity = new TopicDiscoveredIdentityResolver,
@@ -120,19 +127,20 @@ final class TopicReclusterService
                 - count($locked['locked_topic_ids']);
             $metrics['memberships_locked_preserved'] = count($locked['locked_keyword_ids']);
 
-            $engineMetrics = [];
-            $engine = $this->engine->withRules(
-                $this->industryRules?->rulesForSite($siteId) ?? [],
-                $this->globalRules?->globalMatchRules() ?? [],
-            );
-            $clusters = $engine->cluster(
+            $proposal = $this->grouping->analyze(TopicGroupingInputFactory::siteRecluster(
+                $siteId,
                 $seedRows,
                 $eligible,
                 $locked['topics'],
                 $locked['locked_keyword_ids'],
                 $manualInventory,
-                $engineMetrics,
-            );
+                $this->industryRules?->rulesForSite($siteId) ?? [],
+                $this->globalRules?->globalMatchRules() ?? [],
+            ));
+            $engineMetrics = is_array($proposal->metadata[TopicGroupingProposal::META_ENGINE_METRICS] ?? null)
+                ? $proposal->metadata[TopicGroupingProposal::META_ENGINE_METRICS]
+                : [];
+            $clusters = (new TopicGroupingProposalMapper)->toReclusterClusters($proposal);
             foreach (
                 [
                     'members_attached_direct',

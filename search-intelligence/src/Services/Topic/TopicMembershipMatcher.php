@@ -7,7 +7,10 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseResolver;
 
 /**
- * Shared Topic membership phrase matcher (manual reconcile + recluster engine).
+ * Shared Topic membership phrase matcher.
+ *
+ * Used by the legacy grouping provider (targeted scan) and the legacy cluster engine.
+ * Does not persist Topic memberships.
  */
 final class TopicMembershipMatcher
 {

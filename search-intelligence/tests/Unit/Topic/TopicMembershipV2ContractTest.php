@@ -70,9 +70,13 @@ final class TopicMembershipV2ContractTest extends TestCase
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicMembershipReconcileService.php');
         self::assertStringContainsString('loadTopicCandidateKeywords', $src);
-        self::assertStringContainsString('TopicMembershipMatcher', $src);
+        self::assertStringContainsString('TopicGroupingProvider', $src);
+        self::assertStringNotContainsString('TopicMembershipMatcher', $src);
         self::assertStringNotContainsString('loadEligibleSeoKeywords', $src);
         self::assertTrue(class_exists(TopicMembershipReconcileService::class));
+
+        $legacy = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/Grouping/LegacyTopicGroupingProvider.php');
+        self::assertStringContainsString('TopicMembershipMatcher', $legacy);
     }
 
     public function test_candidate_loader_is_not_gated_on_is_seo_keyword(): void

@@ -9,6 +9,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Support\TopicPhraseReso
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 
 /**
+ * Legacy lexical clustering used only by LegacyTopicGroupingProvider.
+ *
  * Cluster site keywords around Topic seeds, then discover Topics from remainder.
  *
  * Attach is specificity-first (not iteration-order). Unmatched eligible SEO keywords stay

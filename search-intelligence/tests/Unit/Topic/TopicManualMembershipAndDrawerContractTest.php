@@ -30,7 +30,8 @@ final class TopicManualMembershipAndDrawerContractTest extends TestCase
     public function test_reconcile_service_encodes_lock_and_seed_safety(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/Services/Topic/TopicMembershipReconcileService.php');
-        self::assertStringContainsString('TopicMembershipMatcher', $src);
+        self::assertStringContainsString('TopicGroupingProvider', $src);
+        self::assertStringNotContainsString('TopicMembershipMatcher', $src);
         self::assertStringContainsString('skipped_locked', $src);
         self::assertStringContainsString('skipped_seed', $src);
         self::assertStringContainsString('rebuildForTopic', $src);
