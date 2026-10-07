@@ -57,7 +57,7 @@ final class TopicReclusterSafetyAndManualFreezeTest extends TestCase
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
         );
         self::assertStringContainsString('TopicReclusterUiState::markQueued(', $concern);
-        self::assertStringContainsString('ReclusterSiteTopicsJob::dispatch($siteId, $version)', $concern);
+        self::assertStringContainsString('ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode)', $concern);
         self::assertStringContainsString('TopicGroupingProviderMode::SEMANTIC_HTTP', $concern);
         self::assertStringContainsString('isTopicMutationLocked()', $concern);
         self::assertStringContainsString('topic_recluster_already_running', $concern);
@@ -93,8 +93,11 @@ final class TopicReclusterSafetyAndManualFreezeTest extends TestCase
         self::assertStringContainsString("\$reclusterStatus === 'running'", $index);
         self::assertStringContainsString('wire:poll.5s="pollReclusterResult"', $index);
         self::assertStringContainsString('wire:poll.5s="pollReclusterResult"', $detail);
-        self::assertStringContainsString("\$reclusterStatus === 'succeeded'", $index);
-        self::assertStringContainsString("result.source", $index);
+        self::assertStringContainsString("reclusterModalStep === 'applied'", $index);
+        self::assertStringContainsString('STATUS_SUCCEEDED', (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
+        ));
+        self::assertStringContainsString('result.source', $index);
     }
 
     public function test_global_recluster_does_not_auto_reconcile_manuals(): void

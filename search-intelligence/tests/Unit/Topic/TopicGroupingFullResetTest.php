@@ -423,8 +423,9 @@ final class TopicGroupingFullResetTest extends TestCase
         self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
         self::assertStringContainsString('topic_ai_history_link', $blade);
         self::assertStringContainsString('beginConfirmAiAudit', $blade);
-        self::assertStringContainsString('Tách lại hoàn toàn', $blade);
-        self::assertStringContainsString('Giữ cấu trúc hiện tại', $blade);
+        self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
+        self::assertStringNotContainsString('Xem thay đổi', $blade);
+        self::assertStringNotContainsString('openProposalPreview', $blade);
     }
 
     public function test_proposal_ready_does_not_mutate_topics(): void

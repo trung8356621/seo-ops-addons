@@ -359,20 +359,20 @@ final class TopicGroupingApplyPlanAndServiceTest extends TestCase
         $concern = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
         );
-        self::assertStringContainsString('openProposalPreview', $concern);
-        self::assertStringContainsString('applyProposal', $concern);
-        self::assertStringContainsString('discardProposal', $concern);
-        self::assertStringContainsString('canApplyProposal', $concern);
+        // Manual review UX removed; ApplyService::discard remains for ops/safety.
+        self::assertStringNotContainsString('openProposalPreview', $concern);
+        self::assertStringNotContainsString('applyProposal', $concern);
+        self::assertStringContainsString('selectedRebuildMode', $concern);
+        self::assertStringContainsString('startTopicAnalysis', $concern);
 
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
         self::assertStringContainsString('openReclusterModal', $blade);
         self::assertStringContainsString('topic-recluster-modal-title', $blade);
-        self::assertStringContainsString('Xem thay đổi', $blade);
-        self::assertStringContainsString('beginConfirmApplyProposal', $blade);
-        self::assertStringContainsString("'proposal_ready'", $blade);
-        self::assertStringContainsString("'stale'", $blade);
+        self::assertStringNotContainsString('Xem thay đổi', $blade);
+        self::assertStringNotContainsString('beginConfirmApplyProposal', $blade);
+        self::assertStringContainsString('Đang chuẩn bị áp dụng', $blade);
 
         self::assertTrue(defined(TopicGroupingRunStatus::class.'::APPLY_FAILED'));
         self::assertSame('apply_failed', TopicGroupingRunStatus::APPLY_FAILED);

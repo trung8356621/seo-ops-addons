@@ -13,6 +13,7 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingApplyService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
@@ -20,10 +21,10 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
 
 /**
- * Site-scoped Topic recluster OR semantic analyze-only (config-driven).
+ * Site-scoped Topic recluster.
  *
- * semantic_http: queued → analyzing → proposal_ready|failed → STOP (no Topic mutation)
- * legacy: existing recluster apply path
+ * semantic_http: Analyze → internal plan → Apply on the SAME run (no user Preview).
+ * legacy: existing recluster apply path.
  */
 final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
 {
@@ -64,9 +65,10 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
     public function handle(
         TopicReclusterService $recluster,
         TopicGroupingAnalysisService $analysis,
+        TopicGroupingApplyService $apply,
     ): void {
         if (TopicGroupingProviderMode::isSemanticHttp()) {
-            $this->handleSemanticAnalyze($analysis);
+            $this->handleSemanticAnalyzeAndApply($analysis, $apply);
 
             return;
         }
@@ -104,27 +106,67 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
         );
     }
 
-    private function handleSemanticAnalyze(TopicGroupingAnalysisService $analysis): void
-    {
+    private function handleSemanticAnalyzeAndApply(
+        TopicGroupingAnalysisService $analysis,
+        TopicGroupingApplyService $apply,
+    ): void {
         $rebuildMode = TopicGroupingRebuildMode::normalize($this->rebuildMode);
         TopicReclusterUiState::markQueued(
             $this->siteId,
             TopicGroupingProviderMode::SEMANTIC_HTTP,
             $rebuildMode,
         );
+
         $run = $analysis->analyzeSite($this->siteId, $rebuildMode);
-        if ($run->status === TopicGroupingRunStatus::PROPOSAL_READY) {
+        if ($run->status !== TopicGroupingRunStatus::PROPOSAL_READY) {
+            if ($run->status !== TopicGroupingRunStatus::FAILED) {
+                TopicReclusterUiState::markFailed(
+                    $this->siteId,
+                    $run->error_message ?? 'analysis_failed',
+                    ['run_id' => $run->id, 'rebuild_mode' => $rebuildMode],
+                    $run->error_code ?? 'analysis_failed',
+                    TopicGroupingProviderMode::SEMANTIC_HTTP,
+                );
+            }
+
             return;
         }
-        // analyzeSite already marks failed UI state; ensure status is failed if unexpected.
-        if ($run->status !== TopicGroupingRunStatus::FAILED) {
+
+        // Internal plan build (plan_hash / stale guards). Not a user Preview step.
+        $preview = $apply->preview((int) $run->id);
+        if (! $preview->ok() || $preview->plan === null) {
             TopicReclusterUiState::markFailed(
                 $this->siteId,
-                $run->error_message ?? 'analysis_failed',
-                ['run_id' => $run->id],
-                $run->error_code ?? 'analysis_failed',
+                $preview->errorMessage ?? 'plan_build_failed',
+                [
+                    'run_id' => (int) $run->id,
+                    'rebuild_mode' => $rebuildMode,
+                    'status' => $preview->status,
+                ],
+                $preview->errorCode ?? 'plan_build_failed',
                 TopicGroupingProviderMode::SEMANTIC_HTTP,
             );
+
+            return;
         }
+
+        if ($preview->plan->isHardBlocked()) {
+            TopicReclusterUiState::markFailed(
+                $this->siteId,
+                'Unresolved Topic-owned business state — Apply blocked',
+                [
+                    'run_id' => (int) $run->id,
+                    'rebuild_mode' => $rebuildMode,
+                    'counts' => $preview->plan->counts,
+                ],
+                'business_state_hard_block',
+                TopicGroupingProviderMode::SEMANTIC_HTTP,
+            );
+
+            return;
+        }
+
+        // ApplyService marks applied / apply_failed / stale on UI + run.
+        $apply->apply((int) $run->id, $preview->plan->planHash);
     }
 }

@@ -575,10 +575,10 @@ final class TopicGroupingBusinessStateCutoverTest extends TestCase
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
-        // Preview lives in recluster modal; Focus remains keyword-owned / not dissolved wording.
+        // Manual Preview removed; Focus preservation copy remains in confirm modal.
         self::assertStringContainsString('Focus Article', $blade);
-        self::assertStringContainsString('HARD BLOCK', $blade);
-        self::assertStringContainsString('openProposalPreview', $blade);
+        self::assertStringNotContainsString('HARD BLOCK', $blade);
+        self::assertStringNotContainsString('openProposalPreview', $blade);
         self::assertStringNotContainsString('Focus Topics dissolved', $blade);
     }
 
