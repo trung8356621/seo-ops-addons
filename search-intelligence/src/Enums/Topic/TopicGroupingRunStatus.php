@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Enums\Topic;
 
 /**
- * Proposal / analysis job states for Topic grouping runs.
- * applying / applied reserved for Prompt 5 — not used in TASK 4.
+ * Proposal / analysis / apply job states for Topic grouping runs.
  */
 final class TopicGroupingRunStatus
 {
@@ -22,11 +21,11 @@ final class TopicGroupingRunStatus
 
     public const DISCARDED = 'discarded';
 
-    /** @reserved Prompt 5 */
     public const APPLYING = 'applying';
 
-    /** @reserved Prompt 5 */
     public const APPLIED = 'applied';
+
+    public const APPLY_FAILED = 'apply_failed';
 
     /**
      * @return list<string>
@@ -34,5 +33,13 @@ final class TopicGroupingRunStatus
     public static function activeAnalysis(): array
     {
         return [self::QUEUED, self::ANALYZING];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function applyTerminal(): array
+    {
+        return [self::APPLIED, self::APPLY_FAILED, self::DISCARDED];
     }
 }

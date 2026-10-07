@@ -22,6 +22,7 @@ final class SeoTopicGroupingRun extends Model
         'provider',
         'external_analysis_id',
         'input_hash',
+        'plan_hash',
         'status',
         'keyword_count',
         'group_count',
@@ -31,11 +32,15 @@ final class SeoTopicGroupingRun extends Model
         'model_version',
         'algorithm',
         'proposal_payload',
+        'apply_plan_payload',
         'diagnostics',
         'error_code',
         'error_message',
+        'apply_error_code',
+        'apply_error_message',
         'started_at',
         'completed_at',
+        'applied_at',
     ];
 
     protected $casts = [
@@ -45,9 +50,11 @@ final class SeoTopicGroupingRun extends Model
         'unassigned_count' => 'integer',
         'low_confidence_count' => 'integer',
         'proposal_payload' => 'array',
+        'apply_plan_payload' => 'array',
         'diagnostics' => 'array',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
+        'applied_at' => 'datetime',
     ];
 
     public function isProposalReady(): bool
@@ -63,5 +70,16 @@ final class SeoTopicGroupingRun extends Model
     public function isStale(): bool
     {
         return $this->status === TopicGroupingRunStatus::STALE;
+    }
+
+    public function isApplied(): bool
+    {
+        return $this->status === TopicGroupingRunStatus::APPLIED;
+    }
+
+    public function canApply(): bool
+    {
+        return $this->status === TopicGroupingRunStatus::PROPOSAL_READY
+            || $this->status === TopicGroupingRunStatus::APPLY_FAILED;
     }
 }

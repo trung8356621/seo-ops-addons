@@ -176,14 +176,7 @@ final class TopicReclusterService
             }
             $metrics['discovered_memberships'] = $discoveredMemberships;
 
-            $priorDiscoveredIds = [];
-            foreach ($discoveredInventory as $row) {
-                $priorDiscoveredIds[(int) $row['topic_id']] = true;
-            }
-
-            $written = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds): array {
-                return $this->persistClusters($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds);
-            });
+            $written = $this->persistResolvedClusters($siteId, $clusters, true, $locked, $manualTopicIds, $discoveredInventory);
 
             // Global Recluster must NOT auto-reconcile manual Topics (source=manual = frozen).
             // Explicit Detail Rescan still calls TopicMembershipReconcileService.
@@ -196,18 +189,77 @@ final class TopicReclusterService
             $metrics['topics_created'] = $written['topics_created'];
             $metrics['discovered_topics_dissolved'] = $written['discovered_topics_dissolved'];
 
-            $workspaceMetrics = app(KeywordWorkspaceMetricCache::class);
-            $workspaceMetrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::TOPICS);
-            $workspaceMetrics->invalidateMetric(
-                $siteId,
-                KeywordWorkspaceMetricCache::DICTIONARY,
-                'no_topic',
-            );
-
             return TopicReclusterResult::ok($metrics);
         } catch (\Throwable $e) {
             return TopicReclusterResult::failed($e->getMessage(), $metrics);
         }
+    }
+
+    /**
+     * Shared business mutation path for legacy recluster and semantic Apply.
+     * Does not analyze. Does not call semantic HTTP.
+     *
+     * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  array{
+     *     locked_topic_ids: array<int, true>,
+     *     preserved_topic_ids: array<int, true>,
+     *     locked_keyword_ids: array<int, true>,
+     *     locked_memberships_by_topic: array<int, list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>>,
+     *     topics: list<array{topic_id: int, name: string, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>
+     * }|null  $locked
+     * @param  list<int>|null  $manualTopicIds
+     * @param  list<array{topic_id: int, name: string, member_keyword_ids: list<int>, member_count: int, is_locked: bool}>|null  $discoveredInventory
+     * @return array{
+     *     topics_after: int,
+     *     memberships_written: int,
+     *     dna_rows: int,
+     *     topics_dissolved: int,
+     *     topics_reused: int,
+     *     topics_created: int,
+     *     discovered_topics_dissolved: int
+     * }
+     */
+    public function persistResolvedClusters(
+        int $siteId,
+        array $clusters,
+        bool $wrapTransaction = true,
+        ?array $locked = null,
+        ?array $manualTopicIds = null,
+        ?array $discoveredInventory = null,
+    ): array {
+        $locked ??= $this->loadLockedState($siteId);
+        $manualTopicIds ??= SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('source', TopicSource::MANUAL)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+        $discoveredInventory ??= $this->loadDiscoveredIdentitySnapshot($siteId);
+
+        $priorDiscoveredIds = [];
+        foreach ($discoveredInventory as $row) {
+            $priorDiscoveredIds[(int) $row['topic_id']] = true;
+        }
+
+        $write = function () use ($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds): array {
+            return $this->persistClusters($siteId, $clusters, $locked, $manualTopicIds, $priorDiscoveredIds);
+        };
+
+        $written = $wrapTransaction
+            ? DB::connection('omi_seo_ai')->transaction($write)
+            : $write();
+
+        $workspaceMetrics = app(KeywordWorkspaceMetricCache::class);
+        $workspaceMetrics->invalidateNamespace($siteId, KeywordWorkspaceMetricCache::TOPICS);
+        $workspaceMetrics->invalidateMetric(
+            $siteId,
+            KeywordWorkspaceMetricCache::DICTIONARY,
+            'no_topic',
+        );
+
+        return $written;
     }
 
     /**

@@ -12,12 +12,18 @@
         : '';
     $reclusterActive = $reclusterRunning
         || $reclusterStatus === 'queued'
-        || $reclusterStatus === 'running';
+        || $reclusterStatus === 'running'
+        || $reclusterStatus === 'analyzing'
+        || $reclusterStatus === 'applying';
     $topicMutationsLocked = $reclusterActive || $this->isTopicMutationLocked();
     $canEditPermission = $this->hasTopicClusterMutationPermission();
     $canDissolve = $this->canDissolveCluster();
     $canEditCanonical = $this->canEditClusterCanonical();
     $reclusterPollAttr = $reclusterActive ? 'wire:poll.5s="pollReclusterResult"' : '';
+    $showProposalPreview = (bool) ($this->showProposalPreview ?? false);
+    $confirmApplyProposal = (bool) ($this->confirmApplyProposal ?? false);
+    $proposalPreview = is_array($this->proposalPreview ?? null) ? $this->proposalPreview : null;
+    $previewCounts = is_array($proposalPreview['counts'] ?? null) ? $proposalPreview['counts'] : [];
 
     $assignedCount = (int) ($summary['assigned'] ?? $summary['clustered'] ?? 0);
     $unassignedCount = (int) ($summary['unassigned'] ?? $summary['unclustered'] ?? 0);
@@ -593,14 +599,51 @@
             </div>
         </div>
 
-        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterActive || $topicMutationsLocked)
+        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterStatus === 'analyzing' || $reclusterStatus === 'applying')
             <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-                <div class="font-medium">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_title') }}</div>
-                <p class="mt-1 opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_body') }}</p>
-                @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterActive)
+                <div class="font-medium">
+                    @if ($reclusterStatus === 'analyzing')
+                        Đang phân tích semantic…
+                    @elseif ($reclusterStatus === 'applying')
+                        Đang áp dụng đề xuất Topic…
+                    @else
+                        {{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_title') }}
+                    @endif
+                </div>
+                @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running')
+                    <p class="mt-1 opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_body') }}</p>
                     <p class="mt-1 font-medium opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}</p>
                 @endif
             </div>
+        @elseif ($reclusterStatus === 'proposal_ready')
+            @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
+            <div class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100">
+                <div class="font-medium">Proposal ready (chưa áp dụng)</div>
+                <p class="mt-1">
+                    {{ number_format((int) ($m['group_count'] ?? 0)) }} groups
+                    · {{ number_format((int) ($m['unassigned_count'] ?? 0)) }} unassigned
+                    · {{ number_format((int) ($m['low_confidence_count'] ?? 0)) }} low confidence
+                </p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    <x-filament::button type="button" size="xs" color="primary" wire:click="openProposalPreview">
+                        Xem đề xuất
+                    </x-filament::button>
+                    <x-filament::button type="button" size="xs" color="gray" wire:click="discardProposal"
+                        wire:confirm="Discard proposal? Topic business state sẽ không đổi.">
+                        Discard
+                    </x-filament::button>
+                </div>
+            </div>
+        @elseif ($reclusterStatus === 'applied')
+            @php $m = $this->reclusterResult['metrics'] ?? []; $c = is_array($m['counts'] ?? null) ? $m['counts'] : []; @endphp
+            <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
+                Applied:
+                created {{ number_format((int) ($c['topics_created'] ?? $m['topics_created'] ?? 0)) }}
+                · reused {{ number_format((int) ($c['topics_reused'] ?? $m['topics_reused'] ?? 0)) }}
+                · dissolved {{ number_format((int) ($c['topics_dissolved'] ?? $m['topics_dissolved'] ?? 0)) }}
+                · moved {{ number_format((int) ($c['keywords_moved'] ?? 0)) }}
+                · protected {{ number_format((int) (($c['topics_protected'] ?? 0) + ($c['keywords_protected'] ?? 0))) }}
+            </p>
         @elseif ($reclusterStatus === 'succeeded' || $reclusterStatus === 'completed')
             @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
             <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
@@ -615,6 +658,25 @@
                     · {{ number_format((int) $m['topics_dissolved']) }} dissolved
                 @endif
             </p>
+        @elseif ($reclusterStatus === 'stale')
+            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                Proposal stale — phân tích lại trước khi Apply.
+                @if (! empty($this->reclusterResult['error']))
+                    — {{ $this->reclusterResult['error'] }}
+                @endif
+            </p>
+        @elseif ($reclusterStatus === 'apply_failed')
+            <div class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
+                Apply failed
+                @if (! empty($this->reclusterResult['error']))
+                    — {{ $this->reclusterResult['error'] }}
+                @endif
+                <div class="mt-2">
+                    <x-filament::button type="button" size="xs" color="primary" wire:click="openProposalPreview">
+                        Xem đề xuất lại
+                    </x-filament::button>
+                </div>
+            </div>
         @elseif ($reclusterStatus === 'failed')
             <p class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
                 {{ __('seo-content-ai::filament.keyword.topic_recluster_failed_title') }}
@@ -622,6 +684,106 @@
                     — {{ $this->reclusterResult['error'] }}
                 @endif
             </p>
+        @endif
+
+        @if ($showProposalPreview && $proposalPreview)
+            <div class="rounded-xl border border-sky-300 bg-white p-4 text-sm shadow-sm dark:border-sky-700 dark:bg-gray-900">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <div class="font-semibold">Apply Plan Preview</div>
+                        <p class="mt-1 text-xs text-gray-500">
+                            run #{{ (int) ($proposalPreview['run_id'] ?? 0) }}
+                            · plan {{ \Illuminate\Support\Str::limit((string) ($proposalPreview['plan_hash'] ?? ''), 12, '') }}
+                        </p>
+                    </div>
+                    <x-filament::button type="button" size="xs" color="gray" wire:click="closeProposalPreview">Đóng</x-filament::button>
+                </div>
+                <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+                    <div>Semantic groups: <strong>{{ (int) ($previewCounts['semantic_groups'] ?? 0) }}</strong></div>
+                    <div>Effective topics: <strong>{{ (int) ($previewCounts['effective_topics_after'] ?? 0) }}</strong></div>
+                    <div>Created / reused / dissolved:
+                        <strong>{{ (int) ($previewCounts['topics_created'] ?? 0) }}</strong> /
+                        <strong>{{ (int) ($previewCounts['topics_reused'] ?? 0) }}</strong> /
+                        <strong>{{ (int) ($previewCounts['topics_dissolved'] ?? 0) }}</strong>
+                    </div>
+                    <div>KW assign / move / unassign:
+                        <strong>{{ (int) ($previewCounts['keywords_assigned'] ?? 0) }}</strong> /
+                        <strong>{{ (int) ($previewCounts['keywords_moved'] ?? 0) }}</strong> /
+                        <strong>{{ (int) ($previewCounts['keywords_unassigned'] ?? 0) }}</strong>
+                    </div>
+                    <div>Protected topics: <strong>{{ (int) ($previewCounts['topics_protected'] ?? 0) }}</strong></div>
+                    <div>Protected keywords: <strong>{{ (int) ($previewCounts['keywords_protected'] ?? 0) }}</strong></div>
+                    <div>Low confidence: <strong>{{ (int) ($previewCounts['low_confidence_members'] ?? 0) }}</strong></div>
+                    <div>Warnings: <strong>{{ count($proposalPreview['warnings'] ?? []) }}</strong></div>
+                </div>
+                @if (! empty($proposalPreview['warnings']))
+                    <ul class="mt-2 list-disc pl-5 text-xs text-amber-800 dark:text-amber-200">
+                        @foreach (array_slice($proposalPreview['warnings'], 0, 12) as $warning)
+                            <li>{{ $warning }}</li>
+                        @endforeach
+                    </ul>
+                @endif
+                <details class="mt-3 text-xs">
+                    <summary class="cursor-pointer font-medium">Topic actions ({{ count($proposalPreview['topic_actions'] ?? []) }})</summary>
+                    <div class="mt-2 max-h-48 overflow-auto space-y-1">
+                        @foreach (array_slice($proposalPreview['topic_actions'] ?? [], 0, 80) as $action)
+                            <div class="flex flex-wrap gap-2 border-b border-gray-100 py-1 dark:border-gray-800">
+                                <span class="font-mono">{{ $action['action'] }}</span>
+                                <span>{{ $action['name'] }}</span>
+                                @if (! empty($action['topic_id']))
+                                    <span class="text-gray-500">#{{ $action['topic_id'] }}</span>
+                                @endif
+                                <span class="text-gray-500">{{ (int) ($action['member_count'] ?? 0) }} members</span>
+                                @if (! empty($action['warning']))
+                                    <span class="text-amber-700">{{ $action['warning'] }}</span>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </details>
+                <details class="mt-2 text-xs">
+                    <summary class="cursor-pointer font-medium">Keyword changes ({{ count($proposalPreview['keyword_actions'] ?? []) }})</summary>
+                    <div class="mt-2 max-h-48 overflow-auto space-y-1">
+                        @foreach (array_slice($proposalPreview['keyword_actions'] ?? [], 0, 100) as $action)
+                            <div class="flex flex-wrap gap-2 border-b border-gray-100 py-1 dark:border-gray-800">
+                                <span class="font-mono">{{ $action['action'] }}</span>
+                                <span>{{ \Illuminate\Support\Str::limit((string) ($action['text'] ?? ''), 48) }}</span>
+                                <span class="text-gray-500">{{ $action['from_topic_id'] ?? '∅' }} → {{ $action['to_topic_id'] ?? '∅' }}</span>
+                                @if (! empty($action['protected']))
+                                    <span class="text-amber-700">protected</span>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </details>
+                <div class="mt-4 flex flex-wrap gap-2">
+                    @if ($confirmApplyProposal)
+                        <div class="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
+                            Apply sẽ thay đổi Topic memberships.
+                            {{ (int) ($previewCounts['semantic_groups'] ?? 0) }} semantic groups →
+                            {{ (int) ($previewCounts['effective_topics_after'] ?? 0) }} effective topics;
+                            {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
+                            {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
+                            {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence.
+                            <div class="mt-2 flex gap-2">
+                                <x-filament::button type="button" size="xs" color="danger" wire:click="applyProposal" wire:loading.attr="disabled">
+                                    Xác nhận Apply
+                                </x-filament::button>
+                                <x-filament::button type="button" size="xs" color="gray" wire:click="cancelConfirmApplyProposal">Hủy</x-filament::button>
+                            </div>
+                        </div>
+                    @else
+                        <x-filament::button type="button" size="sm" color="danger" wire:click="beginConfirmApplyProposal"
+                            :disabled="! $this->canApplyProposal()">
+                            Apply proposal
+                        </x-filament::button>
+                        <x-filament::button type="button" size="sm" color="gray" wire:click="discardProposal"
+                            wire:confirm="Discard proposal?">
+                            Discard
+                        </x-filament::button>
+                    @endif
+                </div>
+            </div>
         @endif
 
         @if ($clusters->total() === 0)

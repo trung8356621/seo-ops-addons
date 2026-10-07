@@ -33,6 +33,16 @@ final class TopicReclusterUiState
 
     public const STATUS_PROPOSAL_READY = 'proposal_ready';
 
+    public const STATUS_APPLYING = 'applying';
+
+    public const STATUS_APPLIED = 'applied';
+
+    public const STATUS_APPLY_FAILED = 'apply_failed';
+
+    public const STATUS_DISCARDED = 'discarded';
+
+    public const STATUS_STALE = 'stale';
+
     public static function cacheKey(int $siteId): string
     {
         return 'topic_core_recluster_ui:'.$siteId;
@@ -84,11 +94,15 @@ final class TopicReclusterUiState
         if ($state === null) {
             return false;
         }
+        $status = (string) ($state['status'] ?? '');
+        // Apply mutates Topics — lock manual ops while applying.
+        if ($status === self::STATUS_APPLYING) {
+            return true;
+        }
         // Semantic analyze never mutates Topics — keep manual ops available.
         if (($state['mode'] ?? 'legacy') === TopicGroupingProviderMode::SEMANTIC_HTTP) {
             return false;
         }
-        $status = (string) ($state['status'] ?? '');
 
         return $status === self::STATUS_QUEUED || $status === self::STATUS_RUNNING;
     }
@@ -97,7 +111,8 @@ final class TopicReclusterUiState
     {
         return $status === self::STATUS_QUEUED
             || $status === self::STATUS_RUNNING
-            || $status === self::STATUS_ANALYZING;
+            || $status === self::STATUS_ANALYZING
+            || $status === self::STATUS_APPLYING;
     }
 
     public static function isAnalyzeActive(int $siteId): bool
@@ -238,9 +253,114 @@ final class TopicReclusterUiState
                 'low_confidence_count' => (int) $run->low_confidence_count,
                 'algorithm' => (string) ($run->algorithm ?? ''),
                 'external_analysis_id' => (string) ($run->external_analysis_id ?? ''),
+                'input_hash' => (string) ($run->input_hash ?? ''),
+                'plan_hash' => (string) ($run->plan_hash ?? ''),
             ],
             'error' => null,
             'failure_reason' => null,
+        ]);
+    }
+
+    public static function markApplying(int $siteId, SeoTopicGroupingRun $run): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_APPLYING,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => (string) ($run->provider ?? TopicGroupingProviderMode::SEMANTIC_HTTP),
+            'run_id' => (int) $run->id,
+            'algorithm_version' => (string) ($prior['algorithm_version'] ?? $run->provider),
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => null,
+            'metrics' => [
+                'run_id' => (int) $run->id,
+                'plan_hash' => (string) ($run->plan_hash ?? ''),
+            ],
+            'error' => null,
+            'failure_reason' => null,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $metrics
+     */
+    public static function markApplied(int $siteId, SeoTopicGroupingRun $run, array $metrics): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_APPLIED,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => (string) ($run->provider ?? TopicGroupingProviderMode::SEMANTIC_HTTP),
+            'run_id' => (int) $run->id,
+            'algorithm_version' => (string) ($prior['algorithm_version'] ?? $run->provider),
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => now()->toIso8601String(),
+            'metrics' => $metrics,
+            'error' => null,
+            'failure_reason' => null,
+        ]);
+    }
+
+    public static function markApplyFailed(
+        int $siteId,
+        SeoTopicGroupingRun $run,
+        string $error,
+        ?string $code = null,
+    ): void {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_APPLY_FAILED,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => (string) ($run->provider ?? TopicGroupingProviderMode::SEMANTIC_HTTP),
+            'run_id' => (int) $run->id,
+            'algorithm_version' => (string) ($prior['algorithm_version'] ?? $run->provider),
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => now()->toIso8601String(),
+            'metrics' => [
+                'run_id' => (int) $run->id,
+                'apply_error_code' => $code,
+            ],
+            'error' => $error,
+            'failure_reason' => $code,
+        ]);
+    }
+
+    public static function markDiscarded(int $siteId, SeoTopicGroupingRun $run): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_DISCARDED,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => (string) ($run->provider ?? TopicGroupingProviderMode::SEMANTIC_HTTP),
+            'run_id' => (int) $run->id,
+            'algorithm_version' => (string) ($prior['algorithm_version'] ?? $run->provider),
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => now()->toIso8601String(),
+            'metrics' => ['run_id' => (int) $run->id],
+            'error' => null,
+            'failure_reason' => null,
+        ]);
+    }
+
+    public static function markStale(int $siteId, SeoTopicGroupingRun $run, string $reason): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_STALE,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => (string) ($run->provider ?? TopicGroupingProviderMode::SEMANTIC_HTTP),
+            'run_id' => (int) $run->id,
+            'algorithm_version' => (string) ($prior['algorithm_version'] ?? $run->provider),
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => now()->toIso8601String(),
+            'metrics' => ['run_id' => (int) $run->id],
+            'error' => $reason,
+            'failure_reason' => 'stale',
         ]);
     }
 }

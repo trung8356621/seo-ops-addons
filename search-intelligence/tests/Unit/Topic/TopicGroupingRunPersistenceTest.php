@@ -170,6 +170,7 @@ final class TopicGroupingRunPersistenceTest extends TestCase
             $table->string('provider');
             $table->string('external_analysis_id')->nullable();
             $table->string('input_hash');
+            $table->string('plan_hash')->nullable();
             $table->string('status');
             $table->unsignedInteger('keyword_count')->default(0);
             $table->unsignedInteger('group_count')->default(0);
@@ -179,11 +180,15 @@ final class TopicGroupingRunPersistenceTest extends TestCase
             $table->string('model_version')->nullable();
             $table->string('algorithm')->nullable();
             $table->json('proposal_payload')->nullable();
+            $table->json('apply_plan_payload')->nullable();
             $table->json('diagnostics')->nullable();
             $table->string('error_code')->nullable();
             $table->text('error_message')->nullable();
+            $table->string('apply_error_code')->nullable();
+            $table->text('apply_error_message')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
+            $table->timestamp('applied_at')->nullable();
             $table->timestamps();
         });
     }

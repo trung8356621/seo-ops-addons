@@ -1,0 +1,313 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
+
+use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
+
+/**
+ * Preview + Apply for persisted Topic grouping proposals.
+ *
+ * Preview and Apply share TopicGroupingApplyPlanBuilder.
+ * Apply mutates via TopicReclusterService::persistResolvedClusters only.
+ * Never calls semantic HTTP.
+ */
+final class TopicGroupingApplyService
+{
+    /**
+     * @param  (callable(int): string)|null  $inputHashResolver  test hook
+     * @param  (callable(int, list<array<string, mixed>>): array<string, int>)|null  $persistClusters  test hook
+     */
+    public function __construct(
+        private readonly TopicGroupingApplyPlanBuilder $planBuilder = new TopicGroupingApplyPlanBuilder,
+        private readonly TopicGroupingProposalHydrator $hydrator = new TopicGroupingProposalHydrator,
+        private readonly ?TopicGroupingAnalysisService $analysis = null,
+        private readonly ?TopicReclusterService $recluster = null,
+        private readonly mixed $inputHashResolver = null,
+        private readonly mixed $persistClusters = null,
+    ) {}
+
+    public function preview(int $runId): TopicGroupingApplyResult
+    {
+        $run = $this->loadRun($runId);
+        if ($run === null) {
+            return TopicGroupingApplyResult::invalidState('missing');
+        }
+        if ($run->status === TopicGroupingRunStatus::APPLIED) {
+            return TopicGroupingApplyResult::alreadyApplied(['run_id' => $runId]);
+        }
+        if ($run->status === TopicGroupingRunStatus::DISCARDED) {
+            return TopicGroupingApplyResult::invalidState(TopicGroupingRunStatus::DISCARDED);
+        }
+        if ($run->status === TopicGroupingRunStatus::FAILED) {
+            return TopicGroupingApplyResult::invalidState(TopicGroupingRunStatus::FAILED);
+        }
+        if ($run->status === TopicGroupingRunStatus::APPLY_FAILED) {
+            // Allow re-preview after apply failure if proposal payload still present.
+        } elseif ($run->status !== TopicGroupingRunStatus::PROPOSAL_READY
+            && $run->status !== TopicGroupingRunStatus::STALE) {
+            return TopicGroupingApplyResult::invalidState((string) $run->status);
+        }
+
+        $freshness = $this->checkInputFreshness($run);
+        if ($freshness !== null) {
+            return $freshness;
+        }
+
+        $proposal = $this->hydrate($run);
+        if ($proposal === null) {
+            return TopicGroupingApplyResult::failed('empty_proposal', 'proposal_payload missing');
+        }
+
+        $plan = $this->planBuilder->build((int) $run->site_id, $proposal);
+        $this->persistPreviewPlan($run, $plan);
+
+        return TopicGroupingApplyResult::okWithPlan($plan, [
+            'run_id' => (int) $run->id,
+            'site_id' => (int) $run->site_id,
+            'input_hash' => (string) $run->input_hash,
+            'plan_hash' => $plan->planHash,
+            'counts' => $plan->counts,
+        ]);
+    }
+
+    /**
+     * Apply a previously previewed plan. plan_hash must match rebuild against current business state.
+     */
+    public function apply(int $runId, string $expectedPlanHash): TopicGroupingApplyResult
+    {
+        if ($expectedPlanHash === '') {
+            return TopicGroupingApplyResult::failed('plan_hash_required', 'plan_hash required');
+        }
+
+        $conn = DB::connection('omi_seo_ai');
+
+        try {
+            /** @var TopicGroupingApplyResult $preflight */
+            $preflight = $conn->transaction(function () use ($runId, $expectedPlanHash) {
+                /** @var SeoTopicGroupingRun|null $run */
+                $run = SeoTopicGroupingRun::query()->whereKey($runId)->lockForUpdate()->first();
+                if ($run === null) {
+                    return TopicGroupingApplyResult::invalidState('missing');
+                }
+
+                if ($run->status === TopicGroupingRunStatus::APPLIED) {
+                    return TopicGroupingApplyResult::alreadyApplied([
+                        'run_id' => (int) $run->id,
+                        'applied_at' => (string) ($run->applied_at ?? ''),
+                    ]);
+                }
+
+                if ($run->status === TopicGroupingRunStatus::APPLYING) {
+                    return TopicGroupingApplyResult::invalidState(TopicGroupingRunStatus::APPLYING);
+                }
+
+                if ($run->status !== TopicGroupingRunStatus::PROPOSAL_READY
+                    && $run->status !== TopicGroupingRunStatus::APPLY_FAILED) {
+                    return TopicGroupingApplyResult::invalidState((string) $run->status);
+                }
+
+                $freshness = $this->checkInputFreshness($run);
+                if ($freshness !== null) {
+                    return $freshness;
+                }
+
+                $proposal = $this->hydrate($run);
+                if ($proposal === null) {
+                    return TopicGroupingApplyResult::failed('empty_proposal', 'proposal_payload missing');
+                }
+
+                $plan = $this->planBuilder->build((int) $run->site_id, $proposal);
+                if (! hash_equals($expectedPlanHash, $plan->planHash)) {
+                    $run->status = TopicGroupingRunStatus::STALE;
+                    $run->apply_error_code = 'plan_hash_mismatch';
+                    $run->apply_error_message = 'Business state changed since preview';
+                    $run->save();
+
+                    return TopicGroupingApplyResult::stale(
+                        'plan_hash_mismatch',
+                        'Business state changed since preview — re-preview required',
+                        $plan,
+                    );
+                }
+
+                $run->status = TopicGroupingRunStatus::APPLYING;
+                $run->plan_hash = $plan->planHash;
+                $run->apply_plan_payload = $this->compactPlanPayload($plan);
+                $run->apply_error_code = null;
+                $run->apply_error_message = null;
+                $run->save();
+
+                TopicReclusterUiState::markApplying((int) $run->site_id, $run);
+
+                $written = is_callable($this->persistClusters)
+                    ? (array) ($this->persistClusters)((int) $run->site_id, $plan->resolvedClusters)
+                    : $this->recluster()->persistResolvedClusters(
+                        (int) $run->site_id,
+                        $plan->resolvedClusters,
+                        false,
+                    );
+
+                $run->status = TopicGroupingRunStatus::APPLIED;
+                $run->applied_at = now();
+                $run->completed_at = now();
+                $run->save();
+
+                $metrics = array_merge($written, [
+                    'run_id' => (int) $run->id,
+                    'site_id' => (int) $run->site_id,
+                    'plan_hash' => $plan->planHash,
+                    'counts' => $plan->counts,
+                ]);
+
+                TopicReclusterUiState::markApplied((int) $run->site_id, $run, $metrics);
+
+                return TopicGroupingApplyResult::okWithPlan($plan, $metrics);
+            });
+
+            return $preflight;
+        } catch (\Throwable $e) {
+            $this->markApplyFailed($runId, 'apply_exception', $e->getMessage());
+
+            return TopicGroupingApplyResult::failed('apply_exception', $e->getMessage());
+        }
+    }
+
+    public function discard(int $runId): TopicGroupingApplyResult
+    {
+        $run = $this->loadRun($runId);
+        if ($run === null) {
+            return TopicGroupingApplyResult::invalidState('missing');
+        }
+        if ($run->status === TopicGroupingRunStatus::APPLIED) {
+            return TopicGroupingApplyResult::alreadyApplied(['run_id' => $runId]);
+        }
+        if ($run->status === TopicGroupingRunStatus::APPLYING) {
+            return TopicGroupingApplyResult::invalidState(TopicGroupingRunStatus::APPLYING);
+        }
+
+        $run->status = TopicGroupingRunStatus::DISCARDED;
+        $run->completed_at = now();
+        $run->save();
+
+        TopicReclusterUiState::markDiscarded((int) $run->site_id, $run);
+
+        return TopicGroupingApplyResult::okWithPlan(
+            new TopicGroupingApplyPlan('', [], [], [], [], [], [], [], ''),
+            ['run_id' => (int) $run->id, 'status' => TopicGroupingRunStatus::DISCARDED],
+        );
+    }
+
+    private function hydrate(SeoTopicGroupingRun $run): ?TopicGroupingProposal
+    {
+        $payload = $run->proposal_payload;
+        if (! is_array($payload) || $payload === []) {
+            return null;
+        }
+
+        return $this->hydrator->fromPayload($payload);
+    }
+
+    private function checkInputFreshness(SeoTopicGroupingRun $run): ?TopicGroupingApplyResult
+    {
+        if ($run->input_hash === '' || $run->input_hash === null) {
+            return TopicGroupingApplyResult::stale('missing_input_hash', 'Run missing input_hash');
+        }
+
+        try {
+            $current = is_callable($this->inputHashResolver)
+                ? (string) ($this->inputHashResolver)((int) $run->site_id)
+                : $this->analysis()->currentInputHash((int) $run->site_id);
+        } catch (\Throwable $e) {
+            return TopicGroupingApplyResult::failed('input_hash_unavailable', $e->getMessage());
+        }
+
+        if (! hash_equals((string) $run->input_hash, $current)) {
+            $run->status = TopicGroupingRunStatus::STALE;
+            $run->save();
+
+            return TopicGroupingApplyResult::stale(
+                'input_hash_mismatch',
+                'Keyword/input changed since analysis — re-analyze required',
+            );
+        }
+
+        return null;
+    }
+
+    private function persistPreviewPlan(SeoTopicGroupingRun $run, TopicGroupingApplyPlan $plan): void
+    {
+        $run->plan_hash = $plan->planHash;
+        $run->apply_plan_payload = $this->compactPlanPayload($plan);
+        $run->save();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function compactPlanPayload(TopicGroupingApplyPlan $plan): array
+    {
+        return [
+            'plan_hash' => $plan->planHash,
+            'business_snapshot_hash' => $plan->businessSnapshotHash,
+            'counts' => $plan->counts,
+            'topic_actions' => $plan->topicActions,
+            'keyword_actions' => array_values(array_filter(
+                $plan->keywordActions,
+                static fn (array $a): bool => $a['action'] !== 'keep',
+            )),
+            'protected_topics' => $plan->protectedTopics,
+            'protected_keywords' => $plan->protectedKeywords,
+            'warnings' => $plan->warnings,
+        ];
+    }
+
+    private function markApplyFailed(int $runId, string $code, string $message): void
+    {
+        try {
+            /** @var SeoTopicGroupingRun|null $run */
+            $run = SeoTopicGroupingRun::query()->find($runId);
+            if ($run === null) {
+                return;
+            }
+            if ($run->status === TopicGroupingRunStatus::APPLIED) {
+                return;
+            }
+            $run->status = TopicGroupingRunStatus::APPLY_FAILED;
+            $run->apply_error_code = $code;
+            $run->apply_error_message = mb_substr($message, 0, 2000);
+            $run->save();
+            TopicReclusterUiState::markApplyFailed((int) $run->site_id, $run, $message, $code);
+        } catch (\Throwable) {
+            // best-effort diagnostics after rollback
+        }
+    }
+
+    private function loadRun(int $runId): ?SeoTopicGroupingRun
+    {
+        if ($runId <= 0 || ! TopicGroupingAnalysisService::runsTableReady()) {
+            return null;
+        }
+
+        /** @var SeoTopicGroupingRun|null $run */
+        $run = SeoTopicGroupingRun::query()->find($runId);
+
+        return $run;
+    }
+
+    private function analysis(): TopicGroupingAnalysisService
+    {
+        return $this->analysis ?? app(TopicGroupingAnalysisService::class);
+    }
+
+    private function recluster(): TopicReclusterService
+    {
+        return $this->recluster ?? app(TopicReclusterService::class);
+    }
+}

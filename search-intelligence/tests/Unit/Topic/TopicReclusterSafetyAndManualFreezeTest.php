@@ -56,8 +56,9 @@ final class TopicReclusterSafetyAndManualFreezeTest extends TestCase
         $concern = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
         );
-        self::assertStringContainsString('TopicReclusterUiState::markQueued($siteId, $version)', $concern);
+        self::assertStringContainsString('TopicReclusterUiState::markQueued(', $concern);
         self::assertStringContainsString('ReclusterSiteTopicsJob::dispatch($siteId, $version)', $concern);
+        self::assertStringContainsString('TopicGroupingProviderMode::SEMANTIC_HTTP', $concern);
         self::assertStringContainsString('isTopicMutationLocked()', $concern);
         self::assertStringContainsString('topic_recluster_already_running', $concern);
         self::assertStringContainsString('syncReclusterStateFromCache', $concern);

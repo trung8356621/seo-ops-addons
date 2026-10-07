@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Filament\Notifications\Notification;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingApplyResult;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingApplyService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
@@ -18,6 +20,13 @@ trait ReclustersSiteTopics
     public bool $confirmRecluster = false;
 
     public bool $reclusterRunning = false;
+
+    public bool $showProposalPreview = false;
+
+    public bool $confirmApplyProposal = false;
+
+    /** @var array<string, mixed>|null */
+    public ?array $proposalPreview = null;
 
     /** @var array<string, mixed>|null */
     public ?array $reclusterResult = null;
@@ -309,5 +318,193 @@ trait ReclustersSiteTopics
                 ->danger()
                 ->send();
         }
+    }
+
+    public function canPreviewProposal(): bool
+    {
+        if (! $this->canReclusterTopics() || ! TopicGroupingProviderMode::isSemanticHttp()) {
+            return false;
+        }
+        $status = is_array($this->reclusterResult)
+            ? (string) ($this->reclusterResult['status'] ?? '')
+            : '';
+
+        return in_array($status, [
+            TopicReclusterUiState::STATUS_PROPOSAL_READY,
+            TopicReclusterUiState::STATUS_APPLY_FAILED,
+            TopicReclusterUiState::STATUS_STALE,
+        ], true);
+    }
+
+    public function canApplyProposal(): bool
+    {
+        if (! $this->canPreviewProposal()) {
+            return false;
+        }
+        $status = (string) ($this->reclusterResult['status'] ?? '');
+
+        return in_array($status, [
+            TopicReclusterUiState::STATUS_PROPOSAL_READY,
+            TopicReclusterUiState::STATUS_APPLY_FAILED,
+        ], true)
+            && is_array($this->proposalPreview)
+            && (string) ($this->proposalPreview['plan_hash'] ?? '') !== '';
+    }
+
+    public function openProposalPreview(): void
+    {
+        if (! $this->canPreviewProposal()) {
+            Notification::make()->title('Proposal preview unavailable')->warning()->send();
+
+            return;
+        }
+        $runId = (int) ($this->reclusterResult['run_id']
+            ?? $this->reclusterResult['metrics']['run_id']
+            ?? 0);
+        if ($runId <= 0) {
+            Notification::make()->title('Missing run_id')->danger()->send();
+
+            return;
+        }
+
+        $result = app(TopicGroupingApplyService::class)->preview($runId);
+        if (! $result->ok() || $result->plan === null) {
+            $this->syncReclusterStateFromCache();
+            Notification::make()
+                ->title($result->status === TopicGroupingApplyResult::STALE ? 'Proposal stale' : 'Preview failed')
+                ->body((string) ($result->errorMessage ?? $result->status))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $plan = $result->plan;
+        $this->proposalPreview = [
+            'run_id' => $runId,
+            'input_hash' => (string) ($result->metrics['input_hash'] ?? ''),
+            'plan_hash' => $plan->planHash,
+            'counts' => $plan->counts,
+            'topic_actions' => $plan->topicActions,
+            'keyword_actions' => array_values(array_filter(
+                $plan->keywordActions,
+                static fn (array $a): bool => $a['action'] !== 'keep',
+            )),
+            'protected_topics' => $plan->protectedTopics,
+            'protected_keywords' => $plan->protectedKeywords,
+            'warnings' => $plan->warnings,
+        ];
+        $this->showProposalPreview = true;
+        $this->confirmApplyProposal = false;
+    }
+
+    public function closeProposalPreview(): void
+    {
+        $this->showProposalPreview = false;
+        $this->confirmApplyProposal = false;
+    }
+
+    public function beginConfirmApplyProposal(): void
+    {
+        if (! $this->canApplyProposal()) {
+            Notification::make()->title('Apply unavailable')->warning()->send();
+
+            return;
+        }
+        $this->confirmApplyProposal = true;
+    }
+
+    public function cancelConfirmApplyProposal(): void
+    {
+        $this->confirmApplyProposal = false;
+    }
+
+    public function applyProposal(): void
+    {
+        $this->confirmApplyProposal = false;
+        if (! $this->canApplyProposal()) {
+            Notification::make()->title('Apply unavailable')->warning()->send();
+
+            return;
+        }
+        $runId = (int) ($this->proposalPreview['run_id'] ?? 0);
+        $planHash = (string) ($this->proposalPreview['plan_hash'] ?? '');
+        $result = app(TopicGroupingApplyService::class)->apply($runId, $planHash);
+        $this->syncReclusterStateFromCache();
+
+        if ($result->status === TopicGroupingApplyResult::ALREADY_APPLIED) {
+            Notification::make()->title('Already applied')->warning()->send();
+            $this->showProposalPreview = false;
+
+            return;
+        }
+        if ($result->status === TopicGroupingApplyResult::STALE) {
+            Notification::make()
+                ->title('Stale plan — re-preview required')
+                ->body((string) ($result->errorMessage ?? ''))
+                ->warning()
+                ->send();
+            $this->proposalPreview = null;
+            $this->showProposalPreview = false;
+
+            return;
+        }
+        if (! $result->ok()) {
+            Notification::make()
+                ->title('Apply failed')
+                ->body((string) ($result->errorMessage ?? $result->status))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $counts = is_array($result->plan?->counts) ? $result->plan->counts : [];
+        Notification::make()
+            ->title('Topic proposal applied')
+            ->body(sprintf(
+                'created %d · reused %d · dissolved %d · moved %d · assigned %d · unassigned %d · protected %d',
+                (int) ($counts['topics_created'] ?? 0),
+                (int) ($counts['topics_reused'] ?? 0),
+                (int) ($counts['topics_dissolved'] ?? 0),
+                (int) ($counts['keywords_moved'] ?? 0),
+                (int) ($counts['keywords_assigned'] ?? 0),
+                (int) ($counts['keywords_unassigned'] ?? 0),
+                (int) ($counts['topics_protected'] ?? 0) + (int) ($counts['keywords_protected'] ?? 0),
+            ))
+            ->success()
+            ->send();
+        $this->showProposalPreview = false;
+        $this->proposalPreview = null;
+        if (method_exists($this, 'refreshClusterSummaryCounters')) {
+            $this->refreshClusterSummaryCounters();
+        }
+    }
+
+    public function discardProposal(): void
+    {
+        $runId = (int) ($this->reclusterResult['run_id']
+            ?? $this->reclusterResult['metrics']['run_id']
+            ?? $this->proposalPreview['run_id']
+            ?? 0);
+        if ($runId <= 0 || ! $this->canReclusterTopics()) {
+            Notification::make()->title('Discard unavailable')->warning()->send();
+
+            return;
+        }
+        $result = app(TopicGroupingApplyService::class)->discard($runId);
+        $this->syncReclusterStateFromCache();
+        $this->showProposalPreview = false;
+        $this->proposalPreview = null;
+        if (! $result->ok() && $result->status !== TopicGroupingApplyResult::ALREADY_APPLIED) {
+            Notification::make()
+                ->title('Discard failed')
+                ->body((string) ($result->errorMessage ?? $result->status))
+                ->danger()
+                ->send();
+
+            return;
+        }
+        Notification::make()->title('Proposal discarded')->success()->send();
     }
 }
