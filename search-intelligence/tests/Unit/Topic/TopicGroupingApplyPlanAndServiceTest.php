@@ -363,16 +363,16 @@ final class TopicGroupingApplyPlanAndServiceTest extends TestCase
         self::assertStringNotContainsString('openProposalPreview', $concern);
         self::assertStringNotContainsString('applyProposal', $concern);
         self::assertStringContainsString('selectedRebuildMode', $concern);
-        self::assertStringContainsString('startTopicAnalysis', $concern);
+        self::assertStringContainsString('startTopicRebuildFromGroups', $concern);
 
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
         self::assertStringContainsString('openReclusterModal', $blade);
-        self::assertStringContainsString('topic-recluster-modal-title', $blade);
+        self::assertStringContainsString('topic-rebuild-modal-title', $blade);
         self::assertStringNotContainsString('Xem thay đổi', $blade);
         self::assertStringNotContainsString('beginConfirmApplyProposal', $blade);
-        self::assertStringContainsString('Đang chuẩn bị áp dụng', $blade);
+        self::assertStringContainsString('topic_rebuild_progress_materializing', $blade);
 
         self::assertTrue(defined(TopicGroupingRunStatus::class.'::APPLY_FAILED'));
         self::assertSame('apply_failed', TopicGroupingRunStatus::APPLY_FAILED);

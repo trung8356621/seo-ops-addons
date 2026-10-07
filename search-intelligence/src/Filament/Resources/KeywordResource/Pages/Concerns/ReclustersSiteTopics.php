@@ -6,15 +6,18 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Filament\Notifications\Notification;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
-use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
+use Omnichannel\Addons\SearchIntelligence\Jobs\RebuildTopicsFromKeywordGroupsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicFromGroupSnapshot;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicFromKeywordGroupMaterializer;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 /**
- * Topic recluster UI: confirm modal → queue Analyze→Apply (no manual proposal review).
+ * Topic rebuild UI: Alpine configure modal → queue Group→Topic materializer.
+ *
+ * Does not dispatch semantic regrouping ({@see ReclusterSiteTopicsJob} is legacy/compat only).
  */
 trait ReclustersSiteTopics
 {
@@ -33,6 +36,7 @@ trait ReclustersSiteTopics
     /** @deprecated Use showReclusterModal — kept for BC wire:click aliases */
     public bool $confirmRecluster = false;
 
+    /** Progress / result modal only — configure open is Alpine client-side. */
     public bool $showReclusterModal = false;
 
     /** configure|analyzing|preparing_apply|applying|applied|failed */
@@ -58,7 +62,7 @@ trait ReclustersSiteTopics
             && SeoAccessControl::canAccessSite($siteId);
     }
 
-    /** Full-reset checkbox is always available on the Topic UI (semantic pipeline). */
+    /** Full-reset checkbox is always available on the Topic UI. */
     public function canUseFullResetRebuildMode(): bool
     {
         return true;
@@ -71,10 +75,13 @@ trait ReclustersSiteTopics
             : TopicGroupingRebuildMode::PRESERVE_EXISTING;
     }
 
-    /** User-facing Topic recluster always uses semantic_http (not global TOPIC_GROUPING_PROVIDER). */
+    /**
+     * @deprecated Topic UI no longer uses a grouping provider.
+     * Kept for BC contract tests referencing the method name.
+     */
     public function selectedGroupingProvider(): string
     {
-        return TopicGroupingProviderMode::SEMANTIC_HTTP;
+        return TopicFromKeywordGroupMaterializer::ALGORITHM;
     }
 
     public function persistedRebuildMode(): string
@@ -92,6 +99,18 @@ trait ReclustersSiteTopics
     public function isFullResetPersisted(): bool
     {
         return TopicGroupingRebuildMode::isFullReset($this->persistedRebuildMode());
+    }
+
+    /**
+     * Cheap snapshot embedded at page render — do not query on modal open.
+     *
+     * @return array{group_count: int, topic_candidate_count: int, topic_blocked_count: int}
+     */
+    public function topicFromGroupSnapshot(): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return TopicFromGroupSnapshot::forSite($siteId);
     }
 
     public function isTopicMutationLocked(): bool
@@ -130,7 +149,6 @@ trait ReclustersSiteTopics
         }
 
         $status = (string) ($state['status'] ?? '');
-        // Brief internal proposal_ready between Analyze and Apply still counts as in-flight.
         if (TopicReclusterUiState::isActiveStatus($status)
             || $status === TopicReclusterUiState::STATUS_PROPOSAL_READY
         ) {
@@ -144,6 +162,10 @@ trait ReclustersSiteTopics
         $this->reclusterResult = $state;
     }
 
+    /**
+     * Open progress/result modal only (after job started or on failure banner).
+     * Idle configure modal must open via Alpine — not this method.
+     */
     public function openReclusterModal(): void
     {
         if (! $this->canReclusterTopics()) {
@@ -185,7 +207,7 @@ trait ReclustersSiteTopics
         $this->reclusterModalError = null;
         $this->reclusterModalStep = self::RECLUSTER_STEP_CONFIGURE;
         $this->fullResetTopicStructure = false;
-        $this->showReclusterModal = true;
+        $this->showReclusterModal = false;
     }
 
     /** @deprecated BC alias */
@@ -200,10 +222,10 @@ trait ReclustersSiteTopics
         $this->closeReclusterModal();
     }
 
-    /** @deprecated BC alias */
+    /** @deprecated BC alias — use startTopicRebuildFromGroups */
     public function confirmDispatchReclusterTopicClusters(): void
     {
-        $this->startTopicAnalysis();
+        $this->startTopicRebuildFromGroups($this->fullResetTopicStructure);
     }
 
     public function canReclusterTopicClusters(): bool
@@ -211,12 +233,23 @@ trait ReclustersSiteTopics
         return $this->canReclusterTopics();
     }
 
+    /** @deprecated BC alias — use startTopicRebuildFromGroups */
     public function startTopicAnalysis(bool $sync = false): void
     {
-        $this->runTopicRecluster($sync);
+        $this->startTopicRebuildFromGroups($this->fullResetTopicStructure, $sync);
     }
 
+    /** @deprecated BC alias — use startTopicRebuildFromGroups */
     public function runTopicRecluster(bool $sync = false): void
+    {
+        $this->startTopicRebuildFromGroups($this->fullResetTopicStructure, $sync);
+    }
+
+    /**
+     * Sole Livewire entry for user-facing Topic rebuild confirm.
+     * fullReset is passed explicitly from Alpine — do not rely on wire:model sync.
+     */
+    public function startTopicRebuildFromGroups(bool $fullReset = false, bool $sync = false): void
     {
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         if (! $this->canReclusterTopics() || $siteId <= 0) {
@@ -235,6 +268,7 @@ trait ReclustersSiteTopics
                 ->send();
             $this->syncReclusterStateFromCache();
             $this->hydrateReclusterModalStepFromState();
+            $this->showReclusterModal = true;
 
             return;
         }
@@ -249,22 +283,32 @@ trait ReclustersSiteTopics
             return;
         }
 
-        $version = TopicReclusterAlgorithm::VERSION;
-        // Capture at dispatch — Job must not re-read checkbox or global TOPIC_GROUPING_PROVIDER.
-        $rebuildMode = $this->selectedRebuildMode();
-        $provider = $this->selectedGroupingProvider();
+        $this->fullResetTopicStructure = $fullReset;
+        $rebuildMode = $fullReset
+            ? TopicGroupingRebuildMode::FULL_RESET
+            : TopicGroupingRebuildMode::PRESERVE_EXISTING;
 
         $this->showReclusterModal = true;
         $this->confirmRecluster = true;
         $this->reclusterModalError = null;
 
-        TopicReclusterUiState::markQueued($siteId, $provider, $rebuildMode);
+        TopicReclusterUiState::put($siteId, [
+            'status' => TopicReclusterUiState::STATUS_QUEUED,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::LEGACY,
+            'algorithm_version' => TopicFromKeywordGroupMaterializer::ALGORITHM,
+            'started_at' => now()->toIso8601String(),
+            'finished_at' => null,
+            'metrics' => ['rebuild_mode' => $rebuildMode, 'source' => TopicFromKeywordGroupMaterializer::ALGORITHM],
+            'error' => null,
+            'failure_reason' => null,
+        ]);
         $this->reclusterRunning = true;
         $this->reclusterResult = TopicReclusterUiState::get($siteId);
         $this->reclusterModalStep = self::RECLUSTER_STEP_ANALYZING;
 
         if ($sync) {
-            ReclusterSiteTopicsJob::dispatchSync($siteId, $version, $rebuildMode, $provider);
+            RebuildTopicsFromKeywordGroupsJob::dispatchSync($siteId, $rebuildMode);
             $this->syncReclusterStateFromCache();
             $this->hydrateReclusterModalStepFromState();
             $status = is_array($this->reclusterResult)
@@ -297,12 +341,12 @@ trait ReclustersSiteTopics
             return;
         }
 
-        ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode, $provider);
+        RebuildTopicsFromKeywordGroupsJob::dispatch($siteId, $rebuildMode);
         Notification::make()
-            ->title('Đang tách lại chủ đề…')
+            ->title(__('seo-content-ai::filament.keyword.topic_recluster_action_running'))
             ->body(TopicGroupingRebuildMode::isFullReset($rebuildMode)
-                ? 'Mode: Xóa cấu trúc Topic cũ và tách lại từ đầu'
-                : 'Mode: Giữ cấu trúc Topic hiện tại')
+                ? __('seo-content-ai::filament.keyword.topic_rebuild_mode_full_reset')
+                : __('seo-content-ai::filament.keyword.topic_rebuild_mode_preserve'))
             ->success()
             ->send();
     }
@@ -363,7 +407,6 @@ trait ReclustersSiteTopics
             ? (string) ($this->reclusterResult['status'] ?? '')
             : '';
 
-        // Operational progress only — never surface historical proposal_ready as a review CTA.
         return in_array($status, [
             TopicReclusterUiState::STATUS_QUEUED,
             TopicReclusterUiState::STATUS_ANALYZING,
@@ -397,7 +440,6 @@ trait ReclustersSiteTopics
             return;
         }
 
-        // Internal Analyze→Apply handoff — generic copy, no Preview CTA.
         if ($status === TopicReclusterUiState::STATUS_PROPOSAL_READY) {
             $this->reclusterModalStep = self::RECLUSTER_STEP_PREPARING_APPLY;
 
@@ -429,7 +471,6 @@ trait ReclustersSiteTopics
             return;
         }
 
-        // Discarded / idle / unknown — fresh confirm modal (do not revive old proposals).
         $this->reclusterModalStep = self::RECLUSTER_STEP_CONFIGURE;
         $this->fullResetTopicStructure = false;
     }

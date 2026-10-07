@@ -44,9 +44,13 @@ final class KeywordGroupReadModel
         }
 
         // Stable identity order — mutable Group name must not reshuffle cards.
-        $paginator = SeoKeywordGroup::query()
+        $groupQuery = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
-            ->withCount('memberships')
+            ->withCount('memberships');
+        if (KeywordGroupSchema::topicLinkReady()) {
+            $groupQuery->withCount('topics');
+        }
+        $paginator = $groupQuery
             ->orderBy('id')
             ->paginate($perPage, ['*'], 'page', $page);
 
@@ -79,6 +83,7 @@ final class KeywordGroupReadModel
                 'is_locked' => (bool) $group->is_locked,
                 'is_manual' => KeywordGroupSource::isManual($group->source),
                 'member_count' => (int) ($group->memberships_count ?? 0),
+                'topic_count' => (int) ($group->topics_count ?? 0),
                 'representative_keyword_id' => $repId > 0 ? $repId : null,
                 'representative_phrase' => $repId > 0 ? (string) ($phrases[$repId] ?? '') : '',
                 'members' => $preview['members'],

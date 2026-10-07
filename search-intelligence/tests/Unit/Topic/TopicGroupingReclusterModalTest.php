@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
+use Omnichannel\Addons\SearchIntelligence\Jobs\RebuildTopicsFromKeywordGroupsJob;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\LegacyTopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicFromKeywordGroupMaterializer;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Tests\TestCase;
 
@@ -21,16 +23,17 @@ final class TopicGroupingReclusterModalTest extends TestCase
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
         );
 
-        self::assertStringContainsString('openReclusterModal', $blade);
+        self::assertStringContainsString('rebuildModalOpen = true', $blade);
         self::assertStringContainsString('topic_ai_history_link', $blade);
         self::assertStringContainsString('beginConfirmAiAudit', $blade);
-        self::assertStringContainsString('topic-recluster-modal-title', $blade);
-        self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
-        self::assertStringContainsString('fullResetTopicStructure', $blade);
-        self::assertStringContainsString("reclusterModalStep === 'configure'", $blade);
-        self::assertStringContainsString('wire:click="startTopicAnalysis"', $blade);
-        self::assertStringContainsString('Tách lại chủ đề', $blade);
-        self::assertStringContainsString('Đang chuẩn bị áp dụng', $blade);
+        self::assertStringContainsString('topic-rebuild-modal-title', $blade);
+        self::assertStringContainsString('topic_rebuild_full_reset_label', $blade);
+        self::assertStringContainsString('fullReset', $blade);
+        self::assertStringContainsString('$wire.startTopicRebuildFromGroups(fullReset)', $blade);
+        self::assertStringContainsString('topic_recluster_action', $blade);
+        self::assertStringNotContainsString('nhóm lại toàn bộ keyword', $blade);
+        self::assertStringNotContainsString('wire:click="startTopicAnalysis"', $blade);
+        self::assertSame(1, substr_count($blade, 'wire:click="openReclusterModal"'));
 
         // Manual proposal review UX removed.
         self::assertStringNotContainsString('Xem đề xuất', $blade);
@@ -43,9 +46,11 @@ final class TopicGroupingReclusterModalTest extends TestCase
         self::assertStringNotContainsString('HARD BLOCK', $blade);
         self::assertStringNotContainsString('Provider hiện tại: legacy', $blade);
 
-        self::assertStringContainsString('selectedGroupingProvider', $concern);
-        self::assertStringContainsString('TopicGroupingProviderMode::SEMANTIC_HTTP', $concern);
-        self::assertStringContainsString('RECLUSTER_STEP_PREPARING_APPLY', $concern);
+        self::assertStringContainsString('startTopicRebuildFromGroups', $concern);
+        self::assertStringContainsString('RebuildTopicsFromKeywordGroupsJob', $concern);
+        self::assertStringContainsString('TopicFromKeywordGroupMaterializer::ALGORITHM', $concern);
+        self::assertStringNotContainsString('ReclusterSiteTopicsJob::dispatch(', $concern);
+        self::assertStringNotContainsString('TopicGroupingProviderMode::SEMANTIC_HTTP', $concern);
         self::assertStringNotContainsString('openProposalPreview', $concern);
         self::assertStringNotContainsString('RECLUSTER_STEP_PREVIEW', $concern);
     }
@@ -62,8 +67,8 @@ final class TopicGroupingReclusterModalTest extends TestCase
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
-        self::assertStringContainsString('fullResetTopicStructure', $blade);
-        self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
+        self::assertStringContainsString('fullReset', $blade);
+        self::assertStringContainsString('topic_rebuild_full_reset_label', $blade);
         self::assertStringNotContainsString('Provider hiện tại: legacy', $blade);
 
         $concern = new class
@@ -76,14 +81,11 @@ final class TopicGroupingReclusterModalTest extends TestCase
             }
         };
         self::assertTrue($concern->canUseFullResetRebuildMode());
-        self::assertSame(TopicGroupingProviderMode::SEMANTIC_HTTP, $concern->selectedGroupingProvider());
+        self::assertSame(TopicFromKeywordGroupMaterializer::ALGORITHM, $concern->selectedGroupingProvider());
     }
 
-    public function test_unchecked_and_checked_dispatch_modes_always_semantic(): void
+    public function test_unchecked_and_checked_dispatch_modes_from_groups(): void
     {
-        config(['semantic.topic_provider' => 'legacy']);
-        self::assertTrue(TopicGroupingProviderMode::isLegacy());
-
         $concern = new class
         {
             use \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersSiteTopics;
@@ -96,26 +98,24 @@ final class TopicGroupingReclusterModalTest extends TestCase
 
         $concern->fullResetTopicStructure = false;
         self::assertSame(TopicGroupingRebuildMode::PRESERVE_EXISTING, $concern->selectedRebuildMode());
-        self::assertSame(TopicGroupingProviderMode::SEMANTIC_HTTP, $concern->selectedGroupingProvider());
 
         $concern->fullResetTopicStructure = true;
         self::assertSame(TopicGroupingRebuildMode::FULL_RESET, $concern->selectedRebuildMode());
-        self::assertSame(TopicGroupingProviderMode::SEMANTIC_HTTP, $concern->selectedGroupingProvider());
 
         $concernSrc = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/Concerns/ReclustersSiteTopics.php'
         );
         self::assertStringContainsString(
-            'ReclusterSiteTopicsJob::dispatch($siteId, $version, $rebuildMode, $provider)',
+            'RebuildTopicsFromKeywordGroupsJob::dispatch($siteId, $rebuildMode)',
             $concernSrc,
         );
         self::assertStringContainsString(
-            'ReclusterSiteTopicsJob::dispatchSync($siteId, $version, $rebuildMode, $provider)',
+            'RebuildTopicsFromKeywordGroupsJob::dispatchSync($siteId, $rebuildMode)',
             $concernSrc,
         );
     }
 
-    public function test_job_uses_explicit_provider_not_global_config(): void
+    public function test_legacy_semantic_job_still_exists_for_compat(): void
     {
         config(['semantic.topic_provider' => 'legacy']);
         self::assertTrue(TopicGroupingProviderMode::isLegacy());
@@ -129,24 +129,9 @@ final class TopicGroupingReclusterModalTest extends TestCase
         self::assertSame(TopicGroupingProviderMode::SEMANTIC_HTTP, $job->provider);
         self::assertSame(TopicGroupingRebuildMode::FULL_RESET, $job->rebuildMode);
 
-        $preserve = new ReclusterSiteTopicsJob(
-            4,
-            'v',
-            TopicGroupingRebuildMode::PRESERVE_EXISTING,
-            TopicGroupingProviderMode::SEMANTIC_HTTP,
-        );
-        self::assertSame(TopicGroupingRebuildMode::PRESERVE_EXISTING, $preserve->rebuildMode);
-        self::assertSame(TopicGroupingProviderMode::SEMANTIC_HTTP, $preserve->provider);
-
-        $jobSrc = (string) file_get_contents(
-            dirname(__DIR__, 3).'/src/Jobs/ReclusterSiteTopicsJob.php'
-        );
-        // Branch on job.provider — never TopicGroupingProviderMode::isSemanticHttp() for path select.
-        self::assertStringContainsString('isSemanticProvider($this->provider)', $jobSrc);
-        self::assertStringNotContainsString('TopicGroupingProviderMode::isSemanticHttp()', $jobSrc);
-        self::assertStringContainsString('analyzeSite($this->siteId, $rebuildMode, $provider)', $jobSrc);
-        self::assertStringNotContainsString('Config::set', $jobSrc);
-        self::assertStringNotContainsString("config(['semantic.topic_provider'", $jobSrc);
+        $fromGroups = new RebuildTopicsFromKeywordGroupsJob(4, TopicGroupingRebuildMode::PRESERVE_EXISTING);
+        self::assertSame(TopicGroupingRebuildMode::PRESERVE_EXISTING, $fromGroups->rebuildMode);
+        self::assertSame('seo', $fromGroups->queue);
     }
 
     public function test_job_semantic_failure_has_no_legacy_fallback_contract(): void
@@ -155,13 +140,11 @@ final class TopicGroupingReclusterModalTest extends TestCase
             dirname(__DIR__, 3).'/src/Jobs/ReclusterSiteTopicsJob.php'
         );
         self::assertStringContainsString('handleSemanticAnalyzeAndApply', $jobSrc);
-        // After semantic path entry, no call into TopicReclusterService::recluster.
         $semanticPos = strpos($jobSrc, 'handleSemanticAnalyzeAndApply');
         $legacyReclusterPos = strpos($jobSrc, '$recluster->recluster(');
         self::assertNotFalse($semanticPos);
         self::assertNotFalse($legacyReclusterPos);
         self::assertLessThan($legacyReclusterPos, $semanticPos);
-        // Semantic failure returns before any legacy recluster.
         self::assertStringContainsString('if ($run->status !== TopicGroupingRunStatus::PROPOSAL_READY)', $jobSrc);
         self::assertStringContainsString('return;', $jobSrc);
     }
@@ -188,7 +171,11 @@ final class TopicGroupingReclusterModalTest extends TestCase
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
-        self::assertStringContainsString('Focus Article', $blade);
+        $vi = (string) file_get_contents(
+            dirname(__DIR__, 4).'/seo-content-ai-compat/lang/vi/filament.php'
+        );
+        self::assertStringContainsString('topic_rebuild_bullet_focus', $blade);
+        self::assertStringContainsString('Focus Article', $vi);
         self::assertStringNotContainsString('Focus Topics dissolved', $blade);
         self::assertStringNotContainsString('openProposalPreview', $blade);
     }

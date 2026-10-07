@@ -199,7 +199,7 @@ final class TopicReclusterService
      * Shared business mutation path for legacy recluster and semantic Apply.
      * Does not analyze. Does not call semantic HTTP.
      *
-     * @param  list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
+     * @param  list<array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, keyword_group_id?: int|null, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $clusters
      * @param  array{
      *     locked_topic_ids: array<int, true>,
      *     preserved_topic_ids: array<int, true>,
@@ -855,7 +855,7 @@ final class TopicReclusterService
     }
 
     /**
-     * @param  array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}  $cluster
+     * @param  array{group_key?: string, name: string, topic_id: int|null, is_locked: bool, keyword_group_id?: int|null, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}  $cluster
      * @param  array<int, true>  $keepTopicIds
      * @param  array<int, true>  $claimedTopicIds
      * @return array{topic: SeoTopic, created: bool}
@@ -868,6 +868,12 @@ final class TopicReclusterService
     ): array {
         $topicId = $cluster['topic_id'];
         $topic = null;
+        $keywordGroupId = isset($cluster['keyword_group_id'])
+            ? (int) $cluster['keyword_group_id']
+            : null;
+        if ($keywordGroupId !== null && $keywordGroupId <= 0) {
+            $keywordGroupId = null;
+        }
 
         if ($topicId !== null && ! isset($claimedTopicIds[$topicId])) {
             $topic = SeoTopic::query()
@@ -879,17 +885,31 @@ final class TopicReclusterService
         if ($topic instanceof SeoTopic) {
             // Reuse identity: keep id + created_at; do NOT overwrite user-facing name.
             $keepTopicIds[(int) $topic->id] = true;
+            if ($keywordGroupId !== null
+                && (int) ($topic->keyword_group_id ?? 0) !== $keywordGroupId
+                && Schema::connection('omi_seo_ai')->hasColumn('seo_topics', 'keyword_group_id')
+            ) {
+                $topic->keyword_group_id = $keywordGroupId;
+                $topic->save();
+            }
 
             return ['topic' => $topic, 'created' => false];
         }
 
-        $topic = SeoTopic::query()->create([
+        $payload = [
             'site_id' => $siteId,
             'name' => $cluster['name'],
             'source' => TopicSource::AUTO,
             'status' => TopicStatus::ACTIVE,
             'is_locked' => (bool) $cluster['is_locked'],
-        ]);
+        ];
+        if ($keywordGroupId !== null
+            && Schema::connection('omi_seo_ai')->hasColumn('seo_topics', 'keyword_group_id')
+        ) {
+            $payload['keyword_group_id'] = $keywordGroupId;
+        }
+
+        $topic = SeoTopic::query()->create($payload);
         $keepTopicIds[(int) $topic->id] = true;
 
         return ['topic' => $topic, 'created' => true];

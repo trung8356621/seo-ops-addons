@@ -419,11 +419,12 @@ final class TopicGroupingFullResetTest extends TestCase
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
         self::assertStringContainsString('openReclusterModal', $blade);
-        self::assertStringContainsString('fullResetTopicStructure', $blade);
-        self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
+        self::assertStringContainsString('fullReset', $blade);
+        self::assertStringContainsString('topic_rebuild_full_reset_label', $blade);
         self::assertStringContainsString('topic_ai_history_link', $blade);
         self::assertStringContainsString('beginConfirmAiAudit', $blade);
-        self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
+        self::assertStringContainsString('startTopicRebuildFromGroups', $blade);
+        self::assertStringNotContainsString('nhóm lại toàn bộ keyword', $blade);
         self::assertStringNotContainsString('Xem thay đổi', $blade);
         self::assertStringNotContainsString('openProposalPreview', $blade);
     }

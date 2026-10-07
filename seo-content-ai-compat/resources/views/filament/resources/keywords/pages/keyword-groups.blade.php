@@ -195,6 +195,9 @@
                             <span class="text-gray-500">
                                 {{ __('seo-content-ai::filament.keyword.keyword_group_member_count', ['count' => (int) $group['member_count']]) }}
                             </span>
+                            <span class="text-gray-500">
+                                {{ __('seo-content-ai::filament.keyword.keyword_group_topic_count', ['count' => (int) ($group['topic_count'] ?? 0)]) }}
+                            </span>
                         </div>
                         @if (($group['representative_phrase'] ?? '') !== '')
                             <div class="mt-1 text-xs text-gray-500">
