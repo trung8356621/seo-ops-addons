@@ -80,8 +80,53 @@
                 @if ($focused) x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
             >
                 <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div class="min-w-0">
-                        <div class="text-base font-semibold text-gray-950 dark:text-white">{{ $group['name'] }}</div>
+                    <div
+                        class="min-w-0 flex-1"
+                        @if ($canMutate)
+                            x-data="{
+                                editing: false,
+                                value: @js($group['name']),
+                                original: @js($group['name']),
+                                async save() {
+                                    const next = (this.value || '').trim();
+                                    if (next === '' || next === this.original) {
+                                        this.value = this.original;
+                                        this.editing = false;
+                                        return;
+                                    }
+                                    await $wire.renameGroup({{ $groupId }}, next);
+                                    this.original = next;
+                                    this.editing = false;
+                                },
+                                cancel() {
+                                    this.value = this.original;
+                                    this.editing = false;
+                                }
+                            }"
+                        @endif
+                    >
+                        @if ($canMutate)
+                            <div
+                                class="text-base font-semibold text-gray-950 dark:text-white"
+                                x-show="!editing"
+                                @dblclick="editing = true; $nextTick(() => $refs.renameInput?.focus())"
+                                title="{{ __('seo-content-ai::filament.keyword.keyword_group_rename_hint') }}"
+                                x-text="original"
+                            ></div>
+                            <input
+                                x-show="editing"
+                                x-cloak
+                                x-ref="renameInput"
+                                type="text"
+                                class="w-full max-w-lg rounded-lg border border-primary-400 bg-white px-2 py-1 text-base font-semibold dark:border-primary-500 dark:bg-gray-950"
+                                x-model="value"
+                                @keydown.enter.prevent="save()"
+                                @keydown.escape.prevent="cancel()"
+                                @blur="save()"
+                            />
+                        @else
+                            <div class="text-base font-semibold text-gray-950 dark:text-white">{{ $group['name'] }}</div>
+                        @endif
                         <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
                             <span class="{{ $isManual ? 'cluster-tag cluster-tag--manual' : 'cluster-tag cluster-tag--auto' }}">
                                 {{ $isManual
@@ -103,43 +148,35 @@
                         @endif
                     </div>
                     @if ($canMutate)
-                        <div class="flex flex-wrap items-center gap-2" x-data='{ name: @json($group["name"]) }'>
-                            <input type="text" x-model="name" class="w-48 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950" />
-                            <button
-                                type="button"
-                                class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
-                                wire:loading.attr="disabled"
-                                wire:target="renameGroup"
-                                @click="$wire.renameGroup({{ $groupId }}, name)"
-                            >{{ __('seo-content-ai::filament.keyword.keyword_group_rename') }}</button>
-                            <button
-                                type="button"
-                                class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
-                                wire:click="toggleLock({{ $groupId }})"
-                                wire:loading.attr="disabled"
-                                wire:target="toggleLock"
-                            >
-                                {{ $group['is_locked']
-                                    ? __('seo-content-ai::filament.keyword.keyword_group_unlock')
-                                    : __('seo-content-ai::filament.keyword.keyword_group_lock') }}
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
+                            wire:click="toggleLock({{ $groupId }})"
+                            wire:loading.attr="disabled"
+                            wire:target="toggleLock"
+                        >
+                            {{ $group['is_locked']
+                                ? __('seo-content-ai::filament.keyword.keyword_group_unlock')
+                                : __('seo-content-ai::filament.keyword.keyword_group_lock') }}
+                        </button>
                     @endif
                 </div>
 
                 <div class="mt-3 space-y-3">
                     @if ($canMutate)
+                        @php $renameSuggestions = $this->semanticSuggestions[$groupId] ?? []; @endphp
                         <div
                             class="relative max-w-md"
+                            wire:key="group-search-{{ $groupId }}-{{ md5(json_encode($renameSuggestions)) }}"
                             x-data="{
                                 q: '',
-                                results: [],
-                                open: false,
+                                results: @js($renameSuggestions),
+                                open: {{ $renameSuggestions !== [] ? 'true' : 'false' }},
                                 loading: false,
                                 async search() {
                                     this.loading = true;
                                     try {
-                                        this.results = await $wire.searchUnassignedKeywords(this.q);
+                                        this.results = await $wire.searchUnassignedKeywords(this.q, {{ $groupId }});
                                         this.open = true;
                                     } finally {
                                         this.loading = false;
@@ -191,18 +228,48 @@
                     <div
                         class="keyword-group-member-chips"
                         wire:loading.class="opacity-50"
-                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup, removeKeywordFromGroup"
+                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup, removeKeywordFromGroup, toggleTopicCandidate"
                     >
                         @forelse ($members as $member)
-                            <span class="keyword-group-member-chip">
+                            @php
+                                $topicCandidate = array_key_exists('is_topic_candidate', $member)
+                                    ? (bool) $member['is_topic_candidate']
+                                    : true;
+                                $memberKey = (int) ($member['keyword_id'] ?? 0);
+                            @endphp
+                            <span
+                                wire:key="kg-member-{{ $groupId }}-{{ $memberKey }}-{{ $topicCandidate ? '1' : '0' }}"
+                                @class([
+                                    'keyword-group-member-chip',
+                                    'keyword-group-member-chip--topic-blocked' => ! $topicCandidate,
+                                ])
+                                data-topic-candidate="{{ $topicCandidate ? '1' : '0' }}"
+                            >
+                                @if (! $topicCandidate)
+                                    <span class="keyword-group-member-chip__blocked-mark" aria-hidden="true">⊘</span>
+                                @endif
                                 <span class="keyword-group-member-chip__label">{{ $member['phrase'] }}</span>
                                 @if ($canMutate)
                                     <button
                                         type="button"
-                                        class="keyword-group-member-chip__remove"
-                                        wire:click="removeKeywordFromGroup({{ $groupId }}, {{ (int) $member['keyword_id'] }})"
+                                        class="keyword-group-member-chip__topic"
+                                        wire:click="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }})"
                                         wire:loading.attr="disabled"
-                                        wire:target="removeKeywordFromGroup"
+                                        wire:target="toggleTopicCandidate({{ $groupId }}, {{ $memberKey }})"
+                                        title="{{ $topicCandidate
+                                            ? __('seo-content-ai::filament.keyword.keyword_group_topic_block')
+                                            : __('seo-content-ai::filament.keyword.keyword_group_topic_allow') }}"
+                                        aria-label="{{ $topicCandidate
+                                            ? __('seo-content-ai::filament.keyword.keyword_group_topic_block')
+                                            : __('seo-content-ai::filament.keyword.keyword_group_topic_allow') }}"
+                                        aria-pressed="{{ $topicCandidate ? 'false' : 'true' }}"
+                                    >⊘</button>
+                                    <button
+                                        type="button"
+                                        class="keyword-group-member-chip__remove"
+                                        wire:click="removeKeywordFromGroup({{ $groupId }}, {{ $memberKey }})"
+                                        wire:loading.attr="disabled"
+                                        wire:target="removeKeywordFromGroup({{ $groupId }}, {{ $memberKey }})"
                                         aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_remove') }}"
                                     >×</button>
                                 @endif

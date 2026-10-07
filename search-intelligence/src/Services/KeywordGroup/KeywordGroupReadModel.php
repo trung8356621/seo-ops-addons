@@ -110,12 +110,16 @@ final class KeywordGroupReadModel
         }
 
         $limit = max(1, min(200, $limit));
+        $select = ['group_id', 'keyword_id'];
+        if (KeywordGroupSchema::topicCandidateReady()) {
+            $select[] = 'is_topic_candidate';
+        }
         $memberships = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
             ->whereIn('group_id', array_keys($out))
             ->orderBy('group_id')
             ->orderBy('keyword_id')
-            ->get(['group_id', 'keyword_id']);
+            ->get($select);
 
         $counts = [];
         $selectedIds = [];
@@ -126,7 +130,13 @@ final class KeywordGroupReadModel
             if (count($out[$groupId]['members']) >= $limit) {
                 continue;
             }
-            $out[$groupId]['members'][] = ['keyword_id' => $keywordId, 'phrase' => ''];
+            $out[$groupId]['members'][] = [
+                'keyword_id' => $keywordId,
+                'phrase' => '',
+                'is_topic_candidate' => KeywordGroupSchema::topicCandidateReady()
+                    ? (bool) ($membership->is_topic_candidate ?? true)
+                    : true,
+            ];
             $selectedIds[$keywordId] = $keywordId;
         }
 
@@ -182,7 +192,7 @@ final class KeywordGroupReadModel
 
     /**
      * @return array{
-     *     members: list<array{keyword_id: int, phrase: string}>,
+     *     members: list<array{keyword_id: int, phrase: string, is_topic_candidate: bool}>,
      *     has_more: bool,
      *     total: int
      * }
@@ -209,13 +219,17 @@ final class KeywordGroupReadModel
             ->where('group_id', $groupId)
             ->count();
 
+        $select = ['keyword_id'];
+        if (KeywordGroupSchema::topicCandidateReady()) {
+            $select[] = 'is_topic_candidate';
+        }
         $memberships = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
             ->where('group_id', $groupId)
             ->orderBy('keyword_id')
             ->offset($offset)
             ->limit($limit)
-            ->get(['keyword_id']);
+            ->get($select);
 
         $ids = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
         $phrases = $ids === []
@@ -223,10 +237,14 @@ final class KeywordGroupReadModel
             : Keyword::query()->whereIn('id', $ids)->pluck('phrase', 'id')->all();
 
         $members = [];
-        foreach ($ids as $keywordId) {
+        foreach ($memberships as $membership) {
+            $keywordId = (int) $membership->keyword_id;
             $members[] = [
                 'keyword_id' => $keywordId,
                 'phrase' => (string) ($phrases[$keywordId] ?? ''),
+                'is_topic_candidate' => KeywordGroupSchema::topicCandidateReady()
+                    ? (bool) ($membership->is_topic_candidate ?? true)
+                    : true,
             ];
         }
 
@@ -287,6 +305,82 @@ final class KeywordGroupReadModel
         }
 
         return $out;
+    }
+
+    /**
+     * Bounded unassigned inventory for rename-triggered semantic neighbor search.
+     *
+     * Prefers lexical token overlap when inventory is large, then caps candidates.
+     *
+     * @param  list<string>|null  $languageVariants
+     * @return list<array{keyword_id: int, phrase: string}>
+     */
+    public function unassignedCandidatesForSemanticSearch(
+        int $siteId,
+        string $query,
+        ?array $languageVariants = null,
+        int $maxCandidates = 1000,
+    ): array {
+        $maxCandidates = max(1, min(2000, $maxCandidates));
+        if ($siteId <= 0) {
+            return [];
+        }
+
+        $base = $this->unassignedBaseQuery($siteId, $languageVariants);
+        $tokens = $this->queryTokens($query);
+        if ($tokens !== []) {
+            $base->where(function (Builder $inner) use ($tokens): void {
+                foreach ($tokens as $token) {
+                    $like = '%'.addcslashes($token, '%_\\').'%';
+                    $inner->orWhereRaw('LOWER(phrase) LIKE ?', [$like]);
+                }
+            });
+        }
+
+        $rows = $base->orderBy('id')->limit($maxCandidates)->get(['id', 'phrase']);
+        if ($rows->isEmpty() && $tokens !== []) {
+            $rows = $this->unassignedBaseQuery($siteId, $languageVariants)
+                ->orderBy('id')
+                ->limit($maxCandidates)
+                ->get(['id', 'phrase']);
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $keywordId = (int) $row->id;
+            $phrase = trim((string) $row->phrase);
+            if ($keywordId <= 0 || $phrase === '') {
+                continue;
+            }
+            $out[] = [
+                'keyword_id' => $keywordId,
+                'phrase' => $phrase,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function queryTokens(string $query): array
+    {
+        $normalized = mb_strtolower(trim($query), 'UTF-8');
+        if ($normalized === '') {
+            return [];
+        }
+        $parts = preg_split('/\s+/u', $normalized) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if (mb_strlen($part) < 2) {
+                continue;
+            }
+            $tokens[$part] = $part;
+        }
+
+        return array_values($tokens);
     }
 
     /**

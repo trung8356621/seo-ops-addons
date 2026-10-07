@@ -556,6 +556,10 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
             'site-health-notice',
             \Omnichannel\Addons\SiteSync\Livewire\SiteHealthNotice::class,
         );
+        \Livewire\Livewire::component(
+            'operational-alert-hook',
+            \Omnichannel\Addons\Seo\Livewire\OperationalAlertHook::class,
+        );
         // Override Filament sidebar item: caret expand/collapse cho nested parent (v3 không có sẵn).
         \Illuminate\Support\Facades\View::prependNamespace(
             'filament-panels',

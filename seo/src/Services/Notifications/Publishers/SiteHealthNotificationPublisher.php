@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services\Notifications\Publishers;
 
 use App\Models\Site;
+use Omnichannel\Addons\Seo\Enums\NotificationDisplaySurface;
 use Omnichannel\Addons\Seo\Enums\NotificationSeverity;
 use Omnichannel\Addons\Seo\Enums\OperationalNotificationEventCode;
 use Omnichannel\Addons\Seo\Services\Notifications\OperationalNotificationRecipientResolver;
@@ -41,6 +42,7 @@ final class SiteHealthNotificationPublisher implements SiteHealthNotificationCap
             dedupKey: 'site-health:incident:'.$incident->id,
             groupKey: 'site-health:site:'.$site->id,
             resolvable: true,
+            displaySurfaces: NotificationDisplaySurface::withOperationalAlertHook(),
         );
     }
 

@@ -18,6 +18,7 @@ use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticSearchService;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
@@ -48,7 +49,7 @@ final class KeywordGroups extends Page
 
     public string $newGroupName = '';
 
-    /** @var array<int, list<array{keyword_id: int, phrase: string}>> */
+    /** @var array<int, list<array{keyword_id: int, phrase: string, is_topic_candidate?: bool}>> */
     public array $loadedMembers = [];
 
     /** @var array<int, bool> */
@@ -56,6 +57,13 @@ final class KeywordGroups extends Page
 
     /** @var array<int, int> */
     public array $memberTotals = [];
+
+    /**
+     * Rename-triggered semantic suggestions keyed by Group id.
+     *
+     * @var array<int, list<array{keyword_id: int, phrase: string, similarity_score?: float}>>
+     */
+    public array $semanticSuggestions = [];
 
     public function mount(): void
     {
@@ -85,6 +93,7 @@ final class KeywordGroups extends Page
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->focusGroupId = null;
+        $this->semanticSuggestions = [];
         $this->resetMemberState();
         $this->resetPage();
         $this->clearKeywordWorkspaceTabCountsCache();
@@ -138,15 +147,19 @@ final class KeywordGroups extends Page
     }
 
     /**
-     * @return list<array{keyword_id: int, phrase: string}>
+     * @return list<array{keyword_id: int, phrase: string, similarity_score?: float}>
      */
-    public function searchUnassignedKeywords(string $query = ''): array
+    public function searchUnassignedKeywords(string $query = '', int $groupId = 0): array
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $needle = trim($query);
+        if ($needle === '' && $groupId > 0 && isset($this->semanticSuggestions[$groupId])) {
+            return $this->semanticSuggestions[$groupId];
+        }
 
         return app(KeywordGroupReadModel::class)->searchUnassigned(
             $siteId,
-            $query,
+            $needle,
             $this->resolveKeywordLanguageFilterVariants(),
         );
     }
@@ -169,6 +182,7 @@ final class KeywordGroups extends Page
             return;
         }
 
+        unset($this->semanticSuggestions[$groupId]);
         $this->loadGroupMembers($groupId, reset: true);
         $this->afterGroupMutation();
     }
@@ -194,6 +208,41 @@ final class KeywordGroups extends Page
         if ($groupId > 0) {
             $this->loadGroupMembers($groupId, reset: true);
         }
+        $this->afterGroupMutation();
+    }
+
+    public function toggleTopicCandidate(int $groupId, int $keywordId): void
+    {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if (! KeywordGroupSchema::topicCandidateReady()) {
+            return;
+        }
+
+        $membership = \Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('group_id', $groupId)
+            ->where('keyword_id', $keywordId)
+            ->first(['id', 'is_topic_candidate']);
+        if ($membership === null) {
+            return;
+        }
+
+        try {
+            app(KeywordGroupManualService::class)->setTopicCandidate(
+                $siteId,
+                $groupId,
+                $keywordId,
+                ! (bool) $membership->is_topic_candidate,
+            );
+        } catch (InvalidArgumentException) {
+            return;
+        }
+
+        $this->loadGroupMembers($groupId, reset: true);
         $this->afterGroupMutation();
     }
 
@@ -227,13 +276,14 @@ final class KeywordGroups extends Page
 
     public function renameGroup(int $groupId, string $name): void
     {
-        if (! $this->canMutateKeywordGroups()) {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0) {
             return;
         }
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $normalized = trim($name);
         try {
-            app(KeywordGroupManualService::class)->rename($siteId, $groupId, $name);
+            $group = app(KeywordGroupManualService::class)->rename($siteId, $groupId, $normalized);
         } catch (InvalidArgumentException) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.keyword_group_name_required'))
@@ -243,7 +293,24 @@ final class KeywordGroups extends Page
             return;
         }
 
+        // Rename is committed first; semantic enrichment must not roll it back.
+        $enrichment = app(KeywordGroupSemanticSearchService::class)->appendAcceptedMatchesAfterRename(
+            $siteId,
+            $groupId,
+            (string) $group->name,
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
+
+        unset($this->semanticSuggestions[$groupId]);
+        $this->loadGroupMembers($groupId, reset: true);
         $this->afterGroupMutation();
+
+        if ($enrichment['semantic_failed'] === true) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.keyword_group_rename_semantic_failed'))
+                ->warning()
+                ->send();
+        }
     }
 
     public function toggleLock(int $groupId): void
@@ -297,6 +364,7 @@ final class KeywordGroups extends Page
             return;
         }
 
+        $this->semanticSuggestions = [];
         $this->resetMemberState();
         $this->afterGroupMutation();
         Notification::make()

@@ -17,7 +17,11 @@ final class GlobalSiteHealthShellContractTest extends TestCase
         self::assertSame(['admin', 'seo', 'seo-main', 'seeding'], ServiceTopbarRouter::PANEL_IDS);
         $core = (string) file_get_contents((new ReflectionClass(ClientCoreServiceProvider::class))->getFileName());
         self::assertStringContainsString('PanelsRenderHook::CONTENT_BEFORE', $core);
-        self::assertStringContainsString('registerGlobalSiteHealthHook', $core);
+        self::assertStringContainsString('registerOperationalAlertHook', $core);
+        self::assertStringContainsString("view('filament.hooks.operational-alert-hook')", $core);
+        self::assertSame(1, substr_count($core, "view('filament.hooks.operational-alert-hook')"));
+        self::assertStringNotContainsString('registerGlobalSiteHealthHook', $core);
+        self::assertStringNotContainsString('global-site-health', $core);
 
         $read = (string) file_get_contents((new ReflectionClass(GlobalSiteHealthReadModel::class))->getFileName());
         self::assertStringContainsString('accessibleSiteIds', $read);
@@ -35,6 +39,7 @@ final class GlobalSiteHealthShellContractTest extends TestCase
         self::assertStringContainsString('->withoutOverlapping(10)', $provider);
         self::assertStringContainsString("\\Livewire\\Livewire::component(", $provider);
         self::assertStringContainsString("'site-health-notice'", $provider);
+        self::assertStringContainsString("'operational-alert-hook'", $provider);
         self::assertStringContainsString("loadViewsFrom(dirname(__DIR__).'/site-sync/resources/views', 'site-sync')", $provider);
     }
 }

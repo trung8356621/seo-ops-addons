@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services\Notifications;
 
+use Omnichannel\Addons\Seo\Enums\NotificationDisplaySurface;
 use Omnichannel\Addons\Seo\Enums\NotificationSeverity;
 use Omnichannel\Addons\Seo\Enums\OperationalNotificationEventCode;
 use App\Models\User;
@@ -26,6 +27,7 @@ final class OperationalNotificationService
      * @param  Collection<int, User>|iterable<User>  $recipients
      * @param  array<string, mixed>  $context
      * @param  list<array{label: string, url: string, name?: string, open_in_new_tab?: bool}>  $actions
+     * @param  list<NotificationDisplaySurface|string>  $displaySurfaces  Opt-in surfaces; Notification Center is always included
      * @return array{created: int, updated: int, skipped: int}
      */
     public function notify(
@@ -40,6 +42,7 @@ final class OperationalNotificationService
         string $dedupKey = '',
         ?string $groupKey = null,
         bool $resolvable = true,
+        array $displaySurfaces = [],
     ): array {
         if (! $this->tableReady()) {
             return ['created' => 0, 'updated' => 0, 'skipped' => 0];
@@ -77,6 +80,7 @@ final class OperationalNotificationService
 
         $context = $this->normalizeContext($context, $code);
         $filamentActions = $this->buildActions($actions, $actionUrl);
+        $surfaces = NotificationDisplaySurface::normalize($displaySurfaces);
         $now = now();
 
         $created = 0;
@@ -95,6 +99,7 @@ final class OperationalNotificationService
                     $filamentActions,
                     $groupKey,
                     $resolvable,
+                    $surfaces,
                     $now,
                 );
                 $updated++;
@@ -112,6 +117,7 @@ final class OperationalNotificationService
                 $dedupKey,
                 $groupKey,
                 $resolvable,
+                $surfaces,
                 $now,
             );
             $created++;
@@ -263,6 +269,7 @@ final class OperationalNotificationService
     /**
      * @param  array<string, mixed>  $context
      * @param  list<Action>  $filamentActions
+     * @param  list<string>  $displaySurfaces
      */
     private function updateExisting(
         DatabaseNotification $row,
@@ -274,10 +281,11 @@ final class OperationalNotificationService
         array $filamentActions,
         ?string $groupKey,
         bool $resolvable,
+        array $displaySurfaces,
         mixed $now,
     ): void {
         $count = max(1, (int) ($row->getAttribute('occurrence_count') ?? 1)) + 1;
-        $data = $this->filamentData($code, $severity, $title, $message, $context, $filamentActions, $count, $resolvable);
+        $data = $this->filamentData($code, $severity, $title, $message, $context, $filamentActions, $count, $resolvable, $displaySurfaces);
 
         $row->forceFill([
             'type' => FilamentNotification::class,
@@ -294,6 +302,7 @@ final class OperationalNotificationService
     /**
      * @param  array<string, mixed>  $context
      * @param  list<Action>  $filamentActions
+     * @param  list<string>  $displaySurfaces
      */
     private function createNew(
         User $user,
@@ -306,9 +315,10 @@ final class OperationalNotificationService
         string $dedupKey,
         ?string $groupKey,
         bool $resolvable,
+        array $displaySurfaces,
         mixed $now,
     ): void {
-        $data = $this->filamentData($code, $severity, $title, $message, $context, $filamentActions, 1, $resolvable);
+        $data = $this->filamentData($code, $severity, $title, $message, $context, $filamentActions, 1, $resolvable, $displaySurfaces);
 
         $notification = FilamentNotification::make()
             ->title($title)
@@ -347,6 +357,7 @@ final class OperationalNotificationService
     /**
      * @param  array<string, mixed>  $context
      * @param  list<Action>  $filamentActions
+     * @param  list<string>  $displaySurfaces
      * @return array<string, mixed>
      */
     private function filamentData(
@@ -358,6 +369,7 @@ final class OperationalNotificationService
         array $filamentActions,
         int $occurrenceCount,
         bool $resolvable,
+        array $displaySurfaces,
     ): array {
         $actionsPayload = array_map(static function (Action $action): array {
             return $action->toArray();
@@ -378,6 +390,7 @@ final class OperationalNotificationService
                 'module' => $code->module(),
                 'occurrence_count' => $occurrenceCount,
                 'resolvable' => $resolvable,
+                'display_surfaces' => $displaySurfaces,
                 'context' => $context,
             ],
         ];

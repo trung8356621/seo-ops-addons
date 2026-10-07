@@ -23,6 +23,7 @@ final class SeoKeywordGroupKeyword extends Model
         'keyword_id',
         'source',
         'similarity_score',
+        'is_topic_candidate',
     ];
 
     protected $casts = [
@@ -30,6 +31,7 @@ final class SeoKeywordGroupKeyword extends Model
         'group_id' => 'integer',
         'keyword_id' => 'integer',
         'similarity_score' => 'float',
+        'is_topic_candidate' => 'boolean',
     ];
 
     public function group(): BelongsTo

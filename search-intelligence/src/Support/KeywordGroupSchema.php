@@ -23,4 +23,12 @@ final class KeywordGroupSchema
         return $schema->hasTable('seo_topics')
             && $schema->hasColumn('seo_topics', 'keyword_group_id');
     }
+
+    public static function topicCandidateReady(): bool
+    {
+        $schema = Schema::connection('omi_seo_ai');
+
+        return $schema->hasTable('seo_keyword_group_keywords')
+            && $schema->hasColumn('seo_keyword_group_keywords', 'is_topic_candidate');
+    }
 }

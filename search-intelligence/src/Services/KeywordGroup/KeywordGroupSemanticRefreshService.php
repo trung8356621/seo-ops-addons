@@ -263,13 +263,17 @@ final class KeywordGroupSemanticRefreshService
                 ]);
 
                 foreach ($members as $member) {
-                    SeoKeywordGroupKeyword::query()->create([
+                    $payload = [
                         'site_id' => $siteId,
                         'group_id' => $created->id,
                         'keyword_id' => $member['keyword_id'],
                         'source' => KeywordGroupSource::SEMANTIC,
                         'similarity_score' => $member['similarity_score'],
-                    ]);
+                    ];
+                    if (\Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::topicCandidateReady()) {
+                        $payload['is_topic_candidate'] = true;
+                    }
+                    SeoKeywordGroupKeyword::query()->create($payload);
                 }
             }
         });

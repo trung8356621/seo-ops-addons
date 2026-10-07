@@ -387,6 +387,8 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertStringContainsString('keyword_group_search_unassigned', $groupsBlade);
         self::assertStringContainsString('keyword-group-member-chip', $groupsBlade);
         self::assertStringContainsString('keyword-group-member-chip__label', $groupsBlade);
+        self::assertStringContainsString('keyword-group-member-chip__topic', $groupsBlade);
+        self::assertStringContainsString('@dblclick', $groupsBlade);
         self::assertStringContainsString('removeKeywordFromGroup', $groupsBlade);
         self::assertStringContainsString('addKeywordToGroup', $groupsBlade);
         self::assertStringContainsString('keyword_group_source_manual', $groupsBlade);

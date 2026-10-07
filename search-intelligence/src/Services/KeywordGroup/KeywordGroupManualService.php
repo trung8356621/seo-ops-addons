@@ -113,19 +113,114 @@ final class KeywordGroupManualService
                 return;
             }
 
-            SeoKeywordGroupKeyword::query()->create([
+            $payload = [
                 'site_id' => $siteId,
                 'group_id' => $target->id,
                 'keyword_id' => $keywordId,
                 'source' => KeywordGroupSource::MANUAL,
                 'similarity_score' => null,
-            ]);
+            ];
+            if (KeywordGroupSchema::topicCandidateReady()) {
+                $payload['is_topic_candidate'] = true;
+            }
+            SeoKeywordGroupKeyword::query()->create($payload);
             $this->promoteToManual($target);
             if ((int) ($target->representative_keyword_id ?? 0) <= 0) {
                 $target->representative_keyword_id = $keywordId;
                 $target->save();
             }
         });
+    }
+
+    /**
+     * Append currently unassigned keywords only. Never steals from another Group.
+     *
+     * @param  list<int>  $keywordIds
+     * @return list<int> appended keyword ids
+     */
+    public function appendUnassignedKeywords(int $siteId, int $groupId, array $keywordIds): array
+    {
+        $this->assertReady($siteId);
+        $ids = [];
+        foreach ($keywordIds as $keywordId) {
+            $keywordId = (int) $keywordId;
+            if ($keywordId > 0) {
+                $ids[$keywordId] = $keywordId;
+            }
+        }
+        if ($ids === [] || $groupId <= 0) {
+            return [];
+        }
+
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId, $ids): array {
+            $target = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->whereKey($groupId)
+                ->lockForUpdate()
+                ->first();
+            if (! $target instanceof SeoKeywordGroup) {
+                throw new InvalidArgumentException('keyword_group_not_found');
+            }
+
+            $alreadyAssigned = SeoKeywordGroupKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('keyword_id', array_values($ids))
+                ->pluck('keyword_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            $blocked = array_fill_keys($alreadyAssigned, true);
+
+            $appended = [];
+            foreach ($ids as $keywordId) {
+                if (isset($blocked[$keywordId])) {
+                    continue;
+                }
+
+                $payload = [
+                    'site_id' => $siteId,
+                    'group_id' => $target->id,
+                    'keyword_id' => $keywordId,
+                    'source' => KeywordGroupSource::MANUAL,
+                    'similarity_score' => null,
+                ];
+                if (KeywordGroupSchema::topicCandidateReady()) {
+                    $payload['is_topic_candidate'] = true;
+                }
+                SeoKeywordGroupKeyword::query()->create($payload);
+                $appended[] = $keywordId;
+            }
+
+            if ($appended !== []) {
+                $this->promoteToManual($target);
+                if ((int) ($target->representative_keyword_id ?? 0) <= 0) {
+                    $target->representative_keyword_id = $appended[0];
+                    $target->save();
+                }
+            }
+
+            return $appended;
+        });
+    }
+
+    public function setTopicCandidate(int $siteId, int $groupId, int $keywordId, bool $enabled): void
+    {
+        $this->assertReady($siteId);
+        if ($groupId <= 0 || $keywordId <= 0 || ! KeywordGroupSchema::topicCandidateReady()) {
+            throw new InvalidArgumentException('keyword_group_topic_candidate_unavailable');
+        }
+
+        $this->requireGroup($siteId, $groupId);
+        $membership = SeoKeywordGroupKeyword::query()
+            ->where('site_id', $siteId)
+            ->where('group_id', $groupId)
+            ->where('keyword_id', $keywordId)
+            ->first();
+        if (! $membership instanceof SeoKeywordGroupKeyword) {
+            throw new InvalidArgumentException('keyword_group_membership_not_found');
+        }
+
+        $membership->is_topic_candidate = $enabled;
+        $membership->save();
     }
 
     private function assertReady(int $siteId): void

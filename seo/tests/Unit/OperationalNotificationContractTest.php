@@ -78,6 +78,9 @@ final class OperationalNotificationContractTest extends TestCase
         self::assertStringContainsString('occurrence_count', $service);
         self::assertStringContainsString('resolved_at', $service);
         self::assertStringContainsString('unreadOperationalCount', $service);
+        self::assertStringContainsString('displaySurfaces', $service);
+        self::assertStringContainsString('display_surfaces', $service);
+        self::assertTrue(enum_exists(\Omnichannel\Addons\Seo\Enums\NotificationDisplaySurface::class));
     }
 
     public function test_migration_adds_operational_columns(): void
@@ -147,6 +150,11 @@ final class OperationalNotificationContractTest extends TestCase
         $publishing = $this->readAddon('Services/Notifications/Publishers/PublishingOperationalNotificationPublisher.php');
         self::assertStringContainsString('forPublishing', $publishing);
         self::assertStringContainsString('Publishing Queue auto-retry patch', $publishing);
+
+        $siteHealth = $this->readAddon('Services/Notifications/Publishers/SiteHealthNotificationPublisher.php');
+        self::assertStringContainsString('NotificationDisplaySurface::withOperationalAlertHook()', $siteHealth);
+        self::assertStringContainsString('SiteHealthDown', $siteHealth);
+        self::assertStringContainsString('SiteHealthDegraded', $siteHealth);
     }
 
     public function test_prompt_contract_detector(): void
