@@ -14,8 +14,14 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Omnichannel\Addons\SearchFoundation\Contracts\IndustryMatchRuleProvider;
-use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
+use Omnichannel\Addons\SearchFoundation\Contracts\MatchResearch\MatchResearchRegistry;
+use Omnichannel\Addons\SearchFoundation\Enums\MatchResearchOrigin;
+use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\CustomMatchResearchStore;
+use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationImporter;
+use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationPromptBuilder;
+use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocaleOverlayStore;
 use Omnichannel\Addons\SearchFoundation\Services\MatchRules\MatchRuleMatcher;
+use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
@@ -53,29 +59,64 @@ class SeoSettingsKeywords extends Page implements HasForms
     /** @var array<string, array<string, list<string>>>|null */
     public ?array $matcherReport = null;
 
-    public function mount(SeoKeywordSettingsService $settings, IndustryMatchRuleProvider $industryProvider): void
-    {
-        $this->keywordSettingsData = $settings->getSettings();
+    public string $activeOriginTab = 'system';
 
+    /** @var list<array<string, mixed>> */
+    public array $registrySystem = [];
+
+    /** @var list<array<string, mixed>> */
+    public array $registryIndustry = [];
+
+    /** @var list<array<string, mixed>> */
+    public array $registryCustom = [];
+
+    public string $localizationResourceKey = '';
+
+    public string $localizationTargetLocale = 'en';
+
+    public string $localizationPrompt = '';
+
+    public string $localizationImportJson = '';
+
+    /** @var array{name:string,description:string,source_locale:string,positive_examples:string,negative_examples:string,enabled:bool} */
+    public array $customForm = [
+        'name' => '',
+        'description' => '',
+        'source_locale' => 'vi',
+        'positive_examples' => '',
+        'negative_examples' => '',
+        'enabled' => true,
+    ];
+
+    public ?string $editingCustomKey = null;
+
+    public function mount(
+        SeoKeywordSettingsService $settings,
+        IndustryMatchRuleProvider $industryProvider,
+        MatchResearchRegistry $registry,
+    ): void {
+        $this->keywordSettingsData = $settings->getSettings();
         $this->form->fill($this->keywordSettingsData);
+
         $siteId = SeoAccessControl::globalSiteId();
         $site = $siteId !== null ? Site::query()->find($siteId) : null;
         $this->industryContextKey = trim((string) $site?->getMeta('seo_industry_context_key')) ?: null;
         $this->industryRules = $industryProvider->rulesForKey($this->industryContextKey);
         $this->industryProvenance = $industryProvider->provenanceForKey($this->industryContextKey);
+        $this->refreshRegistry($registry, $siteId);
     }
 
     public function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('Global Rules')
-                    ->description('Editable language/system matching rules. CTA / Noise retains its existing behavior.')
+                Forms\Components\Section::make('System Rules')
+                    ->description('Immutable system matching rule sets. Identity keys cannot be deleted. CTA / Noise retains existing behavior.')
                     ->headerActions([HelpUi::fieldHintAction('settings.keywords.cta_blacklist')])
                     ->schema(fn (SeoKeywordSettingsService $settings): array => collect($settings->definitions())
                         ->filter(fn (array $definition): bool => $definition['editable'])
                         ->map(fn (array $definition): Forms\Components\TagsInput => Forms\Components\TagsInput::make($definition['key'])
-                            ->label($definition['label'])
+                            ->label($definition['label'].' (system.'.$definition['key'].')')
                             ->helperText($definition['description'])
                             ->columnSpanFull())
                         ->values()->all()),
@@ -99,6 +140,146 @@ class SeoSettingsKeywords extends Page implements HasForms
             ->title(__('seo-content-ai::filament.settings_keywords.saved'))
             ->success()
             ->send();
+    }
+
+    public function setOriginTab(string $tab): void
+    {
+        if (in_array($tab, ['system', 'industry', 'custom'], true)) {
+            $this->activeOriginTab = $tab;
+        }
+    }
+
+    public function saveCustomConcept(CustomMatchResearchStore $store, MatchResearchRegistry $registry): void
+    {
+        $siteId = SeoAccessControl::globalSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            Notification::make()->title('Select a site before creating custom concepts.')->warning()->send();
+
+            return;
+        }
+
+        $positive = $this->linesToList($this->customForm['positive_examples'] ?? '');
+        $negative = $this->linesToList($this->customForm['negative_examples'] ?? '');
+
+        try {
+            if ($this->editingCustomKey !== null) {
+                $store->update($this->editingCustomKey, $siteId, [
+                    'name' => (string) $this->customForm['name'],
+                    'description' => (string) ($this->customForm['description'] ?? ''),
+                    'positive_examples' => $positive,
+                    'negative_examples' => $negative,
+                    'enabled' => (bool) ($this->customForm['enabled'] ?? true),
+                ]);
+            } else {
+                $store->create($siteId, [
+                    'name' => (string) $this->customForm['name'],
+                    'description' => (string) ($this->customForm['description'] ?? ''),
+                    'source_locale' => (string) $this->customForm['source_locale'],
+                    'positive_examples' => $positive,
+                    'negative_examples' => $negative,
+                    'enabled' => (bool) ($this->customForm['enabled'] ?? true),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Notification::make()->title('Custom concept failed')->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $this->resetCustomForm();
+        $this->refreshRegistry($registry, $siteId);
+        Notification::make()->title('Custom concept saved')->success()->send();
+    }
+
+    public function editCustomConcept(string $key): void
+    {
+        foreach ($this->registryCustom as $row) {
+            if (($row['key'] ?? '') !== $key) {
+                continue;
+            }
+            $payload = (array) ($row['payload'] ?? []);
+            $this->editingCustomKey = $key;
+            $this->customForm = [
+                'name' => (string) ($payload['name'] ?? $row['label'] ?? ''),
+                'description' => (string) ($payload['description'] ?? $row['description'] ?? ''),
+                'source_locale' => (string) ($row['source_locale'] ?? 'vi'),
+                'positive_examples' => implode("\n", (array) ($payload['positive_examples'] ?? [])),
+                'negative_examples' => implode("\n", (array) ($payload['negative_examples'] ?? [])),
+                'enabled' => (bool) ($row['enabled'] ?? true),
+            ];
+            $this->activeOriginTab = 'custom';
+
+            return;
+        }
+    }
+
+    public function deleteCustomConcept(string $key, CustomMatchResearchStore $store, MatchResearchRegistry $registry): void
+    {
+        $siteId = SeoAccessControl::globalSiteId();
+        if ($siteId === null) {
+            return;
+        }
+        try {
+            $store->delete($key, $siteId);
+        } catch (\Throwable $e) {
+            Notification::make()->title('Delete failed')->body($e->getMessage())->danger()->send();
+
+            return;
+        }
+        if ($this->editingCustomKey === $key) {
+            $this->resetCustomForm();
+        }
+        $this->refreshRegistry($registry, $siteId);
+        Notification::make()->title('Custom concept deleted')->success()->send();
+    }
+
+    public function exportLocalizationPrompt(
+        MatchResearchRegistry $registry,
+        MatchResearchLocalizationPromptBuilder $builder,
+    ): void {
+        $siteId = SeoAccessControl::globalSiteId();
+        $resource = $registry->find($this->localizationResourceKey, $siteId, $this->industryContextKey);
+        if ($resource === null) {
+            Notification::make()->title('Resource not found')->warning()->send();
+
+            return;
+        }
+        try {
+            $this->localizationPrompt = $builder->build($resource, $this->localizationTargetLocale);
+            Notification::make()->title('Localization prompt ready — copy to an external agent')->success()->send();
+        } catch (\Throwable $e) {
+            Notification::make()->title('Export failed')->body($e->getMessage())->danger()->send();
+        }
+    }
+
+    public function importLocalizationResult(
+        MatchResearchRegistry $registry,
+        MatchResearchLocalizationImporter $importer,
+        MatchResearchLocaleOverlayStore $overlays,
+    ): void {
+        $siteId = SeoAccessControl::globalSiteId();
+        $resource = $registry->find($this->localizationResourceKey, $siteId, $this->industryContextKey);
+        if ($resource === null) {
+            Notification::make()->title('Resource not found')->warning()->send();
+
+            return;
+        }
+        $result = $importer->validateAndNormalize($this->localizationImportJson, $resource, $this->localizationTargetLocale);
+        if (! ($result['ok'] ?? false)) {
+            Notification::make()
+                ->title('Localization import rejected')
+                ->body(implode("\n", $result['errors'] ?? ['Unknown validation error']))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $overlaySiteId = $resource->origin === MatchResearchOrigin::Custom ? $siteId : 0;
+        $overlays->put($resource->key, $this->localizationTargetLocale, $result['payload'], $overlaySiteId);
+        $this->refreshRegistry($registry, $siteId);
+        $this->localizationImportJson = '';
+        Notification::make()->title('Localized result imported')->success()->send();
     }
 
     public function debugMatcher(SeoKeywordSettingsService $settings, MatchRuleMatcher $matcher): void
@@ -182,5 +363,42 @@ class SeoSettingsKeywords extends Page implements HasForms
         }
 
         return SeoAccessControl::canAccessManagerFeatures();
+    }
+
+    private function refreshRegistry(MatchResearchRegistry $registry, ?int $siteId): void
+    {
+        $this->registrySystem = array_map(
+            static fn ($r) => $r->toArray(),
+            $registry->list($siteId, MatchResearchOrigin::System, $this->industryContextKey),
+        );
+        $this->registryIndustry = array_map(
+            static fn ($r) => $r->toArray(),
+            $registry->list($siteId, MatchResearchOrigin::Industry, $this->industryContextKey),
+        );
+        $this->registryCustom = array_map(
+            static fn ($r) => $r->toArray(),
+            $registry->list($siteId, MatchResearchOrigin::Custom, $this->industryContextKey),
+        );
+    }
+
+    private function resetCustomForm(): void
+    {
+        $this->editingCustomKey = null;
+        $this->customForm = [
+            'name' => '',
+            'description' => '',
+            'source_locale' => 'vi',
+            'positive_examples' => '',
+            'negative_examples' => '',
+            'enabled' => true,
+        ];
+    }
+
+    /** @return list<string> */
+    private function linesToList(string $raw): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $raw) ?: [];
+
+        return array_values(array_filter(array_map('trim', $lines), static fn (string $v): bool => $v !== ''));
     }
 }

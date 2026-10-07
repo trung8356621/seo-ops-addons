@@ -23,6 +23,17 @@ final class SearchFoundationServiceProvider extends ServiceProvider
         $this->registerCapabilities();
 
         $this->app->singleton(SeoMembersSectionContributor::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\IndustryMatchResearchKeyDeriver::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\IndustryMatchResearchProjector::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\CustomMatchResearchStore::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocaleOverlayStore::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchConsumerPolicyStore::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationPromptBuilder::class);
+        $this->app->singleton(\Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationImporter::class);
+        $this->app->singleton(
+            \Omnichannel\Addons\SearchFoundation\Contracts\MatchResearch\MatchResearchRegistry::class,
+            \Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchRegistryService::class,
+        );
     }
 
     public function boot(): void

@@ -3407,6 +3407,77 @@ body.keyword-drawer-open {
     color: rgb(224 231 255);
 }
 
+.keyword-group-member-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+}
+
+.keyword-group-member-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 100%;
+    border-radius: 0.65rem;
+    border: 1px solid rgb(165 180 252);
+    padding: 0.4rem 0.7rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.3;
+    background: rgb(238 242 255);
+    color: rgb(49 46 129);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.keyword-group-member-chip:hover {
+    background: rgb(224 231 255);
+    border-color: rgb(129 140 248);
+}
+
+.dark .keyword-group-member-chip {
+    border-color: rgb(99 102 241);
+    background: rgb(49 46 129);
+    color: rgb(224 231 255);
+}
+
+.dark .keyword-group-member-chip:hover {
+    background: rgb(67 56 202);
+    border-color: rgb(165 180 252);
+}
+
+.keyword-group-member-chip__label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.keyword-group-member-chip__remove {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-left: 0.1rem;
+    border-radius: 9999px;
+    font-size: 1rem;
+    line-height: 1;
+    color: rgb(79 70 229);
+}
+
+.keyword-group-member-chip__remove:hover {
+    color: rgb(185 28 28);
+    background: rgb(254 226 226);
+}
+
+.dark .keyword-group-member-chip__remove {
+    color: rgb(199 210 254);
+}
+
+.dark .keyword-group-member-chip__remove:hover {
+    color: rgb(254 202 202);
+    background: rgb(127 29 29);
+}
+
 .cluster-detail-header {
     display: flex;
     flex-wrap: wrap;

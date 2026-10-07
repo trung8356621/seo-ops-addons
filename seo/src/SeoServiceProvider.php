@@ -26,6 +26,10 @@ final class SeoServiceProvider extends ServiceProvider
             \Omnichannel\Addons\SearchFoundation\Contracts\GlobalMatchRuleProvider::class,
             \Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService::class,
         );
+        $this->app->singleton(
+            \Omnichannel\Addons\SearchFoundation\Contracts\MatchResearch\SystemMatchResearchSource::class,
+            \Omnichannel\Addons\Seo\Services\MatchRules\SystemMatchResearchAdapter::class,
+        );
         $this->app->singleton(DomainContextResolver::class);
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class);
         $this->registerCapabilities();

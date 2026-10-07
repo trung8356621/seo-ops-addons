@@ -312,24 +312,40 @@ final class KeywordGroupLayerTest extends TestCase
         $this->assertTopicsUntouched();
     }
 
-    public function test_read_model_exposes_unassigned_and_source_badges(): void
+    public function test_paginate_groups_and_lazy_members_without_full_hydration(): void
     {
         $this->phrase(10, 'balo học sinh');
-        $this->phrase(11, 'vali');
-        $group = $this->group('Balo', KeywordGroupSource::SEMANTIC, false, 10);
-        $this->member($group, 10, KeywordGroupSource::SEMANTIC);
+        $this->phrase(11, 'cặp học sinh');
+        for ($i = 1; $i <= 25; $i++) {
+            $group = $this->group(sprintf('Group %02d', $i), KeywordGroupSource::SEMANTIC, false, 10);
+            if ($i === 1) {
+                $this->member($group, 10, KeywordGroupSource::SEMANTIC);
+                $this->member($group, 11, KeywordGroupSource::SEMANTIC);
+            }
+        }
 
-        $view = app(KeywordGroupReadModel::class)->forSite(self::SITE, [
-            ['keyword_id' => 10, 'phrase' => 'balo học sinh'],
-            ['keyword_id' => 11, 'phrase' => 'vali'],
-        ]);
+        $reader = app(KeywordGroupReadModel::class);
+        $page1 = $reader->paginateGroups(self::SITE, 1, 20);
+        self::assertSame(25, $page1->total());
+        self::assertCount(20, $page1->items());
+        self::assertArrayHasKey('members', $page1->items()[0]);
+        self::assertCount(2, $page1->items()[0]['members']);
+        self::assertFalse($page1->items()[0]['members_has_more']);
+        self::assertSame(2, (int) $page1->items()[0]['member_count']);
+        self::assertSame('balo học sinh', $page1->items()[0]['representative_phrase']);
+        self::assertFalse($page1->items()[0]['is_manual']);
+        self::assertSame([], $page1->items()[1]['members']);
 
-        self::assertSame(1, $view['unassigned_count']);
-        self::assertSame(11, $view['unassigned'][0]['keyword_id']);
-        self::assertSame(KeywordGroupSource::SEMANTIC, $view['groups'][0]['source']);
-        self::assertFalse($view['groups'][0]['is_manual']);
-        self::assertSame('balo học sinh', $view['groups'][0]['members'][0]['phrase']);
-        self::assertSame('balo học sinh', $view['groups'][0]['representative_phrase']);
+        $page2 = $reader->paginateGroups(self::SITE, 2, 20);
+        self::assertCount(5, $page2->items());
+
+        $firstId = (int) $page1->items()[0]['id'];
+        $members = $reader->groupMembers(self::SITE, $firstId, 50, 0);
+        self::assertSame(2, $members['total']);
+        self::assertFalse($members['has_more']);
+        self::assertSame(['balo học sinh', 'cặp học sinh'], array_column($members['members'], 'phrase'));
+        self::assertSame(1, $reader->pageForGroup(self::SITE, $firstId, 20));
+        self::assertSame(2, $reader->pageForGroup(self::SITE, (int) $page2->items()[0]['id'], 20));
     }
 
     public function test_workspace_nav_chip_and_refresh_do_not_apply_topics(): void
@@ -354,13 +370,36 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertStringContainsString("return 'groups';", $page);
         self::assertStringContainsString('resolveKeywordWorkspaceSiteId', $page);
         self::assertStringContainsString('RefreshKeywordGroupsJob', $page);
+        self::assertStringContainsString('addKeywordToGroup', $page);
+        self::assertStringContainsString('removeKeywordFromGroup', $page);
+        self::assertStringContainsString('searchUnassignedKeywords', $page);
+        self::assertStringContainsString('WithPagination', $page);
+        self::assertStringContainsString('focusGroupPageIfNeeded', $page);
+        self::assertStringNotContainsString('toggleExpandGroup', $page);
+        self::assertStringNotContainsString('expandedGroupIds', $page);
+        self::assertStringNotContainsString('ensureMembersForGroups', $page);
         self::assertStringNotContainsString('ReclusterSiteTopicsJob', $page);
         self::assertStringNotContainsString('TopicGroupingApplyService', $page);
+        self::assertStringNotContainsString('getKeywordGroupView', $page);
 
         $groupsBlade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-groups.blade.php');
-        self::assertStringContainsString('keyword_group_unassigned', $groupsBlade);
+        self::assertStringContainsString('keyword_group_unassigned_summary', $groupsBlade);
+        self::assertStringContainsString('keyword_group_search_unassigned', $groupsBlade);
+        self::assertStringContainsString('keyword-group-member-chip', $groupsBlade);
+        self::assertStringContainsString('keyword-group-member-chip__label', $groupsBlade);
+        self::assertStringContainsString('removeKeywordFromGroup', $groupsBlade);
+        self::assertStringContainsString('addKeywordToGroup', $groupsBlade);
         self::assertStringContainsString('keyword_group_source_manual', $groupsBlade);
         self::assertStringContainsString('keyword_group_source_auto', $groupsBlade);
+        self::assertStringContainsString('->links()', $groupsBlade);
+        self::assertStringNotContainsString('toggleExpandGroup', $groupsBlade);
+        self::assertStringNotContainsString('keyword_group_move', $groupsBlade);
+        self::assertStringNotContainsString('<x-select', $groupsBlade);
+        self::assertStringNotContainsString('wire:change="assignKeyword', $groupsBlade);
+
+        $css = (string) file_get_contents(dirname(__DIR__, 4).'/seo/resources/css/keyword-workspace.css');
+        self::assertStringContainsString('.keyword-group-member-chip', $css);
+        self::assertStringContainsString('font-size: 0.875rem', $css);
 
         $chip = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/topic-group-chip.blade.php');
         self::assertStringContainsString('topic-group-chip', $chip);

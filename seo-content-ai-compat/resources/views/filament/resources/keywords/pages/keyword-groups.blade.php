@@ -1,8 +1,6 @@
 @php
-    $view = $this->getKeywordGroupView();
-    $groups = $view['groups'];
-    $unassigned = $view['unassigned'];
-    $unassignedCount = (int) $view['unassigned_count'];
+    $groups = $this->getGroupsPaginator();
+    $unassignedCount = $this->getUnassignedCount();
     $focusGroupId = (int) ($this->focusGroupId ?? 0);
     $canMutate = $this->canMutateKeywordGroups();
     $workspaceCss = base_path('addons/seo/resources/css/keyword-workspace.css');
@@ -60,56 +58,29 @@
             </form>
         @endif
 
-        <section
-            id="keyword-group-unassigned"
-            class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
-            x-data="{ open: true }"
-        >
-            <button type="button" class="flex w-full items-center justify-between text-left" @click="open = !open">
-                <span class="font-semibold text-gray-950 dark:text-white">
-                    {{ __('seo-content-ai::filament.keyword.keyword_group_unassigned') }}
-                </span>
-                <span class="text-sm text-gray-500">{{ number_format($unassignedCount) }}</span>
-            </button>
-            <div class="mt-3 max-h-80 space-y-2 overflow-y-auto" x-show="open" x-cloak>
-                @forelse ($unassigned as $row)
-                    <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <span>› {{ $row['phrase'] }}</span>
-                        @if ($canMutate && $groups !== [])
-                            <x-select
-                                size="sm"
-                                wrapClass="x-select-wrap x-select-wrap--sm max-w-xs"
-                                wire:change="assignKeyword({{ (int) $row['keyword_id'] }}, $event.target.value)"
-                                wire:loading.class="opacity-50 pointer-events-none"
-                                wire:target="assignKeyword"
-                            >
-                                <option value="">{{ __('seo-content-ai::filament.keyword.keyword_group_move') }}</option>
-                                @foreach ($groups as $target)
-                                    <option value="{{ (int) $target['id'] }}">{{ $target['name'] }}</option>
-                                @endforeach
-                            </x-select>
-                        @endif
-                    </div>
-                @empty
-                    <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.keyword.keyword_group_unassigned_empty') }}</p>
-                @endforelse
-            </div>
-        </section>
+        <div class="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm dark:border-gray-800 dark:bg-gray-900">
+            <span class="font-medium text-gray-950 dark:text-white">
+                {{ __('seo-content-ai::filament.keyword.keyword_group_unassigned_summary', ['count' => number_format($unassignedCount)]) }}
+            </span>
+        </div>
 
         @forelse ($groups as $group)
             @php
                 $groupId = (int) $group['id'];
                 $focused = $focusGroupId === $groupId;
                 $isManual = (bool) ($group['is_manual'] ?? false);
+                $members = $this->loadedMembers[$groupId] ?? ($group['members'] ?? []);
+                $hasMore = array_key_exists($groupId, $this->memberHasMore)
+                    ? (bool) $this->memberHasMore[$groupId]
+                    : (bool) ($group['members_has_more'] ?? false);
             @endphp
             <article
                 id="keyword-group-{{ $groupId }}"
                 class="rounded-xl border bg-white p-4 dark:bg-gray-900 {{ $focused ? 'border-primary-500' : 'border-gray-200 dark:border-gray-800' }}"
-                x-data="{ open: {{ $focused ? 'true' : 'false' }} }"
-                @if ($focused) x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
+                @if ($focused) x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
             >
                 <div class="flex flex-wrap items-start justify-between gap-3">
-                    <button type="button" class="min-w-0 text-left" @click="open = !open">
+                    <div class="min-w-0">
                         <div class="text-base font-semibold text-gray-950 dark:text-white">{{ $group['name'] }}</div>
                         <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
                             <span class="{{ $isManual ? 'cluster-tag cluster-tag--manual' : 'cluster-tag cluster-tag--auto' }}">
@@ -130,7 +101,7 @@
                                 {{ $group['representative_phrase'] }}
                             </div>
                         @endif
-                    </button>
+                    </div>
                     @if ($canMutate)
                         <div class="flex flex-wrap items-center gap-2" x-data='{ name: @json($group["name"]) }'>
                             <input type="text" x-model="name" class="w-48 rounded-lg border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950" />
@@ -156,33 +127,112 @@
                     @endif
                 </div>
 
-                <div class="mt-3 max-h-80 space-y-2 overflow-y-auto" x-show="open" x-cloak>
-                    @foreach ($group['members'] as $member)
-                        <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-                            <span>› {{ $member['phrase'] }}</span>
-                            @if ($canMutate)
-                                <x-select
-                                    size="sm"
-                                    wrapClass="x-select-wrap x-select-wrap--sm max-w-xs"
-                                    wire:change="assignKeyword({{ (int) $member['keyword_id'] }}, $event.target.value)"
-                                    wire:loading.class="opacity-50 pointer-events-none"
-                                    wire:target="assignKeyword"
+                <div class="mt-3 space-y-3">
+                    @if ($canMutate)
+                        <div
+                            class="relative max-w-md"
+                            x-data="{
+                                q: '',
+                                results: [],
+                                open: false,
+                                loading: false,
+                                async search() {
+                                    this.loading = true;
+                                    try {
+                                        this.results = await $wire.searchUnassignedKeywords(this.q);
+                                        this.open = true;
+                                    } finally {
+                                        this.loading = false;
+                                    }
+                                },
+                                async pick(id) {
+                                    this.open = false;
+                                    this.q = '';
+                                    this.results = [];
+                                    await $wire.addKeywordToGroup({{ $groupId }}, id);
+                                }
+                            }"
+                        >
+                            <input
+                                type="search"
+                                x-model="q"
+                                @input.debounce.300ms="search()"
+                                @focus="if ((q || '').trim() !== '') search()"
+                                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                                placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_search_unassigned') }}"
+                            />
+                            <div
+                                class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow dark:border-gray-700 dark:bg-gray-900"
+                                x-show="open && (results.length || loading || (q || '').trim() !== '')"
+                                x-cloak
+                                @click.outside="open = false"
+                            >
+                                <template x-if="loading">
+                                    <div class="px-3 py-2 text-xs text-gray-400">…</div>
+                                </template>
+                                <template x-for="row in results" :key="row.keyword_id">
+                                    <button
+                                        type="button"
+                                        class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-white/5"
+                                        @click="pick(row.keyword_id)"
+                                        x-text="row.phrase"
+                                    ></button>
+                                </template>
+                                <div
+                                    class="px-3 py-2 text-xs text-gray-400"
+                                    x-show="!loading && (q || '').trim() !== '' && !results.length"
                                 >
-                                    <option value="{{ $groupId }}">{{ $group['name'] }}</option>
-                                    <option value="0">{{ __('seo-content-ai::filament.keyword.keyword_group_unassigned') }}</option>
-                                    @foreach ($groups as $target)
-                                        @if ((int) $target['id'] !== $groupId)
-                                            <option value="{{ (int) $target['id'] }}">{{ $target['name'] }}</option>
-                                        @endif
-                                    @endforeach
-                                </x-select>
-                            @endif
+                                    {{ __('seo-content-ai::filament.keyword.keyword_group_search_empty') }}
+                                </div>
+                            </div>
                         </div>
-                    @endforeach
+                    @endif
+
+                    <div
+                        class="keyword-group-member-chips"
+                        wire:loading.class="opacity-50"
+                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup, removeKeywordFromGroup"
+                    >
+                        @forelse ($members as $member)
+                            <span class="keyword-group-member-chip">
+                                <span class="keyword-group-member-chip__label">{{ $member['phrase'] }}</span>
+                                @if ($canMutate)
+                                    <button
+                                        type="button"
+                                        class="keyword-group-member-chip__remove"
+                                        wire:click="removeKeywordFromGroup({{ $groupId }}, {{ (int) $member['keyword_id'] }})"
+                                        wire:loading.attr="disabled"
+                                        wire:target="removeKeywordFromGroup"
+                                        aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_remove') }}"
+                                    >×</button>
+                                @endif
+                            </span>
+                        @empty
+                            <span class="text-sm text-gray-500">{{ __('seo-content-ai::filament.keyword.keyword_group_members_empty') }}</span>
+                        @endforelse
+                    </div>
+
+                    @if ($hasMore)
+                        <button
+                            type="button"
+                            class="text-sm font-medium text-primary-600 disabled:opacity-50"
+                            wire:click="loadMoreMembers({{ $groupId }})"
+                            wire:loading.attr="disabled"
+                            wire:target="loadMoreMembers({{ $groupId }})"
+                        >
+                            {{ __('seo-content-ai::filament.keyword.keyword_group_show_more') }}
+                        </button>
+                    @endif
                 </div>
             </article>
         @empty
             <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.keyword.keyword_group_empty') }}</p>
         @endforelse
+
+        @if ($groups->hasPages())
+            <div class="pt-2">
+                {{ $groups->links() }}
+            </div>
+        @endif
     </div>
 </x-filament-panels::page>

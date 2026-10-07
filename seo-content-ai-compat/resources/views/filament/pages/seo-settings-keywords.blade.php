@@ -6,65 +6,172 @@
             <div class="seo-settings-main">
                 <header class="seo-settings-header">
                     <h1>Match &amp; Research</h1>
-                    <p>Inspect global matching rules, generated industry rules, and deterministic matcher diagnostics.</p>
+                    <p>Shared matching / research authority — System, Industry, and Custom knowledge. No auto-translation.</p>
                 </header>
 
-                <form wire:submit="saveKeywordSettings" class="max-w-3xl mx-auto space-y-6">
-                    {{ $this->form }}
-
-                    <div class="flex flex-wrap items-center justify-end gap-3">
+                <div class="mx-auto mb-6 flex max-w-3xl gap-2">
+                    @foreach (['system' => 'System', 'industry' => 'Industry', 'custom' => 'Custom'] as $tab => $label)
                         <x-filament::button
                             type="button"
-                            color="gray"
-                            icon="heroicon-o-bug-ant"
-                            wire:click="debugCtaBlacklist"
-                            wire:loading.attr="disabled"
-                            wire:target="debugCtaBlacklist"
-                        >
-                            {{ __('seo-content-ai::filament.settings_keywords.debug_cta') }}
-                        </x-filament::button>
+                            size="sm"
+                            :color="$activeOriginTab === $tab ? 'primary' : 'gray'"
+                            wire:click="setOriginTab('{{ $tab }}')"
+                        >{{ $label }}</x-filament::button>
+                    @endforeach
+                </div>
 
-                        <x-seo-content-ai::form-save-button
-                            target="saveKeywordSettings"
-                            :label="__('seo-content-ai::filament.settings_keywords.save')"
-                        />
+                @if ($activeOriginTab === 'system')
+                    <form wire:submit="saveKeywordSettings" class="max-w-3xl mx-auto space-y-6">
+                        {{ $this->form }}
+
+                        <div class="rounded-lg border border-gray-200 p-4 text-sm dark:border-white/10">
+                            <p class="mb-2 font-medium">Registry projection (read-only identity)</p>
+                            <ul class="max-h-48 space-y-1 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-300">
+                                @foreach ($registrySystem as $row)
+                                    <li>
+                                        {{ $row['key'] }}
+                                        · match={{ ($row['capabilities']['can_match'] ?? false) ? '1' : '0' }}
+                                        · tag={{ ($row['capabilities']['can_tag'] ?? false) ? '1' : '0' }}
+                                        · deletable={{ ($row['deletable'] ?? false) ? '1' : '0' }}
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-end gap-3">
+                            <x-filament::button
+                                type="button"
+                                color="gray"
+                                icon="heroicon-o-bug-ant"
+                                wire:click="debugCtaBlacklist"
+                                wire:loading.attr="disabled"
+                                wire:target="debugCtaBlacklist"
+                            >
+                                {{ __('seo-content-ai::filament.settings_keywords.debug_cta') }}
+                            </x-filament::button>
+
+                            <x-seo-content-ai::form-save-button
+                                target="saveKeywordSettings"
+                                :label="__('seo-content-ai::filament.settings_keywords.save')"
+                            />
+                        </div>
+                    </form>
+                @endif
+
+                @if ($activeOriginTab === 'industry')
+                    <div class="mx-auto max-w-3xl space-y-4">
+                        <x-filament::section heading="Industry Rules" description="Read-only generated research from the active Match & Research revision. Ambiguities are not tags.">
+                            @if ($industryProvenance)
+                                <div class="mb-4 flex flex-wrap gap-3 text-sm">
+                                    <span><strong>Industry Context:</strong> {{ $industryProvenance['industry_context_key'] }}</span>
+                                    <span><strong>Match revision:</strong> #{{ $industryProvenance['match_revision_id'] }}</span>
+                                    <x-filament::badge :color="($industryProvenance['stale'] ?? true) ? 'warning' : 'success'">
+                                        {{ ($industryProvenance['stale'] ?? true) ? 'Stale' : 'Fresh' }}
+                                    </x-filament::badge>
+                                </div>
+                                <div class="mb-4 max-h-64 space-y-1 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-300">
+                                    @foreach ($registryIndustry as $row)
+                                        <div>
+                                            {{ $row['key'] }}
+                                            · {{ $row['kind'] }}
+                                            · tag={{ ($row['capabilities']['can_tag'] ?? false) ? '1' : '0' }}
+                                            · {{ $row['label'] }}
+                                        </div>
+                                    @endforeach
+                                </div>
+                                <div class="space-y-4">
+                                    @foreach ($industryRules as $group => $entries)
+                                        <div>
+                                            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ str($group)->replace('_', ' ')->title() }}</h3>
+                                            <div class="mt-2 flex flex-wrap gap-2">
+                                                @forelse ($entries as $entry)
+                                                    @php($label = is_array($entry) ? ($entry['canonical'] ?? $entry['term'] ?? '') : (string) $entry)
+                                                    @if ($label !== '')
+                                                        <x-filament::badge color="gray">{{ $label }}</x-filament::badge>
+                                                    @endif
+                                                @empty
+                                                    <span class="text-sm text-gray-500">—</span>
+                                                @endforelse
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @else
+                                <p class="text-sm text-gray-500 dark:text-gray-400">Chưa có Match &amp; Research đang hoạt động cho Industry Context của site hiện tại.</p>
+                                @if ($industryContextKey)
+                                    <p class="mt-1 text-xs text-gray-400">Industry Context key: {{ $industryContextKey }}</p>
+                                @endif
+                            @endif
+                        </x-filament::section>
                     </div>
-                </form>
+                @endif
+
+                @if ($activeOriginTab === 'custom')
+                    <div class="mx-auto max-w-3xl space-y-6">
+                        <x-filament::section heading="Custom Concepts" description="Site-scoped knowledge only. No semantic auto-tagging in this release — Python matching is a separate task.">
+                            <div class="space-y-3">
+                                <x-filament::input.wrapper>
+                                    <x-filament::input type="text" wire:model="customForm.name" placeholder="Name" />
+                                </x-filament::input.wrapper>
+                                <x-filament::input.wrapper>
+                                    <x-filament::input type="text" wire:model="customForm.source_locale" placeholder="source_locale (immutable after create)" :disabled="$editingCustomKey !== null" />
+                                </x-filament::input.wrapper>
+                                <textarea wire:model="customForm.description" rows="2" class="w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5" placeholder="Description"></textarea>
+                                <textarea wire:model="customForm.positive_examples" rows="3" class="w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5" placeholder="Positive examples (one per line)"></textarea>
+                                <textarea wire:model="customForm.negative_examples" rows="3" class="w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5" placeholder="Negative examples (one per line)"></textarea>
+                                <label class="flex items-center gap-2 text-sm">
+                                    <input type="checkbox" wire:model="customForm.enabled" />
+                                    Enabled
+                                </label>
+                                <x-filament::button type="button" wire:click="saveCustomConcept" wire:loading.attr="disabled" wire:target="saveCustomConcept">
+                                    {{ $editingCustomKey ? 'Update concept' : 'Create concept' }}
+                                </x-filament::button>
+                            </div>
+
+                            <ul class="mt-6 space-y-2 text-sm">
+                                @forelse ($registryCustom as $row)
+                                    <li class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-gray-50 px-3 py-2 dark:bg-white/5">
+                                        <div>
+                                            <span class="font-mono text-xs text-gray-500">{{ $row['key'] }}</span>
+                                            <div>{{ $row['label'] }} · {{ $row['source_locale'] }}</div>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <x-filament::button size="sm" color="gray" type="button" wire:click="editCustomConcept('{{ $row['key'] }}')">Edit</x-filament::button>
+                                            <x-filament::button size="sm" color="danger" type="button" wire:click="deleteCustomConcept('{{ $row['key'] }}')" wire:confirm="Delete this custom concept?">Delete</x-filament::button>
+                                        </div>
+                                    </li>
+                                @empty
+                                    <li class="text-gray-500">No custom concepts yet.</li>
+                                @endforelse
+                            </ul>
+                        </x-filament::section>
+                    </div>
+                @endif
 
                 <div class="mx-auto mt-8 max-w-3xl space-y-4">
-                    <x-filament::section heading="Industry Rules" description="Read-only rules resolved from the current site's active Match & Research revision.">
-                        @if ($industryProvenance)
-                            <div class="mb-4 flex flex-wrap gap-3 text-sm">
-                                <span><strong>Industry Context:</strong> {{ $industryProvenance['industry_context_key'] }}</span>
-                                <span><strong>Match revision:</strong> #{{ $industryProvenance['match_revision_id'] }}</span>
-                                <x-filament::badge :color="($industryProvenance['stale'] ?? true) ? 'warning' : 'success'">
-                                    {{ ($industryProvenance['stale'] ?? true) ? 'Stale' : 'Fresh' }}
-                                </x-filament::badge>
+                    <x-filament::section heading="Localization" description="Export a localization prompt for an external agent, then import JSON. No automatic translation.">
+                        <div class="space-y-3">
+                            <x-filament::input.wrapper>
+                                <x-filament::input type="text" wire:model="localizationResourceKey" placeholder="resource_key (e.g. system.cta_blacklist or custom.recruitment)" />
+                            </x-filament::input.wrapper>
+                            <x-filament::input.wrapper>
+                                <x-filament::input type="text" wire:model="localizationTargetLocale" placeholder="target_locale (e.g. en)" />
+                            </x-filament::input.wrapper>
+                            <div class="flex flex-wrap gap-2">
+                                <x-filament::button type="button" wire:click="exportLocalizationPrompt" wire:loading.attr="disabled" wire:target="exportLocalizationPrompt">
+                                    Export Localization Prompt
+                                </x-filament::button>
+                                <x-filament::button type="button" color="gray" wire:click="importLocalizationResult" wire:loading.attr="disabled" wire:target="importLocalizationResult">
+                                    Import Localized Result
+                                </x-filament::button>
                             </div>
-                            <div class="space-y-4">
-                                @foreach ($industryRules as $group => $entries)
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ str($group)->replace('_', ' ')->title() }}</h3>
-                                        <div class="mt-2 flex flex-wrap gap-2">
-                                            @forelse ($entries as $entry)
-                                                @php($label = is_array($entry) ? ($entry['canonical'] ?? $entry['term'] ?? '') : (string) $entry)
-                                                @if ($label !== '')
-                                                    <x-filament::badge color="gray">{{ $label }}</x-filament::badge>
-                                                @endif
-                                            @empty
-                                                <span class="text-sm text-gray-500">—</span>
-                                            @endforelse
-                                        </div>
-                                    </div>
-                                @endforeach
-                            </div>
-                        @else
-                            <p class="text-sm text-gray-500 dark:text-gray-400">Chưa có Match &amp; Research đang hoạt động cho Industry Context của site hiện tại.</p>
-                            @if ($industryContextKey)
-                                <p class="mt-1 text-xs text-gray-400">Industry Context key: {{ $industryContextKey }}</p>
+                            @if ($localizationPrompt !== '')
+                                <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-950 p-4 font-mono text-xs text-gray-100">{{ $localizationPrompt }}</pre>
                             @endif
-                        @endif
+                            <textarea wire:model="localizationImportJson" rows="6" class="w-full rounded-lg border-gray-300 font-mono text-xs dark:border-white/10 dark:bg-white/5" placeholder="Paste localized JSON result here"></textarea>
+                        </div>
                     </x-filament::section>
+
                     <x-filament::section heading="Debug Matcher" description="Deterministic diagnostics only; no AI provider is called.">
                         <div class="space-y-3">
                             <x-filament::input.wrapper>

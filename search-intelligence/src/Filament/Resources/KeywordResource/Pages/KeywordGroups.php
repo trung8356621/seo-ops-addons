@@ -7,15 +7,19 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 use App\Models\Site;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Livewire\Attributes\Url;
+use Livewire\WithPagination;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupCandidateLoader;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -23,10 +27,15 @@ use InvalidArgumentException;
 
 /**
  * Keyword Group list. Semantic refresh persists Groups only.
+ *
+ * Mutations: add unassigned → Group, remove Group → unassigned.
+ * No direct Group-to-Group move.
+ * Current-page members are visible by default (paginated Groups).
  */
 final class KeywordGroups extends Page
 {
     use HasKeywordWorkspaceNavigation;
+    use WithPagination;
 
     protected static string $resource = KeywordResource::class;
 
@@ -39,6 +48,15 @@ final class KeywordGroups extends Page
 
     public string $newGroupName = '';
 
+    /** @var array<int, list<array{keyword_id: int, phrase: string}>> */
+    public array $loadedMembers = [];
+
+    /** @var array<int, bool> */
+    public array $memberHasMore = [];
+
+    /** @var array<int, int> */
+    public array $memberTotals = [];
+
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
@@ -46,6 +64,7 @@ final class KeywordGroups extends Page
             return;
         }
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->focusGroupPageIfNeeded();
     }
 
     public static function canAccess(array $parameters = []): bool
@@ -66,6 +85,8 @@ final class KeywordGroups extends Page
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->focusGroupId = null;
+        $this->resetMemberState();
+        $this->resetPage();
         $this->clearKeywordWorkspaceTabCountsCache();
     }
 
@@ -79,22 +100,101 @@ final class KeywordGroups extends Page
             && SeoAccessControl::canAccessSite($siteId);
     }
 
-    /**
-     * @return array{
-     *     groups: list<array<string, mixed>>,
-     *     unassigned: list<array{keyword_id: int, phrase: string}>,
-     *     unassigned_count: int
-     * }
-     */
-    public function getKeywordGroupView(): array
+    public function getUnassignedCount(): int
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        $inventory = app(KeywordGroupCandidateLoader::class)->load(
+
+        return app(KeywordGroupReadModel::class)->unassignedCount(
             $siteId,
             $this->resolveKeywordLanguageFilterVariants(),
         );
+    }
 
-        return app(KeywordGroupReadModel::class)->forSite($siteId, $inventory);
+    public function getGroupsPaginator(): LengthAwarePaginator
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0) {
+            return new Paginator([], 0, KeywordGroupReadModel::DEFAULT_PER_PAGE);
+        }
+
+        return app(KeywordGroupReadModel::class)->paginateGroups(
+            $siteId,
+            max(1, (int) $this->getPage()),
+            KeywordGroupReadModel::DEFAULT_PER_PAGE,
+            $this->resolveKeywordLanguageFilterVariants(),
+        )->withPath(KeywordResource::getUrl('groups'))
+            ->appends(array_filter([
+                'group' => $this->focusGroupId > 0 ? $this->focusGroupId : null,
+            ], static fn (mixed $v): bool => $v !== null));
+    }
+
+    public function loadMoreMembers(int $groupId): void
+    {
+        if ($groupId <= 0) {
+            return;
+        }
+
+        $this->loadGroupMembers($groupId, reset: false);
+    }
+
+    /**
+     * @return list<array{keyword_id: int, phrase: string}>
+     */
+    public function searchUnassignedKeywords(string $query = ''): array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return app(KeywordGroupReadModel::class)->searchUnassigned(
+            $siteId,
+            $query,
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
+    }
+
+    public function addKeywordToGroup(int $groupId, int $keywordId): void
+    {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0 || $keywordId <= 0) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        try {
+            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, $groupId);
+        } catch (InvalidArgumentException) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.keyword_group_assign_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->loadGroupMembers($groupId, reset: true);
+        $this->afterGroupMutation();
+    }
+
+    public function removeKeywordFromGroup(int $groupId, int $keywordId): void
+    {
+        if (! $this->canMutateKeywordGroups() || $keywordId <= 0) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        try {
+            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, null);
+        } catch (InvalidArgumentException) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.keyword_group_assign_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        if ($groupId > 0) {
+            $this->loadGroupMembers($groupId, reset: true);
+        }
+        $this->afterGroupMutation();
     }
 
     public function createGroup(): void
@@ -117,6 +217,7 @@ final class KeywordGroups extends Page
 
         $this->newGroupName = '';
         $this->focusGroupId = (int) $group->id;
+        $this->focusGroupPageIfNeeded();
         $this->afterGroupMutation();
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.keyword_group_created'))
@@ -147,49 +248,26 @@ final class KeywordGroups extends Page
 
     public function toggleLock(int $groupId): void
     {
-        if (! $this->canMutateKeywordGroups()) {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0) {
             return;
         }
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        $view = $this->getKeywordGroupView();
-        $locked = false;
-        foreach ($view['groups'] as $group) {
-            if ((int) ($group['id'] ?? 0) === $groupId) {
-                $locked = (bool) ($group['is_locked'] ?? false);
-                break;
-            }
-        }
-
-        try {
-            app(KeywordGroupManualService::class)->setLocked($siteId, $groupId, ! $locked);
-        } catch (InvalidArgumentException) {
+        if (! KeywordGroupSchema::tablesReady()) {
             return;
         }
 
-        $this->afterGroupMutation();
-    }
-
-    public function assignKeyword(int $keywordId, string $targetGroupId): void
-    {
-        if (! $this->canMutateKeywordGroups()) {
+        $group = SeoKeywordGroup::query()
+            ->where('site_id', $siteId)
+            ->whereKey($groupId)
+            ->first(['id', 'is_locked']);
+        if (! $group instanceof SeoKeywordGroup) {
             return;
         }
 
-        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        $target = (int) $targetGroupId;
         try {
-            app(KeywordGroupManualService::class)->assignKeyword(
-                $siteId,
-                $keywordId,
-                $target > 0 ? $target : null,
-            );
+            app(KeywordGroupManualService::class)->setLocked($siteId, $groupId, ! (bool) $group->is_locked);
         } catch (InvalidArgumentException) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.keyword_group_assign_failed'))
-                ->danger()
-                ->send();
-
             return;
         }
 
@@ -219,11 +297,60 @@ final class KeywordGroups extends Page
             return;
         }
 
+        $this->resetMemberState();
         $this->afterGroupMutation();
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.keyword_group_refresh_done'))
             ->success()
             ->send();
+    }
+
+    private function loadGroupMembers(int $groupId, bool $reset): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $offset = $reset ? 0 : count($this->loadedMembers[$groupId] ?? []);
+        $chunk = app(KeywordGroupReadModel::class)->groupMembers(
+            $siteId,
+            $groupId,
+            KeywordGroupReadModel::MEMBER_PAGE_SIZE,
+            $offset,
+        );
+
+        if ($reset) {
+            $this->loadedMembers[$groupId] = $chunk['members'];
+        } else {
+            $this->loadedMembers[$groupId] = array_values(array_merge(
+                $this->loadedMembers[$groupId] ?? [],
+                $chunk['members'],
+            ));
+        }
+        $this->memberHasMore[$groupId] = $chunk['has_more'];
+        $this->memberTotals[$groupId] = $chunk['total'];
+    }
+
+    private function focusGroupPageIfNeeded(): void
+    {
+        $groupId = (int) ($this->focusGroupId ?? 0);
+        if ($groupId <= 0) {
+            return;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $page = app(KeywordGroupReadModel::class)->pageForGroup(
+            $siteId,
+            $groupId,
+            KeywordGroupReadModel::DEFAULT_PER_PAGE,
+        );
+        if ($page !== null) {
+            $this->setPage($page);
+        }
+    }
+
+    private function resetMemberState(): void
+    {
+        $this->loadedMembers = [];
+        $this->memberHasMore = [];
+        $this->memberTotals = [];
     }
 
     private function afterGroupMutation(): void
