@@ -367,11 +367,12 @@ final class TopicGroupingApplyPlanAndServiceTest extends TestCase
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
-        self::assertStringContainsString("\$reclusterStatus === 'proposal_ready'", $blade);
-        self::assertStringContainsString("\$reclusterStatus === 'applied'", $blade);
-        self::assertStringContainsString("\$reclusterStatus === 'stale'", $blade);
-        self::assertStringContainsString('Apply Plan Preview', $blade);
+        self::assertStringContainsString('openReclusterModal', $blade);
+        self::assertStringContainsString('topic-recluster-modal-title', $blade);
+        self::assertStringContainsString('Xem thay đổi', $blade);
         self::assertStringContainsString('beginConfirmApplyProposal', $blade);
+        self::assertStringContainsString("'proposal_ready'", $blade);
+        self::assertStringContainsString("'stale'", $blade);
 
         self::assertTrue(defined(TopicGroupingRunStatus::class.'::APPLY_FAILED'));
         self::assertSame('apply_failed', TopicGroupingRunStatus::APPLY_FAILED);

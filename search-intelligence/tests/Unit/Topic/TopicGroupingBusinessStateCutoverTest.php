@@ -575,8 +575,10 @@ final class TopicGroupingBusinessStateCutoverTest extends TestCase
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
-        self::assertStringContainsString('Business state preservation', $blade);
-        self::assertStringContainsString('topics_with_focus_keywords_changing_identity', $blade);
+        // Preview lives in recluster modal; Focus remains keyword-owned / not dissolved wording.
+        self::assertStringContainsString('Focus Article', $blade);
+        self::assertStringContainsString('HARD BLOCK', $blade);
+        self::assertStringContainsString('openProposalPreview', $blade);
         self::assertStringNotContainsString('Focus Topics dissolved', $blade);
     }
 

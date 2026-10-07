@@ -106,11 +106,13 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
 
     private function handleSemanticAnalyze(TopicGroupingAnalysisService $analysis): void
     {
-        TopicReclusterUiState::markQueued($this->siteId, TopicGroupingProviderMode::SEMANTIC_HTTP);
-        $run = $analysis->analyzeSite(
+        $rebuildMode = TopicGroupingRebuildMode::normalize($this->rebuildMode);
+        TopicReclusterUiState::markQueued(
             $this->siteId,
-            TopicGroupingRebuildMode::normalize($this->rebuildMode),
+            TopicGroupingProviderMode::SEMANTIC_HTTP,
+            $rebuildMode,
         );
+        $run = $analysis->analyzeSite($this->siteId, $rebuildMode);
         if ($run->status === TopicGroupingRunStatus::PROPOSAL_READY) {
             return;
         }

@@ -126,10 +126,17 @@ final class TopicReclusterUiState
         return $status === self::STATUS_QUEUED || $status === self::STATUS_ANALYZING;
     }
 
-    public static function markQueued(int $siteId, ?string $algorithmVersion = null): void
-    {
+    public static function markQueued(
+        int $siteId,
+        ?string $algorithmVersion = null,
+        ?string $rebuildMode = null,
+    ): void {
         $semantic = $algorithmVersion === TopicGroupingProviderMode::SEMANTIC_HTTP
             || TopicGroupingProviderMode::isSemanticHttp();
+        $metrics = null;
+        if ($rebuildMode !== null && $rebuildMode !== '') {
+            $metrics = ['rebuild_mode' => $rebuildMode];
+        }
         self::put($siteId, [
             'status' => self::STATUS_QUEUED,
             'site_id' => $siteId,
@@ -139,7 +146,7 @@ final class TopicReclusterUiState
             'algorithm_version' => $algorithmVersion ?? TopicReclusterAlgorithm::VERSION,
             'started_at' => now()->toIso8601String(),
             'finished_at' => null,
-            'metrics' => null,
+            'metrics' => $metrics,
             'error' => null,
             'failure_reason' => null,
         ]);

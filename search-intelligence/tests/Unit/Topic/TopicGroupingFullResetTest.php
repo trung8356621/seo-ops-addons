@@ -413,10 +413,12 @@ final class TopicGroupingFullResetTest extends TestCase
         self::assertStringContainsString('fullResetTopicStructure', $concern);
         self::assertStringContainsString('selectedRebuildMode', $concern);
         self::assertStringContainsString('canUseFullResetRebuildMode', $concern);
+        self::assertStringContainsString('openReclusterModal', $concern);
 
         $blade = (string) file_get_contents(
             dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php'
         );
+        self::assertStringContainsString('openReclusterModal', $blade);
         self::assertStringContainsString('fullResetTopicStructure', $blade);
         self::assertStringContainsString('Xóa cấu trúc Topic cũ và tách lại từ đầu', $blade);
         self::assertStringContainsString('topic_ai_history_link', $blade);
