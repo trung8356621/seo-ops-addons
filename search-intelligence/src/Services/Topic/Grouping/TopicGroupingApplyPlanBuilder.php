@@ -7,8 +7,10 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicTagAssignment;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSeedIdentityResolver;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicUserTagService;
 
 /**
  * Builds a deterministic Apply Plan from a proposal + CURRENT Laravel Topic state.
@@ -36,6 +38,7 @@ final class TopicGroupingApplyPlanBuilder
             $currentMembership,
             $locked,
             $manualIds,
+            $this->loadTagAssignmentFingerprint($siteId, array_keys($currentTopics)),
         );
 
         $clusters = $this->mapper->toReclusterClusters($proposal);
@@ -763,21 +766,29 @@ final class TopicGroupingApplyPlanBuilder
     }
 
     /**
-     * @param  array<int, array{id: int, name: string, source: string, is_locked: bool}>  $topics
+     * @param  array<int, array{id: int, name: string, source: string, is_locked: bool, mcp_excluded: bool}>  $topics
      * @param  array<int, array{topic_id: int, is_locked: bool, text: string}>  $membership
      * @param  array{locked_topic_ids: array<int, true>, locked_keyword_ids: array<int, true>}  $locked
      * @param  list<int>  $manualIds
+     * @param  list<string>  $tagFingerprint  stable "topic_id:tag_id:source" rows
      */
-    private function hashBusinessSnapshot(array $topics, array $membership, array $locked, array $manualIds): string
-    {
+    private function hashBusinessSnapshot(
+        array $topics,
+        array $membership,
+        array $locked,
+        array $manualIds,
+        array $tagFingerprint = [],
+    ): string {
         ksort($topics);
         ksort($membership);
+        sort($tagFingerprint);
         $payload = [
             'topics' => $topics,
             'membership' => $membership,
             'locked_topics' => array_keys($locked['locked_topic_ids']),
             'locked_keywords' => array_keys($locked['locked_keyword_ids']),
             'manual' => $manualIds,
+            'tag_assignments' => $tagFingerprint,
         ];
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($json === false) {
@@ -785,6 +796,30 @@ final class TopicGroupingApplyPlanBuilder
         }
 
         return hash('sha256', $json);
+    }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @return list<string>
+     */
+    private function loadTagAssignmentFingerprint(int $siteId, array $topicIds): array
+    {
+        if ($siteId <= 0 || $topicIds === [] || ! TopicUserTagService::tablesReady()) {
+            return [];
+        }
+        $hasSource = TopicUserTagService::provenanceReady();
+        $rows = SeoTopicTagAssignment::query()
+            ->whereIn('topic_id', $topicIds)
+            ->orderBy('topic_id')
+            ->orderBy('tag_id')
+            ->get($hasSource ? ['topic_id', 'tag_id', 'source'] : ['topic_id', 'tag_id']);
+        $out = [];
+        foreach ($rows as $row) {
+            $source = $hasSource ? (string) ($row->source ?? 'manual') : 'manual';
+            $out[] = ((int) $row->topic_id).':'.((int) $row->tag_id).':'.$source;
+        }
+
+        return $out;
     }
 
     /**
@@ -968,17 +1003,22 @@ final class TopicGroupingApplyPlanBuilder
         return $out;
     }
 
-    /** @return array<int, array{id: int, name: string, source: string, is_locked: bool}> */
+    /** @return array<int, array{id: int, name: string, source: string, is_locked: bool, mcp_excluded: bool}> */
     private function loadCurrentTopics(int $siteId): array
     {
         $out = [];
-        $rows = SeoTopic::query()->where('site_id', $siteId)->get(['id', 'name', 'source', 'is_locked']);
+        $cols = ['id', 'name', 'source', 'is_locked'];
+        if (TopicMcpExclusionService::columnReady()) {
+            $cols[] = 'mcp_excluded';
+        }
+        $rows = SeoTopic::query()->where('site_id', $siteId)->get($cols);
         foreach ($rows as $row) {
             $out[(int) $row->id] = [
                 'id' => (int) $row->id,
                 'name' => (string) $row->name,
                 'source' => (string) $row->source,
                 'is_locked' => (bool) $row->is_locked,
+                'mcp_excluded' => (bool) ($row->mcp_excluded ?? false),
             ];
         }
 

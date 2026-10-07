@@ -120,8 +120,17 @@ final class TopicGroupingBoundaryTest extends TestCase
             $inventory,
         ));
         $mapped = (new TopicGroupingProposalMapper)->toReclusterClusters($proposal);
+        // group_key is proposal-local Apply correlation; engine clusters do not carry it.
+        $mappedBusiness = array_map(static function (array $cluster): array {
+            unset($cluster['group_key']);
 
-        self::assertEquals($direct, $mapped);
+            return $cluster;
+        }, $mapped);
+
+        self::assertEquals($direct, $mappedBusiness);
+        foreach ($mapped as $cluster) {
+            self::assertNotSame('', (string) ($cluster['group_key'] ?? ''));
+        }
         self::assertEquals($directMetrics, $proposal->metadata[TopicGroupingProposal::META_ENGINE_METRICS]);
         self::assertNull($proposal->analysisRef);
         self::assertSame(LegacyTopicGroupingProvider::KEY, $proposal->metadata[TopicGroupingProposal::META_PROVIDER]);
@@ -166,8 +175,14 @@ final class TopicGroupingBoundaryTest extends TestCase
                 [],
             )),
         );
+        $mappedBusiness = array_map(static function (array $cluster): array {
+            unset($cluster['group_key']);
 
-        self::assertEquals($direct, $mapped);
+            return $cluster;
+        }, $mapped);
+
+        self::assertEquals($direct, $mappedBusiness);
+        self::assertNotSame('', (string) ($mapped[0]['group_key'] ?? ''));
         self::assertNull($mapped[0]['topic_id']);
 
         $applied = (new TopicSeedIdentityResolver)->apply($mapped, [50 => 12]);

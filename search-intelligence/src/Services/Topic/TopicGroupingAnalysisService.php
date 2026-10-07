@@ -236,6 +236,16 @@ final class TopicGroupingAnalysisService
             $provider,
         );
 
+        \Illuminate\Support\Facades\Log::warning('topic_grouping.analyze.failed', [
+            'run_id' => (int) $run->id,
+            'site_id' => (int) $run->site_id,
+            'provider' => $provider,
+            'error_code' => $code,
+            'error' => mb_substr($message, 0, 500),
+            'analysis_id' => (string) ($run->external_analysis_id ?? ''),
+            'input_hash' => (string) ($run->input_hash ?? ''),
+        ]);
+
         return $run->fresh() ?? $run;
     }
 

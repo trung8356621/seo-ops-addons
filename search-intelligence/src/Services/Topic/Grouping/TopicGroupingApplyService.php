@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
@@ -201,12 +202,27 @@ final class TopicGroupingApplyService
 
                 TopicReclusterUiState::markApplied((int) $run->site_id, $run, $metrics);
 
+                Log::info('topic_grouping.apply.ok', [
+                    'run_id' => (int) $run->id,
+                    'site_id' => (int) $run->site_id,
+                    'plan_hash' => $plan->planHash,
+                    'input_hash' => (string) $run->input_hash,
+                    'analysis_id' => (string) ($run->external_analysis_id ?? ''),
+                    'provider' => (string) $run->provider,
+                    'counts' => $plan->counts,
+                ]);
+
                 return TopicGroupingApplyResult::okWithPlan($plan, $metrics);
             });
 
             return $preflight;
         } catch (\Throwable $e) {
             $this->markApplyFailed($runId, 'apply_exception', $e->getMessage());
+            Log::warning('topic_grouping.apply.failed', [
+                'run_id' => $runId,
+                'error_code' => 'apply_exception',
+                'error' => mb_substr($e->getMessage(), 0, 500),
+            ]);
 
             return TopicGroupingApplyResult::failed('apply_exception', $e->getMessage());
         }
