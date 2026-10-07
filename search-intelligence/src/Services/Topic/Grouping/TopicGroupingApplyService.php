@@ -265,6 +265,20 @@ final class TopicGroupingApplyService
             'protected_topics' => $plan->protectedTopics,
             'protected_keywords' => $plan->protectedKeywords,
             'warnings' => $plan->warnings,
+            'identity_migration' => [
+                'existing_topics' => $plan->identityMigration['existing_topics'] ?? null,
+                'semantic_groups' => $plan->identityMigration['semantic_groups'] ?? null,
+                'reused_ids' => $plan->identityMigration['reused_ids'] ?? null,
+                'new_ids' => $plan->identityMigration['new_ids'] ?? null,
+                'dissolved_ids' => $plan->identityMigration['dissolved_ids'] ?? null,
+                'one_to_one' => array_slice($plan->identityMigration['one_to_one'] ?? [], 0, 40),
+                'splits' => array_slice($plan->identityMigration['splits'] ?? [], 0, 30),
+                'merges' => array_slice($plan->identityMigration['merges'] ?? [], 0, 30),
+                'ambiguous' => array_slice($plan->identityMigration['ambiguous'] ?? [], 0, 20),
+                'no_successor' => array_slice($plan->identityMigration['no_successor'] ?? [], 0, 40),
+                'topics_with_focus_dissolved' => $plan->identityMigration['topics_with_focus_dissolved'] ?? 0,
+                'thresholds' => $plan->identityMigration['thresholds'] ?? [],
+            ],
         ];
     }
 

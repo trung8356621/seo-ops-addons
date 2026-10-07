@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicDiscoveredIdentityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMcpExclusionService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSeedIdentityResolver;
 
@@ -20,7 +19,7 @@ final class TopicGroupingApplyPlanBuilder
     public function __construct(
         private readonly TopicGroupingProposalMapper $mapper = new TopicGroupingProposalMapper,
         private readonly TopicSeedIdentityResolver $seedIdentity = new TopicSeedIdentityResolver,
-        private readonly TopicDiscoveredIdentityResolver $discoveredIdentity = new TopicDiscoveredIdentityResolver,
+        private readonly TopicGroupingIdentityMatcher $identityMatcher = new TopicGroupingIdentityMatcher,
     ) {}
 
     public function build(int $siteId, TopicGroupingProposal $proposal): TopicGroupingApplyPlan
@@ -28,7 +27,6 @@ final class TopicGroupingApplyPlanBuilder
         $locked = $this->loadLockedState($siteId);
         $manualIds = $this->loadManualTopicIds($siteId);
         $seedMap = $this->loadSeedIdentityMap($siteId);
-        $discovered = $this->loadDiscoveredInventory($siteId);
         $currentMembership = $this->loadCurrentMembership($siteId);
         $currentTopics = $this->loadCurrentTopics($siteId);
 
@@ -42,15 +40,17 @@ final class TopicGroupingApplyPlanBuilder
         $clusters = $this->mapper->toReclusterClusters($proposal);
         $clusters = $this->annotateSeeds($clusters, $seedMap);
         $clusters = $this->seedIdentity->apply($clusters, $seedMap);
-        $discoveredApplied = $this->discoveredIdentity->apply($clusters, $discovered);
-        $clusters = $discoveredApplied['clusters'];
-        // resolvedClusters = identity-resolved proposal clusters only (same input persistClusters expects).
-        // Locked / manual inventory is applied via locked + manualIds, not by fabricating cluster rows.
+        // Apply-path identity: seed anchors first, then membership-continuity matcher
+        // for ALL remaining unresolved clusters (seeded + discovered Topics).
+        // Legacy TopicDiscoveredIdentityResolver remains on TopicReclusterService only.
+        $continuityInventory = $this->loadContinuityInventory($siteId, $manualIds, $locked);
+        $matched = $this->identityMatcher->apply($clusters, $continuityInventory);
+        $clusters = $matched['clusters'];
+        $identityDiag = $matched['diagnostics'];
 
         $desired = $this->desiredMembership($clusters, $locked, $manualIds, $siteId);
         $topicActions = $this->buildTopicActions($clusters, $currentTopics, $manualIds, $locked, $proposal);
         $keywordActions = $this->buildKeywordActions($desired, $currentMembership, $locked, $proposal);
-        $warnings = $this->buildWarnings($proposal, $topicActions);
 
         $counts = [
             'topics_reused' => count(array_filter($topicActions, static fn (array $a): bool => $a['action'] === 'reuse')),
@@ -71,7 +71,23 @@ final class TopicGroupingApplyPlanBuilder
                 $topicActions,
                 static fn (array $a): bool => in_array($a['action'], ['reuse', 'create', 'protect'], true),
             )),
+            'identity_one_to_one' => count($identityDiag['one_to_one']),
+            'identity_splits' => count($identityDiag['splits']),
+            'identity_merges' => count($identityDiag['merges']),
+            'identity_ambiguous' => count($identityDiag['ambiguous']),
+            'identity_no_successor' => count($identityDiag['no_successor']),
+            'identity_continuity_reused' => (int) $identityDiag['reused'],
         ];
+
+        $identityMigration = $this->buildIdentityMigration(
+            $siteId,
+            $currentTopics,
+            $proposal,
+            $topicActions,
+            $identityDiag,
+            $counts,
+        );
+        $warnings = $this->buildWarnings($proposal, $topicActions, $counts, $identityMigration);
 
         $protectedTopics = [];
         foreach ($topicActions as $action) {
@@ -93,7 +109,7 @@ final class TopicGroupingApplyPlanBuilder
             }
         }
 
-        $planHash = $this->hashPlan($counts, $topicActions, $keywordActions, $businessSnapshotHash);
+        $planHash = $this->hashPlan($counts, $topicActions, $keywordActions, $businessSnapshotHash, $identityMigration);
 
         return new TopicGroupingApplyPlan(
             $planHash,
@@ -105,6 +121,7 @@ final class TopicGroupingApplyPlanBuilder
             $warnings,
             $clusters,
             $businessSnapshotHash,
+            $identityMigration,
         );
     }
 
@@ -476,10 +493,16 @@ final class TopicGroupingApplyPlanBuilder
 
     /**
      * @param  list<array{topic_id: int|null, name: string, action: string, member_count: int, warning: string|null}>  $topicActions
+     * @param  array<string, int|float>  $counts
+     * @param  array<string, mixed>  $identityMigration
      * @return list<string>
      */
-    private function buildWarnings(TopicGroupingProposal $proposal, array $topicActions): array
-    {
+    private function buildWarnings(
+        TopicGroupingProposal $proposal,
+        array $topicActions,
+        array $counts,
+        array $identityMigration,
+    ): array {
         $warnings = [];
         $low = (int) ($proposal->metadata['low_confidence_member_count']
             ?? $proposal->metadata['diagnostics']['low_confidence_member_count']
@@ -493,16 +516,198 @@ final class TopicGroupingApplyPlanBuilder
             }
         }
 
+        $kwTotal = max(1, (int) $counts['keywords_kept'] + (int) $counts['keywords_assigned'] + (int) $counts['keywords_moved'] + (int) $counts['keywords_unassigned']);
+        $moveRatio = ((int) $counts['keywords_moved'] + (int) $counts['keywords_assigned'] + (int) $counts['keywords_unassigned']) / $kwTotal;
+        $existing = max(1, (int) ($identityMigration['existing_topics'] ?? 1));
+        $replaceRatio = ((int) $counts['topics_created'] + (int) $counts['topics_dissolved']) / (2 * $existing);
+        $unassignedRatio = (int) $counts['semantic_unassigned'] / max(1, (int) $counts['semantic_groups'] + (int) $counts['semantic_unassigned']);
+
+        if ($moveRatio >= 0.4) {
+            $warnings[] = 'high_membership_churn:'.round($moveRatio, 3);
+        }
+        if ($replaceRatio >= 0.5) {
+            $warnings[] = 'high_identity_replacement:'.round($replaceRatio, 3);
+        }
+        if ($unassignedRatio >= 0.15) {
+            $warnings[] = 'elevated_unassigned_ratio:'.round($unassignedRatio, 3);
+        }
+        $focusDissolved = (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0);
+        if ($focusDissolved > 0) {
+            $warnings[] = "topics_with_focus_being_dissolved:{$focusDissolved}";
+        }
+        $ambiguous = (int) ($counts['identity_ambiguous'] ?? 0);
+        if ($ambiguous > 0) {
+            $warnings[] = "ambiguous_identity_matches:{$ambiguous}";
+        }
+        if ((int) ($counts['topics_protected'] ?? 0) > 0 || (int) ($counts['keywords_protected'] ?? 0) > 0) {
+            $warnings[] = 'protected_conflicts:'.((int) $counts['topics_protected'] + (int) $counts['keywords_protected']);
+        }
+
         return array_values(array_unique($warnings));
     }
 
     /**
-     * @param  array<string, int>  $counts
+     * @param  array<int, array{id: int, name: string, source: string, is_locked: bool}>  $currentTopics
+     * @param  list<array<string, mixed>>  $topicActions
+     * @param  array<string, mixed>  $identityDiag
+     * @param  array<string, int|float>  $counts
+     * @return array<string, mixed>
+     */
+    private function buildIdentityMigration(
+        int $siteId,
+        array $currentTopics,
+        TopicGroupingProposal $proposal,
+        array $topicActions,
+        array $identityDiag,
+        array $counts,
+    ): array {
+        $focusDissolved = 0;
+        $focusTopicIds = $this->loadFocusTopicIds($siteId, array_keys($currentTopics));
+        foreach ($topicActions as $action) {
+            if ($action['action'] !== 'dissolve' || $action['topic_id'] === null) {
+                continue;
+            }
+            if (isset($focusTopicIds[(int) $action['topic_id']])) {
+                $focusDissolved++;
+            }
+        }
+
+        $mapping = [];
+        foreach ($topicActions as $action) {
+            if (! in_array($action['action'], ['reuse', 'create', 'dissolve', 'protect'], true)) {
+                continue;
+            }
+            $mapping[] = [
+                'action' => $action['action'],
+                'topic_id' => $action['topic_id'],
+                'name' => $action['name'],
+                'group_key' => $action['group_key'] ?? null,
+            ];
+        }
+
+        return [
+            'existing_topics' => count($currentTopics),
+            'semantic_groups' => count($proposal->groups),
+            'reused_ids' => (int) $counts['topics_reused'],
+            'new_ids' => (int) $counts['topics_created'],
+            'dissolved_ids' => (int) $counts['topics_dissolved'],
+            'one_to_one' => $identityDiag['one_to_one'],
+            'splits' => $identityDiag['splits'],
+            'merges' => $identityDiag['merges'],
+            'ambiguous' => $identityDiag['ambiguous'],
+            'no_successor' => $identityDiag['no_successor'],
+            'matches' => $identityDiag['matches'],
+            'thresholds' => $identityDiag['thresholds'],
+            'topics_with_focus_dissolved' => $focusDissolved,
+            'identity_mapping' => $mapping,
+        ];
+    }
+
+    /**
+     * Eligible auto Topics for continuity matching (locked/manual excluded).
+     *
+     * @param  list<int>  $manualIds
+     * @param  array{locked_topic_ids: array<int, true>}  $locked
+     * @return list<array{topic_id: int, name: string, member_keyword_ids: list<int>, member_count: int, is_locked: bool, has_focus: bool}>
+     */
+    private function loadContinuityInventory(int $siteId, array $manualIds, array $locked): array
+    {
+        /** @var array<int, true> $manualSet */
+        $manualSet = [];
+        foreach ($manualIds as $id) {
+            $manualSet[(int) $id] = true;
+        }
+
+        $topics = SeoTopic::query()
+            ->where('site_id', $siteId)
+            ->where('source', TopicSource::AUTO)
+            ->where('is_locked', false)
+            ->get(['id', 'name']);
+        if ($topics->isEmpty()) {
+            return [];
+        }
+
+        $topicIds = [];
+        foreach ($topics as $topic) {
+            $tid = (int) $topic->id;
+            if (isset($manualSet[$tid]) || isset($locked['locked_topic_ids'][$tid])) {
+                continue;
+            }
+            $topicIds[] = $tid;
+        }
+        if ($topicIds === []) {
+            return [];
+        }
+
+        $memberRows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('topic_id', $topicIds)
+            ->get(['topic_id', 'keyword_id']);
+        /** @var array<int, list<int>> $membersByTopic */
+        $membersByTopic = [];
+        foreach ($memberRows as $row) {
+            $membersByTopic[(int) $row->topic_id][] = (int) $row->keyword_id;
+        }
+        $focusIds = $this->loadFocusTopicIds($siteId, $topicIds);
+
+        $inventory = [];
+        foreach ($topics as $topic) {
+            $tid = (int) $topic->id;
+            if (! in_array($tid, $topicIds, true)) {
+                continue;
+            }
+            $members = array_values(array_unique($membersByTopic[$tid] ?? []));
+            $inventory[] = [
+                'topic_id' => $tid,
+                'name' => (string) $topic->name,
+                'member_keyword_ids' => $members,
+                'member_count' => count($members),
+                'is_locked' => false,
+                'has_focus' => isset($focusIds[$tid]),
+            ];
+        }
+
+        return $inventory;
+    }
+
+    /**
+     * @param  list<int>  $topicIds
+     * @return array<int, true>
+     */
+    private function loadFocusTopicIds(int $siteId, array $topicIds): array
+    {
+        if ($siteId <= 0 || $topicIds === []) {
+            return [];
+        }
+        try {
+            $counter = app(\Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicLinkedArticleCounter::class);
+            $counts = $counter->countForTopics($siteId, $topicIds);
+            $out = [];
+            foreach ($counts as $tid => $count) {
+                if ((int) $count > 0) {
+                    $out[(int) $tid] = true;
+                }
+            }
+
+            return $out;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param  array<string, int|float>  $counts
      * @param  list<array<string, mixed>>  $topicActions
      * @param  list<array<string, mixed>>  $keywordActions
+     * @param  array<string, mixed>  $identityMigration
      */
-    private function hashPlan(array $counts, array $topicActions, array $keywordActions, string $businessSnapshotHash): string
-    {
+    private function hashPlan(
+        array $counts,
+        array $topicActions,
+        array $keywordActions,
+        string $businessSnapshotHash,
+        array $identityMigration = [],
+    ): string {
         $payload = [
             'business_snapshot_hash' => $businessSnapshotHash,
             'counts' => $counts,
@@ -519,6 +724,7 @@ final class TopicGroupingApplyPlanBuilder
                 'to' => $a['to_topic_id'],
                 'protected' => $a['protected'],
             ], $keywordActions),
+            'identity_mapping' => $identityMigration['identity_mapping'] ?? [],
         ];
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($json === false) {

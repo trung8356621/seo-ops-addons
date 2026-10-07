@@ -19,7 +19,8 @@ final class TopicGroupingApplyPlan
      * @param  list<array{topic_id: int, name: string, reason: string}>  $protectedTopics
      * @param  list<array{keyword_id: int, reason: string}>  $protectedKeywords
      * @param  list<array{name: string, topic_id: int|null, is_locked: bool, members: list<array{keyword_id: int, phrase: string, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>}>  $resolvedClusters
-     * @param  array<string, int>  $counts
+     * @param  array<string, int|float>  $counts
+     * @param  array<string, mixed>  $identityMigration
      */
     public function __construct(
         public readonly string $planHash,
@@ -31,6 +32,7 @@ final class TopicGroupingApplyPlan
         public readonly array $warnings,
         public readonly array $resolvedClusters,
         public readonly string $businessSnapshotHash,
+        public readonly array $identityMigration = [],
     ) {}
 
     /**
@@ -47,6 +49,7 @@ final class TopicGroupingApplyPlan
             'protected_topics' => $this->protectedTopics,
             'protected_keywords' => $this->protectedKeywords,
             'warnings' => $this->warnings,
+            'identity_migration' => $this->identityMigration,
             'resolved_clusters' => $this->resolvedClusters,
         ];
     }

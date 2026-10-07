@@ -24,6 +24,8 @@
     $confirmApplyProposal = (bool) ($this->confirmApplyProposal ?? false);
     $proposalPreview = is_array($this->proposalPreview ?? null) ? $this->proposalPreview : null;
     $previewCounts = is_array($proposalPreview['counts'] ?? null) ? $proposalPreview['counts'] : [];
+    $identityMigration = is_array($proposalPreview['identity_migration'] ?? null) ? $proposalPreview['identity_migration'] : [];
+    $highChurnPreview = (bool) ($proposalPreview['high_churn'] ?? false);
 
     $assignedCount = (int) ($summary['assigned'] ?? $summary['clustered'] ?? 0);
     $unassignedCount = (int) ($summary['unassigned'] ?? $summary['unclustered'] ?? 0);
@@ -698,6 +700,24 @@
                     </div>
                     <x-filament::button type="button" size="xs" color="gray" wire:click="closeProposalPreview">Đóng</x-filament::button>
                 </div>
+                <div class="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs dark:border-indigo-800 dark:bg-indigo-950/40">
+                    <div class="font-medium">Identity migration</div>
+                    <div class="mt-1 grid gap-1 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>Existing Topics: <strong>{{ (int) ($identityMigration['existing_topics'] ?? 0) }}</strong></div>
+                        <div>Semantic Groups: <strong>{{ (int) ($identityMigration['semantic_groups'] ?? $previewCounts['semantic_groups'] ?? 0) }}</strong></div>
+                        <div>Identity reused: <strong>{{ (int) ($identityMigration['reused_ids'] ?? $previewCounts['topics_reused'] ?? 0) }}</strong></div>
+                        <div>New Topic IDs: <strong>{{ (int) ($identityMigration['new_ids'] ?? $previewCounts['topics_created'] ?? 0) }}</strong></div>
+                        <div>Old IDs dissolved: <strong>{{ (int) ($identityMigration['dissolved_ids'] ?? $previewCounts['topics_dissolved'] ?? 0) }}</strong></div>
+                        <div>1:1 / split / merge:
+                            <strong>{{ count($identityMigration['one_to_one'] ?? []) }}</strong> /
+                            <strong>{{ count($identityMigration['splits'] ?? []) }}</strong> /
+                            <strong>{{ count($identityMigration['merges'] ?? []) }}</strong>
+                        </div>
+                        <div>Ambiguous: <strong>{{ count($identityMigration['ambiguous'] ?? []) }}</strong></div>
+                        <div>No-successor: <strong>{{ count($identityMigration['no_successor'] ?? []) }}</strong></div>
+                        <div>Focus Topics dissolved: <strong>{{ (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0) }}</strong></div>
+                    </div>
+                </div>
                 <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                     <div>Semantic groups: <strong>{{ (int) ($previewCounts['semantic_groups'] ?? 0) }}</strong></div>
                     <div>Effective topics: <strong>{{ (int) ($previewCounts['effective_topics_after'] ?? 0) }}</strong></div>
@@ -724,6 +744,32 @@
                     </ul>
                 @endif
                 <details class="mt-3 text-xs">
+                    <summary class="cursor-pointer font-medium">Splits ({{ count($identityMigration['splits'] ?? []) }})</summary>
+                    <div class="mt-2 max-h-40 overflow-auto space-y-2">
+                        @foreach (array_slice($identityMigration['splits'] ?? [], 0, 12) as $split)
+                            <div class="border-b border-gray-100 py-1 dark:border-gray-800">
+                                <div>Old “{{ $split['topic_name'] ?? '' }}” → retained “{{ $split['retained_group'] ?? '' }}” (ec {{ $split['retained_existing_coverage'] ?? '' }})</div>
+                                @foreach (array_slice($split['other_groups'] ?? [], 0, 4) as $og)
+                                    <div class="text-gray-500">→ {{ $og['group_name'] ?? '' }} [new]</div>
+                                @endforeach
+                            </div>
+                        @endforeach
+                    </div>
+                </details>
+                <details class="mt-2 text-xs">
+                    <summary class="cursor-pointer font-medium">Merges ({{ count($identityMigration['merges'] ?? []) }})</summary>
+                    <div class="mt-2 max-h-40 overflow-auto space-y-2">
+                        @foreach (array_slice($identityMigration['merges'] ?? [], 0, 12) as $merge)
+                            <div class="border-b border-gray-100 py-1 dark:border-gray-800">
+                                <div>“{{ $merge['surviving_topic_name'] ?? '' }}” retained → {{ $merge['group_name'] ?? '' }}</div>
+                                @foreach (array_slice($merge['merged_from'] ?? [], 0, 4) as $mf)
+                                    <div class="text-gray-500">{{ $mf['topic_name'] ?? '' }} [{{ $mf['fate'] ?? 'dissolve' }}]</div>
+                                @endforeach
+                            </div>
+                        @endforeach
+                    </div>
+                </details>
+                <details class="mt-2 text-xs">
                     <summary class="cursor-pointer font-medium">Topic actions ({{ count($proposalPreview['topic_actions'] ?? []) }})</summary>
                     <div class="mt-2 max-h-48 overflow-auto space-y-1">
                         @foreach (array_slice($proposalPreview['topic_actions'] ?? [], 0, 80) as $action)
@@ -759,12 +805,25 @@
                 <div class="mt-4 flex flex-wrap gap-2">
                     @if ($confirmApplyProposal)
                         <div class="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
-                            Apply sẽ thay đổi Topic memberships.
-                            {{ (int) ($previewCounts['semantic_groups'] ?? 0) }} semantic groups →
-                            {{ (int) ($previewCounts['effective_topics_after'] ?? 0) }} effective topics;
-                            {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
-                            {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
-                            {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence.
+                            @if ($highChurnPreview)
+                                <div class="font-semibold">Đây là lần tái cấu trúc Topic lớn.</div>
+                                <p class="mt-1">
+                                    {{ (int) ($previewCounts['keywords_moved'] ?? 0) }} keyword sẽ chuyển Topic.
+                                    {{ (int) ($previewCounts['topics_dissolved'] ?? 0) }} Topic ID cũ sẽ ngừng sử dụng.
+                                    {{ (int) ($previewCounts['topics_created'] ?? 0) }} Topic mới sẽ được tạo.
+                                </p>
+                                <p class="mt-1 opacity-90">Không ảnh hưởng Keyword/Article content. Các trạng thái manual/lock được bảo vệ.</p>
+                            @else
+                                Apply sẽ thay đổi Topic memberships.
+                            @endif
+                            <p class="mt-1">
+                                {{ (int) ($previewCounts['semantic_groups'] ?? 0) }} semantic groups →
+                                {{ (int) ($previewCounts['effective_topics_after'] ?? 0) }} effective topics;
+                                {{ (int) (($previewCounts['keywords_assigned'] ?? 0) + ($previewCounts['keywords_moved'] ?? 0) + ($previewCounts['keywords_unassigned'] ?? 0)) }} keyword changes;
+                                {{ (int) (($previewCounts['topics_protected'] ?? 0) + ($previewCounts['keywords_protected'] ?? 0)) }} protected/skipped;
+                                {{ (int) ($previewCounts['low_confidence_members'] ?? 0) }} low-confidence;
+                                Focus Topics dissolved: {{ (int) ($identityMigration['topics_with_focus_dissolved'] ?? 0) }}.
+                            </p>
                             <div class="mt-2 flex gap-2">
                                 <x-filament::button type="button" size="xs" color="danger" wire:click="applyProposal" wire:loading.attr="disabled">
                                     Xác nhận Apply

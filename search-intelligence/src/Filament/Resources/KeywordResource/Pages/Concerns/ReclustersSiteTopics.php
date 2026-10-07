@@ -393,9 +393,27 @@ trait ReclustersSiteTopics
             'protected_topics' => $plan->protectedTopics,
             'protected_keywords' => $plan->protectedKeywords,
             'warnings' => $plan->warnings,
+            'identity_migration' => $plan->identityMigration,
+            'high_churn' => $this->isHighChurnPlan($plan->counts),
         ];
         $this->showProposalPreview = true;
         $this->confirmApplyProposal = false;
+    }
+
+    /**
+     * @param  array<string, int|float>  $counts
+     */
+    private function isHighChurnPlan(array $counts): bool
+    {
+        $moved = (int) ($counts['keywords_moved'] ?? 0)
+            + (int) ($counts['keywords_assigned'] ?? 0)
+            + (int) ($counts['keywords_unassigned'] ?? 0);
+        $kept = (int) ($counts['keywords_kept'] ?? 0);
+        $ratio = $moved / max(1, $moved + $kept);
+
+        return $ratio >= 0.4
+            || (int) ($counts['topics_created'] ?? 0) >= 20
+            || (int) ($counts['topics_dissolved'] ?? 0) >= 10;
     }
 
     public function closeProposalPreview(): void
