@@ -16,6 +16,8 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Omnichannel\Addons\SearchIntelligence\Console\PreviewTopicSeedEvidenceCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
+use Omnichannel\Addons\SearchIntelligence\Console\AnalyzeSiteTopicGroupingCommand;
+use Omnichannel\Addons\SearchIntelligence\Console\SemanticDoctorCommand;
 use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditStatusController;
@@ -26,8 +28,11 @@ use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMap
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapTagsController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\SiteNetworkController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicCrossSiteLinksController;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticAnalyticsClient;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\TopicGroupingProvider;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\LegacyTopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 use Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\AgentTopicInternalLinkResolver;
@@ -43,7 +48,21 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->app->singleton(TopicGroupingProvider::class, LegacyTopicGroupingProvider::class);
+        $this->mergeConfigFrom(dirname(__DIR__).'/config/semantic.php', 'semantic');
+
+        $this->app->singleton(SemanticAnalyticsClient::class, static function (): SemanticAnalyticsClient {
+            return new SemanticAnalyticsClient;
+        });
+
+        // Centralized provider selection — default remains legacy (safe).
+        $this->app->singleton(TopicGroupingProvider::class, function ($app) {
+            if (TopicGroupingProviderMode::isSemanticHttp()) {
+                return $app->make(SemanticHttpTopicGroupingProvider::class);
+            }
+
+            return $app->make(LegacyTopicGroupingProvider::class);
+        });
+
         $this->app->singleton(TopicalMapVite::class);
         $this->app->singleton(TopicalMapAccess::class);
         $this->app->singleton(AgentInternalLinkResolver::class, AgentTopicInternalLinkResolver::class);
@@ -63,6 +82,8 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
             $this->commands([
                 ReclusterSiteTopicsCommand::class,
                 PreviewTopicSeedEvidenceCommand::class,
+                SemanticDoctorCommand::class,
+                AnalyzeSiteTopicGroupingCommand::class,
             ]);
         }
     }

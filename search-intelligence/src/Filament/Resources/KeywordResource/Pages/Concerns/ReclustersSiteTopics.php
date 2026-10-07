@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Filament\Notifications\Notification;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
@@ -161,8 +163,41 @@ trait ReclustersSiteTopics
         }
 
         $version = TopicReclusterAlgorithm::VERSION;
+        $semantic = TopicGroupingProviderMode::isSemanticHttp();
 
         if ($sync) {
+            if ($semantic) {
+                TopicReclusterUiState::markQueued($siteId, TopicGroupingProviderMode::SEMANTIC_HTTP);
+                $this->reclusterRunning = true;
+                $this->reclusterResult = TopicReclusterUiState::get($siteId);
+                $run = app(TopicGroupingAnalysisService::class)->analyzeSite($siteId);
+                $this->reclusterResult = TopicReclusterUiState::get($siteId);
+                $this->reclusterRunning = TopicReclusterUiState::isAnalyzeActive($siteId);
+                if ($run->isProposalReady()) {
+                    $metrics = is_array($this->reclusterResult['metrics'] ?? null)
+                        ? $this->reclusterResult['metrics']
+                        : [];
+                    Notification::make()
+                        ->title('Topic proposal ready')
+                        ->body(sprintf(
+                            '%d groups · %d unassigned · %d low confidence (not applied)',
+                            (int) ($metrics['group_count'] ?? $run->group_count),
+                            (int) ($metrics['unassigned_count'] ?? $run->unassigned_count),
+                            (int) ($metrics['low_confidence_count'] ?? $run->low_confidence_count),
+                        ))
+                        ->success()
+                        ->send();
+                } else {
+                    Notification::make()
+                        ->title('Topic analysis failed')
+                        ->body((string) ($run->error_message ?? 'failed'))
+                        ->danger()
+                        ->send();
+                }
+
+                return;
+            }
+
             TopicReclusterUiState::markRunning($siteId, $version);
             $this->reclusterRunning = true;
             $this->reclusterResult = TopicReclusterUiState::get($siteId);
@@ -199,13 +234,20 @@ trait ReclustersSiteTopics
         }
 
         // Persist queued state BEFORE dispatch so F5 immediately shows running UX.
-        TopicReclusterUiState::markQueued($siteId, $version);
+        TopicReclusterUiState::markQueued(
+            $siteId,
+            $semantic ? TopicGroupingProviderMode::SEMANTIC_HTTP : $version,
+        );
         $this->reclusterRunning = true;
         $this->reclusterResult = TopicReclusterUiState::get($siteId);
         ReclusterSiteTopicsJob::dispatch($siteId, $version);
         Notification::make()
-            ->title(__('seo-content-ai::filament.keyword.topic_recluster_queued_title'))
-            ->body(__('seo-content-ai::filament.keyword.topic_recluster_running'))
+            ->title($semantic
+                ? 'Topic analysis queued'
+                : __('seo-content-ai::filament.keyword.topic_recluster_queued_title'))
+            ->body($semantic
+                ? 'Analyzing… proposal only (not applied)'
+                : __('seo-content-ai::filament.keyword.topic_recluster_running'))
             ->success()
             ->send();
     }
@@ -237,11 +279,32 @@ trait ReclustersSiteTopics
 
         if (
             TopicReclusterUiState::isActiveStatus($previousStatus)
+            && $nowStatus === TopicReclusterUiState::STATUS_PROPOSAL_READY
+        ) {
+            $metrics = is_array($this->reclusterResult['metrics'] ?? null)
+                ? $this->reclusterResult['metrics']
+                : [];
+            Notification::make()
+                ->title('Topic proposal ready')
+                ->body(sprintf(
+                    '%d groups · %d unassigned · %d low confidence (not applied)',
+                    (int) ($metrics['group_count'] ?? 0),
+                    (int) ($metrics['unassigned_count'] ?? 0),
+                    (int) ($metrics['low_confidence_count'] ?? 0),
+                ))
+                ->success()
+                ->send();
+        }
+
+        if (
+            TopicReclusterUiState::isActiveStatus($previousStatus)
             && $nowStatus === TopicReclusterUiState::STATUS_FAILED
         ) {
             $error = (string) ($this->reclusterResult['error'] ?? '');
             Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.topic_recluster_failed_title'))
+                ->title(TopicGroupingProviderMode::isSemanticHttp()
+                    ? 'Topic analysis failed'
+                    : __('seo-content-ai::filament.keyword.topic_recluster_failed_title'))
                 ->body($error !== '' ? $error : null)
                 ->danger()
                 ->send();

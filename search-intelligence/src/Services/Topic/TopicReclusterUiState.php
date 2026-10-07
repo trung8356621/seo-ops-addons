@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Illuminate\Support\Facades\Cache;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicGroupingRun;
 
 /**
  * Site-scoped durable UI lock/status for explicit Topic recluster.
@@ -26,6 +27,11 @@ final class TopicReclusterUiState
     public const STATUS_COMPLETED = 'completed';
 
     public const STATUS_FAILED = 'failed';
+
+    /** Semantic analyze-only (TASK 4). Does not mutate Topics. */
+    public const STATUS_ANALYZING = 'analyzing';
+
+    public const STATUS_PROPOSAL_READY = 'proposal_ready';
 
     public static function cacheKey(int $siteId): string
     {
@@ -78,6 +84,10 @@ final class TopicReclusterUiState
         if ($state === null) {
             return false;
         }
+        // Semantic analyze never mutates Topics — keep manual ops available.
+        if (($state['mode'] ?? 'legacy') === TopicGroupingProviderMode::SEMANTIC_HTTP) {
+            return false;
+        }
         $status = (string) ($state['status'] ?? '');
 
         return $status === self::STATUS_QUEUED || $status === self::STATUS_RUNNING;
@@ -85,14 +95,32 @@ final class TopicReclusterUiState
 
     public static function isActiveStatus(string $status): bool
     {
-        return $status === self::STATUS_QUEUED || $status === self::STATUS_RUNNING;
+        return $status === self::STATUS_QUEUED
+            || $status === self::STATUS_RUNNING
+            || $status === self::STATUS_ANALYZING;
+    }
+
+    public static function isAnalyzeActive(int $siteId): bool
+    {
+        $state = self::get($siteId);
+        if ($state === null) {
+            return false;
+        }
+        $status = (string) ($state['status'] ?? '');
+
+        return $status === self::STATUS_QUEUED || $status === self::STATUS_ANALYZING;
     }
 
     public static function markQueued(int $siteId, ?string $algorithmVersion = null): void
     {
+        $semantic = $algorithmVersion === TopicGroupingProviderMode::SEMANTIC_HTTP
+            || TopicGroupingProviderMode::isSemanticHttp();
         self::put($siteId, [
             'status' => self::STATUS_QUEUED,
             'site_id' => $siteId,
+            'mode' => $semantic
+                ? TopicGroupingProviderMode::SEMANTIC_HTTP
+                : TopicGroupingProviderMode::LEGACY,
             'algorithm_version' => $algorithmVersion ?? TopicReclusterAlgorithm::VERSION,
             'started_at' => now()->toIso8601String(),
             'finished_at' => null,
@@ -160,6 +188,8 @@ final class TopicReclusterUiState
         self::put($siteId, [
             'status' => self::STATUS_FAILED,
             'site_id' => $siteId,
+            'mode' => (string) ($prior['mode'] ?? TopicGroupingProviderMode::LEGACY),
+            'run_id' => $metrics['run_id'] ?? ($prior['run_id'] ?? null),
             'algorithm_version' => $algorithmVersion
                 ?? (string) ($prior['algorithm_version'] ?? TopicReclusterAlgorithm::VERSION),
             'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
@@ -167,6 +197,50 @@ final class TopicReclusterUiState
             'metrics' => $metrics,
             'error' => $error,
             'failure_reason' => $failureReason,
+        ]);
+    }
+
+    public static function markAnalyzing(int $siteId, string $provider, ?int $runId = null): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_ANALYZING,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => $provider,
+            'run_id' => $runId ?? ($prior['run_id'] ?? null),
+            'algorithm_version' => $provider,
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => null,
+            'metrics' => null,
+            'error' => null,
+            'failure_reason' => null,
+        ]);
+    }
+
+    public static function markProposalReady(int $siteId, SeoTopicGroupingRun $run, string $provider): void
+    {
+        $prior = self::get($siteId) ?? [];
+        self::put($siteId, [
+            'status' => self::STATUS_PROPOSAL_READY,
+            'site_id' => $siteId,
+            'mode' => TopicGroupingProviderMode::SEMANTIC_HTTP,
+            'provider' => $provider,
+            'run_id' => (int) $run->id,
+            'algorithm_version' => $provider,
+            'started_at' => (string) ($prior['started_at'] ?? now()->toIso8601String()),
+            'finished_at' => now()->toIso8601String(),
+            'metrics' => [
+                'run_id' => (int) $run->id,
+                'keyword_count' => (int) $run->keyword_count,
+                'group_count' => (int) $run->group_count,
+                'unassigned_count' => (int) $run->unassigned_count,
+                'low_confidence_count' => (int) $run->low_confidence_count,
+                'algorithm' => (string) ($run->algorithm ?? ''),
+                'external_analysis_id' => (string) ($run->external_analysis_id ?? ''),
+            ],
+            'error' => null,
+            'failure_reason' => null,
         ]);
     }
 }

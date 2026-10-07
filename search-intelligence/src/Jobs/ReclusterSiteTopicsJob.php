@@ -11,18 +11,18 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRunStatus;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingAnalysisService;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterAlgorithm;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterUiState;
 
 /**
- * Site-scoped Topic recluster. Unique + without-overlapping per site_id
- * so a second dispatch cannot run concurrently for the same site.
+ * Site-scoped Topic recluster OR semantic analyze-only (config-driven).
  *
- * Serializes requestedAlgorithmVersion from the dispatching process.
- * Worker refuses when its loaded TopicReclusterAlgorithm::VERSION differs
- * (stale long-lived queue:work after deploy). First deploy still needs
- * `php artisan queue:restart` so the guard code itself is loaded.
+ * semantic_http: queued → analyzing → proposal_ready|failed → STOP (no Topic mutation)
+ * legacy: existing recluster apply path
  */
 final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
 {
@@ -59,8 +59,16 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
         ];
     }
 
-    public function handle(TopicReclusterService $recluster): void
-    {
+    public function handle(
+        TopicReclusterService $recluster,
+        TopicGroupingAnalysisService $analysis,
+    ): void {
+        if (TopicGroupingProviderMode::isSemanticHttp()) {
+            $this->handleSemanticAnalyze($analysis);
+
+            return;
+        }
+
         if (! TopicReclusterAlgorithm::matches($this->requestedAlgorithmVersion)) {
             TopicReclusterUiState::markFailed(
                 $this->siteId,
@@ -92,5 +100,24 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
             'recluster_failed',
             $this->requestedAlgorithmVersion,
         );
+    }
+
+    private function handleSemanticAnalyze(TopicGroupingAnalysisService $analysis): void
+    {
+        TopicReclusterUiState::markQueued($this->siteId, TopicGroupingProviderMode::SEMANTIC_HTTP);
+        $run = $analysis->analyzeSite($this->siteId);
+        if ($run->status === TopicGroupingRunStatus::PROPOSAL_READY) {
+            return;
+        }
+        // analyzeSite already marks failed UI state; ensure status is failed if unexpected.
+        if ($run->status !== TopicGroupingRunStatus::FAILED) {
+            TopicReclusterUiState::markFailed(
+                $this->siteId,
+                $run->error_message ?? 'analysis_failed',
+                ['run_id' => $run->id],
+                $run->error_code ?? 'analysis_failed',
+                TopicGroupingProviderMode::SEMANTIC_HTTP,
+            );
+        }
     }
 }

@@ -66,11 +66,16 @@ final class TopicGroupingBoundaryTest extends TestCase
     public function test_default_binding_is_legacy_provider(): void
     {
         $src = (string) file_get_contents(dirname(__DIR__, 3).'/src/SearchIntelligenceServiceProvider.php');
-        self::assertStringContainsString(
-            'singleton(TopicGroupingProvider::class, LegacyTopicGroupingProvider::class)',
-            $src,
-        );
+        self::assertStringContainsString('TopicGroupingProvider::class', $src);
+        self::assertStringContainsString('TopicGroupingProviderMode::isSemanticHttp()', $src);
+        self::assertStringContainsString('LegacyTopicGroupingProvider::class', $src);
+        self::assertStringContainsString('SemanticHttpTopicGroupingProvider::class', $src);
         self::assertTrue(is_a(LegacyTopicGroupingProvider::class, TopicGroupingProvider::class, true));
+        self::assertTrue(is_a(
+            \Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTopicGroupingProvider::class,
+            TopicGroupingProvider::class,
+            true,
+        ));
     }
 
     public function test_legacy_provider_matches_engine_for_attach_and_manual_freeze(): void
