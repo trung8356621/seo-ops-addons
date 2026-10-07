@@ -181,6 +181,47 @@ final class TopicLinkedArticleCounter
     }
 
     /**
+     * Site-valid Focus bindings for every keyword that has Focus meta on this site.
+     * Diagnostic / acceptance only — does not infer Focus from Topic IDs.
+     *
+     * @return array<int, int> keyword_id => article_id (sorted by keyword_id)
+     */
+    public function siteFocusArticleIdMap(int $siteId): array
+    {
+        if ($siteId <= 0) {
+            return [];
+        }
+
+        $siteKey = KeywordMetaKey::siteMainArticleId($siteId);
+        $legacyKey = KeywordMetaKey::MainArticleId->value;
+        $keywordIds = DB::connection('omi_seo_ai')
+            ->table('keyword_meta')
+            ->whereIn('meta_key', [$siteKey, $legacyKey])
+            ->distinct()
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $map = $this->focusArticleIdMap($siteId, $keywordIds);
+        ksort($map);
+
+        return $map;
+    }
+
+    /**
+     * Resolve Focus Article id per keyword (site-scoped meta preferred; legacy global only if same site).
+     *
+     * @param  list<int>  $keywordIds
+     * @return array<int, int> keyword_id => article_id
+     */
+    public function focusArticleIdMapForKeywords(int $siteId, array $keywordIds): array
+    {
+        return $this->focusArticleIdMap($siteId, $keywordIds);
+    }
+
+    /**
      * Resolve Focus Article id per keyword (site-scoped meta preferred; legacy global only if same site).
      *
      * @param  list<int>  $keywordIds
