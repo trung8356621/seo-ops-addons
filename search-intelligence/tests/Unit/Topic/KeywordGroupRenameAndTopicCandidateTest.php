@@ -118,7 +118,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         );
         self::assertSame('balo quà tặng', $renamed->name);
 
-        $result = app(KeywordGroupSemanticSearchService::class)->appendAcceptedMatchesAfterRename(
+        $result = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
             self::SITE,
             (int) $group->id,
             (string) $renamed->name,
@@ -169,7 +169,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertSame('Balo quà tặng', $renamed->name);
         self::assertSame(KeywordGroupSource::MANUAL, $renamed->source);
 
-        $result = app(KeywordGroupSemanticSearchService::class)->appendAcceptedMatchesAfterRename(
+        $result = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
             self::SITE,
             (int) $group->id,
             'Balo quà tặng',
@@ -209,7 +209,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             ], 200),
         ]);
 
-        $result = app(KeywordGroupSemanticSearchService::class)->appendAcceptedMatchesAfterRename(
+        $result = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
             self::SITE,
             (int) $group->id,
             'balo',
@@ -421,12 +421,167 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             ->value('is_topic_candidate'));
     }
 
+    public function test_recheck_uses_current_name_and_same_enrichment_path(): void
+    {
+        $vi = $this->createArticle(self::SITE, 'vi');
+        $accepted = $this->createInventoryKeyword('xưởng may balo quà tặng giá rẻ', $vi);
+        $assignedElsewhere = $this->createInventoryKeyword('balo quà tặng đã gán', $vi);
+        $other = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'Other',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $other->id,
+            'keyword_id' => $assignedElsewhere,
+            'source' => KeywordGroupSource::MANUAL,
+            'is_topic_candidate' => true,
+        ]);
+
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'balo quà tặng',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $group->id,
+            'keyword_id' => $this->createInventoryKeyword('balo quà tặng sẵn có', $vi),
+            'source' => KeywordGroupSource::MANUAL,
+            'is_topic_candidate' => true,
+        ]);
+        $beforeCount = SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count();
+
+        $searchCalls = 0;
+        Http::fake([
+            'semantic.test/v1/keyword-groups/search' => function ($request) use (
+                &$searchCalls,
+                $accepted,
+                $assignedElsewhere,
+            ) {
+                $searchCalls++;
+                $data = $request->data();
+                self::assertSame('balo quà tặng', $data['query'] ?? null);
+                $refs = array_column($data['keywords'] ?? [], 'ref');
+                self::assertContains((string) $accepted, $refs);
+                self::assertNotContains((string) $assignedElsewhere, $refs);
+
+                return Http::response([
+                    'scope_ref' => (string) self::SITE,
+                    'query' => 'balo quà tặng',
+                    'hits' => [[
+                        'ref' => (string) $accepted,
+                        'text' => 'xưởng may balo quà tặng giá rẻ',
+                        'similarity_score' => 0.92,
+                        'accepted' => true,
+                    ]],
+                    'candidate_count' => 1,
+                    'embedding_cache' => ['hits' => 0, 'misses' => 1],
+                ], 200);
+            },
+        ]);
+
+        $result = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
+            self::SITE,
+            (int) $group->id,
+            (string) $group->name,
+            ['vi'],
+        );
+
+        self::assertSame(1, $searchCalls);
+        self::assertFalse($result['semantic_failed']);
+        self::assertSame([$accepted], $result['appended_ids']);
+        self::assertSame($beforeCount + 1, SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count());
+        self::assertSame(
+            (int) $other->id,
+            (int) SeoKeywordGroupKeyword::query()->where('keyword_id', $assignedElsewhere)->value('group_id'),
+        );
+    }
+
+    public function test_recheck_idempotent_when_rerun_with_same_hits(): void
+    {
+        $vi = $this->createArticle(self::SITE, 'vi');
+        $accepted = $this->createInventoryKeyword('xưởng may balo quà tặng giá rẻ', $vi);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'balo quà tặng',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+
+        Http::fake([
+            'semantic.test/v1/keyword-groups/search' => Http::response([
+                'scope_ref' => (string) self::SITE,
+                'query' => 'balo quà tặng',
+                'hits' => [[
+                    'ref' => (string) $accepted,
+                    'text' => 'xưởng may balo quà tặng giá rẻ',
+                    'similarity_score' => 0.92,
+                    'accepted' => true,
+                ]],
+                'candidate_count' => 1,
+                'embedding_cache' => ['hits' => 0, 'misses' => 1],
+            ], 200),
+        ]);
+
+        $svc = app(KeywordGroupSemanticSearchService::class);
+        $first = $svc->enrichGroupFromSemantic(self::SITE, (int) $group->id, 'balo quà tặng', ['vi']);
+        $second = $svc->enrichGroupFromSemantic(self::SITE, (int) $group->id, 'balo quà tặng', ['vi']);
+
+        self::assertSame([$accepted], $first['appended_ids']);
+        self::assertSame([], $second['appended_ids']);
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count());
+    }
+
+    public function test_recheck_python_failure_does_not_mutate_membership(): void
+    {
+        $vi = $this->createArticle(self::SITE, 'vi');
+        $this->createInventoryKeyword('balo quà tặng ứng viên', $vi);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'balo quà tặng',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $group->id,
+            'keyword_id' => $this->createInventoryKeyword('balo quà tặng sẵn có', $vi),
+            'source' => KeywordGroupSource::MANUAL,
+            'is_topic_candidate' => true,
+        ]);
+
+        Http::fake([
+            'semantic.test/v1/keyword-groups/search' => Http::response(['error' => 'down'], 500),
+        ]);
+
+        $result = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
+            self::SITE,
+            (int) $group->id,
+            'balo quà tặng',
+            ['vi'],
+        );
+
+        self::assertTrue($result['semantic_failed']);
+        self::assertSame([], $result['appended_ids']);
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('group_id', $group->id)->count());
+        self::assertSame('balo quà tặng', SeoKeywordGroup::query()->find($group->id)?->name);
+    }
+
     public function test_ui_exposes_rename_enrichment_and_blocked_chip_state(): void
     {
         $page = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php');
-        self::assertStringContainsString('appendAcceptedMatchesAfterRename', $page);
+        self::assertStringContainsString('enrichGroupFromSemantic', $page);
+        self::assertStringContainsString('recheckGroup', $page);
         self::assertStringContainsString('toggleTopicCandidate', $page);
         self::assertStringContainsString('keyword_group_rename_semantic_failed', $page);
+        self::assertStringContainsString('keyword_group_recheck_failed', $page);
+        self::assertStringContainsString('renameInFlight', $page);
+        self::assertStringContainsString('recheckInFlight', $page);
+        self::assertStringContainsString('public function renameGroup(int $groupId, string $name): bool', $page);
 
         $blade = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/keyword-groups.blade.php');
         self::assertStringContainsString('@dblclick', $blade);
@@ -435,6 +590,16 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('aria-pressed', $blade);
         self::assertStringContainsString('data-topic-candidate', $blade);
         self::assertStringContainsString('keyword_group_rename_hint', $blade);
+        self::assertStringContainsString('keyword_group_rename_saving', $blade);
+        self::assertStringContainsString('keyword_group_recheck', $blade);
+        self::assertStringContainsString('keyword_group_recheck_loading', $blade);
+        self::assertStringContainsString('wire:click="recheckGroup({{ $groupId }})"', $blade);
+        self::assertStringContainsString('wire:target="recheckGroup({{ $groupId }})"', $blade);
+        self::assertStringContainsString('data-group-recheck="{{ $groupId }}"', $blade);
+        self::assertStringContainsString('if (this.saving)', $blade);
+        self::assertStringContainsString('data-rename-loading-target="renameGroup({{ $groupId }})"', $blade);
+        self::assertStringContainsString('keyword-group-rename-input--busy', $blade);
+        self::assertStringContainsString('wire:target="createGroup"', $blade);
         self::assertStringNotContainsString("\$wire.renameGroup({{ \$groupId }}, name)", $blade);
         self::assertStringNotContainsString('<x-select', $blade);
         self::assertStringNotContainsString('keyword_group_move', $blade);
@@ -444,6 +609,54 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
             '.keyword-group-member-chip.keyword-group-member-chip--topic-blocked',
             $css,
         );
+        self::assertStringContainsString('.keyword-group-rename-input--busy', $css);
+        self::assertStringContainsString('.keyword-group-rename-status', $css);
+    }
+
+    public function test_rename_in_flight_guard_blocks_duplicate_submit(): void
+    {
+        $pageSource = (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php'
+        );
+        self::assertStringContainsString(
+            'if (isset($this->renameInFlight[$groupId]) || isset($this->recheckInFlight[$groupId]))',
+            $pageSource,
+        );
+        self::assertStringContainsString('unset($this->renameInFlight[$groupId])', $pageSource);
+        self::assertStringContainsString('unset($this->recheckInFlight[$groupId])', $pageSource);
+
+        // Mirror the page guard contract (KeywordGroups is final — cannot subclass).
+        $guard = new class
+        {
+            /** @var array<int, true> */
+            public array $renameInFlight = [];
+
+            public int $renameCalls = 0;
+
+            public function renameGroup(int $groupId, string $name): bool
+            {
+                if (isset($this->renameInFlight[$groupId])) {
+                    return false;
+                }
+                $this->renameInFlight[$groupId] = true;
+                try {
+                    $this->renameCalls++;
+
+                    return true;
+                } finally {
+                    unset($this->renameInFlight[$groupId]);
+                }
+            }
+        };
+
+        $guard->renameInFlight[9] = true;
+        self::assertFalse($guard->renameGroup(9, 'balo'));
+        self::assertSame(0, $guard->renameCalls);
+
+        unset($guard->renameInFlight[9]);
+        self::assertTrue($guard->renameGroup(9, 'balo'));
+        self::assertSame(1, $guard->renameCalls);
+        self::assertArrayNotHasKey(9, $guard->renameInFlight);
     }
 
     private function createInventoryKeyword(string $phrase, int $sourceArticleId): int

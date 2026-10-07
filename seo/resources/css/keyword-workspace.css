@@ -3407,6 +3407,65 @@ body.keyword-drawer-open {
     color: rgb(224 231 255);
 }
 
+.keyword-group-rename-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 36rem;
+}
+
+.keyword-group-rename-input {
+    flex: 1 1 12rem;
+    min-width: 0;
+    width: 100%;
+    max-width: 32rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(129 140 248);
+    background: rgb(255 255 255);
+    padding: 0.25rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.dark .keyword-group-rename-input {
+    border-color: rgb(99 102 241);
+    background: rgb(3 7 18);
+}
+
+.keyword-group-rename-input--busy {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.keyword-group-rename-spinner {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    animation: keyword-group-spin 0.7s linear infinite;
+}
+
+.keyword-group-rename-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgb(79 70 229);
+}
+
+.dark .keyword-group-rename-status {
+    color: rgb(165 180 252);
+}
+
+@keyframes keyword-group-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .keyword-group-member-chips {
     display: flex;
     flex-wrap: wrap;

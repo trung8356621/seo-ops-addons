@@ -77,53 +77,101 @@
             <article
                 id="keyword-group-{{ $groupId }}"
                 class="rounded-xl border bg-white p-4 dark:bg-gray-900 {{ $focused ? 'border-primary-500' : 'border-gray-200 dark:border-gray-800' }}"
-                @if ($focused) x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
-            >
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div
-                        class="min-w-0 flex-1"
-                        @if ($canMutate)
-                            x-data="{
-                                editing: false,
-                                value: @js($group['name']),
-                                original: @js($group['name']),
-                                async save() {
-                                    const next = (this.value || '').trim();
-                                    if (next === '' || next === this.original) {
-                                        this.value = this.original;
-                                        this.editing = false;
-                                        return;
-                                    }
-                                    await $wire.renameGroup({{ $groupId }}, next);
+                @if ($canMutate)
+                    x-data="{
+                        editing: false,
+                        saving: false,
+                        value: @js($group['name']),
+                        original: @js($group['name']),
+                        async save() {
+                            if (this.saving) {
+                                return;
+                            }
+                            const next = (this.value || '').trim();
+                            if (next === '' || next === this.original) {
+                                this.value = this.original;
+                                this.editing = false;
+                                return;
+                            }
+                            this.saving = true;
+                            try {
+                                const ok = await $wire.renameGroup({{ $groupId }}, next);
+                                if (ok) {
                                     this.original = next;
                                     this.editing = false;
-                                },
-                                cancel() {
-                                    this.value = this.original;
-                                    this.editing = false;
                                 }
-                            }"
-                        @endif
-                    >
+                            } finally {
+                                this.saving = false;
+                            }
+                        },
+                        cancel() {
+                            if (this.saving) {
+                                return;
+                            }
+                            this.value = this.original;
+                            this.editing = false;
+                        }
+                    }"
+                    @if ($focused) x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif
+                @elseif ($focused)
+                    x-data x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))"
+                @endif
+            >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
                         @if ($canMutate)
                             <div
                                 class="text-base font-semibold text-gray-950 dark:text-white"
-                                x-show="!editing"
-                                @dblclick="editing = true; $nextTick(() => $refs.renameInput?.focus())"
+                                x-show="!editing && !saving"
+                                @dblclick="if (!saving) { editing = true; $nextTick(() => $refs.renameInput?.focus()) }"
                                 title="{{ __('seo-content-ai::filament.keyword.keyword_group_rename_hint') }}"
                                 x-text="original"
                             ></div>
-                            <input
-                                x-show="editing"
+                            <div
+                                class="keyword-group-rename-field"
+                                x-show="editing || saving"
                                 x-cloak
-                                x-ref="renameInput"
-                                type="text"
-                                class="w-full max-w-lg rounded-lg border border-primary-400 bg-white px-2 py-1 text-base font-semibold dark:border-primary-500 dark:bg-gray-950"
-                                x-model="value"
-                                @keydown.enter.prevent="save()"
-                                @keydown.escape.prevent="cancel()"
-                                @blur="save()"
-                            />
+                                data-rename-loading-target="renameGroup({{ $groupId }})"
+                            >
+                                <input
+                                    x-ref="renameInput"
+                                    type="text"
+                                    class="keyword-group-rename-input"
+                                    :class="{ 'keyword-group-rename-input--busy': saving }"
+                                    x-model="value"
+                                    :disabled="saving"
+                                    wire:loading.attr="disabled"
+                                    wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                                    @keydown.enter.prevent="save()"
+                                    @keydown.escape.prevent="cancel()"
+                                    @blur="save()"
+                                />
+                                <svg
+                                    class="keyword-group-rename-spinner text-primary-600"
+                                    x-show="saving"
+                                    x-cloak
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    aria-hidden="true"
+                                >
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                            </div>
+                            <div
+                                class="keyword-group-rename-status"
+                                x-show="saving"
+                                x-cloak
+                                role="status"
+                                aria-live="polite"
+                                data-rename-status-for="renameGroup({{ $groupId }})"
+                            >
+                                <svg class="keyword-group-rename-spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <span>{{ __('seo-content-ai::filament.keyword.keyword_group_rename_saving') }}</span>
+                            </div>
                         @else
                             <div class="text-base font-semibold text-gray-950 dark:text-white">{{ $group['name'] }}</div>
                         @endif
@@ -148,21 +196,60 @@
                         @endif
                     </div>
                     @if ($canMutate)
-                        <button
-                            type="button"
-                            class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
-                            wire:click="toggleLock({{ $groupId }})"
-                            wire:loading.attr="disabled"
-                            wire:target="toggleLock"
-                        >
-                            {{ $group['is_locked']
-                                ? __('seo-content-ai::filament.keyword.keyword_group_unlock')
-                                : __('seo-content-ai::filament.keyword.keyword_group_lock') }}
-                        </button>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
+                                wire:click="recheckGroup({{ $groupId }})"
+                                wire:loading.attr="disabled"
+                                wire:target="recheckGroup({{ $groupId }}), renameGroup({{ $groupId }})"
+                                :disabled="saving"
+                                title="{{ __('seo-content-ai::filament.keyword.keyword_group_recheck_hint') }}"
+                                aria-label="{{ __('seo-content-ai::filament.keyword.keyword_group_recheck_hint') }}"
+                                data-group-recheck="{{ $groupId }}"
+                            >
+                                <svg
+                                    class="h-3.5 w-3.5 animate-spin"
+                                    wire:loading
+                                    wire:target="recheckGroup({{ $groupId }})"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    aria-hidden="true"
+                                >
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <span wire:loading.remove wire:target="recheckGroup({{ $groupId }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_group_recheck') }}
+                                </span>
+                                <span wire:loading wire:target="recheckGroup({{ $groupId }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_group_recheck_loading') }}
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                class="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-gray-700"
+                                wire:click="toggleLock({{ $groupId }})"
+                                wire:loading.attr="disabled"
+                                wire:target="toggleLock({{ $groupId }}), renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                                :disabled="saving"
+                            >
+                                {{ $group['is_locked']
+                                    ? __('seo-content-ai::filament.keyword.keyword_group_unlock')
+                                    : __('seo-content-ai::filament.keyword.keyword_group_lock') }}
+                            </button>
+                        </div>
                     @endif
                 </div>
 
-                <div class="mt-3 space-y-3">
+                <div
+                    class="mt-3 space-y-3"
+                    @if ($canMutate)
+                        wire:loading.class="pointer-events-none opacity-60"
+                        wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
+                        x-bind:class="saving ? 'pointer-events-none opacity-60' : ''"
+                    @endif
+                >
                     @if ($canMutate)
                         @php $renameSuggestions = $this->semanticSuggestions[$groupId] ?? []; @endphp
                         <div
@@ -197,6 +284,8 @@
                                 @focus="if ((q || '').trim() !== '') search()"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
                                 placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_search_unassigned') }}"
+                                wire:loading.attr="disabled"
+                                wire:target="renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
                             />
                             <div
                                 class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow dark:border-gray-700 dark:bg-gray-900"
@@ -228,7 +317,7 @@
                     <div
                         class="keyword-group-member-chips"
                         wire:loading.class="opacity-50"
-                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup, removeKeywordFromGroup, toggleTopicCandidate"
+                        wire:target="loadMoreMembers({{ $groupId }}), addKeywordToGroup({{ $groupId }}), removeKeywordFromGroup, toggleTopicCandidate, renameGroup({{ $groupId }}), recheckGroup({{ $groupId }})"
                     >
                         @forelse ($members as $member)
                             @php

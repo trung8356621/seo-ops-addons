@@ -24,6 +24,7 @@ final class SemanticAnalyticsClient
         private readonly ?string $baseUrl = null,
         private readonly ?int $timeoutSeconds = null,
         private readonly ?int $connectTimeoutSeconds = null,
+        private readonly ?SemanticServiceHealthReporter $healthReporter = null,
     ) {}
 
     /**
@@ -79,14 +80,20 @@ final class SemanticAnalyticsClient
             };
         } catch (ConnectionException $e) {
             if ($this->isTimeoutMessage($e->getMessage())) {
-                throw SemanticTimeoutException::requestTimedOut($e->getMessage(), $e);
+                $timeout = SemanticTimeoutException::requestTimedOut($e->getMessage(), $e);
+                $this->healthReporter?->reportTransportFailure($timeout);
+                throw $timeout;
             }
 
-            throw SemanticUnavailableException::connectionFailed($e->getMessage(), $e);
+            $unavailable = SemanticUnavailableException::connectionFailed($e->getMessage(), $e);
+            $this->healthReporter?->reportTransportFailure($unavailable);
+            throw $unavailable;
         }
 
         if ($response->successful()) {
             if (! $expectBody || $response->status() === 204) {
+                $this->healthReporter?->reportReachable();
+
                 return [];
             }
 
@@ -96,15 +103,20 @@ final class SemanticAnalyticsClient
             }
 
             /** @var array<string, mixed> $json */
+            $this->healthReporter?->reportReachable();
+
             return $json;
         }
 
         if (in_array($response->status(), [502, 503, 504], true)) {
-            throw SemanticUnavailableException::connectionFailed(
+            $unavailable = SemanticUnavailableException::connectionFailed(
                 'HTTP '.$response->status().' from '.$url,
             );
+            $this->healthReporter?->reportTransportFailure($unavailable);
+            throw $unavailable;
         }
 
+        // 4xx (including 422) means the service answered — not an availability outage.
         try {
             $response->throw();
         } catch (RequestException $e) {

@@ -65,6 +65,20 @@ final class KeywordGroups extends Page
      */
     public array $semanticSuggestions = [];
 
+    /**
+     * In-flight rename locks keyed by Group id (duplicate Enter/blur guard).
+     *
+     * @var array<int, true>
+     */
+    public array $renameInFlight = [];
+
+    /**
+     * In-flight manual recheck ("Dò lại") locks keyed by Group id.
+     *
+     * @var array<int, true>
+     */
+    public array $recheckInFlight = [];
+
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
@@ -274,42 +288,130 @@ final class KeywordGroups extends Page
             ->send();
     }
 
-    public function renameGroup(int $groupId, string $name): void
+    /**
+     * @return bool true when the Group name was persisted (semantic failure still returns true)
+     */
+    public function renameGroup(int $groupId, string $name): bool
+    {
+        if (! $this->canMutateKeywordGroups() || $groupId <= 0) {
+            return false;
+        }
+
+        if (isset($this->renameInFlight[$groupId]) || isset($this->recheckInFlight[$groupId])) {
+            return false;
+        }
+
+        $this->renameInFlight[$groupId] = true;
+
+        try {
+            $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+            $normalized = trim($name);
+            try {
+                $group = app(KeywordGroupManualService::class)->rename($siteId, $groupId, $normalized);
+            } catch (InvalidArgumentException) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.keyword_group_name_required'))
+                    ->danger()
+                    ->send();
+
+                return false;
+            }
+
+            // Rename is committed first; semantic enrichment must not roll it back.
+            $enrichment = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
+                $siteId,
+                $groupId,
+                (string) $group->name,
+                $this->resolveKeywordLanguageFilterVariants(),
+            );
+
+            unset($this->semanticSuggestions[$groupId]);
+            $this->loadGroupMembers($groupId, reset: true);
+            $this->afterGroupMutation();
+
+            if ($enrichment['semantic_failed'] === true) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.keyword_group_rename_semantic_failed'))
+                    ->warning()
+                    ->send();
+            }
+
+            return true;
+        } finally {
+            unset($this->renameInFlight[$groupId]);
+        }
+    }
+
+    /**
+     * Manual "Dò lại": enrich from current Group name (same path as rename auto-enrich).
+     */
+    public function recheckGroup(int $groupId): void
     {
         if (! $this->canMutateKeywordGroups() || $groupId <= 0) {
             return;
         }
 
-        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        $normalized = trim($name);
-        try {
-            $group = app(KeywordGroupManualService::class)->rename($siteId, $groupId, $normalized);
-        } catch (InvalidArgumentException) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.keyword_group_name_required'))
-                ->danger()
-                ->send();
-
+        if (isset($this->recheckInFlight[$groupId]) || isset($this->renameInFlight[$groupId])) {
             return;
         }
 
-        // Rename is committed first; semantic enrichment must not roll it back.
-        $enrichment = app(KeywordGroupSemanticSearchService::class)->appendAcceptedMatchesAfterRename(
-            $siteId,
-            $groupId,
-            (string) $group->name,
-            $this->resolveKeywordLanguageFilterVariants(),
-        );
+        $this->recheckInFlight[$groupId] = true;
 
-        unset($this->semanticSuggestions[$groupId]);
-        $this->loadGroupMembers($groupId, reset: true);
-        $this->afterGroupMutation();
+        try {
+            $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+            if ($siteId <= 0 || ! KeywordGroupSchema::tablesReady()) {
+                return;
+            }
 
-        if ($enrichment['semantic_failed'] === true) {
+            $group = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->whereKey($groupId)
+                ->first(['id', 'name']);
+            if (! $group instanceof SeoKeywordGroup) {
+                return;
+            }
+
+            $name = trim((string) $group->name);
+            if ($name === '') {
+                return;
+            }
+
+            $enrichment = app(KeywordGroupSemanticSearchService::class)->enrichGroupFromSemantic(
+                $siteId,
+                $groupId,
+                $name,
+                $this->resolveKeywordLanguageFilterVariants(),
+            );
+
+            if ($enrichment['semantic_failed'] === true) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.keyword_group_recheck_failed'))
+                    ->warning()
+                    ->send();
+
+                return;
+            }
+
+            $appended = count($enrichment['appended_ids']);
+            unset($this->semanticSuggestions[$groupId]);
+            $this->loadGroupMembers($groupId, reset: true);
+            $this->afterGroupMutation();
+
+            if ($appended === 0) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.keyword_group_recheck_empty'))
+                    ->info()
+                    ->send();
+
+                return;
+            }
+
             Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.keyword_group_rename_semantic_failed'))
-                ->warning()
+                ->title(__('seo-content-ai::filament.keyword.keyword_group_recheck_added', ['count' => $appended]))
+                ->success()
                 ->send();
+        } finally {
+            unset($this->recheckInFlight[$groupId]);
         }
     }
 

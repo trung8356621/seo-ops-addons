@@ -87,12 +87,14 @@ final class KeywordGroupSemanticSearchService
     }
 
     /**
-     * After a successful rename: query Python, append only accepted unassigned matches.
+     * Shared Group semantic enrichment: query Python with Group name, append accepted unassigned only.
+     *
+     * Used by rename auto-enrich and manual "Dò lại". Never steals assigned keywords.
      *
      * @param  list<string>|null  $languageVariants
      * @return array{appended_ids: list<int>, semantic_failed: bool}
      */
-    public function appendAcceptedMatchesAfterRename(
+    public function enrichGroupFromSemantic(
         int $siteId,
         int $groupId,
         string $query,

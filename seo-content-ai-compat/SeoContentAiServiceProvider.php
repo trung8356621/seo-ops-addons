@@ -651,6 +651,18 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->onOneServer();
             }
 
+            $semanticHealthName = 'seo-content-ai:semantic-service-monitor';
+            $semanticHealthRegistered = collect($schedule->events())
+                ->contains(static fn ($event): bool => $event->description === $semanticHealthName);
+            if (! $semanticHealthRegistered) {
+                $schedule
+                    ->command(\Omnichannel\Addons\SearchIntelligence\Console\SemanticMonitorCommand::class)
+                    ->everyFiveMinutes()
+                    ->name($semanticHealthName)
+                    ->withoutOverlapping(10)
+                    ->onOneServer();
+            }
+
             $wpContentCacheName = 'seo-content-ai:purge-article-wp-content-cache';
             $wpContentCacheRegistered = collect($schedule->events())
                 ->contains(static fn ($event): bool => $event->description === $wpContentCacheName);

@@ -18,7 +18,11 @@ use Omnichannel\Addons\SearchIntelligence\Console\PreviewTopicSeedEvidenceComman
 use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\AnalyzeSiteTopicGroupingCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\SemanticDoctorCommand;
+use Omnichannel\Addons\SearchIntelligence\Console\SemanticMonitorCommand;
 use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticServiceHealthMonitor;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticServiceHealthProbe;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticServiceHealthReporter;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapAuditStatusController;
 use Omnichannel\Addons\SearchIntelligence\Http\Controllers\TopicalMap\TopicalMapChildrenController;
@@ -50,8 +54,13 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(dirname(__DIR__).'/config/semantic.php', 'semantic');
 
-        $this->app->singleton(SemanticAnalyticsClient::class, static function (): SemanticAnalyticsClient {
-            return new SemanticAnalyticsClient;
+        $this->app->singleton(SemanticServiceHealthProbe::class);
+        $this->app->singleton(SemanticServiceHealthReporter::class);
+        $this->app->singleton(SemanticServiceHealthMonitor::class);
+        $this->app->singleton(SemanticAnalyticsClient::class, function ($app): SemanticAnalyticsClient {
+            return new SemanticAnalyticsClient(
+                healthReporter: $app->make(SemanticServiceHealthReporter::class),
+            );
         });
 
         // Centralized provider selection — default remains legacy (safe).
@@ -83,6 +92,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 ReclusterSiteTopicsCommand::class,
                 PreviewTopicSeedEvidenceCommand::class,
                 SemanticDoctorCommand::class,
+                SemanticMonitorCommand::class,
                 AnalyzeSiteTopicGroupingCommand::class,
             ]);
         }

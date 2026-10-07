@@ -34,6 +34,7 @@ final class SeoServiceProvider extends ServiceProvider
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\OperationalNotificationService::class);
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\OperationalAlertHookService::class);
         $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class);
+        $this->app->singleton(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SemanticServiceNotificationPublisher::class);
         $this->registerCapabilities();
         $this->app->singleton(SeoSettingsSectionContributor::class);
         $this->app->singleton(SeoMembersSectionContributor::class);
@@ -96,6 +97,13 @@ final class SeoServiceProvider extends ServiceProvider
                 $capabilities->register(
                     \Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability::ID,
                     $this->app->make(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SiteHealthNotificationPublisher::class),
+                    self::SLUG,
+                );
+            }
+            if (! $capabilities->has(\Omnichannel\Addons\SearchIntelligence\Contracts\SemanticServiceNotificationCapability::ID)) {
+                $capabilities->register(
+                    \Omnichannel\Addons\SearchIntelligence\Contracts\SemanticServiceNotificationCapability::ID,
+                    $this->app->make(\Omnichannel\Addons\Seo\Services\Notifications\Publishers\SemanticServiceNotificationPublisher::class),
                     self::SLUG,
                 );
             }

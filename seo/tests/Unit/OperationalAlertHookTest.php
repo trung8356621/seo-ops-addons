@@ -237,6 +237,13 @@ final class OperationalAlertHookTest extends TestCase
         self::assertSame('operational-alert', NotificationDisplaySurface::HOOK_ID);
         self::assertTrue(class_exists(SiteHealthNotificationPublisher::class));
         self::assertTrue(class_exists(OperationalNotificationService::class));
+        self::assertTrue(class_exists(
+            \Omnichannel\Addons\Seo\Services\Notifications\Publishers\SemanticServiceNotificationPublisher::class
+        ));
+        $semanticPublisher = $this->readLegacyOrMovedAddonFile(
+            'Services/Notifications/Publishers/SemanticServiceNotificationPublisher.php'
+        );
+        self::assertStringContainsString('NotificationDisplaySurface::withOperationalAlertHook()', $semanticPublisher);
     }
 
     public function test_display_surface_normalize_always_includes_notification_center(): void

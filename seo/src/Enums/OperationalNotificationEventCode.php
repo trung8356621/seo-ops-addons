@@ -59,6 +59,11 @@ enum OperationalNotificationEventCode: string
     case SiteHealthDegraded = 'site.health.degraded';
     case SiteHealthRecovered = 'site.health.recovered';
 
+    // Semantic service (seo-ops-semantic infrastructure — not AI model routing)
+    case SemanticServiceUnavailable = 'semantic.service_unavailable';
+    case SemanticServiceDegraded = 'semantic.service_degraded';
+    case SemanticServiceRecovered = 'semantic.service_recovered';
+
     // Content Project
     case ContentProjectTaskFailed = 'content_project.task_failed';
 
