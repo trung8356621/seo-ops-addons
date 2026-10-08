@@ -74,6 +74,11 @@ final class MatchResearchRegistryServiceTest extends TestCase
             {
                 return ['industry_context_key' => 'bags', 'match_revision_id' => 7, 'stale' => true];
             }
+
+            public function statusForKey(?string $industryContextKey): string
+            {
+                return 'match_revision_stale';
+            }
         };
 
         $registry = new MatchResearchRegistryService(

@@ -21,41 +21,46 @@
                 </div>
 
                 @if ($activeOriginTab === 'system')
-                    <form wire:submit="saveKeywordSettings" class="max-w-3xl mx-auto space-y-6">
-                        {{ $this->form }}
-
-                        <div class="rounded-lg border border-gray-200 p-4 text-sm dark:border-white/10">
-                            <p class="mb-2 font-medium">Registry projection (read-only identity)</p>
-                            <ul class="max-h-48 space-y-1 overflow-y-auto font-mono text-xs text-gray-600 dark:text-gray-300">
-                                @foreach ($registrySystem as $row)
-                                    <li>
-                                        {{ $row['key'] }}
-                                        · match={{ ($row['capabilities']['can_match'] ?? false) ? '1' : '0' }}
-                                        · tag={{ ($row['capabilities']['can_tag'] ?? false) ? '1' : '0' }}
-                                        · deletable={{ ($row['deletable'] ?? false) ? '1' : '0' }}
+                    <div class="mx-auto max-w-3xl space-y-6">
+                        <x-filament::section heading="Match & Research registry" description="Current system knowledge. This is not a match result.">
+                            <ul class="space-y-2">
+                                @forelse ($registrySystem as $row)
+                                    <li class="rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
+                                        <div class="font-medium">{{ $row['label'] }}</div>
+                                        <div class="mt-1 font-mono text-xs text-gray-500">{{ $row['key'] }}</div>
+                                        <div class="mt-2 flex flex-wrap gap-1.5">
+                                            <x-filament::badge color="gray">{{ $row['match_mode'] ?: '—' }}</x-filament::badge>
+                                            <x-filament::badge :color="($row['capabilities']['can_match'] ?? false) ? 'success' : 'gray'">
+                                                {{ ($row['capabilities']['can_match'] ?? false) ? 'can match' : 'cannot match' }}
+                                            </x-filament::badge>
+                                            <x-filament::badge :color="($row['capabilities']['can_exclude'] ?? false) ? 'warning' : 'gray'">
+                                                {{ ($row['capabilities']['can_exclude'] ?? false) ? 'can exclude' : 'cannot exclude' }}
+                                            </x-filament::badge>
+                                            <x-filament::badge :color="($row['enabled'] ?? false) ? 'success' : 'gray'">
+                                                {{ ($row['enabled'] ?? false) ? 'enabled' : 'disabled' }}
+                                            </x-filament::badge>
+                                            <x-filament::badge color="gray">{{ $row['source_locale'] }}</x-filament::badge>
+                                        </div>
                                     </li>
-                                @endforeach
+                                @empty
+                                    <li class="text-sm text-gray-500">No system resources.</li>
+                                @endforelse
                             </ul>
-                        </div>
+                        </x-filament::section>
 
-                        <div class="flex flex-wrap items-center justify-end gap-3">
-                            <x-filament::button
-                                type="button"
-                                color="gray"
-                                icon="heroicon-o-bug-ant"
-                                wire:click="debugCtaBlacklist"
-                                wire:loading.attr="disabled"
-                                wire:target="debugCtaBlacklist"
-                            >
-                                {{ __('seo-content-ai::filament.settings_keywords.debug_cta') }}
-                            </x-filament::button>
-
-                            <x-seo-content-ai::form-save-button
-                                target="saveKeywordSettings"
-                                :label="__('seo-content-ai::filament.settings_keywords.save')"
-                            />
-                        </div>
-                    </form>
+                        <form wire:submit="saveKeywordSettings" class="space-y-4">
+                            <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                                Still used by legacy consumers; not the new Python matching result.
+                            </p>
+                            {{ $this->form }}
+                            <div class="flex justify-end">
+                                <x-seo-content-ai::form-save-button
+                                    target="saveKeywordSettings"
+                                    :label="__('seo-content-ai::filament.settings_keywords.save')"
+                                />
+                            </div>
+                        </form>
+                    </div>
                 @endif
 
                 @if ($activeOriginTab === 'industry')
@@ -122,15 +127,115 @@
                                     @endforeach
                                 </div>
                             @else
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Chưa có Match &amp; Research đang hoạt động cho Industry Context của site hiện tại.</p>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">
+                                    @if (($industryMatchStatus ?? null) === 'match_revision_inactive')
+                                        <span class="font-mono">match_revision_inactive</span> — Match &amp; Research revision chưa được kích hoạt.
+                                    @elseif (($industryMatchStatus ?? null) === 'no_match_revision')
+                                        <span class="font-mono">no_match_revision</span> — Chưa có revision Match &amp; Research cho Industry Context của site hiện tại.
+                                    @elseif (($industryMatchStatus ?? null) === 'match_revision_stale')
+                                        <span class="font-mono">match_revision_stale</span> — Match revision đã cũ (stale) nên không được dùng để match.
+                                    @elseif (($industryMatchStatus ?? null) === 'no_taxonomy_groups')
+                                        <span class="font-mono">no_taxonomy_groups</span> — Match &amp; Research đang hoạt động nhưng taxonomy Industry Group đang trống.
+                                    @elseif (($industryMatchStatus ?? null) === 'no_active_industry_groups')
+                                        <span class="font-mono">no_active_industry_groups</span> — Không có Industry Group đang hoạt động.
+                                    @else
+                                        Chưa có Match &amp; Research đang hoạt động cho Industry Context của site hiện tại.
+                                    @endif
+                                </p>
                                 @if ($industryContextKey)
                                     <p class="mt-1 text-xs text-gray-400">Industry Context key: {{ $industryContextKey }}</p>
                                 @endif
                             @endif
                         </x-filament::section>
 
+                        <x-filament::section heading="Live Industry Match" description="Runs the active Industry Groups through seo-ops-semantic Concept Matching.">
+                            <div class="space-y-3" x-data="{ showAll: false }">
+                                <x-filament::input.wrapper>
+                                    <x-filament::input type="text" wire:model="industryMatchText" placeholder="Text to match, e.g. balo học sinh cấp 1" />
+                                </x-filament::input.wrapper>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <x-filament::button type="button" wire:click="testIndustryMatch" wire:loading.attr="disabled" wire:target="testIndustryMatch">
+                                        <span wire:loading.remove wire:target="testIndustryMatch">Run live match</span>
+                                        <span wire:loading wire:target="testIndustryMatch">Matching…</span>
+                                    </x-filament::button>
+                                    <label class="flex items-center gap-2 text-sm">
+                                        <input type="checkbox" x-model="showAll" />
+                                        Show all evidence
+                                    </label>
+                                </div>
+
+                                @if (is_array($industryMatchResult))
+                                    @php
+                                        $reason = (string) ($industryMatchResult['reason'] ?? '');
+                                        $evidence = $industryMatchResult['evidence'] ?? [];
+                                        $fmt = static fn (mixed $value): string => is_numeric($value)
+                                            ? number_format((float) $value, 4, '.', '')
+                                            : '—';
+                                        $groupNames = [];
+                                        foreach ($industryGroupsByType as $items) {
+                                            foreach ($items as $item) {
+                                                $groupNames[(string) ($item['key'] ?? '')] = (string) ($item['name'] ?? '');
+                                            }
+                                        }
+                                    @endphp
+                                    <dl class="grid grid-cols-2 gap-2 text-sm">
+                                        <div><dt class="text-xs text-gray-500">called_python</dt><dd>{{ ($industryMatchResult['called_python'] ?? false) ? 'true' : 'false' }}</dd></div>
+                                        <div><dt class="text-xs text-gray-500">analysis_id</dt><dd class="font-mono text-xs">{{ $industryMatchResult['analysis_id'] ?: '—' }}</dd></div>
+                                        <div><dt class="text-xs text-gray-500">concepts_used</dt><dd>{{ (int) ($industryMatchResult['concepts_used'] ?? 0) }}</dd></div>
+                                        <div><dt class="text-xs text-gray-500">stale_skipped</dt><dd>{{ (int) ($industryMatchResult['stale_skipped'] ?? 0) }}</dd></div>
+                                        <div><dt class="text-xs text-gray-500">disabled_skipped</dt><dd>{{ (int) ($industryMatchResult['disabled_skipped'] ?? 0) }}</dd></div>
+                                        <div><dt class="text-xs text-gray-500">reason</dt><dd class="font-mono text-xs">{{ $reason !== '' ? $reason : '—' }}</dd></div>
+                                    </dl>
+                                    @if ($reason !== '')
+                                        <p class="text-sm text-gray-700 dark:text-gray-200">{{ \Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords::industryMatchStatusLabel($reason) }}</p>
+                                    @endif
+                                    @if (! empty($industryMatchResult['error']) && $reason !== 'semantic_disabled')
+                                        <p class="text-sm text-danger-600">{{ $industryMatchResult['error'] }}</p>
+                                    @endif
+
+                                    <p class="text-sm font-medium">{{ $industryMatchResult['query'] ?? '' }}</p>
+                                    <ul class="space-y-2">
+                                        @forelse ($evidence as $row)
+                                            @php($suggested = ($row['suggested_match'] ?? false) === true)
+                                            <li
+                                                @unless ($suggested) x-show="showAll" x-cloak @endunless
+                                                @class([
+                                                    'rounded-md px-3 py-2 text-sm',
+                                                    'border border-success-500 bg-success-50 dark:bg-success-500/10' => $suggested,
+                                                    'bg-gray-50 text-gray-500 dark:bg-white/5' => ! $suggested,
+                                                ])
+                                            >
+                                                <div class="font-medium">{{ $groupNames[$row['industry_group_key'] ?? ''] ?? ($row['industry_group_key'] ?? '') }}</div>
+                                                <div class="font-mono text-xs text-gray-500">{{ $row['industry_group_key'] ?? '' }}</div>
+                                                <div class="mt-1 flex flex-wrap gap-1.5">
+                                                    <x-filament::badge color="gray">{{ $row['group_type'] ?: '—' }}</x-filament::badge>
+                                                    <x-filament::badge :color="($row['lexical_matched'] ?? false) ? 'success' : 'gray'">
+                                                        lexical {{ ($row['lexical_matched'] ?? false) ? 'true' : 'false' }}
+                                                    </x-filament::badge>
+                                                    <x-filament::badge :color="$suggested ? 'success' : 'gray'">
+                                                        suggested {{ $suggested ? 'true' : 'false' }}
+                                                    </x-filament::badge>
+                                                </div>
+                                                <dl class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                                    <div>Semantic similarity (positive_max): {{ $fmt($row['positive_max'] ?? null) }}</div>
+                                                    <div x-show="showAll" x-cloak>Top-K mean: {{ $fmt($row['positive_top_k_mean'] ?? null) }}</div>
+                                                    <div x-show="showAll" x-cloak>Negative max: {{ $fmt($row['negative_max'] ?? null) }}</div>
+                                                    <div x-show="showAll" x-cloak>Margin: {{ $fmt($row['margin'] ?? null) }}</div>
+                                                    <div x-show="showAll" x-cloak>Best positive: {{ $row['best_positive_example'] ?: '—' }}</div>
+                                                    <div x-show="showAll" x-cloak>Best negative: {{ $row['best_negative_example'] ?: '—' }}</div>
+                                                </dl>
+                                            </li>
+                                        @empty
+                                            <li class="text-sm text-gray-500">No evidence returned.</li>
+                                        @endforelse
+                                    </ul>
+                                    <p class="text-xs text-gray-500" x-show="!showAll">Only suggested matches are listed. Semantic similarity is not a match when suggested is false.</p>
+                                @endif
+                            </div>
+                        </x-filament::section>
+
                         @if ($industryProvenance && ($industryNonGroupResources ?? []) !== [])
-                            <x-filament::section heading="Other Industry Rules" description="Topic rules, aliases, and ambiguities — Match & Research knowledge, not Industry Groups.">
+                            <x-filament::section heading="Other Industry Rules" description="Secondary knowledge: generic cores, service intent, aliases, and ambiguities. Not Industry Group matches.">
                                 <div class="space-y-2 font-mono text-xs text-gray-600 dark:text-gray-300">
                                     @foreach ($industryNonGroupResources as $row)
                                         <div>
@@ -148,7 +253,7 @@
 
                 @if ($activeOriginTab === 'custom')
                     <div class="mx-auto max-w-3xl space-y-6">
-                        <x-filament::section heading="Custom Concepts" description="Site-scoped knowledge only. No semantic auto-tagging in this release — Python matching is a separate task.">
+                        <x-filament::section heading="Custom Concepts" description="Site-scoped custom Match & Research concepts.">
                             <div class="space-y-3">
                                 <x-filament::input.wrapper>
                                     <x-filament::input type="text" wire:model="customForm.name" placeholder="Name" />
@@ -211,65 +316,7 @@
                             <textarea wire:model="localizationImportJson" rows="6" class="w-full rounded-lg border-gray-300 font-mono text-xs dark:border-white/10 dark:bg-white/5" placeholder="Paste localized JSON result here"></textarea>
                         </div>
                     </x-filament::section>
-
-                    <x-filament::section heading="Debug Matcher" description="Deterministic diagnostics only; no AI provider is called.">
-                        <div class="space-y-3">
-                            <x-filament::input.wrapper>
-                                <x-filament::input type="text" wire:model="debugPhrase" placeholder="Nhập cụm từ cần kiểm tra" />
-                            </x-filament::input.wrapper>
-                            <x-filament::button type="button" wire:click="debugMatcher" wire:loading.attr="disabled" wire:target="debugMatcher">Debug Matcher</x-filament::button>
-                            @if (is_array($matcherReport))
-                                <pre class="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-950 p-4 font-mono text-xs text-gray-100">{{ json_encode($matcherReport, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>
-                            @endif
-                        </div>
-                    </x-filament::section>
                 </div>
-
-                @if (is_array($debugReport))
-                    <div class="mx-auto mt-8 max-w-3xl space-y-4">
-                        <x-filament::section
-                            :heading="__('seo-content-ai::filament.settings_keywords.debug_report_title')"
-                            :description="__('seo-content-ai::filament.settings_keywords.debug_report_description', [
-                                'scanned_keywords' => (int) ($debugReport['scanned_keywords'] ?? 0),
-                            ])"
-                        >
-                            <h3 class="mb-2 text-sm font-semibold text-gray-950 dark:text-white">
-                                {{ __('seo-content-ai::filament.settings_keywords.debug_matched_keywords') }}
-                                ({{ count($debugReport['matched_keywords'] ?? []) }})
-                            </h3>
-
-                            @if (($debugReport['matched_keywords'] ?? []) === [])
-                                <p class="text-sm text-gray-500 dark:text-gray-400">
-                                    {{ __('seo-content-ai::filament.settings_keywords.debug_no_matches') }}
-                                </p>
-                            @else
-                                <ul class="max-h-96 space-y-2 overflow-y-auto text-sm text-gray-700 dark:text-gray-200">
-                                    @foreach ($debugReport['matched_keywords'] as $keyword)
-                                        <li class="rounded-md bg-gray-50 px-3 py-2 dark:bg-white/5">
-                                            <div class="flex flex-wrap items-center gap-2">
-                                                <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ (int) ($keyword['id'] ?? 0) }}</span>
-                                                <span class="inline-flex rounded-md bg-gray-200/80 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-white/10 dark:text-gray-200">
-                                                    {{ (string) ($keyword['type'] ?? '') }}
-                                                </span>
-                                                <span>{{ (string) ($keyword['phrase'] ?? '') }}</span>
-                                            </div>
-                                            @if (($keyword['matched_rules'] ?? []) !== [])
-                                                <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                                                    <span class="font-medium">{{ __('seo-content-ai::filament.settings_keywords.debug_matched_by') }}:</span>
-                                                    @foreach ($keyword['matched_rules'] as $rule)
-                                                        <span class="inline-flex rounded-md bg-amber-100 px-2 py-0.5 font-mono dark:bg-amber-500/10">
-                                                            {{ $rule }}
-                                                        </span>
-                                                    @endforeach
-                                                </div>
-                                            @endif
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            @endif
-                        </x-filament::section>
-                    </div>
-                @endif
             </div>
         </div>
     </x-filament-panels::page>

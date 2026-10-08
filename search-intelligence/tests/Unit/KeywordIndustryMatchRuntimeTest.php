@@ -29,6 +29,8 @@ final class KeywordIndustryMatchRuntimeTest extends TestCase
             public function rulesForKey(?string $industryContextKey): array { return []; }
 
             public function provenanceForKey(?string $industryContextKey): ?array { return null; }
+
+            public function statusForKey(?string $industryContextKey): string { return 'active'; }
         };
         $globals = new class implements GlobalMatchRuleProvider
         {

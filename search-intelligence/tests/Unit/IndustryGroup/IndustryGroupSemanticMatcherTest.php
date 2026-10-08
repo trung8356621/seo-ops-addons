@@ -134,6 +134,56 @@ final class IndustryGroupSemanticMatcherTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_inactive_match_revision_is_named_and_does_not_call_python(): void
+    {
+        Http::fake();
+        $rules = new class implements \Omnichannel\Addons\SearchFoundation\Contracts\IndustryMatchRuleProvider
+        {
+            public function rulesForSite(int $siteId): array
+            {
+                return [];
+            }
+
+            public function rulesForKey(?string $industryContextKey): array
+            {
+                return [];
+            }
+
+            public function provenanceForKey(?string $industryContextKey): ?array
+            {
+                return null;
+            }
+
+            public function statusForKey(?string $industryContextKey): string
+            {
+                return 'match_revision_inactive';
+            }
+        };
+        $provider = new class implements IndustryGroupProvider
+        {
+            public function list(?int $siteId = null, ?string $industryContextKey = null, ?string $locale = null): array
+            {
+                return [];
+            }
+
+            public function find(string $key, ?int $siteId = null, ?string $industryContextKey = null, ?string $locale = null): ?IndustryGroup
+            {
+                return null;
+            }
+
+            public function semanticDefinitions(?int $siteId = null, ?string $industryContextKey = null, ?string $locale = null): array
+            {
+                return [];
+            }
+        };
+        $matcher = new IndustryGroupSemanticMatcher($provider, new ConceptMatchingClient(new SemanticAnalyticsClient), $rules);
+        $result = $matcher->match('scope:b2b', [new IndustryGroupMatchEntity('e1', 'balo học sinh cấp 1')], 4, 'b2b-backpack', 'vi');
+        self::assertFalse($result->calledPython);
+        self::assertSame(0, $result->conceptsUsed);
+        self::assertSame('match_revision_inactive', $result->reason);
+        Http::assertNothingSent();
+    }
+
     public function test_semantic_disabled_throws_without_http(): void
     {
         config(['semantic.enabled' => false]);

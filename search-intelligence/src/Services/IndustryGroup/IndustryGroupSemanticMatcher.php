@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup;
 
 use Omnichannel\Addons\SearchFoundation\Contracts\IndustryGroup\IndustryGroupProvider;
+use Omnichannel\Addons\SearchFoundation\Contracts\IndustryMatchRuleProvider;
 use Omnichannel\Addons\SearchFoundation\DTO\IndustryGroup\IndustryGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\ConceptMatching\ConceptDecisionPolicy;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\ConceptMatching\ConceptDefinition;
@@ -30,6 +31,7 @@ final class IndustryGroupSemanticMatcher
     public function __construct(
         private readonly IndustryGroupProvider $industryGroups,
         private readonly ConceptMatchingClient $conceptMatching,
+        private readonly ?IndustryMatchRuleProvider $matchRules = null,
     ) {}
 
     /**
@@ -85,7 +87,7 @@ final class IndustryGroupSemanticMatcher
                 calledPython: false,
                 staleGroupKeysSkipped: $staleSkipped,
                 disabledGroupKeysSkipped: $disabledSkipped,
-                reason: $groups === [] ? 'no_industry_groups' : 'no_active_industry_groups',
+                reason: $this->emptyReason($groups, $staleSkipped, $disabledSkipped, $industryContextKey),
             );
         }
 
@@ -154,6 +156,28 @@ final class IndustryGroupSemanticMatcher
             staleGroupKeysSkipped: $staleSkipped,
             disabledGroupKeysSkipped: $disabledSkipped,
         );
+    }
+
+    /**
+     * @param  list<IndustryGroup>  $groups
+     * @param  list<string>  $staleSkipped
+     * @param  list<string>  $disabledSkipped
+     */
+    private function emptyReason(array $groups, array $staleSkipped, array $disabledSkipped, ?string $industryContextKey): string
+    {
+        if ($groups !== []) {
+            if ($staleSkipped !== [] && $disabledSkipped === []) {
+                return 'match_revision_stale';
+            }
+
+            return 'no_active_industry_groups';
+        }
+
+        $status = $this->matchRules?->statusForKey($industryContextKey) ?? 'no_industry_groups';
+
+        return in_array($status, ['no_match_revision', 'match_revision_inactive', 'match_revision_stale', 'no_taxonomy_groups'], true)
+            ? $status
+            : 'no_industry_groups';
     }
 
     private function toConceptDefinition(IndustryGroup $group): ConceptDefinition

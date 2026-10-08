@@ -38,6 +38,11 @@ final class IndustryMatchResearchProjectorTest extends TestCase
                     'stale' => false,
                 ];
             }
+
+            public function statusForKey(?string $industryContextKey): string
+            {
+                return 'active';
+            }
         };
 
         $resources = (new IndustryMatchResearchProjector($provider))->project('bags', 'vi');

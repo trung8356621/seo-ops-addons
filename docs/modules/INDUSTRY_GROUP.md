@@ -128,6 +128,30 @@ php artisan semantic:industry-groups:match --industry=bags --site=4 --locale=vi 
   --text="balo học sinh cấp 1" --text="Zalo 0909983833"
 ```
 
+## Match & Research → Industry → Live Industry Match
+
+This is the canonical manual diagnostic UI for Industry Group matching.
+
+```text
+Industry Groups
+    ↓
+IndustryGroupSemanticMatcher
+    ↓
+Python Concept Matching
+    ↓
+lexical + semantic evidence
+    ↓
+suggested result
+```
+
+The page calls `IndustryGroupSemanticMatcher::match()` for the selected site and active Industry Context. It does not call `MatchRuleMatcher` and does not fall back to the old deterministic matcher when Python is unavailable.
+
+A row is a V1 membership candidate only when `suggested_match=true`. Semantic similarity (`positive_max`) is calibration evidence. A high similarity with `suggested_match=false` is not a match.
+
+"Show all evidence" lists every Industry Group row returned by Python, including `suggested_match=false`.
+
+Specific empty states stay distinct: `match_revision_inactive`, `no_match_revision`, `match_revision_stale`, `no_taxonomy_groups`, `no_active_industry_groups`. Semantic disabled and Python unavailable are shown as errors, not as "No Industry Groups".
+
 ## Code
 
 | Piece | Location |

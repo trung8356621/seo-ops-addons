@@ -22,8 +22,11 @@ use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\CustomMatchResear
 use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationImporter;
 use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocalizationPromptBuilder;
 use Omnichannel\Addons\SearchFoundation\Services\MatchResearch\MatchResearchLocaleOverlayStore;
-use Omnichannel\Addons\SearchFoundation\Services\MatchRules\MatchRuleMatcher;
-use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchEntity;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchResult;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticDisabledException;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
@@ -45,21 +48,17 @@ class SeoSettingsKeywords extends Page implements HasForms
     /** @var array<string, mixed> */
     public array $keywordSettingsData = [];
 
+    public string $industryMatchText = '';
+
     /** @var array<string, mixed>|null */
-    public ?array $debugReport = null;
-
-    public string $debugPhrase = '';
-
-    /** @var array<string, list<array<string, mixed>>> */
-    public array $industryRules = [];
+    public ?array $industryMatchResult = null;
 
     /** @var array<string, mixed>|null */
     public ?array $industryProvenance = null;
 
-    public ?string $industryContextKey = null;
+    public ?string $industryMatchStatus = null;
 
-    /** @var array<string, array<string, list<string>>>|null */
-    public ?array $matcherReport = null;
+    public ?string $industryContextKey = null;
 
     public string $activeOriginTab = 'system';
 
@@ -114,8 +113,8 @@ class SeoSettingsKeywords extends Page implements HasForms
         $siteId = SeoAccessControl::globalSiteId();
         $site = $siteId !== null ? Site::query()->find($siteId) : null;
         $this->industryContextKey = trim((string) $site?->getMeta('seo_industry_context_key')) ?: null;
-        $this->industryRules = $industryProvider->rulesForKey($this->industryContextKey);
         $this->industryProvenance = $industryProvider->provenanceForKey($this->industryContextKey);
+        $this->industryMatchStatus = $industryProvider->statusForKey($this->industryContextKey);
         $this->refreshRegistry($registry, $industryGroups, $siteId);
     }
 
@@ -123,8 +122,8 @@ class SeoSettingsKeywords extends Page implements HasForms
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('System Rules')
-                    ->description('Immutable system matching rule sets. Identity keys cannot be deleted. CTA / Noise retains existing behavior.')
+                Forms\Components\Section::make('Legacy runtime settings')
+                    ->description('Still used by legacy consumers; not the new Python matching result.')
                     ->headerActions([HelpUi::fieldHintAction('settings.keywords.cta_blacklist')])
                     ->schema(fn (SeoKeywordSettingsService $settings): array => collect($settings->definitions())
                         ->filter(fn (array $definition): bool => $definition['editable'])
@@ -303,71 +302,117 @@ class SeoSettingsKeywords extends Page implements HasForms
         Notification::make()->title('Localized result imported')->success()->send();
     }
 
-    public function debugMatcher(SeoKeywordSettingsService $settings, MatchRuleMatcher $matcher): void
+    public function testIndustryMatch(IndustryGroupSemanticMatcher $matcher): void
     {
-        $phrase = trim($this->debugPhrase);
-        $global = [];
-        foreach ($settings->definitions() as $key => $definition) {
-            $entries = array_map(static fn (string $value): array => [
-                'canonical' => $value,
-                'aliases' => [],
-                'match_mode' => $definition['match_mode'],
-            ], $settings->getSettings()[$key] ?? []);
-            $matches = $matcher->matchingEntries($entries, $phrase);
-            if ($matches !== []) {
-                $global[$key] = $matches;
-            }
-        }
-        $industry = [];
-        foreach ($this->industryRules as $key => $entries) {
-            $matchable = array_values(array_filter($entries, static fn (mixed $entry): bool => is_array($entry) && trim((string) ($entry['canonical'] ?? '')) !== ''));
-            $matches = $matcher->matchingEntries($matchable, $phrase);
-            if ($matches !== []) {
-                $industry[$key] = $matches;
-            }
-        }
-        $this->matcherReport = ['global_matches' => $global, 'industry_matches' => $industry];
-    }
-
-    public static function getNavigationLabel(): string
-    {
-        return 'Match & Research';
-    }
-
-    public function debugCtaBlacklist(
-        SeoKeywordSettingsService $settings,
-        CtaKeywordBlacklistDebugService $debugService,
-    ): void {
-        $data = $this->form->getState();
-        $blacklist = $settings->normalizeBlacklist(
-            $data[SeoKeywordSettingsService::KEY_CTA_BLACKLIST] ?? [],
-        );
-
-        if ($blacklist === []) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.settings_keywords.debug_empty_blacklist'))
-                ->warning()
-                ->send();
+        $text = trim($this->industryMatchText);
+        if ($text === '') {
+            Notification::make()->title('Enter text to match.')->warning()->send();
 
             return;
         }
 
         $siteId = SeoAccessControl::globalSiteId();
-        $this->debugReport = $debugService->scan($siteId, $blacklist);
 
-        $matchedKeywords = count($this->debugReport['matched_keywords'] ?? []);
-        $domainLabel = $siteId !== null
-            ? (string) (Site::query()->whereKey($siteId)->value('domain') ?? $siteId)
-            : __('seo-content-ai::filament.settings_keywords.debug_all_domains');
+        try {
+            $result = $matcher->match(
+                scopeRef: 'ui:industry-match'.($siteId !== null ? ':site-'.$siteId : ''),
+                entities: [new IndustryGroupMatchEntity(ref: 'ui:test', text: $text)],
+                siteId: $siteId,
+                industryContextKey: $this->industryContextKey,
+                locale: $this->industryMatchLocale(),
+            );
+            $presented = self::presentIndustryMatch($result);
+            $presented['query'] = $text;
+            $this->industryMatchResult = $presented;
+        } catch (SemanticHttpException $e) {
+            $this->industryMatchResult = self::failureIndustryMatch($e);
+            $this->industryMatchResult['query'] = $text;
+            $disabled = $e instanceof SemanticDisabledException;
+            Notification::make()
+                ->title($disabled ? 'Semantic integration is disabled.' : 'Python Concept Matching unavailable')
+                ->body($disabled ? null : $e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
 
-        Notification::make()
-            ->title(__('seo-content-ai::filament.settings_keywords.debug_completed'))
-            ->body(__('seo-content-ai::filament.settings_keywords.debug_completed_body', [
-                'keywords' => $matchedKeywords,
-                'domain' => $domainLabel,
-            ]))
-            ->success()
-            ->send();
+    /**
+     * @return array<string, mixed>
+     */
+    public static function presentIndustryMatch(IndustryGroupMatchResult $result): array
+    {
+        $evidence = [];
+        foreach ($result->entities as $entity) {
+            foreach ($entity->evidence as $row) {
+                $evidence[] = $row->toArray();
+            }
+        }
+
+        return [
+            'called_python' => $result->calledPython,
+            'analysis_id' => $result->analysisId,
+            'concepts_used' => $result->conceptsUsed,
+            'stale_skipped' => $result->staleGroupsSkipped,
+            'disabled_skipped' => $result->disabledGroupsSkipped,
+            'reason' => $result->reason,
+            'query' => $result->entities[0]->text ?? '',
+            'evidence' => $evidence,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function failureIndustryMatch(SemanticHttpException $exception): array
+    {
+        $disabled = $exception instanceof SemanticDisabledException;
+
+        return [
+            'called_python' => false,
+            'analysis_id' => null,
+            'concepts_used' => 0,
+            'stale_skipped' => 0,
+            'disabled_skipped' => 0,
+            'reason' => $disabled ? 'semantic_disabled' : $exception->errorCode,
+            'error' => $disabled ? 'Semantic integration is disabled.' : $exception->getMessage(),
+            'query' => '',
+            'evidence' => [],
+        ];
+    }
+
+    public static function industryMatchStatusLabel(string $reason): string
+    {
+        return match ($reason) {
+            'match_revision_inactive' => 'Match & Research revision chưa được kích hoạt.',
+            'no_match_revision' => 'Chưa có revision Match & Research cho Industry Context của site hiện tại.',
+            'match_revision_stale' => 'Match revision đã cũ (stale) nên không được dùng để match.',
+            'no_taxonomy_groups' => 'Match & Research đang hoạt động nhưng taxonomy Industry Group đang trống.',
+            'no_active_industry_groups' => 'Không có Industry Group đang hoạt động.',
+            'semantic_disabled' => 'Semantic integration is disabled.',
+            'semantic_unavailable' => 'Python Concept Matching unavailable.',
+            default => $reason,
+        };
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $evidence
+     * @return list<array<string, mixed>>
+     */
+    public static function visibleIndustryEvidence(array $evidence, bool $showAll): array
+    {
+        if ($showAll) {
+            return $evidence;
+        }
+
+        return array_values(array_filter(
+            $evidence,
+            static fn (array $row): bool => ($row['suggested_match'] ?? false) === true,
+        ));
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return 'Match & Research';
     }
 
     public static function canAccess(): bool
@@ -440,5 +485,24 @@ class SeoSettingsKeywords extends Page implements HasForms
         $lines = preg_split('/\r\n|\r|\n/', $raw) ?: [];
 
         return array_values(array_filter(array_map('trim', $lines), static fn (string $v): bool => $v !== ''));
+    }
+
+    private function industryMatchLocale(): string
+    {
+        $locales = [];
+        foreach ($this->industryGroupsByType as $items) {
+            foreach ($items as $item) {
+                $locale = trim((string) ($item['source_locale'] ?? ''));
+                if ($locale !== '') {
+                    $locales[$locale] = true;
+                }
+            }
+        }
+
+        if (count($locales) === 1) {
+            return (string) array_key_first($locales);
+        }
+
+        return 'vi';
     }
 }
