@@ -8,7 +8,8 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 
 /**
- * Site keyword texts eligible for Group analysis and the unassigned list.
+ * Site keyword inventory for Group analysis and the unassigned list.
+ * Structural admission is KeywordGroupingEligibilityGate, not this loader.
  */
 final class KeywordGroupCandidateLoader
 {

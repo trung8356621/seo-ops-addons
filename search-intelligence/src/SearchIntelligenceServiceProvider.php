@@ -18,6 +18,7 @@ use Omnichannel\Addons\SearchIntelligence\Console\PreviewTopicSeedEvidenceComman
 use Omnichannel\Addons\SearchIntelligence\Console\ReclusterSiteTopicsCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\AnalyzeSiteTopicGroupingCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\IndustryGroupConceptMatchCommand;
+use Omnichannel\Addons\SearchIntelligence\Console\KeywordGroupingEligibilityCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\SemanticDoctorCommand;
 use Omnichannel\Addons\SearchIntelligence\Console\SemanticMonitorCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
@@ -99,6 +100,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
                 SemanticDoctorCommand::class,
                 SemanticMonitorCommand::class,
                 IndustryGroupConceptMatchCommand::class,
+                KeywordGroupingEligibilityCommand::class,
                 AnalyzeSiteTopicGroupingCommand::class,
             ]);
         }

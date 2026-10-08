@@ -223,6 +223,70 @@ final class KeywordGroupLayerTest extends TestCase
         $this->assertTopicsUntouched();
     }
 
+    public function test_structural_exclusions_never_reach_keyword_group_analysis(): void
+    {
+        Http::fake([
+            'semantic.test/v1/keyword-groups/analyses' => Http::response($this->analysis([
+                $this->apiGroup('g-balo', '1', 'balo học sinh', [
+                    ['ref' => '1', 'text' => 'balo học sinh', 'similarity_score' => 1, 'is_representative' => true],
+                    ['ref' => '2', 'text' => 'xưởng may balo', 'similarity_score' => 0.8, 'is_representative' => false],
+                    ['ref' => '5', 'text' => 'mua balo ở đâu?', 'similarity_score' => 0.7, 'is_representative' => false],
+                ]),
+            ]), 200),
+        ]);
+
+        $result = $this->service()->refreshKeywords(self::SITE, 'vi', [
+            ['keyword_id' => 1, 'phrase' => 'balo học sinh'],
+            ['keyword_id' => 2, 'phrase' => 'xưởng may balo'],
+            ['keyword_id' => 3, 'phrase' => 'Zalo: 0909983833'],
+            ['keyword_id' => 4, 'phrase' => 'https://example.com'],
+            ['keyword_id' => 5, 'phrase' => 'mua balo ở đâu?'],
+        ]);
+
+        self::assertSame(5, $result->candidateCount);
+        self::assertSame(3, $result->eligibleCount);
+        self::assertSame(2, $result->excludedCount);
+        self::assertSame(['contact_like' => 1, 'url_like' => 1], $result->excludedByReason);
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request): bool {
+            $texts = array_column($request->data()['keywords'] ?? [], 'text');
+            sort($texts);
+
+            return $texts === ['balo học sinh', 'mua balo ở đâu?', 'xưởng may balo'];
+        });
+    }
+
+    public function test_empty_eligible_set_clears_unprotected_semantic_groups_without_python(): void
+    {
+        $manual = $this->group('Manual keep', KeywordGroupSource::MANUAL, false, 10);
+        $this->member($manual, 10, KeywordGroupSource::MANUAL);
+        $locked = $this->group('Locked keep', KeywordGroupSource::SEMANTIC, true, 30);
+        $this->member($locked, 30, KeywordGroupSource::SEMANTIC);
+        $old = $this->group('Dirty semantic', KeywordGroupSource::SEMANTIC, false, 20);
+        $this->member($old, 20, KeywordGroupSource::SEMANTIC);
+
+        Http::fake();
+
+        $result = $this->service()->refreshKeywords(self::SITE, 'vi', [
+            ['keyword_id' => 10, 'phrase' => 'manual keyword'],
+            ['keyword_id' => 30, 'phrase' => 'locked keyword'],
+            ['keyword_id' => 41, 'phrase' => 'Zalo: 0909983833'],
+            ['keyword_id' => 42, 'phrase' => 'https://example.com'],
+        ]);
+
+        Http::assertNothingSent();
+        self::assertTrue($result->skipped);
+        self::assertSame(0, $result->groupCount);
+        self::assertSame(2, $result->candidateCount);
+        self::assertSame(0, $result->eligibleCount);
+        self::assertSame(2, $result->excludedCount);
+        self::assertSame(2, $result->preservedGroupCount);
+        self::assertNull(SeoKeywordGroup::query()->find($old->id));
+        self::assertSame($manual->id, $this->groupIdForKeyword(10));
+        self::assertSame($locked->id, $this->groupIdForKeyword(30));
+        self::assertSame('Manual keep', $manual->fresh()?->name);
+        self::assertTrue((bool) $locked->fresh()?->is_locked);
+    }
+
     public function test_http_and_contract_failures_leave_groups_and_topics_intact(): void
     {
         $semantic = $this->group('Keep me', KeywordGroupSource::SEMANTIC, false, 11);

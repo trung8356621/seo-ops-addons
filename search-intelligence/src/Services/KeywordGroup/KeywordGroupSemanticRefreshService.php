@@ -25,6 +25,7 @@ final class KeywordGroupSemanticRefreshService
         private readonly SemanticAnalyticsClient $client,
         private readonly TopicGroupingInputHasher $hasher,
         private readonly KeywordGroupCandidateLoader $loader,
+        private readonly KeywordGroupingEligibilityGate $eligibility = new KeywordGroupingEligibilityGate(),
     ) {}
 
     /**
@@ -45,21 +46,50 @@ final class KeywordGroupSemanticRefreshService
         }
 
         [$protectedGroupIds, $protectedKeywords] = $this->protectedState($siteId);
-        $payload = [];
-        $known = [];
+        $gateInput = [];
         foreach ($keywords as $row) {
             $keywordId = (int) ($row['keyword_id'] ?? 0);
             $text = $this->hasher->normalizeText((string) ($row['phrase'] ?? ''));
-            if ($keywordId <= 0 || $text === '' || isset($protectedKeywords[$keywordId]) || isset($known[$keywordId])) {
+            if ($keywordId <= 0 || $text === '' || isset($protectedKeywords[$keywordId]) || isset($gateInput[$keywordId])) {
                 continue;
             }
-            $ref = (string) $keywordId;
-            $known[$keywordId] = true;
-            $payload[] = ['ref' => $ref, 'text' => $text];
+            $gateInput[$keywordId] = new KeywordGroupingEligibilityCandidate((string) $keywordId, $text);
         }
 
+        $decisions = $this->eligibility->decide(array_values($gateInput));
+        $payload = [];
+        $known = [];
+        $excludedByReason = [];
+        foreach ($decisions as $decision) {
+            if (! $decision->eligible) {
+                foreach ($decision->excludeReasons as $reason) {
+                    $excludedByReason[$reason] = ($excludedByReason[$reason] ?? 0) + 1;
+                }
+
+                continue;
+            }
+            $keywordId = (int) $decision->ref;
+            $known[$keywordId] = true;
+            $payload[] = ['ref' => $decision->ref, 'text' => $decision->text];
+        }
+
+        $candidateCount = count($decisions);
+        $eligibleCount = count($payload);
+        $excludedCount = $candidateCount - $eligibleCount;
+
         if ($payload === []) {
-            return new KeywordGroupRefreshResult(0, 0, count($protectedGroupIds), true);
+            $this->replaceSemanticGroups($siteId, [], null, null, $protectedKeywords);
+
+            return new KeywordGroupRefreshResult(
+                0,
+                0,
+                count($protectedGroupIds),
+                true,
+                $candidateCount,
+                0,
+                $excludedCount,
+                $excludedByReason,
+            );
         }
 
         $scopeRef = (string) $siteId;
@@ -78,6 +108,10 @@ final class KeywordGroupSemanticRefreshService
             array_sum(array_map(static fn (array $group): int => count($group['members']), $parsed['groups'])),
             count($protectedGroupIds),
             false,
+            $candidateCount,
+            $eligibleCount,
+            $excludedCount,
+            $excludedByReason,
         );
     }
 
