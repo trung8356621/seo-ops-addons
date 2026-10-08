@@ -43,7 +43,9 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTo
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 use Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver;
+use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
 use Omnichannel\Addons\SearchIntelligence\Services\AgentTopicInternalLinkResolver;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\TopicGroup\TopicGroupArticleRetriever;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapVite;
 
@@ -81,6 +83,7 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         $this->app->singleton(TopicalMapVite::class);
         $this->app->singleton(TopicalMapAccess::class);
         $this->app->singleton(AgentInternalLinkResolver::class, AgentTopicInternalLinkResolver::class);
+        $this->app->singleton(TopicGroupArticleSource::class, TopicGroupArticleRetriever::class);
         $this->registerCapabilities();
     }
 

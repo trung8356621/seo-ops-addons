@@ -76,6 +76,7 @@ final class ArticleEditorLinksPayloadService
                 : [],
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
+        $payload = $this->mergeSemanticSuggestions($article, $content, $payload);
 
         if (isset($bundle['debug']) && is_array($bundle['debug'])) {
             $payload['suggestion_debug'] = $bundle['debug'];
@@ -205,5 +206,39 @@ final class ArticleEditorLinksPayloadService
         }
 
         return mb_strlen($resolved) > 0 ? 'resolved_non_empty' : 'empty';
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function mergeSemanticSuggestions(SeoArticle $article, string $content, array $payload): array
+    {
+        if (config('semantic.internal_link_v2') === true) {
+            $internal = app(InternalLinkV2Suggester::class)->suggest(
+                $article,
+                $content,
+                is_array($payload['extracted_links']['internal'] ?? null) ? $payload['extracted_links']['internal'] : [],
+            );
+            $payload['internal_link_v2'] = $internal;
+            if (($internal['suggestions'] ?? []) !== []) {
+                $payload['suggested_internal_links'] = array_merge(
+                    $internal['suggestions'],
+                    is_array($payload['suggested_internal_links'] ?? null) ? $payload['suggested_internal_links'] : [],
+                );
+            }
+        }
+        if (config('semantic.wiki_suggestions') === true) {
+            $wiki = app(ExternalWikiSuggestionService::class)->suggest($article, $content);
+            $payload['wiki_suggestions'] = $wiki;
+            if (($wiki['suggestions'] ?? []) !== []) {
+                $payload['suggested_external_links'] = array_merge(
+                    $wiki['suggestions'],
+                    is_array($payload['suggested_external_links'] ?? null) ? $payload['suggested_external_links'] : [],
+                );
+            }
+        }
+
+        return $payload;
     }
 }

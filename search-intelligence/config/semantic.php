@@ -36,4 +36,8 @@ return [
         1,
         (int) env('SEMANTIC_CONCEPT_MATCH_ENTITY_BATCH_SIZE', 100),
     ),
+
+    'internal_link_v2' => (bool) env('SEMANTIC_INTERNAL_LINK_V2', false),
+
+    'wiki_suggestions' => (bool) env('SEMANTIC_WIKI_SUGGESTIONS', false),
 ];

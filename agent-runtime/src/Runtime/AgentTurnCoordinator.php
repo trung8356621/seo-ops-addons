@@ -19,6 +19,8 @@ use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
+use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
+use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
@@ -646,15 +648,40 @@ class AgentTurnCoordinator
             ];
         }
 
+        $bundle = $processed['bundle'] instanceof RetrievalBundle
+            ? $this->withTopicGroupSource($processed['bundle'], $message, (string) $route->capability)
+            : $processed['bundle'];
+
         return [
             'routing' => $routingInput,
             'answer' => $processed['answerInput'],
-            'bundle' => $processed['bundle'],
+            'bundle' => $bundle,
             'response' => $processed['response'],
-            'failureCode' => $processed['bundle'] instanceof RetrievalBundle ? $this->failureCodeFromBundle($processed['bundle']) : null,
+            'failureCode' => $bundle instanceof RetrievalBundle ? $this->failureCodeFromBundle($bundle) : null,
             'decisionDiagnostics' => null,
             'confirmationProposal' => null,
         ];
+    }
+
+    private function withTopicGroupSource(RetrievalBundle $bundle, string $message, string $capability): RetrievalBundle
+    {
+        if (! in_array($capability, ['keywords.relationship', 'articles.inventory'], true)) {
+            return $bundle;
+        }
+        if ($bundle->scope->siteId === null || ! function_exists('app') || ! app()->bound(TopicGroupArticleSource::class)) {
+            return $bundle;
+        }
+        $source = app()->make(TopicGroupArticleSource::class);
+        if (! $source instanceof TopicGroupArticleSource) {
+            return $bundle;
+        }
+        $data = $source->retrieve((int) $bundle->scope->siteId, $message);
+
+        return new RetrievalBundle(
+            $bundle->scope,
+            [...$bundle->sources, new RetrievalSource('topic_groups', (string) ($data['status'] ?? 'ok'), 'topic-group-retrieval', $data)],
+            $bundle->warnings,
+        );
     }
 
     private function localDecisionJson(LocalToolRoute $route, string $message): string
