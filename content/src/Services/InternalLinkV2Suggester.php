@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\TopicGroup\TopicGroupArticleRetriever;
 use Omnichannel\Addons\Seo\Services\Linking\InternalLinkV2Guard;
 use Throwable;
 
@@ -40,7 +41,13 @@ final class InternalLinkV2Suggester
         'được', 'khi', 'từ', 'theo', 'về', 'trên', 'dưới', 'ngay', 'hơn', 'rất', 'the', 'and', 'for',
     ];
 
-    public function __construct(private readonly InternalLinkV2Guard $guard = new InternalLinkV2Guard()) {}
+    /** Topic-group query contract max. Ranker embeds this text; it is not cut to 4,000 characters. */
+    private const SEMANTIC_TEXT_LIMIT = 65536;
+
+    public function __construct(
+        private readonly InternalLinkV2Guard $guard = new InternalLinkV2Guard(),
+        private readonly ?TopicGroupArticleRetriever $topicGroups = null,
+    ) {}
 
     /**
      * @param  list<array<string, mixed>>  $existingInternal
@@ -65,6 +72,15 @@ final class InternalLinkV2Suggester
         }
 
         $built = $this->candidates($article, $siteId, $plain, $existingInternal);
+        if (($built['discovery'] ?? 'ok') === 'unavailable') {
+            return [
+                'status' => 'unavailable',
+                'suggestions' => [],
+                'metrics' => ['stages' => $built['stages']],
+                'reason' => 'semantic_unavailable',
+                'error' => $built['error'] ?? null,
+            ];
+        }
         $filtered = $this->guard->filter('article:'.$article->id, $built['rows']);
         $stages = $built['stages'];
         $stages['guard_accepted'] = count($filtered['accepted']);
@@ -86,7 +102,7 @@ final class InternalLinkV2Suggester
                 ->timeout((int) config('semantic.timeout', 30))
                 ->post('/v1/internal-links/v2/rank', [
                     'source_ref' => 'article:'.$article->id,
-                    'source_text' => mb_substr($plain, 0, 4000),
+                    'source_text' => mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT),
                     'candidate_boundary' => 'topic_group',
                     'candidates' => array_map(static function (array $row): array {
                         return [
@@ -179,13 +195,16 @@ final class InternalLinkV2Suggester
                 ['stages' => $stages],
             ),
             'reason' => $suggestions === [] ? 'anchor_quality' : null,
-            'rejected' => $filtered['rejected'],
+            'rejected' => array_values(array_merge(
+                $filtered['rejected'],
+                array_values(array_filter((array) ($body['rejected'] ?? []), 'is_array')),
+            )),
         ];
     }
 
     /**
      * @param  list<array<string, mixed>>  $existingInternal
-     * @return array{rows: list<array<string, mixed>>, stages: array<string, int>}
+     * @return array{rows: list<array<string, mixed>>, stages: array<string, int>, discovery: string, error?: string|null}
      */
     private function candidates(SeoArticle $article, int $siteId, string $plain, array $existingInternal): array
     {
@@ -200,7 +219,25 @@ final class InternalLinkV2Suggester
             }
         }
 
-        $groups = $this->groupsForArticle($article, $siteId);
+        $discovered = $this->discoverGroups($article, $siteId, $plain);
+        $stages = [
+            'topic_groups' => 0,
+            'semantic_groups' => (int) ($discovered['semantic_count'] ?? 0),
+            'group_keywords' => 0,
+            'published_targets' => 0,
+            'eligible_before_guard' => 0,
+            'source_chars' => mb_strlen($plain),
+        ];
+        if ($discovered['status'] === 'unavailable') {
+            return [
+                'rows' => [],
+                'stages' => $stages,
+                'discovery' => 'unavailable',
+                'error' => $discovered['error'] ?? null,
+            ];
+        }
+
+        $groups = $discovered['groups'];
         $rows = [];
         $seenArticles = [];
         $keywords = 0;
@@ -248,22 +285,108 @@ final class InternalLinkV2Suggester
             }
         }
 
+        $stages['topic_groups'] = $groups->count();
+        $stages['group_keywords'] = $keywords;
+        $stages['published_targets'] = $published;
+        $stages['eligible_before_guard'] = count($rows);
+
         return [
             'rows' => $rows,
-            'stages' => [
-                'topic_groups' => $groups->count(),
-                'group_keywords' => $keywords,
-                'published_targets' => $published,
-                'eligible_before_guard' => count($rows),
-                'source_chars' => mb_strlen($plain),
-            ],
+            'stages' => $stages,
+            'discovery' => $groups->isEmpty() ? 'empty' : 'ok',
         ];
+    }
+
+    /**
+     * Semantic group match is required. Direct focus-keyword membership only adds groups after a match.
+     *
+     * @return array{status: string, groups: \Illuminate\Support\Collection<int, SeoKeywordGroup>, semantic_count: int, error?: string|null}
+     */
+    private function discoverGroups(SeoArticle $article, int $siteId, string $plain): array
+    {
+        $retrieved = $this->topicGroups()->retrieve($siteId, mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT));
+        $status = (string) ($retrieved['status'] ?? 'empty');
+        if ($status === 'unavailable') {
+            return [
+                'status' => 'unavailable',
+                'groups' => collect(),
+                'semantic_count' => 0,
+                'error' => isset($retrieved['error']) ? (string) $retrieved['error'] : null,
+            ];
+        }
+
+        $refs = [];
+        foreach ((array) ($retrieved['groups'] ?? []) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $ref = trim((string) ($row['ref'] ?? ''));
+            if ($ref !== '') {
+                $refs[] = $ref;
+            }
+        }
+        $matched = $this->groupsByRef($siteId, $refs);
+        if ($matched->isEmpty()) {
+            return ['status' => 'empty', 'groups' => collect(), 'semantic_count' => 0];
+        }
+
+        $groups = $matched
+            ->concat($this->directMembershipGroups($article, $siteId))
+            ->unique('id')
+            ->values();
+
+        return [
+            'status' => 'ok',
+            'groups' => $groups,
+            'semantic_count' => $matched->count(),
+        ];
+    }
+
+    private function topicGroups(): TopicGroupArticleRetriever
+    {
+        return $this->topicGroups ?? app(TopicGroupArticleRetriever::class);
+    }
+
+    /**
+     * @param  list<string>  $refs
+     * @return \Illuminate\Support\Collection<int, SeoKeywordGroup>
+     */
+    private function groupsByRef(int $siteId, array $refs)
+    {
+        if ($refs === []) {
+            return collect();
+        }
+        $ids = [];
+        $external = [];
+        foreach ($refs as $ref) {
+            if (preg_match('/^keyword-group:(\d+)$/', $ref, $match) === 1) {
+                $ids[] = (int) $match[1];
+                continue;
+            }
+            $external[] = $ref;
+        }
+        if ($ids === [] && $external === []) {
+            return collect();
+        }
+
+        return SeoKeywordGroup::query()
+            ->where('site_id', $siteId)
+            ->where(function ($query) use ($ids, $external): void {
+                if ($ids !== []) {
+                    $query->orWhereIn('id', $ids);
+                }
+                if ($external !== []) {
+                    $query->orWhereIn('semantic_group_ref', $external);
+                }
+            })
+            ->with(['memberships.keyword'])
+            ->get();
     }
 
     /**
      * @return \Illuminate\Support\Collection<int, SeoKeywordGroup>
      */
-    private function groupsForArticle(SeoArticle $article, int $siteId)
+    private function directMembershipGroups(SeoArticle $article, int $siteId)
     {
         $keywordIds = DB::connection('omi_seo_ai')->table('keyword_meta')
             ->where('meta_key', KeywordMetaKey::siteMainArticleId($siteId))

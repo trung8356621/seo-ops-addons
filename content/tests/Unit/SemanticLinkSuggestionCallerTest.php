@@ -80,6 +80,12 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
             $table->string('name');
             $table->timestamps();
         });
+        $schema->create('seo_article_profiles', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('article_id');
+            $table->decimal('seo_score', 5, 2)->nullable();
+            $table->timestamps();
+        });
         $schema->create('publishing_article_states', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('article_id');
@@ -136,12 +142,18 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         ]);
 
         Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:9',
+                'matches' => [['ref' => 'tg:cotton', 'score' => 0.71]],
+            ]),
             'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use ($fresh) {
                 $payload = $request->data();
                 TestCase::assertSame('topic_group', $payload['candidate_boundary']);
                 TestCase::assertNotSame('', $payload['source_text']);
                 TestCase::assertSame('article:'.$fresh, $payload['candidates'][0]['ref']);
                 TestCase::assertSame(0, $payload['candidates'][0]['inbound_count']);
+                TestCase::assertArrayNotHasKey('relevance', $payload['candidates'][0]);
+                TestCase::assertSame('Bài cotton mới áo thun cotton', $payload['candidates'][0]['representation']);
 
                 return Http::response([
                     'source_ref' => 'article:1',
@@ -204,6 +216,10 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         ]);
         $this->attachArticleToGroup($source, 9, $group->id, 'bài nguồn balo');
         Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:9',
+                'matches' => [['ref' => 'tg:balo', 'score' => 0.66]],
+            ]),
             'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use ($target) {
                 TestCase::assertSame('article:'.$target, $request->data()['candidates'][0]['ref']);
 
@@ -262,6 +278,10 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         ]);
         $this->attachArticleToGroup($source, 9, $group->id, 'nguồn');
         Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:9',
+                'matches' => [['ref' => 'tg:organic', 'score' => 0.68]],
+            ]),
             'http://semantic.test/v1/internal-links/v2/rank' => Http::response([
                 'suggestions' => [[
                     'ref' => 'article:'.$target,
@@ -363,12 +383,17 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         ]);
         $this->attachArticleToGroup($source, 9, $group->id, 'nguồn chất liệu');
         Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:9',
+                'matches' => [['ref' => 'tg:material', 'score' => 0.6]],
+            ]),
             'http://semantic.test/v1/internal-links/v2/rank' => Http::response([
                 'suggestions' => [[
                     'ref' => 'article:'.$target,
                     'score' => 0.4,
                     'components' => ['relevance' => 0.4],
                 ]],
+                'rejected' => [['ref' => 'article:'.$target, 'reason' => 'low_score']],
                 'metrics' => [],
             ]),
         ]);
@@ -408,6 +433,241 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         self::assertSame('empty', $result['status']);
         self::assertSame('content_unavailable', $result['reason']);
         self::assertSame([], $result['suggestions']);
+    }
+
+    public function test_semantic_match_finds_targets_without_source_membership(): void
+    {
+        $source = $this->article(9, 'Bài không thuộc group');
+        $target = $this->article(9, 'Balo học sinh');
+        $this->permalink($target, 'https://example.test/balo');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $target,
+            'publication_status' => 'published',
+            'published_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'balo học sinh', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(9),
+            'meta_value' => (string) $target,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Balo học sinh',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0016',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $long = str_repeat('Nội dung balo đi học. ', 250).'balo học sinh';
+        self::assertGreaterThan(4000, mb_strlen($long));
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => function ($request) use ($long) {
+                $payload = $request->data();
+                TestCase::assertSame('site:9', $payload['scope_ref']);
+                TestCase::assertGreaterThan(4000, mb_strlen((string) $payload['query']));
+                TestCase::assertSame('g-0016', $payload['groups'][0]['ref']);
+
+                return Http::response([
+                    'scope_ref' => 'site:9',
+                    'matches' => [['ref' => 'g-0016', 'score' => 0.6758]],
+                ]);
+            },
+            'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use ($target) {
+                $payload = $request->data();
+                TestCase::assertGreaterThan(4000, mb_strlen((string) $payload['source_text']));
+                TestCase::assertLessThanOrEqual(65536, mb_strlen((string) $payload['source_text']));
+                TestCase::assertArrayNotHasKey('relevance', $payload['candidates'][0]);
+                TestCase::assertStringContainsString('balo học sinh', (string) $payload['candidates'][0]['representation']);
+
+                return Http::response([
+                    'suggestions' => [[
+                        'ref' => 'article:'.$target,
+                        'score' => 0.67,
+                        'components' => ['relevance' => 0.67],
+                    ]],
+                    'rejected' => [],
+                    'metrics' => [],
+                ]);
+            },
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(SeoArticle::query()->findOrFail($source), $long);
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame('balo học sinh', mb_strtolower($result['suggestions'][0]['text']));
+        self::assertSame('https://example.test/balo', $result['suggestions'][0]['href']);
+        self::assertSame(1, $result['metrics']['stages']['semantic_groups']);
+        self::assertStringContainsString($result['suggestions'][0]['text'], $long);
+    }
+
+    public function test_direct_membership_alone_does_not_discover_a_group(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $target = $this->article(9, 'Áo thun cotton organic');
+        $this->permalink($target, 'https://example.test/organic');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $target,
+            'publication_status' => 'publish',
+            'published_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'áo thun cotton organic', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(9),
+            'meta_value' => (string) $target,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Cotton',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:organic',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $this->attachArticleToGroup($source, 9, $group->id, 'nguồn');
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:9',
+                'matches' => [],
+            ]),
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>Mẫu áo thun cotton cho mùa này.</p>',
+        );
+
+        self::assertSame('no_topic_group', $result['reason']);
+        self::assertSame([], $result['suggestions']);
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/internal-links/v2/rank'));
+    }
+
+    public function test_semantic_matcher_failure_does_not_fall_back(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Cotton',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:cotton',
+            'is_locked' => false,
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'áo thun cotton', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response(['detail' => 'down'], 503),
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>Mẫu áo thun cotton cho mùa này.</p>',
+        );
+
+        self::assertSame('unavailable', $result['status']);
+        self::assertSame('semantic_unavailable', $result['reason']);
+        self::assertSame([], $result['suggestions']);
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/internal-links/v2/rank'));
+        $sourceFile = (string) file_get_contents((string) (new \ReflectionClass(InternalLinkV2Suggester::class))->getFileName());
+        self::assertStringNotContainsString('Cache::', $sourceFile);
+        self::assertStringNotContainsString('mb_substr($plain, 0, 4000)', $sourceFile);
+    }
+
+    public function test_article_site_does_not_read_another_sites_groups(): void
+    {
+        $source = $this->article(6, 'Bài site 6');
+        $foreign = $this->article(4, 'Balo site 4');
+        $local = $this->article(6, 'Balo site 6');
+        $this->permalink($foreign, 'https://site4.test/balo');
+        $this->permalink($local, 'https://site6.test/balo');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            ['article_id' => $foreign, 'publication_status' => 'publish', 'published_at' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['article_id' => $local, 'publication_status' => 'publish', 'published_at' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $foreignKeyword = Keyword::query()->create(['phrase' => 'balo học sinh', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        $localKeyword = Keyword::query()->create(['phrase' => 'balo site sáu', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            ['keyword_id' => $foreignKeyword->id, 'meta_key' => KeywordMetaKey::siteMainArticleId(4), 'meta_value' => (string) $foreign, 'created_at' => now(), 'updated_at' => now()],
+            ['keyword_id' => $localKeyword->id, 'meta_key' => KeywordMetaKey::siteMainArticleId(6), 'meta_value' => (string) $local, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $foreignGroup = SeoKeywordGroup::query()->create([
+            'site_id' => 4,
+            'name' => 'Balo site 4',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-site4',
+            'is_locked' => false,
+        ]);
+        $localGroup = SeoKeywordGroup::query()->create([
+            'site_id' => 6,
+            'name' => 'Balo site 6',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-site6',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 4,
+            'group_id' => $foreignGroup->id,
+            'keyword_id' => $foreignKeyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 6,
+            'group_id' => $localGroup->id,
+            'keyword_id' => $localKeyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => function ($request) {
+                $refs = array_column($request->data()['groups'], 'ref');
+                TestCase::assertSame(['g-site6'], $refs);
+                TestCase::assertSame('site:6', $request->data()['scope_ref']);
+
+                return Http::response([
+                    'scope_ref' => 'site:6',
+                    'matches' => [['ref' => 'g-site6', 'score' => 0.7]],
+                ]);
+            },
+            'http://semantic.test/v1/internal-links/v2/rank' => Http::response([
+                'suggestions' => [[
+                    'ref' => 'article:'.$local,
+                    'score' => 0.7,
+                    'components' => ['relevance' => 0.7],
+                ]],
+                'metrics' => [],
+            ]),
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>balo site sáu cho học sinh.</p>',
+        );
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame($local, $result['suggestions'][0]['target_article_id']);
+        self::assertSame('https://site6.test/balo', $result['suggestions'][0]['href']);
     }
 
     public function test_wiki_caller_keeps_only_verified_urls_present_in_the_article(): void
