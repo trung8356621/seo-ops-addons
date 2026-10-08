@@ -44,6 +44,12 @@ final class InternalLinkV2Suggester
     /** Topic-group query contract max. Ranker embeds this text; it is not cut to 4,000 characters. */
     private const SEMANTIC_TEXT_LIMIT = 65536;
 
+    /** Python ranker contract maximum. */
+    private const RANK_LIMIT = 20;
+
+    /** Additional topic groups considered on each refill after the current scope is consumed. */
+    private const GROUP_PAGE = 3;
+
     public function __construct(
         private readonly InternalLinkV2Guard $guard = new InternalLinkV2Guard(),
         private readonly ?TopicGroupArticleRetriever $topicGroups = null,
@@ -51,9 +57,10 @@ final class InternalLinkV2Suggester
 
     /**
      * @param  list<array<string, mixed>>  $existingInternal
-     * @return array{status: string, suggestions: list<array<string, mixed>>, metrics: array<string, mixed>, reason?: string, rejected?: list<array<string, mixed>>}
+     * @param  array<string, mixed>  $cursor
+     * @return array{status: string, suggestions: list<array<string, mixed>>, metrics: array<string, mixed>, reason?: string|null, rejected?: list<array<string, mixed>>, discovery?: array<string, mixed>}
      */
-    public function suggest(SeoArticle $article, string $content, array $existingInternal = []): array
+    public function suggest(SeoArticle $article, string $content, array $existingInternal = [], array $cursor = []): array
     {
         if (! (bool) config('semantic.enabled', false)) {
             return ['status' => 'unavailable', 'suggestions' => [], 'metrics' => [], 'reason' => 'semantic_unavailable'];
@@ -66,12 +73,8 @@ final class InternalLinkV2Suggester
         if ($siteId <= 0) {
             return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'site_unresolved'];
         }
-        $maxInternal = max(1, (int) config('seo-content-ai.link_suggestions.max_internal_links', 10));
-        if ($this->insertedLinkCount($existingInternal) >= $maxInternal) {
-            return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'link_quota'];
-        }
-
-        $built = $this->candidates($article, $siteId, $plain, $existingInternal);
+        $matchLimit = $this->matchLimit($cursor);
+        $built = $this->candidates($article, $siteId, $plain, $existingInternal, $cursor, $matchLimit);
         if (($built['discovery'] ?? 'ok') === 'unavailable') {
             return [
                 'status' => 'unavailable',
@@ -90,8 +93,9 @@ final class InternalLinkV2Suggester
                 'status' => 'empty',
                 'suggestions' => [],
                 'metrics' => ['stages' => $stages],
-                'reason' => $stages['topic_groups'] === 0 ? 'no_topic_group' : 'no_eligible_target',
+                'reason' => $this->emptyReason($stages, $matchLimit),
                 'rejected' => $filtered['rejected'],
+                'discovery' => $this->discoveryState($cursor, $matchLimit, (int) $stages['semantic_groups'], 0, [], false),
             ];
         }
 
@@ -104,6 +108,7 @@ final class InternalLinkV2Suggester
                     'source_ref' => 'article:'.$article->id,
                     'source_text' => mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT),
                     'candidate_boundary' => 'topic_group',
+                    'limit' => self::RANK_LIMIT,
                     'candidates' => array_map(static function (array $row): array {
                         return [
                             'ref' => $row['ref'],
@@ -183,9 +188,21 @@ final class InternalLinkV2Suggester
                 'components' => $ranked['components'] ?? [],
             ];
         }
-        $stages['ranked'] = count((array) ($body['suggestions'] ?? []));
+        $rankedCount = count((array) ($body['suggestions'] ?? []));
+        $stages['ranked'] = $rankedCount;
         $stages['anchor_rejected'] = $anchorRejected;
         $stages['suggested'] = count($suggestions);
+        $rankedUrls = [];
+        foreach ((array) ($body['suggestions'] ?? []) as $ranked) {
+            if (! is_array($ranked)) {
+                continue;
+            }
+            $local = $byRef[(string) ($ranked['ref'] ?? '')] ?? null;
+            $url = trim((string) ($local['url'] ?? ''));
+            if ($url !== '') {
+                $rankedUrls[] = $url;
+            }
+        }
 
         return [
             'status' => $suggestions === [] ? 'empty' : 'ok',
@@ -199,14 +216,16 @@ final class InternalLinkV2Suggester
                 $filtered['rejected'],
                 array_values(array_filter((array) ($body['rejected'] ?? []), 'is_array')),
             )),
+            'discovery' => $this->discoveryState($cursor, $matchLimit, (int) $stages['semantic_groups'], $rankedCount, $rankedUrls, $suggestions !== []),
         ];
     }
 
     /**
      * @param  list<array<string, mixed>>  $existingInternal
+     * @param  array<string, mixed>  $cursor
      * @return array{rows: list<array<string, mixed>>, stages: array<string, int>, discovery: string, error?: string|null}
      */
-    private function candidates(SeoArticle $article, int $siteId, string $plain, array $existingInternal): array
+    private function candidates(SeoArticle $article, int $siteId, string $plain, array $existingInternal, array $cursor, int $matchLimit): array
     {
         $existingUrls = [];
         foreach ($existingInternal as $row) {
@@ -218,8 +237,14 @@ final class InternalLinkV2Suggester
                 $existingUrls[$href] = true;
             }
         }
+        foreach ((array) ($cursor['excluded_urls'] ?? []) as $url) {
+            $href = trim((string) $url);
+            if ($href !== '') {
+                $existingUrls[$href] = true;
+            }
+        }
 
-        $discovered = $this->discoverGroups($article, $siteId, $plain);
+        $discovered = $this->discoverGroups($article, $siteId, $plain, $matchLimit);
         $stages = [
             'topic_groups' => 0,
             'semantic_groups' => (int) ($discovered['semantic_count'] ?? 0),
@@ -302,9 +327,69 @@ final class InternalLinkV2Suggester
      *
      * @return array{status: string, groups: \Illuminate\Support\Collection<int, SeoKeywordGroup>, semantic_count: int, error?: string|null}
      */
-    private function discoverGroups(SeoArticle $article, int $siteId, string $plain): array
+    /**
+     * @param  array<string, mixed>  $cursor
+     * @param  list<string>  $rankedUrls
+     * @return array{match_limit: int, scope_open: bool, exhausted: bool, excluded_urls: list<string>}
+     */
+    private function discoveryState(array $cursor, int $matchLimit, int $matchedGroups, int $rankedCount, array $rankedUrls, bool $hasSuggestions): array
     {
-        $retrieved = $this->topicGroups()->retrieve($siteId, mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT));
+        $excluded = [];
+        foreach ((array) ($cursor['excluded_urls'] ?? []) as $url) {
+            $href = trim((string) $url);
+            if ($href !== '') {
+                $excluded[$href] = $href;
+            }
+        }
+        foreach ($rankedUrls as $url) {
+            $href = trim($url);
+            if ($href !== '') {
+                $excluded[$href] = $href;
+            }
+        }
+        $moreGroups = $matchedGroups >= $matchLimit && $matchLimit < self::RANK_LIMIT;
+        $scopeOpen = $rankedCount >= self::RANK_LIMIT;
+
+        return [
+            'match_limit' => $matchLimit,
+            'scope_open' => $scopeOpen,
+            'exhausted' => ! $hasSuggestions && ! $scopeOpen && ! $moreGroups,
+            'excluded_urls' => array_values($excluded),
+        ];
+    }
+
+    /**
+     * @param  array<string, int>  $stages
+     */
+    private function emptyReason(array $stages, int $matchLimit): string
+    {
+        if ((int) ($stages['topic_groups'] ?? 0) === 0) {
+            return 'no_topic_group';
+        }
+        $matched = (int) ($stages['semantic_groups'] ?? 0);
+        if ($matched >= $matchLimit && $matchLimit < self::RANK_LIMIT) {
+            return 'scope_unexplored';
+        }
+
+        return 'no_eligible_target';
+    }
+
+    /**
+     * @param  array<string, mixed>  $cursor
+     */
+    private function matchLimit(array $cursor): int
+    {
+        $previous = max(0, (int) ($cursor['match_limit'] ?? 0));
+        if (($cursor['scope_open'] ?? false) === true && $previous > 0) {
+            return min(self::RANK_LIMIT, $previous);
+        }
+
+        return min(self::RANK_LIMIT, max(self::GROUP_PAGE, $previous + self::GROUP_PAGE));
+    }
+
+    private function discoverGroups(SeoArticle $article, int $siteId, string $plain, int $matchLimit): array
+    {
+        $retrieved = $this->topicGroups()->retrieve($siteId, mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT), $matchLimit);
         $status = (string) ($retrieved['status'] ?? 'empty');
         if ($status === 'unavailable') {
             return [
@@ -530,29 +615,6 @@ final class InternalLinkV2Suggester
         }
 
         return false;
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $existingInternal
-     */
-    private function insertedLinkCount(array $existingInternal): int
-    {
-        $count = 0;
-        foreach ($existingInternal as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            if (($row['is_suggestion'] ?? false) === true || (string) ($row['source'] ?? '') === 'internal_link_v2') {
-                continue;
-            }
-            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
-            if ($href === '' || $href === '#' || str_starts_with($href, '#')) {
-                continue;
-            }
-            $count++;
-        }
-
-        return $count;
     }
 
     private function isPublished(SeoArticle $article): bool

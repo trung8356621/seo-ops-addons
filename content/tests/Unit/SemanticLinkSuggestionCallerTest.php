@@ -670,6 +670,104 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         self::assertSame('https://site6.test/balo', $result['suggestions'][0]['href']);
     }
 
+    public function test_existing_links_do_not_stop_discovery_and_refill_excludes_ranked_urls(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $first = $this->article(9, 'Balo học sinh');
+        $second = $this->article(9, 'Chất liệu vải dù');
+        $this->permalink($first, 'https://example.test/balo');
+        $this->permalink($second, 'https://example.test/vai');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            ['article_id' => $first, 'publication_status' => 'publish', 'published_at' => null, 'created_at' => now(), 'updated_at' => now()],
+            ['article_id' => $second, 'publication_status' => 'publish', 'published_at' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $firstKeyword = Keyword::query()->create(['phrase' => 'balo học sinh', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        $secondKeyword = Keyword::query()->create(['phrase' => 'chất liệu vải dù', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            ['keyword_id' => $firstKeyword->id, 'meta_key' => KeywordMetaKey::siteMainArticleId(9), 'meta_value' => (string) $first, 'created_at' => now(), 'updated_at' => now()],
+            ['keyword_id' => $secondKeyword->id, 'meta_key' => KeywordMetaKey::siteMainArticleId(9), 'meta_value' => (string) $second, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Balo',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0016',
+            'is_locked' => false,
+        ]);
+        foreach ([$firstKeyword, $secondKeyword] as $keyword) {
+            SeoKeywordGroupKeyword::query()->create([
+                'site_id' => 9,
+                'group_id' => $group->id,
+                'keyword_id' => $keyword->id,
+                'source' => KeywordGroupSource::SEMANTIC,
+            ]);
+        }
+        $existing = [];
+        for ($i = 0; $i < 6; $i++) {
+            $existing[] = ['href' => 'https://example.test/existing-'.$i, 'text' => 'link '.$i];
+        }
+        $round = 0;
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => function ($request) use (&$round) {
+                $round++;
+                TestCase::assertSame($round === 1 ? 3 : 6, $request->data()['policy']['limit']);
+
+                return Http::response([
+                    'scope_ref' => 'site:9',
+                    'matches' => [['ref' => 'g-0016', 'score' => 0.7]],
+                ]);
+            },
+            'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use (&$round, $first, $second) {
+                $payload = $request->data();
+                TestCase::assertSame(20, $payload['limit']);
+                $urls = array_column($payload['candidates'], 'url');
+                if ($round === 1) {
+                    TestCase::assertContains('https://example.test/balo', $urls);
+
+                    return Http::response([
+                        'suggestions' => [[
+                            'ref' => 'article:'.$first,
+                            'score' => 0.7,
+                            'components' => ['relevance' => 0.7],
+                        ]],
+                        'metrics' => [],
+                    ]);
+                }
+                TestCase::assertNotContains('https://example.test/balo', $urls);
+                TestCase::assertContains('https://example.test/vai', $urls);
+
+                return Http::response([
+                    'suggestions' => [[
+                        'ref' => 'article:'.$second,
+                        'score' => 0.66,
+                        'components' => ['relevance' => 0.66],
+                    ]],
+                    'metrics' => [],
+                ]);
+            },
+        ]);
+
+        $article = SeoArticle::query()->findOrFail($source);
+        $content = '<p>balo học sinh và chất liệu vải dù cho mùa mới.</p>';
+        $firstResult = (new InternalLinkV2Suggester())->suggest($article, $content, $existing);
+
+        self::assertNotSame('link_quota', $firstResult['reason'] ?? null);
+        self::assertSame('https://example.test/balo', $firstResult['suggestions'][0]['href']);
+        self::assertFalse($firstResult['discovery']['exhausted']);
+        self::assertContains('https://example.test/balo', $firstResult['discovery']['excluded_urls']);
+
+        $secondResult = (new InternalLinkV2Suggester())->suggest(
+            $article,
+            $content,
+            $existing,
+            $firstResult['discovery'],
+        );
+
+        self::assertSame('ok', $secondResult['status']);
+        self::assertSame('https://example.test/vai', $secondResult['suggestions'][0]['href']);
+        self::assertNotContains('https://example.test/balo', array_column($secondResult['suggestions'], 'href'));
+    }
+
     public function test_wiki_caller_keeps_only_verified_urls_present_in_the_article(): void
     {
         Http::fake([

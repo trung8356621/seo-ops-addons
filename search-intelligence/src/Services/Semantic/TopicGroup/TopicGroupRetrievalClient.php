@@ -13,7 +13,7 @@ final class TopicGroupRetrievalClient
     /**
      * @param  list<array{ref: string, label?: string, examples: list<string>}>  $groups
      */
-    public function match(string $scopeRef, string $query, array $groups, ?string $language = null): TopicGroupMatchResult
+    public function match(string $scopeRef, string $query, array $groups, ?string $language = null, int $limit = 3): TopicGroupMatchResult
     {
         $payload = [
             'scope_ref' => $scopeRef,
@@ -22,7 +22,7 @@ final class TopicGroupRetrievalClient
             'groups' => $groups,
             'policy' => [
                 'min_score' => 0.55,
-                'limit' => 3,
+                'limit' => max(1, min(20, $limit)),
             ],
         ];
 

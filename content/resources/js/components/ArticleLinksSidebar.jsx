@@ -27,8 +27,10 @@ import {
 } from '../utils/articleExcludedLinkSuggestionsStorage';
 import {
     clearInternalLinkSuggestionSession,
+    initialVisibleSuggestionCount,
     isInternalLinkSuggestionSessionUsable,
     loadInternalLinkSuggestionSession,
+    nextVisibleSuggestionCount,
     normalizeAdvancedCursor,
     resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
@@ -136,6 +138,9 @@ async function fetchEditorLinksSuggestions(articleId, options = {}) {
         mode,
         content: typeof options.content === 'string' ? options.content : '',
         existing_internal: Array.isArray(options.existingInternal) ? options.existingInternal : [],
+        discovery_cursor: options.discoveryCursor && typeof options.discoveryCursor === 'object'
+            ? options.discoveryCursor
+            : null,
     };
     if (options.scope === 'internal' || options.scope === 'external') {
         body.scope = options.scope;
@@ -909,8 +914,8 @@ function InternalLinksSection({
     onGenerateSuggestions,
     suggestionsLoading = false,
     suggestionsHasResults = false,
-    suggestionsCacheComplete = false,
     suggestionsExhausted = false,
+    suggestionsCanReveal = false,
     suggestionsError = null,
     reviewLoadingKey = '',
     errorKeywordIds,
@@ -924,10 +929,10 @@ function InternalLinksSection({
     isContentSuggestionRow = () => false,
     suggestionTitle = '',
 }) {
-    const showSuggestions = internal.length < 10 && suggestedInternal.length > 0;
+    const showSuggestions = suggestedInternal.length > 0;
     const showExcludedClear = excludedCount > 0;
     const showGenerate = typeof onGenerateSuggestions === 'function';
-    const showFindMore = suggestionsHasResults && suggestionsCacheComplete;
+    const showFindMore = suggestionsHasResults && (suggestionsCanReveal || !suggestionsExhausted);
 
     return (
         <div className="wp-article-links-group">
@@ -1150,6 +1155,10 @@ export default function ArticleLinksSidebar({
     const failedCandidateKeysRef = useRef([]);
     const contentFingerprintRef = useRef('');
     const suggestionRequestSeqRef = useRef(0);
+    const suggestionsInFlightRef = useRef(false);
+    const visibleInternalCountRef = useRef(5);
+    const [visibleInternalCount, setVisibleInternalCount] = useState(5);
+    const discoveryCursorRef = useRef(null);
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
     const suggestionEnginesRef = useRef({ internal: 'semantic_v2', external: 'legacy' });
@@ -1184,6 +1193,8 @@ export default function ArticleLinksSidebar({
             failedKeys: overrides.failedKeys ?? failedCandidateKeysRef.current,
             advancedCursor: null,
             advancedEnabled: false,
+            visibleCount: overrides.visibleCount ?? visibleInternalCountRef.current,
+            discoveryCursor: overrides.discoveryCursor ?? discoveryCursorRef.current,
             suggestionEngines: overrides.suggestionEngines ?? suggestionEnginesRef.current,
             generated: overrides.generated ?? categoryGeneratedRef.current,
         });
@@ -1215,6 +1226,9 @@ export default function ArticleLinksSidebar({
             suggestionsCacheRef.current = new Map();
             keywordCatalogRef.current = [];
             externalKeywordCatalogRef.current = [];
+            visibleInternalCountRef.current = 5;
+            setVisibleInternalCount(5);
+            discoveryCursorRef.current = null;
             rememberCategoryGenerated({ internal: false, external: false });
             bumpSuggestionCursor({ phase: 'idle', hasResults: false });
             setSuggestionsEmpty(false);
@@ -1248,6 +1262,10 @@ export default function ArticleLinksSidebar({
             });
         }
         const hasRows = keywordCatalogRef.current.length > 0 || externalKeywordCatalogRef.current.length > 0;
+        const restoredVisible = Math.max(0, Number(session?.visibleCount ?? 5) || 5);
+        visibleInternalCountRef.current = hasRows ? restoredVisible : 5;
+        setVisibleInternalCount(visibleInternalCountRef.current);
+        discoveryCursorRef.current = session?.discoveryCursor ?? null;
         bumpSuggestionCursor({
             phase: hasRows ? 'source1_done' : 'idle',
             hasResults: hasRows,
@@ -1423,7 +1441,7 @@ export default function ArticleLinksSidebar({
             && incomingExternal.length === 0;
         if (!append) {
             setSuggestionsEmpty(empty);
-        } else if (empty) {
+        } else if (empty && payload.suggestionsExhausted === true) {
             bumpSuggestionCursor({
                 phase: 'exhausted',
                 hasResults: suggestionCursorRef.current.hasResults,
@@ -1439,6 +1457,9 @@ export default function ArticleLinksSidebar({
         if (payload.suggestionCursor) {
             advancedCursorRef.current = normalizeAdvancedCursor(payload.suggestionCursor);
         }
+        if (payload.discoveryCursor && typeof payload.discoveryCursor === 'object') {
+            discoveryCursorRef.current = payload.discoveryCursor;
+        }
         if (payload.suggestionsExhausted === true) {
             bumpSuggestionCursor({
                 phase: 'exhausted',
@@ -1447,11 +1468,18 @@ export default function ArticleLinksSidebar({
         }
 
         if (append) {
+            const before = keywordCatalogRef.current.length;
             const partitioned = partitionSuggestionCatalogBySite(incomingInternal, siteDomainRef.current);
             keywordCatalogRef.current = mergeSuggestionCatalog(
                 keywordCatalogRef.current,
                 partitioned.internal,
             );
+            const added = Math.max(0, keywordCatalogRef.current.length - before);
+            visibleInternalCountRef.current = nextVisibleSuggestionCount(
+                visibleInternalCountRef.current,
+                visibleInternalCountRef.current + added,
+            );
+            setVisibleInternalCount(visibleInternalCountRef.current);
             externalKeywordCatalogRef.current = mergeSuggestionCatalog(
                 externalKeywordCatalogRef.current,
                 partitioned.external,
@@ -1506,17 +1534,25 @@ export default function ArticleLinksSidebar({
 
     const loadLinkSuggestions = async (options = {}) => {
         const { articleId, siteId } = articleMetaRef.current;
-        if (suggestionsLoading) {
+        if (suggestionsInFlightRef.current || suggestionsLoading) {
             return;
         }
 
-        // Shift+click on the existing Generate / Find more button bypasses suggestion cache only.
         const force = options.force === true || options.shiftKey === true;
+        const rankedPool = countUsableSuggestions();
+        if (!force && visibleInternalCountRef.current < rankedPool) {
+            visibleInternalCountRef.current = nextVisibleSuggestionCount(visibleInternalCountRef.current, rankedPool);
+            setVisibleInternalCount(visibleInternalCountRef.current);
+            persistSuggestionSession();
+            return;
+        }
+
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
         const requestSeq = suggestionRequestSeqRef.current + 1;
         suggestionRequestSeqRef.current = requestSeq;
+        suggestionsInFlightRef.current = true;
         setSuggestionsLoading(true);
         setSuggestionsError(null);
 
@@ -1575,6 +1611,7 @@ export default function ArticleLinksSidebar({
                     content,
                     mode: 'fallback',
                     existingInternal: buildExistingInternalPayload(),
+                    discoveryCursor: discoveryCursorRef.current,
                     signal: controller.signal,
                 });
                 if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
@@ -1594,6 +1631,9 @@ export default function ArticleLinksSidebar({
                 bumpSuggestionCursor({ phase: 'idle', hasResults: false });
                 advancedCursorRef.current = null;
                 failedCandidateKeysRef.current = [];
+                if (force) {
+                    discoveryCursorRef.current = null;
+                }
             }
             const scope = needInternal && needExternal ? 'both' : (needInternal ? 'internal' : 'external');
             const payload = await fetchEditorLinksSuggestions(articleId, {
@@ -1651,6 +1691,7 @@ export default function ArticleLinksSidebar({
                 });
             }
         } finally {
+            suggestionsInFlightRef.current = false;
             if (!controller.signal.aborted && requestSeq === suggestionRequestSeqRef.current) {
                 setSuggestionsLoading(false);
             }
@@ -1937,6 +1978,8 @@ export default function ArticleLinksSidebar({
                     );
                     if (replaceCategories.includes('internal')) {
                         keywordCatalogRef.current = partitioned.internal;
+                        visibleInternalCountRef.current = initialVisibleSuggestionCount(partitioned.internal.length);
+                        setVisibleInternalCount(visibleInternalCountRef.current);
                     } else if (incomingKeywordCatalog.length > 0 || incomingSuggested.length > 0) {
                         keywordCatalogRef.current = mergeSuggestionCatalog(
                             keywordCatalogRef.current,
@@ -2184,15 +2227,17 @@ export default function ArticleLinksSidebar({
             );
         }
 
-        return stableSuggestionsRef.current.filter((item) => {
-            const href = String(item?.href ?? item?.target_url ?? '').trim();
-            if (href === '' || href === '#' || href.startsWith('#')) {
-                return false;
-            }
+        return stableSuggestionsRef.current
+            .filter((item) => {
+                const href = String(item?.href ?? item?.target_url ?? '').trim();
+                if (href === '' || href === '#' || href.startsWith('#')) {
+                    return false;
+                }
 
-            return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
-        });
-    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
+                return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
+            })
+            .slice(0, visibleInternalCount);
+    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions, visibleInternalCount]);
 
 
     suggestedInternalRef.current = suggestedInternal;
@@ -2625,7 +2670,7 @@ export default function ArticleLinksSidebar({
                         onGenerateSuggestions={loadLinkSuggestions}
                         suggestionsLoading={suggestionsLoading}
                         suggestionsHasResults={suggestionsHasResults}
-                        suggestionsCacheComplete={categoryGenerated.internal && categoryGenerated.external}
+                        suggestionsCanReveal={visibleInternalCount < countUsableSuggestions()}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
                         suggestionTitle={t('links_semantic_v2_suggestion_title', { count: suggestedInternal.length })}
                         suggestionsError={suggestionsError}

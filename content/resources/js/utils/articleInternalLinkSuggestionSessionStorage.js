@@ -7,8 +7,26 @@
 /** v4 binds each catalog to its engine. Internal suggestions also require the V2 algorithm stamp. */
 export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 4;
 
-/** Bump when Internal V2 ranking or anchor selection changes. Old V1 sessions lack this stamp. */
-export const INTERNAL_LINK_ALGORITHM = 'semantic-v2-anchor-1';
+/** Bump when Internal V2 ranking, anchor selection, or the paged pool changes. */
+export const INTERNAL_LINK_ALGORITHM = 'semantic-v2-pool-1';
+
+export const INTERNAL_SUGGESTION_PAGE = 5;
+
+export function initialVisibleSuggestionCount(poolSize, page = INTERNAL_SUGGESTION_PAGE) {
+    const total = Math.max(0, Number(poolSize) || 0);
+
+    return Math.min(total, Math.max(1, Number(page) || INTERNAL_SUGGESTION_PAGE));
+}
+
+export function nextVisibleSuggestionCount(visible, poolSize, page = INTERNAL_SUGGESTION_PAGE) {
+    const shown = Math.max(0, Number(visible) || 0);
+    const total = Math.max(0, Number(poolSize) || 0);
+    if (shown >= total) {
+        return shown;
+    }
+
+    return Math.min(total, shown + Math.max(1, Number(page) || INTERNAL_SUGGESTION_PAGE));
+}
 
 const storageKey = (articleId, siteId) =>
     `seo_article_internal_link_suggestion_session_${Number(siteId ?? 0)}_${Number(articleId ?? 0)}`;
@@ -51,6 +69,23 @@ function normalizeSuggestionEngines(value) {
     return {
         internal: engines.internal === 'semantic_v2' ? 'semantic_v2' : 'legacy',
         external: engines.external === 'wiki_v2' ? 'wiki_v2' : 'legacy',
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {{ match_limit: number, scope_open: boolean, exhausted: boolean, excluded_urls: string[] }|null}
+ */
+function normalizeDiscoveryCursor(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    return {
+        match_limit: Math.max(0, Number(value.match_limit ?? value.matchLimit ?? 0) || 0),
+        scope_open: value.scope_open === true || value.scopeOpen === true,
+        exhausted: value.exhausted === true,
+        excluded_urls: normalizeStringList(value.excluded_urls ?? value.excludedUrls),
     };
 }
 
@@ -158,6 +193,8 @@ export function loadInternalLinkSuggestionSession(articleId, siteId) {
             advancedEnabled: false,
             suggestionEngines: normalizeSuggestionEngines(parsed.suggestionEngines),
             internalAlgorithm: String(parsed.internalAlgorithm ?? ''),
+            visibleCount: Math.max(0, Number(parsed.visibleCount ?? INTERNAL_SUGGESTION_PAGE) || 0),
+            discoveryCursor: normalizeDiscoveryCursor(parsed.discoveryCursor),
             generated: normalizeGenerated(parsed.generated, parsed),
             updatedAt: Number(parsed.updatedAt ?? 0) || 0,
         };
@@ -208,6 +245,8 @@ export function saveInternalLinkSuggestionSession(articleId, siteId, session) {
             external: normalizeSuggestionEngines(session?.suggestionEngines).external,
         },
         internalAlgorithm: INTERNAL_LINK_ALGORITHM,
+        visibleCount: Math.max(0, Number(session?.visibleCount ?? INTERNAL_SUGGESTION_PAGE) || 0),
+        discoveryCursor: normalizeDiscoveryCursor(session?.discoveryCursor),
         generated: normalizeGenerated(session?.generated, {
             catalog,
             externalCatalog,

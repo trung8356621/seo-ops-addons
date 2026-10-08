@@ -5,7 +5,9 @@ import {
     INTERNAL_LINK_SUGGESTION_SESSION_VERSION,
     clearInternalLinkSuggestionSession,
     isInternalLinkSuggestionSessionUsable,
+    initialVisibleSuggestionCount,
     loadInternalLinkSuggestionSession,
+    nextVisibleSuggestionCount,
     resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
 } from '../utils/articleInternalLinkSuggestionSessionStorage.js';
@@ -217,6 +219,19 @@ test('older session version is not reused', () => {
 
     assert.equal(resolved.internal, null);
     assert.equal(resolved.external, null);
+});
+
+test('visible suggestion window advances by five until the cached pool is consumed', () => {
+    assert.equal(initialVisibleSuggestionCount(20), 5);
+    assert.equal(initialVisibleSuggestionCount(3), 3);
+    let visible = initialVisibleSuggestionCount(20);
+    visible = nextVisibleSuggestionCount(visible, 20);
+    assert.equal(visible, 10);
+    visible = nextVisibleSuggestionCount(visible, 20);
+    assert.equal(visible, 15);
+    visible = nextVisibleSuggestionCount(visible, 20);
+    assert.equal(visible, 20);
+    assert.equal(nextVisibleSuggestionCount(visible, 20), 20);
 });
 
 test('exhausted-only session without catalog is still usable', () => {

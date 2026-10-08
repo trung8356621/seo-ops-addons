@@ -6,8 +6,6 @@ import {
     compareSuggestionCandidateRank,
     isSpecialOrContactHref,
     isSuggestionExcluded,
-    MAX_INTERNAL_LINK_SLOTS,
-    MAX_VISIBLE_INTERNAL_SUGGESTIONS,
     normalizeHrefForCompare,
     normalizeLinkLabel,
 } from './articleLinkSuggestionFilter.js';
@@ -164,10 +162,6 @@ export function buildActionableInternalLinkSuggestions(
     externalLinks = [],
     excludedLabels = [],
 ) {
-    if ((Array.isArray(internalLinks) ? internalLinks.length : 0) >= MAX_INTERNAL_LINK_SLOTS) {
-        return [];
-    }
-
     const rows = buildDomainLinkListForEditor(catalog, blocks, internalLinks, externalLinks);
     const visible = rankInternalSuggestionRows(rows.filter((item) => {
         const phrase = String(item?.text ?? '').trim();
@@ -175,7 +169,7 @@ export function buildActionableInternalLinkSuggestions(
         return phrase !== '' && !isSuggestionExcluded(phrase, excludedLabels);
     }));
 
-    return visible.slice(0, MAX_VISIBLE_INTERNAL_SUGGESTIONS);
+    return visible;
 }
 
 /**

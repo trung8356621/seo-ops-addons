@@ -19,7 +19,7 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
 {
     public function __construct(private readonly TopicGroupRetrievalClient $semantic) {}
 
-    public function retrieve(int $siteId, string $query): array
+    public function retrieve(int $siteId, string $query, int $matchLimit = 3): array
     {
         if ($siteId <= 0 || trim($query) === '') {
             return ['status' => 'empty', 'groups' => []];
@@ -53,7 +53,13 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
         }
 
         try {
-            $matched = $this->semantic->match('site:'.$siteId, $query, $payloadGroups);
+            $matched = $this->semantic->match(
+                'site:'.$siteId,
+                $query,
+                $payloadGroups,
+                null,
+                max(1, min(20, $matchLimit)),
+            );
         } catch (Throwable $e) {
             return ['status' => 'unavailable', 'groups' => [], 'error' => $e->getMessage()];
         }

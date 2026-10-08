@@ -204,9 +204,14 @@ final class ArticleEditorLazyPayloadController extends Controller
                 $existing = [];
             }
 
+            $cursor = $request->input('discovery_cursor', []);
+            if (! is_array($cursor)) {
+                $cursor = [];
+            }
+
             return response()->json([
                 'success' => true,
-                'data' => $service->withFallbackOnly($article, $submitted, $existing),
+                'data' => $service->withFallbackOnly($article, $submitted, $existing, $cursor),
             ]);
         }
 

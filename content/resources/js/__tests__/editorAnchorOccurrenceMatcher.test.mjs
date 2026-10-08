@@ -378,7 +378,8 @@ describe('Internal Link suggestions — same actionable occurrence semantics as 
             href: `/existing-${i}`,
         }));
         const slotsFull = buildActionableInternalLinkSuggestions(catalog, blocks, tenExistingInternalLinks, []);
-        assert.equal(slotsFull.length, 0);
+        assert.equal(slotsFull.length, 1);
+        assert.equal(slotsFull[0].href, '/may-balo-laptop');
     });
 });
 
@@ -430,14 +431,12 @@ describe('Internal Link suggestion ROW ranking — relevance, not document posit
         }));
 
         const rows = buildActionableInternalLinkSuggestions(catalog, blocks);
-        assert.equal(rows.length, 10);
-        // The 2 lowest-scored, document-earliest phrases must be dropped by ranking-then-slice.
+        assert.equal(rows.length, 12);
         const texts = rows.map((row) => row.text);
-        assert.ok(!texts.includes('phrase 0'));
-        assert.ok(!texts.includes('phrase 1'));
-        assert.equal(rows[0].text, 'phrase 11');
+        assert.equal(texts[0], 'phrase 11');
         assert.equal(rows[0].score, 12);
-        assert.equal(rows[rows.length - 1].score, 3);
+        assert.equal(texts[texts.length - 1], 'phrase 0');
+        assert.equal(rows[rows.length - 1].score, 1);
     });
 });
 

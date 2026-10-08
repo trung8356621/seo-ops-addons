@@ -297,6 +297,9 @@ export function normalizeLinksPayload(payload) {
                 }
                 : null,
         suggestionsExhausted: src.suggestions_exhausted === true,
+        discoveryCursor: src.discovery_cursor && typeof src.discovery_cursor === 'object'
+            ? src.discovery_cursor
+            : null,
         failedCandidateKeys: Array.isArray(src.failed_candidate_keys)
             ? src.failed_candidate_keys.map((key) => String(key ?? '').trim()).filter(Boolean)
             : [],

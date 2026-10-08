@@ -109,12 +109,14 @@ final class ArticleEditorLinksPayloadService
      * «Tìm thêm gợi ý» — cùng staged pipeline, loại URL đã hiện.
      *
      * @param  list<array<string, mixed>>  $existingInternal
+     * @param  array<string, mixed>  $cursor
      * @return array<string, mixed>
      */
     public function withFallbackOnly(
         SeoArticle $article,
         ?string $submittedContent = null,
         array $existingInternal = [],
+        array $cursor = [],
     ): array {
         $content = $this->resolveSuggestionContent($article, $submittedContent);
         $base = $this->base($article);
@@ -122,8 +124,9 @@ final class ArticleEditorLinksPayloadService
             is_array($base['extracted_links']['internal'] ?? null) ? $base['extracted_links']['internal'] : [],
             $existingInternal,
         );
-        $internal = app(InternalLinkV2Suggester::class)->suggest($article, $content, $occupied);
+        $internal = app(InternalLinkV2Suggester::class)->suggest($article, $content, $occupied, $cursor);
         $suggestions = is_array($internal['suggestions'] ?? null) ? $internal['suggestions'] : [];
+        $exhausted = ($internal['discovery']['exhausted'] ?? false) === true;
 
         $payload = array_merge($base, [
             'suggested_internal_links' => $suggestions,
@@ -134,7 +137,8 @@ final class ArticleEditorLinksPayloadService
             'internal_link_v2' => $internal,
             'suggestion_status' => (string) ($internal['status'] ?? 'empty'),
             'suggestion_reason' => $internal['reason'] ?? null,
-            'suggestions_exhausted' => $suggestions === [],
+            'suggestions_exhausted' => $exhausted,
+            'discovery_cursor' => is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null,
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
 
@@ -158,7 +162,7 @@ final class ArticleEditorLinksPayloadService
         int $targetCount = 5,
         int $usableCount = -1,
     ): array {
-        return $this->withFallbackOnly($article, $submittedContent, $existingInternal);
+        return $this->withFallbackOnly($article, $submittedContent, $existingInternal, $cursor);
     }
 
     /**
@@ -222,6 +226,8 @@ final class ArticleEditorLinksPayloadService
             $payload['suggested_internal_links'] = $internal['suggestions'] ?? [];
             $payload['suggested_internal_links_catalog'] = $internal['suggestions'] ?? [];
             $payload['suggestion_status'] = (string) ($internal['status'] ?? 'empty');
+            $payload['discovery_cursor'] = is_array($internal['discovery'] ?? null) ? $internal['discovery'] : null;
+            $payload['suggestions_exhausted'] = ($internal['discovery']['exhausted'] ?? false) === true;
             if (is_string($internal['reason'] ?? null) && $internal['reason'] !== '') {
                 $payload['suggestion_reason'] = $internal['reason'];
             }
