@@ -126,6 +126,7 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
             'keyword_id' => $keyword->id,
             'source' => KeywordGroupSource::SEMANTIC,
         ]);
+        $this->attachArticleToGroup($source, 9, $group->id, 'bài nguồn cotton');
         DB::connection('omi_seo_ai')->table('seo_link_maps')->insert([
             'source_article_id' => $source,
             'target_article_id' => $heavy,
@@ -201,6 +202,7 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
             'keyword_id' => $keyword->id,
             'source' => KeywordGroupSource::SEMANTIC,
         ]);
+        $this->attachArticleToGroup($source, 9, $group->id, 'bài nguồn balo');
         Http::fake([
             'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use ($target) {
                 TestCase::assertSame('article:'.$target, $request->data()['candidates'][0]['ref']);
@@ -223,6 +225,178 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
 
         self::assertSame('ok', $result['status']);
         self::assertSame($target, $result['suggestions'][0]['target_article_id']);
+    }
+
+    public function test_related_target_is_found_without_its_keyword_phrase_in_the_source(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $target = $this->article(9, 'Áo thun cotton organic');
+        $this->permalink($target, 'https://example.test/organic');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $target,
+            'publication_status' => 'publish',
+            'published_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'áo thun cotton organic', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(9),
+            'meta_value' => (string) $target,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Cotton',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:organic',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $this->attachArticleToGroup($source, 9, $group->id, 'nguồn');
+        Http::fake([
+            'http://semantic.test/v1/internal-links/v2/rank' => Http::response([
+                'suggestions' => [[
+                    'ref' => 'article:'.$target,
+                    'score' => 0.66,
+                    'components' => ['relevance' => 0.7],
+                ]],
+                'metrics' => [],
+            ]),
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>Mẫu áo thun cotton cho mùa này.</p>',
+        );
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame('áo thun cotton', mb_strtolower($result['suggestions'][0]['text']));
+        self::assertSame('https://example.test/organic', $result['suggestions'][0]['href']);
+        self::assertSame(1, $result['metrics']['stages']['topic_groups']);
+    }
+
+    public function test_other_site_group_cannot_supply_targets(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $foreign = $this->article(8, 'Áo thun cotton organic');
+        $this->permalink($foreign, 'https://other.test/organic');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $foreign,
+            'publication_status' => 'publish',
+            'published_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'áo thun cotton organic', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(8),
+            'meta_value' => (string) $foreign,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 8,
+            'name' => 'Foreign',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:foreign',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 8,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        Http::fake();
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>Mẫu áo thun cotton cho mùa này.</p>',
+        );
+
+        self::assertSame('no_topic_group', $result['reason']);
+        self::assertSame([], $result['suggestions']);
+        Http::assertNothingSent();
+    }
+
+    public function test_generic_anchor_is_not_suggested(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $target = $this->article(9, 'Chất liệu');
+        $this->permalink($target, 'https://example.test/material');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $target,
+            'publication_status' => 'publish',
+            'published_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'chất liệu', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(9),
+            'meta_value' => (string) $target,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Material',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:material',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $this->attachArticleToGroup($source, 9, $group->id, 'nguồn chất liệu');
+        Http::fake([
+            'http://semantic.test/v1/internal-links/v2/rank' => Http::response([
+                'suggestions' => [[
+                    'ref' => 'article:'.$target,
+                    'score' => 0.4,
+                    'components' => ['relevance' => 0.4],
+                ]],
+                'metrics' => [],
+            ]),
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>Chất liệu đẹp cho khách hàng.</p>',
+        );
+
+        self::assertSame([], $result['suggestions']);
+        self::assertSame('anchor_quality', $result['reason']);
+    }
+
+    public function test_disabled_semantic_never_falls_back_to_legacy(): void
+    {
+        config(['semantic.enabled' => false]);
+        Http::fake();
+        $article = new SeoArticle();
+        $article->id = 4;
+        $article->site_id = 9;
+        $result = (new InternalLinkV2Suggester())->suggest($article, '<p>Nội dung.</p>');
+
+        self::assertSame('unavailable', $result['status']);
+        self::assertSame('semantic_unavailable', $result['reason']);
+        Http::assertNothingSent();
+        $source = (string) file_get_contents((string) (new \ReflectionClass(InternalLinkV2Suggester::class))->getFileName());
+        self::assertStringNotContainsString('ArticleInternalLinkSuggestionService', $source);
+        self::assertStringNotContainsString('suggestBundle', $source);
     }
 
     public function test_empty_editor_content_returns_explicit_reason(): void
@@ -258,6 +432,24 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         self::assertSame('RFID', $result['suggestions'][0]['text']);
         self::assertStringStartsWith('https://en.wikipedia.org/wiki/', $result['suggestions'][0]['href']);
         self::assertTrue($result['suggestions'][0]['is_suggestion']);
+    }
+
+    private function attachArticleToGroup(int $articleId, int $siteId, int $groupId, string $phrase): void
+    {
+        $keyword = Keyword::query()->create(['phrase' => $phrase, 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId($siteId),
+            'meta_value' => (string) $articleId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $groupId,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
     }
 
     private function article(int $siteId, string $title): int

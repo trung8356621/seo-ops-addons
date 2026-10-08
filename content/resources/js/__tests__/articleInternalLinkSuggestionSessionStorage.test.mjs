@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    INTERNAL_LINK_ALGORITHM,
     INTERNAL_LINK_SUGGESTION_SESSION_VERSION,
     clearInternalLinkSuggestionSession,
     isInternalLinkSuggestionSessionUsable,
@@ -102,40 +103,51 @@ function saveBoth(articleId, siteId, engines, fingerprint = 'fp') {
     });
 }
 
-test('legacy internal cache is not served as semantic v2', () => {
-    installLocalStorage();
-    saveBoth(13614, 4, { internal: 'legacy', external: 'legacy' });
+test('legacy internal cache is not served and wiki cache survives', () => {
+    const map = installLocalStorage();
+    map.set('seo_article_internal_link_suggestion_session_4_13614', JSON.stringify({
+        version: INTERNAL_LINK_SUGGESTION_SESSION_VERSION,
+        siteId: 4,
+        articleId: 13614,
+        contentFingerprint: 'fp',
+        catalog: [{ text: 'internal-row', href: '/in', suggestion_engine: 'legacy' }],
+        externalCatalog: [{ text: 'external-row', href: 'https://en.wikipedia.org/wiki/USB', suggestion_engine: 'wiki_v2' }],
+        hasResults: true,
+        suggestionEngines: { internal: 'legacy', external: 'wiki_v2' },
+        generated: { internal: true, external: true },
+    }));
     const session = loadInternalLinkSuggestionSession(13614, 4);
     const resolved = resolveSuggestionSessionCache(session, {
         articleId: 13614,
         siteId: 4,
         contentFingerprint: 'fp',
-        suggestionEngines: { internal: 'semantic_v2', external: 'legacy' },
+        suggestionEngines: { internal: 'semantic_v2', external: 'wiki_v2' },
     });
 
     assert.equal(resolved.internal, null);
     assert.equal(resolved.external?.[0]?.text, 'external-row');
-    assert.equal(resolved.external?.[0]?.suggestion_engine, 'legacy');
+    assert.equal(resolved.external?.[0]?.suggestion_engine, 'wiki_v2');
 });
 
-test('semantic v2 cache is not served as legacy', () => {
+test('current v2 suggestions stay reusable', () => {
     installLocalStorage();
     saveBoth(13614, 4, { internal: 'semantic_v2', external: 'wiki_v2' });
     const session = loadInternalLinkSuggestionSession(13614, 4);
+    assert.equal(session?.internalAlgorithm, INTERNAL_LINK_ALGORITHM);
     const resolved = resolveSuggestionSessionCache(session, {
         articleId: 13614,
         siteId: 4,
         contentFingerprint: 'fp',
-        suggestionEngines: { internal: 'legacy', external: 'wiki_v2' },
+        suggestionEngines: { internal: 'semantic_v2', external: 'wiki_v2' },
     });
 
-    assert.equal(resolved.internal, null);
+    assert.equal(resolved.internal?.[0]?.text, 'internal-row');
     assert.equal(resolved.external?.[0]?.suggestion_engine, 'wiki_v2');
 });
 
 test('internal and external invalidation are independent', () => {
     installLocalStorage();
-    saveBoth(13614, 4, { internal: 'legacy', external: 'wiki_v2' });
+    saveBoth(13614, 4, { internal: 'semantic_v2', external: 'wiki_v2' });
     const session = loadInternalLinkSuggestionSession(13614, 4);
     const onlyExternalChanged = resolveSuggestionSessionCache(session, {
         articleId: 13614,

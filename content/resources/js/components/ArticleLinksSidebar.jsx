@@ -1140,6 +1140,7 @@ export default function ArticleLinksSidebar({
     const [baseError, setBaseError] = useState(null);
     const [suggestionsLoading, setSuggestionsLoading] = useState(false);
     const [suggestionsError, setSuggestionsError] = useState(null);
+    const [suggestionReason, setSuggestionReason] = useState('');
     const [suggestionsEmpty, setSuggestionsEmpty] = useState(false);
     const suggestionsAbortRef = useRef(null);
     const suggestionsCacheRef = useRef(new Map());
@@ -1151,8 +1152,8 @@ export default function ArticleLinksSidebar({
     const suggestionRequestSeqRef = useRef(0);
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
-    const suggestionEnginesRef = useRef({ internal: 'legacy', external: 'legacy' });
-    const [suggestionEngines, setSuggestionEngines] = useState({ internal: 'legacy', external: 'legacy' });
+    const suggestionEnginesRef = useRef({ internal: 'semantic_v2', external: 'legacy' });
+    const [suggestionEngines, setSuggestionEngines] = useState({ internal: 'semantic_v2', external: 'legacy' });
     const suggestionEnginesReadyRef = useRef(false);
     const categoryGeneratedRef = useRef({ internal: false, external: false });
     const [categoryGenerated, setCategoryGenerated] = useState({ internal: false, external: false });
@@ -1579,7 +1580,11 @@ export default function ArticleLinksSidebar({
                 if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
                     return;
                 }
-                applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
+                setSuggestionReason(String(payload.suggestionReason || ''));
+            if (payload.suggestionStatus === 'unavailable') {
+                setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
+            }
+            applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
                 persistSuggestionSession({ contentFingerprint: cacheKey });
                 return;
             }
@@ -1601,6 +1606,10 @@ export default function ArticleLinksSidebar({
                 return;
             }
             const replaceCategories = scope === 'both' ? ['internal', 'external'] : [scope];
+            setSuggestionReason(String(payload.suggestionReason || ''));
+            if (payload.suggestionStatus === 'unavailable') {
+                setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
+            }
             applySuggestionPayload(payload, 'links-suggestions', { replaceCategories });
             if (scope === 'both') {
                 suggestionsCacheRef.current.set(memoryKey, payload);
@@ -2591,7 +2600,11 @@ export default function ArticleLinksSidebar({
                     </div>
                 ) : null}
                 {suggestionsEmpty && !suggestionsLoading && !suggestionsError ? (
-                    <p className="wp-article-links-empty px-2">{t('editor_links_suggestions_empty')}</p>
+                    <p className="wp-article-links-empty px-2">
+                        {suggestionReason === 'no_topic_group'
+                            ? t('editor_links_reason_no_topic_group')
+                            : t('editor_links_suggestions_empty')}
+                    </p>
                 ) : null}
                 {showLinksCluster ? (
                     <>
@@ -2614,12 +2627,7 @@ export default function ArticleLinksSidebar({
                         suggestionsHasResults={suggestionsHasResults}
                         suggestionsCacheComplete={categoryGenerated.internal && categoryGenerated.external}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
-                        suggestionTitle={t(
-                            suggestionEngines.internal === 'semantic_v2'
-                                ? 'links_semantic_v2_suggestion_title'
-                                : 'links_legacy_suggestion_title',
-                            { count: suggestedInternal.length },
-                        )}
+                        suggestionTitle={t('links_semantic_v2_suggestion_title', { count: suggestedInternal.length })}
                         suggestionsError={suggestionsError}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)

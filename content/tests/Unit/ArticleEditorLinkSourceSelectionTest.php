@@ -11,23 +11,16 @@ use Tests\TestCase;
 
 final class ArticleEditorLinkSourceSelectionTest extends TestCase
 {
-    public function test_four_flag_combinations_select_one_engine_per_category(): void
+    public function test_internal_channel_stays_off_when_the_removed_flag_is_set(): void
     {
-        $cases = [
-            [false, false, true, true],
-            [true, false, false, true],
-            [false, true, true, false],
-            [true, true, false, false],
-        ];
-
-        foreach ($cases as [$internalV2, $wikiV2, $legacyInternal, $legacyExternal]) {
+        foreach ([false, true] as $wikiV2) {
             config([
-                'semantic.internal_link_v2' => $internalV2,
+                'semantic.internal_link_v2' => false,
                 'semantic.wiki_suggestions' => $wikiV2,
             ]);
             $channels = ArticleEditorLinksPayloadService::legacyChannels();
-            self::assertSame($legacyInternal, $channels['internal']);
-            self::assertSame($legacyExternal, $channels['external']);
+            self::assertFalse($channels['internal']);
+            self::assertSame(! $wikiV2, $channels['external']);
         }
     }
 
@@ -39,33 +32,33 @@ final class ArticleEditorLinkSourceSelectionTest extends TestCase
 
         self::assertStringNotContainsString('array_merge(', $merge);
         self::assertStringContainsString("['suggestions']", $merge);
-        self::assertStringContainsString('channelsForScope($scope)', $withSuggestions);
-        self::assertStringContainsString("\$channels['internal']", $withSuggestions);
-        self::assertStringContainsString("\$channels['external']", $withSuggestions);
+        self::assertStringContainsString('InternalLinkV2Suggester', $merge);
+        self::assertStringContainsString('false,', $withSuggestions);
         self::assertStringContainsString("scope !== 'external'", $merge);
         self::assertStringContainsString("scope !== 'internal'", $merge);
         self::assertStringNotContainsString('suggestBundle', $merge);
-        self::assertStringNotContainsString("array_merge(\n                    \$internal['suggestions']", $source);
+        self::assertStringNotContainsString('semantic.internal_link_v2', $source);
+        self::assertStringNotContainsString('suggestFallbackSupplement', $source);
+        self::assertStringNotContainsString('suggestAdvancedBatch', $source);
     }
 
-    public function test_manual_more_actions_do_not_call_legacy_when_internal_v2_is_on(): void
+    public function test_manual_more_actions_call_v2_only(): void
     {
         $source = (string) file_get_contents((string) (new ReflectionClass(ArticleEditorLinksPayloadService::class))->getFileName());
 
-        foreach (['withFallbackOnly', 'withAdvancedBatch'] as $method) {
-            $body = $this->method($source, $method);
-            self::assertStringContainsString('semantic.internal_link_v2', $body);
-            self::assertLessThan(
-                strpos($body, 'suggestFallbackSupplement') ?: strpos($body, 'suggestAdvancedBatch'),
-                strpos($body, 'semantic.internal_link_v2'),
-            );
-        }
+        $fallback = $this->method($source, 'withFallbackOnly');
+        self::assertStringContainsString('InternalLinkV2Suggester', $fallback);
+        self::assertStringNotContainsString('suggestFallbackSupplement', $fallback);
+
+        $advanced = $this->method($source, 'withAdvancedBatch');
+        self::assertStringContainsString('withFallbackOnly', $advanced);
+        self::assertStringNotContainsString('suggestAdvancedBatch', $advanced);
     }
 
-    public function test_suggestion_engines_follow_each_flag_independently(): void
+    public function test_suggestion_engines_keep_internal_on_v2(): void
     {
         config([
-            'semantic.internal_link_v2' => true,
+            'semantic.internal_link_v2' => false,
             'semantic.wiki_suggestions' => false,
         ]);
         self::assertSame(
@@ -74,11 +67,10 @@ final class ArticleEditorLinkSourceSelectionTest extends TestCase
         );
 
         config([
-            'semantic.internal_link_v2' => false,
             'semantic.wiki_suggestions' => true,
         ]);
         self::assertSame(
-            ['internal' => 'legacy', 'external' => 'wiki_v2'],
+            ['internal' => 'semantic_v2', 'external' => 'wiki_v2'],
             ArticleEditorLinksPayloadService::suggestionEngines(),
         );
     }
@@ -90,7 +82,7 @@ final class ArticleEditorLinkSourceSelectionTest extends TestCase
             'semantic.wiki_suggestions' => true,
         ]);
         self::assertSame(
-            ['internal' => true, 'external' => false],
+            ['internal' => false, 'external' => false],
             ArticleEditorLinksPayloadService::channelsForScope('internal'),
         );
         self::assertSame(
@@ -99,7 +91,6 @@ final class ArticleEditorLinkSourceSelectionTest extends TestCase
         );
 
         config([
-            'semantic.internal_link_v2' => true,
             'semantic.wiki_suggestions' => false,
         ]);
         self::assertSame(

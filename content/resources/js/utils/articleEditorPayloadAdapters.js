@@ -260,9 +260,11 @@ export function normalizeLinksPayload(payload) {
             ? src.suggested_external_links_catalog
             : [],
         suggestionEngines: {
-            internal: src.suggestion_engines?.internal === 'semantic_v2' ? 'semantic_v2' : 'legacy',
+            internal: 'semantic_v2',
             external: src.suggestion_engines?.external === 'wiki_v2' ? 'wiki_v2' : 'legacy',
         },
+        suggestionStatus: typeof src.suggestion_status === 'string' ? src.suggestion_status : '',
+        suggestionReason: typeof src.suggestion_reason === 'string' ? src.suggestion_reason : '',
         suggestionScope: src.suggestion_scope === 'internal' || src.suggestion_scope === 'external'
             ? src.suggestion_scope
             : 'both',

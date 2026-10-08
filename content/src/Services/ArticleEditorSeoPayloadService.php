@@ -44,9 +44,11 @@ final class ArticleEditorSeoPayloadService
             $bodyHtml,
             $internalLinks,
             $externalLinks,
+            false,
+            config('semantic.wiki_suggestions') !== true,
         );
-        $suggestedInternalLinks = $suggestionBundle['internal'];
-        $suggestedInternalLinksCatalog = $suggestionBundle['internal_catalog'];
+        $suggestedInternalLinks = [];
+        $suggestedInternalLinksCatalog = [];
         $suggestedExternalLinks = $suggestionBundle['external'];
         $suggestedExternalLinksCatalog = $suggestionBundle['external_catalog'];
         $contentBonus = $this->contentBonus->resolveForArticle($article);

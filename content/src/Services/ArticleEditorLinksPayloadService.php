@@ -68,14 +68,14 @@ final class ArticleEditorLinksPayloadService
         $externalLinks = $base['extracted_links']['external'] ?? [];
 
         $channels = self::channelsForScope($scope);
-        $bundle = ($channels['internal'] || $channels['external'])
+        $bundle = $channels['external']
             ? $this->suggestionService->suggestBundle(
                 $article,
                 $content,
                 $internalLinks,
                 $externalLinks,
-                $channels['internal'],
-                $channels['external'],
+                false,
+                true,
             )
             : [
                 'internal' => [],
@@ -116,37 +116,27 @@ final class ArticleEditorLinksPayloadService
         ?string $submittedContent = null,
         array $existingInternal = [],
     ): array {
-        if (config('semantic.internal_link_v2') === true) {
-            return $this->v2ManualInternalBlocked($article, $submittedContent);
-        }
-
         $content = $this->resolveSuggestionContent($article, $submittedContent);
         $base = $this->base($article);
-        $internalLinks = $base['extracted_links']['internal'] ?? [];
-        $externalLinks = $base['extracted_links']['external'] ?? [];
-
-        $bundle = $this->suggestionService->suggestFallbackSupplement(
-            $article,
-            $content,
+        $occupied = array_merge(
+            is_array($base['extracted_links']['internal'] ?? null) ? $base['extracted_links']['internal'] : [],
             $existingInternal,
-            $internalLinks,
-            $externalLinks,
         );
+        $internal = app(InternalLinkV2Suggester::class)->suggest($article, $content, $occupied);
+        $suggestions = is_array($internal['suggestions'] ?? null) ? $internal['suggestions'] : [];
 
         $payload = array_merge($base, [
-            'suggested_internal_links' => $bundle['internal'],
-            'suggested_internal_links_catalog' => $bundle['internal_catalog'],
-            'suggested_external_links' => $bundle['external'],
-            'suggested_external_links_catalog' => $bundle['external_catalog'],
-            'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
-                ? $bundle['internal_link_catalog']
-                : [],
+            'suggested_internal_links' => $suggestions,
+            'suggested_internal_links_catalog' => $suggestions,
+            'suggested_external_links' => [],
+            'suggested_external_links_catalog' => [],
+            'internal_link_catalog' => [],
+            'internal_link_v2' => $internal,
+            'suggestion_status' => (string) ($internal['status'] ?? 'empty'),
+            'suggestion_reason' => $internal['reason'] ?? null,
+            'suggestions_exhausted' => $suggestions === [],
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
-
-        if (isset($bundle['debug']) && is_array($bundle['debug'])) {
-            $payload['suggestion_debug'] = $bundle['debug'];
-        }
 
         return $this->publishSuggestionLists($payload);
     }
@@ -168,46 +158,7 @@ final class ArticleEditorLinksPayloadService
         int $targetCount = 5,
         int $usableCount = -1,
     ): array {
-        if (config('semantic.internal_link_v2') === true) {
-            return $this->v2ManualInternalBlocked($article, $submittedContent, true);
-        }
-
-        $content = $this->resolveSuggestionContent($article, $submittedContent);
-        $base = $this->base($article);
-        $internalLinks = $base['extracted_links']['internal'] ?? [];
-        $externalLinks = $base['extracted_links']['external'] ?? [];
-
-        $bundle = $this->suggestionService->suggestAdvancedBatch(
-            $article,
-            $content,
-            $existingInternal,
-            $internalLinks,
-            $externalLinks,
-            $failedKeys,
-            $cursor,
-            $targetCount,
-            $usableCount,
-        );
-
-        $payload = array_merge($base, [
-            'suggested_internal_links' => $bundle['internal'],
-            'suggested_internal_links_catalog' => $bundle['internal_catalog'],
-            'suggested_external_links' => $bundle['external'],
-            'suggested_external_links_catalog' => $bundle['external_catalog'],
-            'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
-                ? $bundle['internal_link_catalog']
-                : [],
-            'suggestion_cursor' => $bundle['cursor'],
-            'suggestions_exhausted' => (bool) ($bundle['exhausted'] ?? false),
-            'failed_candidate_keys' => is_array($bundle['failed_keys'] ?? null) ? $bundle['failed_keys'] : [],
-            'content_source' => $this->describeContentSource($article, $submittedContent, $content),
-        ]);
-
-        if (isset($bundle['debug']) && is_array($bundle['debug'])) {
-            $payload['suggestion_debug'] = $bundle['debug'];
-        }
-
-        return $this->publishSuggestionLists($payload);
+        return $this->withFallbackOnly($article, $submittedContent, $existingInternal);
     }
 
     /**
@@ -261,7 +212,7 @@ final class ArticleEditorLinksPayloadService
     private function mergeSemanticSuggestions(SeoArticle $article, string $content, array $payload, ?string $scope = null): array
     {
         $scope = self::normalizeScope($scope);
-        if ($scope !== 'external' && config('semantic.internal_link_v2') === true) {
+        if ($scope !== 'external') {
             $internal = app(InternalLinkV2Suggester::class)->suggest(
                 $article,
                 $content,
@@ -270,6 +221,10 @@ final class ArticleEditorLinksPayloadService
             $payload['internal_link_v2'] = $internal;
             $payload['suggested_internal_links'] = $internal['suggestions'] ?? [];
             $payload['suggested_internal_links_catalog'] = $internal['suggestions'] ?? [];
+            $payload['suggestion_status'] = (string) ($internal['status'] ?? 'empty');
+            if (is_string($internal['reason'] ?? null) && $internal['reason'] !== '') {
+                $payload['suggestion_reason'] = $internal['reason'];
+            }
         }
         if ($scope !== 'internal' && config('semantic.wiki_suggestions') === true) {
             $wiki = app(ExternalWikiSuggestionService::class)->suggest($article, $content);
@@ -287,7 +242,7 @@ final class ArticleEditorLinksPayloadService
     public static function suggestionEngines(): array
     {
         return [
-            'internal' => config('semantic.internal_link_v2') === true ? 'semantic_v2' : 'legacy',
+            'internal' => 'semantic_v2',
             'external' => config('semantic.wiki_suggestions') === true ? 'wiki_v2' : 'legacy',
         ];
     }
@@ -361,7 +316,7 @@ final class ArticleEditorLinksPayloadService
     public static function legacyChannels(): array
     {
         return [
-            'internal' => config('semantic.internal_link_v2') !== true,
+            'internal' => false,
             'external' => config('semantic.wiki_suggestions') !== true,
         ];
     }
@@ -390,30 +345,5 @@ final class ArticleEditorLinksPayloadService
         }
 
         return $legacy;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function v2ManualInternalBlocked(SeoArticle $article, ?string $submittedContent, bool $advanced = false): array
-    {
-        $content = $this->resolveSuggestionContent($article, $submittedContent);
-        $payload = array_merge($this->base($article), [
-            'suggested_internal_links' => [],
-            'suggested_internal_links_catalog' => [],
-            'suggested_external_links' => [],
-            'suggested_external_links_catalog' => [],
-            'internal_link_catalog' => [],
-            'suggestion_reason' => 'internal_link_v2',
-            'content_source' => $this->describeContentSource($article, $submittedContent, $content),
-        ]);
-        $payload = $this->publishSuggestionLists($payload);
-        if ($advanced) {
-            $payload['suggestion_cursor'] = ['stage' => 'done', 'offset' => 0];
-            $payload['suggestions_exhausted'] = true;
-            $payload['failed_candidate_keys'] = [];
-        }
-
-        return $payload;
     }
 }

@@ -4,8 +4,11 @@
  * (dedicated helper — not articleEditorStorage drafts).
  */
 
-/** v4 binds each catalog to its engine. v3 could be restored under a different engine. */
+/** v4 binds each catalog to its engine. Internal suggestions also require the V2 algorithm stamp. */
 export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 4;
+
+/** Bump when Internal V2 ranking or anchor selection changes. Old V1 sessions lack this stamp. */
+export const INTERNAL_LINK_ALGORITHM = 'semantic-v2-anchor-1';
 
 const storageKey = (articleId, siteId) =>
     `seo_article_internal_link_suggestion_session_${Number(siteId ?? 0)}_${Number(articleId ?? 0)}`;
@@ -154,6 +157,7 @@ export function loadInternalLinkSuggestionSession(articleId, siteId) {
             advancedCursor: normalizeAdvancedCursor(parsed.advancedCursor),
             advancedEnabled: false,
             suggestionEngines: normalizeSuggestionEngines(parsed.suggestionEngines),
+            internalAlgorithm: String(parsed.internalAlgorithm ?? ''),
             generated: normalizeGenerated(parsed.generated, parsed),
             updatedAt: Number(parsed.updatedAt ?? 0) || 0,
         };
@@ -199,7 +203,11 @@ export function saveInternalLinkSuggestionSession(articleId, siteId, session) {
         failedKeys: normalizeStringList(session?.failedKeys),
         advancedCursor: normalizeAdvancedCursor(session?.advancedCursor),
         advancedEnabled: false,
-        suggestionEngines: normalizeSuggestionEngines(session?.suggestionEngines),
+        suggestionEngines: {
+            internal: 'semantic_v2',
+            external: normalizeSuggestionEngines(session?.suggestionEngines).external,
+        },
+        internalAlgorithm: INTERNAL_LINK_ALGORITHM,
         generated: normalizeGenerated(session?.generated, {
             catalog,
             externalCatalog,
@@ -308,8 +316,12 @@ export function resolveSuggestionSessionCache(session, expected = {}) {
         ? session.generated
         : {};
 
+    const internalReady = stored.internal === 'semantic_v2'
+        && session.internalAlgorithm === INTERNAL_LINK_ALGORITHM
+        && generated.internal === true;
+
     return {
-        internal: stored.internal === wanted.internal && generated.internal === true
+        internal: internalReady
             ? (Array.isArray(session.catalog) ? session.catalog : [])
             : null,
         external: stored.external === wanted.external && generated.external === true

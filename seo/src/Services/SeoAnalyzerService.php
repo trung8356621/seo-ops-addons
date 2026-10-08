@@ -856,18 +856,15 @@ class SeoAnalyzerService
         $service = app(ArticleInternalLinkSuggestionService::class);
 
         return [
-            'suggested_internal_links' => $service->suggest(
-                $article,
-                $content,
-                $internalLinks,
-                $externalLinks,
-            ),
-            'suggested_external_links' => $service->suggestExternal(
-                $article,
-                $content,
-                $internalLinks,
-                $externalLinks,
-            ),
+            'suggested_internal_links' => [],
+            'suggested_external_links' => config('semantic.wiki_suggestions') === true
+                ? []
+                : $service->suggestExternal(
+                    $article,
+                    $content,
+                    $internalLinks,
+                    $externalLinks,
+                ),
         ];
     }
 

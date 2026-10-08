@@ -27,10 +27,8 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
     {
         $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'withAdvancedBatch');
 
-        self::assertStringContainsString('suggestAdvancedBatch', $body);
-        self::assertStringContainsString('suggestion_cursor', $body);
-        self::assertStringContainsString('suggestions_exhausted', $body);
-        self::assertStringContainsString('failed_candidate_keys', $body);
+        self::assertStringContainsString('withFallbackOnly', $body);
+        self::assertStringNotContainsString('suggestAdvancedBatch', $body);
     }
 
     public function test_suggestion_service_respects_display_cap(): void
