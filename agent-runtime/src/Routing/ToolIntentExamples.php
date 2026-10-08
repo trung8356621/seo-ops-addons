@@ -18,6 +18,9 @@ final class ToolIntentExamples
         return [
             self::intent('seo_audit.worst_articles', [
                 'tìm bài seo kém',
+                'bài seo kém',
+                'bài viết có điểm seo thấp',
+                'bài seo điểm thấp',
                 'bài nào cần tối ưu',
                 'tìm bài điểm thấp',
                 'nội dung nào đang hoạt động tệ',

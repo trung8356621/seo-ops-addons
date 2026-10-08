@@ -22,13 +22,16 @@ final class InternalLinkV2Suggester
 
     /**
      * @param  list<array<string, mixed>>  $existingInternal
-     * @return array{status: string, suggestions: list<array<string, mixed>>, metrics: array<string, mixed>}
+     * @return array{status: string, suggestions: list<array<string, mixed>>, metrics: array<string, mixed>, reason?: string}
      */
     public function suggest(SeoArticle $article, string $content, array $existingInternal = []): array
     {
-        $plain = trim(strip_tags($content));
-        if ($plain === '' || ! (bool) config('semantic.enabled', false)) {
+        if (! (bool) config('semantic.enabled', false)) {
             return ['status' => 'unavailable', 'suggestions' => [], 'metrics' => []];
+        }
+        $plain = trim(strip_tags($content));
+        if ($plain === '') {
+            return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'content_unavailable'];
         }
 
         $siteId = (int) ($article->site_id ?? 0);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentSchema;
 use Omnichannel\Addons\Seo\Services\DomainCtaEditorService;
 use Omnichannel\Addons\Seo\Services\DomainLinkListEditorService;
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
@@ -183,7 +184,7 @@ final class ArticleEditorLinksPayloadService
     }
 
     /**
-     * Content thật cho suggestion: submitted editor HTML → articles.body.
+     * Content thật cho suggestion: submitted editor HTML, rồi articles.body, rồi editor_document.
      */
     public function resolveSuggestionContent(SeoArticle $article, ?string $submittedContent): string
     {
@@ -192,7 +193,21 @@ final class ArticleEditorLinksPayloadService
             return $submitted;
         }
 
-        return app(SeoAnalyzerService::class)->resolveScoringContentForArticle($article);
+        $body = app(SeoAnalyzerService::class)->resolveScoringContentForArticle($article);
+        if (trim($body) !== '') {
+            return $body;
+        }
+
+        $document = $article->editor_document;
+        if (! is_array($document) || (int) ($document['schema_version'] ?? 0) < 1) {
+            return '';
+        }
+
+        try {
+            return app(ArticleEditorDocumentSchema::class)->renderHtml($document);
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function describeContentSource(SeoArticle $article, ?string $submitted, string $resolved): string
@@ -205,7 +220,11 @@ final class ArticleEditorLinksPayloadService
             return 'articles.body';
         }
 
-        return mb_strlen($resolved) > 0 ? 'resolved_non_empty' : 'empty';
+        if (is_array($article->editor_document) && trim($resolved) !== '') {
+            return 'editor_document';
+        }
+
+        return 'empty';
     }
 
     /**

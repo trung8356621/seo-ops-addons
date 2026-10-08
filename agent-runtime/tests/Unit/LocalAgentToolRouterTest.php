@@ -44,6 +44,18 @@ final class LocalAgentToolRouterTest extends TestCase
     }
 
     #[Test]
+    public function vietnamese_low_score_paraphrase_selects_worst_articles(): void
+    {
+        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $route = $router->route('Cho tôi các bài viết có điểm SEO thấp thuộc nhóm balo học sinh');
+
+        self::assertSame('confident', $route->outcome);
+        self::assertSame('seo_audit.worst_articles', $route->capability);
+        self::assertSame('explicit', $route->evidenceKind);
+        self::assertFalse($route->executesTool());
+    }
+
+    #[Test]
     public function two_explicit_capabilities_stay_ambiguous(): void
     {
         $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('confident', [

@@ -105,12 +105,75 @@ final class AgentConfirmedToolExecutor
             return $bundle;
         }
         $data = $source->retrieve((int) $bundle->scope->siteId, $query);
+        $sources = [];
+        foreach ($bundle->sources as $existing) {
+            $sources[] = $existing->name === 'articles'
+                ? $this->intersectLowScoreArticles($existing, $data)
+                : $existing;
+        }
 
         return new RetrievalBundle(
             $bundle->scope,
-            [...$bundle->sources, new RetrievalSource('topic_groups', (string) ($data['status'] ?? 'ok'), 'topic-group-retrieval', $data)],
+            [...$sources, new RetrievalSource('topic_groups', (string) ($data['status'] ?? 'ok'), 'topic-group-retrieval', $data)],
             $bundle->warnings,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $topic
+     */
+    private function intersectLowScoreArticles(RetrievalSource $articles, array $topic): RetrievalSource
+    {
+        $items = is_array($articles->data['items'] ?? null) ? $articles->data['items'] : [];
+        $refs = $this->topicArticleRefs($topic);
+        $status = (string) ($topic['status'] ?? 'empty');
+        $allowed = array_fill_keys($refs, true);
+        $matched = [];
+        if ($status === 'ok') {
+            foreach ($items as $item) {
+                if (! is_array($item) || ! isset($allowed[(string) ($item['article_ref'] ?? '')])) {
+                    continue;
+                }
+                $matched[] = $item;
+            }
+        }
+        $data = $articles->data;
+        $data['items'] = $matched;
+        $data['total'] = count($matched);
+        $data['intersection'] = [
+            'applied' => true,
+            'topic_status' => $status,
+            'topic_article_refs' => $refs,
+        ];
+
+        return new RetrievalSource(
+            'articles',
+            $status === 'ok' ? 'ok' : $status,
+            $articles->request.'&topic_group_intersection=1',
+            $data,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $topic
+     * @return list<string>
+     */
+    private function topicArticleRefs(array $topic): array
+    {
+        $refs = [];
+        foreach (is_array($topic['groups'] ?? null) ? $topic['groups'] : [] as $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+            foreach (is_array($group['keywords'] ?? null) ? $group['keywords'] : [] as $keyword) {
+                $ref = is_array($keyword['article'] ?? null) ? trim((string) ($keyword['article']['ref'] ?? '')) : '';
+                if ($ref !== '') {
+                    $refs[] = $ref;
+                }
+            }
+        }
+
+        return array_values(array_unique($refs));
     }
 
     public function validateProposal(AgentToolConfirmationProposal $proposal): void

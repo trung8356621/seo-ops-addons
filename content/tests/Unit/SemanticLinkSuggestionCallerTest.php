@@ -225,6 +225,17 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         self::assertSame($target, $result['suggestions'][0]['target_article_id']);
     }
 
+    public function test_empty_editor_content_returns_explicit_reason(): void
+    {
+        $article = new SeoArticle();
+        $article->id = 1;
+        $result = (new InternalLinkV2Suggester())->suggest($article, '   ');
+
+        self::assertSame('empty', $result['status']);
+        self::assertSame('content_unavailable', $result['reason']);
+        self::assertSame([], $result['suggestions']);
+    }
+
     public function test_wiki_caller_keeps_only_verified_urls_present_in_the_article(): void
     {
         Http::fake([
