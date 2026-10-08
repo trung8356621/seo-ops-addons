@@ -22,20 +22,14 @@
 
                 @if ($activeOriginTab === 'system')
                     <div class="mx-auto max-w-3xl space-y-6">
-                        <x-filament::section heading="Match & Research registry" description="Current system knowledge. This is not a match result.">
+                        <x-filament::section heading="Keyword filters" description="Only filters you can edit. Internal language lists stay in runtime defaults and are not a second matcher.">
                             <ul class="space-y-2">
-                                @forelse ($registrySystem as $row)
+                                @forelse (collect($registrySystem)->where('editable', true) as $row)
                                     <li class="rounded-md bg-gray-50 px-3 py-2 text-sm dark:bg-white/5">
                                         <div class="font-medium">{{ $row['label'] }}</div>
                                         <div class="mt-1 font-mono text-xs text-gray-500">{{ $row['key'] }}</div>
                                         <div class="mt-2 flex flex-wrap gap-1.5">
-                                            <x-filament::badge color="gray">{{ $row['match_mode'] ?: '—' }}</x-filament::badge>
-                                            <x-filament::badge :color="($row['capabilities']['can_match'] ?? false) ? 'success' : 'gray'">
-                                                {{ ($row['capabilities']['can_match'] ?? false) ? 'can match' : 'cannot match' }}
-                                            </x-filament::badge>
-                                            <x-filament::badge :color="($row['capabilities']['can_exclude'] ?? false) ? 'warning' : 'gray'">
-                                                {{ ($row['capabilities']['can_exclude'] ?? false) ? 'can exclude' : 'cannot exclude' }}
-                                            </x-filament::badge>
+                                            <x-filament::badge color="warning">keyword filter</x-filament::badge>
                                             <x-filament::badge :color="($row['enabled'] ?? false) ? 'success' : 'gray'">
                                                 {{ ($row['enabled'] ?? false) ? 'enabled' : 'disabled' }}
                                             </x-filament::badge>
@@ -49,9 +43,6 @@
                         </x-filament::section>
 
                         <form wire:submit="saveKeywordSettings" class="space-y-4">
-                            <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-                                Still used by legacy consumers; not the new Python matching result.
-                            </p>
                             {{ $this->form }}
                             <div class="flex justify-end">
                                 <x-seo-content-ai::form-save-button

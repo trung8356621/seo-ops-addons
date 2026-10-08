@@ -28,7 +28,7 @@ final class SystemMatchResearchAdapterTest extends TestCase
             self::assertFalse($resource->deletable);
             self::assertSame('system.', substr($resource->key, 0, 7));
             self::assertFalse($resource->capabilities->canTag);
-            self::assertTrue($resource->capabilities->canMatch);
+            self::assertFalse($resource->capabilities->canMatch);
         }
 
         $cta = $adapter->find('system.cta_blacklist');

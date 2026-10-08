@@ -185,4 +185,19 @@ final class SettingsListNormalizationTest extends TestCase
         $reloaded = new SeoKeywordSettingsService;
         self::assertSame(['which one', 'so sánh gì'], $reloaded->getSettings()['question_terms']);
     }
+
+    public function test_saving_only_cta_blacklist_keeps_other_stored_rules(): void
+    {
+        $this->keywordService->saveSettings([
+            'question_terms' => ['which one'],
+        ]);
+
+        (new SeoKeywordSettingsService)->saveSettings([
+            SeoKeywordSettingsService::KEY_CTA_BLACKLIST => ['tại đây'],
+        ]);
+
+        $reloaded = (new SeoKeywordSettingsService)->getSettings();
+        self::assertSame(['tại đây'], $reloaded['cta_blacklist']);
+        self::assertSame(['which one'], $reloaded['question_terms']);
+    }
 }

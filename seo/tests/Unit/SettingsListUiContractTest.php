@@ -47,7 +47,8 @@ final class SettingsListUiContractTest extends TestCase
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsKeywords::class))->getFileName());
         $definitions = (new GlobalMatchRuleRegistry)->definitions();
 
-        self::assertNotSame([], array_filter($definitions, static fn (array $rule): bool => $rule['editable'] && $rule['key'] !== 'cta_blacklist'));
+        $editable = array_values(array_filter($definitions, static fn (array $rule): bool => $rule['editable']));
+        self::assertSame(['cta_blacklist'], array_column($editable, 'key'));
         self::assertStringContainsString('collect($settings->definitions())', $code);
         self::assertStringContainsString("Forms\\Components\\TagsInput::make(\$definition['key'])", $code);
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);

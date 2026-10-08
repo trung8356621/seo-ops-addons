@@ -40,8 +40,10 @@ final class MatchResearchLiveMatchUiTest extends TestCase
         self::assertStringContainsString('saveCustomConcept', $view);
         self::assertStringContainsString('Site-scoped custom Match & Research concepts.', $view);
         self::assertStringNotContainsString('No semantic auto-tagging', $view);
-        self::assertStringContainsString('Legacy runtime settings', $page);
-        self::assertStringContainsString('Still used by legacy consumers; not the new Python matching result.', $view);
+        self::assertStringNotContainsString('Legacy runtime settings', $page);
+        self::assertStringNotContainsString('Still used by legacy consumers', $view);
+        self::assertStringContainsString('CTA / Noise', $page);
+        self::assertStringContainsString('Keyword filters', $view);
     }
 
     public function test_suggested_rows_are_the_default_matches(): void

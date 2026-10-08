@@ -10,7 +10,7 @@ final class GlobalMatchRuleRegistry
     public function definitions(): array
     {
         return [
-            'cta_blacklist' => $this->rule('cta_blacklist', 'CTA / Noise', 'Phrases that indicate calls to action or non-keyword noise.', ['tại đây', 'click vào', 'yêu cầu mẫu', 'liên hệ hotline', 'catalogue mẫu', 'miễn phí tại đây', 'yêu cầu catalogue', 'nhấn vào đây', 'xem thêm tại đây', 'liên hệ ngay']),
+            'cta_blacklist' => $this->rule('cta_blacklist', 'CTA / Noise', 'Phrases skipped when creating keywords. Deterministic filter, not semantic matching.', ['tại đây', 'click vào', 'yêu cầu mẫu', 'liên hệ hotline', 'catalogue mẫu', 'miễn phí tại đây', 'yêu cầu catalogue', 'nhấn vào đây', 'xem thêm tại đây', 'liên hệ ngay'], true),
             'cta_action_terms' => $this->rule('cta_action_terms', 'CTA action terms', 'Generic action terms commonly leading CTA phrases.', ['nhận', 'liên hệ', 'đăng ký', 'gọi', 'xem', 'tìm hiểu', 'điền', 'bắt đầu', 'click', 'contact', 'get', 'request', 'read more', 'sign up']),
             'cta_phrase_terms' => $this->rule('cta_phrase_terms', 'CTA phrase terms', 'Generic multi-word calls to action.', ['liên hệ ngay', 'nhận tư vấn', 'đăng ký nhận', 'gọi ngay', 'xem thêm', 'tìm hiểu thêm', 'điền form', 'contact us', 'get quote', 'request quote']),
             'cta_urgency_terms' => $this->rule('cta_urgency_terms', 'CTA urgency terms', 'Generic urgency and incentive language.', ['ngay', 'miễn phí', 'here', 'now']),
@@ -34,8 +34,8 @@ final class GlobalMatchRuleRegistry
     }
 
     /** @return array{key:string,label:string,scope:string,description:string,match_mode:string,editable:bool,defaults:list<string>} */
-    private function rule(string $key, string $label, string $description, array $defaults): array
+    private function rule(string $key, string $label, string $description, array $defaults, bool $editable = false): array
     {
-        return compact('key', 'label', 'description', 'defaults') + ['scope' => 'global', 'match_mode' => 'phrase', 'editable' => true];
+        return compact('key', 'label', 'description', 'defaults', 'editable') + ['scope' => 'global', 'match_mode' => 'phrase'];
     }
 }

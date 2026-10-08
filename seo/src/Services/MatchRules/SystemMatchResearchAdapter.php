@@ -85,7 +85,7 @@ final class SystemMatchResearchAdapter implements SystemMatchResearchSource
         $isTopic = str_starts_with($legacyKey, 'topic_') || in_array($legacyKey, ['discourse_prefixes', 'sentence_hints'], true);
 
         return new MatchResearchCapabilities(
-            canMatch: true,
+            canMatch: false,
             canTag: false,
             canExclude: $isLinkStop || $isCta || $isTopic || in_array($legacyKey, [
                 'marketing_terms', 'location_terms', 'question_terms',

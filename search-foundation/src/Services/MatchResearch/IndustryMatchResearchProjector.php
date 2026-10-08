@@ -24,8 +24,22 @@ final class IndustryMatchResearchProjector
     /** @return list<MatchResearchResource> */
     public function project(?string $industryContextKey, string $sourceLocale = 'vi'): array
     {
-        $rules = $this->provider->rulesForKey($industryContextKey);
-        $provenance = $this->provider->provenanceForKey($industryContextKey) ?? [];
+        return $this->projectRules(
+            $this->provider->rulesForKey($industryContextKey),
+            $this->provider->provenanceForKey($industryContextKey) ?? [],
+            $sourceLocale,
+        );
+    }
+
+    /**
+     * Project an explicit Match document. Does not read the active revision.
+     *
+     * @param  array<string, mixed>  $rules
+     * @param  array<string, mixed>  $provenance
+     * @return list<MatchResearchResource>
+     */
+    public function projectRules(array $rules, array $provenance = [], string $sourceLocale = 'vi'): array
+    {
         if ($rules === [] && $provenance === []) {
             return [];
         }
@@ -57,13 +71,14 @@ final class IndustryMatchResearchProjector
                             ? 'Industry alias group'
                             : ($isIndustryGroup ? 'Industry Group ('.$group.')' : 'Industry taxonomy: '.$group)),
                     matchMode: isset($entry['match_mode']) ? (string) $entry['match_mode'] : 'phrase',
-                    payload: [
+                    payload: array_filter([
                         'group' => $group,
                         'name' => $canonical,
                         'aliases' => array_values(array_filter(array_map('strval', (array) ($entry['aliases'] ?? [])))),
                         'positive_examples' => [],
                         'negative_examples' => [],
-                    ],
+                        'enabled' => array_key_exists('enabled', $entry) ? (bool) $entry['enabled'] : null,
+                    ], static fn (mixed $value): bool => $value !== null),
                     capabilities: new MatchResearchCapabilities(
                         canMatch: true,
                         // Industry Groups are concepts for future semantic evidence — not Keyword Tags.

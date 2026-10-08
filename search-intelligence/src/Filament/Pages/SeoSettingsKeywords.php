@@ -122,8 +122,8 @@ class SeoSettingsKeywords extends Page implements HasForms
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('Legacy runtime settings')
-                    ->description('Still used by legacy consumers; not the new Python matching result.')
+                Forms\Components\Section::make('CTA / Noise')
+                    ->description('Phrases skipped when creating keywords. Deterministic filter. Semantic matching uses the Industry and Custom tabs.')
                     ->headerActions([HelpUi::fieldHintAction('settings.keywords.cta_blacklist')])
                     ->schema(fn (SeoKeywordSettingsService $settings): array => collect($settings->definitions())
                         ->filter(fn (array $definition): bool => $definition['editable'])

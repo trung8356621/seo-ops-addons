@@ -73,11 +73,15 @@ final class SeoKeywordSettingsService implements GlobalMatchRuleProvider
      */
     public function saveSettings(array $settings): void
     {
+        $current = $this->getSettings();
         $normalized = [];
         foreach ($this->definitions() as $key => $definition) {
-            $normalized[$key] = array_key_exists($key, $settings)
-                ? $this->normalizeKeywords($settings[$key])
-                : $definition['defaults'];
+            if (array_key_exists($key, $settings)) {
+                $normalized[$key] = $this->normalizeKeywords($settings[$key]);
+
+                continue;
+            }
+            $normalized[$key] = $current[$key] ?? $definition['defaults'];
         }
         WpOption::set(self::OPTION_KEY, $normalized, 'no');
 
