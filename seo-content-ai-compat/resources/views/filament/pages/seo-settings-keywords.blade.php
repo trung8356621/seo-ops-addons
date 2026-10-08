@@ -89,7 +89,7 @@
                                 @endphp
                                 <div class="space-y-5">
                                     @foreach ($typeLabels as $type => $label)
-                                        @php($items = $industryGroupsByType[$type] ?? [])
+                                        <?php $items = $industryGroupsByType[$type] ?? []; ?>
                                         <div>
                                             <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ $label }}</h3>
                                             @if ($items === [])
@@ -196,7 +196,7 @@
                                     <p class="text-sm font-medium">{{ $industryMatchResult['query'] ?? '' }}</p>
                                     <ul class="space-y-2">
                                         @forelse ($evidence as $row)
-                                            @php($suggested = ($row['suggested_match'] ?? false) === true)
+                                            <?php $suggested = ($row['suggested_match'] ?? false) === true; ?>
                                             <li
                                                 @unless ($suggested) x-show="showAll" x-cloak @endunless
                                                 @class([
