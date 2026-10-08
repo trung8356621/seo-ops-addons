@@ -25,6 +25,7 @@ final class ToolIntentExamples
                 'tìm bài điểm thấp',
                 'nội dung nào đang hoạt động tệ',
                 'worst seo articles',
+                'cần sửa những bài',
             ], ['xuất bản bài viết', 'publish this article']),
             self::intent('gsc.performance', [
                 'traffic tháng này',

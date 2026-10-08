@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSearchService;
-use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionContentKeywordFallback;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use ReflectionClass;
 use Tests\TestCase;
@@ -130,20 +129,8 @@ final class ArticleInternalLinkSearchLikeFallbackScoreTest extends TestCase
         $searchSrc = (string) file_get_contents(
             (string) (new ReflectionClass(ArticleInternalLinkSearchService::class))->getFileName(),
         );
-        $fallbackSrc = (string) file_get_contents(
-            (string) (new ReflectionClass(ArticleLinkSuggestionContentKeywordFallback::class))->getFileName(),
-        );
-
-        // LIKE formatter now emits score at the search SSOT (not inside content_deep).
-        self::assertStringContainsString("'score' => LinkSuggestionScoreScale::clamp", $searchSrc);
         self::assertStringContainsString('scoreLikeFallbackRelevance', $searchSrc);
-
-        // content_deep consumes search scores and keeps the threshold gate.
-        self::assertStringContainsString('searchService->search', $fallbackSrc);
-        self::assertStringContainsString('fallbackMinAccept', $fallbackSrc);
-        self::assertStringContainsString("trace['reject'] = 'below_min_score'", $fallbackSrc);
-        self::assertStringContainsString('fresh_after_occupied_dedupe', $fallbackSrc);
-        self::assertStringContainsString('destination_candidates_passing_min_score', $fallbackSrc);
+        self::assertStringNotContainsString('searchRanked', $searchSrc);
 
         // Weak partial remains rejected by the same gate.
         $weak = $this->search->scoreLikeFallbackRelevance('túi xách', 'túi balo đẹp');
@@ -157,14 +144,6 @@ final class ArticleInternalLinkSearchLikeFallbackScoreTest extends TestCase
             'túi balo đẹp cho outdoor',
         );
         self::assertLessThan(LinkSuggestionScoreScale::fallbackMinAccept(), $weak['score']);
-
-        $src = (string) file_get_contents(
-            (string) (new ReflectionClass(ArticleLinkSuggestionContentKeywordFallback::class))->getFileName(),
-        );
-        self::assertStringContainsString("trace['reject'] = 'below_min_score'", $src);
-        self::assertStringContainsString('rejected_below_min_score', $src);
-        self::assertStringContainsString('destination_candidates_passing_min_score', $src);
-        self::assertStringContainsString('fallbackMinAccept', $src);
     }
 
     public function test_search_service_sorts_like_results_by_score_desc(): void

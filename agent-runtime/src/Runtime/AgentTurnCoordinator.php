@@ -17,11 +17,14 @@ use Omnichannel\Addons\AgentRuntime\Model\SecretRedactor;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
+use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
+use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
+use Omnichannel\Addons\AgentRuntime\Routing\DeterministicToolParameters;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
 use Throwable;
@@ -37,6 +40,7 @@ final class AgentTurnResult
         public ?array $answerDiagnostics = null,
         public ?array $modelDiagnostics = null,
         public ?AgentToolConfirmationProposal $confirmationProposal = null,
+        public ?array $executionTrace = null,
     ) {}
 
     /**
@@ -114,6 +118,8 @@ class AgentTurnCoordinator
         private readonly AgentResponseParser $responses,
         private readonly ContentProjectDraftIntakeTool $draftIntake = new ContentProjectDraftIntakeTool(),
         private readonly ?LocalAgentToolRouter $localToolRouter = null,
+        private readonly DeterministicToolParameters $parameters = new DeterministicToolParameters(),
+        private readonly FactualAgentResponseComposer $factual = new FactualAgentResponseComposer(),
     ) {}
 
     /**
@@ -139,6 +145,7 @@ class AgentTurnCoordinator
                 $prepared['failureCode'],
                 null,
                 $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
+                executionTrace: $prepared['executionTrace'] ?? null,
             );
         }
 
@@ -149,7 +156,15 @@ class AgentTurnCoordinator
                 null,
                 false,
                 confirmationProposal: $prepared['confirmationProposal'],
+                executionTrace: $prepared['executionTrace'] ?? null,
             );
+        }
+
+        $trace = $prepared['executionTrace'] ?? null;
+        if (is_array($trace)) {
+            $trace['synthesis'] = true;
+            $trace['external_model_calls'] = 1;
+            $trace['external_model'] = $this->assumedAnswerLabel($userId);
         }
 
         try {
@@ -185,6 +200,7 @@ class AgentTurnCoordinator
             $this->failureCodeFromBundle($prepared['bundle']),
             $answerDiagnostics ?? null,
             $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
+            executionTrace: $trace,
         );
     }
 
@@ -196,6 +212,10 @@ class AgentTurnCoordinator
      */
     public function startIntercepted(AgentProjectScope $scope, string $message, array $history): AgentTurnProgress
     {
+        if ($this->localToolRouter instanceof LocalAgentToolRouter) {
+            return $this->progressFromPrepared($this->prepare(0, $scope, $message, $history));
+        }
+
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         if ($scope->isGlobal()) {
             $bundle = RetrievalBundle::unsupportedGlobal($scope);
@@ -421,7 +441,26 @@ class AgentTurnCoordinator
         string $responseLanguage,
     ): AgentTurnResult {
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate, $responseLanguage);
+        $factual = $this->factual->compose($bundle, $message, $responseLanguage);
+        $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
+        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate, $responseLanguage, $unresolved);
+        if ($factual instanceof AgentResponse) {
+            return new AgentTurnResult(
+                $factual,
+                $routingInput,
+                $answerInput,
+                false,
+                $this->failureCodeFromBundle($bundle),
+                executionTrace: [
+                    'router' => 'local',
+                    'synthesis' => false,
+                    'external_model' => null,
+                    'external_model_calls' => 0,
+                    'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+                ],
+            );
+        }
+
         try {
             $raw = $this->answers->complete($userId, $answerInput);
             $response = $this->responses->parse($raw, $bundle);
@@ -438,7 +477,20 @@ class AgentTurnCoordinator
             $answerInput,
             true,
             $this->failureCodeFromBundle($bundle),
+            executionTrace: [
+                'router' => 'local',
+                'synthesis' => true,
+                'external_model' => $this->assumedAnswerLabel($userId),
+                'external_model_calls' => 1,
+                'unresolved' => $unresolved,
+                'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+            ],
         );
+    }
+
+    public function composeFactual(RetrievalBundle $bundle, string $message, string $language): ?AgentResponse
+    {
+        return $this->factual->compose($bundle, $message, $language);
     }
 
     /**
@@ -561,20 +613,20 @@ class AgentTurnCoordinator
 
     private function resolveLocalRoute(string $message): ?LocalToolRoute
     {
+        $router = $this->localToolRouter;
+        if ($router instanceof LocalAgentToolRouter) {
+            return $router->route($message);
+        }
+
         if (config('agent-runtime.local_tool_router.enabled') !== true) {
             return null;
         }
-
-        $router = $this->localToolRouter;
-        if (! $router instanceof LocalAgentToolRouter && function_exists('app') && app()->bound(LocalAgentToolRouter::class)) {
-            $resolved = app()->make(LocalAgentToolRouter::class);
-            $router = $resolved instanceof LocalAgentToolRouter ? $resolved : null;
-        }
-        if (! $router instanceof LocalAgentToolRouter) {
+        if (! function_exists('app') || ! app()->bound(LocalAgentToolRouter::class)) {
             return null;
         }
+        $resolved = app()->make(LocalAgentToolRouter::class);
 
-        return $router->route($message);
+        return $resolved instanceof LocalAgentToolRouter ? $resolved->route($message) : null;
     }
 
     /**
@@ -592,23 +644,64 @@ class AgentTurnCoordinator
         LocalToolRoute $route,
         bool $diagnostics,
     ): array {
+        $extracted = $this->parameters->extract($message);
+        $trace = $this->executionTrace($route, $extracted['parameters'], []);
+        if ($route->outcome === 'none') {
+            $bundle = new RetrievalBundle($scope, [], ['out_of_scope']);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                'bundle' => $bundle,
+                'response' => $this->outOfScopeResponse($extracted['language']),
+                'failureCode' => 'out_of_scope',
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'confirmationProposal' => null,
+                'executionTrace' => $trace,
+            ];
+        }
+
         if ($route->outcome !== 'confident' || $route->catalogAuthorized !== true || $route->capability === null) {
             $bundle = new RetrievalBundle($scope, [], ['local_tool_router_'.$route->outcome]);
             $text = match ($route->outcome) {
-                'ambiguous' => 'The request matches more than one tool. Ask which capability to use.',
-                'rejected' => 'The matched capability is not available, so no tool was executed.',
-                'unavailable' => 'The local tool router could not classify this request, so no tool was executed.',
-                default => 'No suitable tool was selected, so no tool was executed.',
+                'ambiguous' => $extracted['language'] === 'vi'
+                    ? 'Yêu cầu khớp nhiều hơn một công cụ. Hãy nói rõ capability cần dùng.'
+                    : 'The request matches more than one tool. Ask which capability to use.',
+                'rejected' => $extracted['language'] === 'vi'
+                    ? 'Capability khớp được không được phép thực thi, nên không có công cụ nào được chạy.'
+                    : 'The matched capability is not available, so no tool was executed.',
+                'unavailable' => $extracted['language'] === 'vi'
+                    ? 'Bộ định tuyến nội bộ không phân loại được yêu cầu, nên không có công cụ nào được chạy.'
+                    : 'The local tool router could not classify this request, so no tool was executed.',
+                default => $extracted['language'] === 'vi'
+                    ? 'Không chọn được công cụ phù hợp, nên không có công cụ nào được chạy.'
+                    : 'No suitable tool was selected, so no tool was executed.',
             };
 
             return [
                 'routing' => $routingInput,
-                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text'),
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
                 'bundle' => $bundle,
                 'response' => $this->safeResponse($text, $bundle, 'local_tool_router_'.$route->outcome),
                 'failureCode' => 'local_tool_router_'.$route->outcome,
-                'decisionDiagnostics' => $diagnostics ? ['status' => $route->outcome, 'router' => 'local'] : null,
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
                 'confirmationProposal' => null,
+                'executionTrace' => $trace,
+            ];
+        }
+
+        if ($extracted['clarification'] !== null) {
+            $bundle = new RetrievalBundle($scope, [], ['parameters_unresolved']);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                'bundle' => $bundle,
+                'response' => $this->safeResponse($extracted['clarification'], $bundle, 'parameters_unresolved'),
+                'failureCode' => 'parameters_unresolved',
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'confirmationProposal' => null,
+                'executionTrace' => $trace,
             ];
         }
 
@@ -616,7 +709,7 @@ class AgentTurnCoordinator
             $scope,
             $message,
             $history,
-            $this->localDecisionJson($route, $message),
+            $this->localDecisionJson($route, $message, $extracted),
         );
         if ($processed['error'] !== null || $processed['decision'] === null) {
             $bundle = $processed['bundle'] ?? new RetrievalBundle($scope, [], ['routing_decision_invalid']);
@@ -633,10 +726,14 @@ class AgentTurnCoordinator
                 'failureCode' => 'routing_decision_invalid',
                 'decisionDiagnostics' => $diagnostics ? ['status' => 'rejected', 'router' => 'local'] : null,
                 'confirmationProposal' => null,
+                'executionTrace' => $trace,
             ];
         }
 
         if ($processed['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            $trace['parameters'] = $processed['confirmationProposal']->parameters;
+            $trace['capabilities'] = $processed['confirmationProposal']->capabilities;
+
             return [
                 'routing' => $routingInput,
                 'answer' => null,
@@ -644,22 +741,46 @@ class AgentTurnCoordinator
                 'response' => null,
                 'confirmationProposal' => $processed['confirmationProposal'],
                 'failureCode' => null,
-                'decisionDiagnostics' => null,
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'executionTrace' => $trace,
             ];
         }
 
         $bundle = $processed['bundle'] instanceof RetrievalBundle
             ? $this->withTopicGroupSource($processed['bundle'], $message, (string) $route->capability)
             : $processed['bundle'];
+        $response = $processed['response'];
+        $answer = $processed['answerInput'];
+        $language = $processed['decision']?->responseLanguage ?? $extracted['language'];
+        if ($response === null && $bundle instanceof RetrievalBundle) {
+            $response = $this->factual->compose($bundle, $message, $language);
+            if ($response === null) {
+                $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
+                $template = $processed['decision']?->responseTemplate ?? 'text';
+                $answer = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $template, $language, $unresolved);
+                $trace['synthesis'] = true;
+                $trace['unresolved'] = $unresolved;
+                $preparedTemplate = $template;
+                $preparedLanguage = $language;
+            }
+        }
+        $trace['capabilities'] = $processed['decision']?->capabilities ?? [(string) $route->capability];
+        $trace['parameters'] = $processed['decision']?->parameters ?? $extracted['parameters'];
+        $trace['tools'] = $bundle instanceof RetrievalBundle
+            ? array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources)
+            : [];
 
         return [
             'routing' => $routingInput,
-            'answer' => $processed['answerInput'],
+            'answer' => $answer,
             'bundle' => $bundle,
-            'response' => $processed['response'],
+            'response' => $response,
             'failureCode' => $bundle instanceof RetrievalBundle ? $this->failureCodeFromBundle($bundle) : null,
-            'decisionDiagnostics' => null,
+            'decisionDiagnostics' => $diagnostics ? $trace : null,
             'confirmationProposal' => null,
+            'executionTrace' => $trace,
+            'responseTemplate' => $preparedTemplate ?? ($processed['decision']?->responseTemplate ?? 'text'),
+            'responseLanguage' => $preparedLanguage ?? $language,
         ];
     }
 
@@ -684,24 +805,103 @@ class AgentTurnCoordinator
         );
     }
 
-    private function localDecisionJson(LocalToolRoute $route, string $message): string
+    /**
+     * @param  array{parameters: array<string, int|string>, clarification: ?string, language: string}  $extracted
+     */
+    private function localDecisionJson(LocalToolRoute $route, string $message, array $extracted): string
     {
         $key = (string) $route->capability;
-        $language = preg_match('/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/iu', $message) === 1
-            ? 'vi'
-            : 'en';
+        $listCapabilities = [
+            'seo_audit.worst_articles',
+            'articles.inventory',
+            'keywords.landscape',
+            'keywords.relationship',
+            'links.internal',
+            'links.external',
+            'gsc.performance',
+            'content_projects.read',
+        ];
 
         return json_encode([
             'is_in_scope' => true,
             'intent' => mb_substr(trim($message), 0, 180),
             'primary_capability' => $key,
             'capabilities' => [$key],
-            'parameters' => [],
+            'parameters' => $extracted['parameters'],
             'requires_parameter_extraction' => false,
             'requires_user_confirmation' => AgentCapabilityCatalog::requiresConfirmation($key),
-            'response_template' => AgentCapabilityCatalog::executionMode($key) === 'tool' ? 'report' : 'text',
-            'response_language' => $language,
+            'response_template' => in_array($key, $listCapabilities, true) ? 'table' : 'text',
+            'response_language' => $extracted['language'],
         ], JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * @param  array<string, int|string>  $parameters
+     * @param  list<string>  $tools
+     * @return array<string, mixed>
+     */
+    private function executionTrace(LocalToolRoute $route, array $parameters, array $tools): array
+    {
+        return [
+            'router' => $route->evidenceKind,
+            'outcome' => $route->outcome,
+            'capabilities' => $route->capability !== null ? [$route->capability] : [],
+            'parameters' => $parameters,
+            'tools' => $tools,
+            'synthesis' => false,
+            'external_model' => null,
+            'external_model_calls' => 0,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $prepared
+     */
+    private function progressFromPrepared(array $prepared): AgentTurnProgress
+    {
+        if ($prepared['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            return AgentTurnProgress::confirmationRequired($prepared['confirmationProposal']);
+        }
+
+        $trace = $prepared['executionTrace'] ?? null;
+        if ($prepared['response'] instanceof AgentResponse) {
+            return AgentTurnProgress::completed(new AgentTurnResult(
+                $prepared['response'],
+                $prepared['routing'],
+                $prepared['answer'],
+                false,
+                $prepared['failureCode'] ?? null,
+                executionTrace: is_array($trace) ? $trace : null,
+            ));
+        }
+
+        $answer = $prepared['answer'];
+        $bundle = $prepared['bundle'];
+        if (! $answer instanceof PreparedModelInput || ! $bundle instanceof RetrievalBundle) {
+            throw new InvalidArgumentException('Local routing did not produce an answer or a result.');
+        }
+
+        return AgentTurnProgress::paused(new InterceptedModelCall('answer', $answer, [
+            'routing_input' => ['stage' => $prepared['routing']->stage, 'messages' => $prepared['routing']->messages],
+            'bundle' => $bundle->toArray(),
+            'selected_response_template' => (string) ($prepared['responseTemplate'] ?? 'text'),
+            'selected_response_language' => (string) ($prepared['responseLanguage'] ?? 'en'),
+            'execution' => $trace,
+        ]));
+    }
+
+    private function assumedAnswerLabel(int $userId): ?string
+    {
+        if ($userId <= 0 || ! function_exists('app') || ! app()->bound(AssumedModelResolver::class)) {
+            return null;
+        }
+        $resolver = app()->make(AssumedModelResolver::class);
+        if (! $resolver instanceof AssumedModelResolver) {
+            return null;
+        }
+        $model = $resolver->resolveAnswerModel($userId);
+
+        return $model->model ?? $model->displayName;
     }
 
     private function failureCodeFromBundle(RetrievalBundle $bundle): ?string

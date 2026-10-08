@@ -38,8 +38,6 @@ test('session storage isolates by site_id + article_id', () => {
         hasResults: true,
         exhausted: false,
         failedKeys: ['product_cat|0|alpha|example.com/a'],
-        advancedCursor: { stage: 'topic', offset: 3 },
-        advancedEnabled: true,
     });
     saveInternalLinkSuggestionSession(12, 2, {
         contentFingerprint: 'fp-b',
@@ -54,8 +52,7 @@ test('session storage isolates by site_id + article_id', () => {
     const otherSite = loadInternalLinkSuggestionSession(11, 9);
 
     assert.equal(a?.catalog?.[0]?.text, 'alpha');
-    assert.equal(a?.advancedCursor?.stage, 'topic');
-    assert.equal(a?.advancedCursor?.offset, 3);
+    assert.equal(a?.advancedCursor, undefined);
     assert.equal(a?.failedKeys?.length, 1);
     assert.equal(b?.exhausted, true);
     assert.equal(otherSite, null);

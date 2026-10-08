@@ -35,22 +35,6 @@ final class ArticleEditorSeoPayloadService
         $score = SeoRuleViolationsResolver::scoreForArticle($article);
         $extractedLinks = $article->resolveExtractedLinks();
         $bodyHtml = app(SeoAnalyzerService::class)->resolveScoringContentForArticle($article);
-        $internalLinks = $extractedLinks['internal'] ?? [];
-        $externalLinks = $extractedLinks['external'] ?? [];
-        // Phase 2 perf: one collectCandidates() pass instead of 4 (suggest/suggestCatalog/
-        // suggestExternal/suggestExternalCatalog each re-ran the same keyword scan).
-        $suggestionBundle = app(ArticleInternalLinkSuggestionService::class)->suggestBundle(
-            $article,
-            $bodyHtml,
-            $internalLinks,
-            $externalLinks,
-            false,
-            config('semantic.wiki_suggestions') !== true,
-        );
-        $suggestedInternalLinks = [];
-        $suggestedInternalLinksCatalog = [];
-        $suggestedExternalLinks = $suggestionBundle['external'];
-        $suggestedExternalLinksCatalog = $suggestionBundle['external_catalog'];
         $contentBonus = $this->contentBonus->resolveForArticle($article);
 
         $skipSeoScore = ! $article->countsTowardSeoScore();
@@ -88,10 +72,10 @@ final class ArticleEditorSeoPayloadService
             'analysis' => $analysis,
             'content_bonus' => $contentBonus,
             'extracted_links' => $extractedLinks,
-            'suggested_internal_links' => $suggestedInternalLinks,
-            'suggested_internal_links_catalog' => $suggestedInternalLinksCatalog,
-            'suggested_external_links' => $suggestedExternalLinks,
-            'suggested_external_links_catalog' => $suggestedExternalLinksCatalog,
+            'suggested_internal_links' => [],
+            'suggested_internal_links_catalog' => [],
+            'suggested_external_links' => [],
+            'suggested_external_links_catalog' => [],
             'google_serp_preview' => $googleSerpPreview,
             'article_slug' => trim((string) ($article->slug ?? '')),
             'permalink_base' => $article->site

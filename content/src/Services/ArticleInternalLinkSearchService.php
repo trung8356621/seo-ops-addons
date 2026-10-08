@@ -35,7 +35,6 @@ final class ArticleInternalLinkSearchService
 
     public function __construct(
         private readonly WordPressInternalLinkTargetPolicy $linkTargetPolicy,
-        private readonly ArticleLinkSuggestionCandidateRetriever $candidateRetriever,
     ) {}
 
     /**
@@ -56,32 +55,10 @@ final class ArticleInternalLinkSearchService
         }
 
         $limit = max(1, min(30, $limit));
-
         $current = SeoArticle::query()
             ->where('site_id', $siteId)
             ->whereKey($excludeArticleId)
-            ->first(['id', 'site_id', 'title', 'slug', 'language']);
-
-        if ($current instanceof SeoArticle) {
-            $ranked = $this->candidateRetriever->searchRanked($current, $query, $limit);
-            if ($ranked !== []) {
-                return array_map(static function (array $row): array {
-                    return [
-                        'id' => (int) $row['id'],
-                        'title' => (string) $row['title'],
-                        'url' => (string) $row['url'],
-                        'label' => sprintf('#%d · %s', $row['id'], $row['title']),
-                        'score' => (int) ($row['score'] ?? 0),
-                        'match_reason' => (string) ($row['match_reason'] ?? ''),
-                    ];
-                }, $ranked);
-            }
-        }
-
-        // Fallback hẹp: title LIKE + exclude current (khi index rank không có kết quả).
-        // Destination eligibility SSOT — NOT ArticleResource list access scopes
-        // (CM ownership / review / global-site UI filters must not shrink link targets).
-        // Hard gate: fallback candidates must match the current article's language.
+            ->first(['id', 'language']);
         $currentLanguage = $current instanceof SeoArticle ? ((string) ($current->language ?? '') ?: 'vi') : 'vi';
         $escaped = str_replace(['%', '_'], ['\%', '\_'], $query);
         $poolLimit = min(100, max(40, $limit * 5));

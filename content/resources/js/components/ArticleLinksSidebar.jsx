@@ -31,7 +31,6 @@ import {
     isInternalLinkSuggestionSessionUsable,
     loadInternalLinkSuggestionSession,
     nextVisibleSuggestionCount,
-    normalizeAdvancedCursor,
     resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
 } from '../utils/articleInternalLinkSuggestionSessionStorage';
@@ -58,11 +57,6 @@ import { collectEditorBlocksFromDom, scrollToPhraseOccurrence } from '../utils/a
 import { buildDomainLinkListForEditor, buildActionableInternalLinkSuggestions, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
 import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
 import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
-
-function isContentSuggestion(item) {
-    const source = String(item?.source ?? item?.suggestion_source ?? '').trim();
-    return source === 'content_keyword_fallback' || source === 'content';
-}
 
 /**
  * Links panel base payload (extracted + domain lists) — no keyword suggestion scan.
@@ -601,7 +595,6 @@ function KeywordList({
     onCopyKeyword,
     onRemoveInternalLink,
     onToggleError,
-    isContentSuggestionRow = () => false,
 }) {
     const [editingKey, setEditingKey] = useState('');
     const [draftAnchor, setDraftAnchor] = useState('');
@@ -723,20 +716,15 @@ function KeywordList({
                     const isReviewLoading = reviewLoadingKey === itemKey;
                     const keywordId = Number(item?.keyword_id ?? 0);
                     const isErrorOn = keywordId > 0 && errorKeywordIds?.has(keywordId) === true;
-                    const isContentRow = variant === 'suggestion' && isContentSuggestionRow(item);
-                    const isUnresolvedHref =
-                        variant === 'suggestion'
-                        && String(item?.href ?? '').trim() === '#';
                     const showReviewActions =
                         variant === 'suggestion'
-                        && !isContentRow
                         && typeof onToggleError === 'function';
 
                     return (
                         <li
                             key={itemKey}
                             data-keyword-row-key={itemKey}
-                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isErrorOn ? ' is-error-on' : ''}${isContentRow ? ' is-content-suggestion' : ''}${isUnresolvedHref ? ' is-unresolved-href' : ''}`}
+                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isErrorOn ? ' is-error-on' : ''}`}
                             aria-hidden={isRowHiding}
                         >
                             {interactive && isEditing ? (
@@ -926,7 +914,6 @@ function InternalLinksSection({
     onCopyKeyword,
     onRemoveInternalLink,
     onToggleError,
-    isContentSuggestionRow = () => false,
     suggestionTitle = '',
 }) {
     const showSuggestions = suggestedInternal.length > 0;
@@ -995,7 +982,6 @@ function InternalLinksSection({
                             onUpdateSuggestionAnchor={onUpdateSuggestionAnchor}
                             onCopyKeyword={onCopyKeyword}
                             onToggleError={onToggleError}
-                            isContentSuggestionRow={isContentSuggestionRow}
                         />
                     ) : (
                         <p className="wp-article-links-empty">{t('links_suggestions_all_excluded')}</p>
@@ -1151,7 +1137,6 @@ export default function ArticleLinksSidebar({
     const suggestionsCacheRef = useRef(new Map());
     const suggestionsAutoStartedRef = useRef(false);
     const suggestionCursorRef = useRef({ phase: 'idle', hasResults: false });
-    const advancedCursorRef = useRef(null);
     const failedCandidateKeysRef = useRef([]);
     const contentFingerprintRef = useRef('');
     const suggestionRequestSeqRef = useRef(0);
@@ -1191,8 +1176,6 @@ export default function ArticleLinksSidebar({
             hasResults,
             exhausted,
             failedKeys: overrides.failedKeys ?? failedCandidateKeysRef.current,
-            advancedCursor: null,
-            advancedEnabled: false,
             visibleCount: overrides.visibleCount ?? visibleInternalCountRef.current,
             discoveryCursor: overrides.discoveryCursor ?? discoveryCursorRef.current,
             suggestionEngines: overrides.suggestionEngines ?? suggestionEnginesRef.current,
@@ -1454,9 +1437,6 @@ export default function ArticleLinksSidebar({
                 ...payload.failedCandidateKeys,
             ])];
         }
-        if (payload.suggestionCursor) {
-            advancedCursorRef.current = normalizeAdvancedCursor(payload.suggestionCursor);
-        }
         if (payload.discoveryCursor && typeof payload.discoveryCursor === 'object') {
             discoveryCursorRef.current = payload.discoveryCursor;
         }
@@ -1629,7 +1609,6 @@ export default function ArticleLinksSidebar({
             setSuggestionsEmpty(false);
             if (needInternal && needExternal) {
                 bumpSuggestionCursor({ phase: 'idle', hasResults: false });
-                advancedCursorRef.current = null;
                 failedCandidateKeysRef.current = [];
                 if (force) {
                     discoveryCursorRef.current = null;
@@ -2295,44 +2274,7 @@ export default function ArticleLinksSidebar({
         });
     }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, suggestionEngines.external]);
 
-    const scrollToContentSuggestion = (item, index, itemKey) => {
-        setActiveKey(itemKey);
-        const phrase = resolveSuggestionLocatePhrase(item);
-        if (phrase === '') {
-            return;
-        }
-
-        const blocks = collectEditorBlocksFromDom();
-        const occurrences = findSuggestionPhraseOccurrences(blocks, phrase, 64);
-        const currentCycle = Number(cycleByKey[itemKey] ?? 0);
-        const occurrence = occurrences.length > 0
-            ? occurrences[currentCycle % occurrences.length]
-            : null;
-
-        setCycleByKey((prev) => ({
-            ...prev,
-            [itemKey]: currentCycle + 1,
-        }));
-
-        selectedSuggestionOccurrenceRef.current = {
-            itemKey,
-            occurrence,
-        };
-
-        if (occurrence) {
-            scrollToPhraseOccurrence(occurrence);
-            return;
-        }
-
-        scrollToKeyword(item, 'internal', index, itemKey, { searchPlainText: true });
-    };
-
     const handleInternalSuggestionClick = (item, index, itemKey) => {
-        if (isContentSuggestion(item)) {
-            scrollToContentSuggestion(item, index, itemKey);
-            return;
-        }
-        // Keyword / product_cat / topic — resolve occurrence once for highlight + insert.
         const phrase = resolveSuggestionLocatePhrase(item);
         if (phrase !== '') {
             const blocks = collectEditorBlocksFromDom();
@@ -2685,7 +2627,6 @@ export default function ArticleLinksSidebar({
                         reviewLoadingKey={reviewLoadingKey}
                         errorKeywordIds={errorKeywordIds}
                         onToggleError={(item, _index, itemKey) => togglePhraseError(item, itemKey)}
-                        isContentSuggestionRow={isContentSuggestion}
                     />
                 </LinkAssistantSection>
 

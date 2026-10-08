@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSearchService;
-use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionCandidateRetriever;
 use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Omnichannel\Addons\SearchFoundation\Services\RepairArticleBackedKeywordTargetUrlService;
@@ -20,23 +19,6 @@ use ReflectionMethod;
  */
 final class InternalLinkWordPressUrlPolicyContractTest extends TestCase
 {
-    public function test_candidate_index_allows_unsynced_semantic_pool_and_uses_v3_cache(): void
-    {
-        $body = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'siteArticleIndex');
-
-        self::assertStringNotContainsString('hasWpPostId()', $body);
-        self::assertStringContainsString('destination_resolved', $body);
-        self::assertStringContainsString('WordPressInternalLinkTargetPolicy::siteIndexCacheKey', $body);
-        self::assertStringContainsString("'wordpressLink'", $body);
-        self::assertStringNotContainsString('site_index.v1.', $body);
-        self::assertStringNotContainsString('getPermalinkBase', $body);
-
-        $policySrc = (string) file_get_contents(
-            (string) (new ReflectionClass(WordPressInternalLinkTargetPolicy::class))->getFileName(),
-        );
-        self::assertStringContainsString('site_index.v3.', $policySrc);
-    }
-
     public function test_popup_search_ranked_and_fallback_require_wp_sync(): void
     {
         $searchSrc = (string) file_get_contents(
@@ -93,19 +75,6 @@ final class InternalLinkWordPressUrlPolicyContractTest extends TestCase
         self::assertStringContainsString('resolveAuthoritativePermalink', $src);
         self::assertStringNotContainsString('getPermalinkBase', $src);
         self::assertStringNotContainsString('WordPressPermalinkBuilder', $src);
-    }
-
-    public function test_content_fallback_reuses_search_which_enforces_eligibility(): void
-    {
-        $fallback = (string) file_get_contents(
-            (string) (new ReflectionClass(\Omnichannel\Addons\Content\Services\ArticleLinkSuggestionContentKeywordFallback::class))->getFileName(),
-        );
-        $search = (string) file_get_contents(
-            (string) (new ReflectionClass(ArticleInternalLinkSearchService::class))->getFileName(),
-        );
-
-        self::assertStringContainsString('$this->searchService->search(', $fallback);
-        self::assertStringContainsString('hasWpPostId()', $search);
     }
 
     public function test_repair_service_only_clears_article_backed_target_urls(): void

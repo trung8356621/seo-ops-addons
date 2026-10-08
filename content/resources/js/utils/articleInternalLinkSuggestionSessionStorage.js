@@ -112,30 +112,6 @@ function normalizeGenerated(value, fallback = {}) {
 }
 
 /**
- * @param {unknown} cursor
- * @returns {{ stage: string, offset: number }|null}
- */
-export function normalizeAdvancedCursor(cursor) {
-    if (!cursor || typeof cursor !== 'object') {
-        return null;
-    }
-
-    let stage = String(cursor.stage ?? '').trim();
-    if (stage === 'content_fallback') {
-        stage = 'content_deep';
-    }
-    const offset = Math.max(
-        0,
-        Number(cursor.offset ?? cursor.phrase_offset ?? 0) || 0,
-    );
-    if (stage === '') {
-        return null;
-    }
-
-    return { stage, offset, phrase_offset: offset };
-}
-
-/**
  * @returns {{
  *   version: number,
  *   siteId: number,
@@ -147,8 +123,6 @@ export function normalizeAdvancedCursor(cursor) {
  *   hasResults: boolean,
  *   exhausted: boolean,
  *   failedKeys: string[],
- *   advancedCursor: { stage: string, offset: number }|null,
- *   advancedEnabled: boolean,
  *   suggestionEngines: { internal: string, external: string },
  *   generated: { internal: boolean, external: boolean },
  *   updatedAt: number,
@@ -189,8 +163,6 @@ export function loadInternalLinkSuggestionSession(articleId, siteId) {
             hasResults: parsed.hasResults === true,
             exhausted: parsed.exhausted === true,
             failedKeys: normalizeStringList(parsed.failedKeys),
-            advancedCursor: normalizeAdvancedCursor(parsed.advancedCursor),
-            advancedEnabled: false,
             suggestionEngines: normalizeSuggestionEngines(parsed.suggestionEngines),
             internalAlgorithm: String(parsed.internalAlgorithm ?? ''),
             visibleCount: Math.max(0, Number(parsed.visibleCount ?? INTERNAL_SUGGESTION_PAGE) || 0),
@@ -214,8 +186,6 @@ export function loadInternalLinkSuggestionSession(articleId, siteId) {
  *   hasResults?: boolean,
  *   exhausted?: boolean,
  *   failedKeys?: string[],
- *   advancedCursor?: { stage?: string, offset?: number }|null,
- *   advancedEnabled?: boolean,
  * }} session
  */
 export function saveInternalLinkSuggestionSession(articleId, siteId, session) {
@@ -238,8 +208,6 @@ export function saveInternalLinkSuggestionSession(articleId, siteId, session) {
         hasResults: session?.hasResults === true,
         exhausted: session?.exhausted === true,
         failedKeys: normalizeStringList(session?.failedKeys),
-        advancedCursor: normalizeAdvancedCursor(session?.advancedCursor),
-        advancedEnabled: false,
         suggestionEngines: {
             internal: 'semantic_v2',
             external: normalizeSuggestionEngines(session?.suggestionEngines).external,

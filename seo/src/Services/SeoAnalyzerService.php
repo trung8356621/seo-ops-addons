@@ -8,7 +8,6 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
@@ -853,18 +852,9 @@ class SeoAnalyzerService
         array $internalLinks,
         array $externalLinks,
     ): array {
-        $service = app(ArticleInternalLinkSuggestionService::class);
-
         return [
             'suggested_internal_links' => [],
-            'suggested_external_links' => config('semantic.wiki_suggestions') === true
-                ? []
-                : $service->suggestExternal(
-                    $article,
-                    $content,
-                    $internalLinks,
-                    $externalLinks,
-                ),
+            'suggested_external_links' => [],
         ];
     }
 

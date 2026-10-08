@@ -51,6 +51,9 @@ final class AgentModelInputBuilder
     /**
      * @param  list<array{role: string, content: string}>  $history
      */
+    /**
+     * @param  list<string>  $unresolvedRequirements
+     */
     public function buildAnswerInput(
         AgentProjectScope $scope,
         string $userMessage,
@@ -58,6 +61,7 @@ final class AgentModelInputBuilder
         RetrievalBundle $bundle,
         string $selectedResponseTemplate,
         string $selectedResponseLanguage = 'en',
+        array $unresolvedRequirements = [],
     ): PreparedModelInput {
         if (! AgentResponseTemplateCatalog::supports($selectedResponseTemplate)) {
             throw new \InvalidArgumentException('Selected response template is unknown.');
@@ -75,6 +79,14 @@ final class AgentModelInputBuilder
             'selected_response_template' => $selectedResponseTemplate,
             'selected_response_language' => $selectedResponseLanguage,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($unresolvedRequirements !== []) {
+            $payload = json_decode(is_string($user) ? $user : '{}', true);
+            if (is_array($payload)) {
+                $payload['unresolved_requirements'] = array_values($unresolvedRequirements);
+                $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $user = is_string($encoded) ? $encoded : $user;
+            }
+        }
 
         return PreparedModelInput::make('answer', [
             ['role' => 'system', 'content' => $this->systemInstruction('agent.response.compose')],

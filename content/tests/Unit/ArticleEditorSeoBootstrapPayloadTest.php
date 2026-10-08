@@ -56,7 +56,6 @@ final class ArticleEditorSeoBootstrapPayloadTest extends TestCase
             $forArticle->getEndLine() - $forArticle->getStartLine() + 1,
         ));
 
-        // Full path vẫn giữ suggestion catalogs (on-demand endpoint).
-        self::assertStringContainsString('ArticleInternalLinkSuggestionService', $body);
+        self::assertStringNotContainsString('ArticleInternalLinkSuggestionService', $body);
     }
 }

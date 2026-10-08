@@ -11,29 +11,14 @@ use Tests\TestCase;
 
 final class ArticleEditorLinkSourceSelectionTest extends TestCase
 {
-    public function test_internal_channel_stays_off_when_the_removed_flag_is_set(): void
-    {
-        foreach ([false, true] as $wikiV2) {
-            config([
-                'semantic.internal_link_v2' => false,
-                'semantic.wiki_suggestions' => $wikiV2,
-            ]);
-            $channels = ArticleEditorLinksPayloadService::legacyChannels();
-            self::assertFalse($channels['internal']);
-            self::assertSame(! $wikiV2, $channels['external']);
-        }
-    }
-
     public function test_v2_replaces_legacy_suggestions_instead_of_appending(): void
     {
         $source = (string) file_get_contents((string) (new ReflectionClass(ArticleEditorLinksPayloadService::class))->getFileName());
         $merge = $this->method($source, 'mergeSemanticSuggestions');
-        $withSuggestions = $this->method($source, 'withSuggestions');
 
         self::assertStringNotContainsString('array_merge(', $merge);
         self::assertStringContainsString("['suggestions']", $merge);
         self::assertStringContainsString('InternalLinkV2Suggester', $merge);
-        self::assertStringContainsString('false,', $withSuggestions);
         self::assertStringContainsString("scope !== 'external'", $merge);
         self::assertStringContainsString("scope !== 'internal'", $merge);
         self::assertStringNotContainsString('suggestBundle', $merge);
@@ -75,33 +60,11 @@ final class ArticleEditorLinkSourceSelectionTest extends TestCase
         );
     }
 
-    public function test_scope_recomputes_only_the_requested_category(): void
+    public function test_scope_normalizes_unknown_values_to_both(): void
     {
-        config([
-            'semantic.internal_link_v2' => false,
-            'semantic.wiki_suggestions' => true,
-        ]);
-        self::assertSame(
-            ['internal' => false, 'external' => false],
-            ArticleEditorLinksPayloadService::channelsForScope('internal'),
-        );
-        self::assertSame(
-            ['internal' => false, 'external' => false],
-            ArticleEditorLinksPayloadService::channelsForScope('external'),
-        );
-
-        config([
-            'semantic.wiki_suggestions' => false,
-        ]);
-        self::assertSame(
-            ['internal' => false, 'external' => false],
-            ArticleEditorLinksPayloadService::channelsForScope('internal'),
-        );
-        self::assertSame(
-            ['internal' => false, 'external' => true],
-            ArticleEditorLinksPayloadService::channelsForScope('external'),
-        );
         self::assertSame('both', ArticleEditorLinksPayloadService::normalizeScope('other'));
+        self::assertSame('internal', ArticleEditorLinksPayloadService::normalizeScope('internal'));
+        self::assertSame('external', ArticleEditorLinksPayloadService::normalizeScope('external'));
     }
 
     public function test_semantic_errors_do_not_select_the_legacy_collector(): void

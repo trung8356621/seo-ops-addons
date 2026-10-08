@@ -68,6 +68,25 @@ final class AgentRuntimeController
             $userMessage = $run->userMessage()->firstOrFail();
             $history = $this->historyBefore((int) $thread->id, (int) $userMessage->position);
             $bundle = $tools->execute($proposal, $userId);
+            $factual = $coordinator->composeFactual($bundle, (string) $userMessage->content, $proposal->responseLanguage);
+            if ($factual instanceof AgentResponse) {
+                $assistant = $persistence->completeRun($run, $factual);
+                $persistence->storeModelDiagnostics($run, ['execution' => [
+                    'synthesis' => false,
+                    'external_model' => null,
+                    'external_model_calls' => 0,
+                    'tools' => array_map(static fn ($source): string => $source->name, $bundle->sources),
+                ]]);
+                $threads->touchLastMessage($thread);
+
+                return new JsonResponse(['data' => [
+                    ...$factual->toArray(),
+                    'thread_ulid' => $thread->ulid,
+                    'run_ulid' => $run->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'assistant_message_id' => $assistant->id,
+                ]]);
+            }
             $confirmationState = (array) ($summary['confirmation']['runtime_state'] ?? []);
             if (($confirmationState['debug'] ?? false) === true) {
                 $modelResolver ??= app()->bound(AssumedModelResolver::class) ? app(AssumedModelResolver::class) : null;
@@ -114,7 +133,7 @@ final class AgentRuntimeController
                 $proposal->responseTemplate,
                 $proposal->responseLanguage,
             );
-            $meta = ['answer_model' => 'called'];
+            $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
             if ($result->failureCode !== null) {
                 $meta['failure_code'] = $result->failureCode;
             }
@@ -928,8 +947,12 @@ final class AgentRuntimeController
             if ($result->answerDiagnostics !== null) {
                 $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
             }
-            if ($result->modelDiagnostics !== null) {
-                $persistence->storeModelDiagnostics($run, $result->modelDiagnostics);
+            $diagnosticsPayload = $result->modelDiagnostics ?? [];
+            if (is_array($result->executionTrace)) {
+                $diagnosticsPayload['execution'] = $result->executionTrace;
+            }
+            if ($diagnosticsPayload !== []) {
+                $persistence->storeModelDiagnostics($run, $diagnosticsPayload);
             }
             $assistant = $persistence->completeRun($run, $result->response, $meta);
             $threads->touchLastMessage($thread);

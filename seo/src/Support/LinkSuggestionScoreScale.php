@@ -28,11 +28,6 @@ final class LinkSuggestionScoreScale
 
     public const META_MATCH = 35;
 
-    public static function primaryMinAccept(): int
-    {
-        return max(1, (int) config('seo-content-ai.link_suggestions.min_accept_score', 40));
-    }
-
     public static function fallbackMinAccept(): int
     {
         return max(1, (int) config('seo-content-ai.link_suggestions.fallback_min_score', 55));

@@ -43,10 +43,11 @@ return [
     'standalone_harness_enabled' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_ENABLED', false),
 
     /*
-    | Local semantic tool router. When enabled it is the only capability
-    | selection path for Agent turns and does not fall back to JEV.
-    | Default stays off so existing decision-model turns keep working until
-    | the semantic service is enabled for this installation.
+    | Local semantic tool router.
+    | A coordinator constructed with LocalAgentToolRouter never calls the
+    | decision model. This flag still gates topic-group intersection and the
+    | container fallback used when the router was not injected.
+    | Model groups, including JEV, stay available for user-selected routing.
     */
     'local_tool_router' => [
         'enabled' => (bool) env('AGENT_RUNTIME_LOCAL_TOOL_ROUTER', false),

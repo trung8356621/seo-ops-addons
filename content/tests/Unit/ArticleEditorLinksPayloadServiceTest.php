@@ -42,13 +42,13 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('suggestBundle', $body);
     }
 
-    public function test_with_suggestions_calls_suggest_bundle_exactly_once(): void
+    public function test_with_suggestions_uses_v2_not_the_legacy_bundle(): void
     {
         $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'withSuggestions');
 
-        self::assertSame(1, substr_count($body, 'suggestBundle('));
+        self::assertStringNotContainsString('suggestBundle(', $body);
+        self::assertStringContainsString('mergeSemanticSuggestions', $body);
         self::assertStringNotContainsString('withOrphanSuggestions', $body);
-        self::assertStringNotContainsString('->suggest(', $body);
         self::assertStringNotContainsString('->suggestCatalog(', $body);
         self::assertStringNotContainsString('->suggestExternal(', $body);
         self::assertStringNotContainsString('->suggestExternalCatalog(', $body);
@@ -68,15 +68,13 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('forEditorBootstrap(', $source);
     }
 
-    public function test_for_article_uses_suggest_bundle_once_instead_of_four_calls(): void
+    public function test_for_article_does_not_call_the_legacy_suggestion_bundle(): void
     {
         $body = $this->methodBody(ArticleEditorSeoPayloadService::class, 'forArticle');
 
-        self::assertSame(1, substr_count($body, 'suggestBundle('));
-        self::assertStringNotContainsString('->suggest(', $body);
-        self::assertStringNotContainsString('->suggestCatalog(', $body);
-        self::assertStringNotContainsString('->suggestExternal(', $body);
-        self::assertStringNotContainsString('->suggestExternalCatalog(', $body);
+        self::assertStringNotContainsString('suggestBundle(', $body);
+        self::assertStringNotContainsString('ArticleInternalLinkSuggestionService', $body);
+        self::assertStringContainsString('DomainLinkListEditorService', $body);
     }
 
     private function methodBody(string $class, string $method): string

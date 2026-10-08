@@ -14,9 +14,8 @@ use Illuminate\Support\Facades\Cache;
  * An article is a placeable link target only when it has a real WordPress post id
  * and a WordPress-provided permalink. Local slug / domain+slug guesses are never used.
  *
- * Semantic anchor candidates (Link Assistant idea pool) may include unsynced articles
- * with a null destination — that pool lives in ArticleLinkSuggestionCandidateRetriever
- * and must not require this eligibility gate.
+ * Semantic Internal Link V2 may suggest a target only after Laravel has a real permalink.
+ * This policy does not rank suggestions.
  */
 final class WordPressInternalLinkTargetPolicy
 {
