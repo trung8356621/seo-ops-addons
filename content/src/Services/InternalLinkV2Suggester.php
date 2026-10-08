@@ -33,6 +33,10 @@ final class InternalLinkV2Suggester
         if ($plain === '') {
             return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'content_unavailable'];
         }
+        $maxInternal = max(1, (int) config('seo-content-ai.link_suggestions.max_internal_links', 10));
+        if (count($existingInternal) >= $maxInternal) {
+            return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'link_quota'];
+        }
 
         $siteId = (int) ($article->site_id ?? 0);
         $candidates = $this->candidates($article, $siteId, $plain, $existingInternal);

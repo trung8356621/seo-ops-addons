@@ -62,8 +62,13 @@ final class ArticleInternalLinkPipeline
         string $content,
         array $internalLinks,
         array $externalLinks = [],
+        bool $includeInternal = true,
+        bool $includeExternal = true,
     ): array {
         $empty = ['internal' => [], 'external' => []];
+        if (! $includeInternal && ! $includeExternal) {
+            return $empty;
+        }
         $siteId = (int) ($article->site_id ?? 0);
         if ($siteId <= 0) {
             return $empty;
@@ -100,6 +105,9 @@ final class ArticleInternalLinkPipeline
         $ownArticlePhrases = $this->ownArticlePhraseBlocklist($article);
 
         // —— Stage 1: FULL product_cat ——
+        $productCatSuggestions = [];
+        $productCatDebug = [];
+        if ($includeInternal) {
         $productCatResult = $this->productCatMatcher->matchForSite(
             $siteId,
             $plainText,
@@ -128,6 +136,7 @@ final class ArticleInternalLinkPipeline
             if ($norm !== '') {
                 $occupiedHrefs[] = $norm;
             }
+        }
         }
 
         // —— Match SEO keywords present in content ——
@@ -199,6 +208,9 @@ final class ArticleInternalLinkPipeline
             $href = is_string($resolvedAny) ? trim($resolvedAny) : '';
 
             if ($href === '' || $this->isSpecialSchemeOrContactHref($href)) {
+                if (! $includeInternal) {
+                    continue;
+                }
                 // No mapped destination — defer to generic article search.
                 $needGenericSearch[] = [
                     'keyword_id' => $keywordId,
@@ -212,6 +224,9 @@ final class ArticleInternalLinkPipeline
 
             $bucket = $this->suggestionBucketForHref($href, $siteDomain, $siteId);
             if ($bucket === null) {
+                if (! $includeInternal) {
+                    continue;
+                }
                 // Unparsable / unknown destination type — keep anchor via generic stage.
                 $needGenericSearch[] = [
                     'keyword_id' => $keywordId,
@@ -258,6 +273,9 @@ final class ArticleInternalLinkPipeline
             ];
 
             if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+                if (! $includeInternal) {
+                    continue;
+                }
                 // Destination invalid (self-link, etc.) — do not drop the valid anchor.
                 $needGenericSearch[] = [
                     'keyword_id' => $keywordId,
@@ -272,7 +290,13 @@ final class ArticleInternalLinkPipeline
             unset($item['bucket']);
 
             if ($bucket === 'external') {
-                $externalSuggestions[] = $item;
+                if ($includeExternal) {
+                    $externalSuggestions[] = $item;
+                }
+                continue;
+            }
+
+            if (! $includeInternal) {
                 continue;
             }
 
@@ -291,6 +315,9 @@ final class ArticleInternalLinkPipeline
 
         // —— Stage 4 generic: article index for unresolved phrases + content fallback ——
         $genericSuggestions = [];
+        $fallbackTriggered = false;
+        $fallbackItems = [];
+        if ($includeInternal) {
         $stagesSoFarCount = count($productCatSuggestions) + count($topicSuggestions) + count($keywordNonTopicSuggestions);
         $articleTargets = $this->candidateRetriever->resolveBestForAnchors(
             $article,
@@ -415,8 +442,6 @@ final class ArticleInternalLinkPipeline
             }
         }
 
-        $fallbackTriggered = false;
-        $fallbackItems = [];
         $preGenericMerged = $this->priorityMerger->merge(
             [
                 ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT => $productCatSuggestions,
@@ -480,17 +505,21 @@ final class ArticleInternalLinkPipeline
                 $genericSuggestions[] = $row;
             }
         }
+        }
 
-        $internalSuggestions = $this->priorityMerger->merge(
-            [
-                ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT => $productCatSuggestions,
-                ArticleInternalLinkPriorityMerger::STAGE_TOPIC => $topicSuggestions,
-                ArticleInternalLinkPriorityMerger::STAGE_KEYWORD_NON_TOPIC => $keywordNonTopicSuggestions,
-                ArticleInternalLinkPriorityMerger::STAGE_GENERIC => $genericSuggestions,
-            ],
-            $alreadyLinkedHrefs,
-            $alreadyLinkedLabels,
-        );
+        $internalSuggestions = [];
+        if ($includeInternal) {
+            $internalSuggestions = $this->priorityMerger->merge(
+                [
+                    ArticleInternalLinkPriorityMerger::STAGE_PRODUCT_CAT => $productCatSuggestions,
+                    ArticleInternalLinkPriorityMerger::STAGE_TOPIC => $topicSuggestions,
+                    ArticleInternalLinkPriorityMerger::STAGE_KEYWORD_NON_TOPIC => $keywordNonTopicSuggestions,
+                    ArticleInternalLinkPriorityMerger::STAGE_GENERIC => $genericSuggestions,
+                ],
+                $alreadyLinkedHrefs,
+                $alreadyLinkedLabels,
+            );
+        }
 
         usort(
             $externalSuggestions,

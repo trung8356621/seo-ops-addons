@@ -28,6 +28,9 @@ final class SeoKeywordSettingsService implements GlobalMatchRuleProvider
     }
 
     /**
+     * Stored seo_keyword_settings overrides win. Code defaults fill keys the user has never saved.
+     * Hidden classifier lists are not immutable defaults and are not semantic match input.
+     *
      * @return array{cta_blacklist: list<string>}
      */
     public function getSettings(): array

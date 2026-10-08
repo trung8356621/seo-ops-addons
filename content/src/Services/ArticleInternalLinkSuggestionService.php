@@ -292,12 +292,28 @@ final class ArticleInternalLinkSuggestionService
      *     external_catalog: list<array<string, mixed>>
      * }
      */
-    public function suggestBundle(SeoArticle $article, string $content, array $internalLinks, array $externalLinks = []): array
-    {
-        $candidates = $this->collectCandidates($article, $content, $internalLinks, $externalLinks);
+    public function suggestBundle(
+        SeoArticle $article,
+        string $content,
+        array $internalLinks,
+        array $externalLinks = [],
+        bool $includeInternal = true,
+        bool $includeExternal = true,
+    ): array {
+        if (! $includeInternal && ! $includeExternal) {
+            return [
+                'internal' => [],
+                'internal_catalog' => [],
+                'external' => [],
+                'external_catalog' => [],
+                'internal_link_catalog' => [],
+            ];
+        }
 
-        $internalCatalog = $candidates['internal'];
-        $externalCatalog = $candidates['external'];
+        $candidates = $this->collectCandidates($article, $content, $internalLinks, $externalLinks, $includeInternal, $includeExternal);
+
+        $internalCatalog = $includeInternal ? $candidates['internal'] : [];
+        $externalCatalog = $includeExternal ? $candidates['external'] : [];
         $maxInternalLinks = $this->limit('max_internal_links', 10);
         $maxDisplayInternal = $this->limit('max_display_internal', 10);
         $maxDisplayExternal = $this->limit('max_display_external', 10);
@@ -382,7 +398,14 @@ final class ArticleInternalLinkSuggestionService
      *     external: list<array<string, mixed>>
      * }
      */
-    private function collectCandidates(SeoArticle $article, string $content, array $internalLinks, array $externalLinks = []): array
+    private function collectCandidates(
+        SeoArticle $article,
+        string $content,
+        array $internalLinks,
+        array $externalLinks = [],
+        bool $includeInternal = true,
+        bool $includeExternal = true,
+    ): array
     {
         $empty = ['internal' => [], 'external' => []];
         $siteId = (int) ($article->site_id ?? 0);
@@ -403,12 +426,12 @@ final class ArticleInternalLinkSuggestionService
             return $empty;
         }
 
-        $cacheKey = $this->candidatesCacheKey((int) $article->id, $content, $internalLinks, $externalLinks);
+        $cacheKey = $this->candidatesCacheKey((int) $article->id, $content, $internalLinks, $externalLinks, $includeInternal, $includeExternal);
         if (isset($this->candidatesCache[$cacheKey])) {
             return $this->candidatesCache[$cacheKey];
         }
 
-        $result = $this->pipeline->collect($article, $content, $internalLinks, $externalLinks);
+        $result = $this->pipeline->collect($article, $content, $internalLinks, $externalLinks, $includeInternal, $includeExternal);
         $this->lastDebug = $this->pipeline->lastDebug();
         $this->logDebug('collect_done', $this->lastDebug);
 
@@ -516,9 +539,9 @@ final class ArticleInternalLinkSuggestionService
      * @param  array<int, array<string, mixed>>  $internalLinks
      * @param  array<int, array<string, mixed>>  $externalLinks
      */
-    private function candidatesCacheKey(int $articleId, string $content, array $internalLinks, array $externalLinks): string
+    private function candidatesCacheKey(int $articleId, string $content, array $internalLinks, array $externalLinks, bool $includeInternal = true, bool $includeExternal = true): string
     {
-        return $articleId.':'.md5($content).':'.md5(serialize($internalLinks)).':'.md5(serialize($externalLinks));
+        return $articleId.':'.md5($content).':'.md5(serialize($internalLinks)).':'.md5(serialize($externalLinks)).':'.(int) $includeInternal.':'.(int) $includeExternal;
     }
 
     /**
