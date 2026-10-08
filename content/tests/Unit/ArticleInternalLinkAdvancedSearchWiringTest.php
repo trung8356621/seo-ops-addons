@@ -18,10 +18,9 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
     {
         $body = $this->methodBody(ArticleEditorLazyPayloadController::class, 'linksSuggestions');
 
-        self::assertStringContainsString("mode === 'advanced'", $body);
-        self::assertStringContainsString('withAdvancedBatch', $body);
-        self::assertStringContainsString('failed_keys', $body);
-        self::assertStringContainsString('target_count', $body);
+        self::assertStringContainsString("mode === 'advanced' || \$mode === 'fallback'", $body);
+        self::assertStringContainsString('withFallbackOnly', $body);
+        self::assertStringNotContainsString('withAdvancedBatch', $body);
     }
 
     public function test_payload_service_exposes_cursor_and_failed_keys(): void
@@ -76,7 +75,8 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
             ProjectRoot::addonsPath().'/content/resources/js/utils/articleInternalLinkSuggestionSessionStorage.js'
         );
 
-        self::assertStringContainsString('INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 2', $source);
+        self::assertStringContainsString('INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 4', $source);
+        self::assertStringContainsString('resolveSuggestionSessionCache', $source);
         self::assertStringContainsString('version < INTERNAL_LINK_SUGGESTION_SESSION_VERSION', $source);
     }
 
@@ -89,19 +89,16 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
         self::assertStringContainsString('loadInternalLinkSuggestionSession', $source);
         self::assertStringContainsString('isInternalLinkSuggestionSessionUsable', $source);
         self::assertStringContainsString('saveInternalLinkSuggestionSession', $source);
-        self::assertStringContainsString("mode: 'advanced'", $source);
-        self::assertStringContainsString('links_advanced_search', $source);
-        self::assertStringContainsString('advancedSearchEnabled', $source);
+        self::assertStringNotContainsString("mode: 'advanced'", $source);
+        self::assertStringNotContainsString('links_advanced_search', $source);
+        self::assertStringNotContainsString('advancedSearchEnabled', $source);
         self::assertStringContainsString('suggestionRequestSeqRef', $source);
         self::assertStringContainsString('clearInternalLinkSuggestionSession', $source);
-        // Enabling Advanced must clear prior exhausted so Find more is clickable again.
-        self::assertStringContainsString('exhausted: false', $source);
-        self::assertStringContainsString("stage: 'content_deep', offset: 0", $source);
-        // Valid session must skip auto POST full.
-        self::assertMatchesRegularExpression(
-            '/isInternalLinkSuggestionSessionUsable[\s\S]*return;[\s\S]*loadLinkSuggestions\(\)/',
-            $source
-        );
+        self::assertStringContainsString("mode: 'fallback'", $source);
+        $usableAt = strpos($source, 'isInternalLinkSuggestionSessionUsable(session');
+        self::assertNotFalse($usableAt);
+        self::assertNotFalse(strpos($source, 'return;', (int) $usableAt));
+        self::assertStringContainsString('onGenerateSuggestions={loadLinkSuggestions}', $source);
     }
 
     public function test_sidebar_advanced_mode_reads_sync_ref_not_stale_state(): void
@@ -110,50 +107,15 @@ final class ArticleInternalLinkAdvancedSearchWiringTest extends TestCase
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleLinksSidebar.jsx'
         );
 
-        // Imperative SSOT for Find more mode selection (avoids stale React closure).
-        self::assertStringContainsString('advancedSearchEnabledRef', $source);
-        self::assertStringContainsString(
-            'const useAdvanced = findMore && advancedSearchEnabledRef.current === true;',
-            $source
-        );
-        self::assertStringNotContainsString(
-            'const useAdvanced = findMore && advancedSearchEnabled === true;',
-            $source
-        );
-
-        // Checkbox ON/OFF updates ref synchronously before setState.
-        self::assertMatchesRegularExpression(
-            '/onAdvancedSearchChange=\{\(enabled\)\s*=>\s*\{\s*advancedSearchEnabledRef\.current\s*=\s*enabled;\s*setAdvancedSearchEnabled\(enabled\);/s',
-            $source
-        );
-
-        // Session restore syncs both ref and state.
-        self::assertMatchesRegularExpression(
-            '/advancedSearchEnabledRef\.current\s*=\s*session\.advancedEnabled\s*===\s*true;\s*setAdvancedSearchEnabled\(session\.advancedEnabled\s*===\s*true\);/s',
-            $source
-        );
-
-        // Persist falls back to ref (not React state) for advancedEnabled.
-        self::assertStringContainsString(
-            'advancedEnabled: overrides.advancedEnabled ?? advancedSearchEnabledRef.current === true,',
-            $source
-        );
-
-        // Advanced ON → mode advanced; OFF path still posts fallback.
-        self::assertStringContainsString("mode: 'advanced'", $source);
+        self::assertStringNotContainsString('advancedSearchEnabledRef', $source);
+        self::assertStringNotContainsString("mode: 'advanced'", $source);
         self::assertStringContainsString("mode: 'fallback'", $source);
-
-        // Exhausted must not hard-disable Find more while Advanced is checked
-        // (avoids OFF→ON checkbox dance to re-enable the button).
         self::assertStringContainsString(
-            'suggestionsHasResults && suggestionsExhausted && !advancedSearchEnabled',
+            "suggestionCursorRef.current.phase === 'exhausted'",
             $source
         );
-        self::assertStringContainsString('restartAdvancedFromExhausted', $source);
-        self::assertMatchesRegularExpression(
-            '/restartAdvancedFromExhausted[\s\S]*advancedCursorRef\.current\s*=\s*\{\s*stage:\s*\'content_deep\',\s*offset:\s*0\s*\}/s',
-            $source
-        );
+        self::assertStringContainsString('options.shiftKey === true', $source);
+        self::assertStringContainsString('suggestionEngines', $source);
     }
 
     public function test_session_storage_helper_scoped_by_site_and_article(): void

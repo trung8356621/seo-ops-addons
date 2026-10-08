@@ -4,7 +4,8 @@
  * (dedicated helper — not articleEditorStorage drafts).
  */
 
-export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 2;
+/** v4 binds each catalog to its engine. v3 could be restored under a different engine. */
+export const INTERNAL_LINK_SUGGESTION_SESSION_VERSION = 4;
 
 const storageKey = (articleId, siteId) =>
     `seo_article_internal_link_suggestion_session_${Number(siteId ?? 0)}_${Number(articleId ?? 0)}`;
@@ -35,6 +36,41 @@ function normalizeCatalog(value) {
     }
 
     return value.filter((item) => item && typeof item === 'object');
+}
+
+/**
+ * @param {unknown} value
+ * @returns {{ internal: 'legacy'|'semantic_v2', external: 'legacy'|'wiki_v2' }}
+ */
+function normalizeSuggestionEngines(value) {
+    const engines = value && typeof value === 'object' ? value : {};
+
+    return {
+        internal: engines.internal === 'semantic_v2' ? 'semantic_v2' : 'legacy',
+        external: engines.external === 'wiki_v2' ? 'wiki_v2' : 'legacy',
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @param {Record<string, unknown>} fallback
+ * @returns {{ internal: boolean, external: boolean }}
+ */
+function normalizeGenerated(value, fallback = {}) {
+    if (value && typeof value === 'object') {
+        return {
+            internal: value.internal === true,
+            external: value.external === true,
+        };
+    }
+
+    const catalog = Array.isArray(fallback.catalog) ? fallback.catalog : [];
+    const externalCatalog = Array.isArray(fallback.externalCatalog) ? fallback.externalCatalog : [];
+
+    return {
+        internal: catalog.length > 0 || fallback.hasResults === true || fallback.exhausted === true,
+        external: externalCatalog.length > 0,
+    };
 }
 
 /**
@@ -75,6 +111,8 @@ export function normalizeAdvancedCursor(cursor) {
  *   failedKeys: string[],
  *   advancedCursor: { stage: string, offset: number }|null,
  *   advancedEnabled: boolean,
+ *   suggestionEngines: { internal: string, external: string },
+ *   generated: { internal: boolean, external: boolean },
  *   updatedAt: number,
  * }|null}
  */
@@ -114,7 +152,9 @@ export function loadInternalLinkSuggestionSession(articleId, siteId) {
             exhausted: parsed.exhausted === true,
             failedKeys: normalizeStringList(parsed.failedKeys),
             advancedCursor: normalizeAdvancedCursor(parsed.advancedCursor),
-            advancedEnabled: parsed.advancedEnabled === true,
+            advancedEnabled: false,
+            suggestionEngines: normalizeSuggestionEngines(parsed.suggestionEngines),
+            generated: normalizeGenerated(parsed.generated, parsed),
             updatedAt: Number(parsed.updatedAt ?? 0) || 0,
         };
     } catch {
@@ -144,19 +184,28 @@ export function saveInternalLinkSuggestionSession(articleId, siteId, session) {
         return;
     }
 
+    const catalog = normalizeCatalog(session?.catalog);
+    const externalCatalog = normalizeCatalog(session?.externalCatalog);
     const payload = {
         version: INTERNAL_LINK_SUGGESTION_SESSION_VERSION,
         siteId: site,
         articleId: id,
         contentFingerprint: String(session?.contentFingerprint ?? ''),
-        catalog: normalizeCatalog(session?.catalog),
-        externalCatalog: normalizeCatalog(session?.externalCatalog),
+        catalog,
+        externalCatalog,
         phase: String(session?.phase ?? 'idle'),
         hasResults: session?.hasResults === true,
         exhausted: session?.exhausted === true,
         failedKeys: normalizeStringList(session?.failedKeys),
         advancedCursor: normalizeAdvancedCursor(session?.advancedCursor),
-        advancedEnabled: session?.advancedEnabled === true,
+        advancedEnabled: false,
+        suggestionEngines: normalizeSuggestionEngines(session?.suggestionEngines),
+        generated: normalizeGenerated(session?.generated, {
+            catalog,
+            externalCatalog,
+            hasResults: session?.hasResults === true,
+            exhausted: session?.exhausted === true,
+        }),
         updatedAt: Date.now(),
     };
 
@@ -203,15 +252,68 @@ export function isInternalLinkSuggestionSessionUsable(session, expected = {}) {
     if (expectedFingerprint !== '' && String(session.contentFingerprint ?? '') !== expectedFingerprint) {
         return false;
     }
-
-    // Stale schema (v1 Advanced pagination) must not block the new content_deep algorithm.
     const version = Number(session.version ?? 0) || 0;
     if (version < INTERNAL_LINK_SUGGESTION_SESSION_VERSION) {
         return false;
+    }
+
+    if (expected.suggestionEngines && typeof expected.suggestionEngines === 'object') {
+        const resolved = resolveSuggestionSessionCache(session, expected);
+
+        return resolved.internal !== null || resolved.external !== null;
     }
 
     const hasCatalog = Array.isArray(session.catalog) && session.catalog.length > 0;
     const hasPhase = session.hasResults === true || session.exhausted === true || String(session.phase ?? '') === 'exhausted';
 
     return hasCatalog || hasPhase;
+}
+
+/**
+ * Per-category cache hit. null = do not serve that category.
+ * A hit may be an empty list when that engine already ran.
+ *
+ * @param {unknown} session
+ * @param {{ siteId?: number, articleId?: number, contentFingerprint?: string, suggestionEngines?: { internal?: string, external?: string } }} expected
+ * @returns {{ internal: Record<string, unknown>[]|null, external: Record<string, unknown>[]|null }}
+ */
+export function resolveSuggestionSessionCache(session, expected = {}) {
+    const miss = { internal: null, external: null };
+    if (!session || typeof session !== 'object') {
+        return miss;
+    }
+
+    const expectedArticleId = Number(expected.articleId ?? 0);
+    const expectedSiteId = Number(expected.siteId ?? 0);
+    const expectedFingerprint = String(expected.contentFingerprint ?? '');
+    if (expectedArticleId > 0 && Number(session.articleId ?? 0) !== expectedArticleId) {
+        return miss;
+    }
+    if (Number(session.siteId ?? 0) !== expectedSiteId) {
+        return miss;
+    }
+    if (expectedFingerprint !== '' && String(session.contentFingerprint ?? '') !== expectedFingerprint) {
+        return miss;
+    }
+    if ((Number(session.version ?? 0) || 0) < INTERNAL_LINK_SUGGESTION_SESSION_VERSION) {
+        return miss;
+    }
+    if (!expected.suggestionEngines || typeof expected.suggestionEngines !== 'object') {
+        return miss;
+    }
+
+    const stored = normalizeSuggestionEngines(session.suggestionEngines);
+    const wanted = normalizeSuggestionEngines(expected.suggestionEngines);
+    const generated = session.generated && typeof session.generated === 'object'
+        ? session.generated
+        : {};
+
+    return {
+        internal: stored.internal === wanted.internal && generated.internal === true
+            ? (Array.isArray(session.catalog) ? session.catalog : [])
+            : null,
+        external: stored.external === wanted.external && generated.external === true
+            ? (Array.isArray(session.externalCatalog) ? session.externalCatalog : [])
+            : null,
+    };
 }

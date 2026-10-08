@@ -30,6 +30,7 @@ import {
     isInternalLinkSuggestionSessionUsable,
     loadInternalLinkSuggestionSession,
     normalizeAdvancedCursor,
+    resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
 } from '../utils/articleInternalLinkSuggestionSessionStorage';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
@@ -111,7 +112,7 @@ async function fetchEditorLinksBase(articleId, signal) {
  * @param {number} articleId
  * @param {{
  *   content?: string,
- *   mode?: 'full'|'fallback'|'advanced',
+ *   mode?: 'full'|'fallback',
  *   existingInternal?: unknown[],
  *   failedKeys?: string[],
  *   cursor?: { stage?: string, offset?: number }|null,
@@ -130,19 +131,14 @@ async function fetchEditorLinksSuggestions(articleId, options = {}) {
         window.__SEO_EDITOR_LAZY_ENDPOINTS__?.linksSuggestions
         || `/api/seo/articles/${id}/editor/links/suggestions`;
 
-    const mode = options.mode === 'fallback'
-        ? 'fallback'
-        : (options.mode === 'advanced' ? 'advanced' : 'full');
+    const mode = options.mode === 'fallback' ? 'fallback' : 'full';
     const body = {
         mode,
         content: typeof options.content === 'string' ? options.content : '',
         existing_internal: Array.isArray(options.existingInternal) ? options.existingInternal : [],
     };
-    if (mode === 'advanced') {
-        body.failed_keys = Array.isArray(options.failedKeys) ? options.failedKeys : [];
-        body.cursor = options.cursor && typeof options.cursor === 'object' ? options.cursor : { stage: 'content_deep', offset: 0 };
-        body.target_count = Math.max(1, Math.min(5, Number(options.targetCount ?? 5) || 5));
-        body.usable_count = Math.max(0, Number(options.usableCount ?? 0) || 0);
+    if (options.scope === 'internal' || options.scope === 'external') {
+        body.scope = options.scope;
     }
 
     const { response, data } = await seoArticleApiFetch(url, {
@@ -913,10 +909,9 @@ function InternalLinksSection({
     onGenerateSuggestions,
     suggestionsLoading = false,
     suggestionsHasResults = false,
+    suggestionsCacheComplete = false,
     suggestionsExhausted = false,
     suggestionsError = null,
-    advancedSearchEnabled = false,
-    onAdvancedSearchChange = null,
     reviewLoadingKey = '',
     errorKeywordIds,
     onKeywordClick,
@@ -927,10 +922,12 @@ function InternalLinksSection({
     onRemoveInternalLink,
     onToggleError,
     isContentSuggestionRow = () => false,
+    suggestionTitle = '',
 }) {
     const showSuggestions = internal.length < 10 && suggestedInternal.length > 0;
     const showExcludedClear = excludedCount > 0;
     const showGenerate = typeof onGenerateSuggestions === 'function';
+    const showFindMore = suggestionsHasResults && suggestionsCacheComplete;
 
     return (
         <div className="wp-article-links-group">
@@ -954,30 +951,16 @@ function InternalLinksSection({
                     <button
                         type="button"
                         className="wp-article-links-clear-excluded-btn"
-                        disabled={
-                            suggestionsLoading
-                            || (suggestionsHasResults && suggestionsExhausted && !advancedSearchEnabled)
-                        }
+                        disabled={suggestionsLoading}
                         onClick={onGenerateSuggestions}
                     >
                         {suggestionsLoading ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RotateCcw size={13} aria-hidden />}
                         {suggestionsLoading
                             ? t('links_suggestions_loading')
-                            : suggestionsHasResults
+                            : showFindMore
                               ? t('links_find_more_suggestions')
                               : t('links_generate_suggestions')}
                     </button>
-                    {typeof onAdvancedSearchChange === 'function' ? (
-                        <label className="wp-article-links-advanced-toggle">
-                            <input
-                                type="checkbox"
-                                checked={advancedSearchEnabled}
-                                disabled={suggestionsLoading}
-                                onChange={(event) => onAdvancedSearchChange(event.target.checked)}
-                            />
-                            <span>{t('links_advanced_search')}</span>
-                        </label>
-                    ) : null}
                 </div>
             ) : null}
             {suggestionsLoading && suggestedInternal.length === 0 ? (
@@ -994,7 +977,7 @@ function InternalLinksSection({
                     {showSuggestions ? (
                         <KeywordList
                             items={suggestedInternal}
-                            title={t('links_suggestion_title', { count: suggestedInternal.length })}
+                            title={suggestionTitle || t('links_suggestion_title', { count: suggestedInternal.length })}
                             activeKey={activeKey}
                             target="editor"
                             variant="suggestion"
@@ -1168,10 +1151,11 @@ export default function ArticleLinksSidebar({
     const suggestionRequestSeqRef = useRef(0);
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
-    const [advancedSearchEnabled, setAdvancedSearchEnabled] = useState(false);
-    // Imperative SSOT for request mode — React state alone can be stale in the same tick
-    // as checkbox → Find more (closure sees previous advancedSearchEnabled).
-    const advancedSearchEnabledRef = useRef(false);
+    const suggestionEnginesRef = useRef({ internal: 'legacy', external: 'legacy' });
+    const [suggestionEngines, setSuggestionEngines] = useState({ internal: 'legacy', external: 'legacy' });
+    const suggestionEnginesReadyRef = useRef(false);
+    const categoryGeneratedRef = useRef({ internal: false, external: false });
+    const [categoryGenerated, setCategoryGenerated] = useState({ internal: false, external: false });
     const [mainDomainSuggestions, setMainDomainSuggestions] = useState({
         mainDomain: '',
         relationship: null,
@@ -1197,11 +1181,78 @@ export default function ArticleLinksSidebar({
             hasResults,
             exhausted,
             failedKeys: overrides.failedKeys ?? failedCandidateKeysRef.current,
-            advancedCursor: overrides.advancedCursor !== undefined
-                ? overrides.advancedCursor
-                : advancedCursorRef.current,
-            advancedEnabled: overrides.advancedEnabled ?? advancedSearchEnabledRef.current === true,
+            advancedCursor: null,
+            advancedEnabled: false,
+            suggestionEngines: overrides.suggestionEngines ?? suggestionEnginesRef.current,
+            generated: overrides.generated ?? categoryGeneratedRef.current,
         });
+    };
+
+    const rememberCategoryGenerated = (next) => {
+        categoryGeneratedRef.current = {
+            internal: next.internal === true,
+            external: next.external === true,
+        };
+        setCategoryGenerated(categoryGeneratedRef.current);
+    };
+
+    const restoreCachedSuggestions = () => {
+        if (!suggestionEnginesReadyRef.current || contentFingerprintRef.current === '') {
+            return;
+        }
+
+        const { articleId, siteId } = articleMetaRef.current;
+        const session = loadInternalLinkSuggestionSession(articleId, siteId);
+        const expected = {
+            articleId,
+            siteId,
+            contentFingerprint: contentFingerprintRef.current,
+            suggestionEngines: suggestionEnginesRef.current,
+        };
+        if (session && !isInternalLinkSuggestionSessionUsable(session, expected)) {
+            clearInternalLinkSuggestionSession(articleId, siteId);
+            suggestionsCacheRef.current = new Map();
+            keywordCatalogRef.current = [];
+            externalKeywordCatalogRef.current = [];
+            rememberCategoryGenerated({ internal: false, external: false });
+            bumpSuggestionCursor({ phase: 'idle', hasResults: false });
+            setSuggestionsEmpty(false);
+            setCatalogVersion((value) => value + 1);
+            return;
+        }
+
+        const resolved = resolveSuggestionSessionCache(session, expected);
+        if (resolved.internal !== null) {
+            keywordCatalogRef.current = resolved.internal;
+        } else {
+            keywordCatalogRef.current = [];
+        }
+        if (resolved.external !== null) {
+            externalKeywordCatalogRef.current = resolved.external;
+        } else {
+            externalKeywordCatalogRef.current = [];
+        }
+        const generated = {
+            internal: resolved.internal !== null,
+            external: resolved.external !== null,
+        };
+        rememberCategoryGenerated(generated);
+        if (session && (resolved.internal === null || resolved.external === null) && (generated.internal || generated.external)) {
+            saveInternalLinkSuggestionSession(articleId, siteId, {
+                ...session,
+                suggestionEngines: suggestionEnginesRef.current,
+                catalog: keywordCatalogRef.current,
+                externalCatalog: externalKeywordCatalogRef.current,
+                generated,
+            });
+        }
+        const hasRows = keywordCatalogRef.current.length > 0 || externalKeywordCatalogRef.current.length > 0;
+        bumpSuggestionCursor({
+            phase: hasRows ? 'source1_done' : 'idle',
+            hasResults: hasRows,
+        });
+        setSuggestionsEmpty(false);
+        setCatalogVersion((value) => value + 1);
     };
 
     useEffect(() => {
@@ -1247,6 +1298,12 @@ export default function ArticleLinksSidebar({
                     return;
                 }
 
+                if (payload.suggestionEngines) {
+                    suggestionEnginesRef.current = payload.suggestionEngines;
+                    setSuggestionEngines(payload.suggestionEngines);
+                    suggestionEnginesReadyRef.current = true;
+                    restoreCachedSuggestions();
+                }
                 if (payload.ctaQuickTemplates) {
                     setServerCtaTemplates(payload.ctaQuickTemplates);
                 }
@@ -1340,6 +1397,10 @@ export default function ArticleLinksSidebar({
 
     const applySuggestionPayload = (payload, source, options = {}) => {
         const append = options.append === true;
+        if (payload?.suggestionEngines) {
+            suggestionEnginesRef.current = payload.suggestionEngines;
+            setSuggestionEngines(payload.suggestionEngines);
+        }
         if (payload?.suggestionDebug && typeof window !== 'undefined') {
             // eslint-disable-next-line no-console
             console.info('[LINK_FALLBACK_DEBUG]', {
@@ -1413,6 +1474,7 @@ export default function ArticleLinksSidebar({
             new CustomEvent('seo-editor-links-updated', {
                 detail: {
                     source,
+                    replace_categories: Array.isArray(options.replaceCategories) ? options.replaceCategories : ['internal', 'external'],
                     suggested_internal: payload.suggestedInternalLinks,
                     suggested_internal_links_catalog: payload.suggestedInternalLinksCatalog,
                     suggested_external_links: payload.suggestedExternalLinks,
@@ -1432,28 +1494,23 @@ export default function ArticleLinksSidebar({
                 ?? '')
                 .trim()
                 .toLowerCase();
-        const sample = String(content || '').slice(0, 400) + String(content || '').slice(-200);
-        let hash = 0;
-        for (let i = 0; i < sample.length; i += 1) {
-            hash = ((hash << 5) - hash) + sample.charCodeAt(i);
-            hash |= 0;
+        const text = String(content || '');
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
         }
-        return `${articleId}|${focus}|${String(content || '').length}|${hash}`;
+        return `${articleId}|${focus}|${text.length}|${hash >>> 0}`;
     };
 
     const loadLinkSuggestions = async (options = {}) => {
-        const { articleId } = articleMetaRef.current;
+        const { articleId, siteId } = articleMetaRef.current;
         if (suggestionsLoading) {
             return;
         }
 
-        const force = options.force === true;
-        const findMore = !force && suggestionCursorRef.current.hasResults === true;
-        const useAdvanced = findMore && advancedSearchEnabledRef.current === true;
-        // Advanced may stay ON across an exhausted pass; allow Find more without
-        // forcing checkbox OFF→ON, but restart content_deep from the top.
-        const restartAdvancedFromExhausted = useAdvanced
-            && suggestionCursorRef.current.phase === 'exhausted';
+        // Shift+click on the existing Generate / Find more button bypasses suggestion cache only.
+        const force = options.force === true || options.shiftKey === true;
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
@@ -1461,70 +1518,58 @@ export default function ArticleLinksSidebar({
         suggestionRequestSeqRef.current = requestSeq;
         setSuggestionsLoading(true);
         setSuggestionsError(null);
-        if (!findMore) {
-            setSuggestionsEmpty(false);
-            bumpSuggestionCursor({ phase: 'idle', hasResults: false });
-            advancedCursorRef.current = null;
-            failedCandidateKeysRef.current = [];
-        } else {
-            if (restartAdvancedFromExhausted) {
-                advancedCursorRef.current = { stage: 'content_deep', offset: 0 };
-            }
-            bumpSuggestionCursor({
-                phase: useAdvanced ? 'advanced_active' : 'source2_active',
-                hasResults: true,
-            });
-        }
 
         try {
             const content = await requestEditorDocumentHtml();
             const cacheKey = buildSuggestionsInputKey(articleId, content);
             contentFingerprintRef.current = cacheKey;
-
-            if (!findMore && !force) {
-                const cached = suggestionsCacheRef.current.get(cacheKey);
-                if (cached) {
-                    applySuggestionPayload(cached, 'links-suggestions-cache');
-                    const usableCached = countUsableSuggestions();
-                    bumpSuggestionCursor({
-                        phase: usableCached > 0 ? 'source1_done' : 'exhausted',
-                        hasResults: usableCached > 0,
-                    });
-                    persistSuggestionSession({ contentFingerprint: cacheKey });
-                    return;
-                }
-            }
-
-            if (useAdvanced) {
-                const usableNow = countUsableSuggestions();
-                const remainingSlots = Math.max(0, 10 - usableNow);
-                if (remainingSlots <= 0) {
-                    bumpSuggestionCursor({ phase: 'exhausted', hasResults: true });
-                    persistSuggestionSession({ exhausted: true, contentFingerprint: cacheKey });
-                    return;
-                }
-                const cursor = advancedCursorRef.current?.stage
-                    ? advancedCursorRef.current
-                    : { stage: 'content_deep', offset: 0 };
-                const payload = await fetchEditorLinksSuggestions(articleId, {
-                    content,
-                    mode: 'advanced',
-                    existingInternal: buildExistingInternalPayload(),
-                    failedKeys: failedCandidateKeysRef.current,
-                    cursor,
-                    targetCount: Math.min(5, remainingSlots),
-                    usableCount: usableNow,
-                    signal: controller.signal,
+            const engines = suggestionEnginesRef.current;
+            const memoryKey = `${cacheKey}|${engines.internal}|${engines.external}`;
+            const resolved = force
+                ? { internal: null, external: null }
+                : resolveSuggestionSessionCache(loadInternalLinkSuggestionSession(articleId, siteId), {
+                    articleId,
+                    siteId,
+                    contentFingerprint: cacheKey,
+                    suggestionEngines: engines,
                 });
-                if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
-                    return;
+            const needInternal = resolved.internal === null;
+            const needExternal = resolved.external === null;
+            const findMore = !force
+                && !needInternal
+                && !needExternal
+                && suggestionCursorRef.current.hasResults === true;
+
+            if (!findMore && !needInternal && !needExternal) {
+                const cached = suggestionsCacheRef.current.get(memoryKey);
+                if (cached) {
+                    applySuggestionPayload(cached, 'links-suggestions-cache', {
+                        replaceCategories: ['internal', 'external'],
+                    });
+                } else if (resolved.internal !== null || resolved.external !== null) {
+                    keywordCatalogRef.current = resolved.internal ?? [];
+                    externalKeywordCatalogRef.current = resolved.external ?? [];
+                    setCatalogVersion((value) => value + 1);
                 }
-                applySuggestionPayload(payload, 'links-suggestions-advanced', { append: true });
+                const usableCached = countUsableSuggestions();
+                bumpSuggestionCursor({
+                    phase: usableCached > 0 ? 'source1_done' : 'exhausted',
+                    hasResults: usableCached > 0,
+                });
+                rememberCategoryGenerated({ internal: true, external: true });
                 persistSuggestionSession({ contentFingerprint: cacheKey });
                 return;
             }
 
+            if (findMore && suggestionCursorRef.current.phase === 'exhausted') {
+                return;
+            }
+
             if (findMore) {
+                bumpSuggestionCursor({
+                    phase: 'source2_active',
+                    hasResults: true,
+                });
                 const payload = await fetchEditorLinksSuggestions(articleId, {
                     content,
                     mode: 'fallback',
@@ -1539,16 +1584,34 @@ export default function ArticleLinksSidebar({
                 return;
             }
 
+            setSuggestionsEmpty(false);
+            if (needInternal && needExternal) {
+                bumpSuggestionCursor({ phase: 'idle', hasResults: false });
+                advancedCursorRef.current = null;
+                failedCandidateKeysRef.current = [];
+            }
+            const scope = needInternal && needExternal ? 'both' : (needInternal ? 'internal' : 'external');
             const payload = await fetchEditorLinksSuggestions(articleId, {
                 content,
                 mode: 'full',
+                scope,
                 signal: controller.signal,
             });
             if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
                 return;
             }
-            applySuggestionPayload(payload, 'links-suggestions');
-            suggestionsCacheRef.current.set(cacheKey, payload);
+            const replaceCategories = scope === 'both' ? ['internal', 'external'] : [scope];
+            applySuggestionPayload(payload, 'links-suggestions', { replaceCategories });
+            if (scope === 'both') {
+                suggestionsCacheRef.current.set(memoryKey, payload);
+            } else {
+                suggestionsCacheRef.current.delete(memoryKey);
+            }
+            const nextGenerated = {
+                internal: scope !== 'external' ? true : categoryGeneratedRef.current.internal,
+                external: scope !== 'internal' ? true : categoryGeneratedRef.current.external,
+            };
+            rememberCategoryGenerated(nextGenerated);
 
             const usableCount = countUsableSuggestions();
             // Full staged pipeline already includes generic fallback when needed —
@@ -1560,12 +1623,10 @@ export default function ArticleLinksSidebar({
             });
             // After Normal full, Advanced starts at content_deep (expanded discovery),
             // not a re-walk of the same production pool from product_cat/0.
-            advancedCursorRef.current = {
-                stage: 'content_deep',
-                offset: 0,
-                phrase_offset: 0,
-            };
-            persistSuggestionSession({ contentFingerprint: cacheKey });
+            persistSuggestionSession({
+                contentFingerprint: cacheKey,
+                generated: nextGenerated,
+            });
         } catch (error) {
             if (error?.name === 'AbortError' || controller.signal.aborted) {
                 return;
@@ -1602,41 +1663,20 @@ export default function ArticleLinksSidebar({
                 } catch {
                     content = '';
                 }
-                const fingerprint = buildSuggestionsInputKey(articleId, content);
-                contentFingerprintRef.current = fingerprint;
-                const session = loadInternalLinkSuggestionSession(articleId, siteId);
-                if (isInternalLinkSuggestionSessionUsable(session, {
-                    articleId,
-                    siteId,
-                    contentFingerprint: fingerprint,
-                })) {
-                    keywordCatalogRef.current = Array.isArray(session.catalog) ? session.catalog : [];
-                    externalKeywordCatalogRef.current = Array.isArray(session.externalCatalog)
-                        ? session.externalCatalog
-                        : [];
-                    failedCandidateKeysRef.current = Array.isArray(session.failedKeys)
-                        ? session.failedKeys
-                        : [];
-                    advancedCursorRef.current = normalizeAdvancedCursor(session.advancedCursor);
-                    advancedSearchEnabledRef.current = session.advancedEnabled === true;
-                    setAdvancedSearchEnabled(session.advancedEnabled === true);
-                    setCatalogVersion((value) => value + 1);
-                    const exhausted = session.exhausted === true || session.phase === 'exhausted';
-                    bumpSuggestionCursor({
-                        phase: exhausted ? 'exhausted' : (session.phase || 'source1_done'),
-                        hasResults: session.hasResults === true || (session.catalog?.length ?? 0) > 0,
-                    });
-                    setSuggestionsEmpty(
-                        (session.catalog?.length ?? 0) === 0 && session.hasResults !== true,
-                    );
+                contentFingerprintRef.current = buildSuggestionsInputKey(articleId, content);
+                restoreCachedSuggestions();
+                if (isInternalLinkSuggestionSessionUsable(
+                    loadInternalLinkSuggestionSession(articleId, siteId),
+                    {
+                        articleId,
+                        siteId,
+                        contentFingerprint: contentFingerprintRef.current,
+                        suggestionEngines: suggestionEnginesRef.current,
+                    },
+                )) {
                     return;
                 }
-
-                if (session && String(session.contentFingerprint ?? '') !== fingerprint) {
-                    clearInternalLinkSuggestionSession(articleId, siteId);
-                }
-
-                // No valid session — leave suggestions empty until explicit Generate Suggestions click.
+                // No valid session for the active engines — wait for Generate suggestions.
             })();
         }, 0);
 
@@ -1831,7 +1871,7 @@ export default function ArticleLinksSidebar({
         const onLinksUpdate = (event) => {
             const detail = event.detail ?? {};
             // Server base/catalog events must not wipe client existing-link scan.
-            if (detail.source === 'links-base' || detail.source === 'links-suggestions' || detail.source === 'links-suggestions-fallback') {
+            if (detail.source === 'links-base' || detail.source === 'links-suggestions' || detail.source === 'links-suggestions-cache' || detail.source === 'links-suggestions-fallback') {
                 setArticlePlainText(String(detail.article_plain_text ?? ''));
                 if (Array.isArray(detail.domain_link_list_catalog) && detail.domain_link_list_catalog.length > 0) {
                     allDomainLinksRef.current = detail.domain_link_list_catalog;
@@ -1864,7 +1904,7 @@ export default function ArticleLinksSidebar({
                     setServerCtaTemplates(detail.cta_quick_templates);
                 }
 
-                if (detail.source === 'links-suggestions') {
+                if (detail.source === 'links-suggestions' || detail.source === 'links-suggestions-cache') {
                     const incomingSuggested = Array.isArray(detail.suggested_internal)
                         ? detail.suggested_internal
                         : [];
@@ -1879,36 +1919,28 @@ export default function ArticleLinksSidebar({
                     const incomingExternalCatalog = Array.isArray(detail.suggested_external_links_catalog)
                         ? detail.suggested_external_links_catalog
                         : [];
-                    if (incomingKeywordCatalog.length > 0) {
-                        const partitioned = partitionSuggestionCatalogBySite(
-                            mergeSuggestionCatalog(incomingKeywordCatalog, incomingSuggested),
-                            siteDomainRef.current,
-                        );
+                    const replaceCategories = Array.isArray(detail.replace_categories)
+                        ? detail.replace_categories
+                        : ['internal', 'external'];
+                    const partitioned = partitionSuggestionCatalogBySite(
+                        mergeSuggestionCatalog(incomingKeywordCatalog, incomingSuggested),
+                        siteDomainRef.current,
+                    );
+                    if (replaceCategories.includes('internal')) {
+                        keywordCatalogRef.current = partitioned.internal;
+                    } else if (incomingKeywordCatalog.length > 0 || incomingSuggested.length > 0) {
                         keywordCatalogRef.current = mergeSuggestionCatalog(
                             keywordCatalogRef.current,
                             partitioned.internal,
                         );
+                    }
+                    if (replaceCategories.includes('external')) {
                         externalKeywordCatalogRef.current = mergeSuggestionCatalog(
-                            externalKeywordCatalogRef.current,
                             partitioned.external,
                             incomingExternalCatalog,
                             incomingExternalSuggested,
                         );
-                    } else if (incomingSuggested.length > 0) {
-                        const partitioned = partitionSuggestionCatalogBySite(
-                            incomingSuggested,
-                            siteDomainRef.current,
-                        );
-                        keywordCatalogRef.current = mergeSuggestionCatalog(
-                            keywordCatalogRef.current,
-                            partitioned.internal,
-                        );
-                        externalKeywordCatalogRef.current = mergeSuggestionCatalog(
-                            externalKeywordCatalogRef.current,
-                            partitioned.external,
-                        );
-                    }
-                    if (incomingExternalCatalog.length > 0 || incomingExternalSuggested.length > 0) {
+                    } else if (incomingExternalCatalog.length > 0 || incomingExternalSuggested.length > 0) {
                         externalKeywordCatalogRef.current = mergeSuggestionCatalog(
                             externalKeywordCatalogRef.current,
                             incomingExternalCatalog,
@@ -2144,6 +2176,11 @@ export default function ArticleLinksSidebar({
         }
 
         return stableSuggestionsRef.current.filter((item) => {
+            const href = String(item?.href ?? item?.target_url ?? '').trim();
+            if (href === '' || href === '#' || href.startsWith('#')) {
+                return false;
+            }
+
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
     }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
@@ -2185,13 +2222,24 @@ export default function ArticleLinksSidebar({
 
         return stableExternalSuggestionsRef.current.filter((item) => {
             const href = String(item?.href ?? item?.target_url ?? '').trim();
-            if (href === '' || isSpecialOrContactHref(href)) {
+            if (href === '' || isSpecialOrContactHref(href) || href === '#' || href.startsWith('#')) {
                 return false;
+            }
+            if (suggestionEngines.external === 'wiki_v2') {
+                try {
+                    const url = new URL(href);
+                    const host = url.hostname.toLowerCase();
+                    if (url.protocol !== 'https:' || (host !== 'en.wikipedia.org' && host !== 'vi.wikipedia.org') || !url.pathname.startsWith('/wiki/')) {
+                        return false;
+                    }
+                } catch {
+                    return false;
+                }
             }
 
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
-    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick]);
+    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, suggestionEngines.external]);
 
     const scrollToContentSuggestion = (item, index, itemKey) => {
         setActiveKey(itemKey);
@@ -2564,33 +2612,15 @@ export default function ArticleLinksSidebar({
                         onGenerateSuggestions={loadLinkSuggestions}
                         suggestionsLoading={suggestionsLoading}
                         suggestionsHasResults={suggestionsHasResults}
+                        suggestionsCacheComplete={categoryGenerated.internal && categoryGenerated.external}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
+                        suggestionTitle={t(
+                            suggestionEngines.internal === 'semantic_v2'
+                                ? 'links_semantic_v2_suggestion_title'
+                                : 'links_legacy_suggestion_title',
+                            { count: suggestedInternal.length },
+                        )}
                         suggestionsError={suggestionsError}
-                        advancedSearchEnabled={advancedSearchEnabled}
-                        onAdvancedSearchChange={(enabled) => {
-                            advancedSearchEnabledRef.current = enabled;
-                            setAdvancedSearchEnabled(enabled);
-                            if (enabled) {
-                                // Prior Advanced empty runs persist exhausted=true and disable
-                                // "Find more". Turning Advanced on must unlock another content_deep pass.
-                                const hasResults = suggestionCursorRef.current.hasResults === true
-                                    || keywordCatalogRef.current.length > 0;
-                                advancedCursorRef.current = { stage: 'content_deep', offset: 0 };
-                                bumpSuggestionCursor({
-                                    phase: hasResults ? 'source1_done' : 'idle',
-                                    hasResults,
-                                });
-                                persistSuggestionSession({
-                                    advancedEnabled: true,
-                                    exhausted: false,
-                                    phase: hasResults ? 'source1_done' : 'idle',
-                                    hasResults,
-                                    advancedCursor: { stage: 'content_deep', offset: 0 },
-                                });
-                                return;
-                            }
-                            persistSuggestionSession({ advancedEnabled: false });
-                        }}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)
                         }
@@ -2635,9 +2665,12 @@ export default function ArticleLinksSidebar({
                         {suggestedExternal.length > 0 ? (
                             <KeywordList
                                 items={suggestedExternal}
-                                title={t('links_external_suggestion_title', {
-                                    count: suggestedExternal.length,
-                                })}
+                                title={t(
+                                    suggestionEngines.external === 'wiki_v2'
+                                        ? 'links_wiki_suggestion_title'
+                                        : 'links_legacy_external_suggestion_title',
+                                    { count: suggestedExternal.length },
+                                )}
                                 activeKey={activeKey}
                                 target="editor"
                                 variant="suggestion"

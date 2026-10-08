@@ -55,7 +55,7 @@ final class ExternalWikiSuggestionService
             if ($term === '' || mb_stripos($plain, $term) === false) {
                 continue;
             }
-            if (! str_starts_with($url, 'https://en.wikipedia.org/wiki/') && ! str_starts_with($url, 'https://vi.wikipedia.org/wiki/')) {
+            if (! self::isWikipediaArticleUrl($url)) {
                 continue;
             }
             $suggestions[] = [
@@ -71,5 +71,25 @@ final class ExternalWikiSuggestionService
         }
 
         return ['status' => 'ok', 'suggestions' => array_slice($suggestions, 0, 2)];
+    }
+
+    public static function isWikipediaArticleUrl(string $url): bool
+    {
+        $parts = parse_url(trim($url));
+        if (! is_array($parts)) {
+            return false;
+        }
+        if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return false;
+        }
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if (! in_array($host, ['en.wikipedia.org', 'vi.wikipedia.org'], true)) {
+            return false;
+        }
+        $path = (string) ($parts['path'] ?? '');
+
+        return str_starts_with($path, '/wiki/')
+            && strlen($path) > strlen('/wiki/')
+            && ! str_contains($path, ':');
     }
 }

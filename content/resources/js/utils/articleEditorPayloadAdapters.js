@@ -259,6 +259,13 @@ export function normalizeLinksPayload(payload) {
         suggestedExternalLinksCatalog: Array.isArray(src.suggested_external_links_catalog)
             ? src.suggested_external_links_catalog
             : [],
+        suggestionEngines: {
+            internal: src.suggestion_engines?.internal === 'semantic_v2' ? 'semantic_v2' : 'legacy',
+            external: src.suggestion_engines?.external === 'wiki_v2' ? 'wiki_v2' : 'legacy',
+        },
+        suggestionScope: src.suggestion_scope === 'internal' || src.suggestion_scope === 'external'
+            ? src.suggestion_scope
+            : 'both',
         // Orphan Pages removed — unified Internal Links pipeline only.
         suggestedOrphanLinks: [],
         internalLinkCatalog:

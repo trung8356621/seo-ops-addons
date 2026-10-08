@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    INTERNAL_LINK_SUGGESTION_SESSION_VERSION,
     clearInternalLinkSuggestionSession,
     isInternalLinkSuggestionSessionUsable,
     loadInternalLinkSuggestionSession,
+    resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
 } from '../utils/articleInternalLinkSuggestionSessionStorage.js';
 
@@ -86,6 +88,123 @@ test('clear removes session for article', () => {
     });
     clearInternalLinkSuggestionSession(7, 3);
     assert.equal(loadInternalLinkSuggestionSession(7, 3), null);
+});
+
+function saveBoth(articleId, siteId, engines, fingerprint = 'fp') {
+    saveInternalLinkSuggestionSession(articleId, siteId, {
+        contentFingerprint: fingerprint,
+        catalog: [{ text: 'internal-row', href: '/in', suggestion_engine: engines.internal }],
+        externalCatalog: [{ text: 'external-row', href: 'https://en.wikipedia.org/wiki/USB', suggestion_engine: engines.external }],
+        hasResults: true,
+        phase: 'source1_done',
+        suggestionEngines: engines,
+        generated: { internal: true, external: true },
+    });
+}
+
+test('legacy internal cache is not served as semantic v2', () => {
+    installLocalStorage();
+    saveBoth(13614, 4, { internal: 'legacy', external: 'legacy' });
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const resolved = resolveSuggestionSessionCache(session, {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'fp',
+        suggestionEngines: { internal: 'semantic_v2', external: 'legacy' },
+    });
+
+    assert.equal(resolved.internal, null);
+    assert.equal(resolved.external?.[0]?.text, 'external-row');
+    assert.equal(resolved.external?.[0]?.suggestion_engine, 'legacy');
+});
+
+test('semantic v2 cache is not served as legacy', () => {
+    installLocalStorage();
+    saveBoth(13614, 4, { internal: 'semantic_v2', external: 'wiki_v2' });
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const resolved = resolveSuggestionSessionCache(session, {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'fp',
+        suggestionEngines: { internal: 'legacy', external: 'wiki_v2' },
+    });
+
+    assert.equal(resolved.internal, null);
+    assert.equal(resolved.external?.[0]?.suggestion_engine, 'wiki_v2');
+});
+
+test('internal and external invalidation are independent', () => {
+    installLocalStorage();
+    saveBoth(13614, 4, { internal: 'legacy', external: 'wiki_v2' });
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const onlyExternalChanged = resolveSuggestionSessionCache(session, {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'fp',
+        suggestionEngines: { internal: 'legacy', external: 'legacy' },
+    });
+
+    assert.equal(onlyExternalChanged.internal?.[0]?.text, 'internal-row');
+    assert.equal(onlyExternalChanged.external, null);
+});
+
+test('content change invalidates both categories', () => {
+    installLocalStorage();
+    saveBoth(13614, 4, { internal: 'semantic_v2', external: 'wiki_v2' }, 'before');
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const resolved = resolveSuggestionSessionCache(session, {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'after',
+        suggestionEngines: { internal: 'semantic_v2', external: 'wiki_v2' },
+    });
+
+    assert.equal(resolved.internal, null);
+    assert.equal(resolved.external, null);
+});
+
+test('unchanged engine and content reuse the same catalogs', () => {
+    installLocalStorage();
+    saveBoth(13614, 4, { internal: 'semantic_v2', external: 'legacy' });
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const expected = {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'fp',
+        suggestionEngines: { internal: 'semantic_v2', external: 'legacy' },
+    };
+    const first = resolveSuggestionSessionCache(session, expected);
+    const second = resolveSuggestionSessionCache(session, expected);
+
+    assert.equal(first.internal?.[0]?.text, 'internal-row');
+    assert.equal(second.internal?.[0]?.href, first.internal?.[0]?.href);
+    assert.equal(second.external?.[0]?.text, 'external-row');
+    assert.equal(isInternalLinkSuggestionSessionUsable(session, expected), true);
+});
+
+test('older session version is not reused', () => {
+    const map = installLocalStorage();
+    map.set('seo_article_internal_link_suggestion_session_4_13614', JSON.stringify({
+        version: INTERNAL_LINK_SUGGESTION_SESSION_VERSION - 1,
+        siteId: 4,
+        articleId: 13614,
+        contentFingerprint: 'fp',
+        catalog: [{ text: 'stale', href: '/stale' }],
+        externalCatalog: [{ text: 'stale-ext', href: 'https://example.com' }],
+        hasResults: true,
+        suggestionEngines: { internal: 'legacy', external: 'legacy' },
+        generated: { internal: true, external: true },
+    }));
+    const session = loadInternalLinkSuggestionSession(13614, 4);
+    const resolved = resolveSuggestionSessionCache(session, {
+        articleId: 13614,
+        siteId: 4,
+        contentFingerprint: 'fp',
+        suggestionEngines: { internal: 'legacy', external: 'legacy' },
+    });
+
+    assert.equal(resolved.internal, null);
+    assert.equal(resolved.external, null);
 });
 
 test('exhausted-only session without catalog is still usable', () => {

@@ -46,6 +46,7 @@ final class ArticleEditorLinksPayloadService
             'suggested_external_links_catalog' => [],
             'internal_link_catalog' => [],
             'can_generate_suggestions' => true,
+            'suggestion_engines' => self::suggestionEngines(),
             'counts' => [
                 'internal' => count($extractedLinks['internal'] ?? []),
                 'external' => count($extractedLinks['external'] ?? []),
@@ -58,14 +59,15 @@ final class ArticleEditorLinksPayloadService
      *
      * @return array<string, mixed>
      */
-    public function withSuggestions(SeoArticle $article, ?string $submittedContent = null): array
+    public function withSuggestions(SeoArticle $article, ?string $submittedContent = null, ?string $scope = null): array
     {
+        $scope = self::normalizeScope($scope);
         $content = $this->resolveSuggestionContent($article, $submittedContent);
         $base = $this->base($article);
         $internalLinks = $base['extracted_links']['internal'] ?? [];
         $externalLinks = $base['extracted_links']['external'] ?? [];
 
-        $channels = self::legacyChannels();
+        $channels = self::channelsForScope($scope);
         $bundle = ($channels['internal'] || $channels['external'])
             ? $this->suggestionService->suggestBundle(
                 $article,
@@ -91,15 +93,16 @@ final class ArticleEditorLinksPayloadService
             'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
                 ? $bundle['internal_link_catalog']
                 : [],
+            'suggestion_scope' => $scope,
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
-        $payload = $this->mergeSemanticSuggestions($article, $content, $payload);
+        $payload = $this->mergeSemanticSuggestions($article, $content, $payload, $scope);
 
         if (isset($bundle['debug']) && is_array($bundle['debug'])) {
             $payload['suggestion_debug'] = $bundle['debug'];
         }
 
-        return $payload;
+        return $this->publishSuggestionLists($payload);
     }
 
     /**
@@ -145,7 +148,7 @@ final class ArticleEditorLinksPayloadService
             $payload['suggestion_debug'] = $bundle['debug'];
         }
 
-        return $payload;
+        return $this->publishSuggestionLists($payload);
     }
 
     /**
@@ -204,7 +207,7 @@ final class ArticleEditorLinksPayloadService
             $payload['suggestion_debug'] = $bundle['debug'];
         }
 
-        return $payload;
+        return $this->publishSuggestionLists($payload);
     }
 
     /**
@@ -255,9 +258,10 @@ final class ArticleEditorLinksPayloadService
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function mergeSemanticSuggestions(SeoArticle $article, string $content, array $payload): array
+    private function mergeSemanticSuggestions(SeoArticle $article, string $content, array $payload, ?string $scope = null): array
     {
-        if (config('semantic.internal_link_v2') === true) {
+        $scope = self::normalizeScope($scope);
+        if ($scope !== 'external' && config('semantic.internal_link_v2') === true) {
             $internal = app(InternalLinkV2Suggester::class)->suggest(
                 $article,
                 $content,
@@ -267,14 +271,86 @@ final class ArticleEditorLinksPayloadService
             $payload['suggested_internal_links'] = $internal['suggestions'] ?? [];
             $payload['suggested_internal_links_catalog'] = $internal['suggestions'] ?? [];
         }
-        if (config('semantic.wiki_suggestions') === true) {
+        if ($scope !== 'internal' && config('semantic.wiki_suggestions') === true) {
             $wiki = app(ExternalWikiSuggestionService::class)->suggest($article, $content);
             $payload['wiki_suggestions'] = $wiki;
             $payload['suggested_external_links'] = $wiki['suggestions'] ?? [];
             $payload['suggested_external_links_catalog'] = $wiki['suggestions'] ?? [];
         }
 
+        return $this->publishSuggestionLists($payload);
+    }
+
+    /**
+     * @return array{internal: string, external: string}
+     */
+    public static function suggestionEngines(): array
+    {
+        return [
+            'internal' => config('semantic.internal_link_v2') === true ? 'semantic_v2' : 'legacy',
+            'external' => config('semantic.wiki_suggestions') === true ? 'wiki_v2' : 'legacy',
+        ];
+    }
+
+    /**
+     * Drop hash/fragment suggestion rows. Existing article anchors stay in extracted_links.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function publishSuggestionLists(array $payload): array
+    {
+        $engines = self::suggestionEngines();
+        foreach (['suggested_internal_links', 'suggested_internal_links_catalog'] as $key) {
+            $rows = is_array($payload[$key] ?? null) ? $payload[$key] : [];
+            $payload[$key] = $this->stampSuggestionEngine(
+                $this->withoutFragmentSuggestions($rows),
+                $engines['internal'],
+            );
+        }
+        foreach (['suggested_external_links', 'suggested_external_links_catalog'] as $key) {
+            $rows = is_array($payload[$key] ?? null) ? $payload[$key] : [];
+            $payload[$key] = $this->stampSuggestionEngine($rows, $engines['external']);
+        }
+        $payload['suggestion_engines'] = $engines;
+
         return $payload;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function stampSuggestionEngine(array $rows, string $engine): array
+    {
+        $stamped = [];
+        foreach ($rows as $row) {
+            $row['suggestion_engine'] = $engine;
+            $stamped[] = $row;
+        }
+
+        return $stamped;
+    }
+
+    /**
+     * @param  list<mixed>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function withoutFragmentSuggestions(array $rows): array
+    {
+        $kept = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $href = trim((string) ($row['href'] ?? $row['target_url'] ?? ''));
+            if ($href === '' || $href === '#' || str_starts_with($href, '#')) {
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        return $kept;
     }
 
     /**
@@ -288,6 +364,32 @@ final class ArticleEditorLinksPayloadService
             'internal' => config('semantic.internal_link_v2') !== true,
             'external' => config('semantic.wiki_suggestions') !== true,
         ];
+    }
+
+    public static function normalizeScope(?string $scope): string
+    {
+        $scope = strtolower(trim((string) $scope));
+
+        return in_array($scope, ['internal', 'external'], true) ? $scope : 'both';
+    }
+
+    /**
+     * Legacy collector for one category. The other category stays untouched.
+     *
+     * @return array{internal: bool, external: bool}
+     */
+    public static function channelsForScope(?string $scope = null): array
+    {
+        $legacy = self::legacyChannels();
+        $scope = self::normalizeScope($scope);
+        if ($scope === 'internal') {
+            return ['internal' => $legacy['internal'], 'external' => false];
+        }
+        if ($scope === 'external') {
+            return ['internal' => false, 'external' => $legacy['external']];
+        }
+
+        return $legacy;
     }
 
     /**
@@ -305,6 +407,7 @@ final class ArticleEditorLinksPayloadService
             'suggestion_reason' => 'internal_link_v2',
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
+        $payload = $this->publishSuggestionLists($payload);
         if ($advanced) {
             $payload['suggestion_cursor'] = ['stage' => 'done', 'offset' => 0];
             $payload['suggestions_exhausted'] = true;
