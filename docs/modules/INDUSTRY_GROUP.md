@@ -64,9 +64,11 @@ No baked production `min_positive_score` (0.55 / 0.70 / 0.80).
 
 ### Deferred
 
-- No keyword ↔ Industry Group membership persistence
-- No Keyword Grouping integration
-- No Topic clustering integration
+- Keyword ↔ Industry Group membership persistence
+- Treating Industry Groups as Keyword Group output or a whitelist
+- Topic clustering integration
+
+Suggested memberships (`suggested_match=true`) may be sent as optional positive evidence on `POST /v1/keyword-groups/analyses`. They do not whitelist keywords and do not override lexical conflict. See `docs/modules/KEYWORD_GROUPING.md`.
 
 ## V1 qualifying group types
 

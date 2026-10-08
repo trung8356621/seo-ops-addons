@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup;
 
 use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\SearchFoundation\Contracts\IndustryContextKeyResolver;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchEntity;
+use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticAnalyticsClient;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticInvalidResponseException;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputHasher;
@@ -26,6 +29,8 @@ final class KeywordGroupSemanticRefreshService
         private readonly TopicGroupingInputHasher $hasher,
         private readonly KeywordGroupCandidateLoader $loader,
         private readonly KeywordGroupingEligibilityGate $eligibility = new KeywordGroupingEligibilityGate(),
+        private readonly ?IndustryContextKeyResolver $industryKeys = null,
+        private readonly ?IndustryGroupSemanticMatcher $industryMatcher = null,
     ) {}
 
     /**
@@ -76,6 +81,7 @@ final class KeywordGroupSemanticRefreshService
         $candidateCount = count($decisions);
         $eligibleCount = count($payload);
         $excludedCount = $candidateCount - $eligibleCount;
+        $industry = $this->industryEvidence($siteId, $language, $payload);
 
         if ($payload === []) {
             $this->replaceSemanticGroups($siteId, [], null, null, $protectedKeywords);
@@ -89,16 +95,23 @@ final class KeywordGroupSemanticRefreshService
                 0,
                 $excludedCount,
                 $excludedByReason,
+                $industry['status'],
+                $industry['keyword_count'],
+                $industry['membership_count'],
             );
         }
 
         $scopeRef = (string) $siteId;
         $language = $this->normalizeLanguage($language);
-        $response = $this->client->postJson('/v1/keyword-groups/analyses', [
+        $body = [
             'scope_ref' => $scopeRef,
             'language' => $language,
             'keywords' => $payload,
-        ], 'keyword-group-'.$scopeRef);
+        ];
+        if ($industry['evidence'] !== []) {
+            $body['industry_evidence'] = $industry['evidence'];
+        }
+        $response = $this->client->postJson('/v1/keyword-groups/analyses', $body, 'keyword-group-'.$scopeRef);
 
         $parsed = $this->parseResponse($response, $known);
         $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords);
@@ -112,6 +125,9 @@ final class KeywordGroupSemanticRefreshService
             $eligibleCount,
             $excludedCount,
             $excludedByReason,
+            $industry['status'],
+            $industry['keyword_count'],
+            $industry['membership_count'],
         );
     }
 
@@ -314,6 +330,86 @@ final class KeywordGroupSemanticRefreshService
                 }
             }
         });
+    }
+
+    /**
+     * Optional Industry Group support. Absence is not a grouping failure.
+     * Transport failures from the matcher propagate.
+     *
+     * @param  list<array{ref: string, text: string}>  $payload
+     * @return array{status: string, evidence: list<array{ref: string, memberships: list<array{key: string, group_type: string}>}>, keyword_count: int, membership_count: int}
+     */
+    private function industryEvidence(int $siteId, ?string $language, array $payload): array
+    {
+        $none = [
+            'status' => 'no_industry_context',
+            'evidence' => [],
+            'keyword_count' => 0,
+            'membership_count' => 0,
+        ];
+        if ($payload === [] || $this->industryKeys === null || $this->industryMatcher === null) {
+            return $none;
+        }
+
+        $key = $this->industryKeys->keyForSite($siteId);
+        if ($key === null || trim($key) === '') {
+            return $none;
+        }
+
+        $entities = [];
+        foreach ($payload as $row) {
+            $entities[] = new IndustryGroupMatchEntity((string) $row['ref'], (string) $row['text']);
+        }
+
+        $result = $this->industryMatcher->match(
+            scopeRef: 'keyword-group:'.$siteId,
+            entities: $entities,
+            siteId: $siteId,
+            industryContextKey: $key,
+            locale: $this->normalizeLanguage($language),
+        );
+
+        if (! $result->calledPython) {
+            return [
+                'status' => $result->reason !== '' ? $result->reason : 'no_industry_groups',
+                'evidence' => [],
+                'keyword_count' => 0,
+                'membership_count' => 0,
+            ];
+        }
+
+        $evidence = [];
+        $membershipCount = 0;
+        foreach ($result->entities as $entity) {
+            $memberships = [];
+            $seen = [];
+            foreach ($entity->evidence as $row) {
+                if ($row->suggestedMatch !== true) {
+                    continue;
+                }
+                $groupType = trim((string) ($row->groupType ?? ''));
+                if ($groupType === '' || isset($seen[$row->industryGroupKey])) {
+                    continue;
+                }
+                $seen[$row->industryGroupKey] = true;
+                $memberships[] = [
+                    'key' => $row->industryGroupKey,
+                    'group_type' => $groupType,
+                ];
+            }
+            if ($memberships === []) {
+                continue;
+            }
+            $evidence[] = ['ref' => $entity->ref, 'memberships' => $memberships];
+            $membershipCount += count($memberships);
+        }
+
+        return [
+            'status' => $evidence === [] ? 'no_suggested_matches' : 'used',
+            'evidence' => $evidence,
+            'keyword_count' => count($evidence),
+            'membership_count' => $membershipCount,
+        ];
     }
 
     private function normalizeLanguage(?string $language): ?string

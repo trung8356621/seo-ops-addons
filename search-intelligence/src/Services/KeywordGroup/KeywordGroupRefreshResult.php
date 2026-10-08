@@ -18,5 +18,8 @@ final class KeywordGroupRefreshResult
         public readonly int $eligibleCount = 0,
         public readonly int $excludedCount = 0,
         public readonly array $excludedByReason = [],
+        public readonly ?string $industryEvidenceStatus = null,
+        public readonly int $industryEvidenceKeywordCount = 0,
+        public readonly int $industryMembershipCount = 0,
     ) {}
 }

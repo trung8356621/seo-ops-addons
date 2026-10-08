@@ -41,4 +41,14 @@ return [
     | When true (or for owner/admin accounts), direct access is permitted.
     */
     'standalone_harness_enabled' => (bool) env('AGENT_RUNTIME_STANDALONE_HARNESS_ENABLED', false),
+
+    /*
+    | Local semantic tool router. When enabled it is the only capability
+    | selection path for Agent turns and does not fall back to JEV.
+    | Default stays off so existing decision-model turns keep working until
+    | the semantic service is enabled for this installation.
+    */
+    'local_tool_router' => [
+        'enabled' => (bool) env('AGENT_RUNTIME_LOCAL_TOOL_ROUTER', false),
+    ],
 ];

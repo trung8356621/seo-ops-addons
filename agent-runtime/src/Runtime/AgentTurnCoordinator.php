@@ -19,6 +19,9 @@ use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
+use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
+use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
 use Throwable;
 
 final class AgentTurnResult
@@ -108,6 +111,7 @@ class AgentTurnCoordinator
         private readonly AnswerModelGateway $answers,
         private readonly AgentResponseParser $responses,
         private readonly ContentProjectDraftIntakeTool $draftIntake = new ContentProjectDraftIntakeTool(),
+        private readonly ?LocalAgentToolRouter $localToolRouter = null,
     ) {}
 
     /**
@@ -460,6 +464,11 @@ class AgentTurnCoordinator
             ];
         }
 
+        $localRoute = $this->resolveLocalRoute($message);
+        if ($localRoute instanceof LocalToolRoute) {
+            return $this->finishFromLocalRoute($scope, $message, $history, $routingInput, $localRoute, $diagnostics);
+        }
+
         $decisionResult = $this->decisions->decide(new DecisionRequest($userId, $routingInput));
         if (! $decisionResult->ok) {
             $bundle = new RetrievalBundle($scope, [], [$decisionResult->failureCode ?? 'decision_unavailable']);
@@ -546,6 +555,126 @@ class AgentTurnCoordinator
             'decisionDiagnostics' => null,
             'confirmationProposal' => null,
         ];
+    }
+
+    private function resolveLocalRoute(string $message): ?LocalToolRoute
+    {
+        if (config('agent-runtime.local_tool_router.enabled') !== true) {
+            return null;
+        }
+
+        $router = $this->localToolRouter;
+        if (! $router instanceof LocalAgentToolRouter && function_exists('app') && app()->bound(LocalAgentToolRouter::class)) {
+            $resolved = app()->make(LocalAgentToolRouter::class);
+            $router = $resolved instanceof LocalAgentToolRouter ? $resolved : null;
+        }
+        if (! $router instanceof LocalAgentToolRouter) {
+            return null;
+        }
+
+        return $router->route($message);
+    }
+
+    /**
+     * Local routing does not call the decision model. Ambiguous and rejected
+     * results stay unresolved instead of falling back to JEV.
+     *
+     * @param  list<array{role: string, content: string}>  $history
+     * @return array{routing: PreparedModelInput, answer: PreparedModelInput|null, bundle: RetrievalBundle|null, response: AgentResponse|null, confirmationProposal: AgentToolConfirmationProposal|null, failureCode: string|null, decisionDiagnostics?: array|null}
+     */
+    private function finishFromLocalRoute(
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        PreparedModelInput $routingInput,
+        LocalToolRoute $route,
+        bool $diagnostics,
+    ): array {
+        if ($route->outcome !== 'confident' || $route->catalogAuthorized !== true || $route->capability === null) {
+            $bundle = new RetrievalBundle($scope, [], ['local_tool_router_'.$route->outcome]);
+            $text = match ($route->outcome) {
+                'ambiguous' => 'The request matches more than one tool. Ask which capability to use.',
+                'rejected' => 'The matched capability is not available, so no tool was executed.',
+                'unavailable' => 'The local tool router could not classify this request, so no tool was executed.',
+                default => 'No suitable tool was selected, so no tool was executed.',
+            };
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text'),
+                'bundle' => $bundle,
+                'response' => $this->safeResponse($text, $bundle, 'local_tool_router_'.$route->outcome),
+                'failureCode' => 'local_tool_router_'.$route->outcome,
+                'decisionDiagnostics' => $diagnostics ? ['status' => $route->outcome, 'router' => 'local'] : null,
+                'confirmationProposal' => null,
+            ];
+        }
+
+        $processed = $this->processDecisionAndRetrieve(
+            $scope,
+            $message,
+            $history,
+            $this->localDecisionJson($route, $message),
+        );
+        if ($processed['error'] !== null || $processed['decision'] === null) {
+            $bundle = $processed['bundle'] ?? new RetrievalBundle($scope, [], ['routing_decision_invalid']);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $processed['answerInput'],
+                'bundle' => $bundle,
+                'response' => $this->safeResponse(
+                    'The local tool router did not produce an executable capability, so no tool was executed.',
+                    $bundle,
+                    'routing_decision_invalid',
+                ),
+                'failureCode' => 'routing_decision_invalid',
+                'decisionDiagnostics' => $diagnostics ? ['status' => 'rejected', 'router' => 'local'] : null,
+                'confirmationProposal' => null,
+            ];
+        }
+
+        if ($processed['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            return [
+                'routing' => $routingInput,
+                'answer' => null,
+                'bundle' => null,
+                'response' => null,
+                'confirmationProposal' => $processed['confirmationProposal'],
+                'failureCode' => null,
+                'decisionDiagnostics' => null,
+            ];
+        }
+
+        return [
+            'routing' => $routingInput,
+            'answer' => $processed['answerInput'],
+            'bundle' => $processed['bundle'],
+            'response' => $processed['response'],
+            'failureCode' => $processed['bundle'] instanceof RetrievalBundle ? $this->failureCodeFromBundle($processed['bundle']) : null,
+            'decisionDiagnostics' => null,
+            'confirmationProposal' => null,
+        ];
+    }
+
+    private function localDecisionJson(LocalToolRoute $route, string $message): string
+    {
+        $key = (string) $route->capability;
+        $language = preg_match('/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/iu', $message) === 1
+            ? 'vi'
+            : 'en';
+
+        return json_encode([
+            'is_in_scope' => true,
+            'intent' => mb_substr(trim($message), 0, 180),
+            'primary_capability' => $key,
+            'capabilities' => [$key],
+            'parameters' => [],
+            'requires_parameter_extraction' => false,
+            'requires_user_confirmation' => AgentCapabilityCatalog::requiresConfirmation($key),
+            'response_template' => AgentCapabilityCatalog::executionMode($key) === 'tool' ? 'report' : 'text',
+            'response_language' => $language,
+        ], JSON_THROW_ON_ERROR);
     }
 
     private function failureCodeFromBundle(RetrievalBundle $bundle): ?string

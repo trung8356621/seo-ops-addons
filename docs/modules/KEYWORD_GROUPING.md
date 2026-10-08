@@ -1,7 +1,7 @@
 # Keyword Grouping
 
 > Owner: `search-intelligence`  
-> Stable path: inventory → Eligibility Gate → Python Keyword Grouping
+> Stable path: inventory → Eligibility Gate → Industry evidence → Python Keyword Grouping
 
 ## Flow
 
@@ -35,15 +35,32 @@ Manual groups and locked groups stay protected. The gate does not delete, move, 
 
 If every non-protected candidate is excluded, Python is not called. Existing non-protected semantic groups are removed. Protected groups stay.
 
+Industry evidence is optional positive support for Python Keyword Grouping. It is not a whitelist and it is not persisted.
+
+```text
+Keyword inventory
+    ↓
+Eligibility Gate
+    ↓
+eligible keywords
+    ↓
+Industry Group Concept Matching
+    ↓
+suggested memberships only
+    ↓
+POST /v1/keyword-groups/analyses
+    ↓
+Keyword Groups
+```
+
+No Industry match does not exclude a keyword. Lexical conflict wins over a shared Industry Group. `suggested_match=false` is not sent. Memberships are not persisted.
+
 ## Deferred
 
 - `sentence_like`
 - CTA / noise semantic exclusion
 - off-context exclusion
 - consumer-policy exclusions (`topic.exclude_from_recluster`)
-- Industry Group evidence
-
-No Industry Group match does not make a keyword invalid. `IndustryGroupSemanticMatcher` is not an eligibility whitelist.
 
 Diagnostic (no DB writes, no concept matching):
 
