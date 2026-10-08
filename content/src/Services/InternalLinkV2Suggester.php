@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
@@ -144,7 +145,7 @@ final class InternalLinkV2Suggester
                     continue;
                 }
                 $target = SeoArticle::query()->whereKey($articleId)->where('site_id', $siteId)->first();
-                if (! $target instanceof SeoArticle) {
+                if (! $target instanceof SeoArticle || ! $this->isPublished($target)) {
                     continue;
                 }
                 $url = $this->permalink($target);
@@ -172,6 +173,23 @@ final class InternalLinkV2Suggester
         }
 
         return $rows;
+    }
+
+    private function isPublished(SeoArticle $article): bool
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('publishing_article_states')) {
+            return false;
+        }
+        $state = $article->publishingState()->first(['publication_status', 'published_at']);
+        if ($state === null) {
+            return false;
+        }
+        $status = strtolower((string) $state->publication_status);
+        if ($status === 'published') {
+            return $state->published_at !== null;
+        }
+
+        return $status === 'publish';
     }
 
     private function permalink(SeoArticle $article): string

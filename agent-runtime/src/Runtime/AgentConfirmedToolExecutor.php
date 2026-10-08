@@ -11,6 +11,7 @@ use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
+use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext;
 use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
 
@@ -79,7 +80,7 @@ final class AgentConfirmedToolExecutor
         );
         $data = $this->seoAudit->listArticles($context, ['low_score' => true, 'limit' => $limit]);
 
-        return new RetrievalBundle(
+        return $this->appendTopicGroups(new RetrievalBundle(
             $scope,
             [...$bundle->sources, new RetrievalSource(
                 'articles',
@@ -87,6 +88,27 @@ final class AgentConfirmedToolExecutor
                 'SeoAuditAgentReadService::listArticles?low_score=true&limit='.$limit,
                 $data,
             )],
+            $bundle->warnings,
+        ), $proposal->intent);
+    }
+
+    private function appendTopicGroups(RetrievalBundle $bundle, string $query): RetrievalBundle
+    {
+        if (config('agent-runtime.local_tool_router.enabled') !== true) {
+            return $bundle;
+        }
+        if ($bundle->scope->siteId === null || ! function_exists('app') || ! app()->bound(TopicGroupArticleSource::class)) {
+            return $bundle;
+        }
+        $source = app()->make(TopicGroupArticleSource::class);
+        if (! $source instanceof TopicGroupArticleSource) {
+            return $bundle;
+        }
+        $data = $source->retrieve((int) $bundle->scope->siteId, $query);
+
+        return new RetrievalBundle(
+            $bundle->scope,
+            [...$bundle->sources, new RetrievalSource('topic_groups', (string) ($data['status'] ?? 'ok'), 'topic-group-retrieval', $data)],
             $bundle->warnings,
         );
     }

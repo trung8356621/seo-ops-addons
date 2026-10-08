@@ -80,6 +80,13 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
             $table->string('name');
             $table->timestamps();
         });
+        $schema->create('publishing_article_states', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('article_id');
+            $table->string('publication_status')->nullable();
+            $table->timestamp('published_at')->nullable();
+            $table->timestamps();
+        });
         $migration = require dirname(__DIR__, 3).'/search-intelligence/database/migrations/2026_10_07_180000_create_seo_keyword_groups.php';
         $migration->up();
     }
@@ -91,6 +98,13 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         $fresh = $this->article(9, 'Bài cotton mới');
         $this->permalink($heavy, 'https://example.test/old');
         $this->permalink($fresh, 'https://example.test/new');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $fresh,
+            'publication_status' => 'published',
+            'published_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $keyword = Keyword::query()->create(['phrase' => 'áo thun cotton', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
         DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
             'keyword_id' => $keyword->id,
@@ -152,6 +166,63 @@ final class SemanticLinkSuggestionCallerTest extends TestCase
         self::assertSame('internal_link_v2', $result['suggestions'][0]['source']);
         self::assertSame($fresh, $result['suggestions'][0]['target_article_id']);
         self::assertTrue(str_contains('Mẫu áo thun cotton cho mùa này.', $result['suggestions'][0]['text']));
+    }
+
+    public function test_wordpress_publish_status_is_eligible_without_published_at(): void
+    {
+        $source = $this->article(9, 'Bài nguồn');
+        $target = $this->article(9, 'Bài đã xuất bản trên WordPress');
+        $this->permalink($target, 'https://example.test/wp');
+        DB::connection('omi_seo_ai')->table('publishing_article_states')->insert([
+            'article_id' => $target,
+            'publication_status' => 'publish',
+            'published_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $keyword = Keyword::query()->create(['phrase' => 'balo học sinh', 'type' => Keyword::TYPE_NORMAL, 'review_status' => 'active']);
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            'keyword_id' => $keyword->id,
+            'meta_key' => KeywordMetaKey::siteMainArticleId(9),
+            'meta_value' => (string) $target,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $group = SeoKeywordGroup::query()->create([
+            'site_id' => 9,
+            'name' => 'Balo',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'tg:balo',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 9,
+            'group_id' => $group->id,
+            'keyword_id' => $keyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        Http::fake([
+            'http://semantic.test/v1/internal-links/v2/rank' => function ($request) use ($target) {
+                TestCase::assertSame('article:'.$target, $request->data()['candidates'][0]['ref']);
+
+                return Http::response([
+                    'suggestions' => [[
+                        'ref' => 'article:'.$target,
+                        'score' => 0.6,
+                        'components' => ['relevance' => 0.6],
+                    ]],
+                    'metrics' => [],
+                ]);
+            },
+        ]);
+
+        $result = (new InternalLinkV2Suggester())->suggest(
+            SeoArticle::query()->findOrFail($source),
+            '<p>balo học sinh đi học mỗi ngày.</p>',
+        );
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame($target, $result['suggestions'][0]['target_article_id']);
     }
 
     public function test_wiki_caller_keeps_only_verified_urls_present_in_the_article(): void
