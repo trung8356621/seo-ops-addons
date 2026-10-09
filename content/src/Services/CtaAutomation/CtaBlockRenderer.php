@@ -15,7 +15,7 @@ final class CtaBlockRenderer
 {
     /**
      * @param  list<array<string, mixed>>  $operations
-     * @return array{html: string, applied: list<string>, skipped: list<string>}
+     * @return array{html: string, applied: list<string>, skipped: list<string>, ok: bool}
      */
     public function apply(string $html, array $operations): array
     {
@@ -26,31 +26,35 @@ final class CtaBlockRenderer
         libxml_use_internal_errors($previous);
         $root = $dom->getElementById('cta-root');
         if (! $root instanceof DOMElement) {
-            return ['html' => $html, 'applied' => [], 'skipped' => ['unparsed']];
+            return ['ok' => false, 'html' => $html, 'applied' => [], 'skipped' => ['unparsed']];
         }
 
         $applied = [];
-        $skipped = [];
         foreach ($operations as $operation) {
             $kind = (string) ($operation['kind'] ?? '');
             $id = (string) ($operation['id'] ?? $kind);
             $ok = match ($kind) {
                 'remove_managed' => $this->removeManaged($root, (string) ($operation['placement_id'] ?? '')),
-                'remove' => $this->removeByText($root, (string) ($operation['text'] ?? '')),
+                'remove' => $this->removeByText($root, $operation),
                 'insert' => $this->insert($dom, $root, $operation),
                 default => false,
             };
-            if ($ok) {
-                $applied[] = $id;
-            } else {
-                $skipped[] = $id;
+            if (! $ok) {
+                return [
+                    'ok' => false,
+                    'html' => $html,
+                    'applied' => [],
+                    'skipped' => [$id],
+                ];
             }
+            $applied[] = $id;
         }
 
         return [
+            'ok' => true,
             'html' => $this->innerHtml($root),
             'applied' => $applied,
-            'skipped' => $skipped,
+            'skipped' => [],
         ];
     }
 
@@ -73,18 +77,20 @@ final class CtaBlockRenderer
         return $found;
     }
 
-    public function blockHtml(string $placementId, string $sectionId, string $intent, ?string $alias, string $origin, string $text, string $style = 'soft'): string
+    public function blockHtml(string $placementId, string $sectionId, string $intent, ?string $alias, string $origin, string $text, string $style = 'soft', string $runId = ''): string
     {
         $style = $this->style($style);
         $safeText = htmlspecialchars($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $run = $runId !== '' ? ' data-cta-run="'.$this->esc($runId).'"' : '';
         $attrs = sprintf(
-            'class="seo-managed-cta" data-cta-placement="%s" data-cta-section="%s" data-cta-intent="%s" data-cta-alias="%s" data-cta-origin="%s" data-cta-style="%s" data-cta-manual="0"',
+            'class="seo-managed-cta" data-cta-placement="%s" data-cta-section="%s" data-cta-intent="%s" data-cta-alias="%s" data-cta-origin="%s" data-cta-style="%s" data-cta-manual="0"%s',
             $this->esc($placementId),
             $this->esc($sectionId),
             $this->esc($intent),
             $this->esc((string) $alias),
             $this->esc($origin),
             $this->esc($style),
+            $run,
         );
 
         return '<div '.$attrs.'>[seo_ops_cta style="'.$this->esc($style).'" placement="'.$this->esc($placementId).'" intent="'.$this->esc($intent).'"]'.$safeText.'[/seo_ops_cta]</div>';
@@ -97,48 +103,56 @@ final class CtaBlockRenderer
 
     private function removeManaged(DOMElement $root, string $placementId): bool
     {
-        $removed = false;
-        $nodes = [];
-        foreach ($root->getElementsByTagName('*') as $node) {
-            if ($node instanceof DOMElement && str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
-                $nodes[] = $node;
-            }
+        if ($placementId === '') {
+            return false;
         }
-        foreach ($nodes as $node) {
+        foreach ($root->getElementsByTagName('*') as $node) {
+            if (! $node instanceof DOMElement || ! str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
+                continue;
+            }
             if ($node->getAttribute('data-cta-manual') === '1') {
                 continue;
             }
-            if ($placementId !== '' && $node->getAttribute('data-cta-placement') !== $placementId) {
+            if ($node->getAttribute('data-cta-placement') !== $placementId) {
                 continue;
             }
             $node->parentNode?->removeChild($node);
-            $removed = true;
+
+            return true;
         }
 
-        return $removed;
+        return false;
     }
 
-    private function removeByText(DOMElement $root, string $text): bool
+    /**
+     * @param  array<string, mixed>  $operation
+     */
+    private function removeByText(DOMElement $root, array $operation): bool
     {
-        $needle = $this->normalize($text);
-        if ($needle === '') {
+        $needle = $this->normalize((string) ($operation['text'] ?? ''));
+        $sectionId = (string) ($operation['section_id'] ?? '');
+        if ($needle === '' || $sectionId === '') {
             return false;
         }
-        foreach (['blockquote', 'p'] as $tag) {
-            $nodes = [];
-            foreach ($root->getElementsByTagName($tag) as $node) {
-                if ($node instanceof DOMElement) {
-                    $nodes[] = $node;
-                }
+        $occurrence = max(1, (int) ($operation['occurrence'] ?? 1));
+        $seen = 0;
+        foreach (CtaSectionMap::bind($root) as $section) {
+            if ($section['section_id'] !== $sectionId) {
+                continue;
             }
-            foreach ($nodes as $node) {
-                if ($node->getAttribute('data-cta-manual') === '1') {
+            foreach ($section['nodes'] as $node) {
+                if ($node->getAttribute('data-cta-manual') === '1' || str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
                     continue;
                 }
-                if (str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
+                $tag = strtolower($node->tagName);
+                if (! in_array($tag, ['p', 'blockquote'], true)) {
                     continue;
                 }
                 if ($this->normalize($node->textContent ?? '') !== $needle) {
+                    continue;
+                }
+                $seen++;
+                if ($seen !== $occurrence) {
                     continue;
                 }
                 $node->parentNode?->removeChild($node);
@@ -157,8 +171,12 @@ final class CtaBlockRenderer
     {
         $sectionId = (string) ($operation['section_id'] ?? '');
         $fragment = (string) ($operation['html'] ?? '');
+        $placementId = (string) ($operation['placement_id'] ?? '');
         if ($sectionId === '' || $fragment === '') {
             return false;
+        }
+        if ($placementId !== '' && $this->placementExists($root, $placementId)) {
+            return true;
         }
         $anchor = $this->sectionEnd($root, $sectionId);
         if (! $anchor instanceof DOMNode) {
@@ -193,33 +211,25 @@ final class CtaBlockRenderer
         return $imported !== [];
     }
 
+    private function placementExists(DOMElement $root, string $placementId): bool
+    {
+        foreach ($root->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && $node->getAttribute('data-cta-placement') === $placementId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function sectionEnd(DOMElement $root, string $sectionId): ?DOMNode
     {
-        $index = 1;
-        $last = null;
-        $started = false;
-        foreach ($root->childNodes as $child) {
-            if (! $child instanceof DOMElement) {
+        foreach (CtaSectionMap::bind($root) as $section) {
+            if ($section['section_id'] !== $sectionId || $section['nodes'] === []) {
                 continue;
             }
-            $tag = strtolower($child->tagName);
-            $current = 'section_'.$index;
-            if (in_array($tag, ['h2', 'h3'], true)) {
-                if ($started && $last instanceof DOMNode) {
-                    $index++;
-                    if ($current === $sectionId) {
-                        return $last;
-                    }
-                }
-                $last = $child;
-                $started = true;
-                continue;
-            }
-            $started = true;
-            $last = $child;
-        }
-        if (('section_'.$index) === $sectionId) {
-            return $last;
+
+            return $section['nodes'][array_key_last($section['nodes'])];
         }
 
         return null;

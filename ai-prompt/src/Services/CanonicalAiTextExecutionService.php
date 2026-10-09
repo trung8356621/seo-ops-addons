@@ -124,7 +124,8 @@ final class CanonicalAiTextExecutionService
                             'hook_key' => $hookKey,
                             'stage' => $context->promptTaskType ?? 'atomic_text',
                             'usage' => is_array($usage) ? $usage : null,
-                        ]
+                        ],
+                        promptResultId: ((int) ($options['prompt_result_id'] ?? 0)) > 0 ? (int) $options['prompt_result_id'] : null,
                     );
                 } catch (\Throwable) {}
             }
@@ -141,7 +142,8 @@ final class CanonicalAiTextExecutionService
                             'hook_key' => $hookKey,
                             'stage' => $context->promptTaskType ?? 'atomic_text',
                             'usage' => null,
-                        ]
+                        ],
+                        promptResultId: ((int) ($options['prompt_result_id'] ?? 0)) > 0 ? (int) $options['prompt_result_id'] : null,
                     );
                 } catch (\Throwable) {}
             }

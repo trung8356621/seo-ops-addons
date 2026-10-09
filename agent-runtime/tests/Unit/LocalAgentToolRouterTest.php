@@ -22,9 +22,10 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AgentRuntime\Routing\CatalogToolRouteAuthority;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
-use Omnichannel\Addons\AgentRuntime\Routing\SemanticToolIntentMatcher;
-use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatcher;
-use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatchResult;
+use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
+use Omnichannel\Addons\AgentRuntime\Routing\SemanticWeightedClient;
+use Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation;
+use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,36 +34,34 @@ use Tests\TestCase;
 final class LocalAgentToolRouterTest extends TestCase
 {
     #[Test]
-    public function obvious_phrase_selects_the_capability_without_semantic_score(): void
+    public function lexical_phrase_does_not_select_a_tool_without_semantic_confidence(): void
     {
-        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $router = $this->router([jev('none', null)]);
         $route = $router->route('tìm bài SEO kém');
 
-        self::assertSame('confident', $route->outcome);
-        self::assertSame('seo_audit.worst_articles', $route->capability);
-        self::assertTrue($route->catalogAuthorized);
-        self::assertSame('explicit', $route->evidenceKind);
-        self::assertFalse($route->executesTool());
+        self::assertSame('none', $route->outcome);
+        self::assertNull($route->capability);
+        self::assertSame('weighted', $route->evidenceKind);
     }
 
     #[Test]
-    public function vietnamese_low_score_paraphrase_selects_worst_articles(): void
+    public function keyword_inventory_is_not_forced_into_seo_audit(): void
     {
-        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', [])));
-        $route = $router->route('Cho tôi các bài viết có điểm SEO thấp thuộc nhóm balo học sinh');
+        $router = $this->router([jev('confident', 'keywords'), jev('confident', 'keywords.landscape')]);
+        $route = $router->route('Website này đang theo dõi những từ khóa SEO nào?');
 
         self::assertSame('confident', $route->outcome);
-        self::assertSame('seo_audit.worst_articles', $route->capability);
-        self::assertSame('explicit', $route->evidenceKind);
-        self::assertFalse($route->executesTool());
+        self::assertSame('keywords', $route->module);
+        self::assertSame('READ', $route->intentFamily);
+        self::assertSame('keywords.landscape', $route->capability);
+        self::assertNotSame('seo_audit.worst_articles', $route->capability);
+        self::assertFalse($route->answerModelRequired);
     }
 
     #[Test]
-    public function two_explicit_capabilities_stay_ambiguous(): void
+    public function ambiguous_modules_do_not_execute(): void
     {
-        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('confident', [
-            ['ref' => 'gsc.performance', 'score' => 0.99, 'lexical' => false, 'semantic_score' => 0.99],
-        ])));
+        $router = $this->router([jev('ambiguous', null)]);
         $route = $router->route('traffic tháng này và draft hiện tại');
 
         self::assertSame('ambiguous', $route->outcome);
@@ -73,7 +72,7 @@ final class LocalAgentToolRouterTest extends TestCase
     #[Test]
     public function unmatched_message_stays_unresolved(): void
     {
-        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $router = $this->router([jev('none', null)]);
         $route = $router->route('thời tiết hôm nay thế nào');
 
         self::assertSame('none', $route->outcome);
@@ -86,15 +85,81 @@ final class LocalAgentToolRouterTest extends TestCase
         $authority = new CatalogToolRouteAuthority();
         self::assertFalse($authority->accepts('seo_audit.publish'));
 
-        $router = $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('confident', [
-            ['ref' => 'seo_audit.publish', 'score' => 0.99, 'lexical' => false, 'semantic_score' => 0.99],
-        ])));
+        $router = $this->router([jev('confident', 'seo_audit'), jev('confident', 'seo_audit.publish')]);
         $route = $router->route('hãy làm điều không có ví dụ tường minh');
 
         self::assertSame('rejected', $route->outcome);
         self::assertSame('seo_audit.publish', $route->capability);
         self::assertFalse($route->catalogAuthorized);
         self::assertFalse($route->executesTool());
+    }
+
+    #[Test]
+    public function missing_focus_keyword_is_guidance_without_draft(): void
+    {
+        $router = $this->router([jev('confident', 'seo_audit'), jev('confident', 'seo_audit.focus_keyword_guidance')]);
+        $route = $router->route('Bài nào chưa có Focus Keyword?');
+
+        self::assertSame('confident', $route->outcome);
+        self::assertNull($route->capability);
+        self::assertStringContainsString('/seo/content-projects/seo-audit', (string) $route->guidance);
+        self::assertFalse($route->answerModelRequired);
+    }
+
+    #[Test]
+    public function settings_weights_change_the_module_when_relevance_is_equal(): void
+    {
+        $keywordsFirst = new SemanticRoutingConfig([
+            'revision' => 1,
+            'global' => [[
+                'id' => 'inventory',
+                'name' => 'Inventory',
+                'examples' => ['Site hiện có những từ khóa nào trong hệ thống?'],
+                'enabled' => true,
+                'targets' => [
+                    ['ref' => 'keywords', 'weight' => 10],
+                    ['ref' => 'seo_audit', 'weight' => 3],
+                ],
+            ]],
+            'modules' => [
+                'keywords' => [[
+                    'id' => 'keywords_inventory',
+                    'name' => 'Keyword inventory',
+                    'examples' => ['Site hiện có những từ khóa nào trong hệ thống?'],
+                    'enabled' => true,
+                    'targets' => [['ref' => 'keywords.landscape', 'weight' => 10]],
+                ]],
+            ],
+        ]);
+        $auditFirst = new SemanticRoutingConfig([
+            'revision' => 2,
+            'global' => [[
+                'id' => 'inventory',
+                'name' => 'Inventory',
+                'examples' => ['Site hiện có những từ khóa nào trong hệ thống?'],
+                'enabled' => true,
+                'targets' => [
+                    ['ref' => 'keywords', 'weight' => 3],
+                    ['ref' => 'seo_audit', 'weight' => 10],
+                ],
+            ]],
+            'modules' => [
+                'seo_audit' => [[
+                    'id' => 'audit_low_score',
+                    'name' => 'Low SEO score list',
+                    'examples' => ['Những bài nào có điểm SEO thấp?'],
+                    'enabled' => true,
+                    'targets' => [['ref' => 'seo_audit.worst_articles', 'weight' => 10]],
+                ]],
+            ],
+        ]);
+        $question = 'Site hiện có những từ khóa nào trong hệ thống?';
+
+        $keywords = (new LocalAgentToolRouter(new EqualRelevanceEvaluator(), $keywordsFirst))->route($question);
+        $audit = (new LocalAgentToolRouter(new EqualRelevanceEvaluator(), $auditFirst))->route($question);
+
+        self::assertSame('keywords.landscape', $keywords->capability);
+        self::assertSame('seo_audit.worst_articles', $audit->capability);
     }
 
     #[Test]
@@ -142,7 +207,7 @@ final class LocalAgentToolRouterTest extends TestCase
             $retrieval,
             $answers,
             new AgentResponseParser(),
-            localToolRouter: $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', []))),
+            localToolRouter: $this->router([jev('confident', 'seo_audit'), jev('confident', 'seo_audit.worst_articles')]),
             confirmedTools: new AgentConfirmedToolExecutor($retrieval, $audit),
         );
 
@@ -156,34 +221,39 @@ final class LocalAgentToolRouterTest extends TestCase
     #[Test]
     public function paraphrased_question_uses_semantic_match_and_retrieves_without_jev(): void
     {
-        $this->fakeSemantic('confident', 'articles.inventory', 0.81);
+        $this->fakeSemantic([
+            ['status' => 'confident', 'winner' => 'articles'],
+            ['status' => 'confident', 'winner' => 'articles.inventory'],
+        ]);
         $transport = new RecordingSeoTransport();
         $decisions = $this->createMock(DecisionModelGateway::class);
         $decisions->expects($this->never())->method('decide');
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->once())->method('complete')->willReturn('not-a-contract');
 
-        $result = $this->coordinator($decisions, $answers, $transport, new SemanticToolIntentMatcher())
+        $result = $this->coordinator($decisions, $answers, $transport, new SemanticWeightedClient())
             ->send(1, AgentProjectScope::site(4), 'Hiện trên site đang có những trang nội dung nào?', []);
 
         self::assertNull($result->confirmationProposal);
         self::assertTrue($result->answerModelCalled);
         self::assertNotEmpty($transport->methods);
         self::assertContains('POST', $transport->methods);
-        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/tool-intents/match'));
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/tool-intents/weighted-match'));
     }
 
     #[Test]
     public function ambiguous_semantic_match_does_not_execute(): void
     {
-        $this->fakeSemantic('ambiguous', 'gsc.performance', 0.7);
+        $this->fakeSemantic([
+            ['status' => 'ambiguous', 'winner' => null],
+        ]);
         $transport = new RecordingSeoTransport();
         $decisions = $this->createMock(DecisionModelGateway::class);
         $decisions->expects($this->never())->method('decide');
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
 
-        $result = $this->coordinator($decisions, $answers, $transport, new SemanticToolIntentMatcher())
+        $result = $this->coordinator($decisions, $answers, $transport, new SemanticWeightedClient())
             ->send(1, AgentProjectScope::site(4), 'Hiện trên site đang có những trang nội dung nào?', []);
 
         self::assertNull($result->confirmationProposal);
@@ -194,7 +264,10 @@ final class LocalAgentToolRouterTest extends TestCase
     #[Test]
     public function semantic_cannot_select_an_unavailable_tool(): void
     {
-        $this->fakeSemantic('confident', 'seo_audit.publish', 0.99);
+        $this->fakeSemantic([
+            ['status' => 'confident', 'winner' => 'seo_audit'],
+            ['status' => 'confident', 'winner' => 'seo_audit.publish'],
+        ]);
         $transport = new RecordingSeoTransport();
         $decisions = $this->createMock(DecisionModelGateway::class);
         $decisions->expects($this->never())->method('decide');
@@ -203,7 +276,7 @@ final class LocalAgentToolRouterTest extends TestCase
             $decisions,
             $this->createMock(AnswerModelGateway::class),
             $transport,
-            new SemanticToolIntentMatcher(),
+            new SemanticWeightedClient(),
         )->send(1, AgentProjectScope::site(4), 'Hiện trên site đang có những trang nội dung nào?', []);
 
         self::assertNull($result->confirmationProposal);
@@ -211,23 +284,32 @@ final class LocalAgentToolRouterTest extends TestCase
         self::assertSame([], $transport->methods);
     }
 
-    private function fakeSemantic(string $status, string $ref, float $score): void
+    /** @param list<array{status: string, winner: ?string}> $steps */
+    private function fakeSemantic(array $steps): void
     {
         config([
             'agent-runtime.local_tool_router.enabled' => true,
             'semantic.enabled' => true,
             'semantic.url' => 'http://semantic.test',
         ]);
-        Http::fake([
-            'http://semantic.test/v1/tool-intents/match' => Http::response([
-                'namespace' => 'agent_tool_intents',
-                'status' => $status,
-                'matches' => [[
-                    'ref' => $ref,
-                    'score' => $score,
-                    'evidence' => ['lexical_matched' => false, 'semantic_score' => $score],
+        $sequence = Http::sequence();
+        foreach ($steps as $step) {
+            $winner = $step['winner'];
+            $sequence->push([
+                'status' => $step['status'],
+                'winner' => $winner,
+                'candidates' => $winner === null ? [] : [[
+                    'ref' => $winner,
+                    'semantic_relevance' => 0.8,
+                    'weight' => 10,
+                    'score' => 0.8,
+                    'group_id' => 'group',
+                    'example' => 'example',
                 ]],
-            ]),
+            ]);
+        }
+        Http::fake([
+            'http://semantic.test/v1/tool-intents/weighted-match' => $sequence,
         ]);
     }
 
@@ -235,7 +317,7 @@ final class LocalAgentToolRouterTest extends TestCase
         DecisionModelGateway $decisions,
         AnswerModelGateway $answers,
         RecordingSeoTransport $transport,
-        ToolIntentMatcher $matcher,
+        WeightedRouteEvaluator $evaluator,
     ): AgentTurnCoordinator {
         return new AgentTurnCoordinator(
             new AgentModelInputBuilder(promptBindings: new class implements ResolvesSettingsPromptHook {
@@ -265,23 +347,87 @@ final class LocalAgentToolRouterTest extends TestCase
             ),
             $answers,
             new AgentResponseParser(),
-            localToolRouter: new LocalAgentToolRouter($matcher),
+            localToolRouter: $evaluator instanceof LocalAgentToolRouter ? $evaluator : new LocalAgentToolRouter($evaluator),
         );
     }
 
-    private function router(ToolIntentMatcher $matcher): LocalAgentToolRouter
+    /** @param list<WeightedEvaluation> $steps */
+    private function router(array $steps): LocalAgentToolRouter
     {
-        return new LocalAgentToolRouter($matcher);
+        return new LocalAgentToolRouter(new ScriptedWeightedEvaluator($steps));
     }
 }
 
-final class FrozenToolIntentMatcher implements ToolIntentMatcher
+function jev(string $status, ?string $winner): WeightedEvaluation
 {
-    public function __construct(private readonly ToolIntentMatchResult $result) {}
+    return new WeightedEvaluation($status, $winner, $winner === null ? [] : [[
+        'ref' => $winner,
+        'semantic_relevance' => 0.8,
+        'weight' => 10.0,
+        'score' => 0.8,
+        'group_id' => 'group',
+        'example' => 'example',
+    ]]);
+}
 
-    public function match(string $query, array $intents): ToolIntentMatchResult
+final class ScriptedWeightedEvaluator implements WeightedRouteEvaluator
+{
+    private int $index = 0;
+
+    /** @param list<WeightedEvaluation> $steps */
+    public function __construct(private array $steps) {}
+
+    public function evaluate(string $query, array $groups): WeightedEvaluation
     {
-        return $this->result;
+        $step = $this->steps[$this->index] ?? $this->steps[array_key_last($this->steps)];
+        $this->index++;
+
+        return $step;
+    }
+}
+
+final class EqualRelevanceEvaluator implements WeightedRouteEvaluator
+{
+    public function evaluate(string $query, array $groups): WeightedEvaluation
+    {
+        $maxWeight = 1;
+        foreach ($groups as $group) {
+            foreach ((array) ($group['targets'] ?? []) as $target) {
+                $maxWeight = max($maxWeight, (int) ($target['weight'] ?? 1));
+            }
+        }
+        $best = [];
+        foreach ($groups as $group) {
+            if (($group['enabled'] ?? true) !== true) {
+                continue;
+            }
+            foreach ((array) ($group['targets'] ?? []) as $target) {
+                $ref = (string) ($target['ref'] ?? '');
+                $weight = (int) ($target['weight'] ?? 0);
+                $score = 0.9 * ($weight / $maxWeight);
+                if (! isset($best[$ref]) || $score > $best[$ref]['score']) {
+                    $best[$ref] = [
+                        'ref' => $ref,
+                        'semantic_relevance' => 0.9,
+                        'weight' => (float) $weight,
+                        'score' => $score,
+                        'group_id' => (string) ($group['id'] ?? ''),
+                        'example' => (string) (($group['examples'][0] ?? '')),
+                    ];
+                }
+            }
+        }
+        $candidates = array_values($best);
+        usort($candidates, static fn (array $left, array $right): int => $right['score'] <=> $left['score']);
+        if ($candidates === []) {
+            return new WeightedEvaluation('none', null, []);
+        }
+        $second = $candidates[1]['score'] ?? null;
+        if ($second !== null && ($candidates[0]['score'] - $second) < 0.08) {
+            return new WeightedEvaluation('ambiguous', null, $candidates);
+        }
+
+        return new WeightedEvaluation('confident', $candidates[0]['ref'], $candidates);
     }
 }
 

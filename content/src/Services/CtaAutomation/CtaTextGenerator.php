@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services\CtaAutomation;
 
+use Omnichannel\Addons\AiPrompt\DataTransfer\PromptExecutionResult;
+use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Services\InteractivePromptExecutor;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 use RuntimeException;
@@ -23,9 +25,10 @@ class CtaTextGenerator
     /**
      * @param  list<array<string, mixed>>  $placements
      * @param  list<array<string, mixed>>  $sections
-     * @return array{ok: bool, ctas: list<array{placement_id: string, section_id: string, text: string}>, errors: list<array{placement_id: string, code: string}>}
+     * @param  array<string, mixed>  $context
+     * @return array{ok: bool, ctas: list<array{placement_id: string, section_id: string, text: string}>, errors: list<array{placement_id: string, code: string}>, execution: array<string, mixed>}
      */
-    public function generate(string $language, string $tone, string $businessContext, array $placements, array $sections): array
+    public function generate(string $language, string $tone, string $businessContext, array $placements, array $sections, array $context = []): array
     {
         $expected = [];
         foreach ($placements as $placement) {
@@ -38,6 +41,8 @@ class CtaTextGenerator
         $prompt = $this->compile($language, $tone, $businessContext, $placements, $sections);
         $errors = [];
         $parsed = [];
+        $execution = $this->emptyExecution();
+        $historyId = $this->openHistory($context);
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $body = $attempt === 0
                 ? $prompt
@@ -47,7 +52,10 @@ class CtaTextGenerator
                 self::HOOK_KEY,
                 null,
                 AiRoutingPolicy::QuickFree,
+                null,
+                $historyId !== null ? ['prompt_result_id' => $historyId] : [],
             );
+            $execution = $this->executionFrom($result, $historyId);
             $parsed = $this->decode((string) $result->text);
             if ($parsed === null) {
                 $errors = [['placement_id' => '', 'code' => 'invalid_json']];
@@ -55,12 +63,17 @@ class CtaTextGenerator
             }
             $validated = $this->validator->validate($expected, $parsed, $language);
             if ($validated['ok']) {
+                $this->closeHistory($historyId, $result, 'completed');
+                $validated['execution'] = $execution;
+
                 return $validated;
             }
             $errors = $validated['errors'];
         }
 
-        return ['ok' => false, 'ctas' => [], 'errors' => $errors];
+        $this->closeHistory($historyId, null, 'failed');
+
+        return ['ok' => false, 'ctas' => [], 'errors' => $errors, 'execution' => $execution];
     }
 
     /**
@@ -132,5 +145,91 @@ class CtaTextGenerator
         }
 
         return $decoded['ctas'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function openHistory(array $context): ?int
+    {
+        try {
+            $result = PromptResult::query()->create([
+                'user_id' => auth()->id(),
+                'site_id' => (int) ($context['site_id'] ?? 0),
+                'status' => 'running',
+                'canonical_prompt_key' => self::HOOK_KEY,
+                'stage' => self::HOOK_KEY,
+                'correlation_id' => (string) ($context['run_id'] ?? ''),
+                'input_snapshot' => [
+                    'hook_key' => self::HOOK_KEY,
+                    'article_id' => $context['article_id'] ?? null,
+                    'cta_run_id' => $context['run_id'] ?? null,
+                    'prompt_version' => '0.1.0',
+                ],
+                'started_at' => now(),
+            ]);
+
+            return (int) $result->getKey();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function closeHistory(?int $id, ?PromptExecutionResult $result, string $status): void
+    {
+        if ($id === null || $id <= 0) {
+            return;
+        }
+        try {
+            $usage = $result !== null && is_array($result->usage) ? $result->usage : null;
+            PromptResult::query()->whereKey($id)->update([
+                'status' => $status === 'completed' ? 'completed' : 'failed',
+                'output_text' => $status === 'completed' && $result !== null ? $result->text : null,
+                'token_usage' => $usage,
+                'finished_at' => now(),
+            ]);
+        } catch (\Throwable) {
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function executionFrom(PromptExecutionResult $result, ?int $historyId): array
+    {
+        $candidate = $result->candidate;
+        $usage = is_array($result->usage) ? $result->usage : [];
+        $input = $usage['prompt_tokens'] ?? $usage['input_tokens'] ?? null;
+        $output = $usage['completion_tokens'] ?? $usage['output_tokens'] ?? null;
+
+        return [
+            'prompt_hook' => self::HOOK_KEY,
+            'prompt_version' => '0.1.0',
+            'connection_id' => $candidate !== null ? (int) $candidate->connection->id : null,
+            'provider' => $candidate?->provider,
+            'model' => $candidate?->model,
+            'execution_id' => isset($result->meta['execution_id']) ? (string) $result->meta['execution_id'] : null,
+            'prompt_result_id' => $historyId,
+            'input_tokens' => is_numeric($input) ? (int) $input : null,
+            'output_tokens' => is_numeric($output) ? (int) $output : null,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyExecution(): array
+    {
+        return [
+            'prompt_hook' => self::HOOK_KEY,
+            'prompt_version' => '0.1.0',
+            'connection_id' => null,
+            'provider' => null,
+            'model' => null,
+            'execution_id' => null,
+            'prompt_result_id' => null,
+            'input_tokens' => null,
+            'output_tokens' => null,
+        ];
     }
 }

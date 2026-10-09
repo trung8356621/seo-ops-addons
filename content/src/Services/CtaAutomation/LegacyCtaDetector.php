@@ -25,53 +25,43 @@ final class LegacyCtaDetector
         }
 
         $found = [];
-        $sectionIndex = 1;
-        $sectionId = 'section_1';
-        $heading = $sections[0]['heading'] ?? '';
         $ordinal = 0;
-
-        foreach ($root->childNodes as $child) {
-            if (! $child instanceof DOMElement) {
-                continue;
-            }
-            $tag = strtolower($child->tagName);
-            if (in_array($tag, ['h2', 'h3'], true)) {
-                if (trim($child->textContent ?? '') !== '' && $this->sectionHasBodyBefore($root, $child)) {
-                    $sectionIndex++;
-                    $sectionId = 'section_'.$sectionIndex;
+        foreach (CtaSectionMap::bind($root) as $section) {
+            $occurrence = 0;
+            foreach ($section['nodes'] as $child) {
+                $tag = strtolower($child->tagName);
+                if (in_array($tag, ['h2', 'h3'], true) || $this->isManual($child) || $this->isManaged($child)) {
+                    continue;
                 }
-                $heading = trim($child->textContent ?? '');
-                continue;
-            }
-            if ($this->isManual($child) || $this->isManaged($child)) {
-                continue;
-            }
-            $text = trim(preg_replace('/\s+/u', ' ', $child->textContent ?? '') ?? '');
-            if ($text === '' || ! $this->looksPromotional($text)) {
-                continue;
-            }
-            $words = $this->words($text);
-            $signal = 'standalone_paragraph';
-            $confidence = 'uncertain';
-            if ($tag === 'blockquote') {
-                $signal = 'standalone_blockquote';
-                $confidence = $words <= 80 ? 'high' : 'uncertain';
-            } elseif ($words <= 18 && $this->channelCount($text) >= 1) {
+                $text = trim(preg_replace('/\s+/u', ' ', $child->textContent ?? '') ?? '');
+                if ($text === '' || ! $this->looksPromotional($text)) {
+                    continue;
+                }
+                $words = $this->words($text);
                 $signal = 'standalone_paragraph';
-                $confidence = 'high';
-            } else {
-                $signal = 'mixed_paragraph';
                 $confidence = 'uncertain';
+                if ($tag === 'blockquote') {
+                    $signal = 'standalone_blockquote';
+                    $confidence = $words <= 80 ? 'high' : 'uncertain';
+                } elseif ($words <= 18 && $this->channelCount($text) >= 1) {
+                    $signal = 'standalone_paragraph';
+                    $confidence = 'high';
+                } else {
+                    $signal = 'mixed_paragraph';
+                    $confidence = 'uncertain';
+                }
+                $ordinal++;
+                $occurrence++;
+                $found[] = [
+                    'candidate_id' => 'legacy_'.$ordinal,
+                    'section_id' => $section['section_id'],
+                    'heading' => $section['heading'],
+                    'text' => $text,
+                    'occurrence' => $occurrence,
+                    'structural_signal' => $signal,
+                    'confidence' => $confidence,
+                ];
             }
-            $ordinal++;
-            $found[] = [
-                'candidate_id' => 'legacy_'.$ordinal,
-                'section_id' => $sectionId,
-                'heading' => $heading,
-                'text' => $text,
-                'structural_signal' => $signal,
-                'confidence' => $confidence,
-            ];
         }
 
         return $found;
@@ -114,23 +104,6 @@ final class LegacyCtaDetector
     private function isManual(DOMElement $node): bool
     {
         return $node->getAttribute('data-cta-manual') === '1';
-    }
-
-    private function sectionHasBodyBefore(DOMElement $root, DOMElement $heading): bool
-    {
-        $seen = false;
-        foreach ($root->childNodes as $child) {
-            if ($child === $heading) {
-                return $seen;
-            }
-            if ($child instanceof DOMElement && ! in_array(strtolower($child->tagName), ['h2', 'h3'], true)) {
-                if (trim($child->textContent ?? '') !== '') {
-                    $seen = true;
-                }
-            }
-        }
-
-        return $seen;
     }
 
     private function root(string $html): ?DOMNode

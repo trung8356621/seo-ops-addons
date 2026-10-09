@@ -35,9 +35,10 @@ final class CtaAutomationPipelineTest extends TestCase
             'consultation',
         );
         $once = $renderer->apply($html, [
-            ['id' => 'remove_legacy_1', 'kind' => 'remove', 'text' => $detected[0]['text']],
-            ['id' => 'insert_cta_001', 'kind' => 'insert', 'section_id' => 'section_1', 'html' => $block],
+            ['id' => 'remove_legacy_1', 'kind' => 'remove', 'section_id' => 'section_1', 'text' => $detected[0]['text'], 'occurrence' => 1],
+            ['id' => 'insert_cta_001', 'kind' => 'insert', 'section_id' => 'section_1', 'placement_id' => 'cta_001', 'html' => $block],
         ]);
+        self::assertTrue($once['ok']);
         self::assertStringContainsString('Nylon resists water', $once['html']);
         self::assertStringContainsString('torso length', $once['html']);
         self::assertStringNotContainsString('facebook.com', $once['html']);
@@ -46,9 +47,9 @@ final class CtaAutomationPipelineTest extends TestCase
         self::assertSame(1, substr_count($once['html'], 'seo-managed-cta'));
 
         $twice = $renderer->apply($once['html'], [
-            ['id' => 'clear_auto', 'kind' => 'remove_managed', 'placement_id' => ''],
-            ['id' => 'insert_cta_001', 'kind' => 'insert', 'section_id' => 'section_1', 'html' => $block],
+            ['id' => 'insert_cta_001', 'kind' => 'insert', 'section_id' => 'section_1', 'placement_id' => 'cta_001', 'html' => $block],
         ]);
+        self::assertTrue($twice['ok']);
         self::assertSame(1, substr_count($twice['html'], 'seo-managed-cta'));
         self::assertStringContainsString('Nylon resists water', $twice['html']);
     }
@@ -98,8 +99,61 @@ final class CtaAutomationPipelineTest extends TestCase
         $rendered = (new CtaBlockRenderer())->apply($html, [
             ['id' => 'clear_auto', 'kind' => 'remove_managed', 'placement_id' => ''],
         ]);
+        self::assertFalse($rendered['ok']);
         self::assertStringContainsString('data-cta-manual', $rendered['html']);
         self::assertStringContainsString('Keep this paragraph', $rendered['html']);
+    }
+
+    public function test_h3_insert_does_not_land_in_another_h2(): void
+    {
+        $html = '<p>Intro stays here.</p>'
+            .'<h2>Materials</h2><p>Nylon and polyester.</p>'
+            .'<h3>In jet</h3><p>Digital printing notes.</p>'
+            .'<h2>Conclusion</h2><p>Choose the weave.</p>'
+            .'<p>[faq]</p>';
+        $sections = (new \Omnichannel\Addons\Content\Services\CtaAutomation\CtaArticleSections())->extract($html);
+        $jet = null;
+        foreach ($sections as $section) {
+            if ($section['heading'] === 'In jet') {
+                $jet = $section['section_id'];
+            }
+        }
+        self::assertNotNull($jet);
+        $renderer = new CtaBlockRenderer();
+        $block = $renderer->blockHtml('cta_jet', $jet, 'product_discovery', 'website', 'improved', 'Xem [website].', 'soft', 'run-1');
+        $applied = $renderer->apply($html, [
+            ['id' => 'insert_cta_jet', 'kind' => 'insert', 'section_id' => $jet, 'placement_id' => 'cta_jet', 'html' => $block],
+        ]);
+        self::assertTrue($applied['ok']);
+        $position = strpos($applied['html'], 'data-cta-placement="cta_jet"');
+        $conclusion = strpos($applied['html'], '<h2>Conclusion</h2>');
+        $jetHeading = strpos($applied['html'], '<h3>In jet</h3>');
+        self::assertNotFalse($position);
+        self::assertGreaterThan($jetHeading, $position);
+        self::assertLessThan($conclusion, $position);
+        $other = $renderer->apply($applied['html'], [
+            ['id' => 'remove_other', 'kind' => 'remove_managed', 'placement_id' => 'cta_other'],
+        ]);
+        self::assertFalse($other['ok']);
+        self::assertStringContainsString('cta_jet', $other['html']);
+    }
+
+    public function test_similar_paragraph_in_another_section_is_not_removed(): void
+    {
+        $text = 'Contact us via Zalo https://zalo.me/1 and website https://shop.test.';
+        $html = '<h2>One</h2><p>'.$text.'</p><h2>Two</h2><p>'.$text.'</p>';
+        $detected = (new LegacyCtaDetector())->detect($html);
+        self::assertCount(2, $detected);
+        self::assertNotSame($detected[0]['section_id'], $detected[1]['section_id']);
+        $rendered = (new CtaBlockRenderer())->apply($html, [[
+            'id' => 'remove_one',
+            'kind' => 'remove',
+            'section_id' => $detected[0]['section_id'],
+            'text' => $detected[0]['text'],
+            'occurrence' => 1,
+        ]]);
+        self::assertTrue($rendered['ok']);
+        self::assertSame(1, substr_count($rendered['html'], 'zalo.me'));
     }
 
     public function test_regeneration_keeps_selected_style_preset(): void

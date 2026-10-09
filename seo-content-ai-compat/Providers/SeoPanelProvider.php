@@ -476,6 +476,18 @@ class SeoPanelProvider extends PanelProvider
                 Route::post('/{article}/editor/cta-automation/apply', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'apply'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.cta-automation.apply');
+                Route::get('/{article}/editor/cta-automation/runs', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'latest'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.cta-automation.runs');
+                Route::get('/{article}/editor/cta-automation/runs/{run}', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'show'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.cta-automation.run');
+                Route::put('/{article}/editor/cta-automation/runs/{run}/selections', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'selections'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.cta-automation.selections');
+                Route::post('/{article}/editor/cta-automation/runs/{run}/confirm', [\Omnichannel\Addons\Content\Http\Controllers\ArticleEditorCtaAutomationController::class, 'confirm'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.cta-automation.confirm');
                 Route::get('/{article}/editor/meta', [ArticleEditorLazyPayloadController::class, 'meta'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.meta');

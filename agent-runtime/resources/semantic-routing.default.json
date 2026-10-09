@@ -1,0 +1,353 @@
+{
+  "revision": 1,
+  "global": [
+    {
+      "id": "tracked_keyword_inventory",
+      "name": "Tracked keyword inventory",
+      "description": "Read the keywords the site already tracks.",
+      "examples": [
+        "Website đang theo dõi những từ khóa SEO nào?",
+        "Hiển thị danh sách keyword đang được quản lý.",
+        "Site hiện có những từ khóa nào trong hệ thống?"
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "keywords", "weight": 10},
+        {"ref": "seo_audit", "weight": 3}
+      ]
+    },
+    {
+      "id": "keyword_topic_filter",
+      "name": "Keyword topic filter",
+      "description": "Filter tracked keywords by topic or topic group.",
+      "examples": [
+        "Cho xem keyword theo Topic Group balo đi học.",
+        "Lọc từ khóa thuộc nhóm chủ đề balo học sinh.",
+        "Keyword nào đang nằm trong topic group này?"
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "keywords", "weight": 10},
+        {"ref": "seo_audit", "weight": 2}
+      ]
+    },
+    {
+      "id": "article_inventory",
+      "name": "Article inventory",
+      "description": "List articles without judging SEO quality.",
+      "examples": [
+        "Kho bài viết trên site này hiện có những bài nào?",
+        "Liệt kê các bài viết đang có trên website.",
+        "Cho tôi danh sách bài trong kho nội dung."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "articles", "weight": 10},
+        {"ref": "seo_audit", "weight": 2}
+      ]
+    },
+    {
+      "id": "single_article",
+      "name": "Single specific article",
+      "description": "A named article, not a bulk SEO list.",
+      "examples": [
+        "Kiểm tra bài viết balo học sinh ABC.",
+        "Bài viết này có những vấn đề SEO gì?",
+        "Bài balo học sinh ABC cần cải thiện SEO thế nào?"
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "articles", "weight": 10},
+        {"ref": "seo_audit", "weight": 5}
+      ]
+    },
+    {
+      "id": "bulk_seo_evaluation",
+      "name": "Multiple articles requiring SEO evaluation",
+      "description": "Low scores or a batch of articles to improve.",
+      "examples": [
+        "Những bài nào có điểm SEO thấp?",
+        "Liệt kê 50 bài có SEO Score thấp nhất.",
+        "Cho tôi danh sách 50 bài đang có nhiều vấn đề SEO."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "seo_audit", "weight": 10},
+        {"ref": "articles", "weight": 5}
+      ]
+    },
+    {
+      "id": "missing_focus_keyword",
+      "name": "Missing focus keyword",
+      "description": "Explain where to inspect articles without a focus keyword.",
+      "examples": [
+        "Bài nào chưa có Focus Keyword?",
+        "Những bài viết chưa gắn từ khóa chính.",
+        "Bài nào đang thiếu focus keyword?"
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "seo_audit", "weight": 10},
+        {"ref": "articles", "weight": 3}
+      ]
+    },
+    {
+      "id": "content_project_read",
+      "name": "Content project read",
+      "description": "Project state and articles waiting inside a project.",
+      "examples": [
+        "Những Content Project nào đang có bài chờ cải thiện?",
+        "Dự án nội dung nào còn bài chưa xử lý?",
+        "Xem các content project đang mở trên site."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "content_projects", "weight": 10}
+      ]
+    },
+    {
+      "id": "gsc_performance",
+      "name": "Search Console performance",
+      "description": "Clicks, impressions, and search performance.",
+      "examples": [
+        "Hiệu suất Search Console tháng này thế nào?",
+        "Query nào có nhiều impression?",
+        "Xem click và impression trên GSC."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "gsc", "weight": 10}
+      ]
+    },
+    {
+      "id": "impression_low_seo",
+      "name": "High impression and weak SEO",
+      "description": "Needs search performance together with related article quality.",
+      "examples": [
+        "Keyword nào có impression cao nhưng bài liên quan SEO thấp?",
+        "Từ khóa nhiều impression mà bài viết thì điểm SEO kém.",
+        "Impression cao nhưng SEO score của bài liên quan lại thấp."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "gsc", "weight": 10},
+        {"ref": "keywords", "weight": 8},
+        {"ref": "seo_audit", "weight": 4}
+      ]
+    },
+    {
+      "id": "sitewide_seo_improve",
+      "name": "Sitewide SEO improvement",
+      "description": "Recommend how to improve the site after local evidence.",
+      "examples": [
+        "Hãy đề xuất cách cải thiện SEO tổng thể cho site này.",
+        "Nên cải thiện SEO của cả website theo hướng nào?",
+        "Gợi ý hướng tối ưu SEO chung cho site."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "seo_audit", "weight": 10},
+        {"ref": "articles", "weight": 3}
+      ]
+    },
+    {
+      "id": "internal_link_inventory",
+      "name": "Internal link inventory",
+      "description": "Read internal links already on the site.",
+      "examples": [
+        "Site đang có những liên kết nội bộ nào?",
+        "Liệt kê internal link hiện có.",
+        "Kho liên kết nội bộ của website."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "links", "weight": 10}
+      ]
+    },
+    {
+      "id": "selected_draft_action",
+      "name": "Draft the current selection",
+      "description": "Use the existing Draft action. Do not generate new articles.",
+      "examples": [
+        "Đưa các bài vừa chọn vào Draft cải thiện.",
+        "Cho những bài đang chọn vào draft.",
+        "Đưa lựa chọn hiện tại vào Draft."
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "seo_audit", "weight": 8},
+        {"ref": "content_projects", "weight": 3}
+      ]
+    }
+  ],
+  "modules": {
+    "keywords": [
+      {
+        "id": "keywords_inventory",
+        "name": "Keyword inventory",
+        "examples": [
+          "Website đang theo dõi những từ khóa SEO nào?",
+          "Hiển thị danh sách keyword đang được quản lý.",
+          "Site hiện có những từ khóa nào trong hệ thống?"
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "keywords.landscape", "weight": 10},
+          {"ref": "keywords.relationship", "weight": 3}
+        ]
+      },
+      {
+        "id": "keywords_topic_filter",
+        "name": "Keyword topic filter",
+        "examples": [
+          "Cho xem keyword theo Topic Group balo đi học.",
+          "Lọc từ khóa thuộc nhóm chủ đề balo học sinh.",
+          "Keyword nào đang nằm trong topic group này?"
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "keywords.relationship", "weight": 10},
+          {"ref": "keywords.landscape", "weight": 4}
+        ]
+      }
+    ],
+    "articles": [
+      {
+        "id": "articles_inventory",
+        "name": "Article inventory",
+        "examples": [
+          "Kho bài viết trên site này hiện có những bài nào?",
+          "Liệt kê các bài viết đang có trên website.",
+          "Cho tôi danh sách bài trong kho nội dung."
+        ],
+        "enabled": true,
+        "targets": [{"ref": "articles.inventory", "weight": 10}]
+      },
+      {
+        "id": "articles_single",
+        "name": "Single article",
+        "examples": [
+          "Kiểm tra bài viết balo học sinh ABC.",
+          "Bài viết này có những vấn đề SEO gì?",
+          "Bài balo học sinh ABC cần cải thiện SEO thế nào?"
+        ],
+        "enabled": true,
+        "targets": [{"ref": "articles.inventory", "weight": 10}]
+      }
+    ],
+    "seo_audit": [
+      {
+        "id": "audit_low_score",
+        "name": "Low SEO score list",
+        "examples": [
+          "Những bài nào có điểm SEO thấp?",
+          "Liệt kê 50 bài có SEO Score thấp nhất.",
+          "Danh sách bài điểm SEO thấp cần xem trước."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "seo_audit.worst_articles", "weight": 10},
+          {"ref": "seo_audit.focus_keyword_guidance", "weight": 2}
+        ]
+      },
+      {
+        "id": "audit_focus_keyword",
+        "name": "Missing focus keyword guidance",
+        "examples": [
+          "Bài nào chưa có Focus Keyword?",
+          "Những bài viết chưa gắn từ khóa chính.",
+          "Bài nào đang thiếu focus keyword?"
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "seo_audit.focus_keyword_guidance", "weight": 10},
+          {"ref": "seo_audit.worst_articles", "weight": 2}
+        ]
+      },
+      {
+        "id": "audit_site_improve",
+        "name": "Sitewide improvement",
+        "examples": [
+          "Hãy đề xuất cách cải thiện SEO tổng thể cho site này.",
+          "Nên cải thiện SEO của cả website theo hướng nào?",
+          "Gợi ý hướng tối ưu SEO chung cho site."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "seo_audit.site_improve", "weight": 10},
+          {"ref": "seo_audit.worst_articles", "weight": 4}
+        ]
+      },
+      {
+        "id": "audit_draft_selection",
+        "name": "Draft current selection",
+        "examples": [
+          "Đưa các bài vừa chọn vào Draft cải thiện.",
+          "Cho những bài đang chọn vào draft.",
+          "Đưa lựa chọn hiện tại vào Draft."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "seo_audit.draft_action", "weight": 10},
+          {"ref": "seo_audit.worst_articles", "weight": 2}
+        ]
+      }
+    ],
+    "gsc": [
+      {
+        "id": "gsc_overview",
+        "name": "GSC overview",
+        "examples": [
+          "Hiệu suất Search Console tháng này thế nào?",
+          "Query nào có nhiều impression?",
+          "Xem click và impression trên GSC."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "gsc.performance", "weight": 10},
+          {"ref": "gsc.cross_read", "weight": 3}
+        ]
+      },
+      {
+        "id": "gsc_cross_quality",
+        "name": "Impressions with weak related SEO",
+        "examples": [
+          "Keyword nào có impression cao nhưng bài liên quan SEO thấp?",
+          "Từ khóa nhiều impression mà bài viết thì điểm SEO kém.",
+          "Impression cao nhưng SEO score của bài liên quan lại thấp."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "gsc.cross_read", "weight": 10},
+          {"ref": "gsc.performance", "weight": 4}
+        ]
+      }
+    ],
+    "content_projects": [
+      {
+        "id": "projects_read",
+        "name": "Content project read",
+        "examples": [
+          "Những Content Project nào đang có bài chờ cải thiện?",
+          "Dự án nội dung nào còn bài chưa xử lý?",
+          "Xem các content project đang mở trên site."
+        ],
+        "enabled": true,
+        "targets": [{"ref": "content_projects.read", "weight": 10}]
+      }
+    ],
+    "links": [
+      {
+        "id": "links_internal",
+        "name": "Internal links",
+        "examples": [
+          "Site đang có những liên kết nội bộ nào?",
+          "Liệt kê internal link hiện có.",
+          "Kho liên kết nội bộ của website."
+        ],
+        "enabled": true,
+        "targets": [{"ref": "links.internal", "weight": 10}]
+      }
+    ]
+  }
+}

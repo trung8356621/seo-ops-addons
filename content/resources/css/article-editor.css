@@ -12492,3 +12492,53 @@ body.article-editor-page:has([data-seo-editor-exclusive-lock="1"]) .wp-article-e
 .seo-editor-block-slot.is-cta-jump-highlight {
     box-shadow: 0 0 0 2px rgb(99 102 241 / 0.45);
 }
+
+.seo-cta-automation__run {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: 0.55rem 0.6rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+}
+
+.seo-managed-cta-view {
+    margin: 0.35rem 0;
+    padding: 0.7rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid #dbeafe;
+    background: #f8fafc;
+}
+
+.seo-managed-cta-view.is-consultation {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+}
+
+.seo-managed-cta-view.is-conversion {
+    border-color: #fed7aa;
+    background: #fff7ed;
+}
+
+.seo-managed-cta-view__label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #1d4ed8;
+}
+
+.seo-managed-cta-view p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.dark .seo-cta-automation__run,
+.dark .seo-managed-cta-view {
+    border-color: #374151;
+    background: #111827;
+    color: #f9fafb;
+}

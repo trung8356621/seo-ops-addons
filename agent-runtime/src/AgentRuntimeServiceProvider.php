@@ -12,7 +12,9 @@ use Omnichannel\Addons\AgentRuntime\Decision\AiSettingsDecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticToolIntentMatcher;
+use Omnichannel\Addons\AgentRuntime\Routing\SemanticWeightedClient;
 use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatcher;
+use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
 use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Retrieval\ConfigSeoAccessCredential;
@@ -77,6 +79,7 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
             );
         });
         $this->app->singleton(ToolIntentMatcher::class, SemanticToolIntentMatcher::class);
+        $this->app->singleton(WeightedRouteEvaluator::class, SemanticWeightedClient::class);
         $this->app->singleton(LocalAgentToolRouter::class);
         $this->app->singleton(AnswerModelGateway::class, static function ($app): AnswerModelGateway {
             $max = (int) config('agent-runtime.answer_max_output_tokens', 2048);

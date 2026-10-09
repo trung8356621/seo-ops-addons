@@ -24,8 +24,8 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
-use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatcher;
-use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatchResult;
+use Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation;
+use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -39,7 +39,7 @@ final class AgentLocalExecutionTest extends TestCase
         $decisions->expects($this->never())->method('decide');
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $coordinator = $this->coordinator($decisions, $answers, $this->script('seo_audit', 'seo_audit.worst_articles'));
 
         $result = $coordinator->send(
             1,
@@ -93,7 +93,7 @@ final class AgentLocalExecutionTest extends TestCase
             'blocks' => [['type' => 'markdown', 'text' => 'Hai tập dữ liệu chưa đủ để kết luận nguyên nhân.']],
             'actions' => [],
         ], JSON_THROW_ON_ERROR));
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $coordinator = $this->coordinator($decisions, $answers, $this->script('seo_audit', 'seo_audit.worst_articles'));
         $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
             new RetrievalSource('articles', 'ok', 'articles', ['items' => [['article_ref' => 'article:1', 'seo_score' => 20]]]),
             new RetrievalSource('keywords', 'ok', 'keywords', ['items' => [['keyword' => 'balo', 'clicks' => 3]]]),
@@ -126,9 +126,7 @@ final class AgentLocalExecutionTest extends TestCase
             'blocks' => [['type' => 'markdown', 'text' => 'Synthesized from retrieved facts.']],
             'actions' => [],
         ], JSON_THROW_ON_ERROR));
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('confident', [
-            ['ref' => 'articles.inventory', 'score' => 0.9, 'lexical' => false, 'semantic_score' => 0.9],
-        ])));
+        $coordinator = $this->coordinator($decisions, $answers, $this->script('articles', 'articles.inventory'));
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'article inventory please explain the gap', []);
 
@@ -145,7 +143,9 @@ final class AgentLocalExecutionTest extends TestCase
         $decisions->expects($this->never())->method('decide');
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('none', [])));
+        $coordinator = $this->coordinator($decisions, $answers, new CyclingWeightedEvaluator([
+            new WeightedEvaluation('none', null, []),
+        ]));
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'thời tiết hôm nay thế nào', []);
 
@@ -163,7 +163,7 @@ final class AgentLocalExecutionTest extends TestCase
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
         $transport = new LocalExecutionTransport();
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('none', [])), $transport);
+        $coordinator = $this->coordinator($decisions, $answers, $this->script('seo_audit', 'seo_audit.worst_articles'), $transport);
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'cần sửa những bài nào, 30 hoặc 50 bài', []);
 
@@ -181,9 +181,7 @@ final class AgentLocalExecutionTest extends TestCase
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
         $transport = new LocalExecutionTransport();
-        $coordinator = $this->coordinator($decisions, $answers, new LocalExecutionIntentMatcher(new ToolIntentMatchResult('confident', [
-            ['ref' => 'seo_audit.publish', 'score' => 0.99, 'lexical' => false, 'semantic_score' => 0.99],
-        ])), $transport);
+        $coordinator = $this->coordinator($decisions, $answers, $this->script('seo_audit', 'seo_audit.publish'), $transport);
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'hãy làm điều không có ví dụ tường minh', []);
 
@@ -192,10 +190,32 @@ final class AgentLocalExecutionTest extends TestCase
         self::assertSame(0, $result->executionTrace['external_model_calls']);
     }
 
+    private function script(string $module, string $operation): CyclingWeightedEvaluator
+    {
+        return new CyclingWeightedEvaluator([
+            new WeightedEvaluation('confident', $module, [[
+                'ref' => $module,
+                'semantic_relevance' => 0.8,
+                'weight' => 10.0,
+                'score' => 0.8,
+                'group_id' => 'group',
+                'example' => 'example',
+            ]]),
+            new WeightedEvaluation('confident', $operation, [[
+                'ref' => $operation,
+                'semantic_relevance' => 0.8,
+                'weight' => 10.0,
+                'score' => 0.8,
+                'group_id' => 'group',
+                'example' => 'example',
+            ]]),
+        ]);
+    }
+
     private function coordinator(
         DecisionModelGateway $decisions,
         AnswerModelGateway $answers,
-        ToolIntentMatcher $matcher,
+        WeightedRouteEvaluator $evaluator,
         ?LocalExecutionTransport $transport = null,
     ): AgentTurnCoordinator {
         $transport ??= new LocalExecutionTransport();
@@ -243,19 +263,25 @@ final class AgentLocalExecutionTest extends TestCase
             $retrieval,
             $answers,
             new AgentResponseParser(),
-            localToolRouter: new LocalAgentToolRouter($matcher),
+            localToolRouter: new LocalAgentToolRouter($evaluator),
             confirmedTools: new AgentConfirmedToolExecutor($retrieval, $audit),
         );
     }
 }
 
-final class LocalExecutionIntentMatcher implements ToolIntentMatcher
+final class CyclingWeightedEvaluator implements WeightedRouteEvaluator
 {
-    public function __construct(private readonly ToolIntentMatchResult $result) {}
+    private int $index = 0;
 
-    public function match(string $query, array $intents): ToolIntentMatchResult
+    /** @param list<WeightedEvaluation> $steps */
+    public function __construct(private array $steps) {}
+
+    public function evaluate(string $query, array $groups): WeightedEvaluation
     {
-        return $this->result;
+        $step = $this->steps[$this->index % count($this->steps)];
+        $this->index++;
+
+        return $step;
     }
 }
 

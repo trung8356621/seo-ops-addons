@@ -33,7 +33,8 @@ final class ArticleEditorCtaAutomationController extends Controller
             $html = (string) ($article->body ?? '');
         }
         $mode = (string) $request->input('mode', 'improve');
-        $result = $this->automation->preview($article, $html, $mode);
+        $key = trim((string) $request->input('idempotency_key', ''));
+        $result = $this->automation->preview($article, $html, $mode, $key !== '' ? $key : null);
         $status = ($result['success'] ?? false) === true ? 200 : 422;
 
         return response()->json($result, $status);
@@ -47,7 +48,7 @@ final class ArticleEditorCtaAutomationController extends Controller
             abort(401);
         }
         $html = (string) $request->input('editor_html', '');
-        $token = trim((string) $request->input('preview_token', ''));
+        $token = trim((string) ($request->input('run_id') ?: $request->input('preview_token', '')));
         $approved = $request->input('approved_ids', []);
         if (! is_array($approved)) {
             $approved = [];
@@ -57,7 +58,7 @@ final class ArticleEditorCtaAutomationController extends Controller
         if (! is_array($styles)) {
             $styles = [];
         }
-        $result = $this->automation->apply($article, $html, $token, $approved, $styles);
+        $result = $this->automation->apply($article, $html, $token, $approved, $styles, $request->boolean('acknowledge_stale'));
         if (($result['success'] ?? false) !== true) {
             $code = ($result['status'] ?? '') === 'stale_preview' ? 409 : 422;
 
@@ -66,10 +67,68 @@ final class ArticleEditorCtaAutomationController extends Controller
 
         return response()->json([
             'success' => true,
-            'status' => 'applied',
+            'status' => 'pending_editor',
+            'run_id' => $result['run_id'] ?? $token,
             'html' => $result['html'],
             'document_version' => $request->input('document_version'),
             'applied' => $result['applied'] ?? [],
         ]);
+    }
+
+    public function latest(Request $request, SeoArticle $article): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+        $fingerprint = trim((string) $request->query('source_fingerprint', ''));
+        $run = $this->automation->latestRun($article);
+
+        return response()->json([
+            'success' => true,
+            'run' => $run ? $this->automation->runPayload($run, null, $fingerprint !== '' ? $fingerprint : null) : null,
+            'runs' => array_map(
+                fn ($row) => $this->automation->runSummary($row, null, $fingerprint !== '' ? $fingerprint : null),
+                $this->automation->recentRuns($article),
+            ),
+        ]);
+    }
+
+    public function show(Request $request, SeoArticle $article, string $run): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+        $found = $this->automation->findRun($article, $run);
+        if ($found === null) {
+            return response()->json(['success' => false, 'message' => 'CTA run was not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'run' => $this->automation->runPayload($found, (string) $request->input('editor_html', '') ?: null),
+        ]);
+    }
+
+    public function selections(Request $request, SeoArticle $article, string $run): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+        $found = $this->automation->findRun($article, $run);
+        if ($found === null) {
+            return response()->json(['success' => false], 404);
+        }
+        $selected = $request->input('selected', []);
+        $styles = $request->input('styles', []);
+        $this->automation->saveRunSelections(
+            $found,
+            is_array($selected) ? $selected : [],
+            is_array($styles) ? $styles : [],
+        );
+
+        return response()->json(['success' => true]);
+    }
+
+    public function confirm(Request $request, SeoArticle $article, string $run): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+        $result = $this->automation->confirmApplied($article, $run, (string) $request->input('editor_html', ''));
+        $status = ($result['success'] ?? false) === true ? 200 : 422;
+
+        return response()->json($result, $status);
     }
 }

@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Routing;
 
 /**
- * Deterministic phrase hits. More than one capability is ambiguous and is not guessed.
+ * Legacy substring helper. It is not a routing authority.
+ * Business preferences belong in semantic routing settings.
  */
 final class ExplicitToolIntentRules
 {

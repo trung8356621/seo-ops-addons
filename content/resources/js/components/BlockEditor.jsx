@@ -7,6 +7,26 @@ import { t } from '../utils/i18n';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import ActiveBlockEditor from './ActiveBlockEditor';
 
+function managedCtaPresentation(html) {
+    const source = String(html ?? '');
+    if (!source.includes('seo-managed-cta')) {
+        return null;
+    }
+    const doc = new DOMParser().parseFromString(source, 'text/html');
+    const node = doc.querySelector('.seo-managed-cta');
+    if (!node) {
+        return null;
+    }
+    const text = String(node.textContent ?? '')
+        .replace(/\[seo_ops_cta[^\]]*\]/gi, '')
+        .replace(/\[\/seo_ops_cta\]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const style = node.getAttribute('data-cta-style') || 'soft';
+
+    return { text, style };
+}
+
 /**
  * Block dispatcher (image / FAQ shortcode / outline-locked heading / text)
  * extracted from SeoArticleEditor.jsx (Task 7 frontend extraction).
@@ -98,6 +118,21 @@ function BlockEditor({
                 onActivate={onActivate}
                 onOutlineHeadingCommand={onOutlineHeadingCommand}
             />
+        );
+    }
+
+    const managedCta = block.type === 'text' ? managedCtaPresentation(blockHtml) : null;
+    if (managedCta) {
+        return (
+            <div
+                className={`seo-managed-cta-view is-${managedCta.style}`}
+                onClick={handlePreviewClick}
+                role="group"
+                aria-label={t('cta_managed_label')}
+            >
+                <span className="seo-managed-cta-view__label">{t('cta_managed_label')}</span>
+                <p>{managedCta.text}</p>
+            </div>
         );
     }
 

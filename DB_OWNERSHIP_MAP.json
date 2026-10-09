@@ -11,7 +11,7 @@
     "seo": ["seo audit indexes", "seo_article_index_checks", "seo_article_index_health"],
     "search-intelligence": ["keyword_rank_*", "seo_gsc_* facts", "seo_gsc_url_inspection_runs", "seo_gsc_url_inspection_run_items", "seo_serp_* (without cluster evidence)", "seo_site_keywords", "seo_keyword_groups", "seo_keyword_group_keywords", "seo_topics", "seo_topic_keywords", "seo_topic_keyword_dna", "seo_topic_tags", "seo_topic_tag_assignments"],
     "ai-prompt": ["prompts", "prompt_results", "hook bindings"],
-    "content": ["articles", "article_meta", "article_editor_sessions", "seo_article_revisions", "seo_faqs"],
+    "content": ["articles", "article_meta", "article_editor_sessions", "seo_article_revisions", "seo_faqs", "seo_article_cta_runs"],
     "content-projects": [
       "seo_projects",
       "seo_project_tasks",

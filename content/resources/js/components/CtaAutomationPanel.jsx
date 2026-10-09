@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
@@ -58,6 +58,30 @@ function styleHelp(style) {
     return t('cta_style_soft_help');
 }
 
+function modeLabel(mode) {
+    if (mode === 'regenerate') {
+        return t('cta_auto_regenerate');
+    }
+    if (mode === 'generate') {
+        return t('cta_mode_generate');
+    }
+    return t('cta_auto_improve');
+}
+
+function statusLabel(status) {
+    const key = `cta_status_${status}`;
+    const label = t(key);
+    return label === key ? status : label;
+}
+
+async function sourceFingerprint(html) {
+    if (!window.crypto?.subtle) {
+        return '';
+    }
+    const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(html ?? '')));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function HeadingButton({ sectionId, heading }) {
     return (
         <button
@@ -85,6 +109,55 @@ export function CtaAutomationPanel({ articleId }) {
     const [preview, setPreview] = useState(null);
     const [selected, setSelected] = useState({});
     const [styles, setStyles] = useState({});
+    const [latest, setLatest] = useState(null);
+    const [runs, setRuns] = useState([]);
+
+    function rememberRun(body) {
+        const selectedMap = body?.selections?.selected || {};
+        const styleMap = body?.selections?.styles || {};
+        const next = {};
+        const nextStyles = {};
+        (body?.changes || []).forEach((change) => {
+            next[change.id] = selectedMap[change.id] !== false;
+            if (change.style || styleMap[change.id]) {
+                nextStyles[change.id] = styleMap[change.id] || change.style;
+            }
+        });
+        setSelected(next);
+        setStyles(nextStyles);
+        setPreview({ ...body, editor_html: currentEditorHtml() });
+        setLatest(body);
+    }
+
+    async function loadRuns() {
+        const id = Number(articleId || 0);
+        if (!id) {
+            return;
+        }
+        const fingerprint = await sourceFingerprint(currentEditorHtml());
+        const query = fingerprint ? `?source_fingerprint=${fingerprint}` : '';
+        const { response, data } = await seoArticleApiFetch(`/api/seo/articles/${id}/editor/cta-automation/runs${query}`);
+        if (!response.ok || data?.success !== true) {
+            return;
+        }
+        setRuns(Array.isArray(data.runs) ? data.runs : []);
+        setLatest(data.run || null);
+    }
+
+    useEffect(() => {
+        loadRuns().catch(() => {});
+    }, [articleId]);
+
+    async function persistSelections(runId, nextSelected, nextStyles) {
+        if (!runId) {
+            return;
+        }
+        await seoArticleApiFetch(`/api/seo/articles/${articleId}/editor/cta-automation/runs/${runId}/selections`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selected: nextSelected, styles: nextStyles }),
+        });
+    }
 
     async function run(mode) {
         const id = Number(articleId || 0);
@@ -104,6 +177,7 @@ export function CtaAutomationPanel({ articleId }) {
                         editor_html: editorHtml,
                         mode,
                         document_version: currentDocumentVersion(),
+                        idempotency_key: (window.crypto?.randomUUID?.() || String(Date.now())),
                     }),
                 },
             );
@@ -115,14 +189,18 @@ export function CtaAutomationPanel({ articleId }) {
             const next = {};
             const nextStyles = {};
             (data.changes || []).forEach((change) => {
-                next[change.id] = true;
-                if (change.style) {
-                    nextStyles[change.id] = change.style;
+                const saved = data.selections?.selected || {};
+                const savedStyles = data.selections?.styles || {};
+                next[change.id] = saved[change.id] !== false;
+                if (change.style || savedStyles[change.id]) {
+                    nextStyles[change.id] = savedStyles[change.id] || change.style;
                 }
             });
             setSelected(next);
             setStyles(nextStyles);
             setPreview({ ...data, editor_html: editorHtml });
+            setLatest(data);
+            loadRuns().catch(() => {});
         } catch (exception) {
             setError(exception instanceof Error ? exception.message : t('cta_auto_failed'));
         } finally {
@@ -131,7 +209,7 @@ export function CtaAutomationPanel({ articleId }) {
     }
 
     async function applyPreview() {
-        if (!preview?.preview_token || busy) {
+        if (!(preview?.run_id || preview?.preview_token) || busy) {
             return;
         }
         const htmlNow = currentEditorHtml();
@@ -152,14 +230,19 @@ export function CtaAutomationPanel({ articleId }) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         editor_html: htmlNow,
-                        preview_token: preview.preview_token,
+                        preview_token: preview.run_id || preview.preview_token,
+                        run_id: preview.run_id || preview.preview_token,
                         approved_ids: approved,
                         style_overrides: styles,
                         document_version: currentDocumentVersion(),
+                        acknowledge_stale: Boolean(latest?.stale),
                     }),
                 },
             );
             if (!response.ok || data?.success !== true || typeof data.html !== 'string') {
+                if (data?.status === 'stale_preview') {
+                    setLatest((current) => ({ ...(current || latest || {}), stale: true }));
+                }
                 setError(String(data?.message || t('cta_auto_failed')));
                 return;
             }
@@ -172,7 +255,16 @@ export function CtaAutomationPanel({ articleId }) {
                 setError(t('cta_auto_failed'));
                 return;
             }
+            const runId = data.run_id || preview.run_id || preview.preview_token;
+            if (runId) {
+                await seoArticleApiFetch(`/api/seo/articles/${articleId}/editor/cta-automation/runs/${runId}/confirm`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ editor_html: data.html }),
+                });
+            }
             setPreview(null);
+            loadRuns().catch(() => {});
         } catch (exception) {
             setError(exception instanceof Error ? exception.message : t('cta_auto_failed'));
         } finally {
@@ -185,6 +277,52 @@ export function CtaAutomationPanel({ articleId }) {
     return (
         <div className="seo-cta-automation">
             <p className="seo-cta-automation__hint">{t('cta_widget_hint')}</p>
+            {latest ? (
+                <section className="seo-cta-automation__run">
+                    <p className="seo-cta-automation__label">{t('cta_run_latest')}</p>
+                    <p className="seo-cta-automation__meta">{t('cta_run_mode')}: {modeLabel(latest.mode)}</p>
+                    <p className="seo-cta-automation__meta">{t('cta_run_status')}: {statusLabel(latest.status)}</p>
+                    {latest.created_at ? <p className="seo-cta-automation__meta">{t('cta_run_time')}: {latest.created_at}</p> : null}
+                    <p className="seo-cta-automation__meta">{t('cta_auto_insertions')}: {latest.summary?.insertions || 0}</p>
+                    <p className="seo-cta-automation__meta">{t('cta_auto_replacements')}: {latest.summary?.replacements || 0}</p>
+                    <p className="seo-cta-automation__meta">{t('cta_run_model')}: {latest.execution?.model || t('cta_run_unknown')}</p>
+                    <p className="seo-cta-automation__meta">{t('cta_run_provider')}: {latest.execution?.provider || t('cta_run_unknown')}</p>
+                    {latest.stale ? <p className="seo-cta-automation__warning">{t('cta_run_stale')}</p> : null}
+                    <button
+                        type="button"
+                        className="seo-cta-automation__btn"
+                        disabled={busy}
+                        onClick={async () => {
+                            const id = latest.run_id;
+                            const { response, data } = await seoArticleApiFetch(`/api/seo/articles/${articleId}/editor/cta-automation/runs/${id}`);
+                            if (response.ok && data?.run) {
+                                rememberRun(data.run);
+                            }
+                        }}
+                    >
+                        <span>{t('cta_run_reopen')}</span>
+                    </button>
+                    {runs.length > 1 ? (
+                        <SeoSelect
+                            size="compact"
+                            aria-label={t('cta_run_previous')}
+                            value={latest.run_id || ''}
+                            options={runs.map((run) => ({
+                                value: run.run_id,
+                                label: `${modeLabel(run.mode)} · ${statusLabel(run.status)}`,
+                            }))}
+                            onChange={async (event) => {
+                                const id = event.target.value;
+                                const { response, data } = await seoArticleApiFetch(`/api/seo/articles/${articleId}/editor/cta-automation/runs/${id}`);
+                                if (response.ok && data?.run) {
+                                    rememberRun(data.run);
+                                    setLatest(data.run);
+                                }
+                            }}
+                        />
+                    ) : null}
+                </section>
+            ) : null}
             <div className="seo-cta-automation__actions">
                 <button type="button" className="seo-cta-automation__btn seo-cta-automation__btn--primary" disabled={busy} onClick={() => run('improve')}>
                     {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null}
@@ -220,9 +358,12 @@ export function CtaAutomationPanel({ articleId }) {
                                             type="checkbox"
                                             checked={selected[change.id] !== false}
                                             aria-label={headingLabel(change.heading)}
-                                            onChange={(event) => {
-                                                setSelected((current) => ({ ...current, [change.id]: event.target.checked }));
-                                            }}
+                                        onChange={(event) => {
+                                            const next = { ...selected, [change.id]: event.target.checked };
+                                            setSelected(next);
+                                            const runId = preview.run_id || preview.preview_token;
+                                            persistSelections(runId, next, styles);
+                                        }}
                                         />
                                         <div className="seo-cta-automation__change-copy">
                                             <HeadingButton sectionId={change.section_id} heading={change.heading} />
@@ -257,7 +398,9 @@ export function CtaAutomationPanel({ articleId }) {
                                                     { value: 'conversion', label: t('cta_style_conversion') },
                                                 ]}
                                                 onChange={(event) => {
-                                                    setStyles((current) => ({ ...current, [change.id]: event.target.value }));
+                                                    const next = { ...styles, [change.id]: event.target.value };
+                                                    setStyles(next);
+                                                    persistSelections(preview.run_id || preview.preview_token, selected, next);
                                                 }}
                                             />
                                             <p className="seo-cta-automation__style-help">{styleHelp(style)}</p>

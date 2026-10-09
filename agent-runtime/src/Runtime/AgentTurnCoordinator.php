@@ -708,6 +708,20 @@ class AgentTurnCoordinator
     ): array {
         $extracted = $this->parameters->extract($message);
         $trace = $this->executionTrace($route, $extracted['parameters'], []);
+        if (is_string($route->guidance) && $route->guidance !== '') {
+            $bundle = new RetrievalBundle($scope, [], []);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                'bundle' => $bundle,
+                'response' => $this->safeResponse($route->guidance, $bundle),
+                'failureCode' => null,
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'confirmationProposal' => null,
+                'executionTrace' => $trace,
+            ];
+        }
         if ($route->outcome === 'none') {
             $bundle = new RetrievalBundle($scope, [], ['out_of_scope']);
 
@@ -835,7 +849,7 @@ class AgentTurnCoordinator
         $response = $processed['response'];
         $answer = $processed['answerInput'];
         $language = $processed['decision']?->responseLanguage ?? $extracted['language'];
-        if ($response === null && $bundle instanceof RetrievalBundle) {
+        if ($response === null && $bundle instanceof RetrievalBundle && ! $route->answerModelRequired) {
             $response = $this->factual->compose($bundle, $message, $language);
             if ($response === null) {
                 $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
@@ -905,11 +919,13 @@ class AgentTurnCoordinator
             'content_projects.read',
         ];
 
+        $capabilities = array_values(array_unique([$key, ...$route->secondaryCapabilities]));
+
         return json_encode([
             'is_in_scope' => true,
             'intent' => mb_substr(trim($message), 0, 180),
             'primary_capability' => $key,
-            'capabilities' => [$key],
+            'capabilities' => $capabilities,
             'parameters' => $extracted['parameters'],
             'requires_parameter_extraction' => false,
             'requires_user_confirmation' => AgentCapabilityCatalog::requiresConfirmation($key),
@@ -1148,12 +1164,17 @@ class AgentTurnCoordinator
         return [
             'router' => $route->evidenceKind,
             'outcome' => $route->outcome,
+            'module' => $route->module,
+            'operation' => $route->diagnostics['operation'] ?? null,
+            'family' => $route->intentFamily,
+            'answer_model_required' => $route->answerModelRequired,
             'capabilities' => $route->capability !== null ? [$route->capability] : [],
             'parameters' => $parameters,
             'tools' => $tools,
-            'synthesis' => false,
+            'synthesis' => $route->answerModelRequired,
             'external_model' => null,
             'external_model_calls' => 0,
+            'candidates' => $route->diagnostics['global']['candidates'] ?? [],
         ];
     }
 

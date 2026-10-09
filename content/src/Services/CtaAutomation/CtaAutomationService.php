@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services\CtaAutomation;
 
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 use App\Models\Site;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Models\SeoArticleCtaRun;
 
 /**
  * Shared Improve / Regenerate / generated-article CTA pipeline.
@@ -21,14 +20,19 @@ final class CtaAutomationService
         private readonly CtaShortcodeRegistry $shortcodes,
         private readonly CtaTextGenerator $generator,
         private readonly CtaBlockRenderer $renderer,
+        private readonly CtaRunStore $runs,
     ) {}
 
     /**
      * @return array<string, mixed>
      */
-    public function preview(SeoArticle $article, string $html, string $mode = 'improve'): array
+    public function preview(SeoArticle $article, string $html, string $mode = 'improve', ?string $idempotencyKey = null): array
     {
-        $mode = $mode === 'regenerate' ? 'regenerate' : 'improve';
+        $mode = in_array($mode, ['generate', 'improve', 'regenerate'], true) ? $mode : 'improve';
+        $existing = $this->runs->findIdempotent($article, $idempotencyKey);
+        if ($existing instanceof SeoArticleCtaRun) {
+            return $this->runs->payload($existing, $html);
+        }
         $sourceHash = hash('sha256', $html);
         $detected = $this->legacy->detect($html);
         $sectionRows = $this->sections->extract($html);
@@ -38,7 +42,7 @@ final class CtaAutomationService
         try {
             $plan = $this->planner->plan($this->plannerPayload($article, $sectionRows, $detected));
         } catch (\Throwable $exception) {
-            return $this->failure($exception, $detected);
+            return $this->failure($article, $html, $mode, $idempotencyKey, $exception, $detected);
         }
 
         $legacyById = [];
@@ -83,7 +87,28 @@ final class CtaAutomationService
             }
         }
 
-        $generated = ['ok' => true, 'ctas' => [], 'errors' => []];
+        $run = $this->runs->create($article, [
+            'mode' => $mode,
+            'status' => 'generating',
+            'source_fingerprint' => $sourceHash,
+            'idempotency_key' => trim((string) $idempotencyKey) !== '' ? trim((string) $idempotencyKey) : null,
+            'generation_started_at' => now(),
+            'plan' => [
+                'placements' => $placements,
+                'legacy' => $plan['legacy'] ?? [],
+                'sections' => array_map(static fn (array $section): array => [
+                    'section_id' => $section['section_id'],
+                    'heading' => $section['heading'],
+                    'word_count' => $section['word_count'],
+                ], $sectionRows),
+            ],
+            'review' => $review,
+            'summary' => $this->summary($detected, $removals, [], $review),
+            'prompt_hook' => CtaTextGenerator::HOOK_KEY,
+            'prompt_version' => '0.1.0',
+        ]);
+
+        $generated = ['ok' => true, 'ctas' => [], 'errors' => [], 'execution' => []];
         if ($placements !== []) {
             $generated = $this->generator->generate(
                 $this->language($article),
@@ -91,11 +116,22 @@ final class CtaAutomationService
                 $this->businessContext($site),
                 $placements,
                 $sectionRows,
+                [
+                    'article_id' => (int) $article->getKey(),
+                    'site_id' => (int) ($article->site_id ?? 0),
+                    'run_id' => (string) $run->id,
+                ],
             );
             if (! $generated['ok']) {
+                $run->status = 'failed';
+                $run->error_code = 'validation_failed';
+                $run->generation_completed_at = now();
+                $run->save();
+
                 return [
                     'success' => false,
                     'status' => 'validation_failed',
+                    'run_id' => (string) $run->id,
                     'message' => 'CTA generation failed validation.',
                     'errors' => $generated['errors'],
                     'summary' => $this->summary($detected, [], [], $review),
@@ -121,13 +157,14 @@ final class CtaAutomationService
                 'section_id' => $candidate['section_id'],
                 'heading' => $candidate['heading'],
                 'original' => $candidate['text'],
+                'occurrence' => (int) ($candidate['occurrence'] ?? 1),
                 'replacement' => null,
                 'intent' => null,
                 'alias' => null,
                 'position' => null,
             ];
         }
-        $origin = $mode === 'regenerate' ? 'generated' : 'improved';
+        $origin = $mode === 'improve' ? 'improved' : 'generated';
         foreach ($placements as $placement) {
             $placementId = (string) $placement['placement_id'];
             $text = (string) ($textById[$placementId] ?? '');
@@ -150,22 +187,35 @@ final class CtaAutomationService
             ];
         }
 
-        $token = (string) Str::uuid();
-        Cache::put($this->cacheKey($token), [
-            'article_id' => (int) $article->getKey(),
-            'source_hash' => $sourceHash,
-            'changes' => $changes,
-            'mode' => $mode,
-        ], now()->addMinutes(30));
+        $summary = $this->summary($detected, $removals, $changes, $review);
+        $selected = [];
+        $styles = [];
+        foreach ($changes as $change) {
+            $selected[(string) $change['id']] = true;
+            if (($change['kind'] ?? '') === 'insert') {
+                $styles[(string) $change['id']] = (string) ($change['style'] ?? 'soft');
+            }
+        }
+        $execution = is_array($generated['execution'] ?? null) ? $generated['execution'] : [];
+        $run->status = 'ready';
+        $run->generation_completed_at = now();
+        $run->changes = $changes;
+        $run->summary = $summary;
+        $run->selections = ['selected' => $selected, 'styles' => $styles];
+        $run->connection_id = $execution['connection_id'] ?? null;
+        $run->provider = $execution['provider'] ?? null;
+        $run->model = $execution['model'] ?? null;
+        $run->execution_id = $execution['execution_id'] ?? null;
+        $run->prompt_result_id = $execution['prompt_result_id'] ?? null;
+        $run->input_tokens = $execution['input_tokens'] ?? null;
+        $run->output_tokens = $execution['output_tokens'] ?? null;
+        $run->prompt_hook = $execution['prompt_hook'] ?? CtaTextGenerator::HOOK_KEY;
+        $run->prompt_version = $execution['prompt_version'] ?? '0.1.0';
+        $run->save();
 
-        return [
+        return $this->runs->payload($run, $html) + [
             'success' => true,
             'status' => 'ready',
-            'preview_token' => $token,
-            'source_hash' => $sourceHash,
-            'summary' => $this->summary($detected, $removals, $changes, $review),
-            'changes' => $changes,
-            'review' => $review,
             'debug' => [
                 'skipped' => $plan['skipped'] ?? [],
                 'enabled_aliases' => $enabled,
@@ -175,53 +225,42 @@ final class CtaAutomationService
 
     /**
      * @param  list<string>  $approvedIds
+     * @param  array<string, string>  $styleOverrides
      * @return array<string, mixed>
      */
-    /**
-     * @param  array<string, string>  $styleOverrides
-     */
-    public function apply(SeoArticle $article, string $html, string $token, array $approvedIds, array $styleOverrides = []): array
+    public function apply(SeoArticle $article, string $html, string $token, array $approvedIds, array $styleOverrides = [], bool $acknowledgeStale = false): array
     {
-        $cached = Cache::get($this->cacheKey($token));
-        if (! is_array($cached) || (int) ($cached['article_id'] ?? 0) !== (int) $article->getKey()) {
+        $run = $this->runs->findForArticle($article, $token);
+        if (! $run instanceof SeoArticleCtaRun || ! in_array((string) $run->status, ['ready', 'stale'], true)) {
             return ['success' => false, 'status' => 'preview_expired', 'message' => 'CTA preview expired. Run Improve CTA again.'];
         }
-        if (hash('sha256', $html) !== (string) ($cached['source_hash'] ?? '')) {
-            return ['success' => false, 'status' => 'stale_preview', 'message' => 'Article changed after the CTA preview.'];
+        $fingerprintMatches = hash('sha256', $html) === (string) $run->source_fingerprint;
+        if (! $fingerprintMatches && ! $acknowledgeStale) {
+            $this->runs->markStale($run);
+
+            return [
+                'success' => false,
+                'status' => 'stale_preview',
+                'message' => 'Bài viết đã thay đổi sau khi tạo CTA. Kết quả cũ vẫn được lưu nhưng cần kiểm tra lại trước khi áp dụng.',
+            ];
         }
 
         $approved = array_fill_keys($approvedIds, true);
         $operations = [];
         $site = $this->site($article);
         $preservedStyles = $this->renderer->readStylePresets($html);
-        $changes = is_array($cached['changes'] ?? null) ? $cached['changes'] : [];
-        $insertIds = [];
+        $changes = is_array($run->changes) ? $run->changes : [];
         foreach ($changes as $change) {
-            if (! is_array($change) || ! isset($approved[(string) ($change['id'] ?? '')])) {
+            if (! is_array($change) || ($change['kind'] ?? '') !== 'remove' || ! isset($approved[(string) ($change['id'] ?? '')])) {
                 continue;
             }
-            if (($change['kind'] ?? '') === 'remove') {
-                $operations[] = [
-                    'id' => $change['id'],
-                    'kind' => 'remove',
-                    'text' => (string) ($change['original'] ?? ''),
-                ];
-            }
-            if (($change['kind'] ?? '') === 'insert') {
-                $insertIds[] = (string) ($change['placement_id'] ?? '');
-            }
-        }
-        foreach ($insertIds as $placementId) {
-            if ($placementId !== '') {
-                $operations[] = [
-                    'id' => 'clear_'.$placementId,
-                    'kind' => 'remove_managed',
-                    'placement_id' => $placementId,
-                ];
-            }
-        }
-        if ($insertIds !== []) {
-            $operations[] = ['id' => 'clear_auto', 'kind' => 'remove_managed', 'placement_id' => ''];
+            $operations[] = [
+                'id' => $change['id'],
+                'kind' => 'remove',
+                'section_id' => (string) ($change['section_id'] ?? ''),
+                'text' => (string) ($change['original'] ?? ''),
+                'occurrence' => (int) ($change['occurrence'] ?? 1),
+            ];
         }
         foreach ($changes as $change) {
             if (! is_array($change) || ($change['kind'] ?? '') !== 'insert' || ! isset($approved[(string) $change['id']])) {
@@ -246,6 +285,7 @@ final class CtaAutomationService
                 'id' => $change['id'],
                 'kind' => 'insert',
                 'section_id' => (string) $change['section_id'],
+                'placement_id' => $placementId,
                 'html' => $this->renderer->blockHtml(
                     $placementId,
                     (string) $change['section_id'],
@@ -254,19 +294,63 @@ final class CtaAutomationService
                     (string) ($change['origin'] ?? 'improved'),
                     (string) ($change['replacement'] ?? ''),
                     $style,
+                    (string) $run->id,
                 ),
             ];
         }
 
         $rendered = $this->renderer->apply($html, $operations);
+        if (($rendered['ok'] ?? false) !== true) {
+            if (! $fingerprintMatches) {
+                $this->runs->markStale($run);
+            }
+
+            return [
+                'success' => false,
+                'status' => 'apply_incomplete',
+                'message' => 'Không áp dụng được thao tác CTA đã chọn. Nội dung bài không đổi.',
+                'skipped' => $rendered['skipped'] ?? [],
+            ];
+        }
+
+        $this->runs->saveSelections($run, $approved, $styleOverrides);
 
         return [
             'success' => true,
-            'status' => 'applied',
+            'status' => 'pending_editor',
+            'run_id' => (string) $run->id,
             'html' => $rendered['html'],
             'applied' => $rendered['applied'],
-            'skipped' => $rendered['skipped'],
+            'skipped' => [],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function confirmApplied(SeoArticle $article, string $runId, string $html): array
+    {
+        $run = $this->runs->findForArticle($article, $runId);
+        if (! $run instanceof SeoArticleCtaRun) {
+            return ['success' => false, 'status' => 'preview_expired', 'message' => 'CTA run was not found.'];
+        }
+        $changes = is_array($run->changes) ? $run->changes : [];
+        $selected = is_array($run->selections['selected'] ?? null) ? $run->selections['selected'] : [];
+        foreach ($changes as $change) {
+            if (! is_array($change) || ($change['kind'] ?? '') !== 'insert') {
+                continue;
+            }
+            if (($selected[(string) ($change['id'] ?? '')] ?? false) !== true) {
+                continue;
+            }
+            $placementId = (string) ($change['placement_id'] ?? '');
+            if ($placementId !== '' && ! str_contains($html, 'data-cta-placement="'.$placementId.'"')) {
+                return ['success' => false, 'status' => 'editor_rejected', 'message' => 'Editor did not accept the CTA document.'];
+            }
+        }
+        $this->runs->markApplied($run);
+
+        return ['success' => true, 'status' => 'applied', 'run_id' => (string) $run->id];
     }
 
     /**
@@ -275,10 +359,11 @@ final class CtaAutomationService
     public function attachGenerated(SeoArticle $article): array
     {
         $html = (string) ($article->body ?? '');
-        $preview = $this->preview($article, $html, 'regenerate');
+        $preview = $this->preview($article, $html, 'generate');
         if (($preview['success'] ?? false) !== true) {
             return [
                 'status' => 'failed',
+                'run_id' => $preview['run_id'] ?? null,
                 'message' => (string) ($preview['message'] ?? 'cta_failed'),
                 'errors' => $preview['errors'] ?? [],
             ];
@@ -290,16 +375,68 @@ final class CtaAutomationService
             }
         }
         if ($ids === []) {
-            return ['status' => 'empty', 'message' => 'No CTA placement.'];
+            return ['status' => 'empty', 'run_id' => $preview['run_id'] ?? null, 'message' => 'No CTA placement.'];
         }
-        $applied = $this->apply($article, $html, (string) $preview['preview_token'], $ids);
+        $applied = $this->apply($article, $html, (string) ($preview['run_id'] ?? ''), $ids, [], true);
         if (($applied['success'] ?? false) !== true) {
-            return ['status' => 'failed', 'message' => (string) ($applied['message'] ?? 'cta_failed')];
+            return ['status' => 'failed', 'run_id' => $preview['run_id'] ?? null, 'message' => (string) ($applied['message'] ?? 'cta_failed')];
         }
         $article->body = (string) $applied['html'];
         $article->save();
+        $this->confirmApplied($article, (string) ($preview['run_id'] ?? ''), (string) $applied['html']);
 
-        return ['status' => 'applied', 'placements' => count($ids)];
+        return ['status' => 'applied', 'run_id' => $preview['run_id'] ?? null, 'mode' => 'generate', 'placements' => count($ids)];
+    }
+
+    public function latestRun(SeoArticle $article): ?SeoArticleCtaRun
+    {
+        return $this->runs->latest($article);
+    }
+
+    /**
+     * @return list<SeoArticleCtaRun>
+     */
+    public function recentRuns(SeoArticle $article): array
+    {
+        return $this->runs->recent($article);
+    }
+
+    public function findRun(SeoArticle $article, string $id): ?SeoArticleCtaRun
+    {
+        return $this->runs->findForArticle($article, $id);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function runPayload(SeoArticleCtaRun $run, ?string $html = null, ?string $fingerprint = null): array
+    {
+        return $this->runs->payload($run, $html, $fingerprint);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function runSummary(SeoArticleCtaRun $run, ?string $html = null, ?string $fingerprint = null): array
+    {
+        return $this->runs->summary($run, $html, $fingerprint);
+    }
+
+    /**
+     * @param  array<string, mixed>  $selected
+     * @param  array<string, mixed>  $styles
+     */
+    public function saveRunSelections(SeoArticleCtaRun $run, array $selected, array $styles): void
+    {
+        $flags = [];
+        foreach ($selected as $id => $on) {
+            $flags[(string) $id] = (bool) $on;
+        }
+        $cleanStyles = [];
+        foreach ($styles as $id => $style) {
+            $cleanStyles[(string) $id] = (string) $style;
+        }
+        $this->runs->saveSelections($run, $flags, $cleanStyles);
     }
 
     /**
@@ -417,17 +554,31 @@ final class CtaAutomationService
      * @param  list<array<string, mixed>>  $detected
      * @return array<string, mixed>
      */
-    private function failure(\Throwable $exception, array $detected): array
+    private function failure(SeoArticle $article, string $html, string $mode, ?string $idempotencyKey, \Throwable $exception, array $detected): array
     {
         $message = $exception->getMessage();
         $code = str_starts_with($message, 'semantic_')
             ? strtok($message, ' ')
             : 'semantic_plan_failed';
+        $code = is_string($code) && $code !== '' ? $code : 'semantic_plan_failed';
+        $run = $this->runs->create($article, [
+            'mode' => $mode,
+            'status' => 'failed',
+            'error_code' => $code,
+            'source_fingerprint' => hash('sha256', $html),
+            'idempotency_key' => trim((string) $idempotencyKey) !== '' ? trim((string) $idempotencyKey) : null,
+            'generation_started_at' => now(),
+            'generation_completed_at' => now(),
+            'summary' => $this->summary($detected, [], [], []),
+            'changes' => [],
+            'review' => [],
+        ]);
 
         return [
             'success' => false,
             'status' => 'semantic_failed',
-            'error_code' => is_string($code) && $code !== '' ? $code : 'semantic_plan_failed',
+            'run_id' => (string) $run->id,
+            'error_code' => $code,
             'message' => $message,
             'summary' => $this->summary($detected, [], [], []),
             'changes' => [],
@@ -485,10 +636,5 @@ final class CtaAutomationService
             'conversion' => 'conversion',
             default => 'soft',
         };
-    }
-
-    private function cacheKey(string $token): string
-    {
-        return 'cta-automation-preview:'.$token;
     }
 }
