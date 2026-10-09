@@ -19,6 +19,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry;
 
 final class DomainOverviewService
 {
@@ -77,8 +78,9 @@ final class DomainOverviewService
      */
     public function getScoreDistribution(int $siteId): array
     {
-        $base = $this->wpBackedScoringArticlesQuery($siteId);
-        $total = (clone $base)->count();
+        $membership = $this->wpBackedScoringArticlesQuery($siteId);
+        $base = $this->ordinaryQualityScoringQuery($siteId);
+        $total = (clone $membership)->count();
         $scoreCol = $this->seoScoreColumn();
         $scored = (clone $base)->whereNotNull($scoreCol)->count();
 
@@ -209,7 +211,7 @@ final class DomainOverviewService
     public function getScoringStatistics(int $siteId): array
     {
         $scoreCol = $this->seoScoreColumn();
-        $base = $this->wpBackedScoringArticlesQuery($siteId)
+        $base = $this->ordinaryQualityScoringQuery($siteId)
             ->whereNotNull($scoreCol);
         $scored = (clone $base)->count();
 
@@ -253,6 +255,19 @@ final class DomainOverviewService
      *
      * @return EloquentBuilder<SeoArticle>
      */
+    /**
+     * Quality averages exclude System Points (protected, Page, missing Focus Keyword).
+     * Membership/progress stays on {@see wpBackedScoringArticlesQuery()}.
+     *
+     * @return EloquentBuilder<SeoArticle>
+     */
+    private function ordinaryQualityScoringQuery(int $siteId): EloquentBuilder
+    {
+        return SeoSystemPointRegistry::scopeOrdinaryQuality(
+            $this->wpBackedScoringArticlesQuery($siteId),
+        );
+    }
+
     private function wpBackedScoringArticlesQuery(int $siteId): EloquentBuilder
     {
         $query = SeoArticle::query()

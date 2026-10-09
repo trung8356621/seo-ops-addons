@@ -9,8 +9,10 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
+use Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
@@ -130,6 +132,9 @@ final class SeoAuditKeywordFlagService
                         'seo_meta_description',
                         '_yoast_wpseo_metadesc',
                         'rank_math_description',
+                        ArticleContentClassification::META_CONTENT_TYPE,
+                        ArticleContentClassification::META_WP_POST_TYPE,
+                        ArticleContentClassification::META_WP_IS_TERM,
                     ]);
                 },
                 'linkMaps.keyword.reviewReason',
@@ -174,8 +179,16 @@ final class SeoAuditKeywordFlagService
      */
     private function compareResultRows(array $left, array $right, ?string $sortBy, string $sortDir): int
     {
+        $leftSpecial = ($left['system_point'] ?? null) !== null;
+        $rightSpecial = ($right['system_point'] ?? null) !== null;
+        if ($leftSpecial !== $rightSpecial) {
+            return $leftSpecial <=> $rightSpecial;
+        }
+
         if ($sortBy === 'score') {
-            $scoreCompare = ((int) ($left['score'] ?? 0)) <=> ((int) ($right['score'] ?? 0));
+            $leftScore = $left['quality_score'] ?? $left['score'] ?? 0;
+            $rightScore = $right['quality_score'] ?? $right['score'] ?? 0;
+            $scoreCompare = ((int) $leftScore) <=> ((int) $rightScore);
             if ($scoreCompare !== 0) {
                 return $sortDir === 'desc' ? -$scoreCompare : $scoreCompare;
             }
@@ -300,7 +313,7 @@ final class SeoAuditKeywordFlagService
             $reasonLabels[] = $missingLabel;
         }
 
-        return [
+        $row = [
             'id' => (int) $article->id,
             'site_id' => (int) ($article->site_id ?? 0),
             'title' => (string) ($article->title ?? ''),
@@ -327,6 +340,11 @@ final class SeoAuditKeywordFlagService
             'has_seo_rule_matches' => $matchesRules,
             'updated_at' => optional($article->updated_at)->toIso8601String() ?? '',
         ];
+
+        return SeoSystemPointRegistry::overlayAuditRow(
+            $row,
+            SeoSystemPointRegistry::resolve($article, $hasFocusKeyword),
+        );
     }
 
     /**
@@ -419,7 +437,13 @@ final class SeoAuditKeywordFlagService
         }
 
         $threshold = SeoScoringRulesRegistry::AUDIT_LOW_SCORE_THRESHOLD;
-        if (($filterLowSeoScore || $filterTechnicalSeoScore) && $score < $threshold) {
+        $systemPoint = SeoSystemPointRegistry::resolve($article);
+        if (
+            ($filterLowSeoScore || $filterTechnicalSeoScore)
+            && $systemPoint === null
+            && $article->countsTowardSeoScore()
+            && $score < $threshold
+        ) {
             return true;
         }
 

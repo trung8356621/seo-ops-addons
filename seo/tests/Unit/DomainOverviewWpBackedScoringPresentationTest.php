@@ -59,8 +59,8 @@ final class DomainOverviewWpBackedScoringPresentationTest extends TestCase
 
     public function test_donut_and_progress_share_wp_backed_membership_excluding_leaks(): void
     {
-        $this->insertArticle(1, 'post', wpPostId: 10, score: 40, completed: true);
-        $this->insertArticle(2, 'page', wpPostId: 20, score: 75, completed: true);
+        $this->insertArticle(1, 'post', wpPostId: 10, score: 40, completed: true, focusKeyword: 'alpha');
+        $this->insertArticle(2, 'page', wpPostId: 20, score: 75, completed: true, focusKeyword: 'page keyword');
         $this->insertArticle(3, 'product', wpPostId: 30, score: null, completed: false);
         // Inflators that previously leaked into donut / workspace-mixed progress:
         $this->insertArticle(4, 'post', wpPostId: null, score: 99, completed: true); // local-only
@@ -75,12 +75,13 @@ final class DomainOverviewWpBackedScoringPresentationTest extends TestCase
         $distribution = $overview->getScoreDistribution(self::SITE_ID);
         $progress = $overview->getWpBackedScoringProgress(self::SITE_ID);
 
-        // Denominator = WP-backed scoring-eligible (skip excluded): articles 1,2,3
+        // Membership stays WP-backed scoring-eligible (skip excluded): articles 1,2,3.
+        // Quality scored/avg excludes System Points: Page (2) is out; post 1 remains.
         self::assertSame(3, $distribution['total']);
         self::assertSame(3, $progress['total']);
-        // Donut “Đã chấm” = WP-backed with non-null score (1,2) — not system/local leaks
-        self::assertSame(2, $stats['scored']);
-        self::assertSame(2, $distribution['scored']);
+        self::assertSame(1, $stats['scored']);
+        self::assertSame(40.0, $stats['avg_score']);
+        self::assertSame(1, $distribution['scored']);
         // Progress completed recalculated on same WP-backed set (1,2)
         self::assertSame(2, $progress['completed']);
         self::assertSame(
@@ -148,6 +149,16 @@ final class DomainOverviewWpBackedScoringPresentationTest extends TestCase
             $table->boolean('skip_seo_score')->default(false);
             $table->timestamps();
         });
+        Schema::connection('omi_seo_ai')->create('keywords', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->string('phrase')->nullable();
+        });
+        Schema::connection('omi_seo_ai')->create('keyword_meta', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->unsignedInteger('keyword_id');
+            $table->string('meta_key');
+            $table->text('meta_value')->nullable();
+        });
         Schema::connection('omi_seo_ai')->create('wordpress_article_links', function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('article_id');
@@ -164,6 +175,7 @@ final class DomainOverviewWpBackedScoringPresentationTest extends TestCase
         bool $completed = false,
         bool $isTerm = false,
         bool $skipSeoScore = false,
+        ?string $focusKeyword = null,
     ): void {
         DB::connection('omi_seo_ai')->table('articles')->insert([
             'id' => $id,
@@ -208,6 +220,15 @@ final class DomainOverviewWpBackedScoringPresentationTest extends TestCase
                 'article_id' => $id,
                 'meta_key' => SeoScoringStatus::META_KEY_STATUS,
                 'meta_value' => SeoScoringStatus::STATUS_COMPLETED,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        if ($focusKeyword !== null && $focusKeyword !== '') {
+            DB::connection('omi_seo_ai')->table('article_meta')->insert([
+                'article_id' => $id,
+                'meta_key' => 'seo_focus_keyword',
+                'meta_value' => $focusKeyword,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

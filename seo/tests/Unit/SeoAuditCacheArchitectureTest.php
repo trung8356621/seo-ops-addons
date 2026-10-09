@@ -126,6 +126,11 @@ final class SeoAuditCacheArchitectureTest extends TestCase
                 'meta_key' => SeoScoringRulesRegistry::META_KEY_VIOLATIONS,
                 'meta_value' => json_encode([]),
             ]);
+            ArticleMeta::query()->create([
+                'article_id' => $article->id,
+                'meta_key' => 'seo_focus_keyword',
+                'meta_value' => 'focus keyword',
+            ]);
         }
 
         $query = app(SeoAuditScanService::class)->buildFilteredQuery(

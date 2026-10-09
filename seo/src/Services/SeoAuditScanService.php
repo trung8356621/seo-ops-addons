@@ -7,9 +7,11 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
+use Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
@@ -23,6 +25,10 @@ final class SeoAuditScanService
         'seo_meta_description',
         '_yoast_wpseo_metadesc',
         'rank_math_description',
+        'seo_focus_keyword',
+        ArticleContentClassification::META_CONTENT_TYPE,
+        ArticleContentClassification::META_WP_POST_TYPE,
+        ArticleContentClassification::META_WP_IS_TERM,
     ];
 
     public function __construct(
@@ -259,8 +265,13 @@ final class SeoAuditScanService
             }
 
             if ($filterLowSeoScore || $filterTechnicalSeoScore) {
-                $orGroup->orWhereHas('seoProfile', static function (Builder $profile) use ($threshold): void {
-                    $profile->whereNotNull('seo_score')->where('seo_score', '<', $threshold);
+                $orGroup->orWhere(function (Builder $low) use ($threshold): void {
+                    SeoSystemPointRegistry::scopeOrdinaryQuality($low);
+                    $low->whereHas('seoProfile', static function (Builder $profile) use ($threshold): void {
+                        $profile->whereNotNull('seo_score')
+                            ->where('seo_score', '<', $threshold)
+                            ->where('seo_score', '>=', 0);
+                    });
                 });
             }
         });
@@ -334,7 +345,7 @@ final class SeoAuditScanService
             ));
         }
 
-        return [
+        $row = [
             'id' => (int) $article->id,
             'site_id' => (int) ($article->site_id ?? 0),
             'title' => (string) ($article->title ?? ''),
@@ -352,6 +363,11 @@ final class SeoAuditScanService
             'is_low_quality' => $assessment['is_low_quality'],
             'is_analyzed' => SeoScoringStatus::hasBeenAnalyzed($article),
         ];
+
+        return SeoSystemPointRegistry::overlayAuditRow(
+            $row,
+            SeoSystemPointRegistry::resolve($article, $hasFocusKeyword),
+        );
     }
 
     private function resolveCachedPermalink(SeoArticle $article): ?string

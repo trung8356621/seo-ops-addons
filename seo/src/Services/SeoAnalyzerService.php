@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
+use Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -125,7 +126,11 @@ class SeoAnalyzerService
             $emptyLinks = $this->extractLinks($content, $domain);
 
             return array_merge(
-                $this->buildScoreResult([SeoScoringRulesRegistry::KEY_MISSING_FOCUS_KEYWORD]),
+                $this->annotateSystemPoint(
+                    $article,
+                    $this->buildScoreResult([SeoScoringRulesRegistry::KEY_MISSING_FOCUS_KEYWORD]),
+                    false,
+                ),
                 [
                     'extracted_links' => $emptyLinks,
                     ...$this->buildLinkSuggestionPayload(
@@ -152,7 +157,7 @@ class SeoAnalyzerService
 
         $extractedLinks = $computed['extractedLinks'];
 
-        return array_merge($computed['scoreData'], [
+        return array_merge($this->annotateSystemPoint($article, $computed['scoreData'], true), [
             'extracted_links' => $extractedLinks,
             'content_bonus' => $contentBonus,
             ...$this->buildLinkSuggestionPayload(
@@ -229,7 +234,7 @@ class SeoAnalyzerService
             ];
         }
 
-        return [
+        return array_merge([
             'total_score' => $score,
             'grade' => $this->scoreGrade($score),
             'score_version' => SeoScoringRulesRegistry::SCORE_VERSION,
@@ -243,7 +248,13 @@ class SeoAnalyzerService
             'errors' => $raw['errors'] ?? [],
             'warnings' => $raw['warnings'] ?? [],
             'extracted_links' => $raw['extracted_links'] ?? ['internal' => [], 'external' => []],
-        ];
+        ], SeoSystemPointRegistry::present(
+            SeoSystemPointRegistry::resolve(
+                $article,
+                ! in_array(SeoScoringRulesRegistry::KEY_MISSING_FOCUS_KEYWORD, $violations, true),
+            ),
+            $score,
+        ));
     }
 
     private function scoreGrade(int $score): string
@@ -538,12 +549,16 @@ class SeoAnalyzerService
         ?array $extractedLinks = null,
         ?string $content = null,
     ): array {
-        if (! $article->countsTowardSeoScore()) {
-            return $scoreData;
+        $violations = SeoScoringRulesRegistry::sanitizeViolations($scoreData['violations'] ?? []);
+        $hasKeyword = ! in_array(SeoScoringRulesRegistry::KEY_MISSING_FOCUS_KEYWORD, $violations, true);
+        if (
+            ! $article->countsTowardSeoScore()
+            || SeoSystemPointRegistry::resolve($article, $hasKeyword) === SeoSystemPointRegistry::CODE_WP_PROTECTED
+        ) {
+            return $this->annotateSystemPoint($article, $scoreData, $hasKeyword);
         }
 
         $links = $extractedLinks ?? ['internal' => [], 'external' => []];
-        $violations = SeoScoringRulesRegistry::sanitizeViolations($scoreData['violations'] ?? []);
         $score = SeoScoringCalculator::scoreFromViolations($violations);
         $contentHash = hash('sha256', trim((string) ($content ?? $article->body ?? '')));
         $calculatedAt = now()->toIso8601String();
@@ -575,13 +590,30 @@ class SeoAnalyzerService
         // Keep in-memory model hydrated for callers in same request.
         $article->forceFill($updatePayload);
 
-        return array_merge($scoreData, [
+        return $this->annotateSystemPoint($article, array_merge($scoreData, [
             'score' => $score,
             'violations' => $violations,
             'score_version' => SeoScoringRulesRegistry::SCORE_VERSION,
             'content_hash' => $contentHash,
             'calculated_at' => $calculatedAt,
-        ]);
+        ]), $hasKeyword);
+    }
+
+    /**
+     * @param  array<string, mixed>  $scoreData
+     * @return array<string, mixed>
+     */
+    private function annotateSystemPoint(SeoArticle $article, array $scoreData, ?bool $hasCanonicalFocusKeyword): array
+    {
+        $score = array_key_exists('score', $scoreData) ? (int) $scoreData['score'] : null;
+
+        return array_merge(
+            $scoreData,
+            SeoSystemPointRegistry::present(
+                SeoSystemPointRegistry::resolve($article, $hasCanonicalFocusKeyword),
+                $score,
+            ),
+        );
     }
 
     private function storeMetaScalar(SeoArticle $article, string $key, string $value): void
