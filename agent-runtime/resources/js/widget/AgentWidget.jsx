@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Lightbulb, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
+import { userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { executedModelsText } from '../projects/testModelPresentation.js';
 import { normalizeHostContext } from '../host/hostContext.js';
@@ -177,6 +179,7 @@ export function AgentWidget({
     threadsUrl: propThreadsUrl,
     copyUrl: propCopyUrl,
     modelDebugApplyUrl: propModelDebugApplyUrl,
+    draftIntakeUrl: propDraftIntakeUrl,
     testCatalogUrl: propTestCatalogUrl,
     csrf = '',
     mode = 'standalone',
@@ -192,9 +195,11 @@ export function AgentWidget({
         threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
+        draftIntakeUrl: propDraftIntakeUrl || rawEndpoints?.draftIntakeUrl || '/agent-runtime/draft-intake',
         testCatalogUrl: propTestCatalogUrl || rawEndpoints?.testCatalogUrl || '/agent-runtime/test-catalog',
         testArticlesUrl: rawEndpoints?.testArticlesUrl || '/agent-runtime/test-articles',
         testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs',
+        welcomeQuestionsUrl: rawEndpoints?.welcomeQuestionsUrl || '/agent-runtime/welcome-questions',
     };
 
     // Initialize initial scope based on hostContext or fallback to global
@@ -221,6 +226,38 @@ export function AgentWidget({
     const [loadingThreads, setLoadingThreads] = useState(false);
 
     const [draft, setDraft] = useState('');
+    const [welcomeModules, setWelcomeModules] = useState(WELCOME_MODULES);
+    const [welcomeOpenId, setWelcomeOpenId] = useState('seo_audit');
+    const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(endpoints.welcomeQuestionsUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+            .then((response) => response.ok ? response.json() : null)
+            .then((payload) => {
+                if (cancelled || !Array.isArray(payload?.data?.modules)) return;
+                const icons = Object.fromEntries(WELCOME_MODULES.map((module) => [module.id, module.icon]));
+                setWelcomeModules(payload.data.modules.map((module) => ({ ...module, icon: icons[module.id] })));
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [endpoints.welcomeQuestionsUrl]);
+
+    const persistWelcome = useCallback((modules) => {
+        setWelcomeModules(modules);
+        fetch(endpoints.welcomeQuestionsUrl, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf },
+            body: JSON.stringify({ modules: userQuestionsPayload(modules) }),
+        }).catch(() => {});
+    }, [csrf, endpoints.welcomeQuestionsUrl]);
+
+    const pickWelcomeQuestion = (text) => {
+        setDraft(text);
+        setSuggestionsOpen(false);
+        textareaRef.current?.focus();
+    };
     const [messages, setMessages] = useState([]);
     const [busy, setBusy] = useState(false);
     const [confirmationBusyRunUlid, setConfirmationBusyRunUlid] = useState('');
@@ -459,6 +496,7 @@ export function AgentWidget({
                         sources: responsePayload.sources || [],
                         model_diagnostics: modelDiag,
                         answer_diagnostics: answerDiag,
+                        execution: retrievalSummary.model_diagnostics?.execution || responsePayload.execution || null,
                     },
                 };
             });
@@ -558,6 +596,37 @@ export function AgentWidget({
         }
     }, [endpoints.threadsUrl, csrf, t.deleteConfirm, activeThreads, archivedThreads, viewingThreadUlid, activeThreadUlid, onNewConversation]);
 
+    async function onUseVerifiedResults() {
+        if (debugBusy || !debugRunUlid) {
+            return;
+        }
+        setDebugBusy(true);
+        setDebugParserError('');
+        try {
+            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
+                run_ulid: debugRunUlid,
+                use_verified: true,
+            });
+            const data = payload?.data || {};
+            setMessages((current) => [...current, {
+                role: 'assistant',
+                id: data.assistant_message_id,
+                originUserMessageId: data.user_message_id,
+                content: data.message || '',
+                response: data,
+            }]);
+            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
+            resetDebugState();
+            setDebugOpen(false);
+            fetchThreads(currentScopeRef);
+        } catch (caught) {
+            setDebugParserError(caught.message || 'Could not finish from verified results.');
+            setDebugOpen(true);
+        } finally {
+            setDebugBusy(false);
+        }
+    }
+
     async function onApplyDebugResult() {
         if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
             return;
@@ -593,6 +662,9 @@ export function AgentWidget({
             const payload = caught.payload;
             if (caught.status === 422 && payload?.data?.status === 'paused') {
                 setDebugParserError(payload.validation_error || payload.message || 'Answer result rejected');
+                if (payload.data.model_call) {
+                    setDebugCall(payload.data.model_call);
+                }
                 setProcessingStatus(waitingForManualModel(payload.data.model_call));
                 setDebugOpen(true);
             } else {
@@ -1152,38 +1224,13 @@ export function AgentWidget({
                                 <p className="agent-welcome__desc">
                                     {t.welcomeDesc(selected.label)}
                                 </p>
-                                <div className="agent-welcome__suggestions">
-                                    <button
-                                        type="button"
-                                        className="agent-suggestion-chip"
-                                        onClick={() => {
-                                            setDraft(t.suggestion1);
-                                            if (textareaRef.current) textareaRef.current.focus();
-                                        }}
-                                    >
-                                        <span>{t.suggestion1}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="agent-suggestion-chip"
-                                        onClick={() => {
-                                            setDraft(t.suggestion2);
-                                            if (textareaRef.current) textareaRef.current.focus();
-                                        }}
-                                    >
-                                        <span>{t.suggestion2}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="agent-suggestion-chip"
-                                        onClick={() => {
-                                            setDraft(t.suggestion3);
-                                            if (textareaRef.current) textareaRef.current.focus();
-                                        }}
-                                    >
-                                        <span>{t.suggestion3}</span>
-                                    </button>
-                                </div>
+                                <WelcomeAccordion
+                                    modules={welcomeModules}
+                                    openId={welcomeOpenId}
+                                    onToggle={(id) => setWelcomeOpenId((current) => current === id ? '' : id)}
+                                    onPick={pickWelcomeQuestion}
+                                    onChangeModules={persistWelcome}
+                                />
                             </div>
                         ) : null}
 
@@ -1198,15 +1245,15 @@ export function AgentWidget({
                             return (
                                 <div key={turn.id} className="agent-turn">
                                     <article className="agent-message is-user">
-                                        <div className="agent-message__body">
-                                            <p>{turn.content}</p>
-                                        </div>
                                         <div className="agent-message__actions">
                                             <button
                                                 type="button"
                                                 className="agent-message-action-btn"
                                                 onClick={() => copyText(turn.content)}
                                                 title="Copy question" aria-label="Copy question"><Copy size={13} /></button>
+                                        </div>
+                                        <div className="agent-message__body">
+                                            <p>{turn.content}</p>
                                         </div>
                                     </article>
 
@@ -1270,6 +1317,11 @@ export function AgentWidget({
                                                     response={version.response}
                                                     onAction={onConfirmationAction}
                                                     actionsBusy={confirmationBusyRunUlid === version?.response?.run_ulid}
+                                                    draftIntakeUrl={endpoints.draftIntakeUrl}
+                                                    csrf={csrf}
+                                                    siteId={selected?.siteId || null}
+                                                    selectionKey={version.id || version.response?.run_ulid || turn.id}
+                                                    debug={isDebugMode}
                                                 />
                                                 {(() => {
                                                     const modelDiag = version?.response?.model_diagnostics;
@@ -1330,6 +1382,17 @@ export function AgentWidget({
                             </button>
                         </div>
                     ) : (
+                        <>
+                        {conversationTurns.length > 0 && suggestionsOpen ? (
+                            <WelcomeAccordion
+                                compact
+                                modules={welcomeModules}
+                                openId={welcomeOpenId}
+                                onToggle={(id) => setWelcomeOpenId((current) => current === id ? '' : id)}
+                                onPick={pickWelcomeQuestion}
+                                onChangeModules={persistWelcome}
+                            />
+                        ) : null}
                         <form className="agent-composer" onSubmit={onComposerSubmit}>
                             <div className="agent-input-wrap">
                                 <textarea
@@ -1352,6 +1415,16 @@ export function AgentWidget({
                                     rows={2}
                                 />
                                 <div className="agent-composer-actions">
+                                    {conversationTurns.length > 0 ? (
+                                        <button
+                                            type="button"
+                                            className="agent-copy-btn"
+                                            onClick={() => setSuggestionsOpen((open) => !open)}
+                                            title={locale === 'vi' ? 'Gợi ý theo module' : 'Module suggestions'}
+                                        >
+                                            <Lightbulb size={15} />
+                                        </button>
+                                    ) : null}
                                     <button
                                         type="button"
                                         className="agent-copy-btn"
@@ -1374,6 +1447,7 @@ export function AgentWidget({
                                 </div>
                             </div>
                         </form>
+                        </>
                     )}
                 </div>
 
@@ -1527,6 +1601,7 @@ export function AgentWidget({
                 manualResult={debugManualResult}
                 onManualResultChange={setDebugManualResult}
                 onApply={onApplyDebugResult}
+                onUseVerified={onUseVerifiedResults}
                 isApplying={debugBusy}
                 parserError={debugParserError}
             />

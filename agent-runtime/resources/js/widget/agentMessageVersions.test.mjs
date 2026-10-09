@@ -58,7 +58,9 @@ test('Persisted diagnostics render even if current mode != diag, supporting Deci
 });
 
 test('drawer width and processing status use wider flat contracts', () => {
-    assert.equal(css.includes('width: 90vw;'), true);
+    assert.equal(css.includes('width: min(90vw, 1180px);'), true);
+    assert.equal(css.includes('height: min(92dvh, calc(100dvh - 24px));'), true);
+    assert.equal(css.includes('background: rgba(15, 23, 42, 0.22);'), true);
     assert.equal(css.includes('@media (max-width: 768px)'), true);
     assert.match(css, /article\.agent-processing-status \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
 });

@@ -8,7 +8,6 @@ use Omnichannel\Addons\Agent\Automation\Actions\Keyword\SaveKeywordVocabularyAct
 use Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultSplitOutlinePromptsInstaller;
 use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
-use Omnichannel\Addons\Content\Services\ArticleEditorVocabularyPayloadService;
 use Omnichannel\Addons\ContentProjects\Services\CreateArticlesFromTaskService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\VocabularyKeywordIntelligenceIngestionService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordItemPresenter;
@@ -130,12 +129,6 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
         self::assertStringNotContainsString('PromptResult::', $ingest);
         self::assertStringNotContainsString('latest prompt', $ingest);
         self::assertStringNotContainsString('article.outline.generate', $ingest);
-
-        $editor = (string) file_get_contents(
-            (string) (new ReflectionClass(ArticleEditorVocabularyPayloadService::class))->getFileName(),
-        );
-        self::assertStringContainsString('seo_article_keywords', $editor);
-        self::assertStringNotContainsString('prompt_results', $editor);
     }
 
     public function test_vocabulary_suggest_tag_distinct_from_mcp(): void

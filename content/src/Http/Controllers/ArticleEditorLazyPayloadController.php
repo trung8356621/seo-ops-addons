@@ -7,7 +7,6 @@ namespace Omnichannel\Addons\Content\Http\Controllers;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleEditorLinksPayloadService;
 use Omnichannel\Addons\Content\Services\ArticleEditorSeoPayloadService;
-use Omnichannel\Addons\Content\Services\ArticleEditorVocabularyPayloadService;
 use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
 use Omnichannel\Addons\Media\Services\ArticleEditorSupplementalImagesService;
 use Omnichannel\Addons\Content\Services\ArticleFaqEditorService;
@@ -177,16 +176,6 @@ final class ArticleEditorLazyPayloadController extends Controller
         return response()->json([
             'success' => true,
             'data' => app(ArticleEditorLinksPayloadService::class)->base($article),
-        ]);
-    }
-
-    public function vocabulary(SeoArticle $article): JsonResponse
-    {
-        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
-
-        return response()->json([
-            'success' => true,
-            'data' => app(ArticleEditorVocabularyPayloadService::class)->forArticle($article),
         ]);
     }
 

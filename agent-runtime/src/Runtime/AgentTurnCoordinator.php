@@ -17,6 +17,7 @@ use Omnichannel\Addons\AgentRuntime\Model\SecretRedactor;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
+use Omnichannel\Addons\AgentRuntime\Response\EvidenceNumberIndex;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
@@ -169,13 +170,18 @@ class AgentTurnCoordinator
 
         try {
             $raw = $this->answers->complete($userId, $prepared['answer']);
-            $response = $this->responses->parse($raw, $prepared['bundle']);
+            $recovered = $this->recoverParsedAnswer($raw, $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics);
+            $response = $recovered['response'];
+            $answerDiagnostics = $recovered['diagnostics'];
+            if (is_array($trace) && $recovered['diagnostics'] !== null) {
+                $trace['answer_status'] = 'rejected';
+            }
         } catch (AgentResponseRejected $e) {
-            $response = $this->safeResponse(
-                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
-                $prepared['bundle'],
-            );
+            $response = $this->recoverParsedAnswer('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics)['response'];
             $answerDiagnostics = $diagnostics ? $this->answerDiagnostics($raw ?? '', $e) : null;
+            if (is_array($trace)) {
+                $trace['answer_status'] = 'rejected';
+            }
         } catch (Throwable $e) {
             $response = $this->safeResponse(
                 'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
@@ -280,6 +286,7 @@ class AgentTurnCoordinator
                 'bundle' => $processed['bundle']->toArray(),
                 'selected_response_template' => $processed['decision']->responseTemplate,
                 'selected_response_language' => $processed['decision']->responseLanguage,
+                'execution' => $this->executionFromBundle($processed['bundle'], $processed['decision']->capabilities),
             ]));
         }
 
@@ -292,6 +299,9 @@ class AgentTurnCoordinator
         $selectedResponseLanguage = (string) ($state['selected_response_language'] ?? $this->legacyResponseLanguage());
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
         $response = $this->responses->parse($rawCompletion, $bundle);
+        if ($this->responses->lastRejections() !== []) {
+            throw new AgentResponseRejected($this->responses->lastRejections()[0]);
+        }
 
         return AgentTurnProgress::completed(new AgentTurnResult(
             $response,
@@ -463,12 +473,9 @@ class AgentTurnCoordinator
 
         try {
             $raw = $this->answers->complete($userId, $answerInput);
-            $response = $this->responses->parse($raw, $bundle);
+            $response = $this->recoverParsedAnswer($raw, $bundle, $message, $responseLanguage, false)['response'];
         } catch (Throwable) {
-            $response = $this->safeResponse(
-                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
-                $bundle,
-            );
+            $response = $this->verifiedFallback($bundle, $message, $responseLanguage);
         }
 
         return new AgentTurnResult(
@@ -840,6 +847,120 @@ class AgentTurnCoordinator
      * @param  list<string>  $tools
      * @return array<string, mixed>
      */
+    public function verifiedFallback(RetrievalBundle $bundle, string $message, string $language): AgentResponse
+    {
+        $facts = $this->factual->verifiedFacts($bundle, $language);
+        $analysis = $this->factual->unresolvedRequirements($bundle, $message) !== [];
+        if ($facts instanceof AgentResponse) {
+            $notice = $analysis
+                ? ($language === 'vi'
+                    ? 'Phân tích của mô hình không được xác minh. Bên dưới chỉ là dữ liệu đã truy xuất.'
+                    : 'The model analysis could not be verified. Only retrieved facts are shown.')
+                : ($language === 'vi'
+                    ? 'Đã dùng dữ liệu đã truy xuất. Kết quả mô hình không được chấp nhận.'
+                    : 'The answer could not be verified against the retrieved evidence, so measured values were omitted.');
+            $blocks = array_merge(
+                [['type' => 'warning', 'text' => $notice]],
+                $facts->blocks,
+            );
+
+            return new AgentResponse($notice, $blocks, $facts->actions, $facts->sources);
+        }
+
+        $notice = $language === 'vi'
+            ? 'Không có dữ liệu đã xác minh để trả lời, và kết quả mô hình không dùng được.'
+            : 'The answer could not be verified against the retrieved evidence, so measured values were omitted.';
+
+        return $this->safeResponse($notice, $bundle, 'answer_unverified');
+    }
+
+    /**
+     * @return array{response: AgentResponse, diagnostics: ?array}
+     */
+    private function recoverParsedAnswer(string $raw, RetrievalBundle $bundle, string $message, string $language, bool $diagnostics): array
+    {
+        try {
+            $parsed = $this->responses->parse($raw, $bundle);
+        } catch (AgentResponseRejected $error) {
+            return [
+                'response' => $this->verifiedFallback($bundle, $message, $language),
+                'diagnostics' => $diagnostics ? $this->answerDiagnostics($raw, $error) : null,
+            ];
+        }
+
+        $rejections = $this->responses->lastRejections();
+        if ($rejections === []) {
+            return ['response' => $parsed, 'diagnostics' => null];
+        }
+
+        $evidence = EvidenceNumberIndex::fromBundle($bundle);
+        $kept = [];
+        foreach ($parsed->blocks as $block) {
+            $type = (string) ($block['type'] ?? '');
+            if (! in_array($type, ['markdown', 'warning'], true)) {
+                continue;
+            }
+            if ($this->textHasUnsupportedNumber((string) ($block['text'] ?? ''), $evidence)) {
+                continue;
+            }
+            $kept[] = $block;
+        }
+        $facts = $this->factual->verifiedFacts($bundle, $language);
+        $notice = 'The answer could not be verified against the retrieved evidence, so measured values were omitted.';
+        $blocks = array_merge([['type' => 'warning', 'text' => $notice]], $kept);
+        if ($facts instanceof AgentResponse) {
+            foreach ($facts->blocks as $block) {
+                if (($block['type'] ?? '') === 'table') {
+                    $blocks[] = $block;
+                }
+            }
+        }
+        $messageText = $notice;
+        if (! $this->textHasUnsupportedNumber($parsed->message, $evidence) && $kept !== []) {
+            $messageText = $parsed->message;
+        }
+
+        return [
+            'response' => new AgentResponse($messageText, $blocks, [], $parsed->sources),
+            'diagnostics' => $diagnostics ? [
+                'status' => 'rejected',
+                'parser_error' => $rejections[0],
+                'rejections' => $rejections,
+                'raw_completion' => (new SecretRedactor())->redact($raw),
+            ] : null,
+        ];
+    }
+
+    private function textHasUnsupportedNumber(string $text, EvidenceNumberIndex $evidence): bool
+    {
+        if (preg_match_all('/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/', $text, $matches) < 1) {
+            return false;
+        }
+        foreach ($matches[0] as $raw) {
+            $value = str_contains($raw, '.') ? (float) $raw : (int) $raw;
+            if (! $evidence->contains($value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<string>  $capabilities
+     * @return array<string, mixed>
+     */
+    private function executionFromBundle(RetrievalBundle $bundle, array $capabilities): array
+    {
+        return [
+            'capabilities' => array_values($capabilities),
+            'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+            'external_model_calls' => 0,
+            'external_model' => null,
+            'synthesis' => false,
+        ];
+    }
+
     private function executionTrace(LocalToolRoute $route, array $parameters, array $tools): array
     {
         return [

@@ -13,6 +13,7 @@
     'shouldOpenUrlInNewTab' => false,
     'sidebarCollapsible' => true,
     'subGrouped' => false,
+    'tone' => null,
     'url',
 ])
 
@@ -68,6 +69,25 @@
         ? ($firstNavUrl($childItems) ?: $url)
         : $url;
     $collapsedHref = $shouldFlyout ? $url : $singleChildUrl;
+
+    $navTone = $tone;
+    if (blank($navTone) && filled($url)) {
+        $navPath = strtolower((string) (parse_url($url, PHP_URL_PATH) ?: ''));
+        $navPath = rtrim($navPath, '/');
+        $navTone = match (true) {
+            str_contains($navPath, '/content-projects') => 'amber',
+            str_contains($navPath, '/articles') => 'cyan',
+            str_contains($navPath, '/media-library') => 'pink',
+            str_contains($navPath, '/keywords') => 'blue',
+            str_contains($navPath, '/performance-hub'), str_contains($navPath, '/seo-audit') => 'red',
+            str_contains($navPath, '/statistics'), str_contains($navPath, '/gsc') => 'green',
+            str_contains($navPath, '/domains') => 'indigo',
+            str_contains($navPath, '/team') => 'violet',
+            str_contains($navPath, '/settings') => 'slate',
+            (bool) preg_match('#/seo(?:/[a-z0-9]{32,64})?$#', $navPath) => 'emerald',
+            default => null,
+        };
+    }
 @endphp
 
 <li
@@ -79,8 +99,9 @@
             'fi-sidebar-item',
             // @deprecated `fi-sidebar-item-active` has been replaced by `fi-active`.
             'fi-active fi-sidebar-item-active' => $parentIsActive,
+            'nav-self-active' => $active,
             'flex flex-col gap-y-1' => $hasChildren || $parentIsActive,
-        ])
+        ])->merge(filled($navTone) ? ['data-nav-tone' => $navTone] : [])
     }}
 >
     <div
@@ -276,6 +297,7 @@
                     :should-open-url-in-new-tab="$childItem->shouldOpenUrlInNewTab()"
                     :sidebar-collapsible="false"
                     sub-grouped
+                    :tone="$navTone"
                     :url="$childItem->getUrl()"
                 >
                     {{ $childItem->getLabel() }}

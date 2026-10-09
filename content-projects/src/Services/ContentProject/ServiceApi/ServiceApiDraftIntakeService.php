@@ -36,7 +36,7 @@ class ServiceApiDraftIntakeService
     public const SCOPE = 'content-projects:draft:write';
 
     /** @var list<string> */
-    public const ALLOWED_TYPES = ['new', 'rewrite'];
+    public const ALLOWED_TYPES = ['new', 'rewrite', 'improve'];
 
     /** @var list<string> */
     public const ALLOWED_SOURCE_TYPES = [
@@ -243,7 +243,7 @@ class ServiceApiDraftIntakeService
             }
             if (! in_array($typeWire, self::ALLOWED_TYPES, true)) {
                 throw new InvalidArgumentException(
-                    'Unsupported item type at index '.$index.'. Allowed: new, rewrite.'
+                    'Unsupported item type at index '.$index.'. Allowed: new, rewrite, improve.'
                 );
             }
 
@@ -270,11 +270,20 @@ class ServiceApiDraftIntakeService
                 );
             }
 
+            $storedType = match ($typeWire) {
+                'rewrite' => SeoProjectTask::TYPE_REWRITE,
+                'improve' => SeoProjectTask::TYPE_IMPROVE,
+                default => SeoProjectTask::TYPE_CREATE,
+            };
+            if ($typeWire === 'improve' && $articleId <= 0) {
+                throw new InvalidArgumentException('improve requires an article_ref for an existing article at index '.$index.'.');
+            }
+
             $out[] = [
                 'input_index' => (int) $index,
                 'site_id' => $siteId,
                 'type_wire' => $typeWire,
-                'type' => $typeWire === 'rewrite' ? SeoProjectTask::TYPE_REWRITE : SeoProjectTask::TYPE_CREATE,
+                'type' => $storedType,
                 'keyword' => $keyword,
                 'title' => $title,
                 'description' => $description,

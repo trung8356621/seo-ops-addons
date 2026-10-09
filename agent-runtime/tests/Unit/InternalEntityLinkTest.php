@@ -192,22 +192,28 @@ final class InternalEntityLinkTest extends TestCase
         $trusted = 'https://seo-ops.test/seo/keywords/clusters/82?site_id=6';
         $invented = 'https://seo-ops.test/seo/keywords/clusters/83?site_id=6';
 
-        $this->expectException(AgentResponseRejected::class);
-        (new AgentResponseParser())->parse(json_encode([
+        $parser = new AgentResponseParser();
+        $response = $parser->parse(json_encode([
             'message' => 'Topic found.',
             'blocks' => [['type' => 'markdown', 'text' => "[Topic Name]({$invented})"]],
             'actions' => [],
         ], JSON_THROW_ON_ERROR), $this->bundleWithHref($trusted));
+        self::assertSame([], $response->blocks);
+        self::assertStringNotContainsString($invented, json_encode($response->toArray()));
+        self::assertStringContainsString('not present in retrieval evidence', $parser->lastRejections()[0]);
     }
 
     public function test_parser_rejects_unsafe_markdown_uri_scheme(): void
     {
-        $this->expectException(AgentResponseRejected::class);
-        (new AgentResponseParser())->parse(json_encode([
+        $parser = new AgentResponseParser();
+        $response = $parser->parse(json_encode([
             'message' => 'Bad link.',
             'blocks' => [['type' => 'markdown', 'text' => '[Click](javascript:alert(1))']],
             'actions' => [],
         ], JSON_THROW_ON_ERROR), new RetrievalBundle(AgentProjectScope::site(6), []));
+        self::assertSame([], $response->blocks);
+        self::assertStringNotContainsString('javascript:', json_encode($response->toArray()));
+        self::assertNotSame([], $parser->lastRejections());
     }
 
     public function test_response_prompt_does_not_assign_internal_link_creation_to_model(): void

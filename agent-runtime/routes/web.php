@@ -9,6 +9,8 @@ Route::middleware(['web', 'auth'])
     ->prefix('agent-runtime')
     ->group(static function (): void {
         Route::get('/projects', [AgentRuntimeController::class, 'projects'])->name('agent-runtime.projects');
+        Route::get('/welcome-questions', [AgentRuntimeController::class, 'welcomeQuestions'])->name('agent-runtime.welcome-questions');
+        Route::put('/welcome-questions', [AgentRuntimeController::class, 'saveWelcomeQuestions'])->name('agent-runtime.welcome-questions.save');
         Route::get('/test-catalog', [AgentRuntimeController::class, 'testCatalog'])->name('agent-runtime.test-catalog');
         Route::get('/test-articles', [AgentRuntimeController::class, 'testArticles'])->name('agent-runtime.test-articles');
         Route::post('/test-runs', [AgentRuntimeController::class, 'testRun'])->name('agent-runtime.test-runs');
@@ -17,6 +19,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');
         Route::post('/runs/{runUlid}/confirm', [AgentRuntimeController::class, 'confirmRun'])->name('agent-runtime.runs.confirm');
         Route::post('/runs/{runUlid}/reject', [AgentRuntimeController::class, 'rejectRun'])->name('agent-runtime.runs.reject');
+        Route::post('/draft-intake', [AgentRuntimeController::class, 'draftIntake'])->name('agent-runtime.draft-intake');
 
         // Thread management
         Route::post('/threads', [AgentRuntimeController::class, 'createThread'])->name('agent-runtime.threads.create');

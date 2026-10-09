@@ -248,6 +248,7 @@
 
 /* User Message Bubble - right-aligned, compact */
 .agent-messages article.is-user {
+    position: relative;
     align-self: flex-end;
     margin-left: auto;
     max-width: 75%;
@@ -266,6 +267,7 @@
 .agent-message.is-user .agent-message__body {
     font-size: 14px;
     line-height: 1.5;
+    padding-right: 22px;
 }
 
 .agent-message.is-user .agent-message__body p {
@@ -273,11 +275,20 @@
 }
 
 .agent-message.is-user .agent-message__actions {
+    position: absolute;
+    top: 4px;
+    right: 6px;
     display: flex;
     justify-content: flex-end;
     opacity: 0;
     transition: opacity 0.15s ease;
-    margin-top: 2px;
+    margin-top: 0;
+}
+
+@media (hover: none), (max-width: 640px) {
+    .agent-message.is-user .agent-message__actions {
+        opacity: 1;
+    }
 }
 
 .agent-message.is-user:hover .agent-message__actions,
@@ -319,6 +330,79 @@
     margin-bottom: 8px;
     padding-bottom: 4px;
 }
+
+.agent-tool-trace {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 0 0 8px;
+}
+
+.agent-tool-trace__item {
+    --trace: #64748b;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--trace) 14%, transparent);
+    color: var(--trace);
+    position: relative;
+}
+
+.agent-tool-trace__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.agent-tool-trace__item.is-red { --trace: #EF4444; }
+.agent-tool-trace__item.is-blue { --trace: #3B82F6; }
+.agent-tool-trace__item.is-purple { --trace: #8B5CF6; }
+.agent-tool-trace__item.is-cyan { --trace: #06B6D4; }
+.agent-tool-trace__item.is-amber { --trace: #F59E0B; }
+.agent-tool-trace__item.is-green { --trace: #22C55E; }
+.agent-tool-trace__item.is-orange { --trace: #F97316; }
+.agent-tool-trace__item.is-teal { --trace: #14B8A6; }
+.agent-tool-trace__item.is-indigo { --trace: #6366F1; }
+.agent-tool-trace__item.is-pink { --trace: #EC4899; }
+
+.agent-tool-trace__item.is-awaiting {
+    opacity: 0.85;
+    box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.agent-tool-trace__item.is-failed {
+    opacity: 0.72;
+}
+
+.agent-tool-trace__item.is-failed::after {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 1.5px;
+    border-radius: 1px;
+    background: currentColor;
+    transform: rotate(-32deg);
+}
+
+.dark .agent-tool-trace__item.is-red { --trace: #FCA5A5; }
+.dark .agent-tool-trace__item.is-blue { --trace: #93C5FD; }
+.dark .agent-tool-trace__item.is-purple { --trace: #C4B5FD; }
+.dark .agent-tool-trace__item.is-cyan { --trace: #67E8F9; }
+.dark .agent-tool-trace__item.is-amber { --trace: #FCD34D; }
+.dark .agent-tool-trace__item.is-green { --trace: #86EFAC; }
+.dark .agent-tool-trace__item.is-orange { --trace: #FDBA74; }
+.dark .agent-tool-trace__item.is-teal { --trace: #5EEAD4; }
+.dark .agent-tool-trace__item.is-indigo { --trace: #A5B4FC; }
+.dark .agent-tool-trace__item.is-pink { --trace: #F9A8D4; }
 
 .agent-message.is-assistant .agent-message__role {
     font-size: 13px;
@@ -474,6 +558,82 @@
     transition: all 0.15s ease;
     text-align: left;
 }
+
+.agent-welcome-accordion {
+    width: min(100%, 560px);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+}
+
+.agent-welcome-accordion.is-compact {
+    width: 100%;
+    margin-bottom: 8px;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.agent-welcome-module {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.agent-welcome-module__header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 0;
+    background: transparent;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.agent-welcome-module__header svg:first-child { color: var(--welcome-tone); }
+.agent-welcome-module.is-red { --welcome-tone: #EF4444; }
+.agent-welcome-module.is-blue { --welcome-tone: #3B82F6; }
+.agent-welcome-module.is-amber { --welcome-tone: #F59E0B; }
+.agent-welcome-module.is-green { --welcome-tone: #22C55E; }
+.agent-welcome-module.is-cyan { --welcome-tone: #06B6D4; }
+
+.agent-welcome-module__count {
+    margin-left: auto;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.agent-welcome-module__chevron { transition: transform 0.15s ease; }
+.agent-welcome-module.is-open .agent-welcome-module__chevron { transform: rotate(180deg); }
+
+.agent-welcome-module__body { border-top: 1px solid #e2e8f0; padding: 4px; }
+.agent-welcome-question { display: flex; gap: 6px; align-items: flex-start; }
+.agent-welcome-question__text {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: 7px 8px;
+    font-size: 12px;
+    color: #334155;
+    cursor: pointer;
+    border-radius: 8px;
+}
+.agent-welcome-question__text:hover { background: color-mix(in srgb, var(--welcome-tone) 8%, white); }
+.agent-welcome-question__tools { display: flex; gap: 2px; padding-top: 4px; }
+.agent-welcome-question__tools button, .agent-welcome-add {
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 12px;
+}
+.agent-welcome-add { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; }
 
 .agent-suggestion-chip:hover {
     background: #f8fafc;
@@ -667,12 +827,21 @@
     height: 280px;
 }
 
+.agent-response,
+.agent-message__body,
+.agent-messages {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .agent-table-wrap {
-    overflow: auto;
+    max-width: 100%;
+    overflow-x: auto;
 }
 
 .agent-table-wrap table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
 }
 
@@ -682,6 +851,15 @@
     text-align: left;
     padding: 6px 8px;
     font-size: 14px;
+    max-width: 24rem;
+    vertical-align: top;
+    overflow-wrap: break-word;
+}
+
+.agent-table-wrap a,
+.agent-table-wrap code {
+    overflow-wrap: anywhere;
+    word-break: break-all;
 }
 
 .agent-spin {
@@ -870,25 +1048,27 @@
     position: fixed;
     inset: 0;
     z-index: 9998;
-    background: rgba(15, 23, 42, 0.35);
-    backdrop-filter: blur(1px);
+    background: rgba(15, 23, 42, 0.22);
+    pointer-events: auto;
 }
 
 .agent-drawer-container {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 90vw;
-    max-width: 100vw;
-    height: 100vh;
-    height: 100dvh;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    width: min(90vw, 1180px);
+    height: min(92dvh, calc(100dvh - 24px));
+    max-height: calc(100dvh - 16px);
     z-index: 9999;
     background: #fff;
-    box-shadow: -4px 0 28px rgba(15, 23, 42, 0.18);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transform: translate(-50%, -50%);
 }
 
 .agent-drawer-root {
@@ -899,11 +1079,32 @@
     overflow: hidden;
 }
 
+@media (min-width: 769px) {
+    .agent-drawer-container.agent-translate-x-full {
+        transform: translate(-50%, -46%);
+        opacity: 0;
+    }
+
+    .agent-drawer-container.agent-translate-x-0 {
+        transform: translate(-50%, -50%);
+        opacity: 1;
+    }
+}
+
 @media (max-width: 768px) {
     .agent-drawer-container {
+        top: 0;
+        left: 0;
+        right: 0;
         width: 100vw;
         min-width: 100vw;
         max-width: 100vw;
+        height: 100dvh;
+        max-height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        transform: none;
     }
 }
 
@@ -2154,6 +2355,25 @@
 
 .agent-debug-preview__body {
     padding: 16px;
+}
+
+.agent-actionable__bar,
+.agent-actionable__footer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 8px 0;
+}
+
+.agent-actionable__reasons,
+.agent-actionable__status {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.agent-actionable__error {
+    color: #b91c1c;
 }
 
 

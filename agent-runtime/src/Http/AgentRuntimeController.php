@@ -14,6 +14,7 @@ use InvalidArgumentException;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnResult;
 use Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository;
 use Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
@@ -30,7 +31,9 @@ use Omnichannel\Addons\AgentRuntime\Testing\AgentTestExecutionService;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ServiceApi\ServiceApiDraftIntakeService;
 use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
+use Omnichannel\Addons\AgentRuntime\Welcome\AgentWelcomeQuestions;
 
 final class AgentRuntimeController
 {
@@ -71,12 +74,14 @@ final class AgentRuntimeController
             $factual = $coordinator->composeFactual($bundle, (string) $userMessage->content, $proposal->responseLanguage);
             if ($factual instanceof AgentResponse) {
                 $assistant = $persistence->completeRun($run, $factual);
-                $persistence->storeModelDiagnostics($run, ['execution' => [
+                $execution = [
                     'synthesis' => false,
                     'external_model' => null,
                     'external_model_calls' => 0,
+                    'capabilities' => $proposal->capabilities,
                     'tools' => array_map(static fn ($source): string => $source->name, $bundle->sources),
-                ]]);
+                ];
+                $persistence->storeModelDiagnostics($run, ['execution' => $execution]);
                 $threads->touchLastMessage($thread);
 
                 return new JsonResponse(['data' => [
@@ -85,6 +90,7 @@ final class AgentRuntimeController
                     'run_ulid' => $run->ulid,
                     'user_message_id' => $run->user_message_id,
                     'assistant_message_id' => $assistant->id,
+                    'execution' => $this->clientExecution($execution, $factual->sources, false),
                 ]]);
             }
             $confirmationState = (array) ($summary['confirmation']['runtime_state'] ?? []);
@@ -144,6 +150,10 @@ final class AgentRuntimeController
             $data['run_ulid'] = $run->ulid;
             $data['user_message_id'] = $run->user_message_id;
             $data['assistant_message_id'] = $assistant->id;
+            $confirmedExecution = $this->rememberExecution($persistence, $run, $result->executionTrace, $result->response?->sources ?? [], $result->answerModelCalled);
+            if ($confirmedExecution !== null) {
+                $data['execution'] = $confirmedExecution;
+            }
 
             return new JsonResponse(['data' => $data]);
         } catch (InvalidArgumentException $e) {
@@ -255,12 +265,21 @@ final class AgentRuntimeController
             $assistant = $persistence->completeRun($run, $response, ['answer_model' => 'called']);
             $threads->touchLastMessage($thread);
 
+            $fallbackExecution = $this->rememberExecution(
+                $persistence,
+                $run,
+                $result->executionTrace,
+                $response->sources,
+                true,
+            );
+
             return new JsonResponse(['data' => [
                 ...$response->toArray(),
                 'thread_ulid' => $thread->ulid,
                 'run_ulid' => $run->ulid,
                 'user_message_id' => $run->user_message_id,
                 'assistant_message_id' => $assistant->id,
+                'execution' => $fallbackExecution,
             ]]);
         } catch (InvalidArgumentException $e) {
             $persistence->failRun($run, 'confirmed_tool_unavailable', $e->getMessage());
@@ -347,6 +366,29 @@ final class AgentRuntimeController
             'data' => [
                 'targets' => $catalog->forOwner(SeoAccessControl::accountSiteOwnerId()),
             ],
+        ]);
+    }
+
+    public function welcomeQuestions(Request $request, AgentWelcomeQuestions $welcome): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+
+        return new JsonResponse(['data' => ['modules' => $welcome->forUser($user)]]);
+    }
+
+    public function saveWelcomeQuestions(Request $request, AgentWelcomeQuestions $welcome): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $modules = $request->input('modules', []);
+
+        return new JsonResponse([
+            'data' => ['modules' => $welcome->save($user, is_array($modules) ? $modules : [])],
         ]);
     }
 
@@ -554,7 +596,8 @@ final class AgentRuntimeController
         $payload = $request->all();
         $runUlid = trim((string) ($payload['run_ulid'] ?? ''));
         $manualResult = (string) ($payload['manual_result'] ?? '');
-        if ($runUlid === '' || trim($manualResult) === '') {
+        $useVerified = ($payload['use_verified'] ?? false) === true;
+        if ($runUlid === '' || (! $useVerified && trim($manualResult) === '')) {
             return new JsonResponse(['message' => 'Run and manual result are required.'], 422);
         }
 
@@ -573,6 +616,34 @@ final class AgentRuntimeController
 
         try {
             $scope = AgentProjectScope::fromArray((array) ($turn['scope'] ?? []));
+            if ($useVerified) {
+                $bundle = \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle::fromArray((array) ($state['bundle'] ?? []));
+                $language = (string) ($state['selected_response_language'] ?? 'en');
+                $response = $coordinator->verifiedFallback($bundle, (string) ($turn['message'] ?? ''), $language);
+                $trace = is_array($state['execution'] ?? null) ? $state['execution'] : [];
+                $trace['answer_status'] = 'rejected';
+                $trace['external_model_calls'] = 0;
+                $trace['external_model'] = null;
+                $persistence->resumeRun($run);
+                $thread = $run->thread()->firstOrFail();
+
+                return $this->respondToProgress(
+                    AgentTurnProgress::completed(new AgentTurnResult(
+                        $response,
+                        new PreparedModelInput('answer', []),
+                        null,
+                        false,
+                        executionTrace: $trace,
+                    )),
+                    $run,
+                    $thread,
+                    $persistence,
+                    $threads,
+                    $modelResolver,
+                    $userId,
+                    $turn,
+                );
+            }
             $persistence->resumeRun($run);
             $progress = $coordinator->resumeIntercepted(
                 $scope,
@@ -649,6 +720,7 @@ final class AgentRuntimeController
                         'full_prompt' => $input,
                         'prompt_size' => mb_strlen($input),
                         'assumed_model' => $model->toArray(),
+                        'execution' => $this->pausedExecution($state, 'rejected'),
                     ],
                     'error' => $e->getMessage(),
                 ],
@@ -812,7 +884,26 @@ final class AgentRuntimeController
             $query->orderBy('position', 'asc')->take(50);
         }, 'messages.run:id,user_message_id,retrieval_summary']);
 
-        return new JsonResponse(['data' => $thread]);
+        $data = $thread->toArray();
+        $pending = AgentRun::query()
+            ->where('thread_id', $thread->id)
+            ->where('status', 'awaiting_model')
+            ->latest('id')
+            ->first();
+        if ($pending instanceof AgentRun) {
+            $summary = is_array($pending->retrieval_summary) ? $pending->retrieval_summary : [];
+            $state = is_array($summary['runtime_state'] ?? null) ? $summary['runtime_state'] : [];
+            $data['pending_model_call'] = [
+                'run_ulid' => $pending->ulid,
+                'model_call' => [
+                    'key' => (string) ($summary['model_call'] ?? 'answer'),
+                    'full_prompt' => '',
+                    'execution' => $this->pausedExecution($state, 'awaiting'),
+                ],
+            ];
+        }
+
+        return new JsonResponse(['data' => $data]);
     }
 
     public function threadTurn(
@@ -948,8 +1039,15 @@ final class AgentRuntimeController
                 $persistence->storeAnswerDiagnostics($run, $result->answerDiagnostics);
             }
             $diagnosticsPayload = $result->modelDiagnostics ?? [];
+            $publicExecution = $this->clientExecution(
+                $result->executionTrace,
+                $result->response?->sources ?? [],
+                $result->answerModelCalled,
+            );
             if (is_array($result->executionTrace)) {
                 $diagnosticsPayload['execution'] = $result->executionTrace;
+            } elseif ($publicExecution !== null) {
+                $diagnosticsPayload['execution'] = $publicExecution;
             }
             if ($diagnosticsPayload !== []) {
                 $persistence->storeModelDiagnostics($run, $diagnosticsPayload);
@@ -966,6 +1064,9 @@ final class AgentRuntimeController
             }
             if ($result->answerDiagnostics !== null) {
                 $data['answer_diagnostics'] = $result->answerDiagnostics;
+            }
+            if ($publicExecution !== null) {
+                $data['execution'] = $publicExecution;
             }
 
             return new JsonResponse(['data' => $data]);
@@ -1047,6 +1148,7 @@ final class AgentRuntimeController
                     'full_prompt' => $input,
                     'prompt_size' => mb_strlen($input),
                     'assumed_model' => $model->toArray(),
+                    'execution' => $this->pausedExecution($state, $call->key === 'answer' ? 'awaiting' : null),
                 ],
             ]]);
         }
@@ -1068,13 +1170,176 @@ final class AgentRuntimeController
         $data['run_ulid'] = $run->ulid;
         $data['user_message_id'] = $run->user_message_id;
         $data['assistant_message_id'] = $assistant->id;
+        $manualExecution = $this->rememberExecution($persistence, $run, $result->executionTrace, $result->response?->sources ?? [], $result->answerModelCalled);
+        if ($manualExecution !== null) {
+            $data['execution'] = $manualExecution;
+        }
 
         return new JsonResponse(['data' => $data]);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $trace
+     * @param  list<array<string, mixed>>  $sources
+     * @return array<string, mixed>|null
+     */
+    private function clientExecution(?array $trace, array $sources, bool $answerModelCalled): ?array
+    {
+        $tools = [];
+        foreach ($sources as $source) {
+            if (! is_array($source)) {
+                continue;
+            }
+            $name = trim((string) ($source['name'] ?? ''));
+            if ($name === '' || $name === 'gsc_fallback_policy') {
+                continue;
+            }
+            $tools[] = $name;
+        }
+        if ($tools === [] && is_array($trace)) {
+            foreach ((array) ($trace['tools'] ?? []) as $tool) {
+                if (is_string($tool) && $tool !== '' && $tool !== 'gsc_fallback_policy') {
+                    $tools[] = $tool;
+                }
+            }
+        }
+        $tools = array_values(array_unique($tools));
+        $calls = (int) (is_array($trace) ? ($trace['external_model_calls'] ?? 0) : 0);
+        if ($answerModelCalled) {
+            $calls = max(1, $calls);
+        }
+        if ($tools === [] && $calls < 1) {
+            return null;
+        }
+
+        return [
+            'router' => is_array($trace) ? ($trace['router'] ?? null) : null,
+            'outcome' => is_array($trace) ? ($trace['outcome'] ?? null) : null,
+            'capabilities' => is_array($trace)
+                ? array_values(array_filter((array) ($trace['capabilities'] ?? []), 'is_string'))
+                : [],
+            'tools' => $tools,
+            'external_model_calls' => $calls,
+            'external_model' => $calls > 0 && is_array($trace) ? ($trace['external_model'] ?? null) : null,
+            'answer_status' => is_array($trace) ? ($trace['answer_status'] ?? null) : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $state
+     * @return array<string, mixed>|null
+     */
+    private function pausedExecution(array $state, ?string $answerStatus): ?array
+    {
+        $execution = is_array($state['execution'] ?? null) ? $state['execution'] : null;
+        if ($execution === null) {
+            return null;
+        }
+        if ($answerStatus !== null) {
+            $execution['answer_status'] = $answerStatus;
+        }
+
+        return $execution;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $trace
+     * @param  list<array<string, mixed>>  $sources
+     * @return array<string, mixed>|null
+     */
+    private function rememberExecution(AgentTurnPersistence $persistence, AgentRun $run, ?array $trace, array $sources, bool $answerModelCalled): ?array
+    {
+        $public = $this->clientExecution($trace, $sources, $answerModelCalled);
+        if ($public === null) {
+            return null;
+        }
+        $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+        $existing = is_array($summary['model_diagnostics'] ?? null) ? $summary['model_diagnostics'] : [];
+        if (! isset($existing['execution'])) {
+            $existing['execution'] = $public;
+            $persistence->storeModelDiagnostics($run, $existing);
+        }
+
+        return $public;
     }
 
     private function makeThreadTitle(string $message): string {
         $title = trim(preg_replace('/\s+/', ' ', $message));
         return mb_substr($title, 0, 80);
+    }
+
+    public function draftIntake(Request $request, SiteDirectory $sites, ServiceApiDraftIntakeService $intake): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $siteId = (int) $request->input('site_id', 0);
+        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+
+        $rawItems = $request->input('items', []);
+        if (! is_array($rawItems) || $rawItems === [] || count($rawItems) > ServiceApiDraftIntakeService::MAX_BATCH) {
+            return new JsonResponse(['message' => 'Select between 1 and 100 recommendations.'], 422);
+        }
+
+        $items = [];
+        foreach (array_values($rawItems) as $row) {
+            if (! is_array($row)) {
+                return new JsonResponse(['message' => 'Recommendation item is malformed.'], 422);
+            }
+            $type = trim((string) ($row['type'] ?? ''));
+            $articleRef = trim((string) ($row['article_ref'] ?? ''));
+            $title = trim((string) ($row['title'] ?? ''));
+            $keyword = trim((string) ($row['keyword'] ?? ''));
+            $source = is_array($row['source'] ?? null) ? $row['source'] : [];
+            if (! in_array($type, ServiceApiDraftIntakeService::ALLOWED_TYPES, true)) {
+                return new JsonResponse(['message' => 'Recommendation type is invalid.'], 422);
+            }
+            if (in_array($type, ['rewrite', 'improve'], true) && preg_match('/^article:\d+$/', $articleRef) !== 1) {
+                return new JsonResponse(['message' => 'Existing articles require article_ref.'], 422);
+            }
+            if ($type === 'new' && $title === '' && $keyword === '') {
+                return new JsonResponse(['message' => 'New ideas require a title or keyword.'], 422);
+            }
+            $sourceType = trim((string) ($source['type'] ?? ''));
+            if (! in_array($sourceType, ServiceApiDraftIntakeService::ALLOWED_SOURCE_TYPES, true)) {
+                return new JsonResponse(['message' => 'Recommendation source is invalid.'], 422);
+            }
+            $items[] = [
+                'type' => $type,
+                'title' => $title,
+                'keyword' => $keyword,
+                'article_ref' => $articleRef !== '' ? $articleRef : null,
+                'source' => [
+                    'type' => $sourceType,
+                    'ref' => trim((string) ($source['ref'] ?? '')) ?: null,
+                    'reason' => trim((string) ($source['reason'] ?? '')) ?: null,
+                ],
+            ];
+        }
+
+        $identity = array_map(static fn (array $item): string => $item['type'].'|'.($item['article_ref'] ?? '').'|'.$item['title'].'|'.$item['keyword'], $items);
+        sort($identity);
+        $idempotencyKey = 'agent-draft:'.$userId.':'.hash('sha256', implode("\n", $identity));
+
+        try {
+            $result = $intake->intake([
+                'site_id' => $siteId,
+                'items' => $items,
+            ], $idempotencyKey);
+        } catch (InvalidArgumentException $e) {
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        }
+
+        $payload = $result->toArray();
+        $draftId = preg_match('/^project:(\d+)$/', (string) ($payload['draft_ref'] ?? ''), $match) === 1 ? $match[1] : null;
+        $payload['draft_url'] = $draftId !== null ? '/seo/content-projects/'.$draftId : null;
+        $payload['complete'] = ((int) ($payload['failed'] ?? 0)) === 0;
+
+        return new JsonResponse(['data' => $payload]);
     }
 
     private function confirmationResponse(AgentToolConfirmationProposal $proposal, string $runUlid): AgentResponse

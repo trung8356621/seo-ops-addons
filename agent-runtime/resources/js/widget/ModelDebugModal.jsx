@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Copy } from 'lucide-react';
+import { ToolTrace } from '../response/ResponseBlocks.jsx';
 import { copyPlainText } from './clipboard.js';
 
 function AssumedModelHeader({ assumedModel }) {
@@ -28,7 +29,7 @@ function AssumedModelHeader({ assumedModel }) {
     );
 }
 
-export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, isApplying, parserError }) {
+export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, onUseVerified, isApplying, parserError }) {
     const [copied, setCopied] = useState(false);
     const [copyError, setCopyError] = useState('');
     if (!isOpen || !modelCall) return null;
@@ -80,6 +81,7 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         </div>
                         <textarea className="agent-debug-card__result-input" value={manualResult} onChange={(event) => onManualResultChange(event.target.value)} rows={8} disabled={isApplying} />
                     </div>
+                    {modelCall.execution ? <ToolTrace response={{ execution: modelCall.execution }} debug /> : null}
                     {parserError ? (
                         <div className="agent-debug-card__parser-error" role="alert"><AlertTriangle size={15} /><p>{parserError}</p></div>
                     ) : null}
@@ -87,6 +89,11 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         <button type="button" className="agent-debug-apply-btn" onClick={onApply} disabled={isApplying || !manualResult.trim()}>
                             {isApplying ? 'Applying...' : 'Apply'}
                         </button>
+                        {modelCall.key === 'answer' && onUseVerified ? (
+                            <button type="button" className="agent-debug-apply-btn" onClick={onUseVerified} disabled={isApplying}>
+                                Use verified results
+                            </button>
+                        ) : null}
                     </div>
                 </div>
                 </div>

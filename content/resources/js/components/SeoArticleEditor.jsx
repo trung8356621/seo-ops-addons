@@ -562,7 +562,6 @@ export default function SeoArticleEditor({
         image: null,
         reviews: null,
         links: null,
-        vocabulary: null,
         faq: null,
         featured: null,
         aiChat: null,

@@ -162,12 +162,8 @@ final class PlanningDraftIntakeContractTest extends TestCase
         $drawer = (string) file_get_contents(
             (string) (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName(),
         );
-        $editArticle = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php'
-        );
 
         self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
-        self::assertStringContainsString('PlanningDraftIntakeService', $editArticle);
-        self::assertStringContainsString('addVocabularyItemsToDraft', $editArticle);
+        self::assertStringContainsString('addVocabularyPhrases', $drawer);
     }
 }

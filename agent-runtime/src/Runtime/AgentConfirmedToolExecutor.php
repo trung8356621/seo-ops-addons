@@ -78,7 +78,15 @@ final class AgentConfirmedToolExecutor
             resolvedActorUserId: $userId,
             scopes: ['content-project:read'],
         );
-        $data = $this->seoAudit->listArticles($context, ['low_score' => true, 'limit' => $limit]);
+        $data = $this->seoAudit->listArticles($context, [
+            'low_score' => true,
+            'limit' => $limit,
+            'published_only' => true,
+            'sort_score_asc' => true,
+        ]);
+        $data['draft_action'] = 'content_project.draft.intake';
+        $data['draft_item_type'] = 'improve';
+        $data['draft_source'] = 'seo_audit';
 
         return $this->appendTopicGroups(new RetrievalBundle(
             $scope,

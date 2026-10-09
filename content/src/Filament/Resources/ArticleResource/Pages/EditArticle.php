@@ -47,7 +47,6 @@ use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\ContentProjects\Services\ArticlePipelineRerunService;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryPendingDraftStore;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
@@ -4130,7 +4129,6 @@ class EditArticle extends SeoEditRecord
                 'meta' => route('seo.articles.editor.meta', ['article' => $articleId]),
                 'links' => route('seo.articles.editor.links', ['article' => $articleId]),
                 'linksSuggestions' => route('seo.articles.editor.links-suggestions', ['article' => $articleId]),
-                'vocabulary' => route('seo.articles.editor.vocabulary', ['article' => $articleId]),
                 'settings' => route('seo.articles.editor.settings', ['article' => $articleId]),
                 'mediaPickerConfig' => route('seo.articles.editor.media-picker-config', ['article' => $articleId]),
                 'mediaSnapshot' => route('seo.articles.editor.media-snapshot', ['article' => $articleId]),
@@ -5410,92 +5408,6 @@ class EditArticle extends SeoEditRecord
             (int) $this->record->id,
             $query,
         );
-    }
-
-    /**
-     * Vocabulary Plan → Shared Planning Draft (no execution project picker).
-     *
-     * @param  list<string|array{keyword?: string, title?: string}>  $items
-     * @return array{
-     *     success: bool,
-     *     message: string,
-     *     summary: array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, existing_article:int}
-     * }
-     */
-    public function addVocabularyItemsToDraft(array $items = []): array
-    {
-        if (! SeoAccessControl::canMutateInSeoPanel()) {
-            return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.articles_optimal.assign_failed'),
-                'summary' => [
-                    'added' => 0,
-                    'duplicate' => 0,
-                    'overflow' => 0,
-                    'domain_mismatch' => 0,
-                    'already_in_project' => 0,
-                    'existing_article' => 0,
-                ],
-            ];
-        }
-
-        $siteId = (int) (ArticleResource::resolveArticleSiteId($this->record) ?? $this->record->site_id ?? 0);
-        $result = app(PlanningDraftIntakeService::class)
-            ->addVocabularyPhrases($items, $siteId, (int) $this->record->getKey());
-
-        $summary = $result->summary !== []
-            ? $result->summary
-            : [
-                'added' => 0,
-                'duplicate' => 0,
-                'overflow' => 0,
-                'domain_mismatch' => 0,
-                'already_in_project' => 0,
-                'existing_article' => 0,
-            ];
-
-        if ($result->isAlreadyInDraft()) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.already_in_draft'))
-                ->body($result->message)
-                ->info()
-                ->send();
-        } elseif ($result->isSuccess()) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.add_to_draft_completed'))
-                ->body($result->message)
-                ->success()
-                ->send();
-        } else {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body($result->message !== '' ? $result->message : __('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->warning()
-                ->send();
-        }
-
-        return [
-            'success' => $result->isSuccess(),
-            'message' => $result->message,
-            'summary' => $summary,
-        ];
-    }
-
-    /**
-     * @deprecated Use addVocabularyItemsToDraft.
-     *
-     * @param  list<string|array{keyword?: string, title?: string}>  $items
-     * @return array{
-     *     success: bool,
-     *     message: string,
-     *     summary: array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, existing_article:int}
-     * }
-     */
-    public function assignVocabularyItemsToContentProject(int $projectId, array $items = []): array
-    {
-        unset($projectId);
-
-        return $this->addVocabularyItemsToDraft($items);
     }
 
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void

@@ -972,8 +972,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertStringNotContainsString('"clicks":0', $encoded);
 
         $parser = new AgentResponseParser();
-        $this->expectException(AgentResponseRejected::class);
-        $parser->parse(json_encode([
+        $parsed = $parser->parse(json_encode([
             'message' => 'Traffic was zero.',
             'blocks' => [[
                 'type' => 'chart',
@@ -984,6 +983,8 @@ final class AgentRuntimeContractTest extends TestCase
                 'data' => [['month' => '2026-09', 'clicks' => 0]],
             ]],
         ], JSON_THROW_ON_ERROR), $bundle);
+        self::assertSame([], $parsed->blocks);
+        self::assertStringContainsString('Chart value is not present in retrieval evidence.', $parser->lastRejections()[0]);
     }
 
     public function test_malformed_chart_is_rejected(): void
@@ -992,8 +993,9 @@ final class AgentRuntimeContractTest extends TestCase
             new RetrievalSource('gsc', 'ok', 'GET /gsc', ['clicks' => 12]),
         ]);
         $parser = new AgentResponseParser();
-        $this->expectException(AgentResponseRejected::class);
-        $parser->parse('{"message":"x","blocks":[{"type":"chart","chart":"pie"}]}', $bundle);
+        $parsed = $parser->parse('{"message":"x","blocks":[{"type":"chart","chart":"pie"}]}', $bundle);
+        self::assertSame([], $parsed->blocks);
+        self::assertStringContainsString('Chart block chart type is invalid.', $parser->lastRejections()[0]);
     }
 
     public function test_chart_number_must_come_from_ok_evidence(): void
@@ -1017,8 +1019,7 @@ final class AgentRuntimeContractTest extends TestCase
         ], JSON_THROW_ON_ERROR), $bundle);
         self::assertSame(15, $ok->blocks[0]['data'][0]['clicks']);
 
-        $this->expectException(AgentResponseRejected::class);
-        $parser->parse(json_encode([
+        $rejected = $parser->parse(json_encode([
             'message' => 'Invented.',
             'blocks' => [[
                 'type' => 'table',
@@ -1026,6 +1027,9 @@ final class AgentRuntimeContractTest extends TestCase
                 'rows' => [['clicks' => 1200]],
             ]],
         ], JSON_THROW_ON_ERROR), $bundle);
+        self::assertSame([], $rejected->blocks);
+        self::assertStringNotContainsString('1200', json_encode($rejected->toArray()));
+        self::assertSame('Table value is not present in retrieval evidence.', $parser->lastRejections()[0]);
     }
 
     public function test_executor_refuses_external_urls_and_hides_permanent_credentials(): void
@@ -1588,11 +1592,11 @@ final class AgentRuntimeContractTest extends TestCase
         );
 
         $without = $coordinator->send(1, AgentProjectScope::site(7), 'Plan content', [], false);
-        self::assertStringContainsString('could not be verified', $without->response->message);
+        self::assertStringNotContainsString('999999', $without->response->message);
         self::assertNull($without->answerDiagnostics);
 
         $with = $coordinator->send(1, AgentProjectScope::site(7), 'Plan content', [], true);
-        self::assertStringContainsString('could not be verified', $with->response->message);
+        self::assertStringNotContainsString('999999', $with->response->message);
         self::assertSame('rejected', $with->answerDiagnostics['status']);
         self::assertSame('Agent response is missing message.', $with->answerDiagnostics['parser_error']);
         self::assertStringContainsString('[redacted-service-credential]', $with->answerDiagnostics['raw_completion']);
@@ -2957,12 +2961,9 @@ final class AgentRuntimeContractTest extends TestCase
         }
 
         $inventedChartNumber = '{"message":"Repaired \*(note)\*","blocks":[{"type":"chart","chart":"line","title":"Clicks","x_key":"month","series":[{"key":"clicks","label":"Clicks"}],"data":[{"month":"2026-09","clicks":99999}]}],"actions":[]}';
-        try {
-            $parser->parse($inventedChartNumber, $bundle);
-            self::fail('Fabricated number in chart should be rejected.');
-        } catch (AgentResponseRejected $e) {
-            self::assertStringContainsString('Chart value is not present in retrieval evidence', $e->getMessage());
-        }
+        $invented = $parser->parse($inventedChartNumber, $bundle);
+        self::assertSame([], $invented->blocks);
+        self::assertStringContainsString('Chart value is not present in retrieval evidence', $parser->lastRejections()[0]);
     }
 }
 

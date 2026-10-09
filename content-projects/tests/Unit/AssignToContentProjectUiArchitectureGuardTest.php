@@ -272,23 +272,21 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertSame('Beta Title', $payload['items'][1]['title']);
     }
 
-    public function test_vocabulary_sidebar_adds_to_draft_without_project_picker(): void
+    public function test_editor_vocabulary_sidebar_is_not_a_draft_entry_point(): void
     {
-        $source = (string) file_get_contents(
+        self::assertFileDoesNotExist(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleVocabularySidebar.jsx'
         );
-        self::assertStringContainsString('addVocabularyItemsToDraft', $source);
-        self::assertStringContainsString('vocabulary_add_to_draft', $source);
-        self::assertStringNotContainsString('wp-article-vocabulary-project-select', $source);
-        self::assertStringNotContainsString('openAssignToContentProject', $source);
-        self::assertStringNotContainsString('openAssignToContentProjectDrawer', $source);
-        self::assertStringNotContainsString('MODE_VOCABULARY_ITEMS', $source);
 
         $editArticle = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php'
         );
-        self::assertStringContainsString('function addVocabularyItemsToDraft', $editArticle);
-        self::assertStringContainsString('PlanningDraftIntakeService', $editArticle);
+        self::assertStringNotContainsString('function addVocabularyItemsToDraft', $editArticle);
+
+        $drawer = (string) file_get_contents(
+            (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName()
+        );
+        self::assertStringContainsString('addVocabularyPhrases', $drawer);
     }
 
     public function test_drawer_routes_through_planning_draft_intake_service(): void

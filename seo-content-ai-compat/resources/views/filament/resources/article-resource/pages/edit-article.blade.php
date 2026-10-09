@@ -945,15 +945,6 @@
                                         <div wire:ignore id="seo-article-links-root"></div>
                                     </div>
 
-                                    <div
-                                        class="seo-assistant-panel-slot"
-                                        data-assistant-panel-root="vocabulary"
-                                        x-show="isWidgetVisible('vocabulary')"
-                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'vocabulary' }"
-                                    >
-                                        <div wire:ignore id="seo-article-vocabulary-root"></div>
-                                    </div>
-
                                             <div
                                                 class="seo-assistant-panel-slot"
                                                 data-assistant-panel-root="publishing"

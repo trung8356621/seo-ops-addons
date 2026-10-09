@@ -88,6 +88,7 @@
             data-threads-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/threads"
             data-copy-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-input"
             data-model-debug-apply-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/model-debug/apply"
+            data-draft-intake-url="{{ request()->getSchemeAndHttpHost() }}/agent-runtime/draft-intake"
             data-csrf="{{ csrf_token() }}"
             data-host-context="{{ json_encode($hostContext) }}"
         ></div>

@@ -34,8 +34,10 @@ class SeoAuditAgentReadService
         $limit = max(1, min(100, (int) ($input['limit'] ?? 50)));
         $selectedRules = $this->normalizeStringList($input['rules'] ?? $input['rule_keys'] ?? []);
         $filterLow = (bool) ($input['low_score'] ?? $input['filter_low_seo_score'] ?? false);
+        $publishedOnly = (bool) ($input['published_only'] ?? false);
+        $sortScoreAsc = (bool) ($input['sort_score_asc'] ?? false);
 
-        $base = $this->baseArticleQuery($siteId, $postType);
+        $base = $this->baseArticleQuery($siteId, $postType, $publishedOnly);
         $paginator = $this->auditResults->paginateMergedResults(
             $base,
             $selectedRules,
@@ -43,6 +45,8 @@ class SeoAuditAgentReadService
             false,
             1,
             $limit,
+            $sortScoreAsc ? 'score' : null,
+            'asc',
         );
 
         $items = [];
@@ -135,7 +139,7 @@ class SeoAuditAgentReadService
     /**
      * @return Builder<SeoArticle>
      */
-    private function baseArticleQuery(int $siteId, ?string $postType): Builder
+    private function baseArticleQuery(int $siteId, ?string $postType, bool $publishedOnly = false): Builder
     {
         $query = ArticleContentClassification::scopeNonTerm(
             SeoArticle::query()
@@ -143,6 +147,9 @@ class SeoAuditAgentReadService
                 ->where('status', '!=', 'trash')
                 ->orderByDesc('updated_at'),
         );
+        if ($publishedOnly) {
+            $query->where('status', 'published');
+        }
 
         ArticleResource::applySeoAuditCandidateScope($query);
 

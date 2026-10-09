@@ -231,27 +231,6 @@
         }
       ]
     },
-    "vocabulary": {
-      "label": "Vocabulary",
-      "locked": true,
-      "note": "Stable Vocabulary sidebar widget. Unlock only this id before intentional Vocabulary changes.",
-      "paths": [
-        {
-          "file": "content/resources/js/editor/modules/vocabulary/VocabularySidebarPanel.jsx",
-          "fingerprint": "03af591656dec5e6499669ab2a56e17aff0e8a0d1d1543dd74efc067f9a4c1b5"
-        },
-        {
-          "file": "content/resources/js/editor/modules/vocabulary/index.js",
-          "fingerprint": "20b873c4568b2c9fe5974265a6e9c765e575ec827397573d2d45dc455508c91b"
-        },
-        {
-          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
-          "start": "                                    <div\n                                        class=\"seo-assistant-panel-slot\"\n                                        data-assistant-panel-root=\"vocabulary\"",
-          "end": "                                            <div\n                                                class=\"seo-assistant-panel-slot\"\n                                                data-assistant-panel-root=\"publishing\"",
-          "fingerprint": "ad688508ca528ec8d1662aaa006f57bd1962415b33dc3527c025a0d4a0393a60"
-        }
-      ]
-    },
     "faq": {
       "label": "FAQ",
       "locked": true,
