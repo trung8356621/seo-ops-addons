@@ -13,6 +13,8 @@ use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
+use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalPlanner;
@@ -46,12 +48,12 @@ final class AgentLocalExecutionTest extends TestCase
             [],
         );
 
-        self::assertNotNull($result->confirmationProposal);
-        self::assertSame('seo_audit.worst_articles', $result->confirmationProposal->primaryCapability);
-        self::assertSame(30, $result->confirmationProposal->parameters['limit_min']);
-        self::assertSame(50, $result->confirmationProposal->parameters['limit_max']);
-        self::assertSame(date('Y').'-09', $result->confirmationProposal->parameters['period']);
-        self::assertSame('table', $result->confirmationProposal->responseTemplate);
+        self::assertNull($result->confirmationProposal);
+        self::assertNotNull($result->response);
+        self::assertSame('seo_audit.worst_articles', $result->executionTrace['capabilities'][0] ?? null);
+        self::assertSame(50, $result->executionTrace['parameters']['limit_max'] ?? null);
+        self::assertSame(date('Y').'-09', $result->executionTrace['parameters']['period'] ?? null);
+        self::assertCount(50, $result->response->blocks[0]['rows']);
         self::assertFalse($result->answerModelCalled);
         self::assertSame(0, $result->executionTrace['external_model_calls']);
 
@@ -197,6 +199,34 @@ final class AgentLocalExecutionTest extends TestCase
         ?LocalExecutionTransport $transport = null,
     ): AgentTurnCoordinator {
         $transport ??= new LocalExecutionTransport();
+        $retrieval = new RetrievalExecutor(
+            new RetrievalPlanner(),
+            new SeoAccessExecutor(
+                $transport,
+                new class implements SeoAccessCredential {
+                    public function bearer(): ?string
+                    {
+                        return 'svc_live_test';
+                    }
+                },
+                new SeoAccessUrlPolicy(),
+                'https://app.example.test',
+            ),
+        );
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $audit->method('listArticles')->willReturn([
+            'items' => array_map(static fn (int $id): array => [
+                'article_ref' => 'article:'.$id,
+                'title' => 'Article '.$id,
+                'focus_keyword' => 'kw',
+                'quality_score' => 20,
+                'seo_score' => 20,
+                'rankable' => true,
+                'system_point' => null,
+            ], range(1, 50)),
+            'total' => 453,
+            'post_type' => null,
+        ]);
 
         return new AgentTurnCoordinator(
             new AgentModelInputBuilder(promptBindings: new class implements ResolvesSettingsPromptHook {
@@ -210,23 +240,11 @@ final class AgentLocalExecutionTest extends TestCase
             }),
             $decisions,
             new RetrievalDecisionParser(),
-            new RetrievalExecutor(
-                new RetrievalPlanner(),
-                new SeoAccessExecutor(
-                    $transport,
-                    new class implements SeoAccessCredential {
-                        public function bearer(): ?string
-                        {
-                            return 'svc_live_test';
-                        }
-                    },
-                    new SeoAccessUrlPolicy(),
-                    'https://app.example.test',
-                ),
-            ),
+            $retrieval,
             $answers,
             new AgentResponseParser(),
             localToolRouter: new LocalAgentToolRouter($matcher),
+            confirmedTools: new AgentConfirmedToolExecutor($retrieval, $audit),
         );
     }
 }

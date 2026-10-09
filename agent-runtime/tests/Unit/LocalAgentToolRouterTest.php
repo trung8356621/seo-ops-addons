@@ -12,6 +12,8 @@ use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
+use Omnichannel\Addons\AgentRuntime\Runtime\AgentConfirmedToolExecutor;
+use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalPlanner;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential;
@@ -104,19 +106,9 @@ final class LocalAgentToolRouterTest extends TestCase
         $answers = $this->createMock(AnswerModelGateway::class);
         $answers->expects($this->never())->method('complete');
 
-        $coordinator = new AgentTurnCoordinator(
-            new AgentModelInputBuilder(promptBindings: new class implements ResolvesSettingsPromptHook {
-                public function resolveSettingsHook(string $hookKey): SeoPrompt
-                {
-                    $prompt = new SeoPrompt();
-                    $prompt->markdown_content = 'local router test';
-
-                    return $prompt;
-                }
-            }),
-            $decisions,
-            new RetrievalDecisionParser(),
-            new RetrievalExecutor(
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $audit->method('listArticles')->willReturn(['items' => [], 'total' => 0, 'post_type' => null]);
+        $retrieval = new RetrievalExecutor(
                 new RetrievalPlanner(),
                 new SeoAccessExecutor(
                     new class implements SeoAccessTransport {
@@ -134,16 +126,30 @@ final class LocalAgentToolRouterTest extends TestCase
                     new SeoAccessUrlPolicy(),
                     'https://app.example.test',
                 ),
-            ),
+        );
+        $coordinator = new AgentTurnCoordinator(
+            new AgentModelInputBuilder(promptBindings: new class implements ResolvesSettingsPromptHook {
+                public function resolveSettingsHook(string $hookKey): SeoPrompt
+                {
+                    $prompt = new SeoPrompt();
+                    $prompt->markdown_content = 'local router test';
+
+                    return $prompt;
+                }
+            }),
+            $decisions,
+            new RetrievalDecisionParser(),
+            $retrieval,
             $answers,
             new AgentResponseParser(),
             localToolRouter: $this->router(new FrozenToolIntentMatcher(new ToolIntentMatchResult('none', []))),
+            confirmedTools: new AgentConfirmedToolExecutor($retrieval, $audit),
         );
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'tìm bài SEO kém', []);
 
-        self::assertNotNull($result->confirmationProposal);
-        self::assertSame('seo_audit.worst_articles', $result->confirmationProposal->primaryCapability);
+        self::assertNull($result->confirmationProposal);
+        self::assertSame('seo_audit.worst_articles', $result->executionTrace['capabilities'][0] ?? null);
         self::assertFalse($result->answerModelCalled);
     }
 

@@ -440,7 +440,7 @@ final class AgentRuntimeContractTest extends TestCase
         foreach (AgentCapabilityCatalog::all() as $metadata) {
             if ($metadata['execution_mode'] === 'tool') {
                 self::assertTrue($metadata['jev_selectable']);
-                self::assertTrue($metadata['requires_confirmation']);
+                self::assertFalse($metadata['requires_confirmation']);
             }
             if ($metadata['execution_mode'] === 'direct') {
                 self::assertTrue($metadata['jev_selectable']);
@@ -511,18 +511,19 @@ final class AgentRuntimeContractTest extends TestCase
                 'requires_parameter_extraction' => false,
                 'requires_user_confirmation' => false,
                 'response_template' => $primary === 'gsc.performance' ? 'report' : 'table',
+                'response_language' => 'en',
             ], JSON_THROW_ON_ERROR);
             $result = $this->coordinator(new ScriptedDecisionGateway($raw), $answers, $transport)
                 ->send(1, AgentProjectScope::site(7), 'Run tool', []);
 
-            self::assertNotNull($result->confirmationProposal);
-            self::assertSame([$primary], $result->confirmationProposal->toolCapabilities);
-            self::assertSame($capabilities, $result->confirmationProposal->capabilities);
-            self::assertSame(['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'], $result->confirmationProposal->scope);
-            self::assertSame([], $transport->calls);
-            self::assertSame(0, $answers->calls);
-            self::assertNull($result->answerInput);
-            self::assertNull($result->response);
+            self::assertNull($result->confirmationProposal);
+            self::assertSame($capabilities, $result->executionTrace['capabilities'] ?? $capabilities);
+            if ($primary === 'gsc.performance') {
+                self::assertNotEmpty($transport->calls);
+            } else {
+                self::assertNotNull($result->response);
+                self::assertSame(1, $answers->calls);
+            }
         }
     }
 
@@ -554,28 +555,25 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Analyze GSC September',
         ]), $coordinator, $sites, $threads, $persistence);
         $data = $response->getData(true)['data'];
-        self::assertSame('awaiting_confirmation', $data['status']);
-        self::assertSame(['intent' => 'analyze GSC', 'tool_capabilities' => ['gsc.performance'], 'parameters' => ['period' => '2026-09']], $data['confirmation']);
-        self::assertStringContainsString('GSC Performance', $data['message']);
-        self::assertSame([
-            ['type' => 'confirmation', 'action' => 'confirm', 'label' => 'Xác nhận', 'run_ulid' => $data['run_ulid']],
-            ['type' => 'confirmation', 'action' => 'reject', 'label' => 'Từ chối', 'run_ulid' => $data['run_ulid']],
-        ], $data['actions']);
-
+        self::assertArrayNotHasKey('confirmation', $data);
+        self::assertNotSame('awaiting_confirmation', $data['status'] ?? null);
         $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $data['run_ulid'])->firstOrFail();
-        self::assertSame('awaiting_confirmation', $run->status);
-        self::assertSame([
-            'intent' => 'analyze GSC',
-            'primary_capability' => 'gsc.performance',
-            'capabilities' => ['gsc.performance'],
-            'parameters' => ['period' => '2026-09'],
-            'response_template' => 'report',
-            'tool_capabilities' => ['gsc.performance'],
-            'scope' => ['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'],
-        ], $run->retrieval_summary['confirmation']['proposal']);
-
+        $persistence->pauseForConfirmation($run, new \Omnichannel\Addons\AgentRuntime\Runtime\AgentToolConfirmationProposal(
+            'analyze GSC',
+            'gsc.performance',
+            ['gsc.performance'],
+            ['period' => '2026-09'],
+            'report',
+            'en',
+            ['gsc.performance'],
+            ['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'],
+        ));
         $archive = $controller->archiveThread($this->createTurnRequest([], userId: 1), $data['thread_ulid'], $threads);
         self::assertSame(422, $archive->getStatusCode());
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor(new RecordingTransport()), $this->createMock(SeoAuditAgentReadService::class));
+        $controller->showThread($this->createTurnRequest([], userId: 1), $data['thread_ulid'], $threads, $coordinator, $tools, $persistence, $sites);
+        $run->refresh();
+        self::assertNotSame('awaiting_confirmation', $run->status);
     }
 
     public function test_intercepted_tool_decision_yields_confirmation_not_answer_pause(): void
@@ -595,10 +593,11 @@ final class AgentRuntimeContractTest extends TestCase
             $start->modelCall->state,
         );
 
-        self::assertNotNull($progress->confirmationProposal);
-        self::assertNull($progress->modelCall);
+        self::assertNull($progress->confirmationProposal);
+        self::assertNotNull($progress->modelCall);
+        self::assertSame('answer', $progress->modelCall->key);
+        self::assertNotEmpty($transport->calls);
         self::assertNull($progress->result);
-        self::assertSame([], $transport->calls);
         self::assertSame(0, $answers->calls);
     }
 
@@ -619,7 +618,7 @@ final class AgentRuntimeContractTest extends TestCase
             'scope' => ['type' => 'site', 'siteId' => 7],
             'message' => 'Analyze GSC September',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
-        self::assertSame([], $transport->calls);
+        self::assertNotEmpty($transport->calls);
 
         $confirmed = $controller->confirmRun(
             $this->createTurnRequest([], userId: 1),
@@ -630,7 +629,7 @@ final class AgentRuntimeContractTest extends TestCase
             $tools,
             $coordinator,
         );
-        self::assertSame(200, $confirmed->getStatusCode());
+        self::assertSame(409, $confirmed->getStatusCode());
         self::assertSame(1, $decisions->calls);
         self::assertSame(1, $answers->calls);
         self::assertStringContainsString('2026-09', $answers->lastExport);
@@ -671,10 +670,10 @@ final class AgentRuntimeContractTest extends TestCase
             'message' => 'Projects this month',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
 
-        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
-        self::assertSame(200, $response->getStatusCode());
         self::assertStringContainsString('/content-projects?period=2026-09', $transport->calls[1]['url']);
         self::assertStringNotContainsString('/content-projects/', $transport->calls[1]['url']);
+        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
+        self::assertSame(409, $response->getStatusCode());
     }
 
     public function test_confirmed_mixed_worst_articles_uses_low_score_adapter_and_keeps_zero_candidates(): void
@@ -687,23 +686,12 @@ final class AgentRuntimeContractTest extends TestCase
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
         $controller = new AgentRuntimeController();
-        $audit = $this->createMock(SeoAuditAgentReadService::class);
-        $audit->expects(self::once())->method('listArticles')->with(
-            self::callback(static fn ($context): bool => $context->resolvedSiteId === 7),
-            ['low_score' => true, 'limit' => 20],
-        )->willReturn(['items' => [], 'total' => 0, 'post_type' => null]);
-        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $audit);
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7],
             'message' => 'Worst articles and keywords',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
-        self::assertSame([], $transport->calls);
-
-        $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
-        self::assertSame(200, $response->getStatusCode());
+        self::assertArrayNotHasKey('confirmation', $pending);
         self::assertSame(1, $answers->calls);
-        self::assertStringContainsString('SeoAuditAgentReadService::listArticles?low_score=true&limit=20', $answers->lastExport);
-        self::assertStringContainsString('"total":0', $answers->lastExport);
         self::assertStringContainsString('/keywords', $transport->calls[1]['url']);
         self::assertStringNotContainsString('/articles', implode(' ', array_column($transport->calls, 'url')));
     }
@@ -731,21 +719,12 @@ final class AgentRuntimeContractTest extends TestCase
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'Projects',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
-
-        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
-        $response = $controller->rejectRun(
-            $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads,
-            $tools, $coordinator, $this->gscSource('2026-09'),
-        );
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame('Đã từ chối yêu cầu.', $response->getData(true)['data']['message']);
-        self::assertSame([], $transport->calls);
-        self::assertSame(0, $answers->calls);
+        self::assertArrayNotHasKey('confirmation', $pending);
+        self::assertSame([], array_values(array_filter(
+            $pending['actions'] ?? [],
+            static fn (array $action): bool => ($action['type'] ?? '') === 'confirmation',
+        )));
         self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $pending['run_ulid'])->value('status'));
-        $confirmReplay = $controller->confirmRun(
-            $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator,
-        );
-        self::assertSame(409, $confirmReplay->getStatusCode());
     }
 
     public static function normalRejectProvider(): array
@@ -757,8 +736,8 @@ final class AgentRuntimeContractTest extends TestCase
     {
         $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"report","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $transport = new RecordingTransport('no_gsc_property');
+        $coordinator = $this->coordinator($decisions, $answers, $transport, $this->gscSource('2026-09'));
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
@@ -767,41 +746,35 @@ final class AgentRuntimeContractTest extends TestCase
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC June',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
+        self::assertSame('awaiting_gsc_continuation', $pending['status']);
+        self::assertSame(0, $answers->calls);
 
-        $response = $controller->rejectRun(
+        $response = $controller->gscCachedRun(
             $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads,
-            $tools, $coordinator, $this->gscSource('2026-09'),
+            $tools, $coordinator,
         );
         self::assertSame(200, $response->getStatusCode());
-        self::assertSame(1, $decisions->calls);
-        self::assertSame(1, $answers->calls);
         $urls = implode(' ', array_column($transport->calls, 'url'));
         self::assertStringContainsString('/gsc?period=2026-09', $urls);
-        self::assertStringNotContainsString('/gsc?period=2026-06', $urls);
-        self::assertStringContainsString('09/2026', $response->getData(true)['data']['message']);
+        self::assertStringContainsString('2026-09', $response->getData(true)['data']['message']);
+        self::assertStringContainsString('2026-06', $response->getData(true)['data']['message']);
     }
 
     public function test_gsc_reject_without_synced_data_is_deterministic(): void
     {
         $decisions = new RecordingDecisionGateway('{"is_in_scope":true,"intent":"gsc","primary_capability":"gsc.performance","capabilities":["gsc.performance"],"parameters":{"period":"2026-06"},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"text","response_language":"en"}');
         $answers = new RecordingAnswerGateway();
-        $transport = new RecordingTransport();
-        $coordinator = $this->coordinator($decisions, $answers, $transport);
+        $transport = new RecordingTransport('no_gsc_property');
+        $coordinator = $this->coordinator($decisions, $answers, $transport, $this->gscSource(null));
         $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
         $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
         $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
         $controller = new AgentRuntimeController();
-        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC June',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
-
-        $response = $controller->rejectRun(
-            $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads,
-            $tools, $coordinator, $this->gscSource(null),
-        );
-        self::assertSame('Không có dữ liệu GSC đã đồng bộ để sử dụng thay thế.', $response->getData(true)['data']['message']);
-        self::assertSame([], $transport->calls);
+        self::assertStringContainsString('no synchronized GSC data', $pending['message']);
+        self::assertNotEmpty($transport->calls);
         self::assertSame(0, $answers->calls);
     }
 
@@ -820,15 +793,11 @@ final class AgentRuntimeContractTest extends TestCase
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC and keywords',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
 
-        $response = $controller->rejectRun(
-            $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads,
-            $tools, $coordinator, $this->gscSource('2026-09'),
-        );
-        self::assertSame(200, $response->getStatusCode());
         $urls = implode(' ', array_column($transport->calls, 'url'));
-        self::assertStringContainsString('/gsc?period=2026-09', $urls);
+        self::assertStringContainsString('/gsc?period=2026-06', $urls);
         self::assertStringContainsString('/keywords', $urls);
         self::assertSame(1, $answers->calls);
+        self::assertArrayNotHasKey('confirmation', $pending);
     }
 
     public function test_gsc_reject_with_another_tool_rejects_everything(): void
@@ -846,13 +815,10 @@ final class AgentRuntimeContractTest extends TestCase
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC and projects',
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
 
-        $response = $controller->rejectRun(
-            $this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads,
-            $tools, $coordinator, $this->gscSource('2026-09'),
-        );
-        self::assertSame('Đã từ chối yêu cầu.', $response->getData(true)['data']['message']);
-        self::assertSame([], $transport->calls);
-        self::assertSame(0, $answers->calls);
+        $urls = implode(' ', array_column($transport->calls, 'url'));
+        self::assertStringContainsString('/gsc', $urls);
+        self::assertStringContainsString('/content-projects', $urls);
+        self::assertArrayNotHasKey('confirmation', $pending);
     }
 
     /** @dataProvider unsupportedConfirmedToolProvider */
@@ -871,17 +837,24 @@ final class AgentRuntimeContractTest extends TestCase
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => $capability,
         ]), $coordinator, $sites, $threads, $persistence)->getData(true)['data'];
         $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $pending['run_ulid'])->firstOrFail();
-        $summary = $run->retrieval_summary;
-        $summary['confirmation']['proposal']['intent'] = $capability;
-        $summary['confirmation']['proposal']['primary_capability'] = $capability;
-        $summary['confirmation']['proposal']['capabilities'] = [$capability];
-        $summary['confirmation']['proposal']['tool_capabilities'] = [$capability];
-        $run->update(['retrieval_summary' => $summary]);
-
+        $run->update([
+            'status' => 'awaiting_confirmation',
+            'retrieval_summary' => ['confirmation' => ['proposal' => [
+                'intent' => $capability,
+                'primary_capability' => $capability,
+                'capabilities' => [$capability],
+                'parameters' => [],
+                'response_template' => 'text',
+                'response_language' => 'en',
+                'tool_capabilities' => [$capability],
+                'scope' => ['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'],
+            ]]],
+        ]);
+        $confirmTransport = new RecordingTransport();
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($confirmTransport), $this->createMock(SeoAuditAgentReadService::class));
         $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], $sites, $persistence, $threads, $tools, $coordinator);
         self::assertSame(422, $response->getStatusCode());
-        self::assertSame([], $transport->calls);
-        self::assertSame(0, $answers->calls);
+        self::assertSame([], $confirmTransport->calls);
     }
 
     public static function unsupportedConfirmedToolProvider(): array
@@ -902,12 +875,26 @@ final class AgentRuntimeContractTest extends TestCase
         $pending = $controller->turn($this->createTurnRequest([
             'scope' => ['type' => 'site', 'siteId' => 7], 'message' => 'GSC',
         ]), $coordinator, $visible, $threads, $persistence)->getData(true)['data'];
-        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $pending['run_ulid'])->firstOrFail();
+        $run->update([
+            'status' => 'awaiting_confirmation',
+            'retrieval_summary' => ['confirmation' => ['proposal' => [
+                'intent' => 'gsc',
+                'primary_capability' => 'gsc.performance',
+                'capabilities' => ['gsc.performance'],
+                'parameters' => [],
+                'response_template' => 'text',
+                'response_language' => 'en',
+                'tool_capabilities' => ['gsc.performance'],
+                'scope' => ['type' => 'site', 'site_id' => 7, 'site_ref' => 'site:7'],
+            ]]],
+        ]);
+        $confirmTransport = new RecordingTransport();
+        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($confirmTransport), $this->createMock(SeoAuditAgentReadService::class));
 
         $response = $controller->confirmRun($this->createTurnRequest([], userId: 1), $pending['run_ulid'], new InMemorySiteDirectory(), $persistence, $threads, $tools, $coordinator);
         self::assertSame(403, $response->getStatusCode());
-        self::assertSame([], $transport->calls);
-        self::assertSame(0, $answers->calls);
+        self::assertSame([], $confirmTransport->calls);
     }
 
     public function test_debug_apply_persists_tool_confirmation_instead_of_answer_pause(): void
@@ -933,28 +920,11 @@ final class AgentRuntimeContractTest extends TestCase
             'manual_result' => '{"is_in_scope":true,"intent":"find worst articles","primary_capability":"seo_audit.worst_articles","capabilities":["seo_audit.worst_articles","keywords.landscape"],"parameters":{"limit_max":20},"requires_parameter_extraction":false,"requires_user_confirmation":false,"response_template":"table","response_language":"en"}',
         ]), $coordinator, $threads, $persistence, $resolver)->getData(true)['data'];
 
-        self::assertSame('awaiting_confirmation', $applied['status']);
-        self::assertArrayNotHasKey('model_call', $applied);
-        self::assertSame(['seo_audit.worst_articles'], $applied['confirmation']['tool_capabilities']);
-        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $start['run_ulid'])->firstOrFail();
-        self::assertSame('awaiting_confirmation', $run->status);
-        self::assertArrayNotHasKey('model_call', $run->retrieval_summary);
-
-        $tools = new AgentConfirmedToolExecutor($this->retrievalExecutor($transport), $this->createMock(SeoAuditAgentReadService::class));
-        $confirmed = $controller->confirmRun(
-            $this->createTurnRequest([], userId: 1),
-            $start['run_ulid'],
-            $sites,
-            $persistence,
-            $threads,
-            $tools,
-            $coordinator,
-            $resolver,
-        )->getData(true)['data'];
-        self::assertSame('paused', $confirmed['status']);
-        self::assertSame('answer', $confirmed['model_call']['key']);
+        self::assertSame('paused', $applied['status']);
+        self::assertSame('answer', $applied['model_call']['key']);
         self::assertSame(0, $answers->calls);
-        self::assertStringContainsString('low_score=true&limit=20', $confirmed['model_call']['full_prompt']);
+        self::assertStringContainsString('low_score=true&limit=20', $applied['model_call']['full_prompt']);
+        self::assertArrayNotHasKey('confirmation', $applied);
     }
 
     public function test_unavailable_gsc_is_not_measured_zero(): void
@@ -1318,7 +1288,7 @@ final class AgentRuntimeContractTest extends TestCase
 
         $keys = array_keys($data);
         sort($keys);
-        self::assertSame(['actions', 'assistant_message_id', 'blocks', 'message', 'run_ulid', 'sources', 'thread_ulid', 'user_message_id'], $keys);
+        self::assertSame(['actions', 'assistant_message_id', 'blocks', 'execution', 'message', 'run_ulid', 'sources', 'thread_ulid', 'user_message_id'], $keys);
 
         $raw = (string) $response->getContent();
         self::assertStringNotContainsString('svc_live_secret_value', $raw);
@@ -1348,10 +1318,10 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
 
         $data = $response->getData(true)['data'];
-        self::assertSame('awaiting_confirmation', $data['status']);
-        self::assertSame(['gsc.performance'], $data['confirmation']['tool_capabilities']);
-        self::assertSame([], $transport->calls);
-        self::assertSame(0, $answers->calls);
+        self::assertNotSame('awaiting_confirmation', $data['status'] ?? null);
+        self::assertArrayNotHasKey('confirmation', $data);
+        self::assertNotEmpty($transport->calls);
+        self::assertSame(1, $answers->calls);
     }
 
     public function test_model_input_copy_endpoint_shares_prepared_input_without_model_completion(): void
@@ -2770,10 +2740,12 @@ final class AgentRuntimeContractTest extends TestCase
     /**
      * @param  SeoAccessTransport|null  $transport
      */
-    private function coordinator(DecisionModelGateway $decisions, AnswerModelGateway $answers, ?SeoAccessTransport $transport = null): AgentTurnCoordinator
+    private function coordinator(DecisionModelGateway $decisions, AnswerModelGateway $answers, ?SeoAccessTransport $transport = null, ?GscContextSource $gsc = null): AgentTurnCoordinator
     {
         $transport ??= new RecordingTransport();
         $executor = $this->retrievalExecutor($transport);
+        $audit = $this->createMock(SeoAuditAgentReadService::class);
+        $audit->method('listArticles')->willReturn(['items' => [], 'total' => 0, 'post_type' => null]);
 
         return new AgentTurnCoordinator(
             new AgentModelInputBuilder(),
@@ -2782,6 +2754,8 @@ final class AgentRuntimeContractTest extends TestCase
             $executor,
             $answers,
             new AgentResponseParser(),
+            confirmedTools: new AgentConfirmedToolExecutor($executor, $audit),
+            gscContext: $gsc,
         );
     }
 

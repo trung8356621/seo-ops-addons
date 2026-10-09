@@ -19,6 +19,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');
         Route::post('/runs/{runUlid}/confirm', [AgentRuntimeController::class, 'confirmRun'])->name('agent-runtime.runs.confirm');
         Route::post('/runs/{runUlid}/reject', [AgentRuntimeController::class, 'rejectRun'])->name('agent-runtime.runs.reject');
+        Route::post('/runs/{runUlid}/gsc-cached', [AgentRuntimeController::class, 'gscCachedRun'])->name('agent-runtime.runs.gsc-cached');
         Route::post('/draft-intake', [AgentRuntimeController::class, 'draftIntake'])->name('agent-runtime.draft-intake');
 
         // Thread management

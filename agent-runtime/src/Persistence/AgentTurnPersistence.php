@@ -125,6 +125,68 @@ class AgentTurnPersistence
         ]);
     }
 
+    /** @param array<string, mixed> $state */
+    public function pauseForGscContinuation(AgentRun $run, array $state): void
+    {
+        $run->update([
+            'status' => 'awaiting_gsc_continuation',
+            'retrieval_summary' => [
+                'gsc_continuation' => $state,
+            ],
+        ]);
+    }
+
+    /** @param array<string, mixed> $state */
+    public function rememberContinuation(AgentRun $run, AgentResponse $response, array $state): AgentMessage
+    {
+        $position = AgentMessage::where('thread_id', $run->thread_id)->max('position') ?? 0;
+        $assistantMessage = AgentMessage::create([
+            'ulid' => (string) Str::ulid(),
+            'thread_id' => $run->thread_id,
+            'run_id' => $run->id,
+            'role' => 'assistant',
+            'content' => $response->message,
+            'response_payload' => [
+                'message' => $response->message,
+                'blocks' => $response->blocks,
+                'actions' => $response->actions,
+                'sources' => $response->sources,
+            ],
+            'position' => $position + 1,
+        ]);
+        $run->update([
+            'status' => 'awaiting_gsc_continuation',
+            'assistant_message_id' => $assistantMessage->id,
+            'retrieval_summary' => [
+                'gsc_continuation' => $state,
+            ],
+        ]);
+
+        return $assistantMessage;
+    }
+
+    public function claimAwaitingGscContinuation(string $runUlid, int $userId): ?AgentRun
+    {
+        return DB::transaction(function () use ($runUlid, $userId): ?AgentRun {
+            $run = AgentRun::query()
+                ->where('ulid', $runUlid)
+                ->where('user_id', $userId)
+                ->where('status', 'awaiting_gsc_continuation')
+                ->lockForUpdate()
+                ->first();
+            if (! $run instanceof AgentRun) {
+                return null;
+            }
+            $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+            if (! is_array($summary['gsc_continuation']['proposal'] ?? null)) {
+                return null;
+            }
+            $run->update(['status' => 'running']);
+
+            return $run;
+        });
+    }
+
     public function resumeRun(AgentRun $run): void
     {
         $run->update(['status' => 'running']);

@@ -9,7 +9,7 @@ use Throwable;
 
 /**
  * Closed-set client for POST /v1/tool-intents/match.
- * Transport failure is returned to the router; it is not a JEV fallback.
+ * Transport failure is returned to the router; it is not a decision-model fallback.
  */
 final class SemanticToolIntentMatcher implements ToolIntentMatcher
 {

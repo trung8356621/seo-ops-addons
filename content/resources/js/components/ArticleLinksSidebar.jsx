@@ -193,7 +193,9 @@ function LinkAssistantSection({ title, count, collapsed, onToggle, children, sec
             >
                 {collapsed ? <ChevronRight size={15} aria-hidden /> : <ChevronDown size={15} aria-hidden />}
                 <span className="seo-link-assistant__section-title">{title}</span>
-                <span className="seo-assistant-widget__badge">{count}</span>
+                {count != null && count !== '' ? (
+                    <span className="seo-assistant-widget__badge">{count}</span>
+                ) : null}
             </button>
             {!collapsed ? <div className="seo-link-assistant__section-body">{children}</div> : null}
         </div>
@@ -2734,12 +2736,12 @@ export default function ArticleLinksSidebar({
                 {showCtaSection ? (
                 <LinkAssistantSection
                     title={t('cta_widget_title')}
-                    count={usableDomainCtas.length}
+                    count={null}
                     collapsed={ctaCollapsed}
                     onToggle={() => setCtaCollapsed((value) => !value)}
                     sectionKey="cta"
                 >
-                    <CtaAutomationPanel articleId={articleMetaRef.current.articleId} />
+                    <CtaAutomationPanel articleId={Number(articleIdProp || articleMetaRef.current.articleId || 0)} />
                 </LinkAssistantSection>
                 ) : null}
             </div>

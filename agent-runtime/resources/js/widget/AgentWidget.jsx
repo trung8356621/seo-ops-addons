@@ -855,13 +855,19 @@ export function AgentWidget({
 
     async function onConfirmationAction(action) {
         const runUlid = String(action?.run_ulid || '');
-        const decision = action?.action === 'confirm' ? 'confirm' : action?.action === 'reject' ? 'reject' : '';
+        const decision = action?.action === 'confirm'
+            ? 'confirm'
+            : action?.action === 'reject'
+                ? 'reject'
+                : action?.type === 'gsc_continuation' && action?.action === 'cached'
+                    ? 'gsc-cached'
+                    : '';
         if (!runUlid || !decision || busy || confirmationBusyRunUlid) return;
 
         setBusy(true);
         setConfirmationBusyRunUlid(runUlid);
         setError('');
-        setProcessingStatus(decision === 'confirm' ? 'Đang xác nhận…' : 'Đang từ chối…');
+        setProcessingStatus(decision === 'confirm' ? 'Đang xác nhận…' : decision === 'gsc-cached' ? 'Đang dùng dữ liệu GSC đã đồng bộ…' : 'Đang từ chối…');
         try {
             const payload = await postJson(`/agent-runtime/runs/${encodeURIComponent(runUlid)}/${decision}`, csrf, {});
             const data = payload?.data || {};

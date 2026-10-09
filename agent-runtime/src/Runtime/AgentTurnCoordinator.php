@@ -23,6 +23,8 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
+use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
+use Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Routing\DeterministicToolParameters;
@@ -42,6 +44,7 @@ final class AgentTurnResult
         public ?array $modelDiagnostics = null,
         public ?AgentToolConfirmationProposal $confirmationProposal = null,
         public ?array $executionTrace = null,
+        public ?array $gscContinuation = null,
     ) {}
 
     /**
@@ -121,6 +124,8 @@ class AgentTurnCoordinator
         private readonly ?LocalAgentToolRouter $localToolRouter = null,
         private readonly DeterministicToolParameters $parameters = new DeterministicToolParameters(),
         private readonly FactualAgentResponseComposer $factual = new FactualAgentResponseComposer(),
+        private readonly ?AgentConfirmedToolExecutor $confirmedTools = null,
+        private readonly ?GscContextSource $gscContext = null,
     ) {}
 
     /**
@@ -147,6 +152,7 @@ class AgentTurnCoordinator
                 null,
                 $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
                 executionTrace: $prepared['executionTrace'] ?? null,
+                gscContinuation: $prepared['gscContinuation'] ?? null,
             );
         }
 
@@ -253,6 +259,7 @@ class AgentTurnCoordinator
         string $callKey,
         string $rawCompletion,
         array $state,
+        int $userId = 0,
     ): AgentTurnProgress {
         $routingData = (array) ($state['routing_input'] ?? []);
         $routingInput = new PreparedModelInput(
@@ -261,7 +268,7 @@ class AgentTurnCoordinator
         );
 
         if ($callKey === 'decision') {
-            $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $rawCompletion);
+            $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $rawCompletion, $userId);
             if ($processed['error'] !== null || $processed['decision'] === null) {
                 throw new RoutingDecisionRejected(
                     $processed['error'] ?? 'The routing model did not return a usable decision.',
@@ -274,6 +281,7 @@ class AgentTurnCoordinator
                     $routingInput,
                     $processed['answerInput'],
                     false,
+                    gscContinuation: is_array($processed['gscContinuation'] ?? null) ? $processed['gscContinuation'] : null,
                 ));
             }
 
@@ -361,6 +369,7 @@ class AgentTurnCoordinator
         string $message,
         array $history,
         string $rawDecisionJson,
+        int $userId = 0,
     ): array {
         $message = trim($message);
         if ($message === '') {
@@ -398,20 +407,41 @@ class AgentTurnCoordinator
         }
 
         $confirmationProposal = AgentToolConfirmationProposal::fromDecision($decision, $scope);
+        $gscContinuation = null;
         if ($confirmationProposal !== null) {
-            return [
-                'bundle' => null,
-                'answerInput' => null,
-                'decision' => $decision,
-                'response' => null,
-                'confirmationProposal' => $confirmationProposal,
-                'error' => null,
-            ];
-        }
+            try {
+                $bundle = $this->toolExecutor()->execute($confirmationProposal, $userId);
+            } catch (InvalidArgumentException $e) {
+                $bundle = new RetrievalBundle($scope, [], ['confirmed_tool_unavailable']);
 
-        $bundle = $decision->modules === []
-            ? new RetrievalBundle($scope, [])
-            : $this->retrieval->execute($decision, $scope);
+                return [
+                    'bundle' => $bundle,
+                    'answerInput' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $decision->responseLanguage),
+                    'decision' => $decision,
+                    'response' => $this->safeResponse($e->getMessage(), $bundle, 'confirmed_tool_unavailable'),
+                    'confirmationProposal' => null,
+                    'gscContinuation' => null,
+                    'error' => null,
+                ];
+            }
+            $gscContinuation = $this->gscContinuation($bundle, $confirmationProposal);
+            if ($gscContinuation !== null) {
+                return [
+                    'bundle' => $bundle,
+                    'answerInput' => null,
+                    'decision' => $decision,
+                    'response' => $gscContinuation['response'],
+                    'confirmationProposal' => null,
+                    'gscContinuation' => $gscContinuation['pending'],
+                    'gscGate' => true,
+                    'error' => null,
+                ];
+            }
+        } else {
+            $bundle = $decision->modules === []
+                ? new RetrievalBundle($scope, [])
+                : $this->retrieval->execute($decision, $scope);
+        }
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $decision->responseTemplate, $decision->responseLanguage);
 
         if (! $decision->isInScope) {
@@ -431,6 +461,7 @@ class AgentTurnCoordinator
             'decision' => $decision,
             'response' => null,
             'confirmationProposal' => null,
+            'gscContinuation' => null,
             'error' => null,
         ];
     }
@@ -527,7 +558,7 @@ class AgentTurnCoordinator
 
         $localRoute = $this->resolveLocalRoute($message);
         if ($localRoute instanceof LocalToolRoute) {
-            return $this->finishFromLocalRoute($scope, $message, $history, $routingInput, $localRoute, $diagnostics);
+            return $this->finishFromLocalRoute($userId, $scope, $message, $history, $routingInput, $localRoute, $diagnostics);
         }
 
         $decisionResult = $this->decisions->decide(new DecisionRequest($userId, $routingInput));
@@ -555,7 +586,7 @@ class AgentTurnCoordinator
             ];
         }
 
-        $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $decisionResult->rawText);
+        $processed = $this->processDecisionAndRetrieve($scope, $message, $history, $decisionResult->rawText, $userId);
         if ($processed['error'] !== null || $processed['decision'] === null) {
             $decisionDiagnostics = $diagnostics ? [
                 'status' => 'rejected',
@@ -588,6 +619,29 @@ class AgentTurnCoordinator
                 'confirmationProposal' => $processed['confirmationProposal'],
                 'failureCode' => null,
                 'decisionDiagnostics' => null,
+                'gscContinuation' => null,
+            ];
+        }
+
+        if (($processed['gscGate'] ?? false) === true) {
+            return [
+                'routing' => $routingInput,
+                'answer' => null,
+                'bundle' => $processed['bundle'],
+                'response' => $processed['response'],
+                'failureCode' => null,
+                'decisionDiagnostics' => null,
+                'confirmationProposal' => null,
+                'gscContinuation' => is_array($processed['gscContinuation'] ?? null) ? $processed['gscContinuation'] : null,
+                'executionTrace' => [
+                    'capabilities' => $processed['decision']?->capabilities ?? [],
+                    'tools' => $processed['bundle'] instanceof RetrievalBundle
+                        ? array_map(static fn (RetrievalSource $source): string => $source->name, $processed['bundle']->sources)
+                        : [],
+                    'synthesis' => false,
+                    'external_model' => null,
+                    'external_model_calls' => 0,
+                ],
             ];
         }
 
@@ -638,12 +692,13 @@ class AgentTurnCoordinator
 
     /**
      * Local routing does not call the decision model. Ambiguous and rejected
-     * results stay unresolved instead of falling back to JEV.
+     * results stay unresolved instead of falling back to the decision model.
      *
      * @param  list<array{role: string, content: string}>  $history
      * @return array{routing: PreparedModelInput, answer: PreparedModelInput|null, bundle: RetrievalBundle|null, response: AgentResponse|null, confirmationProposal: AgentToolConfirmationProposal|null, failureCode: string|null, decisionDiagnostics?: array|null}
      */
     private function finishFromLocalRoute(
+        int $userId,
         AgentProjectScope $scope,
         string $message,
         array $history,
@@ -717,6 +772,7 @@ class AgentTurnCoordinator
             $message,
             $history,
             $this->localDecisionJson($route, $message, $extracted),
+            $userId,
         );
         if ($processed['error'] !== null || $processed['decision'] === null) {
             $bundle = $processed['bundle'] ?? new RetrievalBundle($scope, [], ['routing_decision_invalid']);
@@ -750,6 +806,26 @@ class AgentTurnCoordinator
                 'failureCode' => null,
                 'decisionDiagnostics' => $diagnostics ? $trace : null,
                 'executionTrace' => $trace,
+                'gscContinuation' => null,
+            ];
+        }
+
+        if (($processed['gscGate'] ?? false) === true) {
+            $trace['capabilities'] = $processed['decision']?->capabilities ?? $trace['capabilities'];
+            $trace['tools'] = $processed['bundle'] instanceof RetrievalBundle
+                ? array_map(static fn (RetrievalSource $source): string => $source->name, $processed['bundle']->sources)
+                : [];
+
+            return [
+                'routing' => $routingInput,
+                'answer' => null,
+                'bundle' => $processed['bundle'],
+                'response' => $processed['response'],
+                'confirmationProposal' => null,
+                'failureCode' => null,
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'executionTrace' => $trace,
+                'gscContinuation' => is_array($processed['gscContinuation'] ?? null) ? $processed['gscContinuation'] : null,
             ];
         }
 
@@ -955,6 +1031,107 @@ class AgentTurnCoordinator
      * @param  list<string>  $capabilities
      * @return array<string, mixed>
      */
+    private function toolExecutor(): AgentConfirmedToolExecutor
+    {
+        return $this->confirmedTools ?? new AgentConfirmedToolExecutor(
+            $this->retrieval,
+            app(SeoAuditAgentReadService::class),
+        );
+    }
+
+    /**
+     * Fresh GSC is blocked only when Google is not connected or not authorized.
+     * Missing rows for a period stay a normal retrieval result.
+     *
+     * @return array{response: AgentResponse, pending: array<string, mixed>|null}|null
+     */
+    private function gscContinuation(RetrievalBundle $bundle, AgentToolConfirmationProposal $proposal): ?array
+    {
+        if (! in_array('gsc.performance', $proposal->toolCapabilities, true)) {
+            return null;
+        }
+        $blocked = false;
+        foreach ($bundle->sources as $source) {
+            if ($source->name !== 'gsc') {
+                continue;
+            }
+            $reason = (string) ($source->reason ?: ($source->data['reason'] ?? ''));
+            if (in_array($reason, ['no_gsc_property', 'unauthorized', 'http_401', 'http_403'], true)) {
+                $blocked = true;
+            }
+        }
+        if (! $blocked || $bundle->scope->siteId === null) {
+            return null;
+        }
+
+        $requested = is_string($proposal->parameters['period'] ?? null) ? $proposal->parameters['period'] : null;
+        $latest = $this->gscPeriods()->latestSyncedPeriod((int) $bundle->scope->siteId);
+        $language = $proposal->responseLanguage === 'vi' ? 'vi' : 'en';
+        if (! is_string($latest) || $latest === '') {
+            $message = $language === 'vi'
+                ? 'Google chưa được kết nối hoặc chưa được ủy quyền cho site này, và không có dữ liệu GSC đã đồng bộ.'
+                : 'Google is not connected or authorized for this site, and there is no synchronized GSC data.';
+
+            return [
+                'response' => new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [], array_map(
+                    static fn (RetrievalSource $source): array => $source->toArray(),
+                    $bundle->sources,
+                )),
+                'pending' => null,
+            ];
+        }
+
+        $requestedLabel = $requested ?? ($language === 'vi' ? 'kỳ hiện tại' : 'the current period');
+        $message = $language === 'vi'
+            ? 'Google chưa được kết nối hoặc chưa được ủy quyền. Kỳ đã yêu cầu: '.$requestedLabel.'. Dữ liệu đã đồng bộ gần nhất là '.$latest.'.'
+            : 'Google is not connected or authorized. Requested period: '.$requestedLabel.'. The latest synchronized period is '.$latest.'.';
+        if ($requested !== null && $requested !== $latest) {
+            $message .= $language === 'vi'
+                ? ' Kỳ đồng bộ khác kỳ đã yêu cầu.'
+                : ' The synchronized period differs from the requested period.';
+        }
+        $href = $this->googleConnectHref((int) $bundle->scope->siteId);
+
+        return [
+            'response' => new AgentResponse($message, [['type' => 'markdown', 'text' => $message]], [
+                ['type' => 'gsc_continuation', 'action' => 'connect', 'label' => $language === 'vi' ? 'Kết nối Google' : 'Connect Google', 'href' => $href],
+                ['type' => 'gsc_continuation', 'action' => 'cached', 'label' => $language === 'vi' ? 'Dùng dữ liệu đã đồng bộ' : 'Use synchronized data'],
+            ], array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources)),
+            'pending' => [
+                'proposal' => $proposal->toArray(),
+                'requested_period' => $requested,
+                'cached_period' => $latest,
+            ],
+        ];
+    }
+
+    private function gscPeriods(): GscContextSource
+    {
+        if ($this->gscContext instanceof GscContextSource) {
+            return $this->gscContext;
+        }
+
+        return app(GscContextSource::class);
+    }
+
+    private function googleConnectHref(int $siteId): ?string
+    {
+        try {
+            if (! function_exists('app') || ! app()->bound(\Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService::class)) {
+                return null;
+            }
+            $connections = app(\Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService::class);
+            $connection = $connections->resolveForSite($siteId, null);
+            if ($connection === null) {
+                return null;
+            }
+
+            return \Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource::gscEditUrl((int) $connection->id);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     private function executionFromBundle(RetrievalBundle $bundle, array $capabilities): array
     {
         return [

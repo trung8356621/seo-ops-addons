@@ -640,6 +640,7 @@ final class AgentRuntimeController
                 $callKey,
                 $manualResult,
                 $state,
+                $userId,
             );
             $thread = $run->thread()->firstOrFail();
 
@@ -783,7 +784,7 @@ final class AgentRuntimeController
         }
 
         $activeRunsCount = $thread->runs()
-            ->whereIn('status', ['running', 'awaiting_model', 'awaiting_confirmation'])
+            ->whereIn('status', ['running', 'awaiting_model', 'awaiting_confirmation', 'awaiting_gsc_continuation'])
             ->count();
         if ($activeRunsCount > 0) {
             return new JsonResponse(['message' => 'Cannot archive thread with an active run.'], 422);
@@ -832,7 +833,15 @@ final class AgentRuntimeController
         ]);
     }
 
-    public function showThread(Request $request, string $ulid, AgentThreadRepository $threads, ?AgentTurnCoordinator $coordinator = null): JsonResponse
+    public function showThread(
+        Request $request,
+        string $ulid,
+        AgentThreadRepository $threads,
+        ?AgentTurnCoordinator $coordinator = null,
+        ?AgentConfirmedToolExecutor $tools = null,
+        ?AgentTurnPersistence $persistence = null,
+        ?SiteDirectory $sites = null,
+    ): JsonResponse
     {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
@@ -846,6 +855,16 @@ final class AgentRuntimeController
         $thread = $threads->findForPrincipal($ulid, $principalType, $principalRef);
         if (!$thread) {
             return new JsonResponse(['message' => 'Thread not found.'], 404);
+        }
+
+        if ($coordinator instanceof AgentTurnCoordinator && $tools instanceof AgentConfirmedToolExecutor && $persistence instanceof AgentTurnPersistence && $sites instanceof SiteDirectory) {
+            $pendingConfirmations = AgentRun::query()
+                ->where('thread_id', $thread->id)
+                ->where('status', 'awaiting_confirmation')
+                ->get();
+            foreach ($pendingConfirmations as $pending) {
+                $this->confirmRun($request, (string) $pending->ulid, $sites, $persistence, $threads, $tools, $coordinator);
+            }
         }
 
         $thread->load(['messages' => function ($query) {
@@ -983,6 +1002,9 @@ final class AgentRuntimeController
             }
 
             $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics);
+            if (is_array($result->gscContinuation)) {
+                return $this->gscContinuationResponse($persistence, $threads, $run, $thread, $result);
+            }
             if ($result->confirmationProposal !== null) {
                 $persistence->pauseForConfirmation($run, $result->confirmationProposal);
 
@@ -1120,6 +1142,9 @@ final class AgentRuntimeController
         $result = $progress->result;
         if ($result === null) {
             throw new \LogicException('Turn progress has neither a model call nor a result.');
+        }
+        if (is_array($result->gscContinuation)) {
+            return $this->gscContinuationResponse($persistence, $threads, $run, $thread, $result);
         }
 
         $meta = $result->answerModelCalled ? ['answer_model' => 'manual'] : [];
@@ -1421,6 +1446,135 @@ final class AgentRuntimeController
         $payload['complete'] = ((int) ($payload['failed'] ?? 0)) === 0;
 
         return new JsonResponse(['data' => $payload]);
+    }
+
+    public function gscCachedRun(
+        Request $request,
+        string $runUlid,
+        SiteDirectory $sites,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AgentConfirmedToolExecutor $tools,
+        AgentTurnCoordinator $coordinator,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $run = $persistence->claimAwaitingGscContinuation($runUlid, $userId);
+        if (! $run instanceof AgentRun) {
+            return new JsonResponse(['message' => 'GSC continuation was not found or already finished.'], 409);
+        }
+
+        try {
+            $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+            $state = (array) ($summary['gsc_continuation'] ?? []);
+            $proposal = AgentToolConfirmationProposal::fromArray((array) ($state['proposal'] ?? []));
+            $scope = AgentProjectScope::fromArray($proposal->scope);
+            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+                $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
+
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+            $cached = trim((string) ($state['cached_period'] ?? ''));
+            $requested = is_string($state['requested_period'] ?? null) ? $state['requested_period'] : null;
+            if (preg_match('/^\d{4}-\d{2}$/', $cached) !== 1) {
+                return $this->completeDeterministicRun($run, $run->thread()->firstOrFail(), $persistence, $threads, 'Không có dữ liệu GSC đã đồng bộ để tiếp tục.');
+            }
+            $continued = new AgentToolConfirmationProposal(
+                $proposal->intent,
+                $proposal->primaryCapability,
+                $proposal->capabilities,
+                [...$proposal->parameters, 'period' => $cached],
+                $proposal->responseTemplate,
+                $proposal->responseLanguage,
+                $proposal->toolCapabilities,
+                $proposal->scope,
+            );
+            $bundle = $tools->execute($continued, $userId);
+            if ($requested !== null && $requested !== $cached) {
+                $notice = $proposal->responseLanguage === 'vi'
+                    ? 'Đang dùng dữ liệu GSC đã đồng bộ kỳ '.$cached.'. Kỳ đã yêu cầu là '.$requested.'.'
+                    : 'Using synchronized GSC data for '.$cached.'. The requested period was '.$requested.'.';
+                $bundle = new RetrievalBundle($bundle->scope, [
+                    ...$bundle->sources,
+                    new RetrievalSource('gsc_period_notice', 'ok', 'cached-gsc-period', [
+                        'requested_period' => $requested,
+                        'cached_period' => $cached,
+                        'message' => $notice,
+                    ]),
+                ], $bundle->warnings);
+            }
+            $thread = $run->thread()->firstOrFail();
+            $userMessage = $run->userMessage()->firstOrFail();
+            $history = $this->historyBefore((int) $thread->id, (int) $userMessage->position);
+            $result = $coordinator->answerConfirmed(
+                $userId,
+                $scope,
+                (string) $userMessage->content,
+                $history,
+                $bundle,
+                $proposal->responseTemplate,
+                $proposal->responseLanguage,
+            );
+            $assistant = $persistence->completeRun($run, $result->response, $result->answerModelCalled ? ['answer_model' => 'called'] : []);
+            $threads->touchLastMessage($thread);
+            $data = $result->response->toArray();
+            if ($requested !== null && $requested !== $cached) {
+                $warning = $proposal->responseLanguage === 'vi'
+                    ? 'Kỳ đồng bộ '.$cached.' khác kỳ đã yêu cầu '.$requested.'.'
+                    : 'Synchronized period '.$cached.' differs from requested period '.$requested.'.';
+                array_unshift($data['blocks'], ['type' => 'warning', 'text' => $warning]);
+                $data['message'] = $warning.' '.$data['message'];
+            }
+            $data['thread_ulid'] = $thread->ulid;
+            $data['run_ulid'] = $run->ulid;
+            $data['user_message_id'] = $run->user_message_id;
+            $data['assistant_message_id'] = $assistant->id;
+            $execution = $this->rememberExecution($persistence, $run, $result->executionTrace, $result->response?->sources ?? [], $result->answerModelCalled);
+            if ($execution !== null) {
+                $data['execution'] = $execution;
+            }
+
+            return new JsonResponse(['data' => $data]);
+        } catch (\Throwable $e) {
+            $persistence->failRun($run, 'error', $e->getMessage());
+
+            return new JsonResponse(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    private function gscContinuationResponse(
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AgentRun $run,
+        \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread $thread,
+        AgentTurnResult $result,
+    ): JsonResponse {
+        $response = $result->response ?? new AgentResponse('Google connection is required.', [], [], []);
+        $actions = array_map(static function (array $action) use ($run): array {
+            if (($action['type'] ?? '') === 'gsc_continuation') {
+                $action['run_ulid'] = (string) $run->ulid;
+            }
+
+            return $action;
+        }, $response->actions);
+        $stamped = new AgentResponse($response->message, $response->blocks, $actions, $response->sources);
+        $assistant = $persistence->rememberContinuation($run, $stamped, (array) $result->gscContinuation);
+        $threads->touchLastMessage($thread);
+        $data = $stamped->toArray();
+        $data['status'] = 'awaiting_gsc_continuation';
+        $data['thread_ulid'] = $thread->ulid;
+        $data['run_ulid'] = $run->ulid;
+        $data['user_message_id'] = $run->user_message_id;
+        $data['assistant_message_id'] = $assistant->id;
+        $execution = $result->executionTrace;
+        if (is_array($execution)) {
+            $data['execution'] = $this->clientExecution($execution, $stamped->sources, false);
+        }
+
+        return new JsonResponse(['data' => $data]);
     }
 
     private function confirmationResponse(AgentToolConfirmationProposal $proposal, string $runUlid): AgentResponse

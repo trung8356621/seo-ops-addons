@@ -269,16 +269,20 @@ function ActionsBlock({ actions, onAction, busy }) {
     }
     return (
         <div className="agent-actions">
-            {actions.map((action, index) => action.type === 'confirmation' ? (
-                <button
-                    key={index}
-                    type="button"
-                    className={`agent-confirmation-action is-${action.action}`}
-                    disabled={busy}
-                    onClick={() => onAction?.(action)}
-                >
-                    {busy ? 'Đang xử lý…' : (action.label || action.action)}
-                </button>
+            {actions.map((action, index) => action.type === 'confirmation' || action.type === 'gsc_continuation' ? (
+                action.href ? (
+                    <a key={index} className="agent-confirmation-action is-connect" href={action.href}>{action.label || action.action}</a>
+                ) : (
+                    <button
+                        key={index}
+                        type="button"
+                        className={`agent-confirmation-action is-${action.action}`}
+                        disabled={busy}
+                        onClick={() => onAction?.(action)}
+                    >
+                        {busy ? 'Đang xử lý…' : (action.label || action.action)}
+                    </button>
+                )
             ) : (
                 <div key={index} className="agent-action-item">
                     <span className="agent-action-label">{action.label || action.action}</span>
