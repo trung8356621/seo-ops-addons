@@ -200,8 +200,8 @@
     },
     "cta": {
       "label": "CTA",
-      "locked": true,
-      "note": "CTA chip aliases Links panel. Unlock only this id before intentional CTA/contact insert changes.",
+      "locked": false,
+      "note": "CTA Automation is in active development. Contact configuration stays in Site settings; the widget no longer inserts raw contact channels.",
       "paths": [
         {
           "file": "content/resources/js/editor/modules/cta-contact/index.js",

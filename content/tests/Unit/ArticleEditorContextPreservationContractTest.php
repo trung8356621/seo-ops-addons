@@ -105,7 +105,7 @@ final class ArticleEditorContextPreservationContractTest extends TestCase
         $shared = $this->read('resources/js/components/CtaContactInsertList.jsx');
         $domainService = $this->read('Services/DomainCtaEditorService.php');
 
-        self::assertStringContainsString('CtaContactInsertList', $links);
+        self::assertStringContainsString('CtaAutomationPanel', $links);
         self::assertStringContainsString('filterUsableCtaContacts', $links);
         self::assertStringContainsString('wp-article-links-insert-btn--contact', $shared);
         self::assertStringContainsString('wp-article-links-insert-btn--sentence', $shared);

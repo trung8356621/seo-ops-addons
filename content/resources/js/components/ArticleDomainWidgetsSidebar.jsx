@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Link2, Settings2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import { t } from '../utils/i18n';
-import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
+import { readCoreArticleIdentity } from '../utils/articleEditorPayloadAdapters';
 import {
     ctaDisplayLabel,
     formatCtaHref,
@@ -14,12 +14,7 @@ import { collectEditorBlocksFromDom } from '../utils/articlePhraseOccurrences';
 import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
 import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
 import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
-import {
-    CtaContactInsertList,
-    CtaQuickTemplateSettingsPopover,
-    dispatchCtaInsert,
-    useCtaQuickTemplates,
-} from './CtaContactInsertList';
+import { CtaAutomationPanel } from './CtaAutomationPanel';
 
 /**
  * @typedef {{ text?: string, href?: string, target_url?: string, article_count?: number, occurrence_count?: number, can_insert?: boolean, keyword_id?: number|null }} DomainLinkItem
@@ -141,8 +136,6 @@ export default function ArticleDomainWidgetsSidebar({
     siteId = null,
     initialDomainLinkList = [],
     initialDomainLinkCatalog = [],
-    initialDomainCtaList = [],
-    initialCtaQuickTemplates = null,
 }) {
     const allDomainLinksRef = useRef(
         initialDomainLinkCatalog.length > 0 ? initialDomainLinkCatalog : initialDomainLinkList,
@@ -159,16 +152,11 @@ export default function ArticleDomainWidgetsSidebar({
             [],
         ),
     );
-    const [domainCtas, setDomainCtas] = useState(initialDomainCtaList);
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
     const [ctaActiveKey, setCtaActiveKey] = useState('');
     const [linksCollapsed, setLinksCollapsed] = useState(false);
     const [ctaCollapsed, setCtaCollapsed] = useState(false);
-    const [ctaSettingsOpen, setCtaSettingsOpen] = useState(false);
     const [hiddenRowKeys, setHiddenRowKeys] = useState(() => new Set());
-    const [serverCtaTemplates, setServerCtaTemplates] = useState(initialCtaQuickTemplates);
-    const [templatesByType, setTemplatesByType] = useCtaQuickTemplates(siteId, serverCtaTemplates);
-    const usableDomainCtas = useMemo(() => filterUsableCtaContacts(domainCtas), [domainCtas]);
     const [cycleByKey, setCycleByKey] = useState({});
     const selectedDomainOccurrenceRef = useRef(null);
 
@@ -306,41 +294,12 @@ export default function ArticleDomainWidgetsSidebar({
 
             <WidgetBox
                 title={t('cta_widget_title')}
-                subtitle={` (${usableDomainCtas.length})`}
                 collapsed={ctaCollapsed}
                 onToggle={() => setCtaCollapsed((v) => !v)}
-                headerExtra={(
-                    <div className="wp-article-links-cta-quick-wrap">
-                        <button
-                            type="button"
-                            className="wp-article-links-insert-btn"
-                            aria-label={t('cta_widget_settings_title')}
-                            title={t('cta_widget_settings_title')}
-                            onClick={() => setCtaSettingsOpen(true)}
-                        >
-                            <Settings2 size={14} aria-hidden />
-                        </button>
-                        <CtaQuickTemplateSettingsPopover
-                            siteId={siteId}
-                            open={ctaSettingsOpen}
-                            onClose={() => setCtaSettingsOpen(false)}
-                            settings={templatesByType}
-                            onSave={setTemplatesByType}
-                        />
-                    </div>
-                )}
             >
-                <p className="wp-article-links-hint">{t('cta_widget_hint')}</p>
-                <CtaContactInsertList
-                    items={domainCtas}
-                    activeKey={ctaActiveKey}
-                    templatesByType={templatesByType}
-                    emptyText={t('cta_widget_empty')}
-                    onKeywordClick={(item, _index, itemKey) => scrollToItem(item, itemKey, 'cta')}
-                    onInsertQuickCta={(item, _itemKey, templateOverride, mode = 'sentence') =>
-                        dispatchCtaInsert(item, mode, templateOverride, templatesByType)
-                    }
-                />
+                <div data-site-id={siteId || ''}>
+                    <CtaAutomationPanel articleId={readCoreArticleIdentity().articleId} />
+                </div>
             </WidgetBox>
         </>
     );

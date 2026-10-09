@@ -35,7 +35,7 @@ final class AgentActionableDraftTest extends TestCase
         self::assertIsString($read);
         self::assertIsString($executor);
         self::assertIsString($shared);
-        self::assertStringContainsString("->where('status', 'published')", $read);
+        self::assertStringContainsString("whereIn('status', ['publish', 'published'])", $read);
         self::assertStringContainsString("\$sortScoreAsc ? 'score' : null", $read);
         self::assertStringContainsString("'published_only' => true", $executor);
         self::assertStringContainsString("'sort_score_asc' => true", $executor);

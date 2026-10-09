@@ -16,7 +16,7 @@ export const ctaContactModule = {
             panelId: 'cta',
             labelKey: 'cta',
             label: 'CTA',
-            fullLabel: 'CTA Assistant',
+            fullLabel: 'CTA Automation',
             order: 145,
             // Alias: navigation opens cta; PortalHost maps cta → links panel body.
             host: 'editor',

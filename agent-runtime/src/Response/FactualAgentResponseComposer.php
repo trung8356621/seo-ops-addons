@@ -240,15 +240,23 @@ final class FactualAgentResponseComposer
                 continue;
             }
             $recommendation = $this->recommendationItem($item, $action);
+            if ($recommendation === null) {
+                continue;
+            }
+            $measured = $item['quality_score'] ?? $item['seo_score'] ?? null;
             $rows[] = [
                 'n' => $number,
                 'title' => (string) ($item['title'] ?? ''),
-                'article_ref' => (string) ($item['article_ref'] ?? ''),
+                'article_ref' => (string) ($recommendation['article_ref'] ?? ''),
                 'focus_keyword' => (string) ($item['focus_keyword'] ?? $item['keyword'] ?? ''),
-                'seo_score' => is_int($item['seo_score'] ?? null) || is_float($item['seo_score'] ?? null) ? $item['seo_score'] : null,
+                'seo_score' => is_int($measured) || is_float($measured) ? $measured : null,
                 'item' => $recommendation,
             ];
             $number++;
+        }
+
+        if ($rows === []) {
+            return $this->emptyList($language, $bundle);
         }
 
         $count = count($rows);
@@ -296,6 +304,12 @@ final class FactualAgentResponseComposer
             is_array($item['reason_labels'] ?? null) ? $item['reason_labels'] : [],
         )));
         if (in_array($type, ['rewrite', 'improve'], true) && preg_match('/^article:\d+$/', $articleRef) !== 1) {
+            return null;
+        }
+        if (in_array($type, ['rewrite', 'improve'], true) && ($item['system_point'] ?? null) !== null) {
+            return null;
+        }
+        if (in_array($type, ['rewrite', 'improve'], true) && array_key_exists('rankable', $item) && $item['rankable'] !== true) {
             return null;
         }
         if ($type === 'new' && $title === '' && $keyword === '') {

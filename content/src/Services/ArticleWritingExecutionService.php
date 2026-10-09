@@ -654,6 +654,12 @@ class ArticleWritingExecutionService
         $persistHistory = array_merge($history, $ancillaryMeta, [
             'persist_status' => $ok ? 'applied' : 'failed',
         ]);
+        if ($ok) {
+            $freshArticle = $article->fresh();
+            if ($freshArticle instanceof SeoArticle) {
+                $persistHistory['cta_automation'] = $this->attachGeneratedCtas($freshArticle);
+            }
+        }
 
         return new ArticleWritingExecutionResult(
             success: $ok,
@@ -880,6 +886,10 @@ class ArticleWritingExecutionService
                     'ancillary_status' => $persistGate['ancillary_status'] ?? 'applied',
                     'ancillary_failures' => $persistGate['ancillary_failures'] ?? [],
                 ]);
+                $ctaArticle = $fresh ?? $article;
+                if ($ctaArticle instanceof SeoArticle) {
+                    $history['cta_automation'] = $this->attachGeneratedCtas($ctaArticle);
+                }
             }
         }
 
@@ -1354,6 +1364,28 @@ class ArticleWritingExecutionService
         }
 
         return [];
+    }
+
+    /**
+     * CTA failure must not discard a generated article.
+     *
+     * @return array<string, mixed>
+     */
+    private function attachGeneratedCtas(SeoArticle $article): array
+    {
+        if (config('semantic.enabled') !== true) {
+            return ['status' => 'skipped'];
+        }
+
+        try {
+            return app(\Omnichannel\Addons\Content\Services\CtaAutomation\CtaAutomationService::class)
+                ->attachGenerated($article);
+        } catch (\Throwable $exception) {
+            return [
+                'status' => 'failed',
+                'message' => $exception->getMessage(),
+            ];
+        }
     }
 
     /**

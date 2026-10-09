@@ -11,6 +11,7 @@ use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext;
 use Omnichannel\Addons\Seo\Services\SeoAuditKeywordFlagService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -51,25 +52,10 @@ class SeoAuditAgentReadService
 
         $items = [];
         foreach ($paginator->items() as $row) {
-            if (! is_array($row)) {
+            if (! is_array($row) || ! $this->keepRetrievedArticle($row, $filterLow, $selectedRules)) {
                 continue;
             }
-            $items[] = [
-                'article_ref' => 'article:'.($row['id'] ?? 0),
-                'title' => (string) ($row['title'] ?? ''),
-                'slug' => $row['slug'] ?? null,
-                'status' => (string) ($row['status'] ?? 'publish'),
-                'domain' => (string) ($row['domain'] ?? ''),
-                'score' => $row['score'] ?? null,
-                'seo_score' => $row['score'] ?? null,
-                'post_type' => $postType,
-                'focus_keyword' => (string) ($row['focus_keyword'] ?? ''),
-                'reason_labels' => array_values(array_filter(
-                    array_map('strval', is_array($row['reason_labels'] ?? null) ? $row['reason_labels'] : []),
-                )),
-                'has_keyword_flags' => (bool) ($row['has_keyword_flags'] ?? false),
-                'updated_at' => (string) ($row['updated_at'] ?? ''),
-            ];
+            $items[] = $this->projectRetrievedArticle($row, $postType);
         }
 
         return [
@@ -117,16 +103,20 @@ class SeoAuditAgentReadService
         $audit = $this->auditResults->auditArticle($article);
         $profile = $article->seoProfile;
 
+        $projected = $this->projectRetrievedArticle($audit, null);
+
         return [
             'article_ref' => 'article:'.$article->id,
             'title' => (string) ($article->title ?? ''),
             'slug' => $article->slug,
             'status' => (string) $article->status,
-            'focus_keyword' => $profile?->focus_keyword ?: ($audit['focus_keyword'] ?? null),
-            'seo_score' => $profile?->seo_score !== null ? (float) $profile->seo_score : ($audit['score'] ?? null),
-            'reason_labels' => array_values(array_filter(
-                array_map('strval', is_array($audit['reason_labels'] ?? null) ? $audit['reason_labels'] : []),
-            )),
+            'focus_keyword' => $projected['focus_keyword'] !== '' ? $projected['focus_keyword'] : ($profile?->focus_keyword ?: null),
+            'seo_score' => $projected['seo_score'],
+            'system_point' => $projected['system_point'],
+            'quality_score' => $projected['quality_score'],
+            'rankable' => $projected['rankable'],
+            'has_focus_keyword' => $projected['has_focus_keyword'],
+            'reason_labels' => $projected['reason_labels'],
             'has_keyword_flags' => (bool) ($audit['has_keyword_flags'] ?? false),
             'internal_link_count' => $profile?->internal_link_count !== null ? (int) $profile->internal_link_count : null,
             'external_link_count' => $profile?->external_link_count !== null ? (int) $profile->external_link_count : null,
@@ -148,7 +138,8 @@ class SeoAuditAgentReadService
                 ->orderByDesc('updated_at'),
         );
         if ($publishedOnly) {
-            $query->where('status', 'published');
+            // WordPress sync stores publish; the editor also uses published.
+            $query->whereIn('status', ['publish', 'published']);
         }
 
         ArticleResource::applySeoAuditCandidateScope($query);
@@ -173,6 +164,63 @@ class SeoAuditAgentReadService
         }
 
         return $query;
+    }
+
+    /**
+     * Ordinary low-score optimization uses the SEO layer rankable flag.
+     * An explicit missing-keyword rule still returns those articles.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  list<string>  $selectedRules
+     */
+    private function keepRetrievedArticle(array $row, bool $filterLow, array $selectedRules): bool
+    {
+        if (! $filterLow || in_array(SeoScoringRulesRegistry::KEY_MISSING_FOCUS_KEYWORD, $selectedRules, true)) {
+            return true;
+        }
+
+        return ($row['rankable'] ?? null) === true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function projectRetrievedArticle(array $row, ?string $postType): array
+    {
+        $rankable = ($row['rankable'] ?? null) === true;
+        $measured = $row['quality_score'] ?? null;
+        if (! is_numeric($measured) && $rankable && is_numeric($row['score'] ?? null)) {
+            $measured = $row['score'];
+        }
+        $quality = $rankable && is_numeric($measured) ? (int) $measured : null;
+        $systemPoint = is_numeric($row['system_point'] ?? null) ? (int) $row['system_point'] : null;
+        $id = (int) ($row['id'] ?? 0);
+        $articleRef = trim((string) ($row['article_ref'] ?? ''));
+        if (preg_match('/^article:\d+$/', $articleRef) !== 1) {
+            $articleRef = 'article:'.$id;
+        }
+
+        return [
+            'article_ref' => $articleRef,
+            'title' => (string) ($row['title'] ?? ''),
+            'slug' => $row['slug'] ?? null,
+            'status' => (string) ($row['status'] ?? 'publish'),
+            'domain' => (string) ($row['domain'] ?? ''),
+            'score' => $quality,
+            'seo_score' => $quality,
+            'system_point' => $systemPoint,
+            'quality_score' => $quality,
+            'rankable' => $rankable,
+            'post_type' => $postType,
+            'focus_keyword' => (string) ($row['focus_keyword'] ?? ''),
+            'has_focus_keyword' => array_key_exists('has_focus_keyword', $row) ? (bool) $row['has_focus_keyword'] : null,
+            'reason_labels' => array_values(array_filter(
+                array_map('strval', is_array($row['reason_labels'] ?? null) ? $row['reason_labels'] : []),
+            )),
+            'has_keyword_flags' => (bool) ($row['has_keyword_flags'] ?? false),
+            'updated_at' => (string) ($row['updated_at'] ?? ''),
+        ];
     }
 
     private function normalizePostType(mixed $raw): ?string

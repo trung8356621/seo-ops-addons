@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Link2, Loader2, OctagonAlert, Phone, RotateCcw, Settings2, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Link2, Loader2, OctagonAlert, Phone, RotateCcw, Trash2 } from 'lucide-react';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import { t } from '../utils/i18n';
 import ArticleAssistantWidget from '@ai-prompt-addon/components/ArticleAssistantWidget.jsx';
@@ -41,12 +41,7 @@ import {
 } from '../utils/articleEditorPayloadAdapters';
 import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
 import { getEditorCommandHost } from '../utils/editorCommands';
-import {
-    CtaContactInsertList,
-    CtaQuickTemplateSettingsPopover,
-    dispatchCtaInsert,
-    useCtaQuickTemplates,
-} from './CtaContactInsertList';
+import { CtaAutomationPanel } from './CtaAutomationPanel';
 import {
     insertSuggestedInternalLinkAction,
     resolveSuggestionLocatePhrase,
@@ -1735,10 +1730,7 @@ export default function ArticleLinksSidebar({
     const [domainCtas, setDomainCtas] = useState(initialDomainCtaList);
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
     const [ctaActiveKey, setCtaActiveKey] = useState('');
-    const [ctaSettingsOpen, setCtaSettingsOpen] = useState(false);
-    const [serverCtaTemplates, setServerCtaTemplates] = useState(initialCtaQuickTemplates);
-    const effectiveSiteId = Number(siteIdProp ?? articleMetaRef.current.siteId ?? 0);
-    const [templatesByType, setTemplatesByType] = useCtaQuickTemplates(effectiveSiteId, serverCtaTemplates);
+    const [, setServerCtaTemplates] = useState(initialCtaQuickTemplates);
     const usableDomainCtas = useMemo(() => filterUsableCtaContacts(domainCtas), [domainCtas]);
     const [domainHiddenRowKeys, setDomainHiddenRowKeys] = useState(() => new Set());
     /** @type {React.MutableRefObject<{ itemKey: string, occurrence: object|null, index: number }|null>} */
@@ -2741,51 +2733,13 @@ export default function ArticleLinksSidebar({
 
                 {showCtaSection ? (
                 <LinkAssistantSection
-                    title={`${t('cta_widget_title')} (${usableDomainCtas.length})`}
+                    title={t('cta_widget_title')}
                     count={usableDomainCtas.length}
                     collapsed={ctaCollapsed}
                     onToggle={() => setCtaCollapsed((value) => !value)}
                     sectionKey="cta"
                 >
-                    <div className="wp-postbox-header-actions wp-article-links-cta-section-head">
-                        <p className="wp-article-links-hint">{t('cta_widget_hint')}</p>
-                        <div className="wp-article-links-cta-quick-wrap">
-                            <button
-                                type="button"
-                                className="wp-article-links-insert-btn"
-                                aria-label={t('cta_widget_settings_title')}
-                                title={t('cta_widget_settings_title')}
-                                onClick={() => setCtaSettingsOpen(true)}
-                            >
-                                <Settings2 size={14} aria-hidden />
-                            </button>
-                            <CtaQuickTemplateSettingsPopover
-                                siteId={effectiveSiteId}
-                                open={ctaSettingsOpen}
-                                onClose={() => setCtaSettingsOpen(false)}
-                                settings={templatesByType}
-                                onSave={setTemplatesByType}
-                            />
-                        </div>
-                    </div>
-                    <CtaContactInsertList
-                        items={domainCtas}
-                        activeKey={ctaActiveKey}
-                        templatesByType={templatesByType}
-                        emptyText={t('cta_widget_empty')}
-                        onKeywordClick={(item, _index, itemKey) => scrollToDomainItem(item, itemKey, 'cta')}
-                        onInsertQuickCta={(item, itemKey, templateOverride, mode = 'sentence') => {
-                            const cycle = Number(cycleByKey[itemKey] ?? 0);
-                            const occurrenceIndex = cycle > 0 ? (cycle - 1) : 0;
-                            dispatchCtaInsert(
-                                item,
-                                mode,
-                                templateOverride,
-                                templatesByType,
-                                mode === 'value' ? occurrenceIndex : 0,
-                            );
-                        }}
-                    />
+                    <CtaAutomationPanel articleId={articleMetaRef.current.articleId} />
                 </LinkAssistantSection>
                 ) : null}
             </div>

@@ -1,0 +1,48 @@
+{
+  "spec_version": "0.1",
+  "key": "article.cta.generate",
+  "version": "0.1.0",
+  "name": "Contextual CTA generator",
+  "description": "Writes CTA sentences for a fixed placement plan. Does not rewrite the article or choose placements.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "language": { "type": "string", "required": true },
+    "tone": { "type": "string", "required": false },
+    "business_context": { "type": "string", "required": false },
+    "cta_plan": { "type": "string", "required": true },
+    "section_contexts": { "type": "string", "required": true }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "system": "# CONTEXTUAL CTA GENERATOR\n\n## ROLE\n\nYou are a professional SEO conversion copywriter.\nYour task is to write concise, natural calls to action for predefined article placements.\nYou are NOT writing or rewriting the article.\n\n## OBJECTIVE\n\nGenerate contextual CTAs that naturally connect with their surrounding article sections.\nEach CTA should provide a meaningful next step for the reader.\nAvoid aggressive promotional writing.\n\n## PLACEMENT RULES\n\n- Generate only the requested placements.\n- Preserve every placement_id and section_id.\n- Do not add new placements.\n- Do not change CTA intents.\n- Do not modify article content.\n- Respect the allowed shortcode for each placement.\n\n## CONTENT RULES\n\n- Write 1–2 concise sentences per CTA.\n- Connect the CTA directly to its section.\n- Keep the writing natural and informative.\n- Avoid repetitive promotional structures.\n- Avoid excessive brand mentions.\n- Avoid generic sales phrases.\n- Do not repeat the same promise across CTAs.\n- Do not invent business claims, specifications, offers, prices, or guarantees.\n- Do not invent URLs or contact information.\n- Never include several contact channels in one CTA.\n- Do not include physical contact details.\n- Use at most one approved shortcode per CTA.\n- Never create new shortcode aliases.\n- Do not change the shortcode assigned by the plan.\n- Do not generate Markdown headings or article paragraphs.\n\n## CONTEXTUAL VARIATION\n\nProduct discovery: encourage relevant product exploration.\nConsultation: suggest seeking suitable guidance.\nComparison: encourage evaluating appropriate options.\nConversion: present a clear but non-aggressive next step.\nService discovery: point toward a relevant service.\nDo not create superficial variation by merely replacing words with synonyms.\n\n## OUTPUT\n\nReturn only valid JSON:\n{\"ctas\":[{\"placement_id\":\"cta_001\",\"section_id\":\"section_1\",\"text\":\"Generated contextual CTA text.\"}]}\nReturn exactly one entry for each requested placement.\nPreserve IDs.\nDo not include explanations.\nDo not include Markdown code fences.",
+    "user": "Language: {{language}}\nTone: {{tone}}\nWebsite Context: {{business_context}}\nCTA Placement Plan: {{cta_plan}}\nSelected Section Contexts: {{section_contexts}}"
+  },
+  "presentation": {
+    "description": "Generate contextual CTA sentences for placements chosen by the semantic planner.",
+    "variables": [
+      { "key": "language", "required": true },
+      { "key": "tone", "required": false },
+      { "key": "business_context", "required": false },
+      { "key": "cta_plan", "required": true },
+      { "key": "section_contexts", "required": true }
+    ]
+  },
+  "retry": { "max": 1 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}
