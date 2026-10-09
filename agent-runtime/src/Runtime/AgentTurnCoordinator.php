@@ -847,6 +847,11 @@ class AgentTurnCoordinator
      * @param  list<string>  $tools
      * @return array<string, mixed>
      */
+    public function recoverRejectedAnswer(string $raw, RetrievalBundle $bundle, string $message, string $language): AgentResponse
+    {
+        return $this->recoverParsedAnswer($raw, $bundle, $message, $language, false)['response'];
+    }
+
     public function verifiedFallback(RetrievalBundle $bundle, string $message, string $language): AgentResponse
     {
         $facts = $this->factual->verifiedFacts($bundle, $language);

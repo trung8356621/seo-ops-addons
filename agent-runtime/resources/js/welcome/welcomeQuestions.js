@@ -58,6 +58,13 @@ export function toggleWelcomeModule(currentId, nextId) {
     return currentId === nextId ? '' : nextId;
 }
 
+export function draftAfterSuggestion(current, suggestion, archived = false) {
+    if (archived || String(current || '').trim() !== '') {
+        return current;
+    }
+    return suggestion;
+}
+
 export function userQuestionsPayload(modules) {
     const payload = {};
     for (const module of modules) {

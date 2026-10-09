@@ -29,7 +29,7 @@ function AssumedModelHeader({ assumedModel }) {
     );
 }
 
-export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, onUseVerified, isApplying, parserError }) {
+export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, isApplying, parserError }) {
     const [copied, setCopied] = useState(false);
     const [copyError, setCopyError] = useState('');
     if (!isOpen || !modelCall) return null;
@@ -89,11 +89,6 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         <button type="button" className="agent-debug-apply-btn" onClick={onApply} disabled={isApplying || !manualResult.trim()}>
                             {isApplying ? 'Applying...' : 'Apply'}
                         </button>
-                        {modelCall.key === 'answer' && onUseVerified ? (
-                            <button type="button" className="agent-debug-apply-btn" onClick={onUseVerified} disabled={isApplying}>
-                                Use verified results
-                            </button>
-                        ) : null}
                     </div>
                 </div>
                 </div>

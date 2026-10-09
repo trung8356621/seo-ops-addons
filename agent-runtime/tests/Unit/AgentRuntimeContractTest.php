@@ -2286,7 +2286,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame('paused', $decisionApply['status']);
         self::assertSame('answer', $decisionApply['model_call']['key']);
 
-        // First apply invalid answer -> 422 rejected, run preserved awaiting_model
+        // Invalid answer is recovered on the same run without another model call.
         $rejectedRes = $controller->modelDebugApply(
             $this->createTurnRequest([
                 'run_ulid' => $runUlid,
@@ -2298,33 +2298,16 @@ final class AgentRuntimeContractTest extends TestCase
             $resolver,
         );
 
-        self::assertSame(422, $rejectedRes->getStatusCode());
-        $rejectedData = $rejectedRes->getData(true);
-        self::assertSame('paused', $rejectedData['data']['status']);
-        self::assertSame('answer', $rejectedData['data']['model_call']['key']);
-        self::assertSame($runUlid, $rejectedData['data']['run_ulid']);
-        self::assertNotEmpty($rejectedData['validation_error']);
+        self::assertSame(200, $rejectedRes->getStatusCode());
+        $rejectedData = $rejectedRes->getData(true)['data'];
+        self::assertNotSame('paused', $rejectedData['status'] ?? null);
+        self::assertNotEmpty($rejectedData['message']);
+        self::assertArrayNotHasKey('model_call', $rejectedData);
 
         $runModel = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->firstOrFail();
-        self::assertSame('awaiting_model', $runModel->status);
-        self::assertSame('answer', $runModel->retrieval_summary['model_call']);
-
-        // Second apply with valid answer succeeds on the same run
-        $validRes = $controller->modelDebugApply(
-            $this->createTurnRequest([
-                'run_ulid' => $runUlid,
-                'manual_result' => '{"message":"Corrected answer","blocks":[],"actions":[]}',
-            ]),
-            $coordinator,
-            $threads,
-            $persistence,
-            $resolver,
-        );
-
-        self::assertSame(200, $validRes->getStatusCode());
-        $validData = $validRes->getData(true)['data'];
-        self::assertSame('Corrected answer', $validData['message']);
-        self::assertSame('done', $runModel->fresh()->status);
+        self::assertSame('done', $runModel->status);
+        self::assertNotNull($runModel->assistant_message_id);
+        self::assertSame(1, $runModel->thread->messages()->where('role', 'assistant')->count());
     }
 
     public function test_debug_manual_decision_parser_rejection_keeps_same_checkpoint_retryable(): void
@@ -2406,7 +2389,8 @@ final class AgentRuntimeContractTest extends TestCase
         )->getData(true)['data'];
         $thread = $threads->findForPrincipal($initial['thread_ulid'], 'user', '1');
         $userMessage = $thread->messages()->where('role', 'user')->firstOrFail();
-        $coordinator = $this->coordinator(new RecordingDecisionGateway(), new RecordingAnswerGateway());
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(new RecordingDecisionGateway(), $answers);
         $resolver = new MockAssumedModelResolver();
 
         $rerunPaused = $controller->rerun(
@@ -2427,22 +2411,15 @@ final class AgentRuntimeContractTest extends TestCase
             'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
         ]), $coordinator, $threads, $persistence, $resolver);
 
-        // Step 2: Invalid Answer -> 422
+        // Invalid answer recovers and completes. A later manual result is a new run, not a retry of this one.
         $rejectedRes = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $runUlid,
             'manual_result' => '{"invalid":1}',
         ]), $coordinator, $threads, $persistence, $resolver);
-        self::assertSame(422, $rejectedRes->getStatusCode());
-        self::assertSame('awaiting_model', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
-
-        // Step 3: Valid Answer -> 200
-        $completedRes = $controller->modelDebugApply($this->createTurnRequest([
-            'run_ulid' => $runUlid,
-            'manual_result' => '{"message":"Rerun corrected","blocks":[],"actions":[]}',
-        ]), $coordinator, $threads, $persistence, $resolver);
-        self::assertSame(200, $completedRes->getStatusCode());
-        self::assertSame('Rerun corrected', $completedRes->getData(true)['data']['message']);
+        self::assertSame(200, $rejectedRes->getStatusCode());
+        self::assertNotEmpty($rejectedRes->getData(true)['data']['message']);
         self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
+        self::assertSame(0, $answers->calls);
     }
 
     public function test_diag_captures_redacted_decision_diagnostics(): void
@@ -2964,6 +2941,52 @@ final class AgentRuntimeContractTest extends TestCase
         $invented = $parser->parse($inventedChartNumber, $bundle);
         self::assertSame([], $invented->blocks);
         self::assertStringContainsString('Chart value is not present in retrieval evidence', $parser->lastRejections()[0]);
+    }
+
+    public function test_show_thread_restores_valid_prompt_and_stranded_checkpoint_finishes_without_model_call(): void
+    {
+        $threads = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $persistence = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class);
+        $sites = new InMemorySiteDirectory([['id' => 7, 'domain' => 'example.test', 'user_id' => 1]]);
+        $answers = new RecordingAnswerGateway();
+        $coordinator = $this->coordinator(new RecordingDecisionGateway(), $answers);
+        $resolver = new MockAssumedModelResolver();
+        $controller = new AgentRuntimeController();
+
+        $initial = $controller->turn($this->createTurnRequest([
+            'scope' => ['type' => 'site', 'siteId' => 7],
+            'message' => 'Restore this prompt',
+            'debug_mode' => true,
+        ]), $coordinator, $sites, $threads, $persistence, $resolver)->getData(true)['data'];
+
+        $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $initial['run_ulid'],
+            'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+
+        $thread = $threads->findForPrincipal($initial['thread_ulid'], 'user', '1');
+        $reloaded = $controller->showThread($this->createTurnRequest([]), $thread->ulid, $threads, $coordinator)->getData(true)['data'];
+        self::assertNotEmpty($reloaded['pending_model_call']['model_call']['full_prompt']);
+        self::assertSame('answer', $reloaded['pending_model_call']['model_call']['key']);
+        self::assertArrayNotHasKey('stranded_model_run', $reloaded);
+        $run = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $initial['run_ulid'])->firstOrFail();
+        self::assertSame('awaiting_model', $run->status);
+
+        $run->update(['retrieval_summary' => ['model_call' => 'answer', 'runtime_state' => []]]);
+        $stranded = $controller->showThread($this->createTurnRequest([]), $thread->ulid, $threads, $coordinator)->getData(true)['data'];
+        self::assertSame($initial['run_ulid'], $stranded['stranded_model_run']['run_ulid']);
+        self::assertArrayNotHasKey('pending_model_call', $stranded);
+        self::assertSame('awaiting_model', $run->fresh()->status);
+
+        $recovered = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $initial['run_ulid'],
+            'recover_stranded' => true,
+        ]), $coordinator, $threads, $persistence, $resolver);
+        self::assertSame(200, $recovered->getStatusCode());
+        self::assertNotEmpty($recovered->getData(true)['data']['message']);
+        self::assertSame('done', $run->fresh()->status);
+        self::assertSame(0, $answers->calls);
+        self::assertArrayNotHasKey('pending_model_call', $controller->showThread($this->createTurnRequest([]), $thread->ulid, $threads, $coordinator)->getData(true)['data']);
     }
 }
 

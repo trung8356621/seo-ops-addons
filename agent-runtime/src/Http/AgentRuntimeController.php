@@ -597,7 +597,8 @@ final class AgentRuntimeController
         $runUlid = trim((string) ($payload['run_ulid'] ?? ''));
         $manualResult = (string) ($payload['manual_result'] ?? '');
         $useVerified = ($payload['use_verified'] ?? false) === true;
-        if ($runUlid === '' || (! $useVerified && trim($manualResult) === '')) {
+        $recoverStranded = ($payload['recover_stranded'] ?? false) === true;
+        if ($runUlid === '' || (! $useVerified && ! $recoverStranded && trim($manualResult) === '')) {
             return new JsonResponse(['message' => 'Run and manual result are required.'], 422);
         }
 
@@ -614,36 +615,23 @@ final class AgentRuntimeController
         $state = (array) ($checkpoint['runtime_state'] ?? []);
         $turn = (array) ($state['turn'] ?? []);
 
+        if ($recoverStranded || $useVerified) {
+            return $this->completeRecoveredAnswer(
+                $run,
+                $coordinator,
+                $persistence,
+                $threads,
+                $modelResolver,
+                $userId,
+                $turn,
+                $state,
+                '',
+                true,
+            );
+        }
+
         try {
             $scope = AgentProjectScope::fromArray((array) ($turn['scope'] ?? []));
-            if ($useVerified) {
-                $bundle = \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle::fromArray((array) ($state['bundle'] ?? []));
-                $language = (string) ($state['selected_response_language'] ?? 'en');
-                $response = $coordinator->verifiedFallback($bundle, (string) ($turn['message'] ?? ''), $language);
-                $trace = is_array($state['execution'] ?? null) ? $state['execution'] : [];
-                $trace['answer_status'] = 'rejected';
-                $trace['external_model_calls'] = 0;
-                $trace['external_model'] = null;
-                $persistence->resumeRun($run);
-                $thread = $run->thread()->firstOrFail();
-
-                return $this->respondToProgress(
-                    AgentTurnProgress::completed(new AgentTurnResult(
-                        $response,
-                        new PreparedModelInput('answer', []),
-                        null,
-                        false,
-                        executionTrace: $trace,
-                    )),
-                    $run,
-                    $thread,
-                    $persistence,
-                    $threads,
-                    $modelResolver,
-                    $userId,
-                    $turn,
-                );
-            }
             $persistence->resumeRun($run);
             $progress = $coordinator->resumeIntercepted(
                 $scope,
@@ -692,39 +680,19 @@ final class AgentRuntimeController
                     'error' => $e->getMessage(),
                 ],
             ], 422);
-        } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected $e) {
-            $persistence->pauseRun($run, $callKey, $state);
-            $thread = $run->thread()->firstOrFail();
-            $model = $modelResolver->resolveAnswerModel($userId);
-            $bundle = \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle::fromArray((array) ($state['bundle'] ?? []));
-            $answerInput = $coordinator->buildAnswerInput(
-                $scope,
-                (string) ($turn['message'] ?? ''),
-                (array) ($turn['history'] ?? []),
-                $bundle,
-                (string) ($state['selected_response_template'] ?? ''),
-                (string) ($state['selected_response_language'] ?? 'en'),
+        } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected) {
+            return $this->completeRecoveredAnswer(
+                $run,
+                $coordinator,
+                $persistence,
+                $threads,
+                $modelResolver,
+                $userId,
+                $turn,
+                $state,
+                $manualResult,
+                false,
             );
-            $input = $answerInput->exportText();
-
-            return new JsonResponse([
-                'message' => 'Answer result rejected: ' . $e->getMessage(),
-                'validation_error' => $e->getMessage(),
-                'data' => [
-                    'status' => 'paused',
-                    'run_ulid' => $run->ulid,
-                    'thread_ulid' => $thread->ulid,
-                    'user_message_id' => $run->user_message_id,
-                    'model_call' => [
-                        'key' => $callKey,
-                        'full_prompt' => $input,
-                        'prompt_size' => mb_strlen($input),
-                        'assumed_model' => $model->toArray(),
-                        'execution' => $this->pausedExecution($state, 'rejected'),
-                    ],
-                    'error' => $e->getMessage(),
-                ],
-            ], 422);
         } catch (\Throwable $e) {
             $persistence->failRun($run, 'error', $e->getMessage());
             throw $e;
@@ -864,7 +832,7 @@ final class AgentRuntimeController
         ]);
     }
 
-    public function showThread(Request $request, string $ulid, AgentThreadRepository $threads): JsonResponse
+    public function showThread(Request $request, string $ulid, AgentThreadRepository $threads, ?AgentTurnCoordinator $coordinator = null): JsonResponse
     {
         $user = $request->user();
         if ($user === null || (int) $user->id <= 0) {
@@ -891,16 +859,12 @@ final class AgentRuntimeController
             ->latest('id')
             ->first();
         if ($pending instanceof AgentRun) {
-            $summary = is_array($pending->retrieval_summary) ? $pending->retrieval_summary : [];
-            $state = is_array($summary['runtime_state'] ?? null) ? $summary['runtime_state'] : [];
-            $data['pending_model_call'] = [
-                'run_ulid' => $pending->ulid,
-                'model_call' => [
-                    'key' => (string) ($summary['model_call'] ?? 'answer'),
-                    'full_prompt' => '',
-                    'execution' => $this->pausedExecution($state, 'awaiting'),
-                ],
-            ];
+            $restored = $this->restoredPendingModelCall($pending, $coordinator);
+            if ($restored !== null) {
+                $data['pending_model_call'] = $restored;
+            } else {
+                $data['stranded_model_run'] = ['run_ulid' => $pending->ulid];
+            }
         }
 
         return new JsonResponse(['data' => $data]);
@@ -1176,6 +1140,123 @@ final class AgentRuntimeController
         }
 
         return new JsonResponse(['data' => $data]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $turn
+     * @param  array<string, mixed>  $state
+     */
+    private function completeRecoveredAnswer(
+        AgentRun $run,
+        AgentTurnCoordinator $coordinator,
+        AgentTurnPersistence $persistence,
+        AgentThreadRepository $threads,
+        AssumedModelResolver $modelResolver,
+        int $userId,
+        array $turn,
+        array $state,
+        string $raw,
+        bool $resume,
+    ): JsonResponse {
+        $trace = is_array($state['execution'] ?? null) ? $state['execution'] : [];
+        $trace['answer_status'] = 'rejected';
+        $trace['external_model_calls'] = 0;
+        $trace['external_model'] = null;
+        $response = null;
+        if (is_array($state['bundle'] ?? null)) {
+            try {
+                $bundle = RetrievalBundle::fromArray($state['bundle']);
+                $response = $coordinator->recoverRejectedAnswer(
+                    $raw,
+                    $bundle,
+                    (string) ($turn['message'] ?? ''),
+                    (string) ($state['selected_response_language'] ?? 'en'),
+                );
+            } catch (\Throwable) {
+                $response = null;
+            }
+        }
+        if (! $response instanceof AgentResponse) {
+            $notice = 'The paused model call could not be restored. No new model request was made.';
+            $response = new AgentResponse($notice, [['type' => 'warning', 'text' => $notice]], [], []);
+        }
+        if ($resume) {
+            $persistence->resumeRun($run);
+        }
+        $thread = $run->thread()->firstOrFail();
+
+        return $this->respondToProgress(
+            AgentTurnProgress::completed(new AgentTurnResult(
+                $response,
+                new PreparedModelInput('answer', []),
+                null,
+                false,
+                executionTrace: $trace,
+            )),
+            $run,
+            $thread,
+            $persistence,
+            $threads,
+            $modelResolver,
+            $userId,
+            $turn,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function restoredPendingModelCall(AgentRun $pending, ?AgentTurnCoordinator $coordinator): ?array
+    {
+        $summary = is_array($pending->retrieval_summary) ? $pending->retrieval_summary : [];
+        $callKey = (string) ($summary['model_call'] ?? '');
+        $state = is_array($summary['runtime_state'] ?? null) ? $summary['runtime_state'] : [];
+        if (! in_array($callKey, ['decision', 'answer'], true) || $state === []) {
+            return null;
+        }
+
+        try {
+            $turn = is_array($state['turn'] ?? null) ? $state['turn'] : [];
+            $message = trim((string) ($turn['message'] ?? ''));
+            $history = is_array($turn['history'] ?? null) ? $turn['history'] : [];
+            if ($callKey === 'decision') {
+                $routingData = is_array($state['routing_input'] ?? null) ? $state['routing_input'] : [];
+                $messages = $routingData['messages'] ?? null;
+                if (! is_array($messages) || $messages === []) {
+                    return null;
+                }
+                $input = (new PreparedModelInput((string) ($routingData['stage'] ?? 'decision'), $messages))->exportText();
+            } else {
+                if (! $coordinator instanceof AgentTurnCoordinator || ! is_array($state['bundle'] ?? null) || $message === '') {
+                    return null;
+                }
+                $scope = AgentProjectScope::fromArray(is_array($turn['scope'] ?? null) ? $turn['scope'] : []);
+                $input = $coordinator->buildAnswerInput(
+                    $scope,
+                    $message,
+                    $history,
+                    RetrievalBundle::fromArray($state['bundle']),
+                    (string) ($state['selected_response_template'] ?? ''),
+                    (string) ($state['selected_response_language'] ?? 'en'),
+                )->exportText();
+            }
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (trim($input) === '') {
+            return null;
+        }
+
+        return [
+            'run_ulid' => $pending->ulid,
+            'model_call' => [
+                'key' => $callKey,
+                'full_prompt' => $input,
+                'prompt_size' => mb_strlen($input),
+                'execution' => $this->pausedExecution($state, 'awaiting'),
+            ],
+        ];
     }
 
     /**

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { moveQuestion, toggleWelcomeModule, userQuestionsPayload, WELCOME_MODULES } from './welcomeQuestions.js';
+import { draftAfterSuggestion, moveQuestion, toggleWelcomeModule, userQuestionsPayload, WELCOME_MODULES } from './welcomeQuestions.js';
 
 test('accordion keeps a single module open', () => {
     assert.equal(toggleWelcomeModule('', 'seo_audit'), 'seo_audit');
@@ -19,6 +19,12 @@ test('questions stay inside their module and system rows are not saved', () => {
         { id: 'seo_audit', questions: [{ id: 'seo_audit.worst', text: 'System', system: true }, { id: 'u1', text: 'Mine' }] },
     ]);
     assert.deepEqual(payload.seo_audit, [{ id: 'u1', text: 'Mine' }]);
+});
+
+test('suggestion fills an empty composer and leaves an existing draft', () => {
+    assert.equal(draftAfterSuggestion('', 'Những bài nào có điểm SEO thấp?'), 'Những bài nào có điểm SEO thấp?');
+    assert.equal(draftAfterSuggestion('đang viết', 'Câu gợi ý'), 'đang viết');
+    assert.equal(draftAfterSuggestion('', 'Câu gợi ý', true), '');
 });
 
 test('reorder does not drop questions', () => {

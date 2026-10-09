@@ -57,12 +57,23 @@ test('Persisted diagnostics render even if current mode != diag, supporting Deci
     assert.equal(widget.includes('<h4>Answer</h4>'), true);
 });
 
-test('drawer width and processing status use wider flat contracts', () => {
-    assert.equal(css.includes('width: min(90vw, 1180px);'), true);
-    assert.equal(css.includes('height: min(92dvh, calc(100dvh - 24px));'), true);
+test('drawer fills the viewport beside the Filament sidebar', () => {
+    assert.equal(css.includes('height: 100dvh;'), true);
+    assert.equal(css.includes('left: var(--sidebar-width, 16rem);'), true);
+    assert.equal(css.includes('left: var(--collapsed-sidebar-width, 4rem);'), true);
+    assert.equal(css.includes('width: min(90vw, 1180px);'), false);
+    assert.equal(css.includes('translate(-50%, -50%)'), false);
     assert.equal(css.includes('background: rgba(15, 23, 42, 0.22);'), true);
-    assert.equal(css.includes('@media (max-width: 768px)'), true);
+    assert.equal(css.includes('@media (max-width: 1023px)'), true);
     assert.match(css, /article\.agent-processing-status \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
+});
+
+test('thread reload does not force Debug or offer a verified-results choice', () => {
+    assert.equal(widget.includes('Use verified results'), false);
+    assert.equal(widget.includes('setStoredDeveloperMode(hostContext.appKey, DEV_MODE_DEBUG)'), false);
+    assert.equal(widget.includes('stranded_model_run'), true);
+    assert.equal(widget.includes('recover_stranded: true'), true);
+    assert.equal(widget.includes("getStoredDeveloperMode(hostContext.appKey) === DEV_MODE_DEBUG"), true);
 });
 
 test('drawer header has no visible close button while existing controls remain', () => {

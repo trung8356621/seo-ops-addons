@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Lightbulb, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
-import { userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
+import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
 import { executedModelsText } from '../projects/testModelPresentation.js';
 import { normalizeHostContext } from '../host/hostContext.js';
@@ -253,11 +253,43 @@ export function AgentWidget({
         }).catch(() => {});
     }, [csrf, endpoints.welcomeQuestionsUrl]);
 
+    const suggestRef = useRef(null);
+
+    useEffect(() => {
+        if (!suggestionsOpen) return undefined;
+        const onPointer = (event) => {
+            if (suggestRef.current && !suggestRef.current.contains(event.target)) {
+                setSuggestionsOpen(false);
+            }
+        };
+        const onKey = (event) => {
+            if (event.key !== 'Escape') return;
+            event.stopPropagation();
+            setSuggestionsOpen(false);
+        };
+        document.addEventListener('pointerdown', onPointer);
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            document.removeEventListener('pointerdown', onPointer);
+            window.removeEventListener('keydown', onKey, true);
+        };
+    }, [suggestionsOpen]);
+
     const pickWelcomeQuestion = (text) => {
-        setDraft(text);
+        setDraft((current) => draftAfterSuggestion(current, text, isViewingArchived));
         setSuggestionsOpen(false);
-        textareaRef.current?.focus();
+        if (!isViewingArchived) textareaRef.current?.focus();
     };
+
+    const renderSuggestions = () => (
+        <WelcomeAccordion
+            modules={welcomeModules}
+            openId={welcomeOpenId}
+            onToggle={(id) => setWelcomeOpenId((current) => (current === id ? '' : id))}
+            onPick={pickWelcomeQuestion}
+            onChangeModules={persistWelcome}
+        />
+    );
     const [messages, setMessages] = useState([]);
     const [busy, setBusy] = useState(false);
     const [confirmationBusyRunUlid, setConfirmationBusyRunUlid] = useState('');
@@ -307,6 +339,14 @@ export function AgentWidget({
     const updateDevMode = (newMode) => {
         setDeveloperMode(newMode);
         setStoredDeveloperMode(hostContext.appKey, newMode);
+        if (newMode === DEV_MODE_DEBUG && String(debugCall?.full_prompt || '').trim() !== '') {
+            setProcessingStatus(waitingForManualModel(debugCall));
+            setDebugOpen(true);
+            return;
+        }
+        if (newMode !== DEV_MODE_DEBUG) {
+            setDebugOpen(false);
+        }
     };
 
     // Fetch projects catalog if in standalone mode or projectsUrl provided
@@ -509,16 +549,25 @@ export function AgentWidget({
                 setStoredThreadUlid(hostContext.appKey, scopeRef, ulid);
             }
 
-            if (threadData.pending_model_call) {
-                const pending = threadData.pending_model_call;
+            const pending = threadData.pending_model_call || null;
+            const prompt = String(pending?.model_call?.full_prompt || '').trim();
+            const strandedUlid = threadData.stranded_model_run?.run_ulid || (pending && prompt === '' ? pending.run_ulid : '');
+            if (strandedUlid) {
+                resetDebugState();
+                setDebugOpen(false);
+                await finishStrandedRun(strandedUlid);
+            } else if (pending && prompt !== '') {
                 setDebugRunUlid(pending.run_ulid || '');
                 setDebugCall(pending.model_call || null);
                 setDebugManualResult('');
                 setDebugParserError('');
-                setProcessingStatus(waitingForManualModel(pending.model_call));
-                setDebugOpen(true);
-                setStoredDeveloperMode(hostContext.appKey, DEV_MODE_DEBUG);
-                setDeveloperMode(DEV_MODE_DEBUG);
+                if (getStoredDeveloperMode(hostContext.appKey) === DEV_MODE_DEBUG) {
+                    setProcessingStatus(waitingForManualModel(pending.model_call));
+                    setDebugOpen(true);
+                } else {
+                    setProcessingStatus(null);
+                    setDebugOpen(false);
+                }
             } else {
                 resetDebugState();
                 setDebugOpen(false);
@@ -528,7 +577,7 @@ export function AgentWidget({
         } finally {
             setBusy(false);
         }
-    }, [endpoints.threadsUrl, hostContext.appKey, resetDebugState]);
+    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, currentScopeRef, fetchThreads, resetDebugState]);
 
     // New conversation action
     const onNewConversation = useCallback(() => {
@@ -596,37 +645,6 @@ export function AgentWidget({
         }
     }, [endpoints.threadsUrl, csrf, t.deleteConfirm, activeThreads, archivedThreads, viewingThreadUlid, activeThreadUlid, onNewConversation]);
 
-    async function onUseVerifiedResults() {
-        if (debugBusy || !debugRunUlid) {
-            return;
-        }
-        setDebugBusy(true);
-        setDebugParserError('');
-        try {
-            const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
-                run_ulid: debugRunUlid,
-                use_verified: true,
-            });
-            const data = payload?.data || {};
-            setMessages((current) => [...current, {
-                role: 'assistant',
-                id: data.assistant_message_id,
-                originUserMessageId: data.user_message_id,
-                content: data.message || '',
-                response: data,
-            }]);
-            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
-            resetDebugState();
-            setDebugOpen(false);
-            fetchThreads(currentScopeRef);
-        } catch (caught) {
-            setDebugParserError(caught.message || 'Could not finish from verified results.');
-            setDebugOpen(true);
-        } finally {
-            setDebugBusy(false);
-        }
-    }
-
     async function onApplyDebugResult() {
         if (debugBusy || !debugManualResult.trim() || !debugRunUlid) {
             return;
@@ -675,6 +693,28 @@ export function AgentWidget({
         } finally {
             setDebugBusy(false);
         }
+    }
+
+    async function finishStrandedRun(runUlid) {
+        if (!runUlid || !endpoints.modelDebugApplyUrl) {
+            return;
+        }
+        const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
+            run_ulid: runUlid,
+            recover_stranded: true,
+        });
+        const data = payload?.data || {};
+        setMessages((current) => [...current, {
+            role: 'assistant',
+            id: data.assistant_message_id,
+            originUserMessageId: data.user_message_id,
+            content: data.message || '',
+            response: data,
+        }]);
+        if (data.user_message_id) {
+            setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
+        }
+        fetchThreads(currentScopeRef);
     }
 
     // Scope change / initial mount effect: sync threads list and restore stored active thread
@@ -957,9 +997,25 @@ export function AgentWidget({
         <div className={shellClass}>
             {isDrawer ? (
                 <div className="agent-drawer-header">
-                    <div className="agent-drawer-header__title">
-                        <Sparkles size={18} className="agent-sparkles-icon" />
-                        <span>AI Agent</span>
+                    <div className="agent-suggest-anchor" ref={suggestRef}>
+                        <div className="agent-drawer-header__title">
+                            <Sparkles size={18} className="agent-sparkles-icon" />
+                            <span>AI Agent</span>
+                            <button
+                                type="button"
+                                className="agent-suggest__trigger"
+                                aria-expanded={suggestionsOpen}
+                                aria-controls="agent-suggest-panel"
+                                onClick={() => setSuggestionsOpen((open) => !open)}
+                            >
+                                Gợi ý ▾
+                            </button>
+                        </div>
+                        {suggestionsOpen ? (
+                            <div id="agent-suggest-panel" className="agent-suggest__panel" role="region" aria-label="Gợi ý">
+                                {renderSuggestions()}
+                            </div>
+                        ) : null}
                     </div>
                     <div className="agent-drawer-header__controls">
                         <select
@@ -1224,13 +1280,7 @@ export function AgentWidget({
                                 <p className="agent-welcome__desc">
                                     {t.welcomeDesc(selected.label)}
                                 </p>
-                                <WelcomeAccordion
-                                    modules={welcomeModules}
-                                    openId={welcomeOpenId}
-                                    onToggle={(id) => setWelcomeOpenId((current) => current === id ? '' : id)}
-                                    onPick={pickWelcomeQuestion}
-                                    onChangeModules={persistWelcome}
-                                />
+                                {renderSuggestions()}
                             </div>
                         ) : null}
 
@@ -1383,16 +1433,6 @@ export function AgentWidget({
                         </div>
                     ) : (
                         <>
-                        {conversationTurns.length > 0 && suggestionsOpen ? (
-                            <WelcomeAccordion
-                                compact
-                                modules={welcomeModules}
-                                openId={welcomeOpenId}
-                                onToggle={(id) => setWelcomeOpenId((current) => current === id ? '' : id)}
-                                onPick={pickWelcomeQuestion}
-                                onChangeModules={persistWelcome}
-                            />
-                        ) : null}
                         <form className="agent-composer" onSubmit={onComposerSubmit}>
                             <div className="agent-input-wrap">
                                 <textarea
@@ -1415,16 +1455,6 @@ export function AgentWidget({
                                     rows={2}
                                 />
                                 <div className="agent-composer-actions">
-                                    {conversationTurns.length > 0 ? (
-                                        <button
-                                            type="button"
-                                            className="agent-copy-btn"
-                                            onClick={() => setSuggestionsOpen((open) => !open)}
-                                            title={locale === 'vi' ? 'Gợi ý theo module' : 'Module suggestions'}
-                                        >
-                                            <Lightbulb size={15} />
-                                        </button>
-                                    ) : null}
                                     <button
                                         type="button"
                                         className="agent-copy-btn"
@@ -1601,7 +1631,6 @@ export function AgentWidget({
                 manualResult={debugManualResult}
                 onManualResultChange={setDebugManualResult}
                 onApply={onApplyDebugResult}
-                onUseVerified={onUseVerifiedResults}
                 isApplying={debugBusy}
                 parserError={debugParserError}
             />
