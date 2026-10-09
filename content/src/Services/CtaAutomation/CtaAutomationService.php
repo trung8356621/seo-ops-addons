@@ -38,7 +38,7 @@ final class CtaAutomationService
         try {
             $plan = $this->planner->plan($this->plannerPayload($article, $sectionRows, $detected));
         } catch (\Throwable $exception) {
-            return $this->failure($exception->getMessage(), $detected);
+            return $this->failure($exception, $detected);
         }
 
         $legacyById = [];
@@ -417,11 +417,17 @@ final class CtaAutomationService
      * @param  list<array<string, mixed>>  $detected
      * @return array<string, mixed>
      */
-    private function failure(string $message, array $detected): array
+    private function failure(\Throwable $exception, array $detected): array
     {
+        $message = $exception->getMessage();
+        $code = str_starts_with($message, 'semantic_')
+            ? strtok($message, ' ')
+            : 'semantic_plan_failed';
+
         return [
             'success' => false,
             'status' => 'semantic_failed',
+            'error_code' => is_string($code) && $code !== '' ? $code : 'semantic_plan_failed',
             'message' => $message,
             'summary' => $this->summary($detected, [], [], []),
             'changes' => [],

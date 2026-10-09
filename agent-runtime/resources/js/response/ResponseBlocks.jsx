@@ -3,17 +3,24 @@ import * as echarts from 'echarts';
 import {
     BrainCircuit,
     ChartNoAxesCombined,
+    CheckCheck,
     ExternalLink,
     FileText,
     FolderKanban,
+    FolderPlus,
     Globe,
     Link,
+    LoaderCircle,
     Network,
     ScanSearch,
     Tags,
+    TriangleAlert,
+    X,
 } from 'lucide-react';
 import { modelMarkdownToHtml, resolveWarningClass } from './markdownPresentation.js';
 import { toolTraceItems } from './toolTrace.js';
+import { eligibleRows, intakeItems, isCompleteSuccess, selectAllIds, selectedCount, statusLabel, toggleId } from './actionableSelection.js';
+import { articleRef, columnKind, displayColumns, formatSeoScore, issueCountLabel, rowReasons, statusTone } from './actionableTable.js';
 
 const TRACE_ICONS = {
     ScanSearch,
@@ -54,8 +61,6 @@ export function ToolTrace({ response, debug = false }) {
         </div>
     );
 }
-import { eligibleRows, intakeItems, isCompleteSuccess, selectAllIds, selectedCount, statusLabel, toggleId } from './actionableSelection.js';
-
 function MarkdownBlock({ text }) {
     return <div className="agent-md" dangerouslySetInnerHTML={{ __html: modelMarkdownToHtml(text || '') }} />;
 }
@@ -120,24 +125,80 @@ function ReadOnlyTable({ block, renderCell }) {
     return (
         <div className="agent-table-wrap">
             {block.title ? <h3>{block.title}</h3> : null}
-            <table>
-                <thead>
-                    <tr>
-                        {(block.columns || []).map((column) => (
-                            <th key={column.key}>{column.label}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {(block.rows || []).map((row, index) => (
-                        <tr key={index}>
+            <div className="agent-table-scroll">
+                <table>
+                    <thead>
+                        <tr>
                             {(block.columns || []).map((column) => (
-                                <td key={column.key}>{renderCell(row[column.key])}</td>
+                                <th key={column.key} className={`is-${columnKind(column.key)}`}>{column.label}</th>
                             ))}
                         </tr>
+                    </thead>
+                    <tbody>
+                        {(block.rows || []).map((row, index) => (
+                            <tr key={index}>
+                                {(block.columns || []).map((column) => (
+                                    <td key={column.key} className={`is-${columnKind(column.key)}`}>{renderCell(row[column.key])}</td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+function SeoScoreValue({ value }) {
+    const score = formatSeoScore(value);
+    return <span className={`agent-score ${score.tone}`}>{score.text}</span>;
+}
+
+function IssueDisclosure({ rowId, reasons, open, onToggle }) {
+    const label = issueCountLabel(reasons.length);
+    if (!label) {
+        return null;
+    }
+    return (
+        <span className="agent-actionable__issues">
+            <button
+                type="button"
+                className="agent-actionable__issues-btn"
+                aria-expanded={open}
+                onClick={() => onToggle(rowId)}
+            >
+                <TriangleAlert size={14} aria-hidden="true" />
+                {label}
+            </button>
+        </span>
+    );
+}
+
+function ArticleCell({ row, outcome, issueOpen, onToggleIssue }) {
+    const title = String(row.title ?? '');
+    const ref = articleRef(row);
+    const reasons = rowReasons(row);
+    const rowId = row.item?.id || ref || String(row.n ?? title);
+    return (
+        <div className="agent-article-cell" data-issue-root="">
+            {title ? <div className="agent-article-cell__title" title={title}>{title}</div> : null}
+            {ref || reasons.length ? (
+                <div className="agent-article-cell__meta">
+                    {ref ? <span className="agent-article-cell__ref">{ref}</span> : null}
+                    {ref && reasons.length ? <span aria-hidden="true">·</span> : null}
+                    <IssueDisclosure rowId={rowId} reasons={reasons} open={issueOpen} onToggle={onToggleIssue} />
+                </div>
+            ) : null}
+            {issueOpen && reasons.length ? (
+                <ul className="agent-actionable__reasons">
+                    {reasons.map((reason, index) => (
+                        <li key={`${rowId}-${index}`}>{reason}</li>
                     ))}
-                </tbody>
-            </table>
+                </ul>
+            ) : null}
+            {outcome ? (
+                <div className={`agent-actionable__status ${statusTone(outcome.status)}`}>{statusLabel(outcome.status, outcome.message)}</div>
+            ) : null}
         </div>
     );
 }
@@ -148,9 +209,13 @@ function ActionableTable({ block, draftIntakeUrl, csrf, siteId, selectionKey, re
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
+    const [openIssueId, setOpenIssueId] = useState('');
     const rows = block.rows || [];
+    const columns = useMemo(() => displayColumns(block.columns), [block.columns]);
     const eligible = useMemo(() => eligibleRows(block), [block]);
+    const eligibleIds = useMemo(() => new Set(eligible.map((row) => row.item.id)), [eligible]);
     const count = selectedCount(selected, rows);
+    const draftDisabled = count === 0 || busy || eligible.length === 0;
 
     useEffect(() => {
         if (!storageKey) return;
@@ -167,6 +232,27 @@ function ActionableTable({ block, draftIntakeUrl, csrf, siteId, selectionKey, re
         if (!storageKey) return;
         sessionStorage.setItem(storageKey, JSON.stringify({ ids: [...selected], result }));
     }, [storageKey, selected, result]);
+
+    useEffect(() => {
+        if (!openIssueId) return undefined;
+        const close = (event) => {
+            if (event.target?.closest?.('[data-issue-root]')) return;
+            setOpenIssueId('');
+        };
+        const onKey = (event) => {
+            if (event.key === 'Escape') setOpenIssueId('');
+        };
+        document.addEventListener('pointerdown', close);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('pointerdown', close);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [openIssueId]);
+
+    function toggleIssue(rowId) {
+        setOpenIssueId((current) => (current === rowId ? '' : rowId));
+    }
 
     async function submit() {
         const items = intakeItems(rows, selected);
@@ -198,67 +284,96 @@ function ActionableTable({ block, draftIntakeUrl, csrf, siteId, selectionKey, re
         }
     }
 
+    const showSummary = Boolean(result || error);
+
     return (
         <div className="agent-table-wrap agent-actionable">
-            <div className="agent-actionable__bar">
-                <button type="button" onClick={() => setSelected(selectAllIds(rows))}>Chọn tất cả</button>
-                <button type="button" onClick={() => setSelected(new Set())}>Bỏ chọn</button>
-                <span>Đã chọn {count}</span>
+            <div className="agent-actionable__heading">
+                {block.title ? <h3>{block.title}</h3> : null}
+                <span>{rows.length} kết quả</span>
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th />
-                        {(block.columns || []).map((column) => (
-                            <th key={column.key}>{column.label}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row) => {
-                        const id = row.item?.id;
-                        const submittedIndex = id ? (result?.submitted_ids || []).indexOf(id) : -1;
-                        const outcome = submittedIndex >= 0 ? result.items?.[submittedIndex] : null;
-                        return (
-                            <tr key={id || row.n}>
-                                <td>
-                                    {id ? (
-                                        <input
-                                            type="checkbox"
-                                            checked={selected.has(id)}
-                                            disabled={busy}
-                                            onChange={() => setSelected((current) => toggleId(current, id))}
-                                        />
-                                    ) : null}
-                                </td>
-                                {(block.columns || []).map((column) => (
-                                    <td key={column.key}>
-                                        {renderCell(row[column.key])}
-                                        {column.key === 'title' && row.item?.reasons?.length ? (
-                                            <div className="agent-actionable__reasons">{row.item.reasons.join(' · ')}</div>
-                                        ) : null}
-                                        {column.key === 'title' && outcome ? (
-                                            <div className="agent-actionable__status">{statusLabel(outcome.status, outcome.message)}</div>
-                                        ) : null}
-                                    </td>
-                                ))}
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-            <div className="agent-actionable__footer">
-                <button type="button" disabled={count === 0 || busy || eligible.length === 0} onClick={submit}>
+            <div className="agent-actionable__toolbar">
+                <div className="agent-actionable__toolbar-start">
+                    <button type="button" className="agent-actionable__btn" disabled={busy || eligible.length === 0} onClick={() => setSelected(selectAllIds(rows))}>
+                        <CheckCheck size={14} aria-hidden="true" />
+                        Chọn tất cả
+                    </button>
+                    <button type="button" className="agent-actionable__btn" disabled={busy || count === 0} onClick={() => setSelected(new Set())}>
+                        <X size={14} aria-hidden="true" />
+                        Bỏ chọn
+                    </button>
+                    <span className="agent-actionable__count">Đã chọn {count}</span>
+                </div>
+                <button type="button" className="agent-actionable__btn is-primary" disabled={draftDisabled} onClick={submit}>
+                    {busy ? <LoaderCircle size={14} className="agent-spin" aria-hidden="true" /> : <FolderPlus size={14} aria-hidden="true" />}
                     {busy ? 'Đang đưa vào Draft…' : `Đưa ${count} mục vào Draft`}
                 </button>
-                {result?.draft_url ? <a href={result.draft_url}>Mở Draft</a> : null}
-                {result ? (
-                    <span>
-                        {isCompleteSuccess(result) ? 'Đã xử lý toàn bộ mục đã chọn.' : `Thêm ${result.added || 0}, đã có ${result.already_in_draft || 0}, lỗi ${result.failed || 0}.`}
-                    </span>
-                ) : null}
-                {error ? <span className="agent-actionable__error">{error}</span> : null}
             </div>
+            <div className="agent-table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th className="is-check" />
+                            {columns.map((column) => (
+                                <th key={column.key} className={`is-${columnKind(column.key)}`}>{column.label}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row) => {
+                            const id = row.item?.id;
+                            const canSelect = Boolean(id) && eligibleIds.has(id);
+                            const submittedIndex = id ? (result?.submitted_ids || []).indexOf(id) : -1;
+                            const outcome = submittedIndex >= 0 ? result.items?.[submittedIndex] : null;
+                            const issueId = id || articleRef(row) || String(row.n ?? '');
+                            const hasTitle = columns.some((column) => column.key === 'title');
+                            return (
+                                <tr key={id || row.n}>
+                                    <td className="is-check">
+                                        {canSelect ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={selected.has(id)}
+                                                disabled={busy}
+                                                aria-label={row.title ? `Chọn ${row.title}` : `Chọn ${id}`}
+                                                onChange={() => setSelected((current) => toggleId(current, id))}
+                                            />
+                                        ) : null}
+                                    </td>
+                                    {columns.map((column, columnIndex) => (
+                                        <td key={column.key} className={`is-${columnKind(column.key)}`}>
+                                            {column.key === 'title' ? (
+                                                <ArticleCell
+                                                    row={row}
+                                                    outcome={outcome}
+                                                    issueOpen={openIssueId === issueId}
+                                                    onToggleIssue={toggleIssue}
+                                                />
+                                            ) : column.key === 'seo_score' ? (
+                                                <SeoScoreValue value={row.seo_score} />
+                                            ) : renderCell(row[column.key])}
+                                            {!hasTitle && columnIndex === 0 && outcome ? (
+                                                <div className={`agent-actionable__status ${statusTone(outcome.status)}`}>{statusLabel(outcome.status, outcome.message)}</div>
+                                            ) : null}
+                                        </td>
+                                    ))}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            {showSummary ? (
+                <div className="agent-actionable__footer">
+                    {result?.draft_url ? <a className="agent-actionable__draft-link" href={result.draft_url}>Mở Draft</a> : null}
+                    {result ? (
+                        <span>
+                            {isCompleteSuccess(result) ? 'Đã xử lý toàn bộ mục đã chọn.' : `Thêm ${result.added || 0}, đã có ${result.already_in_draft || 0}, lỗi ${result.failed || 0}.`}
+                        </span>
+                    ) : null}
+                    {error ? <span className="agent-actionable__error">{error}</span> : null}
+                </div>
+            ) : null}
         </div>
     );
 }
