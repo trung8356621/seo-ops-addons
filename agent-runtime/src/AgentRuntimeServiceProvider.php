@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime;
 
 use App\Core\Capability\CapabilityRegistry;
+use App\Core\Settings\SettingsSectionRegistry;
 use Illuminate\Support\ServiceProvider;
 use Omnichannel\Addons\AgentRuntime\Answer\AiSettingsAnswerModelGateway;
 use Omnichannel\Addons\AgentRuntime\Answer\AnswerModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\AiSettingsDecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Decision\DecisionModelGateway;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
+use Omnichannel\Addons\AgentRuntime\Settings\SemanticRoutingSettingsSectionContributor;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticToolIntentMatcher;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticWeightedClient;
 use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatcher;
@@ -90,6 +92,7 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
             );
         });
         $this->registerCapabilities();
+        $this->app->singleton(SemanticRoutingSettingsSectionContributor::class);
     }
 
     public function boot(): void
@@ -101,6 +104,21 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         }
         $this->registerGlobalHeaderLauncherHook();
         $this->registerGlobalDrawerHook();
+        $this->registerSettingsSection();
+    }
+
+    private function registerSettingsSection(): void
+    {
+        if (! $this->app->bound(SettingsSectionRegistry::class)) {
+            return;
+        }
+
+        $settings = $this->app->make(SettingsSectionRegistry::class);
+        if ($settings->hasContributor('agent-runtime')) {
+            return;
+        }
+
+        $settings->register($this->app->make(SemanticRoutingSettingsSectionContributor::class));
     }
 
     private function registerGlobalHeaderLauncherHook(): void

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Services\CtaAutomation;
 
 use Illuminate\Support\Facades\Log;
 use Omnichannel\Addons\AiPrompt\DataTransfer\PromptExecutionResult;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Services\InteractivePromptExecutor;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
@@ -17,6 +18,8 @@ use RuntimeException;
 class CtaTextGenerator
 {
     public const HOOK_KEY = 'article.cta.generate';
+
+    public const ROUTING_POLICY = AiRoutingPolicy::FreeOnly;
 
     public function __construct(
         private readonly InteractivePromptExecutor $executor,
@@ -48,14 +51,37 @@ class CtaTextGenerator
             $body = $attempt === 0
                 ? $prompt
                 : $prompt."\n\nPrevious output failed validation codes: ".implode(',', array_column($errors, 'code')).'. Return JSON only.';
-            $result = $this->executor->executeCompiled(
-                $body,
-                self::HOOK_KEY,
-                null,
-                AiRoutingPolicy::QuickFree,
-                null,
-                $historyId !== null ? ['prompt_result_id' => $historyId] : [],
-            );
+            try {
+                $result = $this->executor->executeCompiled(
+                    $body,
+                    self::HOOK_KEY,
+                    null,
+                    self::ROUTING_POLICY,
+                    null,
+                    $historyId !== null ? ['prompt_result_id' => $historyId] : [],
+                );
+            } catch (AiRoutesExhaustedException $exception) {
+                Log::warning('cta.free_models_unavailable', ['error_type' => $exception::class]);
+                $this->closeHistory($historyId, null, 'failed');
+
+                return [
+                    'ok' => false,
+                    'ctas' => [],
+                    'errors' => [['placement_id' => '', 'code' => 'no_free_model']],
+                    'execution' => $execution,
+                ];
+            }
+            if ($result->routingPolicyEffective !== AiRoutingPolicy::FreeOnly
+                || ($result->candidate !== null && ! $result->candidate->isFree)) {
+                $this->closeHistory($historyId, $result, 'failed');
+
+                return [
+                    'ok' => false,
+                    'ctas' => [],
+                    'errors' => [['placement_id' => '', 'code' => 'paid_route_blocked']],
+                    'execution' => $this->executionFrom($result, $historyId),
+                ];
+            }
             $execution = $this->executionFrom($result, $historyId);
             $parsed = $this->decode((string) $result->text);
             if ($parsed === null) {
@@ -190,13 +216,31 @@ class CtaTextGenerator
         }
         try {
             $usage = $result !== null && is_array($result->usage) ? $result->usage : null;
-            PromptResult::query()->whereKey($id)->update([
-                'status' => $status === 'completed' ? 'completed' : 'failed',
-                'output_text' => $status === 'completed' && $result !== null ? $result->text : null,
-                'token_usage' => $usage,
-                'finished_at' => now(),
-            ]);
-        } catch (\Throwable) {
+            $row = PromptResult::query()->find($id);
+            if ($row === null) {
+                return;
+            }
+            $snapshot = is_array($row->input_snapshot) ? $row->input_snapshot : [];
+            if ($result !== null) {
+                $candidate = $result->candidate;
+                $snapshot['routing_policy'] = $result->routingPolicyEffective->value;
+                $snapshot['provider'] = $candidate?->provider;
+                $snapshot['connection_id'] = $candidate !== null ? (int) $candidate->connection->id : null;
+                $snapshot['candidate_model'] = $candidate?->model;
+                $snapshot['is_free_candidate'] = $candidate?->isFree;
+                $actual = is_array($usage) ? ($usage['resolved_model'] ?? $usage['actual_provider_model'] ?? null) : null;
+                if (is_string($actual) && trim($actual) !== '') {
+                    $snapshot['actual_provider_model'] = trim($actual);
+                }
+            }
+            $row->status = $status === 'completed' ? 'completed' : 'failed';
+            $row->output_text = $status === 'completed' && $result !== null ? $result->text : null;
+            $row->token_usage = $usage;
+            $row->input_snapshot = $snapshot;
+            $row->finished_at = now();
+            $row->save();
+        } catch (\Throwable $exception) {
+            Log::warning('cta.history_persist_failed', ['error_type' => $exception::class]);
         }
     }
 
@@ -220,6 +264,8 @@ class CtaTextGenerator
             'prompt_result_id' => $historyId,
             'input_tokens' => is_numeric($input) ? (int) $input : null,
             'output_tokens' => is_numeric($output) ? (int) $output : null,
+            'routing_policy' => $result->routingPolicyEffective->value,
+            'is_free' => $candidate?->isFree,
         ];
     }
 

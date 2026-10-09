@@ -123,8 +123,11 @@ final class CtaAutomationService
                 ],
             );
             if (! $generated['ok']) {
+                $codes = array_column(is_array($generated['errors'] ?? null) ? $generated['errors'] : [], 'code');
                 $run->status = 'failed';
-                $run->error_code = 'validation_failed';
+                $run->error_code = in_array('no_free_model', $codes, true)
+                    ? 'no_free_model'
+                    : (in_array('paid_route_blocked', $codes, true) ? 'paid_route_blocked' : 'validation_failed');
                 $run->generation_completed_at = now();
                 $run->save();
 
@@ -132,7 +135,11 @@ final class CtaAutomationService
                     'success' => false,
                     'status' => 'validation_failed',
                     'run_id' => (string) $run->id,
-                    'message' => 'CTA generation failed validation.',
+                    'message' => match ($run->error_code) {
+                        'no_free_model' => 'Không có model Free khả dụng. Kết quả CTA đã lưu vẫn được giữ.',
+                        'paid_route_blocked' => 'CTA từ chối model trả phí. Kết quả CTA đã lưu vẫn được giữ.',
+                        default => 'CTA generation failed validation.',
+                    },
                     'errors' => $generated['errors'],
                     'summary' => $this->summary($detected, [], [], $review),
                     'review' => $review,

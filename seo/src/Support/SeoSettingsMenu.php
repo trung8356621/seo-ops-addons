@@ -53,6 +53,12 @@ final class SeoSettingsMenu
                 'url' => url('/admin/settings/ai-center'),
             ],
             [
+                'id' => 'semantic-routing',
+                'label' => 'Semantic Routing',
+                'icon' => 'heroicon-o-queue-list',
+                'url' => url('/admin/settings/semantic-routing'),
+            ],
+            [
                 'id' => 'api',
                 'label' => 'API Connections',
                 'icon' => 'heroicon-o-link',

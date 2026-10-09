@@ -57,6 +57,14 @@ final class CtaExecutionHistoryWriter
         foreach ($runs as $run) {
             $this->repairRun($article, $run);
         }
+        $linked = SeoArticleCtaRun::query()
+            ->where('article_id', (int) $article->getKey())
+            ->whereNotNull('prompt_result_id')
+            ->whereNotNull('model')
+            ->get();
+        foreach ($linked as $run) {
+            $this->alignSnapshot($run);
+        }
     }
 
     public function repairRun(SeoArticle $article, SeoArticleCtaRun $run): ?int
@@ -89,6 +97,7 @@ final class CtaExecutionHistoryWriter
                     'provider' => $run->provider,
                     'connection_id' => $run->connection_id,
                     'model' => $run->model,
+                    'candidate_model' => $run->model,
                 ],
                 'output_text' => json_encode($run->changes, JSON_UNESCAPED_UNICODE) ?: null,
                 'token_usage' => ($run->input_tokens !== null || $run->output_tokens !== null) ? [
@@ -109,6 +118,38 @@ final class CtaExecutionHistoryWriter
             ]);
 
             return null;
+        }
+    }
+
+    /**
+     * Copy a stored model into the history candidate field. Does not change Free/Paid classification.
+     */
+    private function alignSnapshot(SeoArticleCtaRun $run): void
+    {
+        $model = trim((string) ($run->model ?? ''));
+        if ($model === '' || (int) ($run->prompt_result_id ?? 0) <= 0) {
+            return;
+        }
+        try {
+            $result = PromptResult::query()->find((int) $run->prompt_result_id);
+            if ($result === null) {
+                return;
+            }
+            $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+            if (($snapshot['hook_key'] ?? '') !== CtaTextGenerator::HOOK_KEY) {
+                return;
+            }
+            if (trim((string) ($snapshot['candidate_model'] ?? '')) !== '') {
+                return;
+            }
+            $snapshot['candidate_model'] = $model;
+            $result->input_snapshot = $snapshot;
+            $result->save();
+        } catch (\Throwable $exception) {
+            Log::warning('cta.history_persist_failed', [
+                'error_type' => $exception::class,
+                'run_id' => (string) $run->id,
+            ]);
         }
     }
 

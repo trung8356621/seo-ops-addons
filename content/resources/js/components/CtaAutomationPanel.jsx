@@ -82,7 +82,7 @@ async function sourceFingerprint(html) {
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function HeadingButton({ sectionId, heading }) {
+function HeadingButton({ sectionId, heading, onMiss }) {
     return (
         <button
             type="button"
@@ -92,6 +92,10 @@ function HeadingButton({ sectionId, heading }) {
                     sectionId,
                     heading,
                     html: currentEditorHtml(),
+                }).then((ok) => {
+                    if (!ok) {
+                        onMiss?.();
+                    }
                 });
             }}
         >
@@ -362,7 +366,7 @@ export function CtaAutomationPanel({ articleId }) {
                                         }}
                                         />
                                         <div className="seo-cta-automation__change-copy">
-                                            <HeadingButton sectionId={change.section_id} heading={change.heading} />
+                                            <HeadingButton sectionId={change.section_id} heading={change.heading} onMiss={() => setError(t('cta_heading_unresolved'))} />
                                             <p className="seo-cta-automation__meta">
                                                 {kindLabel(change.kind)}
                                                 {intent ? ` · ${intent}` : ''}
@@ -408,7 +412,7 @@ export function CtaAutomationPanel({ articleId }) {
                         })}
                         {(preview.review || []).map((item) => (
                             <li key={item.id} className="seo-cta-automation__change seo-cta-automation__change--review">
-                                <HeadingButton sectionId={item.section_id} heading={item.heading} />
+                                <HeadingButton sectionId={item.section_id} heading={item.heading} onMiss={() => setError(t('cta_heading_unresolved'))} />
                                 <p className="seo-cta-automation__meta">{kindLabel('review')}</p>
                                 <p className="seo-cta-automation__warning">{reviewMessage(item.reason)}</p>
                             </li>
