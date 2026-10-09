@@ -146,6 +146,7 @@ final class CtaAutomationService
                 'position' => 'section_end',
                 'placement_id' => $placementId,
                 'origin' => $origin,
+                'style' => $this->renderer->readStylePresets($html)[$placementId] ?? $this->defaultStyle((string) $placement['intent']),
             ];
         }
 
@@ -176,7 +177,10 @@ final class CtaAutomationService
      * @param  list<string>  $approvedIds
      * @return array<string, mixed>
      */
-    public function apply(SeoArticle $article, string $html, string $token, array $approvedIds): array
+    /**
+     * @param  array<string, string>  $styleOverrides
+     */
+    public function apply(SeoArticle $article, string $html, string $token, array $approvedIds, array $styleOverrides = []): array
     {
         $cached = Cache::get($this->cacheKey($token));
         if (! is_array($cached) || (int) ($cached['article_id'] ?? 0) !== (int) $article->getKey()) {
@@ -189,6 +193,7 @@ final class CtaAutomationService
         $approved = array_fill_keys($approvedIds, true);
         $operations = [];
         $site = $this->site($article);
+        $preservedStyles = $this->renderer->readStylePresets($html);
         $changes = is_array($cached['changes'] ?? null) ? $cached['changes'] : [];
         $insertIds = [];
         foreach ($changes as $change) {
@@ -232,18 +237,23 @@ final class CtaAutomationService
                     'errors' => [['placement_id' => $change['placement_id'] ?? '', 'code' => 'unresolved_shortcode']],
                 ];
             }
+            $placementId = (string) ($change['placement_id'] ?? '');
+            $requestedStyle = (string) ($styleOverrides[(string) $change['id']] ?? '');
+            $style = in_array($requestedStyle, ['soft', 'consultation', 'conversion'], true)
+                ? $requestedStyle
+                : ($preservedStyles[$placementId] ?? (string) ($change['style'] ?? $this->defaultStyle((string) ($change['intent'] ?? ''))));
             $operations[] = [
                 'id' => $change['id'],
                 'kind' => 'insert',
                 'section_id' => (string) $change['section_id'],
                 'html' => $this->renderer->blockHtml(
-                    (string) ($change['placement_id'] ?? ''),
+                    $placementId,
                     (string) $change['section_id'],
                     (string) ($change['intent'] ?? ''),
                     $alias !== '' ? $alias : null,
                     (string) ($change['origin'] ?? 'improved'),
                     (string) ($change['replacement'] ?? ''),
-                    $link,
+                    $style,
                 ),
             ];
         }
@@ -460,6 +470,15 @@ final class CtaAutomationService
         $text = preg_replace('/\+?\d[\d\s.\-]{7,}\d/u', '[phone]', $text) ?? $text;
 
         return $text;
+    }
+
+    private function defaultStyle(string $intent): string
+    {
+        return match ($intent) {
+            'consultation' => 'consultation',
+            'conversion' => 'conversion',
+            default => 'soft',
+        };
     }
 
     private function cacheKey(string $token): string

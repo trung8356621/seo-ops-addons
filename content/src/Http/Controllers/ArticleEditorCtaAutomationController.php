@@ -53,7 +53,11 @@ final class ArticleEditorCtaAutomationController extends Controller
             $approved = [];
         }
         $approved = array_values(array_map(static fn (mixed $id): string => (string) $id, $approved));
-        $result = $this->automation->apply($article, $html, $token, $approved);
+        $styles = $request->input('style_overrides', []);
+        if (! is_array($styles)) {
+            $styles = [];
+        }
+        $result = $this->automation->apply($article, $html, $token, $approved, $styles);
         if (($result['success'] ?? false) !== true) {
             $code = ($result['status'] ?? '') === 'stale_preview' ? 409 : 422;
 

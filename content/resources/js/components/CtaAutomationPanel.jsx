@@ -24,6 +24,7 @@ export function CtaAutomationPanel({ articleId }) {
     const [error, setError] = useState('');
     const [preview, setPreview] = useState(null);
     const [selected, setSelected] = useState({});
+    const [styles, setStyles] = useState({});
 
     async function run(mode) {
         const id = Number(articleId || 0);
@@ -52,10 +53,15 @@ export function CtaAutomationPanel({ articleId }) {
                 return;
             }
             const next = {};
+            const nextStyles = {};
             (data.changes || []).forEach((change) => {
                 next[change.id] = true;
+                if (change.style) {
+                    nextStyles[change.id] = change.style;
+                }
             });
             setSelected(next);
+            setStyles(nextStyles);
             setPreview({ ...data, editor_html: editorHtml });
         } catch (exception) {
             setError(exception instanceof Error ? exception.message : t('cta_auto_failed'));
@@ -88,6 +94,7 @@ export function CtaAutomationPanel({ articleId }) {
                         editor_html: htmlNow,
                         preview_token: preview.preview_token,
                         approved_ids: approved,
+                        style_overrides: styles,
                         document_version: currentDocumentVersion(),
                     }),
                 },
@@ -160,6 +167,18 @@ export function CtaAutomationPanel({ articleId }) {
                                 </label>
                                 {change.original ? <p className="wp-article-links-hint">{change.original}</p> : null}
                                 {change.replacement ? <p className="wp-article-links-hint">{change.replacement}</p> : null}
+                                {change.kind === 'insert' ? (
+                                    <select
+                                        value={styles[change.id] || change.style || 'soft'}
+                                        onChange={(event) => {
+                                            setStyles((current) => ({ ...current, [change.id]: event.target.value }));
+                                        }}
+                                    >
+                                        <option value="soft">soft</option>
+                                        <option value="consultation">consultation</option>
+                                        <option value="conversion">conversion</option>
+                                    </select>
+                                ) : null}
                             </li>
                         ))}
                     </ul>

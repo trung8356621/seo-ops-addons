@@ -54,50 +54,57 @@ final class CtaBlockRenderer
         ];
     }
 
-    public function blockHtml(string $placementId, string $sectionId, string $intent, ?string $alias, string $origin, string $text, ?string $linkHtml): string
+    /**
+     * @return array<string, string>
+     */
+    public function readStylePresets(string $html): array
     {
-        $safeText = $this->interpolate($text, $alias, $linkHtml);
+        $found = [];
+        if (preg_match_all('/data-cta-placement="([^"]+)"[^>]*data-cta-style="(soft|consultation|conversion)"|data-cta-style="(soft|consultation|conversion)"[^>]*data-cta-placement="([^"]+)"/', $html, $matches, PREG_SET_ORDER) !== false) {
+            foreach ($matches as $match) {
+                $placement = $match[1] !== '' ? $match[1] : ($match[4] ?? '');
+                $style = $match[2] !== '' ? $match[2] : ($match[3] ?? '');
+                if ($placement !== '' && $style !== '') {
+                    $found[$placement] = $style;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    public function blockHtml(string $placementId, string $sectionId, string $intent, ?string $alias, string $origin, string $text, string $style = 'soft'): string
+    {
+        $style = $this->style($style);
+        $safeText = htmlspecialchars($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $attrs = sprintf(
-            'class="seo-managed-cta" data-cta-placement="%s" data-cta-section="%s" data-cta-intent="%s" data-cta-alias="%s" data-cta-origin="%s" data-cta-manual="0"',
+            'class="seo-managed-cta" data-cta-placement="%s" data-cta-section="%s" data-cta-intent="%s" data-cta-alias="%s" data-cta-origin="%s" data-cta-style="%s" data-cta-manual="0"',
             $this->esc($placementId),
             $this->esc($sectionId),
             $this->esc($intent),
             $this->esc((string) $alias),
             $this->esc($origin),
+            $this->esc($style),
         );
 
-        return '<blockquote '.$attrs.'><p>'.$safeText.'</p></blockquote>';
+        return '<div '.$attrs.'>[seo_ops_cta style="'.$this->esc($style).'" placement="'.$this->esc($placementId).'" intent="'.$this->esc($intent).'"]'.$safeText.'[/seo_ops_cta]</div>';
     }
 
-    private function interpolate(string $text, ?string $alias, ?string $linkHtml): string
+    private function style(string $style): string
     {
-        if ($alias === null || $alias === '' || $linkHtml === null) {
-            return htmlspecialchars($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        $token = '['.$alias.']';
-        $parts = explode($token, $text, 2);
-        if (count($parts) === 1) {
-            return htmlspecialchars($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-
-        return htmlspecialchars($parts[0], ENT_QUOTES | ENT_HTML5, 'UTF-8')
-            .$linkHtml
-            .htmlspecialchars($parts[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        return in_array($style, ['soft', 'consultation', 'conversion'], true) ? $style : 'soft';
     }
 
     private function removeManaged(DOMElement $root, string $placementId): bool
     {
         $removed = false;
         $nodes = [];
-        foreach ($root->getElementsByTagName('blockquote') as $node) {
-            if ($node instanceof DOMElement) {
+        foreach ($root->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement && str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
                 $nodes[] = $node;
             }
         }
         foreach ($nodes as $node) {
-            if (! str_contains((string) $node->getAttribute('class'), 'seo-managed-cta')) {
-                continue;
-            }
             if ($node->getAttribute('data-cta-manual') === '1') {
                 continue;
             }

@@ -32,7 +32,7 @@ final class CtaAutomationPipelineTest extends TestCase
             'zalo',
             'improved',
             'Để chọn size phù hợp, có thể nhắn qua [zalo].',
-            '<a href="https://zalo.me/1">Zalo</a>',
+            'consultation',
         );
         $once = $renderer->apply($html, [
             ['id' => 'remove_legacy_1', 'kind' => 'remove', 'text' => $detected[0]['text']],
@@ -41,6 +41,8 @@ final class CtaAutomationPipelineTest extends TestCase
         self::assertStringContainsString('Nylon resists water', $once['html']);
         self::assertStringContainsString('torso length', $once['html']);
         self::assertStringNotContainsString('facebook.com', $once['html']);
+        self::assertStringContainsString('[seo_ops_cta style="consultation"', $once['html']);
+        self::assertStringContainsString('[zalo]', $once['html']);
         self::assertSame(1, substr_count($once['html'], 'seo-managed-cta'));
 
         $twice = $renderer->apply($once['html'], [
@@ -98,5 +100,16 @@ final class CtaAutomationPipelineTest extends TestCase
         ]);
         self::assertStringContainsString('data-cta-manual', $rendered['html']);
         self::assertStringContainsString('Keep this paragraph', $rendered['html']);
+    }
+
+    public function test_regeneration_keeps_selected_style_preset(): void
+    {
+        $renderer = new CtaBlockRenderer();
+        $html = $renderer->blockHtml('cta_001', 'section_1', 'consultation', 'zalo', 'improved', 'Nhắn [zalo].', 'conversion');
+        $styles = $renderer->readStylePresets($html);
+        self::assertSame('conversion', $styles['cta_001'] ?? null);
+        $replaced = $renderer->blockHtml('cta_001', 'section_1', 'consultation', 'website', 'generated', 'Xem [website].', $styles['cta_001']);
+        self::assertStringContainsString('data-cta-style="conversion"', $replaced);
+        self::assertStringContainsString('style="conversion"', $replaced);
     }
 }
