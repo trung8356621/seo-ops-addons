@@ -12369,29 +12369,89 @@ body.article-editor-page:has([data-seo-editor-exclusive-lock="1"]) .wp-article-e
 
 .seo-cta-automation__change {
     min-width: 0;
-    padding-top: 0.4rem;
-    border-top: 1px solid #e5e7eb;
+    max-width: 100%;
+    padding: 0.55rem 0.6rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
 }
 
-.seo-cta-automation__check {
+.seo-cta-automation__change--remove {
+    border-left: 3px solid #b45309;
+}
+
+.seo-cta-automation__change--insert {
+    border-left: 3px solid #1d4ed8;
+}
+
+.seo-cta-automation__change--review {
+    border-left: 3px solid #a16207;
+}
+
+.seo-cta-automation__change-head {
     display: flex;
     align-items: flex-start;
-    gap: 0.4rem;
+    gap: 0.45rem;
     min-width: 0;
-    font-size: 0.75rem;
-    line-height: 1.4;
 }
 
-.seo-cta-automation__check span {
+.seo-cta-automation__change-head input {
+    margin-top: 0.28rem;
+    flex: 0 0 auto;
+}
+
+.seo-cta-automation__change-copy {
     min-width: 0;
+    flex: 1 1 auto;
+}
+
+.seo-cta-automation__heading {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #111827;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.35;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.seo-cta-automation__heading:hover {
+    text-decoration: underline;
+}
+
+.seo-cta-automation__meta,
+.seo-cta-automation__label,
+.seo-cta-automation__style-help {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #4b5563;
     overflow-wrap: anywhere;
 }
 
-.seo-cta-automation__style {
+.seo-cta-automation__label {
     display: block;
+    font-weight: 600;
+}
+
+.seo-cta-automation__style {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
     width: 100%;
     max-width: 100%;
-    margin-top: 0.35rem;
+    margin-top: 0.45rem;
+}
+
+.seo-cta-automation__style .seo-select-wrap {
+    width: 100%;
+    max-width: 100%;
 }
 
 .dark .seo-cta-automation__btn {
@@ -12415,5 +12475,20 @@ body.article-editor-page:has([data-seo-editor-exclusive-lock="1"]) .wp-article-e
 }
 
 .dark .seo-cta-automation__change {
-    border-top-color: #374151;
+    border-color: #374151;
+    background: #111827;
+}
+
+.dark .seo-cta-automation__heading {
+    color: #f9fafb;
+}
+
+.dark .seo-cta-automation__meta,
+.dark .seo-cta-automation__label,
+.dark .seo-cta-automation__style-help {
+    color: #d1d5db;
+}
+
+.seo-editor-block-slot.is-cta-jump-highlight {
+    box-shadow: 0 0 0 2px rgb(99 102 241 / 0.45);
 }
