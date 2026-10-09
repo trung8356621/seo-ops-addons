@@ -1,5 +1,15 @@
 <x-filament-panels::page>
-    <div class="space-y-4">
+    <div class="seo-settings-root">
+        @include('seo-content-ai::filament.pages.partials.seo-settings-sidebar', ['active' => 'ai-center'])
+        <div class="seo-settings-main space-y-4">
+            <header class="seo-settings-header">
+                <h1>Semantic Routing</h1>
+                <p>Nhóm ngữ nghĩa, ví dụ và trọng số cho Agent. Cấu hình này không chạy thử câu hỏi.</p>
+            </header>
+            <nav class="seo-ai-segment" aria-label="AI Center">
+                <a class="seo-ai-segment__item" href="{{ url('/admin/settings/ai-center') }}">Models</a>
+                <a class="seo-ai-segment__item is-active" href="{{ url('/admin/settings/semantic-routing') }}">Semantic Routing</a>
+            </nav>
         <div class="flex flex-wrap gap-3">
             <select wire:model.live="level" class="rounded-md border-gray-300 text-sm">
                 <option value="global">Global JEV</option>
@@ -52,5 +62,6 @@
             <span wire:loading.remove wire:target="save">Lưu</span>
             <span wire:loading wire:target="save">Đang lưu…</span>
         </button>
+        </div>
     </div>
 </x-filament-panels::page>

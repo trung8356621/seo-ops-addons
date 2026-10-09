@@ -166,4 +166,25 @@ final class CtaAutomationPipelineTest extends TestCase
         self::assertStringContainsString('data-cta-style="conversion"', $replaced);
         self::assertStringContainsString('style="conversion"', $replaced);
     }
+
+    public function test_equivalent_html_serialization_keeps_the_same_fingerprint(): void
+    {
+        $compact = '<p>Intro</p><h2>Materials</h2><p>Nylon.</p><h3>In jet</h3><p>Print.</p>';
+        $spaced = "<p>Intro</p>\n\n<h2>Materials</h2>\n<p>Nylon.</p>\n<h3>In jet</h3>\n<p>Print.</p>";
+        self::assertSame(
+            \Omnichannel\Addons\Content\Services\CtaAutomation\CtaHtmlFingerprint::hash($compact),
+            \Omnichannel\Addons\Content\Services\CtaAutomation\CtaHtmlFingerprint::hash($spaced),
+        );
+        $plan = ['sections' => [
+            ['section_id' => 'section_2', 'heading' => 'Materials'],
+            ['section_id' => 'section_3', 'heading' => 'In jet'],
+        ]];
+        $changes = [
+            ['section_id' => 'section_2', 'heading' => 'Materials'],
+            ['section_id' => 'section_3', 'heading' => 'In jet'],
+        ];
+        self::assertTrue(\Omnichannel\Addons\Content\Services\CtaAutomation\CtaHtmlFingerprint::targetsMatch($spaced, $plan, $changes));
+        $shifted = '<p>Intro</p><h2>Other</h2><p>Nylon.</p><h3>In jet</h3><p>Print.</p>';
+        self::assertFalse(\Omnichannel\Addons\Content\Services\CtaAutomation\CtaHtmlFingerprint::targetsMatch($shifted, $plan, $changes));
+    }
 }

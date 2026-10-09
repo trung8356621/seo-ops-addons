@@ -35,6 +35,7 @@
                             {{ __('seo-content-ai::filament.ai_center.tab_'.$tabKey) }}
                         </button>
                     @endforeach
+                    <a class="seo-ai-segment__item" href="{{ url('/admin/settings/semantic-routing') }}">Semantic Routing</a>
                 </nav>
 
                 @if ($modelsHydrated)

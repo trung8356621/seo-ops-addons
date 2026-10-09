@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services\CtaAutomation;
 
+use Illuminate\Support\Facades\Log;
 use Omnichannel\Addons\AiPrompt\DataTransfer\PromptExecutionResult;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Services\InteractivePromptExecutor;
@@ -153,8 +154,13 @@ class CtaTextGenerator
     private function openHistory(array $context): ?int
     {
         try {
+            $promptId = (new CtaExecutionHistoryWriter())->ensurePrompt();
+            if ($promptId === null) {
+                return null;
+            }
             $result = PromptResult::query()->create([
-                'user_id' => auth()->id(),
+                'prompt_id' => $promptId,
+                'user_id' => (int) ($context['user_id'] ?? 0) > 0 ? (int) $context['user_id'] : (int) (auth()->id() ?: 1),
                 'site_id' => (int) ($context['site_id'] ?? 0),
                 'status' => 'running',
                 'canonical_prompt_key' => self::HOOK_KEY,
@@ -170,7 +176,9 @@ class CtaTextGenerator
             ]);
 
             return (int) $result->getKey();
-        } catch (\Throwable) {
+        } catch (\Throwable $exception) {
+            Log::warning('cta.history_persist_failed', ['error_type' => $exception::class]);
+
             return null;
         }
     }

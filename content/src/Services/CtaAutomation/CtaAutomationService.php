@@ -33,7 +33,6 @@ final class CtaAutomationService
         if ($existing instanceof SeoArticleCtaRun) {
             return $this->runs->payload($existing, $html);
         }
-        $sourceHash = hash('sha256', $html);
         $detected = $this->legacy->detect($html);
         $sectionRows = $this->sections->extract($html);
         $site = $this->site($article);
@@ -90,7 +89,7 @@ final class CtaAutomationService
         $run = $this->runs->create($article, [
             'mode' => $mode,
             'status' => 'generating',
-            'source_fingerprint' => $sourceHash,
+            'source_fingerprint' => CtaHtmlFingerprint::hash($html),
             'idempotency_key' => trim((string) $idempotencyKey) !== '' ? trim((string) $idempotencyKey) : null,
             'generation_started_at' => now(),
             'plan' => [
@@ -119,6 +118,7 @@ final class CtaAutomationService
                 [
                     'article_id' => (int) $article->getKey(),
                     'site_id' => (int) ($article->site_id ?? 0),
+                    'user_id' => (int) ($article->user_id ?? 0),
                     'run_id' => (string) $run->id,
                 ],
             );
@@ -234,8 +234,15 @@ final class CtaAutomationService
         if (! $run instanceof SeoArticleCtaRun || ! in_array((string) $run->status, ['ready', 'stale'], true)) {
             return ['success' => false, 'status' => 'preview_expired', 'message' => 'CTA preview expired. Run Improve CTA again.'];
         }
-        $fingerprintMatches = hash('sha256', $html) === (string) $run->source_fingerprint;
-        if (! $fingerprintMatches && ! $acknowledgeStale) {
+        $stored = (string) $run->source_fingerprint;
+        $fingerprintMatches = hash_equals($stored, hash('sha256', $html))
+            || hash_equals($stored, CtaHtmlFingerprint::hash($html));
+        $targetsMatch = CtaHtmlFingerprint::targetsMatch(
+            $html,
+            is_array($run->plan) ? $run->plan : [],
+            is_array($run->changes) ? $run->changes : [],
+        );
+        if (! $fingerprintMatches && ! $targetsMatch) {
             $this->runs->markStale($run);
 
             return [
@@ -301,7 +308,17 @@ final class CtaAutomationService
 
         $rendered = $this->renderer->apply($html, $operations);
         if (($rendered['ok'] ?? false) !== true) {
-            if (! $fingerprintMatches) {
+            if ($this->approvedInsertsPresent($html, $changes, $approved)) {
+                return [
+                    'success' => true,
+                    'status' => 'pending_editor',
+                    'run_id' => (string) $run->id,
+                    'html' => $html,
+                    'applied' => [],
+                    'skipped' => [],
+                ];
+            }
+            if (! $targetsMatch) {
                 $this->runs->markStale($run);
             }
 
@@ -333,6 +350,9 @@ final class CtaAutomationService
         $run = $this->runs->findForArticle($article, $runId);
         if (! $run instanceof SeoArticleCtaRun) {
             return ['success' => false, 'status' => 'preview_expired', 'message' => 'CTA run was not found.'];
+        }
+        if ((string) $run->status === 'applied') {
+            return ['success' => true, 'status' => 'applied', 'run_id' => (string) $run->id];
         }
         $changes = is_array($run->changes) ? $run->changes : [];
         $selected = is_array($run->selections['selected'] ?? null) ? $run->selections['selected'] : [];
@@ -390,7 +410,40 @@ final class CtaAutomationService
 
     public function latestRun(SeoArticle $article): ?SeoArticleCtaRun
     {
+        try {
+            (new CtaExecutionHistoryWriter())->repairArticle($article);
+        } catch (\Throwable $exception) {
+            \Illuminate\Support\Facades\Log::warning('cta.history_persist_failed', [
+                'error_type' => $exception::class,
+                'article_id' => (int) $article->getKey(),
+            ]);
+        }
+
         return $this->runs->latest($article);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $changes
+     * @param  array<string, bool>  $approved
+     */
+    private function approvedInsertsPresent(string $html, array $changes, array $approved): bool
+    {
+        $required = 0;
+        foreach ($changes as $change) {
+            if (! is_array($change) || ($change['kind'] ?? '') !== 'insert' || ! isset($approved[(string) ($change['id'] ?? '')])) {
+                continue;
+            }
+            $placementId = (string) ($change['placement_id'] ?? '');
+            if ($placementId === '') {
+                continue;
+            }
+            $required++;
+            if (! str_contains($html, 'data-cta-placement="'.$placementId.'"')) {
+                return false;
+            }
+        }
+
+        return $required > 0;
     }
 
     /**
@@ -565,7 +618,7 @@ final class CtaAutomationService
             'mode' => $mode,
             'status' => 'failed',
             'error_code' => $code,
-            'source_fingerprint' => hash('sha256', $html),
+            'source_fingerprint' => CtaHtmlFingerprint::hash($html),
             'idempotency_key' => trim((string) $idempotencyKey) !== '' ? trim((string) $idempotencyKey) : null,
             'generation_started_at' => now(),
             'generation_completed_at' => now(),

@@ -13,13 +13,9 @@ use Throwable;
 
 class SemanticRoutingPage extends Page
 {
-    protected static ?string $navigationIcon = 'heroicon-o-adjustments-horizontal';
+    protected static ?string $slug = 'settings/semantic-routing';
 
-    protected static ?string $navigationLabel = 'Semantic Routing';
-
-    protected static ?string $slug = 'semantic-routing';
-
-    protected static ?int $navigationSort = 13;
+    protected static bool $shouldRegisterNavigation = false;
 
     protected static string $view = 'agent-runtime::semantic-routing';
 
@@ -70,26 +66,21 @@ class SemanticRoutingPage extends Page
         Notification::make()->title('Đã lưu semantic routing.')->success()->send();
     }
 
+    public function getTitle(): string
+    {
+        return 'Semantic Routing';
+    }
+
     public static function canAccess(): bool
     {
-        if (class_exists(SeoAccessControl::class) && ! SeoAccessControl::canAccessSeoPanel()) {
-            return false;
-        }
         $user = auth()->user();
-        if ($user === null) {
-            return false;
-        }
-        $role = $user->role ?? null;
-        if ($role === 'owner' || $role === 'admin') {
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
             return true;
         }
 
-        return method_exists($user, 'hasRole') && ($user->hasRole('owner') || $user->hasRole('admin'));
-    }
-
-    public static function shouldRegisterNavigation(): bool
-    {
-        return static::canAccess();
+        return class_exists(SeoAccessControl::class) && SeoAccessControl::canAccessManagerFeatures();
     }
 
     /** @return list<string> */

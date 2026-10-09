@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\Seo\Support;
 
 use App\Core\Settings\CoreSettingsBootstrap;
 use App\Core\Settings\SettingsSectionRegistry;
-use App\Filament\Resources\UserResource;
 
 /**
  * Settings navigation — driven by Core SettingsSectionRegistry (canonical Admin URLs).
@@ -59,35 +58,6 @@ final class SeoSettingsMenu
                 'icon' => 'heroicon-o-link',
                 'url' => url('/admin/settings/api'),
             ],
-            [
-                'id' => 'members',
-                'label' => 'Members',
-                'icon' => 'heroicon-o-users',
-                'url' => SeoTeamMembersUrl::resolve(),
-            ],
         ];
-    }
-}
-
-/**
- * Members shortcut: Core Admin when actor can access; else SEO Team page.
- */
-final class SeoTeamMembersUrl
-{
-    public static function resolve(): string
-    {
-        try {
-            if (UserResource::canAccess()) {
-                return UserResource::getUrl(panel: 'admin');
-            }
-        } catch (\Throwable) {
-            // fall through
-        }
-
-        try {
-            return \Omnichannel\Addons\SearchFoundation\Filament\Pages\SeoTeam::getUrl();
-        } catch (\Throwable) {
-            return url('/admin/users');
-        }
     }
 }

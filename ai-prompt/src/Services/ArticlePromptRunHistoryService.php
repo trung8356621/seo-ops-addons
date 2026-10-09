@@ -52,6 +52,15 @@ final class ArticlePromptRunHistoryService
     public function build(SeoArticle $article, array $accessibleProjectIds): array
     {
         $articleId = (int) $article->getKey();
+        try {
+            app(\Omnichannel\Addons\Content\Services\CtaAutomation\CtaExecutionHistoryWriter::class)
+                ->repairArticle($article);
+        } catch (\Throwable $exception) {
+            \Illuminate\Support\Facades\Log::warning('cta.history_persist_failed', [
+                'error_type' => $exception::class,
+                'article_id' => $articleId,
+            ]);
+        }
 
         $accessibleRunIds = SeoProjectRun::query()
             ->whereIn('project_id', $accessibleProjectIds)

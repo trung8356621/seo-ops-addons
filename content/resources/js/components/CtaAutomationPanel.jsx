@@ -213,10 +213,6 @@ export function CtaAutomationPanel({ articleId }) {
             return;
         }
         const htmlNow = currentEditorHtml();
-        if (htmlNow !== preview.editor_html) {
-            setError(t('cta_auto_failed'));
-            return;
-        }
         setBusy(true);
         setError('');
         try {
@@ -252,7 +248,7 @@ export function CtaAutomationPanel({ articleId }) {
                 historyNote: 'Apply CTA automation',
             });
             if (!replaced?.ok) {
-                setError(t('cta_auto_failed'));
+                setError(String(replaced?.error || replaced?.code || t('cta_auto_failed')));
                 return;
             }
             const runId = data.run_id || preview.run_id || preview.preview_token;
