@@ -39,13 +39,15 @@ final class ArticleEditorRuntimeModulesPhase6c2Test extends TestCase
         self::assertFileExists($this->js('editor/modules/faq/faqExtractToolbarAction.js'));
     }
 
-    public function test_cta_aliases_links_panel_with_own_module(): void
+    public function test_cta_is_independent_sidebar_widget(): void
     {
         $mod = (string) file_get_contents($this->js('editor/modules/cta-contact/index.js'));
         self::assertStringContainsString("panelId: 'cta'", $mod);
-        self::assertStringContainsString("aliasPanelId: 'links'", $mod);
-        self::assertStringContainsString("portalRootKey: 'links'", $mod);
+        self::assertStringContainsString("portalRootKey: 'cta'", $mod);
+        self::assertStringContainsString('CtaAutomationSidebarPanel', $mod);
+        self::assertStringNotContainsString('aliasPanelId', $mod);
         self::assertStringContainsString('insert_contact_cta', $mod);
+        self::assertFileExists($this->js('editor/modules/cta-contact/CtaAutomationSidebarPanel.jsx'));
     }
 
     public function test_module_host_removed_after_ai_cutover(): void
@@ -134,11 +136,13 @@ final class ArticleEditorRuntimeModulesPhase6c2Test extends TestCase
         self::assertStringContainsString("'ai-chat'", $modules);
     }
 
-    public function test_portal_host_maps_cta_to_links_panel(): void
+    public function test_portal_host_mounts_cta_separately_from_links(): void
     {
         $host = (string) file_get_contents($this->js('editor/host/EditorSidebarPortalHost.jsx'));
-        self::assertStringContainsString("activePanelId === 'cta'", $host);
-        self::assertStringContainsString('aliasPanelId', $host);
+        self::assertStringNotContainsString("railId === 'cta'", $host);
+        self::assertStringNotContainsString("panelId === 'cta'", $host);
+        $roots = (string) file_get_contents($this->js('editor/host/editorSidebarPortalRoots.js'));
+        self::assertStringContainsString("cta: 'seo-article-cta-root'", $roots);
     }
 
     public function test_seo_article_editor_binds_module_actions(): void

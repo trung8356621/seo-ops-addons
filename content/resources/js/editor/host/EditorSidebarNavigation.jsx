@@ -154,9 +154,7 @@ function notifyLinkSection(panelId) {
         return;
     }
     let section = 'all';
-    if (panelId === 'cta') {
-        section = 'cta';
-    } else if (panelId === 'links') {
+    if (panelId === 'links') {
         section = 'links';
     }
     window.dispatchEvent(new CustomEvent('seo-assistant-link-section', {

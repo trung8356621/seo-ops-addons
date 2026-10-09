@@ -1,7 +1,8 @@
 /**
- * CTA/Contact module — owns insert semantics + settings UI inside Links panel.
- * Nav chip aliases Links panel (panelId cta → show links portal). No duplicate portal root.
+ * CTA Automation — independent right-sidebar widget, mounted after Link Assistant.
  */
+
+import { CtaAutomationSidebarPanel } from './CtaAutomationSidebarPanel';
 
 export const ctaContactModule = {
     id: 'article-editor.cta-contact',
@@ -18,14 +19,12 @@ export const ctaContactModule = {
             label: 'CTA',
             fullLabel: 'CTA Automation',
             order: 145,
-            // Alias: navigation opens cta; PortalHost maps cta → links panel body.
             host: 'editor',
-            portalRootKey: 'links',
-            aliasPanelId: 'links',
+            portalRootKey: 'cta',
             slot: 'sidebar.main',
-            linkSection: 'cta',
+            component: CtaAutomationSidebarPanel,
             keywords: ['cta', 'call', 'phone'],
-            note: 'CTA chip aliases Links host; CtaContactInsertList owns insert via command layer.',
+            note: 'Independent CTA Automation widget. Contact configuration stays in Site settings.',
         },
     ],
     commands: [

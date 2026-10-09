@@ -11,6 +11,7 @@ export const EDITOR_SIDEBAR_PORTAL_ROOT_IDS = Object.freeze({
     images: 'seo-article-image-assistant-root',
     reviews: 'seo-article-reviews-assistant-root',
     links: 'seo-article-links-root',
+    cta: 'seo-article-cta-root',
     faq: 'seo-article-faq-root',
     featured: 'seo-article-featured-root',
     aiChat: 'seo-article-ai-chat-root',

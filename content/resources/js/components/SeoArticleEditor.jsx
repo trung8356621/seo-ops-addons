@@ -612,8 +612,6 @@ export default function SeoArticleEditor({
             // Shell boundary panels (publishing / article / cta→links) still drive the rail.
             if (normalized === 'publishing' || normalized === 'article') {
                 setSidebarRailPanelId(normalized);
-            } else if (normalized === 'cta') {
-                setSidebarRailPanelId('links');
             }
             // External / Alpine-only / closed — unmount editor-hosted heavy body.
             setActiveHeavyModule(null);

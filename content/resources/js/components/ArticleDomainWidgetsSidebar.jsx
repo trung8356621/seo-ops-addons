@@ -1,11 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import { t } from '../utils/i18n';
-import { readCoreArticleIdentity } from '../utils/articleEditorPayloadAdapters';
-import {
-    ctaDisplayLabel,
-    formatCtaHref,
-} from '../utils/ctaLinkFormat';
 import {
     normalizeHrefForCompare,
     normalizeLinkLabel,
@@ -14,7 +9,6 @@ import { collectEditorBlocksFromDom } from '../utils/articlePhraseOccurrences';
 import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
 import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
 import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
-import { CtaAutomationPanel } from './CtaAutomationPanel';
 
 /**
  * @typedef {{ text?: string, href?: string, target_url?: string, article_count?: number, occurrence_count?: number, can_insert?: boolean, keyword_id?: number|null }} DomainLinkItem
@@ -153,9 +147,7 @@ export default function ArticleDomainWidgetsSidebar({
         ),
     );
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
-    const [ctaActiveKey, setCtaActiveKey] = useState('');
     const [linksCollapsed, setLinksCollapsed] = useState(false);
-    const [ctaCollapsed, setCtaCollapsed] = useState(false);
     const [hiddenRowKeys, setHiddenRowKeys] = useState(() => new Set());
     const [cycleByKey, setCycleByKey] = useState({});
     const selectedDomainOccurrenceRef = useRef(null);
@@ -222,23 +214,7 @@ export default function ArticleDomainWidgetsSidebar({
         };
     }, []);
 
-    const scrollToItem = (item, itemKey, variant) => {
-        if (variant === 'cta') {
-            setCtaActiveKey(itemKey);
-            window.dispatchEvent(
-                new CustomEvent('seo-editor-scroll-to-link', {
-                    detail: {
-                        href: String(item?.href ?? formatCtaHref(item?.type, item?.value)).trim(),
-                        text: ctaDisplayLabel(item),
-                        type: 'internal',
-                        index: 0,
-                        searchPlainText: true,
-                    },
-                }),
-            );
-            return;
-        }
-
+    const scrollToItem = (item, itemKey) => {
         setDomainLinkActiveKey(itemKey);
         const occurrences = Array.isArray(item?._domain_occurrences) ? item._domain_occurrences : [];
         if (occurrences.length === 0) {
@@ -287,19 +263,9 @@ export default function ArticleDomainWidgetsSidebar({
                             ? t('domain_link_widget_empty_in_article')
                             : t('domain_link_widget_empty')
                     }
-                    onKeywordClick={(item, _index, itemKey) => scrollToItem(item, itemKey, 'domain-link')}
+                    onKeywordClick={(item, _index, itemKey) => scrollToItem(item, itemKey)}
                     onInsert={insertDomainLink}
                 />
-            </WidgetBox>
-
-            <WidgetBox
-                title={t('cta_widget_title')}
-                collapsed={ctaCollapsed}
-                onToggle={() => setCtaCollapsed((v) => !v)}
-            >
-                <div data-site-id={siteId || ''}>
-                    <CtaAutomationPanel articleId={readCoreArticleIdentity().articleId} />
-                </div>
             </WidgetBox>
         </>
     );

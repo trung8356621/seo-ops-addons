@@ -39,9 +39,7 @@ import {
     normalizeLinksPayload,
     readCoreArticleIdentity,
 } from '../utils/articleEditorPayloadAdapters';
-import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
 import { getEditorCommandHost } from '../utils/editorCommands';
-import { CtaAutomationPanel } from './CtaAutomationPanel';
 import {
     insertSuggestedInternalLinkAction,
     resolveSuggestionLocatePhrase,
@@ -1122,7 +1120,6 @@ export default function ArticleLinksSidebar({
     const [externalCollapsed, setExternalCollapsed] = useState(true);
     const [mainDomainCollapsed, setMainDomainCollapsed] = useState(true);
     const [domainLinksCollapsed, setDomainLinksCollapsed] = useState(true);
-    const [ctaCollapsed, setCtaCollapsed] = useState(true);
     const [linkSectionFilter, setLinkSectionFilter] = useState('all');
     const [baseLoading, setBaseLoading] = useState(true);
     const [baseError, setBaseError] = useState(null);
@@ -1269,11 +1266,6 @@ export default function ArticleLinksSidebar({
                 setExternalCollapsed(false);
                 setMainDomainCollapsed(false);
                 setDomainLinksCollapsed(false);
-                return;
-            }
-
-            if (section === 'cta') {
-                setCtaCollapsed(false);
             }
         };
 
@@ -1729,11 +1721,10 @@ export default function ArticleLinksSidebar({
             [],
         ),
     );
-    const [domainCtas, setDomainCtas] = useState(initialDomainCtaList);
+    const [, setDomainCtas] = useState(initialDomainCtaList);
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
     const [ctaActiveKey, setCtaActiveKey] = useState('');
     const [, setServerCtaTemplates] = useState(initialCtaQuickTemplates);
-    const usableDomainCtas = useMemo(() => filterUsableCtaContacts(domainCtas), [domainCtas]);
     const [domainHiddenRowKeys, setDomainHiddenRowKeys] = useState(() => new Set());
     /** @type {React.MutableRefObject<{ itemKey: string, occurrence: object|null, index: number }|null>} */
     const selectedDomainOccurrenceRef = useRef(null);
@@ -2536,19 +2527,6 @@ export default function ArticleLinksSidebar({
     const linkCountBadge = internal.length + external.length + domainLinks.length;
     const showAllLinkSections = linkSectionFilter === 'all';
     const showLinksCluster = showAllLinkSections || linkSectionFilter === 'links';
-    const showCtaSection = showAllLinkSections || linkSectionFilter === 'cta';
-
-    useEffect(() => {
-        // Links item/issue counts owned by assistantWidgetHealth (valid HTTP links).
-        // CTA chip still uses contact count from this sidebar.
-        window.dispatchEvent(
-            new CustomEvent('seo-assistant-navigator-badges', {
-                detail: {
-                    cta: usableDomainCtas.length > 0 ? usableDomainCtas.length : null,
-                },
-            }),
-        );
-    }, [usableDomainCtas.length]);
 
     return (
         <ArticleAssistantWidget
@@ -2558,11 +2536,7 @@ export default function ArticleLinksSidebar({
             badge={linkCountBadge > 0 ? linkCountBadge : null}
             defaultCollapsed={false}
             className="seo-assistant-widget--links"
-            helpContextKey={
-                linkSectionFilter === 'cta'
-                    ? 'article_editor.panel.cta'
-                    : 'article_editor.panel.links'
-            }
+            helpContextKey="article_editor.panel.links"
         >
             <div className="seo-link-assistant">
                 {baseLoading ? (
@@ -2733,17 +2707,6 @@ export default function ArticleLinksSidebar({
                     </>
                 ) : null}
 
-                {showCtaSection ? (
-                <LinkAssistantSection
-                    title={t('cta_widget_title')}
-                    count={null}
-                    collapsed={ctaCollapsed}
-                    onToggle={() => setCtaCollapsed((value) => !value)}
-                    sectionKey="cta"
-                >
-                    <CtaAutomationPanel articleId={Number(articleIdProp || articleMetaRef.current.articleId || 0)} />
-                </LinkAssistantSection>
-                ) : null}
             </div>
         </ArticleAssistantWidget>
     );

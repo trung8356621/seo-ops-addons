@@ -68,9 +68,11 @@ final class ArticleEditorRegressionPickerSessionCtaTest extends TestCase
         self::assertStringNotContainsString("mode === 'value' ? 'sentence'", $cta);
         self::assertStringContainsString("const effectiveMode = mode === 'value' ? 'value' : 'sentence'", $cta);
 
-        self::assertStringContainsString('CtaAutomationPanel', $links);
-        self::assertStringContainsString('CtaAutomationPanel', $domain);
+        self::assertStringNotContainsString('CtaAutomationPanel', $links);
+        self::assertStringNotContainsString('CtaAutomationPanel', $domain);
         self::assertStringNotContainsString('CtaContactInsertList', $links);
+        $panel = $this->readAddon('resources/js/editor/modules/cta-contact/CtaAutomationSidebarPanel.jsx');
+        self::assertStringContainsString('CtaAutomationPanel', $panel);
         self::assertStringContainsString('occurrence_index', $cta);
 
         self::assertStringContainsString('resolveInsertionAfterEnclosingBlock', $selection);

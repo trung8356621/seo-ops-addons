@@ -12275,3 +12275,145 @@ body.article-editor-page:has([data-seo-editor-exclusive-lock="1"]) .wp-article-e
 .seo-article-editor-root--hard-readonly .ProseMirror {
     caret-color: transparent;
 }
+
+.seo-cta-automation {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.seo-cta-automation__hint,
+.seo-cta-automation__summary,
+.seo-cta-automation__text,
+.seo-cta-automation__warning,
+.seo-cta-automation__error {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.seo-cta-automation__error {
+    color: #b91c1c;
+}
+
+.seo-cta-automation__warning {
+    color: #92400e;
+}
+
+.seo-cta-automation__actions,
+.seo-cta-automation__preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.seo-cta-automation__btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    min-height: 2.25rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #111827;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
+    cursor: pointer;
+}
+
+.seo-cta-automation__btn--primary {
+    border-color: #1d4ed8;
+    background: #1d4ed8;
+    color: #fff;
+}
+
+.seo-cta-automation__btn:hover:not(:disabled) {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1e3a8a;
+}
+
+.seo-cta-automation__btn--primary:hover:not(:disabled) {
+    background: #1e40af;
+    border-color: #1e40af;
+    color: #fff;
+}
+
+.seo-cta-automation__btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.seo-cta-automation__changes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.seo-cta-automation__change {
+    min-width: 0;
+    padding-top: 0.4rem;
+    border-top: 1px solid #e5e7eb;
+}
+
+.seo-cta-automation__check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.seo-cta-automation__check span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.seo-cta-automation__style {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin-top: 0.35rem;
+}
+
+.dark .seo-cta-automation__btn {
+    border-color: #374151;
+    background: #111827;
+    color: #f9fafb;
+}
+
+.dark .seo-cta-automation__btn--primary {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.dark .seo-cta-automation__error {
+    color: #fca5a5;
+}
+
+.dark .seo-cta-automation__warning {
+    color: #fcd34d;
+}
+
+.dark .seo-cta-automation__change {
+    border-top-color: #374151;
+}

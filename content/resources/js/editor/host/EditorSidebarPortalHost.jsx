@@ -23,19 +23,11 @@ function resolvePanelActive(activePanelId, entry, sidebarRailPanelId = 'seo') {
         ? railFallback
         : (active || railFallback);
 
-    if (railId === panelId) {
-        return true;
-    }
-    // CTA chip aliases Links panel body (no duplicate portal).
     if (aliasOf && railId === panelId && entry.component) {
         return true;
     }
     if (!entry.component && aliasOf && railId === panelId) {
         return false;
-    }
-    // When CTA active, Links entry (panelId links) must mount.
-    if (panelId === 'links' && (railId === 'links' || railId === 'cta')) {
-        return true;
     }
     return railId === panelId;
 }
@@ -83,10 +75,6 @@ export function EditorSidebarPortalHost({
                 const Shell = shells[panelId] || shells.default || React.Fragment;
                 const Comp = entry.component;
                 const active = resolvePanelActive(activePanelId, entry, sidebarRailPanelId);
-                // Avoid double-portal when CTA + Links share root — only Links has component.
-                if (panelId === 'cta') {
-                    return null;
-                }
                 // Reviews always mounts its body (not lazy placeholder). Alpine can show the
                 // reviews slot as is-active while React heavy-id briefly lags — placeholder
                 // then looks like a blank white card under the chips.

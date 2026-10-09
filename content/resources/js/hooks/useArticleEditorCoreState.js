@@ -65,6 +65,7 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
                 image: document.getElementById('seo-article-image-assistant-root'),
                 reviews: document.getElementById('seo-article-reviews-assistant-root'),
                 links: document.getElementById('seo-article-links-root'),
+                cta: document.getElementById('seo-article-cta-root'),
                 faq: document.getElementById('seo-article-faq-root'),
                 featured: document.getElementById('seo-article-featured-root'),
                 aiChat: document.getElementById('seo-article-ai-chat-root'),

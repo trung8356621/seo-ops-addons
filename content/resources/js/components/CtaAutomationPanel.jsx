@@ -123,21 +123,21 @@ export function CtaAutomationPanel({ articleId }) {
     const summary = preview?.summary || {};
 
     return (
-        <div className="wp-article-links-cta-automation">
-            <p className="wp-article-links-hint">{t('cta_widget_hint')}</p>
-            <div className="wp-article-links-cta-section-head">
-                <button type="button" className="wp-article-links-insert-btn" disabled={busy} onClick={() => run('improve')}>
+        <div className="seo-cta-automation">
+            <p className="seo-cta-automation__hint">{t('cta_widget_hint')}</p>
+            <div className="seo-cta-automation__actions">
+                <button type="button" className="seo-cta-automation__btn seo-cta-automation__btn--primary" disabled={busy} onClick={() => run('improve')}>
                     {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null}
-                    {t('cta_auto_improve')}
+                    <span>{t('cta_auto_improve')}</span>
                 </button>
-                <button type="button" className="wp-article-links-insert-btn" disabled={busy} onClick={() => run('regenerate')}>
-                    {t('cta_auto_regenerate')}
+                <button type="button" className="seo-cta-automation__btn" disabled={busy} onClick={() => run('regenerate')}>
+                    <span>{t('cta_auto_regenerate')}</span>
                 </button>
             </div>
-            {error ? <p className="wp-article-links-empty">{error}</p> : null}
+            {error ? <p className="seo-cta-automation__error" role="alert">{error}</p> : null}
             {preview ? (
-                <div>
-                    <p className="wp-article-links-hint">
+                <div className="seo-cta-automation__preview">
+                    <p className="seo-cta-automation__summary">
                         {t('cta_auto_legacy')}: {summary.legacy_detected || 0}
                         {' · '}
                         {t('cta_auto_replacements')}: {summary.replacements || 0}
@@ -148,11 +148,11 @@ export function CtaAutomationPanel({ articleId }) {
                         {' · '}
                         {preview.status}
                     </p>
-                    {(preview.changes || []).length === 0 ? <p className="wp-article-links-empty">{t('cta_auto_empty')}</p> : null}
-                    <ul className="wp-article-links-keywords">
+                    {(preview.changes || []).length === 0 ? <p className="seo-cta-automation__hint">{t('cta_auto_empty')}</p> : null}
+                    <ul className="seo-cta-automation__changes">
                         {(preview.changes || []).map((change) => (
-                            <li key={change.id}>
-                                <label>
+                            <li key={change.id} className="seo-cta-automation__change">
+                                <label className="seo-cta-automation__check">
                                     <input
                                         type="checkbox"
                                         checked={selected[change.id] !== false}
@@ -160,15 +160,17 @@ export function CtaAutomationPanel({ articleId }) {
                                             setSelected((current) => ({ ...current, [change.id]: event.target.checked }));
                                         }}
                                     />
-                                    {' '}
-                                    {change.kind} · {change.heading || change.section_id}
-                                    {change.intent ? ` · ${change.intent}` : ''}
-                                    {change.alias ? ` · [${change.alias}]` : ''}
+                                    <span>
+                                        {change.kind} · {change.heading || change.section_id}
+                                        {change.intent ? ` · ${change.intent}` : ''}
+                                        {change.alias ? ` · [${change.alias}]` : ''}
+                                    </span>
                                 </label>
-                                {change.original ? <p className="wp-article-links-hint">{change.original}</p> : null}
-                                {change.replacement ? <p className="wp-article-links-hint">{change.replacement}</p> : null}
+                                {change.original ? <p className="seo-cta-automation__text">{change.original}</p> : null}
+                                {change.replacement ? <p className="seo-cta-automation__text">{change.replacement}</p> : null}
                                 {change.kind === 'insert' ? (
                                     <select
+                                        className="seo-cta-automation__style"
                                         value={styles[change.id] || change.style || 'soft'}
                                         onChange={(event) => {
                                             setStyles((current) => ({ ...current, [change.id]: event.target.value }));
@@ -183,12 +185,13 @@ export function CtaAutomationPanel({ articleId }) {
                         ))}
                     </ul>
                     {(preview.review || []).map((item) => (
-                        <p key={item.id} className="wp-article-links-hint">
+                        <p key={item.id} className="seo-cta-automation__warning">
                             {t('cta_auto_review')}: {item.heading || item.section_id} — {item.reason}
                         </p>
                     ))}
-                    <button type="button" className="wp-article-links-insert-btn" disabled={busy} onClick={applyPreview}>
-                        {busy ? t('cta_auto_working') : t('cta_auto_apply')}
+                    <button type="button" className="seo-cta-automation__btn seo-cta-automation__btn--primary" disabled={busy} onClick={applyPreview}>
+                        {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null}
+                        <span>{busy ? t('cta_auto_working') : t('cta_auto_apply')}</span>
                     </button>
                 </div>
             ) : null}

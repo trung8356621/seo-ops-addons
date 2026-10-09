@@ -945,6 +945,15 @@
                                         <div wire:ignore id="seo-article-links-root"></div>
                                     </div>
 
+                                    <div
+                                        class="seo-assistant-panel-slot"
+                                        data-assistant-panel-root="cta"
+                                        x-show="isWidgetVisible('cta')"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'cta' }"
+                                    >
+                                        <div wire:ignore id="seo-article-cta-root"></div>
+                                    </div>
+
                                             <div
                                                 class="seo-assistant-panel-slot"
                                                 data-assistant-panel-root="publishing"

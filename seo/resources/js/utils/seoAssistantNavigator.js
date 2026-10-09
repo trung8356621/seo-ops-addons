@@ -18,10 +18,6 @@ function resolveSidebarRailPanel(panelId, previous = 'seo') {
     if (id === '' || isMainColumnOnlyPanel(id)) {
         return previous || 'seo';
     }
-    if (id === 'cta') {
-        return 'links';
-    }
-
     return id;
 }
 
@@ -61,9 +57,7 @@ export function createSeoAssistantNavigator(initial = {}) {
                 // Keep Links section sync for ModuleHost until 6C.2.
                 if (typeof window !== 'undefined' && meta?.source !== 'react_nav') {
                     let section = 'all';
-                    if (panelId === 'cta') {
-                        section = 'cta';
-                    } else if (panelId === 'links') {
+                    if (panelId === 'links') {
                         section = 'links';
                     }
                     window.dispatchEvent(new CustomEvent('seo-assistant-link-section', {
@@ -115,16 +109,7 @@ export function createSeoAssistantNavigator(initial = {}) {
                 return false;
             }
 
-            if (active === widgetId) {
-                return true;
-            }
-
-            // CTA chip shows Links host panel.
-            if (widgetId === 'links' && active === 'cta') {
-                return true;
-            }
-
-            return false;
+            return active === widgetId;
         },
     };
 }
