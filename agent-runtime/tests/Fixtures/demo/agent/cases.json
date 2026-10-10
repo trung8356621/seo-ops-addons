@@ -1,0 +1,4 @@
+{
+  "service": "demo",
+  "cases": [{"id":"demo_read","question":"Show demo status","expected_module":"demo","expected_operation":"demo.read","expected_outcome":"confident","expected_family":"READ"}]
+}

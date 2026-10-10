@@ -31,6 +31,9 @@ class SemanticRoutingPage extends Page
 
     public string $lexicalText = '';
 
+    /** @var array{present: bool, revision: int|null, authoritative: false} */
+    public array $persistedCompatibility = ['present' => false, 'revision' => null, 'authoritative' => false];
+
     public function mount(SemanticRoutingConfig $config): void
     {
         $this->loadRows($config);
@@ -99,6 +102,7 @@ class SemanticRoutingPage extends Page
 
     private function loadRows(SemanticRoutingConfig $config): void
     {
+        $this->persistedCompatibility = $config->persistedCompatibilityStatus();
         $groups = $this->level === 'global'
             ? $config->globalGroups()
             : $config->moduleGroups($this->module);

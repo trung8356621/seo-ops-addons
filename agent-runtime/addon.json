@@ -9,6 +9,9 @@
     ],
     "register_early": false,
     "legacy": false,
+    "agent_enabled": true,
+    "agent_routing": "resources/agent/seo-ops/routing.json",
+    "agent_cases": "resources/agent/seo-ops/cases.json",
     "provides": [
         "agent.runtime"
     ],

@@ -1,0 +1,9 @@
+{
+  "service": "demo",
+  "revision": 1,
+  "operations": {"demo.read":{"family":"READ","capability":"site.knowledge","guidance":null,"answer_model":false,"secondary":[]}},
+  "global": [{"id":"demo_global","name":"Demo","examples":["Show demo status"],"enabled":true,"targets":[{"ref":"demo","weight":10}]}],
+  "modules": {"demo":[{"id":"demo_read","name":"Demo read","examples":["Show demo status"],"enabled":true,"targets":[{"ref":"demo.read","weight":10}]}]},
+  "lexical_hints": [],
+  "policy": {}
+}

@@ -17,6 +17,8 @@ use Omnichannel\Addons\AgentRuntime\Routing\SemanticToolIntentMatcher;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticWeightedClient;
 use Omnichannel\Addons\AgentRuntime\Routing\ToolIntentMatcher;
 use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
+use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
+use Omnichannel\Addons\AgentRuntime\Integration\AgentIntegrationRegistry;
 use Omnichannel\Addons\AgentRuntime\Projects\EloquentSiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Retrieval\ConfigSeoAccessCredential;
@@ -34,6 +36,8 @@ use Filament\Facades\Filament;
 use Filament\Support\Facades\FilamentView;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Support\HtmlString;
+use Omnichannel\Addons\AgentRuntime\Console\RunRoutingCasesCommand;
+use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 
 final class AgentRuntimeServiceProvider extends ServiceProvider
 {
@@ -82,6 +86,9 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         });
         $this->app->singleton(ToolIntentMatcher::class, SemanticToolIntentMatcher::class);
         $this->app->singleton(WeightedRouteEvaluator::class, SemanticWeightedClient::class);
+        $this->app->singleton(AgentIntegrationRegistry::class, static fn (): AgentIntegrationRegistry => SemanticRoutingConfig::builtInRegistry());
+        $this->app->singleton(AgentOperationHandlerRegistry::class);
+        $this->app->singleton(SemanticRoutingConfig::class, static fn ($app): SemanticRoutingConfig => new SemanticRoutingConfig(null, $app->make(AgentIntegrationRegistry::class)));
         $this->app->singleton(LocalAgentToolRouter::class);
         $this->app->singleton(AnswerModelGateway::class, static function ($app): AnswerModelGateway {
             $max = (int) config('agent-runtime.answer_max_output_tokens', 2048);
@@ -105,6 +112,9 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         $this->registerGlobalHeaderLauncherHook();
         $this->registerGlobalDrawerHook();
         $this->registerSettingsSection();
+        if ($this->app->runningInConsole()) {
+            $this->commands([RunRoutingCasesCommand::class]);
+        }
     }
 
     private function registerSettingsSection(): void

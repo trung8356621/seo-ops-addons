@@ -63,6 +63,11 @@ final class AgentCapabilityCatalog
         return (self::all()[$key]['jev_selectable'] ?? false) === true;
     }
 
+    public static function known(string $key): bool
+    {
+        return isset(self::all()[$key]);
+    }
+
     public static function isAvailable(string $key): bool
     {
         return (self::all()[$key]['status'] ?? null) === 'available';

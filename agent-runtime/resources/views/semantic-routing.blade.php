@@ -4,8 +4,13 @@
         <div class="seo-settings-main space-y-4">
             <header class="seo-settings-header">
                 <h1>Semantic Routing</h1>
-                <p>Nhóm ngữ nghĩa, ví dụ và trọng số cho Agent. Cấu hình này không chạy thử câu hỏi.</p>
+                <p>Trạng thái tích hợp Agent do service sở hữu. Cấu hình định tuyến chỉ đọc và được nạp từ các file đã đăng ký.</p>
             </header>
+        @if($persistedCompatibility['present'])
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                Legacy persisted semantic routing revision {{ $persistedCompatibility['revision'] }} is preserved for compatibility but is not authoritative. Service-owned JSON is active.
+            </div>
+        @endif
         <div class="flex flex-wrap gap-3">
             <select wire:model.live="level" class="rounded-md border-gray-300 text-sm">
                 <option value="global">Global JEV</option>
@@ -35,18 +40,18 @@
                         <tr class="border-t border-gray-200 align-top">
                             <td class="px-3 py-2">
                                 <div class="font-medium">{{ $group['name'] }}</div>
-                                <textarea wire:model="exampleText.{{ $group['id'] }}" rows="3" class="mt-2 w-full rounded-md border-gray-300 text-xs"></textarea>
+                                <div class="mt-2 whitespace-pre-line text-xs text-gray-600">{{ $exampleText[$group['id']] ?? '' }}</div>
                             </td>
                             <td class="px-3 py-2" colspan="2">
                                 @foreach($group['targets'] as $targetIndex => $target)
                                     <div class="mb-2 flex items-center gap-2">
                                         <span class="min-w-48">{{ $target['ref'] }}</span>
-                                        <input type="number" min="1" max="100" wire:model="rows.{{ $index }}.targets.{{ $targetIndex }}.weight" class="w-20 rounded-md border-gray-300 text-sm">
+                                        <span class="w-20">{{ $target['weight'] }}</span>
                                     </div>
                                 @endforeach
                             </td>
                             <td class="px-3 py-2">
-                                <input type="checkbox" wire:model="rows.{{ $index }}.enabled">
+                                {{ ($group['enabled'] ?? true) ? 'Enabled' : 'Disabled' }}
                             </td>
                         </tr>
                     @endforeach
@@ -58,14 +63,10 @@
             <div class="rounded-lg border border-gray-200 p-3">
                 <label class="font-medium">Lexical Hints</label>
                 <p class="mb-2 text-xs text-gray-500">JSON fields: id, module, phrases, weight (0-0.10), enabled. Hints only influence module candidate ranking.</p>
-                <textarea wire:model="lexicalText" rows="12" class="w-full rounded-md border-gray-300 font-mono text-xs"></textarea>
+                <pre class="max-h-80 overflow-auto whitespace-pre-wrap text-xs">{{ $lexicalText }}</pre>
             </div>
         @endif
 
-        <button type="button" wire:click="save" wire:loading.attr="disabled" class="rounded-md bg-gray-900 px-3 py-2 text-sm text-white">
-            <span wire:loading.remove wire:target="save">Lưu</span>
-            <span wire:loading wire:target="save">Đang lưu…</span>
-        </button>
         </div>
     </div>
 </x-filament-panels::page>

@@ -1,5 +1,22 @@
 {
+  "service": "seo-ops",
   "revision": 2,
+  "operations": {
+    "keywords.inventory": {"family":"READ","capability":"keywords.inventory","guidance":null,"answer_model":false,"secondary":[]},
+    "keywords.landscape": {"family":"READ","capability":"keywords.landscape","guidance":null,"answer_model":false,"secondary":[]},
+    "keywords.relationship": {"family":"READ","capability":"keywords.relationship","guidance":null,"answer_model":false,"secondary":[]},
+    "articles.inventory": {"family":"READ","capability":"articles.inventory","guidance":null,"answer_model":false,"secondary":[]},
+    "seo_audit.worst_articles": {"family":"READ","capability":"seo_audit.worst_articles","guidance":null,"answer_model":false,"secondary":[]},
+    "seo_audit.focus_keyword_guidance": {"family":"READ","capability":null,"guidance":"Các bài thiếu Focus Keyword xem và sửa trong SEO Audit: /seo/content-projects/seo-audit. Agent không tự tạo Draft cho câu này.","answer_model":false,"secondary":[]},
+    "seo_audit.site_improve": {"family":"IMPROVE","capability":"seo_audit.worst_articles","guidance":null,"answer_model":true,"secondary":[]},
+    "seo_audit.draft_action": {"family":"READ","capability":null,"guidance":"Dùng nút Đưa vào Draft trên danh sách bài đã chọn. Agent không tạo bài mới từ câu này.","answer_model":false,"secondary":[]},
+    "seo_audit.publish": {"family":"IMPROVE","capability":"seo_audit.publish","guidance":null,"answer_model":false,"secondary":[]},
+    "gsc.performance": {"family":"READ","capability":"gsc.performance","guidance":null,"answer_model":false,"secondary":[]},
+    "gsc.cross_read": {"family":"READ","capability":"gsc.performance","guidance":null,"answer_model":true,"secondary":["keywords.landscape"]},
+    "content_projects.read": {"family":"READ","capability":"content_projects.read","guidance":null,"answer_model":false,"secondary":[]},
+    "links.internal": {"family":"READ","capability":"links.internal","guidance":null,"answer_model":false,"secondary":[]},
+    "links.external": {"family":"READ","capability":"links.external","guidance":null,"answer_model":false,"secondary":[]}
+  },
   "policy": {"min_semantic_candidate":0.45,"min_operation_score":0.62,"final_margin":0.08,"global_coefficient":0.35,"internal_coefficient":0.65,"lexical_ceiling":0.10,"max_modules":3},
   "lexical_hints": [
     {"id":"topic_coverage","module":"keywords","phrases":["độ bao phủ","bao phủ chủ đề","topic coverage"],"weight":0.08,"enabled":true},

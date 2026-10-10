@@ -40,7 +40,7 @@ final class LocalAgentToolRouter
         }
 
         foreach (array_slice($modules, 0, 2) as $module) {
-            if (! SemanticOperationRegistry::knownModule($module)) {
+            if (! $this->config->knownModule($module)) {
                 $diagnostics['attempts'][] = ['module' => $module, 'status' => 'not_applicable'];
                 continue;
             }
@@ -49,7 +49,7 @@ final class LocalAgentToolRouter
             if ($internal->status !== 'confident' || $internal->winner === null) {
                 continue;
             }
-            $operation = SemanticOperationRegistry::operation($internal->winner);
+            $operation = $this->config->operation($internal->winner);
             if ($operation === null) {
                 continue;
             }
@@ -79,8 +79,8 @@ final class LocalAgentToolRouter
         }
         $module = (string) ($result['module'] ?? '');
         $operationRef = (string) ($result['operation'] ?? '');
-        $operation = SemanticOperationRegistry::operation($operationRef);
-        if (! SemanticOperationRegistry::knownModule($module) || $operation === null) {
+        $operation = $this->config->operation($operationRef);
+        if (! $this->config->knownModule($module) || $operation === null) {
             return new LocalToolRoute('unsupported', null, null, false, [], 'hybrid_weighted', null, $module ?: null, null, false, [], $diagnostics);
         }
         $diagnostics['module'] = $module;

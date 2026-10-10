@@ -1,0 +1,10 @@
+{
+  "service": "seo-ops",
+  "cases": [
+    {"id":"keyword_inventory","question":"Website đang theo dõi những từ khóa SEO nào?","expected_module":"keywords","expected_operation":"keywords.inventory","expected_outcome":"confident","expected_family":"READ"},
+    {"id":"audit_low_score","question":"Liệt kê 50 bài có SEO Score thấp nhất.","expected_module":"seo_audit","expected_operation":"seo_audit.worst_articles","expected_outcome":"confident","expected_family":"READ"},
+    {"id":"site_improve","question":"Hãy đề xuất cách cải thiện SEO tổng thể cho site này.","expected_module":"seo_audit","expected_operation":"seo_audit.site_improve","expected_outcome":"confident","expected_family":"IMPROVE","expected_answer_model":true},
+    {"id":"unsupported_weather","question":"Thời tiết ngày mai thế nào?","expected_module":null,"expected_operation":null,"expected_outcome":"none","negative":true},
+    {"id":"ambiguous_content","question":"Hãy xem nội dung và từ khóa.","expected_module":null,"expected_operation":null,"expected_outcome":"ambiguous","ambiguous":true}
+  ]
+}

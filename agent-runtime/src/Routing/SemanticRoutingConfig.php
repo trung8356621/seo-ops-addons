@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Routing;
 
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
+use Omnichannel\Addons\AgentRuntime\Integration\AgentIntegrationRegistry;
 use Throwable;
 
 final class SemanticRoutingConfig
@@ -14,44 +15,29 @@ final class SemanticRoutingConfig
     public const META_KEY = 'semantic_routing';
 
     /** @param array<string, mixed>|null $document */
-    public function __construct(private readonly ?array $document = null) {}
+    public function __construct(
+        private readonly ?array $document = null,
+        private readonly ?AgentIntegrationRegistry $integrations = null,
+    ) {}
 
     /** @return array<string, mixed> */
     public function document(): array
     {
         if ($this->document !== null) {
-            return $this->sanitize($this->document);
-        }
-
-        $defaults = $this->defaults();
-        try {
-            $app = AgentApp::findByKey(self::APP_KEY);
-            $saved = $app?->metadata[self::META_KEY] ?? null;
-            if (! is_array($saved)) {
-                return $defaults;
+            $document = $this->document;
+            if (! isset($document['operations'])) {
+                $document['operations'] = self::builtInRegistry()->document()['operations'] ?? [];
             }
-
-            return $this->sanitize($this->upgradePersisted($saved, $defaults));
-        } catch (Throwable) {
-            return $defaults;
+            return $this->sanitize($document);
         }
+
+        return $this->defaults();
     }
 
     /** @param array<string, mixed> $document @return array<string, mixed> */
     public function save(array $document): array
     {
-        $clean = $this->sanitize($document);
-        $clean['revision'] = ((int) ($this->document()['revision'] ?? 1)) + 1;
-        $app = AgentApp::findByKey(self::APP_KEY);
-        if ($app === null) {
-            throw new \RuntimeException('SEO Ops agent app is not installed.');
-        }
-        $metadata = is_array($app->metadata) ? $app->metadata : [];
-        $metadata[self::META_KEY] = $clean;
-        $app->metadata = $metadata;
-        $app->save();
-
-        return $clean;
+        throw new \LogicException('Semantic routing is service-owned and read-only at runtime.');
     }
 
     /** @return list<array<string, mixed>> */
@@ -71,13 +57,48 @@ final class SemanticRoutingConfig
         return is_array($groups) ? array_values($groups) : [];
     }
 
+    /** @return array<string, mixed>|null */
+    public function operation(string $ref): ?array
+    {
+        $operation = $this->document()['operations'][$ref] ?? null;
+        return is_array($operation) ? $operation : null;
+    }
+
+    public function knownModule(string $module): bool
+    {
+        return array_key_exists($module, (array) ($this->document()['modules'] ?? []));
+    }
+
     /** @return array<string, mixed> */
     public function defaults(): array
     {
-        $path = dirname(__DIR__, 2).'/resources/semantic-routing.default.json';
-        $decoded = json_decode((string) file_get_contents($path), true);
+        $registry = $this->integrations ?? self::builtInRegistry();
+        return $this->sanitize($registry->document());
+    }
 
-        return $this->sanitize(is_array($decoded) ? $decoded : []);
+    public static function builtInRegistry(): AgentIntegrationRegistry
+    {
+        $registry = new AgentIntegrationRegistry();
+        $root = dirname(__DIR__, 2);
+        $manifest = json_decode((string) file_get_contents($root.'/addon.json'), true);
+        if (is_array($manifest) && ($manifest['agent_enabled'] ?? false) === true) {
+            $routing = (string) ($manifest['agent_routing'] ?? '');
+            $cases = (string) ($manifest['agent_cases'] ?? '');
+            if ($routing === '' || $cases === '') throw new \RuntimeException('Enabled Agent integration requires routing and cases paths.');
+            $registry->register('seo-ops', $root.'/'.$routing, $root.'/'.$cases);
+        }
+        return $registry;
+    }
+
+    /** @return array{present: bool, revision: int|null, authoritative: false} */
+    public function persistedCompatibilityStatus(): array
+    {
+        try {
+            $saved = AgentApp::findByKey(self::APP_KEY)?->metadata[self::META_KEY] ?? null;
+            return ['present' => is_array($saved), 'revision' => is_array($saved) ? (int) ($saved['revision'] ?? 1) : null, 'authoritative' => false];
+        } catch (Throwable) {
+            return ['present' => false, 'revision' => null, 'authoritative' => false];
+        }
     }
 
     /** @param array<string, mixed> $document @return array<string, mixed> */
@@ -85,25 +106,27 @@ final class SemanticRoutingConfig
     {
         $modules = [];
         $incoming = is_array($document['modules'] ?? null) ? $document['modules'] : [];
-        foreach (SemanticOperationRegistry::moduleKeys() as $module) {
-            $modules[$module] = $this->groups(is_array($incoming[$module] ?? null) ? $incoming[$module] : [], false);
+        $operationRefs = array_keys(is_array($document['operations'] ?? null) ? $document['operations'] : []);
+        foreach (array_keys($incoming) as $module) {
+            $modules[$module] = $this->groups(is_array($incoming[$module] ?? null) ? $incoming[$module] : [], $operationRefs);
         }
 
         return [
             'revision' => max(1, (int) ($document['revision'] ?? 1)),
-            'global' => $this->groups(is_array($document['global'] ?? null) ? $document['global'] : [], true),
+            'global' => $this->groups(is_array($document['global'] ?? null) ? $document['global'] : [], array_keys($incoming)),
             'modules' => $modules,
-            'lexical_hints' => $this->lexicalHints(is_array($document['lexical_hints'] ?? null) ? $document['lexical_hints'] : []),
+            'lexical_hints' => $this->lexicalHints(is_array($document['lexical_hints'] ?? null) ? $document['lexical_hints'] : [], array_keys($incoming)),
             'policy' => $this->policy(is_array($document['policy'] ?? null) ? $document['policy'] : []),
+            'operations' => is_array($document['operations'] ?? null) ? $document['operations'] : [],
         ];
     }
 
-    /** @param list<mixed> $hints @return list<array<string, mixed>> */
-    private function lexicalHints(array $hints): array
+    /** @param list<mixed> $hints @param list<string> $modules @return list<array<string, mixed>> */
+    private function lexicalHints(array $hints, array $modules): array
     {
         $clean = [];
         foreach ($hints as $hint) {
-            if (! is_array($hint) || ! SemanticOperationRegistry::knownModule((string) ($hint['module'] ?? ''))) continue;
+            if (! is_array($hint) || ! in_array((string) ($hint['module'] ?? ''), $modules, true)) continue;
             $phrases = array_slice(array_values(array_unique(array_filter(array_map(
                 static fn (mixed $value): string => trim((string) $value), (array) ($hint['phrases'] ?? [])
             )))), 0, 20);
@@ -131,9 +154,10 @@ final class SemanticRoutingConfig
 
     /**
      * @param list<mixed> $groups
+     * @param list<string> $validRefs
      * @return list<array<string, mixed>>
      */
-    private function groups(array $groups, bool $moduleScope): array
+    private function groups(array $groups, array $validRefs): array
     {
         $clean = [];
         foreach ($groups as $group) {
@@ -155,10 +179,7 @@ final class SemanticRoutingConfig
                     continue;
                 }
                 $ref = trim((string) ($target['ref'] ?? ''));
-                $known = $moduleScope
-                    ? SemanticOperationRegistry::knownModule($ref)
-                    : SemanticOperationRegistry::knownOperation($ref);
-                if (! $known) {
+                if (! in_array($ref, $validRefs, true)) {
                     continue;
                 }
                 $weight = (int) ($target['weight'] ?? 0);
