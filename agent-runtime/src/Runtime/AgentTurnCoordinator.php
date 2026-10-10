@@ -987,6 +987,13 @@ class AgentTurnCoordinator
 
         $capabilities = array_values(array_unique([$key, ...$route->secondaryCapabilities]));
 
+        $template = 'text';
+        if ($route->intentFamily === 'IMPROVE' || $key === 'seo_audit.site_improve') {
+            $template = 'report';
+        } elseif (in_array($key, $listCapabilities, true)) {
+            $template = 'table';
+        }
+
         return json_encode([
             'is_in_scope' => true,
             'intent' => mb_substr(trim($message), 0, 180),
@@ -995,7 +1002,7 @@ class AgentTurnCoordinator
             'parameters' => $extracted['parameters'],
             'requires_parameter_extraction' => false,
             'requires_user_confirmation' => AgentCapabilityCatalog::requiresConfirmation($key),
-            'response_template' => in_array($key, $listCapabilities, true) ? 'table' : 'text',
+            'response_template' => $template,
             'response_language' => $extracted['language'],
         ], JSON_THROW_ON_ERROR);
     }
@@ -1012,16 +1019,21 @@ class AgentTurnCoordinator
 
     public function verifiedFallback(RetrievalBundle $bundle, string $message, string $language): AgentResponse
     {
-        $facts = $this->factual->verifiedFacts($bundle, $language);
-        $analysis = $this->factual->unresolvedRequirements($bundle, $message) !== [];
+        $facts = $this->factual->verifiedFacts($bundle, $language, $message);
+        $isImprovement = $this->factual->isImprovementAnalysis($message);
+        $analysis = $this->factual->unresolvedRequirements($bundle, $message) !== [] || $isImprovement;
         if ($facts instanceof AgentResponse) {
-            $notice = $analysis
+            $notice = $isImprovement
                 ? ($language === 'vi'
-                    ? 'Phân tích của mô hình không được xác minh. Bên dưới chỉ là dữ liệu đã truy xuất.'
-                    : 'The model analysis could not be verified. Only retrieved facts are shown.')
-                : ($language === 'vi'
-                    ? 'Đã dùng dữ liệu đã truy xuất. Kết quả mô hình không được chấp nhận.'
-                    : 'The answer could not be verified against the retrieved evidence, so measured values were omitted.');
+                    ? 'Đề xuất cải thiện của mô hình không được xác minh. Dưới đây chỉ là tóm tắt dữ liệu kiểm toán SEO đã truy xuất.'
+                    : 'The model improvement recommendations could not be verified. Only a summary of retrieved SEO audit data is shown.')
+                : ($analysis
+                    ? ($language === 'vi'
+                        ? 'Phân tích của mô hình không được xác minh. Bên dưới chỉ là dữ liệu đã truy xuất.'
+                        : 'The model analysis could not be verified. Only retrieved facts are shown.')
+                    : ($language === 'vi'
+                        ? 'Đã dùng dữ liệu đã truy xuất. Kết quả mô hình không được chấp nhận.'
+                        : 'The answer could not be verified against the retrieved evidence, so measured values were omitted.'));
             $blocks = array_merge(
                 [['type' => 'warning', 'text' => $notice]],
                 $facts->blocks,
@@ -1068,8 +1080,14 @@ class AgentTurnCoordinator
             }
             $kept[] = $block;
         }
-        $facts = $this->factual->verifiedFacts($bundle, $language);
-        $notice = 'The answer could not be verified against the retrieved evidence, so measured values were omitted.';
+        $facts = $this->factual->verifiedFacts($bundle, $language, $message);
+        $notice = $this->factual->isImprovementAnalysis($message)
+            ? ($language === 'vi'
+                ? 'Đề xuất cải thiện của mô hình không được xác minh. Dưới đây chỉ là tóm tắt dữ liệu kiểm toán SEO đã truy xuất.'
+                : 'The model improvement recommendations could not be verified. Only a summary of retrieved SEO audit data is shown.')
+            : ($language === 'vi'
+                ? 'Câu trả lời không thể xác minh với dữ liệu đã truy xuất, nên các giá trị đo lường đã bị lược bỏ.'
+                : 'The answer could not be verified against the retrieved evidence, so measured values were omitted.');
         $blocks = array_merge([['type' => 'warning', 'text' => $notice]], $kept);
         if ($facts instanceof AgentResponse) {
             foreach ($facts->blocks as $block) {

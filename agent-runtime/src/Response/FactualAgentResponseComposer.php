@@ -24,9 +24,21 @@ final class FactualAgentResponseComposer
 
     public function verifiedFacts(RetrievalBundle $bundle, string $language, string $message = ''): ?AgentResponse
     {
-        $actionable = $this->draftAction($bundle);
-        if ($actionable !== null) {
-            return $this->actionableTable($actionable, $language, $bundle);
+        $isImprovement = $this->isImprovementAnalysis($message);
+        $isExplicitDraft = $this->isExplicitDraftRequest($message);
+
+        if (! $isImprovement || $isExplicitDraft) {
+            $actionable = $this->draftAction($bundle);
+            if ($actionable !== null) {
+                return $this->actionableTable($actionable, $language, $bundle);
+            }
+        }
+
+        if ($isImprovement && ! $isExplicitDraft) {
+            $summary = $this->auditImprovementSummary($bundle, $language);
+            if ($summary !== null) {
+                return $summary;
+            }
         }
 
         $coverage = $this->coverageStatistics($bundle, $message, $language);
@@ -508,4 +520,76 @@ final class FactualAgentResponseComposer
         );
     }
 
+    public function isImprovementAnalysis(string $message): bool
+    {
+        return preg_match('/cải thiện|đề xuất|tối ưu|hướng dẫn|\bimprove\b|\brecommend\b|\boptimization\b/iu', $message) === 1;
+    }
+
+    public function isExplicitDraftRequest(string $message): bool
+    {
+        return preg_match('/(?:đưa|cho|lập|tạo).{0,20}draft|\bdraft\b/iu', $message) === 1;
+    }
+
+    private function auditImprovementSummary(RetrievalBundle $bundle, string $language): ?AgentResponse
+    {
+        $auditSource = null;
+        foreach ($bundle->sources as $source) {
+            if ($source->status === 'ok' && is_array($source->data['items'] ?? null) && is_numeric($source->data['total'] ?? null)) {
+                $items = $source->data['items'];
+                if ($items !== [] && (isset($items[0]['seo_score']) || isset($items[0]['reason_labels']))) {
+                    $auditSource = $source;
+                    break;
+                }
+            }
+        }
+        if ($auditSource === null) {
+            return null;
+        }
+
+        $items = array_values(array_filter($auditSource->data['items'], 'is_array'));
+        $total = (int) $auditSource->data['total'];
+        $sample = array_slice($items, 0, 8);
+        $rows = [];
+        $i = 1;
+        foreach ($sample as $item) {
+            $score = $item['seo_score'] ?? $item['quality_score'] ?? null;
+            $reasons = is_array($item['reason_labels'] ?? null) ? implode(', ', $item['reason_labels']) : '';
+            $rows[] = [
+                'n' => $i++,
+                'title' => (string) ($item['title'] ?? ''),
+                'focus_keyword' => (string) ($item['focus_keyword'] ?? $item['keyword'] ?? ''),
+                'seo_score' => is_numeric($score) ? $score : null,
+                'issues' => $reasons,
+            ];
+        }
+
+        $columns = [
+            ['key' => 'n', 'label' => '#'],
+            ['key' => 'title', 'label' => $language === 'vi' ? 'Tiêu đề' : 'Title'],
+            ['key' => 'focus_keyword', 'label' => $language === 'vi' ? 'Từ khóa chính' : 'Focus Keyword'],
+            ['key' => 'seo_score', 'label' => 'SEO Score'],
+            ['key' => 'issues', 'label' => $language === 'vi' ? 'Vấn đề chính' : 'Main Issues'],
+        ];
+
+        $sampleCount = count($rows);
+        $message = $language === 'vi'
+            ? "Tổng số bài viết cần cải thiện SEO là {$total}. Dưới đây là mẫu {$sampleCount} bài viết có điểm SEO thấp nhất đã truy xuất:"
+            : "Total articles needing SEO improvement: {$total}. Below is a sample of the {$sampleCount} lowest-scoring articles retrieved:";
+
+        $blocks = [
+            ['type' => 'markdown', 'text' => $message],
+            [
+                'type' => 'table',
+                'columns' => $columns,
+                'rows' => $rows,
+            ],
+        ];
+
+        return new AgentResponse(
+            $message,
+            $blocks,
+            [],
+            array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
+        );
+    }
 }

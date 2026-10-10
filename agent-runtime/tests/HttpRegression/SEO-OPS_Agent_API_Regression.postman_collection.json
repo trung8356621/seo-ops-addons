@@ -1,0 +1,235 @@
+{
+  "info": {
+    "_postman_id": "seo-ops-agent-api-regression",
+    "name": "SEO-OPS Agent API Regression",
+    "description": "Regression suite for SEO-OPS Agent endpoints, validating routing, capability execution, answer status, and public security constraints across 3 core user journeys.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Preflight - Projects & Scope",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Cookie", "value": "laravel-session={{cookie_laravel_session}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/agent-runtime/projects",
+          "host": ["{{base_url}}"],
+          "path": ["agent-runtime", "projects"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "pm.test('Site scope is accessible in projects', function () {",
+              "    pm.expect(json.data.projects).to.be.an('array');",
+              "    var hasSite = json.data.projects.some(function (p) { return p.key === pm.environment.get('site_ref'); });",
+              "    pm.expect(hasSite).to.be.true;",
+              "});",
+              "pm.test('No access_tmp leak', function () { pm.expect(pm.response.text()).to.not.include('access_tmp'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Case 1 - Topic Coverage Statistics (PASS)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "X-CSRF-TOKEN", "value": "{{csrf_token}}" },
+          { "key": "Cookie", "value": "laravel-session={{cookie_laravel_session}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"Thống kê số chủ đề Strong, Medium và Weak của website.\",\n  \"scope\": {\n    \"type\": \"site\",\n    \"site_id\": {{site_id}},\n    \"ref\": \"{{site_ref}}\"\n  },\n  \"hostContext\": {\n    \"appKey\": \"{{app_key}}\",\n    \"scope\": {\n      \"type\": \"site\",\n      \"siteId\": {{site_id}},\n      \"ref\": \"{{site_ref}}\"\n    }\n  },\n  \"history\": [],\n  \"debug_mode\": false,\n  \"diagnostics\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/agent-runtime/turns",
+          "host": ["{{base_url}}"],
+          "path": ["agent-runtime", "turns"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "var data = json.data || {};",
+              "pm.test('Routing outcome is confident', function () {",
+              "    pm.expect(data.execution.outcome).to.eql('confident');",
+              "});",
+              "pm.test('Selected capability is keywords.landscape', function () {",
+              "    pm.expect(data.execution.capabilities).to.include('keywords.landscape');",
+              "});",
+              "pm.test('Executed tool is keywords', function () {",
+              "    pm.expect(data.execution.tools).to.include('keywords');",
+              "});",
+              "pm.test('External model calls is 0 (deterministic factual)', function () {",
+              "    pm.expect(data.execution.external_model_calls).to.eql(0);",
+              "});",
+              "pm.test('Failure code is absent', function () {",
+              "    pm.expect(data.failure_code).to.be.undefined;",
+              "});",
+              "pm.test('No access_tmp leak', function () {",
+              "    pm.expect(pm.response.text()).to.not.include('access_tmp');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Case 2 - Topic SEO Listing (AMBIGUOUS)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "X-CSRF-TOKEN", "value": "{{csrf_token}}" },
+          { "key": "Cookie", "value": "laravel-session={{cookie_laravel_session}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"Cho tôi xem danh sách các Topic SEO của website.\",\n  \"scope\": {\n    \"type\": \"site\",\n    \"site_id\": {{site_id}},\n    \"ref\": \"{{site_ref}}\"\n  },\n  \"hostContext\": {\n    \"appKey\": \"{{app_key}}\",\n    \"scope\": {\n      \"type\": \"site\",\n      \"siteId\": {{site_id}},\n      \"ref\": \"{{site_ref}}\"\n    }\n  },\n  \"history\": [],\n  \"debug_mode\": false,\n  \"diagnostics\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/agent-runtime/turns",
+          "host": ["{{base_url}}"],
+          "path": ["agent-runtime", "turns"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "var data = json.data || {};",
+              "pm.test('Routing outcome is ambiguous', function () {",
+              "    pm.expect(data.execution.outcome).to.eql('ambiguous');",
+              "});",
+              "pm.test('Disambiguation clarification message returned', function () {",
+              "    pm.expect(data.message).to.include('Bạn muốn xem dữ liệu hiện có hay nhận đề xuất cải thiện?');",
+              "});",
+              "pm.test('No tools executed due to ambiguity', function () {",
+              "    pm.expect(data.execution.tools).to.be.an('array').that.is.empty;",
+              "});",
+              "pm.test('No access_tmp leak', function () {",
+              "    pm.expect(pm.response.text()).to.not.include('access_tmp');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Case 3 - Site-wide SEO Improvement (Debug Phase)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "X-CSRF-TOKEN", "value": "{{csrf_token}}" },
+          { "key": "Cookie", "value": "laravel-session={{cookie_laravel_session}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"Hãy đề xuất cách cải thiện SEO tổng thể cho site này.\",\n  \"scope\": {\n    \"type\": \"site\",\n    \"site_id\": {{site_id}},\n    \"ref\": \"{{site_ref}}\"\n  },\n  \"hostContext\": {\n    \"appKey\": \"{{app_key}}\",\n    \"scope\": {\n      \"type\": \"site\",\n      \"siteId\": {{site_id}},\n      \"ref\": \"{{site_ref}}\"\n    }\n  },\n  \"history\": [],\n  \"debug_mode\": true,\n  \"diagnostics\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/agent-runtime/turns",
+          "host": ["{{base_url}}"],
+          "path": ["agent-runtime", "turns"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "var data = json.data || {};",
+              "pm.test('Run is paused awaiting answer model in debug mode', function () {",
+              "    pm.expect(data.status).to.eql('paused');",
+              "    pm.expect(data.model_call.key).to.eql('answer');",
+              "});",
+              "pm.environment.set('paused_run_ulid', data.run_ulid);",
+              "pm.test('Assumed answer model is configured', function () {",
+              "    pm.expect(data.model_call.assumed_model.stage).to.eql('answer');",
+              "});",
+              "pm.test('No access_tmp leak', function () {",
+              "    pm.expect(pm.response.text()).to.not.include('access_tmp');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Case 3 - Site-wide SEO Improvement (Rejection & Fallback Diagnostic)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "X-CSRF-TOKEN", "value": "{{csrf_token}}" },
+          { "key": "Cookie", "value": "laravel-session={{cookie_laravel_session}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"run_ulid\": \"{{paused_run_ulid}}\",\n  \"manual_result\": \"{\\\"message\\\":\\\"Đề xuất cải thiện SEO\\\",\\\"blocks\\\":[{\\\"type\\\":\\\"table\\\",\\\"columns\\\":[{\\\"key\\\":\\\"title\\\",\\\"label\\\":\\\"Tiêu đề\\\"}],\\\"rows\\\":[{\\\"title\\\":\\\"Sửa bài balo\\\",\\\"priority\\\":1}]}],\\\"actions\\\":[]}\",\n  \"use_verified\": false,\n  \"recover_stranded\": false\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/agent-runtime/model-debug/apply",
+          "host": ["{{base_url}}"],
+          "path": ["agent-runtime", "model-debug", "apply"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+              "var json = pm.response.json();",
+              "var data = json.data || {};",
+              "pm.test('Answer status is rejected', function () {",
+              "    pm.expect(data.execution.answer_status).to.eql('rejected');",
+              "});",
+              "pm.test('Warning notice block present', function () {",
+              "    pm.expect(data.blocks[0].type).to.eql('warning');",
+              "});",
+              "pm.test('50-row Draft table present as fallback', function () {",
+              "    var table = data.blocks.find(function (b) { return b.type === 'table'; });",
+              "    pm.expect(table).to.not.be.undefined;",
+              "    pm.expect(table.actionable.action).to.eql('content_project.draft.intake');",
+              "    pm.expect(table.rows.length).to.eql(50);",
+              "});",
+              "pm.test('No access_tmp leak', function () {",
+              "    pm.expect(pm.response.text()).to.not.include('access_tmp');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

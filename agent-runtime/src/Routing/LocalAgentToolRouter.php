@@ -81,6 +81,12 @@ final class LocalAgentToolRouter
             'routing_version' => $routingVersion,
         ];
         if ($status !== 'confident') {
+            if ($status === 'ambiguous') {
+                $disambiguated = $this->resolveCrossFamilyAmbiguity($message, $result, $diagnostics);
+                if ($disambiguated instanceof LocalToolRoute) {
+                    return $disambiguated;
+                }
+            }
             $outcome = in_array($status, ['none', 'ambiguous', 'unsupported', 'unavailable'], true) ? $status : 'unavailable';
             return new LocalToolRoute($outcome, null, null, false, [], 'hybrid_weighted', null, null, null, false, [], $diagnostics);
         }
@@ -103,6 +109,96 @@ final class LocalAgentToolRouter
         ], array_values(array_filter((array) ($result['operation_candidates'] ?? []), 'is_array'))));
 
         return $this->fromOperation($module, $operationRef, $operation, $internal, $diagnostics);
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @param  array<string, mixed>  $diagnostics
+     */
+    private function resolveCrossFamilyAmbiguity(string $message, array $result, array &$diagnostics): ?LocalToolRoute
+    {
+        $candidates = array_values(array_filter((array) ($result['operation_candidates'] ?? []), 'is_array'));
+        if (count($candidates) < 2) {
+            return null;
+        }
+
+        $scoreKey = isset($candidates[0]['internal_semantic_score']) ? 'internal_semantic_score' : 'score';
+        $top1 = $candidates[0];
+        $top2 = $candidates[1];
+        $score1 = (float) ($top1[$scoreKey] ?? 0);
+        $score2 = (float) ($top2[$scoreKey] ?? 0);
+
+        if (abs($score1 - $score2) > 0.08) {
+            return null;
+        }
+
+        $op1 = $this->config->operation((string) ($top1['operation'] ?? ''));
+        $op2 = $this->config->operation((string) ($top2['operation'] ?? ''));
+        if ($op1 === null || $op2 === null) {
+            return null;
+        }
+
+        $family1 = (string) ($op1['family'] ?? '');
+        $family2 = (string) ($op2['family'] ?? '');
+
+        // Preserve genuine ambiguity within the same family.
+        if ($family1 === $family2) {
+            return null;
+        }
+
+        $hasReadIntent = (bool) preg_match('/(?:cho tôi xem|danh sách|liệt kê|thống kê|hiển thị|xem|kiểm tra|kho|bộ sưu tập|\blist\b|\bshow\b|\bview\b|\bdisplay\b|\binventory\b)/iu', $message);
+        $hasImproveIntent = (bool) preg_match('/(?:đề xuất|gợi ý|cải thiện|tối ưu|hướng dẫn|nâng cao|sửa|\bimprove\b|\bsuggest\b|\brecommend\b|\boptimize\b)/iu', $message);
+
+        $targetFamily = null;
+        if ($hasReadIntent && ! $hasImproveIntent) {
+            $targetFamily = 'READ';
+        } elseif ($hasImproveIntent && ! $hasReadIntent) {
+            $targetFamily = 'IMPROVE';
+        }
+
+        if ($targetFamily === null) {
+            return null;
+        }
+
+        $chosen = null;
+        $chosenOp = null;
+        if ($family1 === $targetFamily) {
+            $chosen = $top1;
+            $chosenOp = $op1;
+        } elseif ($family2 === $targetFamily) {
+            $chosen = $top2;
+            $chosenOp = $op2;
+        }
+
+        if ($chosen === null || $chosenOp === null) {
+            return null;
+        }
+
+        $opRef = (string) ($chosen['operation'] ?? '');
+        $module = explode('.', $opRef)[0] ?? '';
+        if (! $this->config->knownModule($module)) {
+            $module = (string) ($result['module'] ?? '');
+        }
+
+        $internal = new WeightedEvaluation('confident', $opRef, array_map(static fn (array $row): array => [
+            'ref' => (string) ($row['operation'] ?? ''),
+            'semantic_relevance' => (float) ($row['internal_semantic_score'] ?? 0),
+            'weight' => 100.0,
+            'score' => (float) ($row['internal_semantic_score'] ?? 0),
+            'group_id' => (string) ($row['group_id'] ?? ''),
+            'example' => (string) ($row['example'] ?? ''),
+        ], $candidates));
+
+        $diagnostics['module'] = $module;
+        $diagnostics['operation'] = $opRef;
+        $diagnostics['service_id'] = $chosenOp['service_id'] ?? null;
+        $diagnostics['cross_family_disambiguation'] = [
+            'target_family' => $targetFamily,
+            'competing_families' => [$family1, $family2],
+            'resolved_operation' => $opRef,
+        ];
+
+        return $this->fromOperation($module, $opRef, $chosenOp, $internal, $diagnostics);
     }
 
     /** @param list<array<string, mixed>> $groups @return list<array<string, mixed>> */
