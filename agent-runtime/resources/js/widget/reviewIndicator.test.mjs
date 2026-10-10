@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
-import { defaultReviewChoice, resolveReviewIndicator, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
+import { completedReviewRun, defaultReviewChoice, findReviewResponse, resolveReviewIndicator, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
 
 const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8');
 
@@ -60,6 +60,25 @@ test('response versions keep independent confirmed indicators', () => {
     assert.equal(resolveReviewIndicator(response('run-3'), confirmed['run-3']), null);
 });
 
+test('a completed response opens its own run and a rerun does not reuse the previous one', () => {
+    const completed = response('run-new');
+    const paused = { ...response('run-paused'), status: 'paused' };
+    const empty = { run_ulid: 'run-empty', execution: { routing_review: { candidates: [] } } };
+    assert.equal(completedReviewRun(completed), 'run-new');
+    assert.equal(completedReviewRun(paused), null);
+    assert.equal(completedReviewRun(empty), null);
+    assert.equal(completedReviewRun(response('run-old')), 'run-old');
+    assert.equal(findReviewResponse([
+        { response: response('run-old') },
+        { response: response('run-new') },
+    ], 'run-new').run_ulid, 'run-new');
+    assert.equal(defaultReviewChoice('', reviewCandidatesOf(completed)), 'cand-keywords');
+});
+
+function reviewCandidatesOf(value) {
+    return value.execution.routing_review.candidates;
+}
+
 test('opening a vote preselects only a sole Agent choice and does not submit it', () => {
     assert.equal(defaultReviewChoice('', [keywords, articles]), 'cand-keywords');
     assert.equal(defaultReviewChoice('cand-articles', [keywords, articles]), 'cand-articles');
@@ -73,7 +92,10 @@ test('opening a vote preselects only a sole Agent choice and does not submit it'
     ]), '');
     const open = widget.slice(widget.indexOf('function openRoutingReview'), widget.indexOf('function confirmRoutingReview'));
     assert.equal(open.includes('queueRoutingReview'), false);
-    assert.equal(open.includes('defaultReviewChoice'), true);
+    assert.equal(open.includes('stageReviewChoice'), true);
+    const reveal = widget.slice(widget.indexOf('function revealCompletedReview'), widget.indexOf('function openRoutingReview'));
+    assert.equal(reveal.includes('queueRoutingReview'), false);
+    assert.equal(reveal.includes('completedReviewRun'), true);
     assert.equal(toggleReviewRun(null, 'run-a'), 'run-a');
     assert.equal(toggleReviewRun('run-a', 'run-a'), null);
     assert.equal(toggleReviewRun('run-a', 'run-b'), 'run-b');

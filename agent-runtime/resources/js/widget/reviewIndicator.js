@@ -20,6 +20,31 @@ export function defaultReviewChoice(savedChoice, candidates) {
     return soleAgentChoice(candidates);
 }
 
+export function completedReviewRun(response) {
+    if (!response || response.status === 'paused') {
+        return null;
+    }
+    const runUlid = String(response.run_ulid || '').trim();
+    if (runUlid === '' || reviewCandidates(response).length === 0) {
+        return null;
+    }
+    return runUlid;
+}
+
+export function findReviewResponse(messages, runUlid) {
+    if (!runUlid) {
+        return null;
+    }
+    const list = Array.isArray(messages) ? messages : [];
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+        const response = list[index]?.response;
+        if (response?.run_ulid === runUlid) {
+            return response;
+        }
+    }
+    return null;
+}
+
 export function toggleReviewRun(openRunUlid, runUlid) {
     if (!runUlid) {
         return openRunUlid || null;

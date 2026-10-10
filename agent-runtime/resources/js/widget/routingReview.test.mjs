@@ -9,24 +9,28 @@ function slice(start, end) {
     return widget.slice(widget.indexOf(start), widget.indexOf(end));
 }
 
-test('routing review is collapsed until the matching Vote button opens it', () => {
-    assert.equal(widget.includes('useState(null)'), true);
+test('a completed response reveals its vote above the composer without opening history or paused runs', () => {
     assert.equal(widget.includes('const [openReviewRunUlid, setOpenReviewRunUlid] = useState(null)'), true);
-    assert.equal(widget.includes('const panelOpen = openReviewRunUlid === versionRunUlid && versionCandidates.length > 0'), true);
     assert.equal(widget.includes('<Vote size={13} />'), true);
     assert.equal(widget.includes('onClick={() => openRoutingReview(version.response)}'), true);
-    assert.equal(widget.includes('ThumbsUp'), false);
-    assert.equal(widget.includes('ThumbsDown'), false);
     assert.equal(widget.includes('semantic_score'), false);
-    const aboveComposer = widget.slice(widget.indexOf('{error ?'), widget.indexOf('className="agent-composer"'));
-    assert.equal(aboveComposer.includes('agent-routing-review'), false);
-    const assistant = slice('className="agent-message is-assistant"', 'draftIntakeUrl={endpoints.draftIntakeUrl}');
-    assert.equal(assistant.includes('className="agent-routing-review"'), true);
-    assert.equal(assistant.includes('id={`routing-review-${versionRunUlid}`}'), true);
-    assert.match(assistant, /candidate\.question/);
-    assert.match(assistant, /Không câu nào đúng ý tôi/);
-    assert.equal(assistant.includes('Phương án khác đã được cân nhắc'), false);
-    assert.equal(assistant.includes('agentChoice === candidate.id'), true);
+    const send = slice('async function onSend()', 'async function onConfirmationAction');
+    const rerun = slice('async function onRerun', 'function stageReviewChoice');
+    assert.ok(send.indexOf('setOpenReviewRunUlid(null)') < send.indexOf('postJson(sendUrl'));
+    assert.ok(send.indexOf("if (data.status === 'paused')") < send.indexOf('revealCompletedReview(data)'));
+    assert.ok(rerun.indexOf('setOpenReviewRunUlid(null)') < rerun.indexOf('postJson(rerunUrl'));
+    assert.ok(rerun.indexOf("if (data.status === 'paused')") < rerun.indexOf('revealCompletedReview(data)'));
+    assert.equal(slice('async function finishStrandedRun', '// Scope change / initial mount effect').includes('revealCompletedReview'), false);
+    assert.equal(slice('const loadThread', '// New conversation action').includes('revealCompletedReview'), false);
+    assert.equal(slice('className="agent-version-nav"', 'aria-label="Previous response version"').includes('revealCompletedReview'), false);
+    assert.equal(widget.includes('useEffect(() => {\n        const runUlid = completedReviewRun'), false);
+    const aboveComposer = widget.slice(widget.indexOf('agent-error-banner'), widget.indexOf('className="agent-composer"'));
+    assert.equal(aboveComposer.includes('className="agent-routing-review"'), true);
+    assert.equal(aboveComposer.includes('scrollIntoView'), false);
+    assert.equal(slice('className="agent-message is-assistant"', 'draftIntakeUrl={endpoints.draftIntakeUrl}').includes('className="agent-routing-review"'), false);
+    assert.equal(aboveComposer.includes('openAgentChoice === candidate.id'), true);
+    assert.equal(aboveComposer.includes('Phương án khác đã được cân nhắc'), false);
+    assert.match(aboveComposer, /candidate\.question/);
 });
 
 test('confirm records the vote, closes the panel, and activates only that icon', () => {
@@ -42,9 +46,9 @@ test('confirm records the vote, closes the panel, and activates only that icon',
 
 test('saved and alternative choices stay on their response version', () => {
     assert.equal(widget.includes('const [confirmedReviews, setConfirmedReviews] = useState(storedReviewSelections)'), true);
-    assert.equal(widget.includes('[versionRunUlid]: candidate.id'), true);
-    assert.equal(widget.includes("[versionRunUlid]: '__none__'"), true);
-    const radios = slice('versionCandidates.map', 'className="agent-routing-review__confirm"');
+    assert.equal(widget.includes('[openReviewRunUlid]: candidate.id'), true);
+    assert.equal(widget.includes("[openReviewRunUlid]: '__none__'"), true);
+    const radios = slice('openReviewCandidates.map', 'className="agent-routing-review__confirm"');
     assert.equal(radios.includes('queueRoutingReview'), false);
 });
 
@@ -55,8 +59,7 @@ test('switching conversations closes the open review panel', () => {
 });
 
 test('review choices stay readable in a compact inline panel', () => {
-    assert.match(css, /\.agent-routing-review\s*\{[^}]*background:\s*#ffffff/);
-    assert.doesNotMatch(css, /\.agent-routing-review\s*\{[^}]*position:\s*sticky/);
+    assert.match(css, /\.agent-routing-review\s*\{[^}]*position:\s*sticky;\s*bottom:\s*0;[^}]*background:\s*#ffffff/);
     assert.match(css, /\.agent-routing-review__choice\s*\{[^}]*color:\s*#0f172a/);
     assert.doesNotMatch(css, /\.agent-routing-review__choice\s*\{[^}]*opacity:/);
     assert.match(css, /@media \(max-width: 640px\)\s*\{[\s\S]*\.agent-routing-review\s*\{[^}]*max-height:\s*36vh/);
