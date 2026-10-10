@@ -74,18 +74,14 @@ class AgentTurnPersistence
     ): AgentMessage {
         $position = AgentMessage::where('thread_id', $run->thread_id)->max('position') ?? 0;
 
+        $public = $response->toArray();
         $assistantMessage = AgentMessage::create([
             'ulid' => (string) Str::ulid(),
             'thread_id' => $run->thread_id,
             'run_id' => $run->id,
             'role' => 'assistant',
-            'content' => $response->message,
-            'response_payload' => [
-                'message' => $response->message,
-                'blocks' => $response->blocks,
-                'actions' => $response->actions,
-                'sources' => $response->sources,
-            ],
+            'content' => is_string($public['message'] ?? null) ? $public['message'] : $response->message,
+            'response_payload' => $public,
             'position' => $position + 1,
         ]);
 
@@ -140,18 +136,14 @@ class AgentTurnPersistence
     public function rememberContinuation(AgentRun $run, AgentResponse $response, array $state): AgentMessage
     {
         $position = AgentMessage::where('thread_id', $run->thread_id)->max('position') ?? 0;
+        $public = $response->toArray();
         $assistantMessage = AgentMessage::create([
             'ulid' => (string) Str::ulid(),
             'thread_id' => $run->thread_id,
             'run_id' => $run->id,
             'role' => 'assistant',
-            'content' => $response->message,
-            'response_payload' => [
-                'message' => $response->message,
-                'blocks' => $response->blocks,
-                'actions' => $response->actions,
-                'sources' => $response->sources,
-            ],
+            'content' => is_string($public['message'] ?? null) ? $public['message'] : $response->message,
+            'response_payload' => $public,
             'position' => $position + 1,
         ]);
         $run->update([

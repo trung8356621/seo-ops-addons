@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Model;
 
+use Omnichannel\Addons\AgentRuntime\Response\AgentPublicPayloadSanitizer;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 
 final class AgentModelEvidenceSanitizer
@@ -17,7 +18,7 @@ final class AgentModelEvidenceSanitizer
                 continue;
             }
 
-            $source['data'] = $this->withoutCredentialUrls($this->withoutInternalNavigation($source['data']));
+            $source['data'] = (new AgentPublicPayloadSanitizer())->sanitize($this->withoutInternalNavigation($source['data']));
             if (($source['name'] ?? null) === 'site') {
                 $source['data'] = $this->withoutImportantPageUrls($source['data']);
             }
@@ -45,30 +46,6 @@ final class AgentModelEvidenceSanitizer
         }
 
         return $node;
-    }
-
-    /**
-     * @param  array<string, mixed>  $node
-     * @return array<string, mixed>
-     */
-    private function withoutCredentialUrls(array $node): array
-    {
-        foreach ($node as $key => $value) {
-            if (is_string($value) && $this->isCredentialUrl($value)) {
-                unset($node[$key]);
-                continue;
-            }
-            if (is_array($value)) {
-                $node[$key] = $this->withoutCredentialUrls($value);
-            }
-        }
-
-        return $node;
-    }
-
-    private function isCredentialUrl(string $value): bool
-    {
-        return str_contains($value, 'access_tmp') || str_contains($value, '/api/v1/access/');
     }
 
     /**

@@ -23,11 +23,18 @@ final readonly class AgentResponse
      */
     public function toArray(): array
     {
-        return [
+        $public = (new AgentPublicPayloadSanitizer())->sanitize([
             'message' => $this->message,
             'blocks' => $this->blocks,
             'actions' => $this->actions,
             'sources' => $this->sources,
+        ]);
+
+        return is_array($public) ? $public : [
+            'message' => $this->message,
+            'blocks' => $this->blocks,
+            'actions' => $this->actions,
+            'sources' => [],
         ];
     }
 }

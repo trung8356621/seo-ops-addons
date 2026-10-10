@@ -10,6 +10,9 @@ use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AgentRuntime\Model\AnswerEvidenceProjector;
 use Omnichannel\Addons\AgentRuntime\Model\SecretRedactor;
 use Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver;
+use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentMessage;
+use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
 use Omnichannel\Addons\AgentRuntime\Retrieval\AgentEvidenceLinkEnricher;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
@@ -85,6 +88,69 @@ final class FactualOutputContractTest extends TestCase
         self::assertSame('weak', $response->blocks[0]['rows'][0]['coverage']);
         self::assertArrayNotHasKey('detail_href', $response->blocks[0]['rows'][0]);
         self::assertStringNotContainsString('access_tmp', json_encode($response->blocks, JSON_UNESCAPED_UNICODE) ?: '');
+        $public = json_encode($response->toArray(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        self::assertStringNotContainsString('access_tmp', $public);
+        self::assertStringNotContainsString('/api/v1/access/', $public);
+        self::assertStringContainsString('https://seo-ops.test/seo/keywords/clusters/9?site_id=4', $public);
+        self::assertStringContainsString('topic:9', $public);
+    }
+
+    #[Test]
+    public function stored_and_reopened_payloads_drop_access_urls_without_touching_review_identity(): void
+    {
+        $response = new AgentResponse('Có topic.', [[
+            'type' => 'markdown',
+            'text' => 'Xem https://seo-ops.test/seo/keywords/clusters/9?site_id=4 và /api/v1/access/access_tmp_secret/keywords',
+        ]], [], [[
+            'name' => 'topics',
+            'status' => 'ok',
+            'request' => 'GET /api/v1/access/access_tmp_secret/keywords',
+            'data' => [
+                'public_url' => 'https://shop.example/balo-hoc-sinh',
+                'detail_href' => '/api/v1/access/access_tmp_secret/keywords/topics/topic:9',
+                'ui_href' => 'https://seo-ops.test/seo/keywords/clusters/9?site_id=4',
+            ],
+        ]]);
+        $stored = $response->toArray();
+        $storedJson = json_encode($stored, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        self::assertStringNotContainsString('access_tmp', $storedJson);
+        self::assertStringContainsString('https://shop.example/balo-hoc-sinh', $storedJson);
+        self::assertStringContainsString('https://seo-ops.test/seo/keywords/clusters/9?site_id=4', $storedJson);
+
+        $legacy = new AgentMessage();
+        $legacy->forceFill([
+            'role' => 'assistant',
+            'content' => 'Bản cũ /api/v1/access/access_tmp_old/keywords',
+            'response_payload' => [
+                'message' => 'Bản cũ',
+                'blocks' => [['type' => 'markdown', 'text' => 'Giữ nguyên câu trả lời']],
+                'actions' => [],
+                'sources' => [[
+                    'data' => ['detail_href' => '/api/v1/access/access_tmp_old/keywords/topics/topic:1'],
+                ]],
+                'response_version' => 4,
+            ],
+            'metadata' => ['routing_vote_id' => 'vote-42'],
+        ]);
+        $reopened = $legacy->toArray();
+        $reopenedJson = json_encode($reopened, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        self::assertStringNotContainsString('access_tmp', $reopenedJson);
+        self::assertStringContainsString('Giữ nguyên câu trả lời', $reopenedJson);
+        self::assertSame(4, $reopened['response_payload']['response_version']);
+        self::assertSame('vote-42', $reopened['metadata']['routing_vote_id']);
+
+        $run = new AgentRun();
+        $run->forceFill([
+            'retrieval_summary' => [
+                'model_diagnostics' => ['execution' => ['routing_review' => ['selected_candidate_id' => 'operation:keywords.landscape']]],
+                'gsc_continuation' => ['cached_period' => '2026-07', 'token_url' => '/api/v1/access/access_tmp_gsc/gsc'],
+            ],
+        ]);
+        $runJson = json_encode($run->toArray(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '';
+        self::assertStringNotContainsString('access_tmp', $runJson);
+        self::assertStringContainsString('operation:keywords.landscape', $runJson);
+        self::assertSame('2026-07', $run->retrieval_summary['gsc_continuation']['cached_period']);
+        self::assertStringContainsString('access_tmp', (string) $run->retrieval_summary['gsc_continuation']['token_url']);
     }
 
     #[Test]
