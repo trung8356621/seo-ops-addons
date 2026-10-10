@@ -513,58 +513,61 @@
     border-color: transparent;
 }
 
-.agent-review-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    background: #f8fafc;
-    color: #64748b;
-}
-
-.agent-review-mark.is-alternative {
-    color: #4338ca;
-    border-color: #e0e7ff;
-    background: #f8faff;
-}
-
-.agent-review-mark.is-none {
-    border-style: dashed;
+.agent-vote-btn.is-active,
+.agent-vote-btn.is-open {
+    color: #1e3a8a;
+    border-color: #93c5fd;
+    background: #eff6ff;
 }
 
 .agent-routing-review {
-    position: sticky;
-    bottom: 0;
-    z-index: 5;
-    margin: 0 16px;
-    padding: 12px 14px;
-    border: 1px solid #dbeafe;
-    border-radius: 10px 10px 0 0;
-    background: #f8fbff;
-    box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #0f172a;
+}
+
+.agent-routing-review__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
 }
 
 .agent-routing-review__question {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 13px;
     font-weight: 600;
+    line-height: 1.35;
     color: #0f172a;
+}
+
+.agent-routing-review__close {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
 }
 
 .agent-routing-review__choices {
     display: grid;
-    gap: 6px;
+    gap: 4px;
 }
 
 .agent-routing-review__choice {
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    font-size: 12px;
-    color: #334155;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #0f172a;
     cursor: pointer;
 }
 
@@ -574,8 +577,10 @@
 
 .agent-routing-review__choice small {
     display: block;
-    color: #64748b;
-    font-size: 11px;
+    margin-top: 1px;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 .agent-routing-review__confirm {
@@ -597,8 +602,7 @@
 
 @media (max-width: 640px) {
     .agent-routing-review {
-        margin: 0 8px;
-        max-height: 42vh;
+        max-height: 36vh;
         overflow-y: auto;
     }
 }

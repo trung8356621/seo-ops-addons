@@ -1,3 +1,32 @@
+export function reviewCandidates(response) {
+    const candidates = response?.execution?.routing_review?.candidates;
+    return (Array.isArray(candidates) ? candidates : []).filter((candidate) => (
+        candidate?.id && String(candidate?.question || '').trim() !== ''
+    ));
+}
+
+export function soleAgentChoice(candidates) {
+    const selected = (Array.isArray(candidates) ? candidates : []).filter((candidate) => (
+        candidate?.selected === true && candidate?.id
+    ));
+    return selected.length === 1 ? String(selected[0].id) : '';
+}
+
+export function defaultReviewChoice(savedChoice, candidates) {
+    const saved = typeof savedChoice === 'string' ? savedChoice.trim() : '';
+    if (saved !== '') {
+        return saved;
+    }
+    return soleAgentChoice(candidates);
+}
+
+export function toggleReviewRun(openRunUlid, runUlid) {
+    if (!runUlid) {
+        return openRunUlid || null;
+    }
+    return openRunUlid === runUlid ? null : runUlid;
+}
+
 export function resolveReviewIndicator(response, confirmedChoice) {
     const choice = typeof confirmedChoice === 'string' ? confirmedChoice.trim() : '';
     if (choice === '') {

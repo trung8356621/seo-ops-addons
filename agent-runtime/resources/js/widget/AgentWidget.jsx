@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, CircleCheck, CircleQuestionMark, Copy, GitCompare, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video, Vote } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
 import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -10,7 +10,7 @@ import { ModelDebugModal } from './ModelDebugModal.jsx';
 import { copyPlainText } from './clipboard.js';
 import { responseToPlainText } from '../response/responseText.js';
 import { flushFeedback, queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
-import { resolveReviewIndicator } from './reviewIndicator.js';
+import { defaultReviewChoice, resolveReviewIndicator, reviewCandidates, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
 import { archiveThreadLocally, prependThread, threadTitleFromMessage } from './threadSidebar.js';
 import {
     clearStoredThreadUlid,
@@ -46,15 +46,6 @@ async function postJson(url, csrf, body) {
         throw err;
     }
     return payload;
-}
-
-function ReviewMark({ mark }) {
-    const Icon = mark.kind === 'agreed' ? CircleCheck : mark.kind === 'alternative' ? GitCompare : CircleQuestionMark;
-    return (
-        <span className={`agent-review-mark is-${mark.kind}`} role="img" title={mark.title} aria-label={mark.title}>
-            <Icon size={13} aria-hidden="true" />
-        </span>
-    );
 }
 
 function waitingForManualModel(modelCall) {
@@ -218,6 +209,7 @@ export function AgentWidget({
     const storedReviewSelections = typeof window === 'undefined' ? {} : readReviewSelections();
     const [reviewSelections, setReviewSelections] = useState(storedReviewSelections);
     const [confirmedReviews, setConfirmedReviews] = useState(storedReviewSelections);
+    const [openReviewRunUlid, setOpenReviewRunUlid] = useState(null);
 
     useEffect(() => {
         const deliver = () => flushFeedback(endpoints.feedbackUrl, csrf).catch(() => {});
@@ -525,6 +517,7 @@ export function AgentWidget({
         }
         setBusy(true);
         setError('');
+        setOpenReviewRunUlid(null);
         try {
             const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
                 credentials: 'same-origin',
@@ -615,6 +608,7 @@ export function AgentWidget({
         clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
         resetDebugState();
         setDebugOpen(false);
+        setOpenReviewRunUlid(null);
     }, [hostContext.appKey, currentScopeRef, resetDebugState]);
 
     // Archive conversation action
@@ -759,6 +753,7 @@ export function AgentWidget({
             setMessages([]);
             resetDebugState();
             setDebugOpen(false);
+            setOpenReviewRunUlid(null);
         }
     }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
@@ -1026,26 +1021,27 @@ export function AgentWidget({
     }
 
     const conversationTurns = groupConversation(messages);
-    const reviewTurn = conversationTurns.at(-1) || null;
-    const reviewVersionIndex = reviewTurn
-        ? Math.min(
-            selectedVersions[reviewTurn.id] ?? Math.max(0, reviewTurn.versions.length - 1),
-            Math.max(0, reviewTurn.versions.length - 1),
-        )
-        : 0;
-    const reviewVersion = reviewTurn?.versions?.[reviewVersionIndex] || null;
-    const reviewRunUlid = reviewVersion?.response?.run_ulid || '';
-    const routingReview = reviewVersion?.response?.execution?.routing_review || null;
-    const reviewCandidates = Array.isArray(routingReview?.candidates)
-        ? routingReview.candidates.filter((candidate) => candidate?.id && candidate?.question)
-        : [];
-    const activeReviewChoice = reviewRunUlid ? (reviewSelections[reviewRunUlid] || '') : '';
 
-    function confirmRoutingReview() {
-        if (!reviewRunUlid || !activeReviewChoice) return;
-        const preferred = activeReviewChoice === '__none__' ? null : activeReviewChoice;
-        queueRoutingReview(reviewRunUlid, preferred);
-        setConfirmedReviews((current) => ({ ...current, [reviewRunUlid]: activeReviewChoice }));
+    function openRoutingReview(response) {
+        const runUlid = String(response?.run_ulid || '');
+        if (!runUlid) return;
+        const nextOpen = toggleReviewRun(openReviewRunUlid, runUlid);
+        setOpenReviewRunUlid(nextOpen);
+        if (nextOpen !== runUlid) return;
+        setReviewSelections((current) => {
+            const next = defaultReviewChoice(current[runUlid], reviewCandidates(response));
+            if (!next || current[runUlid] === next) return current;
+            return { ...current, [runUlid]: next };
+        });
+    }
+
+    function confirmRoutingReview(runUlid) {
+        const choice = reviewSelections[runUlid] || '';
+        if (!runUlid || !choice) return;
+        const preferred = choice === '__none__' ? null : choice;
+        queueRoutingReview(runUlid, preferred);
+        setConfirmedReviews((current) => ({ ...current, [runUlid]: choice }));
+        setOpenReviewRunUlid((current) => (current === runUlid ? null : current));
     }
 
     const shellClass = [
@@ -1353,6 +1349,13 @@ export function AgentWidget({
                                 Math.max(0, turn.versions.length - 1)
                             );
                             const version = turn.versions[versionIndex];
+                            const versionCandidates = reviewCandidates(version?.response);
+                            const versionRunUlid = version?.response?.run_ulid || '';
+                            const confirmedChoice = confirmedReviews[versionRunUlid] || '';
+                            const reviewMark = resolveReviewIndicator(version?.response, confirmedChoice);
+                            const panelOpen = openReviewRunUlid === versionRunUlid && versionCandidates.length > 0;
+                            const reviewChoice = reviewSelections[versionRunUlid] || '';
+                            const agentChoice = soleAgentChoice(versionCandidates);
 
                             return (
                                 <div key={turn.id} className="agent-turn">
@@ -1401,13 +1404,18 @@ export function AgentWidget({
                                                         </span>
                                                     ) : null}
 
-                                                    {(() => {
-                                                        const reviewMark = resolveReviewIndicator(
-                                                            version.response,
-                                                            confirmedReviews[version.response?.run_ulid],
-                                                        );
-                                                        return reviewMark ? <ReviewMark mark={reviewMark} /> : null;
-                                                    })()}
+                                                    {versionCandidates.length > 0 ? (
+                                                        <button
+                                                            type="button"
+                                                            className={`agent-message-action-btn agent-vote-btn${reviewMark ? ' is-active' : ''}${panelOpen ? ' is-open' : ''}`}
+                                                            aria-expanded={panelOpen}
+                                                            title={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
+                                                            aria-label={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
+                                                            onClick={() => openRoutingReview(version.response)}
+                                                        >
+                                                            <Vote size={13} />
+                                                        </button>
+                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         className="agent-message-action-btn"
@@ -1423,6 +1431,55 @@ export function AgentWidget({
                                                     )}
                                                 </div>
                                             </div>
+                                            {panelOpen ? (
+                                                <section id={`routing-review-${versionRunUlid}`} className="agent-routing-review" aria-label="Đánh giá cách hiểu câu hỏi">
+                                                    <div className="agent-routing-review__head">
+                                                        <p className="agent-routing-review__question">
+                                                            Theo bạn, câu hỏi nào gần với ý bạn muốn hỏi nhất?
+                                                        </p>
+                                                        <button type="button" className="agent-routing-review__close" aria-label="Đóng đánh giá" onClick={() => setOpenReviewRunUlid(null)}>×</button>
+                                                    </div>
+                                                    <div className="agent-routing-review__choices">
+                                                        {versionCandidates.map((candidate) => (
+                                                            <label key={candidate.id} className="agent-routing-review__choice">
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`routing-review-${versionRunUlid}`}
+                                                                    checked={reviewChoice === candidate.id}
+                                                                    onChange={() => setReviewSelections((current) => ({
+                                                                        ...current,
+                                                                        [versionRunUlid]: candidate.id,
+                                                                    }))}
+                                                                />
+                                                                <span>
+                                                                    {candidate.question}
+                                                                    {agentChoice === candidate.id ? <small>Hệ thống đã chọn</small> : null}
+                                                                </span>
+                                                            </label>
+                                                        ))}
+                                                        <label className="agent-routing-review__choice">
+                                                            <input
+                                                                type="radio"
+                                                                name={`routing-review-${versionRunUlid}`}
+                                                                checked={reviewChoice === '__none__'}
+                                                                onChange={() => setReviewSelections((current) => ({
+                                                                    ...current,
+                                                                    [versionRunUlid]: '__none__',
+                                                                }))}
+                                                            />
+                                                            <span>Không câu nào đúng ý tôi</span>
+                                                        </label>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="agent-routing-review__confirm"
+                                                        disabled={!reviewChoice}
+                                                        onClick={() => confirmRoutingReview(versionRunUlid)}
+                                                    >
+                                                        {confirmedChoice === reviewChoice ? 'Đã ghi nhận' : 'Xác nhận'}
+                                                    </button>
+                                                </section>
+                                            ) : null}
                                             <div className="agent-message__body">
                                                 <ResponseView
                                                     response={version.response}
@@ -1479,57 +1536,6 @@ export function AgentWidget({
 
                         {error ? <div className="agent-error-banner">{error}</div> : null}
                     </div>
-
-                    {!isTestMode && !processingStatus && reviewRunUlid && reviewCandidates.length > 0 ? (
-                        <section className="agent-routing-review" aria-label="Đánh giá cách hiểu câu hỏi">
-                            <p className="agent-routing-review__question">
-                                Theo bạn, câu hỏi nào gần với ý bạn muốn hỏi nhất?
-                            </p>
-                            <div className="agent-routing-review__choices">
-                                {reviewCandidates.map((candidate) => (
-                                    <label key={candidate.id} className="agent-routing-review__choice">
-                                        <input
-                                            type="radio"
-                                            name={`routing-review-${reviewRunUlid}`}
-                                            checked={activeReviewChoice === candidate.id}
-                                            onChange={() => setReviewSelections((current) => ({
-                                                ...current,
-                                                [reviewRunUlid]: candidate.id,
-                                            }))}
-                                        />
-                                        <span>
-                                            {candidate.question}
-                                            <small>
-                                                {candidate.selected
-                                                    ? 'Hệ thống đã chọn'
-                                                    : 'Phương án khác đã được cân nhắc'}
-                                            </small>
-                                        </span>
-                                    </label>
-                                ))}
-                                <label className="agent-routing-review__choice">
-                                    <input
-                                        type="radio"
-                                        name={`routing-review-${reviewRunUlid}`}
-                                        checked={activeReviewChoice === '__none__'}
-                                        onChange={() => setReviewSelections((current) => ({
-                                            ...current,
-                                            [reviewRunUlid]: '__none__',
-                                        }))}
-                                    />
-                                    <span>Không câu nào đúng ý tôi</span>
-                                </label>
-                            </div>
-                            <button
-                                type="button"
-                                className="agent-routing-review__confirm"
-                                disabled={!activeReviewChoice}
-                                onClick={confirmRoutingReview}
-                            >
-                                {confirmedReviews[reviewRunUlid] === activeReviewChoice ? 'Đã ghi nhận' : 'Xác nhận'}
-                            </button>
-                        </section>
-                    ) : null}
 
                     {isTestMode ? null : isViewingArchived ? (
                         <div className="agent-archived-banner" role="status">

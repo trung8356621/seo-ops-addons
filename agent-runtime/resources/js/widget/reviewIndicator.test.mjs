@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
-import { resolveReviewIndicator } from './reviewIndicator.js';
+import { defaultReviewChoice, resolveReviewIndicator, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
 
 const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8');
 
@@ -60,16 +60,23 @@ test('response versions keep independent confirmed indicators', () => {
     assert.equal(resolveReviewIndicator(response('run-3'), confirmed['run-3']), null);
 });
 
-test('the response header reads only the confirmed choice for that version', () => {
-    assert.equal(widget.includes('confirmedReviews[version.response?.run_ulid]'), true);
-    assert.equal(widget.includes('reviewSelections[version.response?.run_ulid]'), false);
-    assert.equal(widget.includes('CircleCheck'), true);
-    assert.equal(widget.includes('GitCompare'), true);
-    assert.equal(widget.includes('CircleQuestionMark'), true);
-    assert.equal(widget.includes('agent-review-mark'), true);
-    const confirm = widget.slice(widget.indexOf('function confirmRoutingReview'), widget.indexOf('const shellClass'));
-    assert.equal(confirm.includes('setConfirmedReviews'), true);
-    assert.equal(confirm.includes('setReviewSelections'), false);
+test('opening a vote preselects only a sole Agent choice and does not submit it', () => {
+    assert.equal(defaultReviewChoice('', [keywords, articles]), 'cand-keywords');
+    assert.equal(defaultReviewChoice('cand-articles', [keywords, articles]), 'cand-articles');
+    assert.equal(soleAgentChoice([
+        { ...keywords, selected: false },
+        { ...articles, selected: false },
+    ]), '');
+    assert.equal(soleAgentChoice([
+        { ...keywords, selected: true },
+        { ...articles, selected: true },
+    ]), '');
+    const open = widget.slice(widget.indexOf('function openRoutingReview'), widget.indexOf('function confirmRoutingReview'));
+    assert.equal(open.includes('queueRoutingReview'), false);
+    assert.equal(open.includes('defaultReviewChoice'), true);
+    assert.equal(toggleReviewRun(null, 'run-a'), 'run-a');
+    assert.equal(toggleReviewRun('run-a', 'run-a'), null);
+    assert.equal(toggleReviewRun('run-a', 'run-b'), 'run-b');
 });
 
 test('reload restores a saved review without exposing operation ids', () => {
