@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { Archive, CircleCheck, CircleQuestionMark, Copy, GitCompare, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
 import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -10,6 +10,8 @@ import { ModelDebugModal } from './ModelDebugModal.jsx';
 import { copyPlainText } from './clipboard.js';
 import { responseToPlainText } from '../response/responseText.js';
 import { flushFeedback, queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
+import { resolveReviewIndicator } from './reviewIndicator.js';
+import { archiveThreadLocally, prependThread, threadTitleFromMessage } from './threadSidebar.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -44,6 +46,15 @@ async function postJson(url, csrf, body) {
         throw err;
     }
     return payload;
+}
+
+function ReviewMark({ mark }) {
+    const Icon = mark.kind === 'agreed' ? CircleCheck : mark.kind === 'alternative' ? GitCompare : CircleQuestionMark;
+    return (
+        <span className={`agent-review-mark is-${mark.kind}`} role="img" title={mark.title} aria-label={mark.title}>
+            <Icon size={13} aria-hidden="true" />
+        </span>
+    );
 }
 
 function waitingForManualModel(modelCall) {
@@ -591,7 +602,7 @@ export function AgentWidget({
         } finally {
             setBusy(false);
         }
-    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, currentScopeRef, fetchThreads, resetDebugState]);
+    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, currentScopeRef, resetDebugState]);
 
     // New conversation action
     const onNewConversation = useCallback(() => {
@@ -614,15 +625,17 @@ export function AgentWidget({
         try {
             const payload = await postJson(`${endpoints.threadsUrl}/${ulid}/archive`, csrf, {});
             if (payload?.data?.status === 'archived') {
+                const next = archiveThreadLocally(activeThreads, archivedThreads, ulid);
+                setActiveThreads(next.active);
+                setArchivedThreads(next.archived);
                 if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
                     onNewConversation();
                 }
-                fetchThreads(currentScopeRef);
             }
         } catch (err) {
             setError(err.message || 'Could not archive conversation.');
         }
-    }, [endpoints.threadsUrl, csrf, busy, debugBusy, viewingThreadUlid, activeThreadUlid, onNewConversation, fetchThreads, currentScopeRef]);
+    }, [endpoints.threadsUrl, csrf, busy, debugBusy, viewingThreadUlid, activeThreadUlid, onNewConversation, activeThreads, archivedThreads]);
 
     // Delete conversation action
     const onDeleteThread = useCallback(async (ulid) => {
@@ -689,7 +702,6 @@ export function AgentWidget({
             }]);
             setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
             resetDebugState();
-            fetchThreads(currentScopeRef);
         } catch (caught) {
             const payload = caught.payload;
             if (caught.status === 422 && payload?.data?.status === 'paused') {
@@ -728,7 +740,6 @@ export function AgentWidget({
         if (data.user_message_id) {
             setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
         }
-        fetchThreads(currentScopeRef);
     }
 
     // Scope change / initial mount effect: sync threads list and restore stored active thread
@@ -824,7 +835,12 @@ export function AgentWidget({
                 setActiveThreadUlid(returnedUlid);
                 setViewingThreadUlid(returnedUlid);
                 setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
-                fetchThreads(currentScopeRef);
+                setActiveThreads((current) => prependThread(current, {
+                    ulid: returnedUlid,
+                    title: data.title || threadTitleFromMessage(userMessageText),
+                    last_message_at: new Date().toISOString(),
+                    status: 'active',
+                }));
             }
 
             if (data.user_message_id) {
@@ -857,7 +873,6 @@ export function AgentWidget({
                 ...current,
                 [data.user_message_id || tempUserId]: Number.MAX_SAFE_INTEGER,
             }));
-            fetchThreads(currentScopeRef);
             setProcessingStatus(null);
         } catch (caught) {
             setError(caught.message);
@@ -907,7 +922,6 @@ export function AgentWidget({
                 setProcessingStatus(waitingForManualModel(data.model_call));
             } else {
                 setProcessingStatus(null);
-                fetchThreads(currentScopeRef);
             }
         } catch (caught) {
             setError(caught.message || 'Could not resolve confirmation.');
@@ -941,8 +955,16 @@ export function AgentWidget({
                 raw_input: testRawInput,
                 app_key: hostContext.appKey || 'seo-ops',
             });
-            setTestResult(payload?.data || null);
-            fetchThreads(`site:${testSiteId}`);
+            const result = payload?.data || null;
+            setTestResult(result);
+            if (result?.thread_ulid) {
+                setActiveThreads((current) => prependThread(current, {
+                    ulid: result.thread_ulid,
+                    title: result.target_label ? `Test · ${result.target_label}` : 'Test',
+                    last_message_at: new Date().toISOString(),
+                    status: 'active',
+                }));
+            }
         } catch (caught) {
             setError(caught.message || 'Test execution failed.');
         } finally {
@@ -994,7 +1016,6 @@ export function AgentWidget({
                 ...current,
                 [userMessageId]: Number.MAX_SAFE_INTEGER,
             }));
-            fetchThreads(currentScopeRef);
             setProcessingStatus(null);
         } catch (caught) {
             setError(caught.message || 'Could not rerun message.');
@@ -1380,6 +1401,13 @@ export function AgentWidget({
                                                         </span>
                                                     ) : null}
 
+                                                    {(() => {
+                                                        const reviewMark = resolveReviewIndicator(
+                                                            version.response,
+                                                            confirmedReviews[version.response?.run_ulid],
+                                                        );
+                                                        return reviewMark ? <ReviewMark mark={reviewMark} /> : null;
+                                                    })()}
                                                     <button
                                                         type="button"
                                                         className="agent-message-action-btn"
