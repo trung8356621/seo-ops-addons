@@ -247,6 +247,7 @@ export default function useArticleEditorImageLifecycle({ activeBlockId, articleI
                 },
             });
         };
+        editorHostActionsRef.current.getBlocks = () => blocksRef.current ?? [];
         editorHostActionsRef.current.getExportHtml = () => (
             typeof getExportHtml === 'function'
                 ? getExportHtml()

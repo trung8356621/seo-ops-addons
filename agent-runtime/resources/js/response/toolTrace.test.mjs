@@ -106,3 +106,37 @@ test('debug tooltips add recorded evidence and normal tooltips stay short', () =
     assert.equal(debug.includes('keywords.landscape'), true);
     assert.equal(debug.includes('local'), true);
 });
+
+test('debug tooltip shows actual global/internal JEV match percentages only for primary capability', () => {
+    const response = {
+        sources: [
+            { name: 'gsc', status: 'ok', request: 'GET /gsc' },
+            { name: 'keywords', status: 'ok', request: 'GET /keywords' },
+        ],
+        execution: {
+            capabilities: ['gsc.performance', 'keywords.landscape'],
+            tools: ['gsc', 'keywords'],
+            router: 'weighted',
+            jev_scores: { global: 0.86, internal: 0.91 },
+            external_model_calls: 0,
+        },
+    };
+    const debug = toolTraceItems(response, { debug: true });
+    const primary = debug.find((item) => item.key === 'gsc.performance').title;
+    const secondary = debug.find((item) => item.key === 'keywords.landscape').title;
+    assert.match(primary, /Global JEV: 86% khớp/);
+    assert.match(primary, /Internal JEV: 91% khớp/);
+    assert.doesNotMatch(secondary, /JEV:/);
+
+    const normal = toolTraceItems(response)[0].title;
+    assert.doesNotMatch(normal, /JEV:/);
+
+    const invalid = toolTraceItems({
+        sources: [{ name: 'keywords', status: 'ok' }],
+        execution: {
+            capabilities: ['keywords.landscape'],
+            jev_scores: { global: 5, internal: null },
+        },
+    }, { debug: true })[0].title;
+    assert.doesNotMatch(invalid, /JEV:/);
+});

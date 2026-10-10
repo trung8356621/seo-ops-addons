@@ -136,6 +136,8 @@ export default function useArticleEditorBlockContentCommands({ activeBlockIdRef,
                 openAiMedia: (detail) => editorHostActionsRef.current.openAiMedia?.(detail),
                 getActiveBlockId: () => activeBlockIdRef.current,
                 getExportHtml: () => editorHostActionsRef.current.getExportHtml?.() ?? '',
+                getBlocks: () => editorHostActionsRef.current.getBlocks?.() ?? [],
+                jumpToOutlineHeading: (node) => editorHostActionsRef.current.jumpToOutlineHeading?.(node),
                 getSelectionHtml: () => editorHostActionsRef.current.getSelectionHtml?.() ?? '',
             },
         });

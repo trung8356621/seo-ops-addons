@@ -317,6 +317,7 @@ class AgentTurnCoordinator
             $answerInput,
             true,
             $this->failureCodeFromBundle($bundle),
+            executionTrace: is_array($state['execution'] ?? null) ? $state['execution'] : null,
         ));
     }
 
@@ -1175,7 +1176,40 @@ class AgentTurnCoordinator
             'external_model' => null,
             'external_model_calls' => 0,
             'candidates' => $route->diagnostics['global']['candidates'] ?? [],
+            'jev_scores' => [
+                'global' => $this->selectedSemanticScore(
+                    $route->diagnostics['global']['candidates'] ?? [],
+                    $route->module,
+                ),
+                'internal' => $this->selectedSemanticScore(
+                    $route->diagnostics['internal']['candidates'] ?? [],
+                    $route->diagnostics['operation'] ?? null,
+                ),
+            ],
         ];
+    }
+
+    /** @param mixed $candidates */
+    private function selectedSemanticScore(mixed $candidates, mixed $selectedRef): ?float
+    {
+        if (! is_array($candidates) || ! is_string($selectedRef) || $selectedRef === '') {
+            return null;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (! is_array($candidate) || ($candidate['ref'] ?? null) !== $selectedRef) {
+                continue;
+            }
+            $score = $candidate['score'] ?? null;
+            if (! is_numeric($score)) {
+                return null;
+            }
+            $value = (float) $score;
+
+            return is_finite($value) && $value >= 0 && $value <= 1 ? $value : null;
+        }
+
+        return null;
     }
 
     /**

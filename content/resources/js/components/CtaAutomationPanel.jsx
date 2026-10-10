@@ -4,7 +4,7 @@ import { t } from '../utils/i18n';
 import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
 import { executeEditorCommand, getEditorCommandHost } from '../utils/editorCommands';
 import { parseHtmlToBlocks } from '../utils/contentDocumentHelpers';
-import { scrollToCtaSection } from '../utils/ctaSectionNavigator';
+import { requestCtaHeadingNavigation } from '../utils/ctaSectionNavigator';
 import SeoSelect from './SeoSelect';
 
 function currentEditorHtml() {
@@ -88,15 +88,17 @@ function HeadingButton({ sectionId, heading, onMiss }) {
             type="button"
             className="seo-cta-automation__heading"
             onClick={() => {
-                scrollToCtaSection({
+                const host = getEditorCommandHost();
+                const ok = requestCtaHeadingNavigation({
                     sectionId,
                     heading,
                     html: currentEditorHtml(),
-                }).then((ok) => {
-                    if (!ok) {
-                        onMiss?.();
-                    }
+                    blocks: host?.actions?.getBlocks?.() ?? [],
+                    jump: (node) => host?.actions?.jumpToOutlineHeading?.(node),
                 });
+                if (!ok) {
+                    onMiss?.();
+                }
             }}
         >
             {headingLabel(heading)}

@@ -1328,6 +1328,9 @@ final class AgentRuntimeController
             'external_model_calls' => $calls,
             'external_model' => $calls > 0 && is_array($trace) ? ($trace['external_model'] ?? null) : null,
             'answer_status' => is_array($trace) ? ($trace['answer_status'] ?? null) : null,
+            'jev_scores' => is_array($trace) && is_array($trace['jev_scores'] ?? null)
+                ? $trace['jev_scores']
+                : null,
         ];
     }
 

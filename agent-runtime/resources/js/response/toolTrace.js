@@ -145,8 +145,29 @@ function statusOf(rows) {
     return rows.some((row) => isFailedStatus(row.status)) ? 'failed' : 'ok';
 }
 
+function jevMatchLabels(execution, capability) {
+    // The JEV scores describe the selected primary operation, not secondary evidence tools.
+    if (execution?.capabilities?.[0] !== capability) {
+        return [];
+    }
+    const scores = execution?.jev_scores;
+    if (!scores || typeof scores !== 'object') {
+        return [];
+    }
+    const labelFor = (key, name) => {
+        const score = scores[key];
+        return typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1
+            ? `${name} ${Math.round(score * 100)}% khớp`
+            : null;
+    };
+    return [
+        labelFor('global', 'Global JEV:'),
+        labelFor('internal', 'Internal JEV:'),
+    ].filter(Boolean);
+}
+
 function titleFor(meta, status, debug, capability, rows, execution) {
-        const statusLabel = status === 'failed' ? 'Failed' : (status === 'awaiting' ? 'Awaiting' : 'Executed');
+    const statusLabel = status === 'failed' ? 'Failed' : (status === 'awaiting' ? 'Awaiting' : 'Executed');
     if (!debug) {
         return `${meta.label} · ${statusLabel}`;
     }
@@ -154,6 +175,7 @@ function titleFor(meta, status, debug, capability, rows, execution) {
     const router = [execution?.router, execution?.outcome].filter(Boolean).join(' / ');
     return [
         `${meta.label} · ${statusLabel}`,
+        ...jevMatchLabels(execution, capability),
         capability,
         `source ${sources}`,
         router,

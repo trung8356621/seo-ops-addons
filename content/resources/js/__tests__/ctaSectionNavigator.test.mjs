@@ -4,6 +4,7 @@ import {
     describeCtaHeadingTarget,
     locateCtaSections,
     matchEditorHeading,
+    requestCtaHeadingNavigation,
     selectEditorScroller,
 } from '../utils/ctaSectionNavigator.js';
 
@@ -140,6 +141,80 @@ describe('editor scroller', () => {
         assert.equal(selectEditorScroller(slot), inner);
         const escaped = make('seo-editor-block-slot', { parent: sidebar });
         assert.equal(selectEditorScroller(escaped), page);
+    });
+});
+
+describe('outline jump request', () => {
+    const blocks = [
+        { id: 'intro-block', type: 'text', content: '<p>Mở đầu về balo.</p>' },
+        { id: 'reason-h2', type: 'text', content: '<h2>Lý do chọn balo quà tặng cho Trường Tiến</h2><p>Giới thiệu mục.</p>' },
+        { id: 'reason-body', type: 'text', content: '<h3>Thể hiện cá tính, phong cách</h3><p>Nội dung.</p>' },
+        { id: 'other-h2', type: 'text', content: '<h2>Mục khác</h2>' },
+        { id: 'other-body', type: 'text', content: '<h3>Thể hiện cá tính, phong cách</h3><p>Bản sau.</p>' },
+        { id: 'end-a', type: 'text', content: '<h2>Kết luận</h2><p>Một.</p>' },
+        { id: 'end-b', type: 'text', content: '<h2>Kết luận</h2><p>Hai.</p>' },
+    ];
+    const html = blocks.map((block) => block.content).join('\n\n');
+
+    function jumpFor(heading, occurrence = 1) {
+        const rows = locateCtaSections(html).filter((row) => row.heading === heading);
+        const calls = [];
+        const ok = requestCtaHeadingNavigation({
+            sectionId: rows[occurrence - 1].sectionId,
+            heading,
+            html,
+            blocks,
+            jump: (node) => calls.push(node),
+        });
+
+        return { ok, node: calls[0] ?? null };
+    }
+
+    it('maps an H2 onto its heading block, not a section_N id', () => {
+        const { ok, node } = jumpFor('Lý do chọn balo quà tặng cho Trường Tiến');
+        assert.equal(ok, true);
+        assert.equal(node.block_id, 'reason-h2');
+        assert.equal(node.level, 2);
+        assert.equal(node.heading_index, 0);
+        assert.equal(node.id.startsWith('section_'), false);
+    });
+
+    it('maps a nested H3 inside the parent section body block', () => {
+        const { ok, node } = jumpFor('Thể hiện cá tính, phong cách');
+        assert.equal(ok, true);
+        assert.equal(node.block_id, 'reason-body');
+        assert.equal(node.heading_index, 0);
+        const later = jumpFor('Thể hiện cá tính, phong cách', 2);
+        assert.equal(later.node.block_id, 'other-body');
+    });
+
+    it('maps introduction and duplicate conclusion headings', () => {
+        const intro = locateCtaSections(html).find((row) => row.heading === '');
+        const calls = [];
+        const ok = requestCtaHeadingNavigation({
+            sectionId: intro.sectionId,
+            heading: '',
+            html,
+            blocks,
+            jump: (node) => calls.push(node),
+        });
+        assert.equal(ok, true);
+        assert.equal(calls[0].block_id, 'intro-block');
+        assert.equal(calls[0].id, 'section-intro');
+        assert.equal(jumpFor('Kết luận', 2).node.block_id, 'end-b');
+    });
+
+    it('does not call jump when the heading is absent from editor blocks', () => {
+        const calls = [];
+        const ok = requestCtaHeadingNavigation({
+            sectionId: 'section_2',
+            heading: 'Không có heading này',
+            html,
+            blocks,
+            jump: (node) => calls.push(node),
+        });
+        assert.equal(ok, false);
+        assert.equal(calls.length, 0);
     });
 });
 

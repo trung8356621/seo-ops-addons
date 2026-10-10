@@ -1,7 +1,9 @@
 /**
- * Scroll the article editor to the section identified by CTA `section_N`.
+ * Map a CTA `section_N` heading onto an Article Editor outline node.
+ * The click path asks `jumpToOutlineHeading` to expand, scroll, and highlight.
  * Identity follows the same top-level h2/h3 walk as CtaArticleSections.
  */
+import { extractOutlineHeadingsFromBlock } from './articleEditorClientOutline.js';
 
 const SCROLL_OFFSET = 88;
 
@@ -28,6 +30,8 @@ export function locateCtaSections(html) {
     let h2Index = -1;
     let h3Index = -1;
     let seenH2 = -1;
+    let headingOrdinal = -1;
+    let activeHeadingOrdinal = -1;
 
     const push = () => {
         sections.push({
@@ -36,6 +40,7 @@ export function locateCtaSections(html) {
             tag,
             h2Index,
             h3Index,
+            headingOrdinal: tag === '' ? -1 : activeHeadingOrdinal,
         });
     };
 
@@ -47,6 +52,8 @@ export function locateCtaSections(html) {
                 index += 1;
                 content = '';
             }
+            headingOrdinal += 1;
+            activeHeadingOrdinal = headingOrdinal;
             heading = normalizeHeading(child.textContent);
             tag = name;
             if (name === 'h2') {
@@ -275,6 +282,94 @@ export function matchEditorHeading(plan, sections) {
     }
 
     return { ok: true, sectionId: parent.id, h3Index: hit.index };
+}
+
+function outlineHeadings(blocks) {
+    const rows = [];
+    for (const block of blocks ?? []) {
+        rows.push(...extractOutlineHeadingsFromBlock(block));
+    }
+
+    return rows;
+}
+
+/**
+ * Outline node for a CTA plan. `heading_index` is the index inside that block,
+ * matching Outline jump. Introduction uses the first block before the first H2.
+ * @param {ReturnType<typeof describeCtaHeadingTarget>} plan
+ * @param {Array<{ id?: string, type?: string, content?: string }>} blocks
+ */
+function introOutlineNode(blocks) {
+    let intro = null;
+    for (const block of blocks ?? []) {
+        const headings = extractOutlineHeadingsFromBlock(block);
+        if (headings.some((item) => item.level === 2)) {
+            break;
+        }
+        if (!intro && block?.id) {
+            intro = block;
+        }
+    }
+    if (!intro?.id) {
+        return null;
+    }
+
+    return {
+        id: 'section-intro',
+        level: 0,
+        heading_text: '',
+        block_id: String(intro.id),
+        heading_index: 0,
+    };
+}
+
+/**
+ * Map one CTA section row onto the outline heading that owns it.
+ * `headingOrdinal` follows every H2/H3 in document order, including a heading
+ * that was folded into the next heading because no paragraph sat between them.
+ * @param {{ tag?: string, heading?: string, headingOrdinal?: number }} row
+ * @param {Array<{ id?: string, type?: string, content?: string }>} blocks
+ */
+export function resolveCtaOutlineNode(row, blocks) {
+    if (!row) {
+        return null;
+    }
+    if (row.tag === '') {
+        return introOutlineNode(blocks);
+    }
+    const node = outlineHeadings(blocks)[row.headingOrdinal];
+    const level = row.tag === 'h2' ? 2 : row.tag === 'h3' ? 3 : 0;
+    if (!node?.block_id || node.level !== level) {
+        return null;
+    }
+    if (normalizeHeading(node.heading_text) !== normalizeHeading(row.heading)) {
+        return null;
+    }
+
+    return node;
+}
+
+/**
+ * Resolve a preview heading and request the existing Outline jump.
+ * Returns false when the heading cannot be mapped. Does not change article HTML.
+ * @param {{ sectionId?: string, heading?: string, html?: string, blocks?: array, jump?: (node: object) => void }} target
+ */
+export function requestCtaHeadingNavigation(target) {
+    if (typeof target?.jump !== 'function') {
+        return false;
+    }
+    const rows = locateCtaSections(target.html ?? '');
+    const row = rows.find((item) => item.sectionId === String(target.sectionId ?? ''));
+    if (!row || normalizeHeading(row.heading) !== normalizeHeading(target.heading ?? '')) {
+        return false;
+    }
+    const node = resolveCtaOutlineNode(row, target.blocks);
+    if (!node?.block_id) {
+        return false;
+    }
+    target.jump(node);
+
+    return true;
 }
 
 function readEditorSections(pane) {
