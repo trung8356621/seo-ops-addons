@@ -198,29 +198,33 @@ final class SemanticRoutingConfig
         } else {
             $known = array_column(array_filter((array) $saved['lexical_hints'], 'is_array'), null, 'id');
             foreach ((array) ($defaults['lexical_hints'] ?? []) as $hint) {
-                if (is_array($hint) && ! isset($known[(string) ($hint['id'] ?? '')])) $saved['lexical_hints'][] = $hint;
+                if (! is_array($hint)) continue;
+                $id = (string) ($hint['id'] ?? '');
+                if (! isset($known[$id])) {
+                    $saved['lexical_hints'][] = $hint;
+                    continue;
+                }
+                foreach ($saved['lexical_hints'] as &$savedHint) {
+                    if (is_array($savedHint) && ($savedHint['id'] ?? null) === $id) {
+                        $savedHint['phrases'] = $this->repairSystemStrings(
+                            (array) ($savedHint['phrases'] ?? []),
+                            (array) ($hint['phrases'] ?? [])
+                        );
+                    }
+                }
+                unset($savedHint);
             }
         }
         $saved['policy'] = array_replace((array) ($defaults['policy'] ?? []), (array) ($saved['policy'] ?? []));
+        $saved['global'] = $this->mergeSystemGroups((array) ($saved['global'] ?? []), (array) ($defaults['global'] ?? []));
         $savedModules = is_array($saved['modules'] ?? null) ? $saved['modules'] : [];
-        $defaultKeywords = is_array($defaults['modules']['keywords'] ?? null) ? $defaults['modules']['keywords'] : [];
-        $savedKeywords = is_array($savedModules['keywords'] ?? null) ? array_values($savedModules['keywords']) : [];
-
-        $byId = [];
-        foreach ($savedKeywords as $index => $group) {
-            if (is_array($group)) {
-                $byId[(string) ($group['id'] ?? '')] = $index;
-            }
+        foreach ((array) ($defaults['modules'] ?? []) as $module => $defaultGroups) {
+            $savedModules[$module] = $this->mergeSystemGroups(
+                (array) ($savedModules[$module] ?? []),
+                (array) $defaultGroups
+            );
         }
-        foreach ($defaultKeywords as $defaultGroup) {
-            if (! is_array($defaultGroup)) {
-                continue;
-            }
-            $id = (string) ($defaultGroup['id'] ?? '');
-            if (! array_key_exists($id, $byId)) {
-                $savedKeywords[] = $defaultGroup;
-            }
-        }
+        $savedKeywords = (array) ($savedModules['keywords'] ?? []);
 
         foreach ($savedKeywords as &$group) {
             if (! is_array($group) || ($group['id'] ?? null) !== 'keywords_inventory') {
@@ -239,5 +243,43 @@ final class SemanticRoutingConfig
         $saved['modules'] = $savedModules;
 
         return $saved;
+    }
+
+    /** @param list<mixed> $savedGroups @param list<mixed> $defaultGroups @return list<mixed> */
+    private function mergeSystemGroups(array $savedGroups, array $defaultGroups): array
+    {
+        $savedGroups = array_values($savedGroups);
+        $byId = [];
+        foreach ($savedGroups as $index => $group) {
+            if (is_array($group)) $byId[(string) ($group['id'] ?? '')] = $index;
+        }
+        foreach ($defaultGroups as $defaultGroup) {
+            if (! is_array($defaultGroup)) continue;
+            $id = (string) ($defaultGroup['id'] ?? '');
+            if (! array_key_exists($id, $byId)) {
+                $savedGroups[] = $defaultGroup;
+                continue;
+            }
+            $index = $byId[$id];
+            $savedGroups[$index]['examples'] = $this->repairSystemStrings(
+                (array) ($savedGroups[$index]['examples'] ?? []),
+                (array) ($defaultGroup['examples'] ?? [])
+            );
+        }
+
+        return $savedGroups;
+    }
+
+    /** @param list<mixed> $saved @param list<mixed> $defaults @return list<mixed> */
+    private function repairSystemStrings(array $saved, array $defaults): array
+    {
+        foreach ($saved as $index => $value) {
+            if (! is_string($value) || ! isset($defaults[$index]) || ! is_string($defaults[$index])) continue;
+            if (str_contains($value, "\u{FFFD}") || preg_match('/\pL\?\pL/u', $value) === 1) {
+                $saved[$index] = $defaults[$index];
+            }
+        }
+
+        return array_values($saved);
     }
 }
