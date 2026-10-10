@@ -530,7 +530,7 @@ final class FactualAgentResponseComposer
         return preg_match('/(?:đưa|cho|lập|tạo).{0,20}draft|\bdraft\b/iu', $message) === 1;
     }
 
-    private function auditImprovementSummary(RetrievalBundle $bundle, string $language): ?AgentResponse
+    public function auditImprovementSummary(RetrievalBundle $bundle, string $language): ?AgentResponse
     {
         $auditSource = null;
         foreach ($bundle->sources as $source) {
@@ -576,8 +576,12 @@ final class FactualAgentResponseComposer
             ? "Tổng số bài viết cần cải thiện SEO là {$total}. Dưới đây là mẫu {$sampleCount} bài viết có điểm SEO thấp nhất đã truy xuất:"
             : "Total articles needing SEO improvement: {$total}. Below is a sample of the {$sampleCount} lowest-scoring articles retrieved:";
 
+        $sectionHeader = $language === 'vi'
+            ? "### A. Bài viết hiện có cần cải thiện\n{$message}"
+            : "### A. Existing Articles Needing Improvement\n{$message}";
+
         $blocks = [
-            ['type' => 'markdown', 'text' => $message],
+            ['type' => 'markdown', 'text' => $sectionHeader],
             [
                 'type' => 'table',
                 'columns' => $columns,

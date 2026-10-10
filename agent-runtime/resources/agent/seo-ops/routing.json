@@ -10,7 +10,7 @@
     "articles.improve": {"family":"IMPROVE","capability":"seo_audit.improve","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.worst_articles": {"family":"READ","capability":"seo_audit.worst_articles","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.focus_keyword_guidance": {"family":"READ","capability":null,"guidance":"Các bài thiếu Focus Keyword xem và sửa trong SEO Audit: /seo/content-projects/seo-audit. Agent không tự tạo Draft cho câu này.","answer_model":false,"secondary":[]},
-    "seo_audit.site_improve": {"family":"IMPROVE","capability":"seo_audit.worst_articles","guidance":null,"answer_model":true,"secondary":[]},
+    "seo_audit.site_improve_composite": {"family":"IMPROVE","capability":"seo_audit.worst_articles","guidance":null,"answer_model":true,"secondary":["keywords.landscape"]},
     "seo_audit.draft_action": {"family":"READ","capability":null,"guidance":"Dùng nút Đưa vào Draft trên danh sách bài đã chọn. Agent không tạo bài mới từ câu này.","answer_model":false,"secondary":[]},
     "seo_audit.publish": {"family":"IMPROVE","capability":"seo_audit.publish","guidance":null,"answer_model":false,"secondary":[]},
     "gsc.performance": {"family":"READ","capability":"gsc.performance","guidance":null,"answer_model":false,"secondary":[]},
@@ -377,7 +377,7 @@
         ],
         "enabled": true,
         "targets": [
-          {"ref": "seo_audit.site_improve", "weight": 10},
+          {"ref": "seo_audit.site_improve_composite", "weight": 10},
           {"ref": "seo_audit.worst_articles", "weight": 4}
         ]
       },

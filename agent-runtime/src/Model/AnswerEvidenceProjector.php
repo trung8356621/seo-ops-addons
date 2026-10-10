@@ -18,10 +18,15 @@ final class AnswerEvidenceProjector
     public function project(RetrievalBundle $bundle, string $message): array
     {
         $payload = $this->sanitizer->sanitize($bundle);
+        $hasTopics = false;
         $compacted = false;
         foreach ($payload['sources'] as &$source) {
             if (! is_array($source) || ! is_array($source['data'] ?? null)) {
                 continue;
+            }
+            if (($source['name'] ?? '') === 'topics' || isset($source['data']['topics'])) {
+                $hasTopics = true;
+                $source['data'] = $this->compactTopics($source['data']);
             }
             $compact = $this->compactAudit($source['data']);
             if ($compact === null) {
@@ -32,9 +37,46 @@ final class AnswerEvidenceProjector
         }
         unset($source);
 
+        $tasks = [];
+        if ($compacted && $this->isImprovement($message)) {
+            $tasks = $this->improvementTask($hasTopics);
+        }
+
         return [
             'bundle' => $payload,
-            'analysis_task' => $compacted && $this->isImprovement($message) ? $this->improvementTask() : [],
+            'analysis_task' => $tasks,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function compactTopics(array $data): array
+    {
+        $topics = is_array($data['topics'] ?? null) ? $data['topics'] : [];
+        $compactedTopics = [];
+        foreach (array_slice($topics, 0, 10) as $topic) {
+            if (! is_array($topic)) {
+                continue;
+            }
+            $item = [
+                'name' => trim((string) ($topic['name'] ?? '')),
+                'coverage' => trim((string) ($topic['coverage'] ?? '')),
+                'mcp_percent' => $topic['mcp_percent'] ?? null,
+                'article_count' => $topic['article_count'] ?? null,
+                'topic_ref' => trim((string) ($topic['topic_ref'] ?? '')),
+            ];
+            if ($item['topic_ref'] === '') {
+                unset($item['topic_ref']);
+            }
+            $compactedTopics[] = $item;
+        }
+
+        return [
+            'dataset_scope' => 'topic_coverage_sample',
+            'summary' => $data['summary'] ?? null,
+            'topics' => $compactedTopics,
         ];
     }
 
@@ -103,14 +145,21 @@ final class AnswerEvidenceProjector
     }
 
     /** @return list<string> */
-    private function improvementTask(): array
+    private function improvementTask(bool $hasTopics = false): array
     {
-        return [
+        $tasks = [
             'Prioritize 3 to 5 actionable improvements.',
             'Explain why each matters using only verified evidence.',
             'Name affected groups or articles only where the evidence supports that.',
             'Separate established facts from generated suggestions.',
             'Do not repeat the factual audit report row by row.',
         ];
+
+        if ($hasTopics) {
+            $tasks[] = 'Based on weak or undercovered Topics, propose new article candidates (title, target keyword, related topic, search intent).';
+            $tasks[] = 'Clearly mark proposed new article candidates as generated/inferred.';
+        }
+
+        return $tasks;
     }
 }

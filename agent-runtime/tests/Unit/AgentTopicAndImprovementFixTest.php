@@ -541,4 +541,107 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertStringNotContainsString('/api/v1/access/', $json);
         self::assertStringNotContainsString('SECRET_TOKEN', $json);
     }
+
+    #[Test]
+    public function answer_15_composite_response_combines_section_a_and_section_b(): void
+    {
+        $coordinator = (new \ReflectionClass(AgentTurnCoordinator::class))->newInstanceWithoutConstructor();
+        $propertyFactual = new \ReflectionProperty($coordinator, 'factual');
+        $propertyFactual->setValue($coordinator, new FactualAgentResponseComposer());
+        $propertyResponses = new \ReflectionProperty($coordinator, 'responses');
+        $propertyResponses->setValue($coordinator, new AgentResponseParser());
+
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
+                'total' => 20,
+                'items' => [
+                    ['title' => 'Bài viết A', 'focus_keyword' => 'balo laptop', 'seo_score' => 25, 'reason_labels' => ['Thiếu meta']],
+                ],
+            ]),
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'topics' => [
+                    ['name' => 'Balo du lịch', 'coverage' => 'Weak', 'mcp_percent' => 20],
+                ],
+            ]),
+        ]);
+
+        $modelAnswerJson = json_encode([
+            'message' => 'Đề xuất cải thiện SEO tổng thể',
+            'blocks' => [
+                [
+                    'type' => 'markdown',
+                    'text' => "1. **Bài viết mới: Cách chọn balo du lịch siêu nhẹ** (Topic: Balo du lịch, Search intent: Informational)\n2. **Bài viết mới: Top 5 balo chống thấm nước tốt nhất** (Topic: Balo du lịch)",
+                ],
+            ],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR);
+
+        $method = new ReflectionMethod($coordinator, 'recoverParsedAnswer');
+        $result = $method->invoke($coordinator, $modelAnswerJson, $bundle, 'Hãy đề xuất cách cải thiện SEO tổng thể cho site này.', 'vi', false);
+
+        $response = $result['response'];
+        self::assertNotNull($response);
+        // Must contain both Section A and Section B
+        $combinedText = '';
+        $hasTable = false;
+        foreach ($response->blocks as $block) {
+            if ($block['type'] === 'markdown') {
+                $combinedText .= $block['text'] . "\n";
+            } elseif ($block['type'] === 'table') {
+                $hasTable = true;
+            }
+        }
+
+        self::assertTrue($hasTable, 'Response must include Section A table from audit');
+        self::assertStringContainsString('### A. Bài viết hiện có cần cải thiện', $combinedText);
+        self::assertStringContainsString('### B. Bài viết mới nên bổ sung', $combinedText);
+        self::assertStringContainsString('Cách chọn balo du lịch', $combinedText);
+    }
+
+    #[Test]
+    public function answer_16_projector_limits_articles_and_includes_topic_coverage(): void
+    {
+        $projector = new \Omnichannel\Addons\AgentRuntime\Model\AnswerEvidenceProjector();
+        $articles = [];
+        for ($i = 1; $i <= 50; $i++) {
+            $articles[] = [
+                'title' => "Bài {$i}",
+                'seo_score' => 10 + $i,
+                'focus_keyword' => "keyword {$i}",
+                'reason_labels' => ['Thiếu H2'],
+            ];
+        }
+
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
+                'total' => 50,
+                'items' => $articles,
+            ]),
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'summary' => ['topic_count' => 30],
+                'topics' => [
+                    ['name' => 'Topic 1', 'coverage' => 'Weak', 'mcp_percent' => 15, 'article_count' => 2],
+                ],
+            ]),
+        ]);
+
+        $projected = $projector->project($bundle, 'Hãy đề xuất cách cải thiện SEO tổng thể cho site này.');
+        $sources = $projected['bundle']['sources'];
+
+        // Compact audit check: sample size must be 8, not 50
+        $auditData = $sources[0]['data'];
+        self::assertSame('retrieved_article_sample', $auditData['dataset_scope']);
+        self::assertSame(50, $auditData['total']);
+        self::assertCount(8, $auditData['examples']);
+
+        // Compact topic check
+        $topicData = $sources[1]['data'];
+        self::assertSame('topic_coverage_sample', $topicData['dataset_scope']);
+        self::assertCount(1, $topicData['topics']);
+
+        // Analysis tasks
+        self::assertNotEmpty($projected['analysis_task']);
+        $tasksText = implode(' ', $projected['analysis_task']);
+        self::assertStringContainsString('weak or undercovered Topics', $tasksText);
+    }
 }

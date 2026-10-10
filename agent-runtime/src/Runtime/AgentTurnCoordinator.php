@@ -988,7 +988,7 @@ class AgentTurnCoordinator
         $capabilities = array_values(array_unique([$key, ...$route->secondaryCapabilities]));
 
         $template = 'text';
-        if ($route->intentFamily === 'IMPROVE' || $key === 'seo_audit.site_improve') {
+        if ($route->intentFamily === 'IMPROVE' || $key === 'seo_audit.site_improve_composite' || $key === 'seo_audit.site_improve') {
             $template = 'report';
         } elseif (in_array($key, $listCapabilities, true)) {
             $template = 'table';
@@ -1065,7 +1065,7 @@ class AgentTurnCoordinator
 
         $rejections = $this->responses->lastRejections();
         if ($rejections === []) {
-            return ['response' => $parsed, 'diagnostics' => null];
+            return ['response' => $this->enrichCompositeResponse($parsed, $bundle, $message, $language), 'diagnostics' => null];
         }
 
         $evidence = EvidenceNumberIndex::fromBundle($bundle);
@@ -1110,6 +1110,51 @@ class AgentTurnCoordinator
                 'raw_completion' => (new SecretRedactor())->redact($raw),
             ] : null,
         ];
+    }
+
+    private function enrichCompositeResponse(AgentResponse $parsed, RetrievalBundle $bundle, string $message, string $language): AgentResponse
+    {
+        if (! $this->factual->isImprovementAnalysis($message) || $this->factual->isExplicitDraftRequest($message)) {
+            return $parsed;
+        }
+
+        $auditSummary = $this->factual->auditImprovementSummary($bundle, $language);
+        if ($auditSummary === null) {
+            return $parsed;
+        }
+
+        // Section A: Articles needing improvement (from deterministic audit summary)
+        $sectionABlocks = $auditSummary->blocks;
+
+        // Section B: Suggestions / Ideation from Answer Model
+        $sectionBHeader = $language === 'vi'
+            ? '### B. Bài viết mới nên bổ sung'
+            : '### B. Recommended New Content';
+
+        $sectionBBlocks = [];
+        $hasSectionBHeader = false;
+        foreach ($parsed->blocks as $block) {
+            $text = (string) ($block['text'] ?? '');
+            if (str_contains($text, '### B.') || str_contains($text, '## B.')) {
+                $hasSectionBHeader = true;
+                break;
+            }
+        }
+        if (! $hasSectionBHeader) {
+            $sectionBBlocks[] = ['type' => 'markdown', 'text' => $sectionBHeader];
+        }
+        foreach ($parsed->blocks as $block) {
+            $sectionBBlocks[] = $block;
+        }
+
+        $combinedBlocks = array_merge($sectionABlocks, $sectionBBlocks);
+
+        return new AgentResponse(
+            $parsed->message,
+            $combinedBlocks,
+            $parsed->actions,
+            $parsed->sources,
+        );
     }
 
     private function textHasUnsupportedNumber(string $text, EvidenceNumberIndex $evidence): bool
