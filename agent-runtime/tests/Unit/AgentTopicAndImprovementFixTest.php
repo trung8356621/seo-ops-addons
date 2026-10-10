@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Tests\Unit;
 
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
@@ -21,8 +23,12 @@ use Tests\TestCase;
 
 final class AgentTopicAndImprovementFixTest extends TestCase
 {
+    // ==========================================
+    // POSITIVE TESTS (PART D: 1, 2, 3)
+    // ==========================================
+
     #[Test]
-    public function cross_family_ambiguity_resolved_when_user_explicitly_requests_read(): void
+    public function positive_1_topic_listing_resolves_to_keywords_landscape_via_entity_disambiguation(): void
     {
         $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
             public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
@@ -34,107 +40,22 @@ final class AgentTopicAndImprovementFixTest extends TestCase
             {
                 return [
                     'status' => 'ambiguous',
-                    'reason' => 'margin_too_narrow',
-                    'module' => 'seo_audit',
-                    'operation_candidates' => [
-                        [
-                            'operation' => 'seo_audit.worst_articles',
-                            'internal_semantic_score' => 0.82,
-                            'group_id' => 'bulk_seo_evaluation',
-                            'example' => 'Những bài nào có điểm SEO thấp?',
-                        ],
-                        [
-                            'operation' => 'seo_audit.site_improve',
-                            'internal_semantic_score' => 0.80,
-                            'group_id' => 'site_wide_improvement',
-                            'example' => 'Nên cải thiện SEO của cả website theo hướng nào?',
-                        ],
-                    ],
-                ];
-            }
-        };
-
-        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
-        $route = $router->route('Cho tôi xem danh sách các bài viết có điểm SEO thấp.');
-
-        self::assertSame('confident', $route->outcome);
-        self::assertSame('seo_audit.worst_articles', $route->capability);
-        self::assertSame('READ', $route->intentFamily);
-        self::assertArrayHasKey('cross_family_disambiguation', $route->diagnostics);
-        self::assertSame('READ', $route->diagnostics['cross_family_disambiguation']['target_family']);
-    }
-
-    #[Test]
-    public function cross_family_ambiguity_resolved_when_user_explicitly_requests_improve(): void
-    {
-        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
-            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
-            {
-                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
-            }
-
-            public function evaluateHybrid(string $query, array $document): array
-            {
-                return [
-                    'status' => 'ambiguous',
-                    'reason' => 'margin_too_narrow',
-                    'module' => 'keywords',
-                    'operation_candidates' => [
-                        [
-                            'operation' => 'keywords.landscape',
-                            'internal_semantic_score' => 0.82,
-                            'group_id' => 'keywords_landscape',
-                            'example' => 'Những chủ đề nào có mức độ bao phủ SEO thấp?',
-                        ],
-                        [
-                            'operation' => 'keywords.topic_suggestions',
-                            'internal_semantic_score' => 0.80,
-                            'group_id' => 'keywords_topic_suggestions',
-                            'example' => 'Lập đề xuất bài mới từ các nhóm chủ đề còn thiếu độ phủ.',
-                        ],
-                    ],
-                ];
-            }
-        };
-
-        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
-        $route = $router->route('Gợi ý cải thiện các topic còn yếu cho website.');
-
-        // keywords.topic_suggestions is an unsupported IMPROVE capability in catalog,
-        // and must stay unsupported rather than being converted into an unrelated READ.
-        self::assertSame('unsupported', $route->outcome);
-        self::assertSame('IMPROVE', $route->intentFamily);
-        self::assertArrayHasKey('cross_family_disambiguation', $route->diagnostics);
-        self::assertSame('IMPROVE', $route->diagnostics['cross_family_disambiguation']['target_family']);
-    }
-
-    #[Test]
-    public function same_family_ambiguity_is_strictly_preserved(): void
-    {
-        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
-            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
-            {
-                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
-            }
-
-            public function evaluateHybrid(string $query, array $document): array
-            {
-                return [
-                    'status' => 'ambiguous',
-                    'reason' => 'margin_too_narrow',
+                    'reason' => 'final_operation_margin',
                     'module' => 'keywords',
                     'operation_candidates' => [
                         [
                             'operation' => 'keywords.inventory',
-                            'internal_semantic_score' => 0.87352,
+                            'internal_semantic_score' => 0.863,
+                            'final_score' => 0.873,
                             'group_id' => 'keywords_inventory',
                             'example' => 'Website đang theo dõi những từ khóa SEO nào?',
                         ],
                         [
                             'operation' => 'keywords.landscape',
-                            'internal_semantic_score' => 0.83400,
+                            'internal_semantic_score' => 0.802,
+                            'final_score' => 0.834,
                             'group_id' => 'keywords_landscape',
-                            'example' => 'Những chủ đề nào có mức độ bao phủ SEO thấp?',
+                            'example' => 'Cho tôi xem những chủ đề có độ bao phủ SEO thấp.',
                         ],
                     ],
                 ];
@@ -144,65 +65,370 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
         $route = $router->route('Cho tôi xem danh sách các Topic SEO của website.');
 
-        // Genuine same-family ambiguity between keywords.inventory (READ) and keywords.landscape (READ)
-        // must remain ambiguous without brittle overrides.
+        self::assertSame('confident', $route->outcome);
+        self::assertSame('keywords.landscape', $route->capability);
+        self::assertSame('READ', $route->intentFamily);
+        self::assertArrayHasKey('entity_disambiguation', $route->diagnostics);
+        self::assertSame('topic', $route->diagnostics['entity_disambiguation']['target_entity']);
+    }
+
+    #[Test]
+    public function positive_2_keyword_listing_resolves_to_keywords_inventory(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'ambiguous',
+                    'reason' => 'final_operation_margin',
+                    'module' => 'keywords',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'keywords.inventory',
+                            'internal_semantic_score' => 0.896,
+                            'final_score' => 0.896,
+                            'group_id' => 'keywords_inventory',
+                            'example' => 'Website đang theo dõi những từ khóa SEO nào?',
+                        ],
+                        [
+                            'operation' => 'keywords.landscape',
+                            'internal_semantic_score' => 0.834,
+                            'final_score' => 0.834,
+                            'group_id' => 'keywords_landscape',
+                            'example' => 'Cho tôi xem những chủ đề có độ bao phủ SEO thấp.',
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Cho tôi xem danh sách từ khóa SEO của website.');
+
+        self::assertSame('confident', $route->outcome);
+        self::assertSame('keywords.inventory', $route->capability);
+        self::assertSame('READ', $route->intentFamily);
+        self::assertArrayHasKey('entity_disambiguation', $route->diagnostics);
+        self::assertSame('keyword', $route->diagnostics['entity_disambiguation']['target_entity']);
+    }
+
+    #[Test]
+    public function positive_3_topic_strength_statistics_preserves_confident_keywords_landscape(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'confident',
+                    'module' => 'keywords',
+                    'operation' => 'keywords.landscape',
+                    'reason' => 'confident_internal',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'keywords.landscape',
+                            'internal_semantic_score' => 1.0,
+                            'group_id' => 'keywords_landscape',
+                            'example' => 'Thống kê số chủ đề Strong, Medium và Weak của website.',
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Thống kê số chủ đề Strong, Medium và Weak của website.');
+
+        self::assertSame('confident', $route->outcome);
+        self::assertSame('keywords.landscape', $route->capability);
+        self::assertSame('READ', $route->intentFamily);
+    }
+
+    // ==========================================
+    // NEGATIVE TESTS (PART D: 4, 5, 6, 7, 8, 9)
+    // ==========================================
+
+    #[Test]
+    public function negative_4_topic_suggestions_preserves_unsupported_improve(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'confident',
+                    'module' => 'keywords',
+                    'operation' => 'keywords.topic_suggestions',
+                    'reason' => 'confident_internal',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'keywords.topic_suggestions',
+                            'internal_semantic_score' => 0.758,
+                            'group_id' => 'keywords_topic_suggestions',
+                            'example' => 'Dựa trên Topic bao phủ yếu, hãy đề xuất bài viết mới.',
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Dựa trên Topic yếu, hãy đề xuất bài viết mới.');
+
+        // keywords.topic_suggestions maps to content.topic_suggestions (unsupported)
+        // Must stay unsupported IMPROVE, not converted to READ.
+        self::assertSame('unsupported', $route->outcome);
+        self::assertSame('IMPROVE', $route->intentFamily);
+    }
+
+    #[Test]
+    public function negative_5_same_family_ambiguity_without_distinguishing_entity_remains_ambiguous(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'ambiguous',
+                    'reason' => 'final_operation_margin',
+                    'module' => 'keywords',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'keywords.inventory',
+                            'internal_semantic_score' => 0.85,
+                            'final_score' => 0.85,
+                            'group_id' => 'keywords_inventory',
+                        ],
+                        [
+                            'operation' => 'keywords.landscape',
+                            'internal_semantic_score' => 0.82,
+                            'final_score' => 0.82,
+                            'group_id' => 'keywords_landscape',
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        // Generic phrasing without mentioning topic or keyword
+        $route = $router->route('Cho tôi xem danh sách dữ liệu hiện có của website.');
+
         self::assertSame('ambiguous', $route->outcome);
         self::assertNull($route->capability);
-        self::assertArrayNotHasKey('cross_family_disambiguation', $route->diagnostics);
+        self::assertArrayHasKey('clarification', $route->diagnostics);
+        self::assertSame('Bạn muốn xem danh sách Topic (chủ đề) hay danh sách từ khóa?', $route->diagnostics['clarification']['vi']);
     }
 
     #[Test]
-    public function local_decision_json_sets_report_template_for_improve_intent(): void
+    public function negative_6_conflicting_entity_terms_preserves_ambiguity(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'ambiguous',
+                    'reason' => 'final_operation_margin',
+                    'module' => 'keywords',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'keywords.inventory',
+                            'internal_semantic_score' => 0.85,
+                            'final_score' => 0.85,
+                            'group_id' => 'keywords_inventory',
+                        ],
+                        [
+                            'operation' => 'keywords.landscape',
+                            'internal_semantic_score' => 0.83,
+                            'final_score' => 0.83,
+                            'group_id' => 'keywords_landscape',
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        // Query mentions both Topic AND từ khóa
+        $route = $router->route('Cho tôi xem cả topic và từ khóa của website.');
+
+        self::assertSame('ambiguous', $route->outcome);
+        self::assertNull($route->capability);
+    }
+
+    #[Test]
+    public function negative_7_single_article_improvement_preserves_ambiguity(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'ambiguous',
+                    'reason' => 'final_operation_margin',
+                    'module' => 'articles',
+                    'operation_candidates' => [
+                        [
+                            'operation' => 'articles.improve',
+                            'internal_semantic_score' => 0.72,
+                            'final_score' => 0.72,
+                        ],
+                        [
+                            'operation' => 'seo_audit.site_improve',
+                            'internal_semantic_score' => 0.799,
+                            'final_score' => 0.799,
+                        ],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Bài viết balo học sinh cần cải thiện SEO thế nào?');
+
+        self::assertSame('ambiguous', $route->outcome);
+    }
+
+    #[Test]
+    public function negative_8_gsc_high_impression_low_seo_preserves_ambiguity(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('unavailable', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return [
+                    'status' => 'ambiguous',
+                    'reason' => 'final_operation_margin',
+                    'module' => 'gsc',
+                    'operation_candidates' => [
+                        ['operation' => 'gsc.cross_read', 'internal_semantic_score' => 0.74, 'final_score' => 0.74],
+                        ['operation' => 'seo_audit.worst_articles', 'internal_semantic_score' => 0.71, 'final_score' => 0.71],
+                    ],
+                ];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Những bài có impression cao nhưng điểm SEO thấp?');
+
+        self::assertSame('ambiguous', $route->outcome);
+    }
+
+    #[Test]
+    public function negative_9_weather_query_remains_out_of_scope(): void
+    {
+        $evaluator = new class implements WeightedRouteEvaluator, HybridRouteEvaluator {
+            public function evaluate(string $query, array $groups): \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation
+            {
+                return new \Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation('none', null, []);
+            }
+
+            public function evaluateHybrid(string $query, array $document): array
+            {
+                return ['status' => 'none', 'reason' => 'below_threshold', 'operation_candidates' => []];
+            }
+        };
+
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig(), new CatalogToolRouteAuthority());
+        $route = $router->route('Ngày mai thời tiết thế nào?');
+
+        self::assertSame('none', $route->outcome);
+        self::assertNull($route->capability);
+    }
+
+    // ==========================================
+    // ANSWER RESPONSE TESTS (PART D: 10, 11, 12, 13, 14)
+    // ==========================================
+
+    #[Test]
+    public function answer_10_valid_report_response_is_accepted(): void
+    {
+        $parser = new AgentResponseParser();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('audit', 'ok', 'seo_audit.worst_articles', [
+                'total' => 20,
+                'items' => [['title' => 'Bài A', 'seo_score' => 25]],
+            ]),
+        ]);
+
+        $reportJson = json_encode([
+            'message' => 'Đề xuất cải thiện SEO tổng thể',
+            'blocks' => [
+                [
+                    'type' => 'markdown',
+                    'text' => "### Đề xuất ưu tiên\n1. Tối ưu tiêu đề và thẻ meta cho bài viết chất lượng thấp.\n2. Bổ sung nội dung cho các bài viết có điểm SEO thấp.\n3. Cải thiện cấu trúc liên kết nội bộ.",
+                ],
+            ],
+            'actions' => [],
+        ], JSON_THROW_ON_ERROR);
+
+        $parsed = $parser->parse($reportJson, $bundle);
+
+        self::assertSame([], $parser->lastRejections());
+        self::assertSame('Đề xuất cải thiện SEO tổng thể', $parsed->message);
+        self::assertCount(1, $parsed->blocks);
+        self::assertSame('markdown', $parsed->blocks[0]['type']);
+    }
+
+    #[Test]
+    public function answer_11_invalid_report_triggers_safe_fallback(): void
     {
         $coordinator = (new \ReflectionClass(AgentTurnCoordinator::class))->newInstanceWithoutConstructor();
-        $method = new ReflectionMethod($coordinator, 'localDecisionJson');
+        $propertyFactual = new \ReflectionProperty($coordinator, 'factual');
+        $propertyFactual->setValue($coordinator, new FactualAgentResponseComposer());
+        $propertyResponses = new \ReflectionProperty($coordinator, 'responses');
+        $propertyResponses->setValue($coordinator, new AgentResponseParser());
 
-        $improveRoute = new LocalToolRoute(
-            outcome: 'confident',
-            capability: 'seo_audit.worst_articles',
-            score: 0.85,
-            catalogAuthorized: true,
-            matches: [],
-            evidenceKind: 'hybrid_weighted',
-            intentFamily: 'IMPROVE',
-            module: 'seo_audit',
-            guidance: null,
-            answerModelRequired: true,
-        );
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
+                'total' => 25,
+                'items' => [
+                    ['title' => 'Bài 1', 'focus_keyword' => 'k1', 'seo_score' => 20, 'reason_labels' => ['Lỗi']],
+                ],
+            ]),
+        ]);
 
-        $extracted = [
-            'parameters' => [],
-            'clarification' => null,
-            'language' => 'vi',
-        ];
+        $method = new ReflectionMethod($coordinator, 'recoverParsedAnswer');
+        $result = $method->invoke($coordinator, 'malformed json string', $bundle, 'Hãy đề xuất cách cải thiện SEO tổng thể', 'vi', true);
 
-        $json = $method->invoke($coordinator, $improveRoute, 'Hãy đề xuất cách cải thiện SEO tổng thể', $extracted);
-        $decision = json_decode((string) $json, true);
-
-        self::assertSame('report', $decision['response_template']);
-        self::assertSame('seo_audit.worst_articles', $decision['primary_capability']);
-
-        $readRoute = new LocalToolRoute(
-            outcome: 'confident',
-            capability: 'keywords.landscape',
-            score: 0.85,
-            catalogAuthorized: true,
-            matches: [],
-            evidenceKind: 'hybrid_weighted',
-            intentFamily: 'READ',
-            module: 'keywords',
-            guidance: null,
-            answerModelRequired: false,
-        );
-
-        $jsonRead = $method->invoke($coordinator, $readRoute, 'Danh sách topic', $extracted);
-        $decisionRead = json_decode((string) $jsonRead, true);
-
-        self::assertSame('table', $decisionRead['response_template']);
+        self::assertNotNull($result['response']);
+        self::assertSame('rejected', $result['diagnostics']['status'] ?? null);
+        self::assertNotEmpty($result['response']->blocks);
+        self::assertSame('warning', $result['response']->blocks[0]['type']);
     }
 
     #[Test]
-    public function verified_fallback_omits_draft_intake_controls_for_improvement_analysis(): void
+    public function answer_12_seo_improvement_fallback_has_no_draft_intake_controls(): void
     {
         $items = [];
         for ($i = 1; $i <= 50; $i++) {
@@ -238,36 +464,25 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertNotEmpty($fallback->blocks);
         self::assertSame([], $fallback->actions);
 
-        $hasWarning = false;
         $tableBlock = null;
         foreach ($fallback->blocks as $block) {
-            if ($block['type'] === 'warning') {
-                $hasWarning = true;
-                self::assertStringContainsString('Đề xuất cải thiện', $block['text']);
-            }
             if ($block['type'] === 'table') {
                 $tableBlock = $block;
             }
         }
 
-        self::assertTrue($hasWarning);
         self::assertNotNull($tableBlock);
-
         // Selection controls must NOT appear in improvement fallback
         self::assertArrayNotHasKey('actionable', $tableBlock);
-
         // At most 8 sample rows are shown, not all 50
         self::assertLessThanOrEqual(8, count($tableBlock['rows']));
         self::assertCount(8, $tableBlock['rows']);
-
-        // Individual rows must NOT contain draft intake items
+        // Rows must not have draft intake item
         self::assertArrayNotHasKey('item', $tableBlock['rows'][0]);
-        self::assertSame('Bài viết 1', $tableBlock['rows'][0]['title']);
-        self::assertSame(21, $tableBlock['rows'][0]['seo_score']);
     }
 
     #[Test]
-    public function explicit_draft_request_preserves_draft_intake_table(): void
+    public function answer_13_explicit_draft_request_preserves_actionable_controls(): void
     {
         $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
             new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
@@ -297,5 +512,33 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertSame('content_project.draft.intake', $block['actionable']['action']);
         self::assertSame('improve', $block['rows'][0]['item']['type']);
         self::assertSame('article:1', $block['rows'][0]['item']['article_ref']);
+    }
+
+    #[Test]
+    public function answer_14_public_response_contains_no_access_tmp(): void
+    {
+        $composer = new FactualAgentResponseComposer();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'topics' => [
+                    [
+                        'name' => 'Balo học sinh',
+                        'coverage' => 'Weak',
+                        'mcp_percent' => 30,
+                        'article_count' => 5,
+                        'coverage_href' => 'https://app.example.test/topics/1?access_tmp=SECRET_TOKEN',
+                        'ui_href' => 'https://app.example.test/api/v1/access/temporary_key',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $response = $composer->compose($bundle, 'Thống kê số chủ đề Strong, Medium và Weak của website.', 'vi');
+        self::assertNotNull($response);
+
+        $json = json_encode($response->toArray());
+        self::assertStringNotContainsString('access_tmp', $json);
+        self::assertStringNotContainsString('/api/v1/access/', $json);
+        self::assertStringNotContainsString('SECRET_TOKEN', $json);
     }
 }

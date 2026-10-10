@@ -70,6 +70,34 @@ final class SemanticRoutingConfig
         return array_key_exists($module, (array) ($this->document()['modules'] ?? []));
     }
 
+    /** @return array<string, array{phrases: list<string>, label?: array{vi?: string, en?: string}}> */
+    public function entities(): array
+    {
+        $entities = $this->document()['entities'] ?? [];
+
+        return is_array($entities) ? $entities : [];
+    }
+
+    public function operationEntity(string $ref): ?string
+    {
+        $operation = $this->operation($ref);
+        $entity = is_string($operation['entity'] ?? null) ? trim($operation['entity']) : '';
+
+        return $entity !== '' ? $entity : null;
+    }
+
+    public function operationLabel(string $ref, string $language = 'vi'): ?string
+    {
+        $operation = $this->operation($ref);
+        if (! is_array($operation)) {
+            return null;
+        }
+        $labels = is_array($operation['label'] ?? null) ? $operation['label'] : [];
+        $label = $labels[$language] ?? $labels['en'] ?? null;
+
+        return is_string($label) && trim($label) !== '' ? trim($label) : null;
+    }
+
     /** @return array<string, mixed> */
     public function defaults(): array
     {
@@ -118,9 +146,34 @@ final class SemanticRoutingConfig
             'global' => $this->groups(is_array($document['global'] ?? null) ? $document['global'] : [], array_keys($incoming)),
             'modules' => $modules,
             'lexical_hints' => $this->lexicalHints(is_array($document['lexical_hints'] ?? null) ? $document['lexical_hints'] : [], array_keys($incoming)),
-            'policy' => $this->policy(is_array($document['policy'] ?? null) ? $document['policy'] : []),
+            'policy' => $this->sanitizePolicy(is_array($document['policy'] ?? null) ? $document['policy'] : []),
             'operations' => is_array($document['operations'] ?? null) ? $document['operations'] : [],
+            'entities' => $this->sanitizeEntities(is_array($document['entities'] ?? null) ? $document['entities'] : []),
         ];
+    }
+
+    /** @param array<string, mixed> $entities @return array<string, array{phrases: list<string>, label: array{vi?: string, en?: string}}> */
+    private function sanitizeEntities(array $entities): array
+    {
+        $clean = [];
+        foreach ($entities as $key => $config) {
+            if (! is_string($key) || ! is_array($config)) {
+                continue;
+            }
+            $phrases = array_values(array_unique(array_filter(array_map(
+                static fn (mixed $value): string => trim((string) $value),
+                (array) ($config['phrases'] ?? [])
+            ))));
+            if ($phrases === []) {
+                continue;
+            }
+            $clean[$key] = [
+                'phrases' => $phrases,
+                'label' => is_array($config['label'] ?? null) ? $config['label'] : [],
+            ];
+        }
+
+        return $clean;
     }
 
     /** @param list<mixed> $hints @param list<string> $modules @return list<array<string, mixed>> */
@@ -140,8 +193,16 @@ final class SemanticRoutingConfig
         return $clean;
     }
 
+    /** @return array<string, mixed> */
+    public function policy(): array
+    {
+        $policy = $this->document()['policy'] ?? [];
+
+        return is_array($policy) ? $policy : [];
+    }
+
     /** @param array<string, mixed> $policy @return array<string, mixed> */
-    private function policy(array $policy): array
+    private function sanitizePolicy(array $policy): array
     {
         return [
             'min_semantic_candidate' => min(1.0, max(-1.0, (float) ($policy['min_semantic_candidate'] ?? 0.45))),

@@ -743,9 +743,9 @@ class AgentTurnCoordinator
         if ($route->outcome !== 'confident' || $route->catalogAuthorized !== true || $route->capability === null) {
             $bundle = new RetrievalBundle($scope, [], ['local_tool_router_'.$route->outcome]);
             $text = match ($route->outcome) {
-                'ambiguous' => $extracted['language'] === 'vi'
+                'ambiguous' => (is_array($route->diagnostics['clarification'] ?? null) ? ($route->diagnostics['clarification'][$extracted['language']] ?? $route->diagnostics['clarification']['en'] ?? null) : null) ?? ($extracted['language'] === 'vi'
                     ? 'Bạn muốn xem dữ liệu hiện có hay nhận đề xuất cải thiện?'
-                    : 'Do you want to see the current data, or receive improvement suggestions?',
+                    : 'Do you want to see the current data, or receive improvement suggestions?'),
                 'unsupported' => $extracted['language'] === 'vi'
                     ? 'Agent đã hiểu yêu cầu nhưng chức năng này hiện chưa được hỗ trợ.'
                     : 'The request was understood, but this function is not supported yet.',

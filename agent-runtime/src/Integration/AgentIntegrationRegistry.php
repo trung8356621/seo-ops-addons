@@ -39,7 +39,7 @@ final class AgentIntegrationRegistry
         if ($this->aggregate !== null) {
             return $this->aggregate;
         }
-        $document = ['revision' => 1, 'global' => [], 'modules' => [], 'lexical_hints' => [], 'policy' => []];
+        $document = ['revision' => 1, 'global' => [], 'modules' => [], 'lexical_hints' => [], 'policy' => [], 'entities' => []];
         $operations = [];
         foreach ($this->registrations as $service => $paths) {
             $routing = $this->readJson($paths['routing']);
@@ -71,6 +71,7 @@ final class AgentIntegrationRegistry
             $document['global'] = array_merge($document['global'], (array) ($routing['global'] ?? []));
             $document['lexical_hints'] = array_merge($document['lexical_hints'], (array) ($routing['lexical_hints'] ?? []));
             $document['policy'] = array_replace($document['policy'], (array) ($routing['policy'] ?? []));
+            $document['entities'] = array_replace($document['entities'], (array) ($routing['entities'] ?? []));
             $document['revision'] = max($document['revision'], (int) ($routing['revision'] ?? 1));
         }
         foreach ($document['global'] as $group) {

@@ -2,11 +2,11 @@
   "service": "seo-ops",
   "revision": 2,
   "operations": {
-    "keywords.inventory": {"family":"READ","capability":"keywords.inventory","guidance":null,"answer_model":false,"secondary":[]},
-    "keywords.landscape": {"family":"READ","capability":"keywords.landscape","guidance":null,"answer_model":false,"secondary":[]},
+    "keywords.inventory": {"family":"READ","capability":"keywords.inventory","guidance":null,"answer_model":false,"secondary":[],"entity":"keyword","label":{"vi":"danh sách từ khóa","en":"keyword list"}},
+    "keywords.landscape": {"family":"READ","capability":"keywords.landscape","guidance":null,"answer_model":false,"secondary":[],"entity":"topic","label":{"vi":"danh sách Topic (chủ đề)","en":"Topic list"}},
     "keywords.relationship": {"family":"READ","capability":"keywords.relationship","guidance":null,"answer_model":false,"secondary":[]},
     "keywords.topic_suggestions": {"family":"IMPROVE","capability":"content.topic_suggestions","guidance":null,"answer_model":false,"secondary":[]},
-    "articles.inventory": {"family":"READ","capability":"articles.inventory","guidance":null,"answer_model":false,"secondary":[]},
+    "articles.inventory": {"family":"READ","capability":"articles.inventory","guidance":null,"answer_model":false,"secondary":[],"entity":"article","label":{"vi":"danh sách bài viết","en":"article list"}},
     "articles.improve": {"family":"IMPROVE","capability":"seo_audit.improve","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.worst_articles": {"family":"READ","capability":"seo_audit.worst_articles","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.focus_keyword_guidance": {"family":"READ","capability":null,"guidance":"Các bài thiếu Focus Keyword xem và sửa trong SEO Audit: /seo/content-projects/seo-audit. Agent không tự tạo Draft cho câu này.","answer_model":false,"secondary":[]},
@@ -30,6 +30,20 @@
     {"id":"content_project","module":"content_projects","phrases":["content project","project planner","dự án nội dung"],"weight":0.08,"enabled":true},
     {"id":"search_console","module":"gsc","phrases":["impression","ctr","clicks","gsc","search console"],"weight":0.08,"enabled":true}
   ],
+  "entities": {
+    "topic": {
+      "phrases": ["topic", "chủ đề", "cụm chủ đề", "nhóm chủ đề"],
+      "label": {"vi": "Topic (chủ đề)", "en": "Topic"}
+    },
+    "keyword": {
+      "phrases": ["từ khóa", "keyword", "keywords", "tags"],
+      "label": {"vi": "từ khóa", "en": "keyword"}
+    },
+    "article": {
+      "phrases": ["bài viết", "article", "bài"],
+      "label": {"vi": "bài viết", "en": "article"}
+    }
+  },
   "global": [
     {
       "id": "tracked_keyword_inventory",
