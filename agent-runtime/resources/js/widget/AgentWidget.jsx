@@ -12,6 +12,7 @@ import { responseToPlainText } from '../response/responseText.js';
 import { flushFeedback, queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
 import { completedReviewRun, defaultReviewChoice, findReviewResponse, resolveReviewIndicator, reviewCandidates, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
 import { archiveThreadLocally, prependThread, threadTitleFromMessage } from './threadSidebar.js';
+import { scopeEntryAction, threadLoadIsCurrent } from './agentLoadingState.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -347,10 +348,15 @@ export function AgentWidget({
     const [debugParserError, setDebugParserError] = useState('');
     const [processingStatus, setProcessingStatus] = useState(null);
     const [selectedVersions, setSelectedVersions] = useState({});
+    const [threadLoadingUlid, setThreadLoadingUlid] = useState('');
+    const [threadLoadError, setThreadLoadError] = useState('');
+    const [rerunTargetId, setRerunTargetId] = useState(null);
+    const [rerunNotice, setRerunNotice] = useState('');
+    const [rerunErrorByTurn, setRerunErrorByTurn] = useState(null);
 
     const isDebugMode = developerMode === DEV_MODE_DEBUG;
     const isDiagnostics = developerMode === DEV_MODE_DIAG;
-    const isDevModeDisabled = busy || debugBusy || debugOpen || (processingStatus !== null);
+    const isDevModeDisabled = busy || debugBusy || debugOpen || (processingStatus !== null) || Boolean(threadLoadingUlid) || Boolean(rerunTargetId);
 
     const updateDevMode = (newMode) => {
         setDeveloperMode(newMode);
@@ -406,6 +412,12 @@ export function AgentWidget({
     const currentScopeRef = isTestMode
         ? (testSiteId ? `site:${testSiteId}` : null)
         : (selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global'));
+    const messagesRef = useRef(null);
+    const threadLoadSeq = useRef(0);
+    const threadAbortRef = useRef(null);
+    const liveScopeRef = useRef(currentScopeRef);
+    const lastScopeRef = useRef(null);
+    liveScopeRef.current = currentScopeRef;
     const globalUnsupported = selected.retrieval === 'unsupported';
     const isDrawer = mode === 'drawer';
     const showSidebar = !isDrawer && (mode !== 'embedded' || !initialScope || initialScope.type === 'global');
@@ -510,18 +522,36 @@ export function AgentWidget({
         setProcessingStatus(null);
     }, []);
 
+    const threadLoadCurrent = (seq, scopeRef) => threadLoadIsCurrent(seq, threadLoadSeq.current, scopeRef, liveScopeRef.current);
+
     // Load thread messages without triggering a model turn
-    const loadThread = useCallback(async (ulid, scopeRef) => {
+    const loadThread = useCallback(async (ulid, scopeRef, options = {}) => {
         if (!endpoints.threadsUrl || !ulid) {
             return;
         }
-        setBusy(true);
+        threadAbortRef.current?.abort();
+        const controller = new AbortController();
+        threadAbortRef.current = controller;
+        const seq = ++threadLoadSeq.current;
+        const archivedHint = Boolean(options.archived);
+        setViewingThreadUlid(ulid);
+        setIsViewingArchived(archivedHint);
+        if (!archivedHint) {
+            setActiveThreadUlid(ulid);
+        }
+        setMessages([]);
+        setThreadLoadingUlid(ulid);
+        setThreadLoadError('');
         setError('');
         setOpenReviewRunUlid(null);
+        setRerunTargetId(null);
+        setRerunNotice('');
+        setRerunErrorByTurn(null);
         try {
             const res = await fetch(`${endpoints.threadsUrl}/${ulid}`, {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
+                signal: controller.signal,
             });
             if (!res.ok) {
                 throw new Error('Could not load conversation.');
@@ -558,6 +588,9 @@ export function AgentWidget({
                     },
                 };
             });
+            if (!threadLoadCurrent(seq, scopeRef)) {
+                return;
+            }
             setMessages(mapped);
             setViewingThreadUlid(ulid);
             const threadIsArchived = threadData.status === 'archived';
@@ -573,7 +606,10 @@ export function AgentWidget({
             if (strandedUlid) {
                 resetDebugState();
                 setDebugOpen(false);
-                await finishStrandedRun(strandedUlid);
+                if (!threadLoadCurrent(seq, scopeRef)) {
+                    return;
+                }
+                await finishStrandedRun(strandedUlid, () => threadLoadCurrent(seq, scopeRef));
             } else if (pending && prompt !== '') {
                 setDebugRunUlid(pending.run_ulid || '');
                 setDebugCall(pending.model_call || null);
@@ -591,11 +627,17 @@ export function AgentWidget({
                 setDebugOpen(false);
             }
         } catch (err) {
-            setError(err.message || 'Failed to load thread.');
+            if (err?.name === 'AbortError' || !threadLoadCurrent(seq, scopeRef)) {
+                return;
+            }
+            setMessages([]);
+            setThreadLoadError(err.message || 'Failed to load thread.');
         } finally {
-            setBusy(false);
+            if (threadLoadCurrent(seq, scopeRef)) {
+                setThreadLoadingUlid('');
+            }
         }
-    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, currentScopeRef, resetDebugState]);
+    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, resetDebugState]);
 
     // New conversation action
     const onNewConversation = useCallback(() => {
@@ -605,6 +647,11 @@ export function AgentWidget({
         setMessages([]);
         setDraft('');
         setError('');
+        setThreadLoadingUlid('');
+        setThreadLoadError('');
+        setRerunTargetId(null);
+        setRerunNotice('');
+        setRerunErrorByTurn(null);
         clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
         resetDebugState();
         setDebugOpen(false);
@@ -673,7 +720,11 @@ export function AgentWidget({
         setDebugBusy(true);
         setDebugParserError('');
         setDebugOpen(false);
-        setProcessingStatus('Thinking…');
+        if (rerunTargetId) {
+            setRerunNotice('Thinking…');
+        } else {
+            setProcessingStatus('Thinking…');
+        }
         try {
             const payload = await postJson(endpoints.modelDebugApplyUrl, csrf, {
                 run_ulid: debugRunUlid,
@@ -683,7 +734,12 @@ export function AgentWidget({
             if (data.status === 'paused') {
                 setDebugCall(data.model_call || null);
                 setDebugManualResult('');
-                setProcessingStatus(waitingForManualModel(data.model_call));
+                if (rerunTargetId) {
+                    setRerunNotice(waitingForManualModel(data.model_call));
+                    setProcessingStatus(null);
+                } else {
+                    setProcessingStatus(waitingForManualModel(data.model_call));
+                }
                 setDebugOpen(true);
                 return;
             }
@@ -695,6 +751,8 @@ export function AgentWidget({
                 response: data,
             }]);
             setSelectedVersions((current) => ({ ...current, [data.user_message_id]: Number.MAX_SAFE_INTEGER }));
+            setRerunTargetId(null);
+            setRerunNotice('');
             resetDebugState();
             revealCompletedReview(data);
         } catch (caught) {
@@ -704,19 +762,29 @@ export function AgentWidget({
                 if (payload.data.model_call) {
                     setDebugCall(payload.data.model_call);
                 }
-                setProcessingStatus(waitingForManualModel(payload.data.model_call));
+                if (rerunTargetId) {
+                    setRerunNotice(waitingForManualModel(payload.data.model_call));
+                    setProcessingStatus(null);
+                } else {
+                    setProcessingStatus(waitingForManualModel(payload.data.model_call));
+                }
                 setDebugOpen(true);
             } else {
                 setDebugParserError(caught.message);
                 setProcessingStatus(null);
                 setDebugOpen(true);
+                if (rerunTargetId) {
+                    setRerunErrorByTurn({ id: rerunTargetId, message: caught.message || 'Could not rerun message.' });
+                    setRerunTargetId(null);
+                    setRerunNotice('');
+                }
             }
         } finally {
             setDebugBusy(false);
         }
     }
 
-    async function finishStrandedRun(runUlid) {
+    async function finishStrandedRun(runUlid, stillCurrent = null) {
         if (!runUlid || !endpoints.modelDebugApplyUrl) {
             return;
         }
@@ -724,6 +792,9 @@ export function AgentWidget({
             run_ulid: runUlid,
             recover_stranded: true,
         });
+        if (stillCurrent && !stillCurrent()) {
+            return;
+        }
         const data = payload?.data || {};
         setMessages((current) => [...current, {
             role: 'assistant',
@@ -742,20 +813,31 @@ export function AgentWidget({
         if (!currentScopeRef) {
             return;
         }
-        fetchThreads(currentScopeRef);
-
         const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef);
-        if (storedUlid) {
-            loadThread(storedUlid, currentScopeRef);
-        } else {
-            setActiveThreadUlid(null);
-            setViewingThreadUlid(null);
-            setIsViewingArchived(false);
-            setMessages([]);
-            resetDebugState();
-            setDebugOpen(false);
-            setOpenReviewRunUlid(null);
+        const action = scopeEntryAction(lastScopeRef.current, currentScopeRef, storedUlid);
+        if (action === 'ignore') {
+            return;
         }
+        lastScopeRef.current = currentScopeRef;
+        threadAbortRef.current?.abort();
+        threadLoadSeq.current += 1;
+        fetchThreads(currentScopeRef);
+        setThreadLoadingUlid('');
+        setThreadLoadError('');
+        setRerunTargetId(null);
+        setRerunNotice('');
+        setRerunErrorByTurn(null);
+        setOpenReviewRunUlid(null);
+        resetDebugState();
+        setDebugOpen(false);
+        if (action === 'restore') {
+            loadThread(storedUlid, currentScopeRef);
+            return;
+        }
+        setActiveThreadUlid(null);
+        setViewingThreadUlid(null);
+        setIsViewingArchived(false);
+        setMessages([]);
     }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
 
     async function copyText(text) {
@@ -976,13 +1058,27 @@ export function AgentWidget({
         void onSend();
     }
 
-    async function onRerun(userMessageId) {
-        if (busy || !activeThreadUlid || !userMessageId || isViewingArchived) {
+    useEffect(() => {
+        if (!rerunTargetId || !messagesRef.current) {
             return;
         }
-        setBusy(true);
+        const container = messagesRef.current;
+        const node = container.querySelector('[data-rerun-placeholder="true"]');
+        if (!node) {
+            return;
+        }
+        const delta = node.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        container.scrollTop += delta - 12;
+    }, [rerunTargetId]);
+
+    async function onRerun(userMessageId) {
+        if (busy || rerunTargetId || !activeThreadUlid || !userMessageId || isViewingArchived) {
+            return;
+        }
+        setRerunTargetId(userMessageId);
+        setRerunNotice('Thinking…');
+        setRerunErrorByTurn(null);
         setError('');
-        setProcessingStatus('Thinking…');
         setOpenReviewRunUlid(null);
 
         try {
@@ -999,7 +1095,7 @@ export function AgentWidget({
                 setDebugCall(data.model_call || null);
                 setDebugManualResult('');
                 setDebugParserError('');
-                setProcessingStatus(waitingForManualModel(data.model_call));
+                setRerunNotice(waitingForManualModel(data.model_call));
                 setDebugOpen(true);
                 return;
             }
@@ -1016,13 +1112,13 @@ export function AgentWidget({
                 ...current,
                 [userMessageId]: Number.MAX_SAFE_INTEGER,
             }));
+            setRerunTargetId(null);
+            setRerunNotice('');
             revealCompletedReview(data);
-            setProcessingStatus(null);
         } catch (caught) {
-            setError(caught.message || 'Could not rerun message.');
-            setProcessingStatus(null);
-        } finally {
-            setBusy(false);
+            setRerunErrorByTurn({ id: userMessageId, message: caught.message || 'Could not rerun message.' });
+            setRerunTargetId(null);
+            setRerunNotice('');
         }
     }
 
@@ -1242,7 +1338,7 @@ export function AgentWidget({
                         </header>
                     ) : null}
 
-                    <div className="agent-messages" role="log" aria-live="polite">
+                    <div className="agent-messages" role="log" aria-live="polite" ref={messagesRef}>
                         {isTestMode ? (
                             <form className="agent-test-workspace" aria-label="Unified Test workspace" onSubmit={onRunTest}>
                                 <div>
@@ -1351,7 +1447,7 @@ export function AgentWidget({
                             </form>
                         ) : null}
 
-                        {!isTestMode && conversationTurns.length === 0 ? (
+                        {!isTestMode && conversationTurns.length === 0 && !threadLoadingUlid && !threadLoadError ? (
                             <div className="agent-welcome agent-empty">
                                 <div className="agent-welcome__icon-wrap">
                                     <Sparkles size={26} className="agent-sparkles-icon agent-welcome__icon" />
@@ -1363,6 +1459,19 @@ export function AgentWidget({
                                     {t.welcomeDesc(selected.label)}
                                 </p>
                                 {renderSuggestions()}
+                            </div>
+                        ) : null}
+
+                        {threadLoadingUlid ? (
+                            <div className="agent-thread-skeleton" aria-busy="true" aria-label="Đang tải hội thoại">
+                                <span className="agent-thread-skeleton__user" />
+                                <span className="agent-thread-skeleton__assistant" />
+                            </div>
+                        ) : null}
+                        {threadLoadError ? (
+                            <div className="agent-error-banner" role="alert">
+                                <span>{threadLoadError}</span>
+                                <button type="button" onClick={() => loadThread(viewingThreadUlid, currentScopeRef, { archived: isViewingArchived })}>Thử lại</button>
                             </div>
                         ) : null}
 
@@ -1378,6 +1487,7 @@ export function AgentWidget({
                             const confirmedChoice = confirmedReviews[versionRunUlid] || '';
                             const reviewMark = resolveReviewIndicator(version?.response, confirmedChoice);
                             const panelOpen = openReviewRunUlid === versionRunUlid && versionCandidates.length > 0;
+                            const rerunning = rerunTargetId != null && String(turn.id) === String(rerunTargetId);
 
                             return (
                                 <div key={turn.id} className="agent-turn">
@@ -1387,71 +1497,17 @@ export function AgentWidget({
                                         </div>
                                     </article>
 
-                                    {version ? (
+                                    {rerunning ? (
+                                        <article className="agent-message is-assistant agent-processing-status" data-rerun-placeholder="true" role="status">
+                                            <div className="agent-status-indicator">
+                                                <Loader2 size={16} className="agent-spinner" />
+                                                <span>{rerunNotice || 'Thinking…'}</span>
+                                            </div>
+                                        </article>
+                                    ) : version ? (
                                         <article className="agent-message is-assistant">
                                             <div className="agent-message__header">
                                                 <span className="agent-message__role">AI Assistant</span>
-                                                <div className="agent-message__actions">
-                                                    {turn.versions.length > 1 ? (
-                                                        <span className="agent-version-nav">
-                                                            <button
-                                                                type="button"
-                                                                disabled={versionIndex <= 0}
-                                                                onClick={() =>
-                                                                    setSelectedVersions((current) => ({
-                                                                        ...current,
-                                                                        [turn.id]: versionIndex - 1,
-                                                                    }))
-                                                                }
-                                                                aria-label="Previous response version"
-                                                            >
-                                                                ‹
-                                                            </button>
-                                                            <span>
-                                                                {versionIndex + 1} / {turn.versions.length}
-                                                            </span>
-                                                            <button
-                                                                type="button"
-                                                                disabled={versionIndex >= turn.versions.length - 1}
-                                                                onClick={() =>
-                                                                    setSelectedVersions((current) => ({
-                                                                        ...current,
-                                                                        [turn.id]: versionIndex + 1,
-                                                                    }))
-                                                                }
-                                                                aria-label="Next response version"
-                                                            >
-                                                                ›
-                                                            </button>
-                                                        </span>
-                                                    ) : null}
-
-                                                    {versionCandidates.length > 0 ? (
-                                                        <button
-                                                            type="button"
-                                                            className={`agent-message-action-btn agent-vote-btn${reviewMark ? ' is-active' : ''}${panelOpen ? ' is-open' : ''}`}
-                                                            aria-expanded={panelOpen}
-                                                            title={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
-                                                            aria-label={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
-                                                            onClick={() => openRoutingReview(version.response)}
-                                                        >
-                                                            <Vote size={13} />
-                                                        </button>
-                                                    ) : null}
-                                                    <button
-                                                        type="button"
-                                                        className="agent-message-action-btn"
-                                                        onClick={() => copyText(responseToPlainText(version.response))}
-                                                        title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
-                                                    {!isViewingArchived && (
-                                                        <button
-                                                            type="button"
-                                                            className="agent-message-action-btn"
-                                                            onClick={() => onRerun(turn.id)}
-                                                            disabled={busy || isDevModeDisabled}
-                                                            title="Rerun" aria-label="Rerun"><RotateCcw size={13} /></button>
-                                                    )}
-                                                </div>
                                             </div>
                                             <div className="agent-message__body">
                                                 <ResponseView
@@ -1492,7 +1548,74 @@ export function AgentWidget({
                                                     );
                                                 })()}
                                             </div>
+                                            <div className="agent-message__actions">
+                                                {turn.versions.length > 1 ? (
+                                                    <span className="agent-version-nav">
+                                                        <button
+                                                            type="button"
+                                                            disabled={versionIndex <= 0}
+                                                            onClick={() =>
+                                                                setSelectedVersions((current) => ({
+                                                                    ...current,
+                                                                    [turn.id]: versionIndex - 1,
+                                                                }))
+                                                            }
+                                                            aria-label="Previous response version"
+                                                        >
+                                                            ‹
+                                                        </button>
+                                                        <span>
+                                                            {versionIndex + 1} / {turn.versions.length}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            disabled={versionIndex >= turn.versions.length - 1}
+                                                            onClick={() =>
+                                                                setSelectedVersions((current) => ({
+                                                                    ...current,
+                                                                    [turn.id]: versionIndex + 1,
+                                                                }))
+                                                            }
+                                                            aria-label="Next response version"
+                                                        >
+                                                            ›
+                                                        </button>
+                                                    </span>
+                                                ) : null}
+
+                                                {versionCandidates.length > 0 ? (
+                                                    <button
+                                                        type="button"
+                                                        className={`agent-message-action-btn agent-vote-btn${reviewMark ? ' is-active' : ''}${panelOpen ? ' is-open' : ''}`}
+                                                        aria-expanded={panelOpen}
+                                                        title={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
+                                                        aria-label={reviewMark?.title || 'Đánh giá cách hiểu câu hỏi'}
+                                                        onClick={() => openRoutingReview(version.response)}
+                                                    >
+                                                        <Vote size={13} />
+                                                    </button>
+                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    className="agent-message-action-btn"
+                                                    onClick={() => copyText(responseToPlainText(version.response))}
+                                                    title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
+                                                {!isViewingArchived && (
+                                                    <button
+                                                        type="button"
+                                                        className="agent-message-action-btn"
+                                                        onClick={() => onRerun(turn.id)}
+                                                        disabled={busy || Boolean(rerunTargetId) || isDevModeDisabled}
+                                                        title="Rerun" aria-label="Rerun"><RotateCcw size={13} /></button>
+                                                )}
+                                            </div>
                                         </article>
+                                    ) : null}
+                                    {rerunErrorByTurn?.id === turn.id ? (
+                                        <div className="agent-error-banner" role="alert">
+                                            <span>{rerunErrorByTurn.message}</span>
+                                            <button type="button" onClick={() => onRerun(turn.id)}>Thử lại</button>
+                                        </div>
                                     ) : null}
                                 </div>
                             );
@@ -1592,7 +1715,7 @@ export function AgentWidget({
                                             onSend();
                                         }
                                     }}
-                                    disabled={busy || isViewingArchived}
+                                    disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || isViewingArchived}
                                     rows={2}
                                 />
                                 <div className="agent-composer-actions">
@@ -1600,7 +1723,7 @@ export function AgentWidget({
                                         type="button"
                                         className="agent-copy-btn"
                                         onClick={onCopy}
-                                        disabled={busy || !draft.trim() || isViewingArchived}
+                                        disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
                                         title={locale === 'vi' ? 'Sao chép câu lệnh' : 'Copy prompt'}
                                     >
                                         <Copy size={15} />
@@ -1609,7 +1732,7 @@ export function AgentWidget({
                                     <button
                                         type="submit"
                                         className="agent-send-btn"
-                                        disabled={busy || !draft.trim() || isViewingArchived}
+                                        disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
                                         title={locale === 'vi' ? 'Gửi tin nhắn' : 'Send message'}
                                         aria-label="Send message"
                                     >
@@ -1681,7 +1804,7 @@ export function AgentWidget({
                                                 type="button"
                                                 className={`agent-history-item ${t.ulid === viewingThreadUlid && !isViewingArchived ? 'is-active' : ''}`}
                                                 onClick={() => {
-                                                    loadThread(t.ulid, currentScopeRef, false);
+                                                    loadThread(t.ulid, currentScopeRef, { archived: false });
                                                     setShowHistoryMobile(false);
                                                 }}
                                             >
@@ -1735,7 +1858,7 @@ export function AgentWidget({
                                                 type="button"
                                                 className={`agent-history-item ${t.ulid === viewingThreadUlid && isViewingArchived ? 'is-active' : ''}`}
                                                 onClick={() => {
-                                                    loadThread(t.ulid, currentScopeRef, true);
+                                                    loadThread(t.ulid, currentScopeRef, { archived: true });
                                                     setShowHistoryMobile(false);
                                                 }}
                                             >

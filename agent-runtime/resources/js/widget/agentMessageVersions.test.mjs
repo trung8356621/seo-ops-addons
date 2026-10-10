@@ -141,6 +141,19 @@ test('version controls appear only for multiple results and latest is default', 
     assert.equal(widget.includes('1 / 1'), false);
 });
 
+test('assistant actions render once below the answer, not in the header', () => {
+    const answer = widget.slice(widget.indexOf('agent-message__role">AI Assistant'), widget.indexOf('rerunErrorByTurn?.id'));
+    const header = answer.slice(0, answer.indexOf('agent-message__body'));
+    assert.equal(header.includes('agent-version-nav'), false);
+    assert.equal(header.includes('agent-vote-btn'), false);
+    assert.equal(header.includes('Copy answer'), false);
+    assert.equal(header.includes('title="Rerun"'), false);
+    assert.ok(answer.indexOf('<ResponseView') < answer.indexOf('className="agent-message__actions"'));
+    assert.equal((answer.match(/className="agent-message__actions"/g) || []).length, 1);
+    assert.match(css, /\.agent-message\.is-assistant \.agent-message__actions \{[\s\S]*justify-content: flex-end;[\s\S]*position: static;/);
+    assert.doesNotMatch(css, /\.agent-message\.is-assistant \.agent-message__actions \{[^}]*position:\s*sticky/);
+});
+
 test('version navigation changes local selection without network requests', () => {
     const nav = widget.slice(widget.indexOf('className="agent-version-nav"'), widget.indexOf('</span>', widget.indexOf('className="agent-version-nav"')));
     assert.equal(nav.includes('setSelectedVersions'), true);
@@ -150,7 +163,8 @@ test('version navigation changes local selection without network requests', () =
 
 test('Rerun uses the normal endpoint lifecycle and supports existing Debug interception', () => {
     const rerun = widget.slice(widget.indexOf('async function onRerun'), widget.indexOf('const conversationTurns'));
-    assert.equal(rerun.includes("setProcessingStatus('Thinking…')"), true);
+    assert.equal(rerun.includes("setRerunNotice('Thinking…')"), true);
+    assert.equal(rerun.includes("setProcessingStatus('Thinking…')"), false);
     assert.equal(rerun.includes('debug_mode: isDebugMode'), true);
     assert.equal(rerun.includes('diagnostics: isDiagnostics'), true);
     assert.equal(rerun.includes("if (data.status === 'paused')"), true);

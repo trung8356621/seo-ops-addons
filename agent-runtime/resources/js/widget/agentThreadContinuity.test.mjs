@@ -78,7 +78,7 @@ test('selecting history hydrates thread messages without calling any model', () 
     const source = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8');
 
     // loadThread uses GET /threads/{ulid}
-    assert.equal(source.includes('const loadThread = useCallback(async (ulid, scopeRef) => {'), true);
+    assert.equal(source.includes('const loadThread = useCallback(async (ulid, scopeRef, options = {}) => {'), true);
     assert.equal(source.includes('`${endpoints.threadsUrl}/${ulid}`'), true);
     // Preserves response_payload
     assert.equal(source.includes('response_payload'), true);

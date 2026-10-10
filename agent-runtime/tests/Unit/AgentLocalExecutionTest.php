@@ -190,9 +190,52 @@ final class AgentLocalExecutionTest extends TestCase
 
         $result = $coordinator->send(1, AgentProjectScope::site(4), 'hãy làm điều không có ví dụ tường minh', []);
 
-        self::assertSame('local_tool_router_rejected', $result->failureCode);
+        self::assertSame('local_tool_router_unsupported', $result->failureCode);
+        self::assertSame('Agent đã hiểu yêu cầu nhưng chức năng này hiện chưa được hỗ trợ.', $result->response?->message);
+        self::assertStringNotContainsString('seo_audit.publish', (string) $result->response?->message);
         self::assertSame([], $transport->methods);
         self::assertSame(0, $result->executionTrace['external_model_calls']);
+    }
+
+    #[Test]
+    public function declared_operations_separate_execution_from_authorization(): void
+    {
+        $decisions = $this->createMock(DecisionModelGateway::class);
+        $decisions->expects($this->never())->method('decide');
+        $answers = $this->createMock(AnswerModelGateway::class);
+        $answers->expects($this->never())->method('complete');
+        $handlers = new AgentOperationHandlerRegistry();
+        $transport = new LocalExecutionTransport();
+        $coordinator = $this->coordinator(
+            $decisions,
+            $answers,
+            $this->script('keywords', 'keywords.topic_suggestions'),
+            $transport,
+            handlers: $handlers,
+        );
+
+        $result = $coordinator->send(1, AgentProjectScope::site(4), 'Đề xuất bài viết cho chủ đề yếu', []);
+
+        self::assertTrue(AgentCapabilityCatalog::known('content.topic_suggestions'));
+        self::assertFalse(AgentCapabilityCatalog::isAvailable('content.topic_suggestions'));
+        self::assertFalse($handlers->canDispatch('content.topic_suggestions'));
+        self::assertSame('keywords.topic_suggestions', $result->executionTrace['operation'] ?? null);
+        self::assertSame('local_tool_router_unsupported', $result->failureCode);
+        self::assertSame([], $transport->methods);
+        self::assertSame(0, $result->executionTrace['external_model_calls']);
+
+        $router = new LocalAgentToolRouter($this->script('keywords', 'keywords.landscape'));
+        $landscape = $router->route('Xem độ bao phủ chủ đề');
+        $article = (new LocalAgentToolRouter($this->script('articles', 'articles.improve')))->route('Cải thiện một bài');
+
+        self::assertTrue(AgentCapabilityCatalog::isAvailable('keywords.landscape'));
+        self::assertTrue($landscape->catalogAuthorized);
+        self::assertSame('confident', $landscape->outcome);
+        self::assertSame('keywords.landscape', $landscape->capability);
+        self::assertFalse($handlers->canDispatch('keywords.landscape'));
+        self::assertSame('unsupported', $article->outcome);
+        self::assertSame('articles.improve', $article->diagnostics['operation'] ?? null);
+        self::assertFalse($article->catalogAuthorized);
     }
 
     #[Test]

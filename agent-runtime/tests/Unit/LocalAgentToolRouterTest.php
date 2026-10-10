@@ -80,7 +80,7 @@ final class LocalAgentToolRouterTest extends TestCase
     }
 
     #[Test]
-    public function unavailable_capability_is_rejected_even_with_a_high_score(): void
+    public function unconnected_capability_is_unsupported_even_with_a_high_score(): void
     {
         $authority = new CatalogToolRouteAuthority();
         self::assertFalse($authority->accepts('seo_audit.publish'));
@@ -88,10 +88,57 @@ final class LocalAgentToolRouterTest extends TestCase
         $router = $this->router([jev('confident', 'seo_audit'), jev('confident', 'seo_audit.publish')]);
         $route = $router->route('hãy làm điều không có ví dụ tường minh');
 
-        self::assertSame('rejected', $route->outcome);
+        self::assertSame('unsupported', $route->outcome);
         self::assertSame('seo_audit.publish', $route->capability);
+        self::assertSame('seo_audit.publish', $route->diagnostics['operation'] ?? null);
         self::assertFalse($route->catalogAuthorized);
         self::assertFalse($route->executesTool());
+    }
+
+    #[Test]
+    public function hidden_available_capability_stays_rejected(): void
+    {
+        \Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog::register('demo.hidden', [
+            'label' => 'Hidden',
+            'description' => 'Selectable policy denial.',
+            'jev_selectable' => false,
+            'execution_mode' => 'direct',
+            'requires_confirmation' => false,
+            'status' => 'available',
+            'modules' => [],
+        ]);
+        try {
+            $routing = new SemanticRoutingConfig([
+                'revision' => 1,
+                'global' => [[
+                    'id' => 'hidden',
+                    'name' => 'Hidden',
+                    'examples' => ['hidden status'],
+                    'targets' => [['ref' => 'demo', 'weight' => 10]],
+                ]],
+                'modules' => [
+                    'demo' => [[
+                        'id' => 'hidden_read',
+                        'name' => 'Hidden',
+                        'examples' => ['hidden status'],
+                        'targets' => [['ref' => 'demo.hidden', 'weight' => 10]],
+                    ]],
+                ],
+                'operations' => [
+                    'demo.hidden' => ['family' => 'READ', 'capability' => 'demo.hidden', 'answer_model' => false, 'secondary' => []],
+                ],
+            ]);
+            $route = (new LocalAgentToolRouter(
+                new ScriptedWeightedEvaluator([jev('confident', 'demo'), jev('confident', 'demo.hidden')]),
+                $routing,
+            ))->route('hidden status');
+
+            self::assertSame('rejected', $route->outcome);
+            self::assertSame('demo.hidden', $route->capability);
+            self::assertFalse($route->catalogAuthorized);
+        } finally {
+            \Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog::unregister('demo.hidden');
+        }
     }
 
     #[Test]
@@ -238,7 +285,7 @@ final class LocalAgentToolRouterTest extends TestCase
         self::assertTrue($result->answerModelCalled);
         self::assertNotEmpty($transport->methods);
         self::assertContains('POST', $transport->methods);
-        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/tool-intents/weighted-match'));
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/tool-intents/hybrid-match'));
     }
 
     #[Test]
@@ -280,7 +327,8 @@ final class LocalAgentToolRouterTest extends TestCase
         )->send(1, AgentProjectScope::site(4), 'Hiện trên site đang có những trang nội dung nào?', []);
 
         self::assertNull($result->confirmationProposal);
-        self::assertSame('local_tool_router_rejected', $result->failureCode);
+        self::assertSame('local_tool_router_unsupported', $result->failureCode);
+        self::assertSame('Agent đã hiểu yêu cầu nhưng chức năng này hiện chưa được hỗ trợ.', $result->response?->message);
         self::assertSame([], $transport->methods);
     }
 
@@ -292,24 +340,28 @@ final class LocalAgentToolRouterTest extends TestCase
             'semantic.enabled' => true,
             'semantic.url' => 'http://semantic.test',
         ]);
-        $sequence = Http::sequence();
-        foreach ($steps as $step) {
-            $winner = $step['winner'];
-            $sequence->push([
-                'status' => $step['status'],
-                'winner' => $winner,
-                'candidates' => $winner === null ? [] : [[
-                    'ref' => $winner,
-                    'semantic_relevance' => 0.8,
-                    'weight' => 10,
-                    'score' => 0.8,
-                    'group_id' => 'group',
-                    'example' => 'example',
-                ]],
-            ]);
+        $module = $steps[0];
+        $operation = $steps[1] ?? null;
+        $status = (string) $module['status'];
+        $payload = [
+            'status' => $status,
+            'reason' => $status,
+            'global_candidates' => [],
+            'operation_candidates' => [],
+        ];
+        if ($status === 'confident' && is_array($operation) && ($operation['status'] ?? null) === 'confident') {
+            $payload['module'] = $module['winner'];
+            $payload['operation'] = $operation['winner'];
+            $payload['operation_candidates'] = [[
+                'module' => $module['winner'],
+                'operation' => $operation['winner'],
+                'internal_semantic_score' => 0.8,
+                'group_id' => 'group',
+                'example' => 'example',
+            ]];
         }
         Http::fake([
-            'http://semantic.test/v1/tool-intents/weighted-match' => $sequence,
+            'http://semantic.test/v1/tool-intents/hybrid-match' => Http::response($payload),
         ]);
     }
 

@@ -120,11 +120,12 @@ final class LocalAgentToolRouter
         if ($guidance !== null) {
             return new LocalToolRoute('confident', null, $internal->candidates[0]['score'] ?? null, false, $matches, 'weighted', $operation['family'], $module, $guidance, false, [], $diagnostics);
         }
-        if (! is_string($capability) || ! $this->authority->accepts($capability)) {
-            return new LocalToolRoute('rejected', is_string($capability) ? $capability : $operationRef, $internal->candidates[0]['score'] ?? null, false, $matches, 'weighted', $operation['family'], $module, null, false, [], $diagnostics);
+        $declared = is_string($capability) ? $capability : null;
+        if ($declared === null || ! AgentCapabilityCatalog::known($declared) || ! AgentCapabilityCatalog::isAvailable($declared)) {
+            return new LocalToolRoute('unsupported', $declared ?? $operationRef, $internal->candidates[0]['score'] ?? null, false, $matches, 'weighted', $operation['family'], $module, null, false, [], $diagnostics);
         }
-        if (! AgentCapabilityCatalog::isAvailable($capability)) {
-            return new LocalToolRoute('rejected', $capability, $internal->candidates[0]['score'] ?? null, false, $matches, 'weighted', $operation['family'], $module, null, false, [], $diagnostics);
+        if (! $this->authority->accepts($declared)) {
+            return new LocalToolRoute('rejected', $declared, $internal->candidates[0]['score'] ?? null, false, $matches, 'weighted', $operation['family'], $module, null, false, [], $diagnostics);
         }
 
         $secondary = [];
@@ -136,7 +137,7 @@ final class LocalAgentToolRouter
 
         return new LocalToolRoute(
             'confident',
-            $capability,
+            $declared,
             $internal->candidates[0]['score'] ?? null,
             true,
             $matches,

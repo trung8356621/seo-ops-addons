@@ -744,14 +744,14 @@ class AgentTurnCoordinator
             $bundle = new RetrievalBundle($scope, [], ['local_tool_router_'.$route->outcome]);
             $text = match ($route->outcome) {
                 'ambiguous' => $extracted['language'] === 'vi'
-                    ? 'Yêu cầu khớp nhiều hơn một công cụ. Hãy nói rõ capability cần dùng.'
-                    : 'This request could mean more than one business action. Do you want existing data or improvement suggestions?',
+                    ? 'Bạn muốn xem dữ liệu hiện có hay nhận đề xuất cải thiện?'
+                    : 'Do you want to see the current data, or receive improvement suggestions?',
                 'unsupported' => $extracted['language'] === 'vi'
-                    ? 'ÄÃ£ nháº­n diá»‡n nghiá»‡p vá»¥, nhÆ°ng há»‡ thá»‘ng chÆ°a cÃ³ thao tÃ¡c Ä‘Æ°á»£c há»— trá»£ Ä‘á»ƒ thá»±c hiá»‡n yÃªu cáº§u nÃ y.'
-                    : 'The business request was recognized, but no supported operation is currently available for it.',
+                    ? 'Agent đã hiểu yêu cầu nhưng chức năng này hiện chưa được hỗ trợ.'
+                    : 'The request was understood, but this function is not supported yet.',
                 'rejected' => $extracted['language'] === 'vi'
-                    ? 'Capability khớp được không được phép thực thi, nên không có công cụ nào được chạy.'
-                    : 'The matched capability is not available, so no tool was executed.',
+                    ? 'Bạn chưa được phép thực hiện yêu cầu này.'
+                    : 'You are not allowed to run this request.',
                 'unavailable' => $extracted['language'] === 'vi'
                     ? 'Bộ định tuyến nội bộ không phân loại được yêu cầu, nên không có công cụ nào được chạy.'
                     : 'The local tool router could not classify this request, so no tool was executed.',
@@ -789,19 +789,22 @@ class AgentTurnCoordinator
 
         if (AgentCapabilityCatalog::isRuntimeRegistered((string) $route->capability)
             && $this->operationHandlers?->canDispatch((string) $route->capability) !== true) {
-            $bundle = new RetrievalBundle($scope, [], ['registered_handler_missing']);
+            $bundle = new RetrievalBundle($scope, [], ['local_tool_router_unsupported']);
+            $trace['handler'] = 'missing';
 
             return [
                 'routing' => $routingInput,
                 'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
                 'bundle' => $bundle,
                 'response' => $this->safeResponse(
-                    'The selected service capability has no registered execution handler.',
+                    $extracted['language'] === 'vi'
+                        ? 'Agent đã hiểu yêu cầu nhưng chức năng này hiện chưa được hỗ trợ.'
+                        : 'The request was understood, but this function is not supported yet.',
                     $bundle,
                     'registered_handler_missing',
                 ),
                 'confirmationProposal' => null,
-                'failureCode' => 'registered_handler_missing',
+                'failureCode' => 'local_tool_router_unsupported',
                 'decisionDiagnostics' => $diagnostics ? $trace : null,
                 'executionTrace' => $trace,
                 'gscContinuation' => null,

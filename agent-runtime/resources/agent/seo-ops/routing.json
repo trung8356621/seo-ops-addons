@@ -259,7 +259,8 @@
         "examples": [
           "Những chủ đề nào có mức độ bao phủ SEO thấp?",
           "Thống kê số chủ đề Strong, Medium và Weak của website.",
-          "Topic SEO nào đang có coverage thấp?"
+          "Topic SEO nào đang có coverage thấp?",
+          "Cho tôi xem những chủ đề có độ bao phủ SEO thấp."
         ],
         "enabled": true,
         "targets": [
