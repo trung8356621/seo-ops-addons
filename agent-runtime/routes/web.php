@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Omnichannel\Addons\AgentRuntime\Http\AgentRuntimeController;
+use Omnichannel\Addons\AgentRuntime\Http\AgentRoutingFeedbackController;
 
 Route::middleware(['web', 'auth'])
     ->prefix('agent-runtime')
@@ -21,6 +22,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/runs/{runUlid}/reject', [AgentRuntimeController::class, 'rejectRun'])->name('agent-runtime.runs.reject');
         Route::post('/runs/{runUlid}/gsc-cached', [AgentRuntimeController::class, 'gscCachedRun'])->name('agent-runtime.runs.gsc-cached');
         Route::post('/draft-intake', [AgentRuntimeController::class, 'draftIntake'])->name('agent-runtime.draft-intake');
+        Route::post('/feedback', [AgentRoutingFeedbackController::class, 'store'])->name('agent-runtime.feedback');
 
         // Thread management
         Route::post('/threads', [AgentRuntimeController::class, 'createThread'])->name('agent-runtime.threads.create');

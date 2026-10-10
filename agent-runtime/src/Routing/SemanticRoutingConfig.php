@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AgentRuntime\Routing;
 
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentApp;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentIntegrationRegistry;
+use Omnichannel\Addons\AgentRuntime\Integration\SeoOpsAgentIntegration;
 use Throwable;
 
 final class SemanticRoutingConfig
@@ -78,6 +79,7 @@ final class SemanticRoutingConfig
 
     public static function builtInRegistry(): AgentIntegrationRegistry
     {
+        SeoOpsAgentIntegration::registerCapabilities();
         $registry = new AgentIntegrationRegistry();
         $root = dirname(__DIR__, 2);
         $manifest = json_decode((string) file_get_contents($root.'/addon.json'), true);

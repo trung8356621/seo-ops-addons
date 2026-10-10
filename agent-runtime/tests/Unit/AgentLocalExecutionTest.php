@@ -27,6 +27,10 @@ use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\WeightedEvaluation;
 use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
+use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
+use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
+use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -190,6 +194,46 @@ final class AgentLocalExecutionTest extends TestCase
         self::assertSame(0, $result->executionTrace['external_model_calls']);
     }
 
+    #[Test]
+    public function registered_service_capability_executes_without_a_core_dispatch_branch(): void
+    {
+        AgentCapabilityCatalog::register('demo.status', [
+            'label' => 'Demo Status', 'description' => 'Synthetic status.',
+            'jev_selectable' => true, 'execution_mode' => 'direct',
+            'requires_confirmation' => false, 'status' => 'available', 'modules' => [],
+        ]);
+        try {
+            $handlers = new AgentOperationHandlerRegistry();
+            $handlers->register('demo.status', static fn (array $request): AgentResponse => new AgentResponse(
+                'demo-ok:'.$request['message'],
+                [['type' => 'markdown', 'text' => 'demo-ok']],
+                [],
+                [],
+            ));
+            $routing = new SemanticRoutingConfig([
+                'revision' => 1,
+                'global' => [['id' => 'demo', 'name' => 'Demo', 'examples' => ['demo status'], 'targets' => [['ref' => 'demo', 'weight' => 10]]]],
+                'modules' => ['demo' => [['id' => 'demo_read', 'name' => 'Demo', 'examples' => ['demo status'], 'targets' => [['ref' => 'demo.read', 'weight' => 10]]]]],
+                'operations' => ['demo.read' => ['family' => 'READ', 'capability' => 'demo.status', 'answer_model' => false, 'secondary' => []]],
+                'policy' => [],
+            ]);
+            $coordinator = $this->coordinator(
+                $this->createMock(DecisionModelGateway::class),
+                $this->createMock(AnswerModelGateway::class),
+                $this->script('demo', 'demo.read'),
+                routing: $routing,
+                handlers: $handlers,
+            );
+
+            $result = $coordinator->send(7, AgentProjectScope::site(4), 'demo status', []);
+
+            self::assertSame('demo-ok:demo status', $result->response?->message);
+            self::assertSame(['registered:demo.status'], $result->executionTrace['tools']);
+        } finally {
+            AgentCapabilityCatalog::unregister('demo.status');
+        }
+    }
+
     private function script(string $module, string $operation): CyclingWeightedEvaluator
     {
         return new CyclingWeightedEvaluator([
@@ -217,6 +261,8 @@ final class AgentLocalExecutionTest extends TestCase
         AnswerModelGateway $answers,
         WeightedRouteEvaluator $evaluator,
         ?LocalExecutionTransport $transport = null,
+        ?SemanticRoutingConfig $routing = null,
+        ?AgentOperationHandlerRegistry $handlers = null,
     ): AgentTurnCoordinator {
         $transport ??= new LocalExecutionTransport();
         $retrieval = new RetrievalExecutor(
@@ -263,8 +309,9 @@ final class AgentLocalExecutionTest extends TestCase
             $retrieval,
             $answers,
             new AgentResponseParser(),
-            localToolRouter: new LocalAgentToolRouter($evaluator),
+            localToolRouter: new LocalAgentToolRouter($evaluator, $routing ?? new SemanticRoutingConfig()),
             confirmedTools: new AgentConfirmedToolExecutor($retrieval, $audit),
+            operationHandlers: $handlers,
         );
     }
 }

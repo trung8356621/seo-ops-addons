@@ -869,7 +869,7 @@ final class AgentRuntimeController
 
         $thread->load(['messages' => function ($query) {
             $query->orderBy('position', 'asc')->take(50);
-        }, 'messages.run:id,user_message_id,retrieval_summary']);
+        }, 'messages.run:id,ulid,user_message_id,retrieval_summary']);
 
         $data = $thread->toArray();
         $pending = AgentRun::query()

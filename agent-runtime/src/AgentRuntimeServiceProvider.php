@@ -38,6 +38,7 @@ use Filament\View\PanelsRenderHook;
 use Illuminate\Support\HtmlString;
 use Omnichannel\Addons\AgentRuntime\Console\RunRoutingCasesCommand;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
+use Omnichannel\Addons\AgentRuntime\Integration\SeoOpsAgentIntegration;
 
 final class AgentRuntimeServiceProvider extends ServiceProvider
 {
@@ -45,6 +46,7 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        SeoOpsAgentIntegration::registerCapabilities();
         $this->mergeConfigFrom(dirname(__DIR__).'/config/agent-runtime.php', 'agent-runtime');
         $this->app->singleton(SiteDirectory::class, EloquentSiteDirectory::class);
         $this->app->singleton(SeoAccessCredential::class, ConfigSeoAccessCredential::class);

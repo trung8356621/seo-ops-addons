@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, ThumbsDown, ThumbsUp, Trash2, Video } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
 import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -9,6 +9,7 @@ import { ResponseView } from '../response/ResponseBlocks.jsx';
 import { ModelDebugModal } from './ModelDebugModal.jsx';
 import { copyPlainText } from './clipboard.js';
 import { responseToPlainText } from '../response/responseText.js';
+import { flushFeedback, queueFeedback } from './feedbackQueue.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -200,7 +201,23 @@ export function AgentWidget({
         testArticlesUrl: rawEndpoints?.testArticlesUrl || '/agent-runtime/test-articles',
         testRunUrl: rawEndpoints?.testRunUrl || '/agent-runtime/test-runs',
         welcomeQuestionsUrl: rawEndpoints?.welcomeQuestionsUrl || '/agent-runtime/welcome-questions',
+        feedbackUrl: rawEndpoints?.feedbackUrl || '/agent-runtime/feedback',
     };
+
+    const [feedbackRatings, setFeedbackRatings] = useState({});
+
+    useEffect(() => {
+        const deliver = () => flushFeedback(endpoints.feedbackUrl, csrf).catch(() => {});
+        deliver();
+        const interval = window.setInterval(deliver, 90000);
+        return () => window.clearInterval(interval);
+    }, [endpoints.feedbackUrl, csrf]);
+
+    function rateAnswer(runUlid, rating) {
+        if (!runUlid) return;
+        queueFeedback(runUlid, rating);
+        setFeedbackRatings((current) => ({ ...current, [runUlid]: rating }));
+    }
 
     // Initialize initial scope based on hostContext or fallback to global
     const initialScope = hostContext.scope;
@@ -537,6 +554,7 @@ export function AgentWidget({
                         model_diagnostics: modelDiag,
                         answer_diagnostics: answerDiag,
                         execution: retrievalSummary.model_diagnostics?.execution || responsePayload.execution || null,
+                        run_ulid: msg.run?.ulid || null,
                     },
                 };
             });
@@ -1350,6 +1368,16 @@ export function AgentWidget({
                                                         className="agent-message-action-btn"
                                                         onClick={() => copyText(responseToPlainText(version.response))}
                                                         title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
+                                                    <button type="button"
+                                                        className={`agent-message-action-btn ${feedbackRatings[version.response?.run_ulid] === true ? 'is-selected' : ''}`}
+                                                        onClick={() => rateAnswer(version.response?.run_ulid, true)}
+                                                        disabled={!version.response?.run_ulid}
+                                                        title="Useful" aria-label="Mark answer useful"><ThumbsUp size={13} /></button>
+                                                    <button type="button"
+                                                        className={`agent-message-action-btn ${feedbackRatings[version.response?.run_ulid] === false ? 'is-selected' : ''}`}
+                                                        onClick={() => rateAnswer(version.response?.run_ulid, false)}
+                                                        disabled={!version.response?.run_ulid}
+                                                        title="Not useful" aria-label="Mark answer not useful"><ThumbsDown size={13} /></button>
 
                                                     {!isViewingArchived && (
                                                         <button

@@ -506,6 +506,12 @@
     border-color: #cbd5e1;
 }
 
+.agent-message-action-btn.is-selected {
+    color: #2563eb;
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
 .agent-message-action-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;

@@ -8,6 +8,9 @@ use InvalidArgumentException;
 
 final class AgentCapabilityCatalog
 {
+    /** @var array<string, array<string, mixed>> */
+    private static array $registered = [];
+
     /** @return array<string, array<string, mixed>> */
     public static function all(): array
     {
@@ -31,7 +34,37 @@ final class AgentCapabilityCatalog
             'industry.breakout' => self::capability('Industry Breakout', '', false, 'internal', false, 'IndustryContextGenerationService::breakout', []),
             'seo.router' => self::capability('SEO Router', '', false, 'internal', false, 'Agent routing stage', []),
             'industry.match' => self::capability('Industry Match', '', false, 'internal', false, 'IndustryMatchRuntime', []),
-        ];
+        ] + self::$registered;
+    }
+
+    /**
+     * Service providers may register server-owned capabilities before their
+     * routing manifests are loaded. JSON never supplies executable classes.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    public static function register(string $key, array $metadata): void
+    {
+        $key = trim($key);
+        if ($key === '' || self::known($key)) {
+            throw new InvalidArgumentException("Duplicate or empty Agent capability [{$key}].");
+        }
+        foreach (['label', 'description', 'jev_selectable', 'execution_mode', 'requires_confirmation', 'status', 'modules'] as $field) {
+            if (! array_key_exists($field, $metadata)) {
+                throw new InvalidArgumentException("Agent capability [{$key}] is missing metadata [{$field}].");
+            }
+        }
+        self::$registered[$key] = $metadata;
+    }
+
+    public static function unregister(string $key): void
+    {
+        unset(self::$registered[$key]);
+    }
+
+    public static function isRuntimeRegistered(string $key): bool
+    {
+        return isset(self::$registered[$key]);
     }
 
     /** @return list<array{key: string, description: string}> */

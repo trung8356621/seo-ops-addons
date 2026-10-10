@@ -30,6 +30,7 @@ use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Routing\DeterministicToolParameters;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
+use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Throwable;
 
 final class AgentTurnResult
@@ -126,6 +127,7 @@ class AgentTurnCoordinator
         private readonly FactualAgentResponseComposer $factual = new FactualAgentResponseComposer(),
         private readonly ?AgentConfirmedToolExecutor $confirmedTools = null,
         private readonly ?GscContextSource $gscContext = null,
+        private readonly ?AgentOperationHandlerRegistry $operationHandlers = null,
     ) {}
 
     /**
@@ -785,6 +787,56 @@ class AgentTurnCoordinator
             ];
         }
 
+        if (AgentCapabilityCatalog::isRuntimeRegistered((string) $route->capability)
+            && $this->operationHandlers?->canDispatch((string) $route->capability) !== true) {
+            $bundle = new RetrievalBundle($scope, [], ['registered_handler_missing']);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                'bundle' => $bundle,
+                'response' => $this->safeResponse(
+                    'The selected service capability has no registered execution handler.',
+                    $bundle,
+                    'registered_handler_missing',
+                ),
+                'confirmationProposal' => null,
+                'failureCode' => 'registered_handler_missing',
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'executionTrace' => $trace,
+                'gscContinuation' => null,
+            ];
+        }
+
+        if ($this->operationHandlers?->canDispatch((string) $route->capability) === true
+            && ! AgentCapabilityCatalog::requiresConfirmation((string) $route->capability)) {
+            $response = $this->operationHandlers->dispatch((string) $route->capability, [
+                'user_id' => $userId,
+                'scope' => $scope,
+                'message' => $message,
+                'history' => $history,
+                'parameters' => $extracted['parameters'],
+                'route' => $route,
+            ]);
+            if (! $response instanceof AgentResponse) {
+                throw new \UnexpectedValueException('Registered Agent handlers must return an AgentResponse.');
+            }
+            $trace['tools'] = ['registered:'.(string) $route->capability];
+            $bundle = new RetrievalBundle($scope, [], []);
+
+            return [
+                'routing' => $routingInput,
+                'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                'bundle' => $bundle,
+                'response' => $response,
+                'confirmationProposal' => null,
+                'failureCode' => null,
+                'decisionDiagnostics' => $diagnostics ? $trace : null,
+                'executionTrace' => $trace,
+                'gscContinuation' => null,
+            ];
+        }
+
         $processed = $this->processDecisionAndRetrieve(
             $scope,
             $message,
@@ -1186,6 +1238,10 @@ class AgentTurnCoordinator
             'external_model' => null,
             'external_model_calls' => 0,
             'candidates' => $route->diagnostics['global']['candidates'] ?? [],
+            'routing_group_id' => $this->selectedGroupId(
+                $route->diagnostics['internal']['candidates'] ?? [],
+                $route->diagnostics['operation'] ?? null,
+            ),
             'jev_scores' => [
                 'global' => $this->selectedSemanticScore(
                     $route->diagnostics['global']['candidates'] ?? [],
@@ -1197,6 +1253,20 @@ class AgentTurnCoordinator
                 ),
             ],
         ];
+    }
+
+    /** @param mixed $candidates */
+    private function selectedGroupId(mixed $candidates, mixed $selectedRef): ?string
+    {
+        foreach (is_array($candidates) ? $candidates : [] as $candidate) {
+            if (is_array($candidate)
+                && ($candidate['operation'] ?? $candidate['ref'] ?? null) === $selectedRef
+                && is_string($candidate['group_id'] ?? null)) {
+                return $candidate['group_id'];
+            }
+        }
+
+        return null;
     }
 
     /** @param mixed $candidates */

@@ -52,4 +52,11 @@ return [
     'local_tool_router' => [
         'enabled' => (bool) env('AGENT_RUNTIME_LOCAL_TOOL_ROUTER', false),
     ],
+
+    'feedback' => [
+        'url' => env('SEMANTIC_URL', 'http://127.0.0.1:8088'),
+        'internal_token' => env('SEMANTIC_INTERNAL_API_TOKEN', ''),
+        'installation_id' => env('AGENT_RUNTIME_INSTALLATION_ID', hash('sha256', (string) env('APP_URL', 'local'))),
+        'timeout' => (int) env('AGENT_RUNTIME_FEEDBACK_TIMEOUT', 10),
+    ],
 ];

@@ -5,7 +5,9 @@
     "keywords.inventory": {"family":"READ","capability":"keywords.inventory","guidance":null,"answer_model":false,"secondary":[]},
     "keywords.landscape": {"family":"READ","capability":"keywords.landscape","guidance":null,"answer_model":false,"secondary":[]},
     "keywords.relationship": {"family":"READ","capability":"keywords.relationship","guidance":null,"answer_model":false,"secondary":[]},
+    "keywords.topic_suggestions": {"family":"IMPROVE","capability":"content.topic_suggestions","guidance":null,"answer_model":false,"secondary":[]},
     "articles.inventory": {"family":"READ","capability":"articles.inventory","guidance":null,"answer_model":false,"secondary":[]},
+    "articles.improve": {"family":"IMPROVE","capability":"seo_audit.improve","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.worst_articles": {"family":"READ","capability":"seo_audit.worst_articles","guidance":null,"answer_model":false,"secondary":[]},
     "seo_audit.focus_keyword_guidance": {"family":"READ","capability":null,"guidance":"Các bài thiếu Focus Keyword xem và sửa trong SEO Audit: /seo/content-projects/seo-audit. Agent không tự tạo Draft cho câu này.","answer_model":false,"secondary":[]},
     "seo_audit.site_improve": {"family":"IMPROVE","capability":"seo_audit.worst_articles","guidance":null,"answer_model":true,"secondary":[]},
@@ -266,6 +268,20 @@
         ]
       },
       {
+        "id": "keywords_topic_suggestions",
+        "name": "Topic content suggestions",
+        "examples": [
+          "Lập đề xuất bài mới từ các nhóm chủ đề còn thiếu độ phủ.",
+          "Nên bổ sung nội dung gì cho những topic yếu?",
+          "Tạo gợi ý nội dung dựa trên khoảng trống topic."
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "keywords.topic_suggestions", "weight": 10},
+          {"ref": "keywords.landscape", "weight": 3}
+        ]
+      },
+      {
         "id": "keywords_topic_filter",
         "name": "Keyword topic filter",
         "examples": [
@@ -301,7 +317,10 @@
           "Bài balo học sinh ABC cần cải thiện SEO thế nào?"
         ],
         "enabled": true,
-        "targets": [{"ref": "articles.inventory", "weight": 10}]
+        "targets": [
+          {"ref": "articles.improve", "weight": 10},
+          {"ref": "articles.inventory", "weight": 4}
+        ]
       }
     ],
     "seo_audit": [
