@@ -267,7 +267,6 @@
 .agent-message.is-user .agent-message__body {
     font-size: 14px;
     line-height: 1.5;
-    padding-right: 22px;
 }
 
 .agent-message.is-user .agent-message__body p {
@@ -333,9 +332,37 @@
 
 .agent-tool-trace {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 5px;
     margin: 0 0 8px;
+}
+
+.agent-tool-trace__entry {
+    --trace: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+}
+
+.agent-tool-trace__entry.has-score {
+    height: 22px;
+    padding-left: 6px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--trace) 14%, transparent);
+    color: var(--trace);
+}
+
+.agent-tool-trace__entry.has-score .agent-tool-trace__item {
+    background: transparent;
+}
+
+.agent-tool-trace__score {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
 }
 
 .agent-tool-trace__item {
@@ -363,16 +390,16 @@
     border: 0;
 }
 
-.agent-tool-trace__item.is-red { --trace: #EF4444; }
-.agent-tool-trace__item.is-blue { --trace: #3B82F6; }
-.agent-tool-trace__item.is-purple { --trace: #8B5CF6; }
-.agent-tool-trace__item.is-cyan { --trace: #06B6D4; }
-.agent-tool-trace__item.is-amber { --trace: #F59E0B; }
-.agent-tool-trace__item.is-green { --trace: #22C55E; }
-.agent-tool-trace__item.is-orange { --trace: #F97316; }
-.agent-tool-trace__item.is-teal { --trace: #14B8A6; }
-.agent-tool-trace__item.is-indigo { --trace: #6366F1; }
-.agent-tool-trace__item.is-pink { --trace: #EC4899; }
+.agent-tool-trace__entry.is-red, .agent-tool-trace__item.is-red { --trace: #EF4444; }
+.agent-tool-trace__entry.is-blue, .agent-tool-trace__item.is-blue { --trace: #3B82F6; }
+.agent-tool-trace__entry.is-purple, .agent-tool-trace__item.is-purple { --trace: #8B5CF6; }
+.agent-tool-trace__entry.is-cyan, .agent-tool-trace__item.is-cyan { --trace: #06B6D4; }
+.agent-tool-trace__entry.is-amber, .agent-tool-trace__item.is-amber { --trace: #F59E0B; }
+.agent-tool-trace__entry.is-green, .agent-tool-trace__item.is-green { --trace: #22C55E; }
+.agent-tool-trace__entry.is-orange, .agent-tool-trace__item.is-orange { --trace: #F97316; }
+.agent-tool-trace__entry.is-teal, .agent-tool-trace__item.is-teal { --trace: #14B8A6; }
+.agent-tool-trace__entry.is-indigo, .agent-tool-trace__item.is-indigo { --trace: #6366F1; }
+.agent-tool-trace__entry.is-pink, .agent-tool-trace__item.is-pink { --trace: #EC4899; }
 
 .agent-tool-trace__item.is-awaiting {
     opacity: 0.85;
@@ -393,16 +420,16 @@
     transform: rotate(-32deg);
 }
 
-.dark .agent-tool-trace__item.is-red { --trace: #FCA5A5; }
-.dark .agent-tool-trace__item.is-blue { --trace: #93C5FD; }
-.dark .agent-tool-trace__item.is-purple { --trace: #C4B5FD; }
-.dark .agent-tool-trace__item.is-cyan { --trace: #67E8F9; }
-.dark .agent-tool-trace__item.is-amber { --trace: #FCD34D; }
-.dark .agent-tool-trace__item.is-green { --trace: #86EFAC; }
-.dark .agent-tool-trace__item.is-orange { --trace: #FDBA74; }
-.dark .agent-tool-trace__item.is-teal { --trace: #5EEAD4; }
-.dark .agent-tool-trace__item.is-indigo { --trace: #A5B4FC; }
-.dark .agent-tool-trace__item.is-pink { --trace: #F9A8D4; }
+.dark .agent-tool-trace__entry.is-red, .dark .agent-tool-trace__item.is-red { --trace: #FCA5A5; }
+.dark .agent-tool-trace__entry.is-blue, .dark .agent-tool-trace__item.is-blue { --trace: #93C5FD; }
+.dark .agent-tool-trace__entry.is-purple, .dark .agent-tool-trace__item.is-purple { --trace: #C4B5FD; }
+.dark .agent-tool-trace__entry.is-cyan, .dark .agent-tool-trace__item.is-cyan { --trace: #67E8F9; }
+.dark .agent-tool-trace__entry.is-amber, .dark .agent-tool-trace__item.is-amber { --trace: #FCD34D; }
+.dark .agent-tool-trace__entry.is-green, .dark .agent-tool-trace__item.is-green { --trace: #86EFAC; }
+.dark .agent-tool-trace__entry.is-orange, .dark .agent-tool-trace__item.is-orange { --trace: #FDBA74; }
+.dark .agent-tool-trace__entry.is-teal, .dark .agent-tool-trace__item.is-teal { --trace: #5EEAD4; }
+.dark .agent-tool-trace__entry.is-indigo, .dark .agent-tool-trace__item.is-indigo { --trace: #A5B4FC; }
+.dark .agent-tool-trace__entry.is-pink, .dark .agent-tool-trace__item.is-pink { --trace: #F9A8D4; }
 
 .agent-message.is-assistant .agent-message__role {
     font-size: 13px;

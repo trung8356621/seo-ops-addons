@@ -83,6 +83,19 @@ final class TemporarySeoAccessController
         );
     }
 
+    public function keywordInventory(Request $request, string $token): JsonResponse
+    {
+        $context = $this->requireContext($request);
+        if ($context instanceof JsonResponse) {
+            return $context;
+        }
+
+        return $this->runReadSafely(fn (): array => $this->keywords->inventory($context->siteId, [
+            'page' => $request->query('page'),
+            'per_page' => $request->query('per_page'),
+        ]));
+    }
+
     public function keywordsTopic(Request $request, string $token, string $topicRef): JsonResponse
     {
         $context = $this->requireContext($request);

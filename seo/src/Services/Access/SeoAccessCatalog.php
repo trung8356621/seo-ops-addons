@@ -45,6 +45,7 @@ class SeoAccessCatalog
             ['key' => 'articles', 'description' => 'Compact existing Article inventory and SEO/link signals.', 'when_to_use' => 'Use for concrete existing-article questions.', 'method' => 'GET'],
             ['key' => 'internal-links', 'description' => 'Internal Article relationships.', 'when_to_use' => 'Use for internal-link quality and opportunities.', 'method' => 'GET'],
             ['key' => 'external-links', 'description' => 'External and managed cross-site destinations.', 'when_to_use' => 'Use for external-link review.', 'method' => 'GET'],
+            ['key' => 'keyword-inventory', 'description' => 'Site-scoped managed Keyword inventory.', 'when_to_use' => 'Use to list actual Keywords managed by the Keywords module.', 'method' => 'GET'],
             [
                 'key' => 'keywords',
                 'description' => 'Topic landscape with MCP coverage scores.',

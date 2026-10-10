@@ -13,6 +13,7 @@ final class AgentCapabilityCatalog
     {
         return [
             'site.knowledge' => self::capability('Site Knowledge', 'Site identity, business context, and current site-level facts.', true, 'direct', false, 'SeoAccessSiteKnowledgeComposer', ['site']),
+            'keywords.inventory' => self::capability('Keyword Inventory', 'Actual managed keywords in the site-scoped Keywords inventory.', true, 'direct', false, 'SeoAccessKeywordsComposer::inventory', ['keyword_inventory']),
             'keywords.landscape' => self::capability('Keyword Landscape', 'Keyword landscape and coverage for planning and prioritization.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::keywords', ['keywords']),
             'keywords.relationship' => self::capability('Keyword Relationship', 'Topic and keyword relationships used for semantic planning.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::keywordsTopic', ['topics', 'keywords']),
             'articles.inventory' => self::capability('Articles Inventory', 'Collection-level article inventory and SEO signals; never a plain detail lookup for one article.', true, 'direct', false, 'SeoAccessBusinessModulesComposer::articles', ['articles']),

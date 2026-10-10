@@ -1301,13 +1301,6 @@ export function AgentWidget({
                             return (
                                 <div key={turn.id} className="agent-turn">
                                     <article className="agent-message is-user">
-                                        <div className="agent-message__actions">
-                                            <button
-                                                type="button"
-                                                className="agent-message-action-btn"
-                                                onClick={() => copyText(turn.content)}
-                                                title="Copy question" aria-label="Copy question"><Copy size={13} /></button>
-                                        </div>
                                         <div className="agent-message__body">
                                             <p>{turn.content}</p>
                                         </div>

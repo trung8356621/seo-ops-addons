@@ -47,14 +47,22 @@ export function ToolTrace({ response, debug = false }) {
                 if (!Icon) {
                     return null;
                 }
+                const hasScore = Number.isInteger(item.scorePercent);
                 return (
                     <span
                         key={item.key}
-                        className={`agent-tool-trace__item is-${item.color}${item.status === 'failed' ? ' is-failed' : ''}`}
+                        className={`agent-tool-trace__entry is-${item.color}${hasScore ? ' has-score' : ''}`}
                         title={item.title}
                     >
-                        <Icon size={15} aria-hidden="true" />
-                        <span className="agent-tool-trace__label">{item.title}</span>
+                        {hasScore ? (
+                            <span className="agent-tool-trace__score">{item.scorePercent}%</span>
+                        ) : null}
+                        <span
+                            className={`agent-tool-trace__item is-${item.color}${item.status === 'failed' ? ' is-failed' : ''}`}
+                        >
+                            <Icon size={15} aria-hidden="true" />
+                            <span className="agent-tool-trace__label">{item.title}</span>
+                        </span>
                     </span>
                 );
             })}
@@ -444,6 +452,7 @@ export function ResponseView({ response, onAction, actionsBusy = false, draftInt
 
     return (
         <div className="agent-response">
+            <ToolTrace response={response} debug={debug} />
             {response.message && !hasMessageInBlocks ? (
                 <MarkdownBlock text={response.message} />
             ) : null}
@@ -477,7 +486,6 @@ export function ResponseView({ response, onAction, actionsBusy = false, draftInt
             ) : null}
 
             <ActionsBlock actions={response.actions} onAction={onAction} busy={actionsBusy} />
-            <ToolTrace response={response} debug={debug} />
             <SourcesBlock sources={response.sources} />
         </div>
     );

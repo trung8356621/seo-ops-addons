@@ -54,6 +54,9 @@ final class RetrievalPlanner
                 $topicRef = $topic;
             }
         }
+        if ($resource === 'keyword_inventory' && isset($decision->parameters['limit_max'])) {
+            $query['per_page'] = (string) max(1, min(100, (int) $decision->parameters['limit_max']));
+        }
         if ($resource === 'articles') {
             $ref = $decision->parameters['article_ref'] ?? '';
             if (is_string($ref) && preg_match('/^article:[1-9]\d*$/', $ref) === 1) {

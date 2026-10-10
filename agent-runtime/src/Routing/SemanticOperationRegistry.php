@@ -16,6 +16,7 @@ final class SemanticOperationRegistry
     {
         return [
             'keywords' => self::module('Keywords', [
+                'keywords.inventory' => self::define('READ', 'keywords.inventory'),
                 'keywords.landscape' => self::define('READ', 'keywords.landscape'),
                 'keywords.relationship' => self::define('READ', 'keywords.relationship'),
             ]),

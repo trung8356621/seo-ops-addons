@@ -192,8 +192,23 @@
         ],
         "enabled": true,
         "targets": [
-          {"ref": "keywords.landscape", "weight": 10},
+          {"ref": "keywords.inventory", "weight": 10},
+          {"ref": "keywords.landscape", "weight": 3},
           {"ref": "keywords.relationship", "weight": 3}
+        ]
+      },
+      {
+        "id": "keywords_landscape",
+        "name": "Keyword landscape",
+        "examples": [
+          "Những chủ đề nào có mức độ bao phủ SEO thấp?",
+          "Cho xem keyword landscape và điểm bao phủ theo chủ đề.",
+          "Topic SEO nào đang có coverage thấp?"
+        ],
+        "enabled": true,
+        "targets": [
+          {"ref": "keywords.landscape", "weight": 10},
+          {"ref": "keywords.inventory", "weight": 2}
         ]
       },
       {

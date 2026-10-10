@@ -148,6 +148,7 @@ final class SeoAccessExecutor
         }
 
         return match ($step->resource) {
+            'keyword_inventory' => '/keyword-inventory',
             'topics' => '/keywords',
             'internal_links' => '/internal-links',
             'external_links' => '/external-links',

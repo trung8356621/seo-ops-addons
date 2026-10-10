@@ -52,10 +52,15 @@ final class ToolIntentExamples
                 'liên kết nội bộ',
                 'internal links inventory',
             ]),
-            self::intent('keywords.landscape', [
+            self::intent('keywords.inventory', [
                 'từ khóa đang theo dõi',
+                'danh sách keyword đang quản lý',
+                'managed keyword inventory',
+            ]),
+            self::intent('keywords.landscape', [
                 'keyword landscape',
-                'phủ keyword',
+                'chủ đề có mức độ bao phủ thấp',
+                'topic coverage',
             ]),
         ];
     }

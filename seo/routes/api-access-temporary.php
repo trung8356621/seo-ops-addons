@@ -40,6 +40,10 @@ Route::middleware([
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->name('api.v1.access.keywords');
 
+    Route::get('{token}/keyword-inventory', [TemporarySeoAccessController::class, 'keywordInventory'])
+        ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
+        ->name('api.v1.access.keyword-inventory');
+
     Route::get('{token}/keywords/topics/{topicRef}', [TemporarySeoAccessController::class, 'keywordsTopic'])
         ->where('token', 'access_tmp_[A-Za-z0-9_-]+')
         ->where('topicRef', 'topic:\d+|\d+')

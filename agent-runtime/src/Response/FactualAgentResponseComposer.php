@@ -80,11 +80,17 @@ final class FactualAgentResponseComposer
     private function recordRows(RetrievalBundle $bundle): ?array
     {
         foreach ($bundle->sources as $source) {
-            if ($this->isPolicySource($source) || $source->status !== 'ok' || ! is_array($source->data['items'] ?? null)) {
+            if ($this->isPolicySource($source) || $source->status !== 'ok') {
+                continue;
+            }
+            $records = is_array($source->data['items'] ?? null)
+                ? $source->data['items']
+                : (is_array($source->data['topics'] ?? null) ? $source->data['topics'] : null);
+            if ($records === null) {
                 continue;
             }
             $rows = [];
-            foreach ($source->data['items'] as $item) {
+            foreach ($records as $item) {
                 if (! is_array($item)) {
                     continue;
                 }
@@ -351,4 +357,5 @@ final class FactualAgentResponseComposer
             array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
         );
     }
+
 }

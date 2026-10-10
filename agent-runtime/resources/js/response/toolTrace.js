@@ -145,6 +145,13 @@ function statusOf(rows) {
     return rows.some((row) => isFailedStatus(row.status)) ? 'failed' : 'ok';
 }
 
+function jevScorePercent(execution, key) {
+    const score = execution?.jev_scores?.[key];
+    return typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1
+        ? Math.round(score * 100)
+        : null;
+}
+
 function jevMatchLabels(execution, capability) {
     // The JEV scores describe the selected primary operation, not secondary evidence tools.
     if (execution?.capabilities?.[0] !== capability) {
@@ -155,10 +162,8 @@ function jevMatchLabels(execution, capability) {
         return [];
     }
     const labelFor = (key, name) => {
-        const score = scores[key];
-        return typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1
-            ? `${name} ${Math.round(score * 100)}% khớp`
-            : null;
+        const percent = jevScorePercent(execution, key);
+        return percent === null ? null : `${name} ${percent}% khớp`;
     };
     return [
         labelFor('global', 'Global JEV:'),
@@ -208,6 +213,9 @@ export function toolTraceItems(response, { debug = false } = {}) {
             color: meta.color,
             status,
             title: titleFor(meta, status, debug, capability, matched, execution),
+            scorePercent: execution?.capabilities?.[0] === capability
+                ? jevScorePercent(execution, 'internal')
+                : null,
         });
     }
 

@@ -31,7 +31,7 @@ final class SemanticRoutingConfig
                 return $defaults;
             }
 
-            return $this->sanitize($saved);
+            return $this->sanitize($this->upgradePersisted($saved, $defaults));
         } catch (Throwable) {
             return $defaults;
         }
@@ -148,5 +148,54 @@ final class SemanticRoutingConfig
         }
 
         return $clean;
+    }
+
+    /**
+     * Merge newly shipped system groups/targets without replacing saved examples,
+     * enabled flags, or user-defined weights.
+     *
+     * @param array<string, mixed> $saved
+     * @param array<string, mixed> $defaults
+     * @return array<string, mixed>
+     */
+    private function upgradePersisted(array $saved, array $defaults): array
+    {
+        $savedModules = is_array($saved['modules'] ?? null) ? $saved['modules'] : [];
+        $defaultKeywords = is_array($defaults['modules']['keywords'] ?? null) ? $defaults['modules']['keywords'] : [];
+        $savedKeywords = is_array($savedModules['keywords'] ?? null) ? array_values($savedModules['keywords']) : [];
+
+        $byId = [];
+        foreach ($savedKeywords as $index => $group) {
+            if (is_array($group)) {
+                $byId[(string) ($group['id'] ?? '')] = $index;
+            }
+        }
+        foreach ($defaultKeywords as $defaultGroup) {
+            if (! is_array($defaultGroup)) {
+                continue;
+            }
+            $id = (string) ($defaultGroup['id'] ?? '');
+            if (! array_key_exists($id, $byId)) {
+                $savedKeywords[] = $defaultGroup;
+            }
+        }
+
+        foreach ($savedKeywords as &$group) {
+            if (! is_array($group) || ($group['id'] ?? null) !== 'keywords_inventory') {
+                continue;
+            }
+            $targets = is_array($group['targets'] ?? null) ? $group['targets'] : [];
+            $hasInventory = array_filter($targets, static fn (mixed $target): bool => is_array($target) && ($target['ref'] ?? null) === 'keywords.inventory') !== [];
+            if (! $hasInventory) {
+                $targets[] = ['ref' => 'keywords.inventory', 'weight' => 100];
+                $group['targets'] = $targets;
+            }
+        }
+        unset($group);
+
+        $savedModules['keywords'] = $savedKeywords;
+        $saved['modules'] = $savedModules;
+
+        return $saved;
     }
 }

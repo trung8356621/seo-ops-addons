@@ -14,8 +14,8 @@ test('assistant conversation surface is flat while semantic blocks remain availa
     assert.equal(css.includes('.agent-chart'), true);
 });
 
-test('user and assistant messages expose lightweight Copy and assistant Rerun', () => {
-    assert.equal(widget.includes('title="Copy question" aria-label="Copy question"><Copy'), true);
+test('assistant messages expose lightweight Copy and Rerun without a user Copy action', () => {
+    assert.equal(widget.includes('title="Copy question" aria-label="Copy question"><Copy'), false);
     assert.equal(widget.includes('copyText(responseToPlainText(version.response))'), true);
     assert.equal(widget.includes('title="Copy answer" aria-label="Copy answer"><Copy'), true);
     assert.equal((widget.match(/aria-label="Copy answer"/g) || []).length, 1);
@@ -81,7 +81,7 @@ test('drawer header has no visible close button while existing controls remain',
     assert.equal(widget.includes('aria-label="Close Agent drawer"'), false);
     assert.equal(widget.includes('className="agent-dev-tabs"'), true);
     assert.equal(widget.includes('className="agent-dev-select"'), false);
-    assert.equal(widget.includes('title="Copy question"'), true);
+    assert.equal(widget.includes('title="Copy question"'), false);
     assert.equal(widget.includes('title="Copy answer"'), true);
     assert.equal(widget.includes('title="Rerun"'), true);
     assert.equal(widget.includes('agent-version-nav'), true);

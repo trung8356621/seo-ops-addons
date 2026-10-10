@@ -852,6 +852,12 @@ class AgentTurnCoordinator
         $language = $processed['decision']?->responseLanguage ?? $extracted['language'];
         if ($response === null && $bundle instanceof RetrievalBundle && ! $route->answerModelRequired) {
             $response = $this->factual->compose($bundle, $message, $language);
+            if ($response === null && $route->capability === 'keywords.inventory') {
+                $text = $language === 'vi'
+                    ? 'Không thể đọc kho từ khóa được quản lý cho website này từ nguồn dữ liệu hiện có.'
+                    : 'The managed keyword inventory could not be read from the available data source.';
+                $response = $this->safeResponse($text, $bundle, 'keyword_inventory_unavailable');
+            }
             if ($response === null) {
                 $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
                 $template = $processed['decision']?->responseTemplate ?? 'text';
@@ -912,6 +918,7 @@ class AgentTurnCoordinator
         $listCapabilities = [
             'seo_audit.worst_articles',
             'articles.inventory',
+            'keywords.inventory',
             'keywords.landscape',
             'keywords.relationship',
             'links.internal',

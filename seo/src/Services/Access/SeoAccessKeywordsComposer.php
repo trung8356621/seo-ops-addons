@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Services\Access;
 use InvalidArgumentException;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicLinkedArticleCounter;
 use Omnichannel\Addons\Seo\Services\Context\Support\KeywordRelationshipSectionFilter;
@@ -19,6 +20,8 @@ use Omnichannel\Addons\Seo\Services\KeywordRelationship\KeywordRelationshipGatew
 class SeoAccessKeywordsComposer
 {
     public const SCHEMA_LANDSCAPE = 'seo.access.keywords.v2';
+
+    public const SCHEMA_INVENTORY = 'seo.access.keyword-inventory.v1';
 
     public const SCHEMA_TOPIC = 'seo.access.keywords.topic.v1';
 
@@ -35,7 +38,49 @@ class SeoAccessKeywordsComposer
         private readonly KeywordLandscapeGateway $landscape,
         private readonly KeywordRelationshipGateway $relationship,
         private readonly TopicLinkedArticleCounter $articleCounter,
+        private readonly ?KeywordUiInventoryQuery $inventory = null,
     ) {}
+
+    /** @param array<string, mixed> $query @return array<string, mixed> */
+    public function inventory(int $siteId, array $query = []): array
+    {
+        $page = max(1, (int) ($query['page'] ?? 1));
+        $perPage = (int) ($query['per_page'] ?? self::DEFAULT_PER_PAGE);
+        if ($perPage < 1) {
+            $perPage = self::DEFAULT_PER_PAGE;
+        }
+        $perPage = min($perPage, self::MAX_PER_PAGE);
+        $inventory = $this->inventory ?? app(KeywordUiInventoryQuery::class);
+        $keywords = $inventory->baseQuery($siteId)
+            ->orderBy('phrase')
+            ->orderBy('id')
+            ->paginate($perPage, ['id', 'phrase', 'type', 'source', 'review_status'], 'page', $page);
+
+        $items = [];
+        foreach ($keywords->items() as $keyword) {
+            $items[] = [
+                'keyword_ref' => 'keyword:'.(int) $keyword->id,
+                'id' => (int) $keyword->id,
+                'phrase' => (string) $keyword->phrase,
+                'type' => (string) ($keyword->type ?? ''),
+                'source' => $keyword->source !== null ? (string) $keyword->source : null,
+                'review_status' => $keyword->review_status !== null ? (string) $keyword->review_status : null,
+            ];
+        }
+
+        return [
+            'schema' => self::SCHEMA_INVENTORY,
+            'site_ref' => 'site:'.$siteId,
+            'generated_at' => now()->toIso8601String(),
+            'items' => $items,
+            'pagination' => [
+                'page' => $keywords->currentPage(),
+                'per_page' => $keywords->perPage(),
+                'total' => $keywords->total(),
+                'total_pages' => $keywords->lastPage(),
+            ],
+        ];
+    }
 
     /**
      * @param  array<string, mixed>  $query
