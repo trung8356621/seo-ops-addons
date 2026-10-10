@@ -19,7 +19,7 @@ final class AgentModelInputBuilder
     public function __construct(
         private readonly SecretRedactor $redactor = new SecretRedactor(),
         private readonly ?ResolvesSettingsPromptHook $promptBindings = null,
-        private readonly AgentModelEvidenceSanitizer $evidenceSanitizer = new AgentModelEvidenceSanitizer(),
+        private readonly AnswerEvidenceProjector $answerEvidence = new AnswerEvidenceProjector(),
     ) {}
 
     /**
@@ -69,11 +69,13 @@ final class AgentModelInputBuilder
         if (! in_array($selectedResponseLanguage, ['vi', 'en'], true)) {
             throw new \InvalidArgumentException('Selected response language is unknown.');
         }
+        $evidence = $this->answerEvidence->project($bundle, $userMessage);
         $user = json_encode([
             'scope' => $scope->toArray(),
             'message' => $userMessage,
             'conversation' => $this->compactHistory($history),
-            'retrieval_bundle' => $this->evidenceSanitizer->sanitize($bundle),
+            'retrieval_bundle' => $evidence['bundle'],
+            'analysis_task' => $evidence['analysis_task'],
             'missing_capabilities' => SeoAccessCapabilityCatalog::missing(),
             'response_contract' => [
                 'shape' => 'AgentResponse JSON with message, blocks, actions.',

@@ -73,6 +73,32 @@ final class SeoAccessKeywordsComposerTest extends TestCase
         self::assertArrayNotHasKey('dna', $payload);
     }
 
+    public function test_coverage_counts_use_the_full_filtered_list(): void
+    {
+        $composer = (new ReflectionClass(SeoAccessKeywordsComposer::class))
+            ->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(SeoAccessKeywordsComposer::class, 'coverageCounts');
+        $method->setAccessible(true);
+        $topics = [
+            $this->topic(1, 'A', 1, 1, 1, 'strong', 'active'),
+            $this->topic(2, 'B', 1, 1, 0, 'medium', 'active'),
+            $this->topic(3, 'C', 1, 1, 0, 'weak', 'active'),
+            $this->topic(4, 'D', 1, 1, 0, 'weak', 'active'),
+            $this->topic(5, 'E', 1, 1, 0, 'unknown', 'active'),
+        ];
+
+        $counts = $method->invoke($composer, $topics);
+
+        self::assertSame([
+            'strong' => 1,
+            'medium' => 1,
+            'weak' => 2,
+            'other' => 1,
+            'counted' => 5,
+            'complete' => true,
+        ], $counts);
+    }
+
     public function test_resolve_topic_id(): void
     {
         $composer = new SeoAccessKeywordsComposer(

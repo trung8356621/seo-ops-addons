@@ -135,6 +135,7 @@ class SeoAccessKeywordsComposer
         }
 
         $topics = $this->sortTopics($topics, $sort, $direction);
+        $coverageCounts = $this->coverageCounts($topics);
         $total = count($topics);
         $totalPages = $total === 0 ? 0 : (int) ceil($total / $perPage);
         $offset = ($page - 1) * $perPage;
@@ -156,6 +157,7 @@ class SeoAccessKeywordsComposer
             'source_updated_at' => $dto->sourceUpdatedAt,
             'summary' => [
                 'topic_count' => $dto->topicCount(),
+                'coverage_counts' => $coverageCounts,
             ],
             'topics' => $rows,
             'pagination' => [
@@ -293,6 +295,27 @@ class SeoAccessKeywordsComposer
             'status' => $topic->status,
             'detail_href' => $detailHref,
         ];
+    }
+
+    /**
+     * Counts the full filtered landscape, not the current page.
+     *
+     * @param  list<KeywordLandscapeTopic>  $topics
+     * @return array{strong: int, medium: int, weak: int, other: int, counted: int, complete: true}
+     */
+    private function coverageCounts(array $topics): array
+    {
+        $counts = ['strong' => 0, 'medium' => 0, 'weak' => 0, 'other' => 0];
+        foreach ($topics as $topic) {
+            $level = strtolower(trim($topic->coverage));
+            if (isset($counts[$level]) && $level !== 'other') {
+                $counts[$level]++;
+            } else {
+                $counts['other']++;
+            }
+        }
+
+        return $counts + ['counted' => count($topics), 'complete' => true];
     }
 
     /**

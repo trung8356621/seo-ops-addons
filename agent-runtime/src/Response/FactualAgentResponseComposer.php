@@ -19,21 +19,26 @@ final class FactualAgentResponseComposer
             return null;
         }
 
-        return $this->verifiedFacts($bundle, $language);
+        return $this->verifiedFacts($bundle, $language, $message);
     }
 
-    public function verifiedFacts(RetrievalBundle $bundle, string $language): ?AgentResponse
+    public function verifiedFacts(RetrievalBundle $bundle, string $language, string $message = ''): ?AgentResponse
     {
         $actionable = $this->draftAction($bundle);
         if ($actionable !== null) {
             return $this->actionableTable($actionable, $language, $bundle);
         }
 
+        $coverage = $this->coverageStatistics($bundle, $message, $language);
+        if ($coverage !== null) {
+            return $coverage;
+        }
+
         $rows = $this->recordRows($bundle);
         if ($rows !== null) {
             return $rows === []
                 ? $this->emptyList($language, $bundle)
-                : $this->table($rows, $language, $bundle);
+                : $this->present($this->table($rows, $language, $bundle), $bundle);
         }
 
         $fields = $this->singleEntity($bundle);
@@ -94,15 +99,7 @@ final class FactualAgentResponseComposer
                 if (! is_array($item)) {
                     continue;
                 }
-                $row = [];
-                foreach ($item as $key => $value) {
-                    if (! is_string($key) || is_array($value) || is_object($value)) {
-                        continue;
-                    }
-                    $row[$key] = is_bool($value) || is_int($value) || is_float($value) || $value === null
-                        ? $value
-                        : (string) $value;
-                }
+                $row = $this->projectRow($item);
                 if ($row !== []) {
                     $rows[] = $row;
                 }
@@ -112,6 +109,155 @@ final class FactualAgentResponseComposer
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     * @return array<string, scalar|null>
+     */
+    private function projectRow(array $item): array
+    {
+        $topic = array_key_exists('coverage', $item) && array_key_exists('name', $item);
+        $allow = ['name', 'coverage', 'mcp_percent', 'article_count', 'dna_count', 'has_focus_article', 'status'];
+        $deny = ['detail_href', 'ui_href', 'coverage_href', 'coverage_links'];
+        $row = [];
+        foreach ($item as $key => $value) {
+            if (! is_string($key) || is_array($value) || is_object($value) || in_array($key, $deny, true)) {
+                continue;
+            }
+            if ($topic && ! in_array($key, $allow, true)) {
+                continue;
+            }
+            if (is_string($value) && $this->isCredentialUrl($value)) {
+                continue;
+            }
+            $row[$key] = is_bool($value) || is_int($value) || is_float($value) || $value === null
+                ? $value
+                : (string) $value;
+        }
+
+        return $row;
+    }
+
+    private function coverageStatistics(RetrievalBundle $bundle, string $message, string $language): ?AgentResponse
+    {
+        if (preg_match('/thống kê|số chủ đề|\bstatistics\b|strong.{0,40}medium.{0,40}weak/iu', $message) !== 1) {
+            return null;
+        }
+
+        foreach ($bundle->sources as $source) {
+            if ($this->isPolicySource($source) || $source->status !== 'ok') {
+                continue;
+            }
+            $counts = $source->data['summary']['coverage_counts'] ?? null;
+            $hasTopics = is_array($source->data['topics'] ?? null) || is_array($counts);
+            if (! $hasTopics) {
+                continue;
+            }
+            if (is_array($counts) && ($counts['complete'] ?? false) === true
+                && is_numeric($counts['strong'] ?? null)
+                && is_numeric($counts['medium'] ?? null)
+                && is_numeric($counts['weak'] ?? null)
+                && is_numeric($counts['counted'] ?? null)) {
+                return $this->present($this->coverageReport($source->data, $language, $bundle), $bundle);
+            }
+
+            $pageCount = is_array($source->data['topics'] ?? null) ? count($source->data['topics']) : 0;
+            $total = is_array($source->data['pagination'] ?? null) ? ($source->data['pagination']['total'] ?? null) : null;
+
+            return $this->partialCoverage($language, $bundle, $pageCount, is_numeric($total) ? (int) $total : null);
+        }
+
+        return null;
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function coverageReport(array $data, string $language, RetrievalBundle $bundle): AgentResponse
+    {
+        $counts = is_array($data['summary']['coverage_counts'] ?? null) ? $data['summary']['coverage_counts'] : [];
+        $links = is_array($data['summary']['coverage_links'] ?? null) ? $data['summary']['coverage_links'] : [];
+        $lines = [];
+        foreach (['strong' => 'Strong', 'medium' => 'Medium', 'weak' => 'Weak'] as $level => $label) {
+            $lines[] = $this->coverageLine($label, (int) $counts[$level], $links[$level] ?? null);
+        }
+        if ((int) ($counts['other'] ?? 0) > 0) {
+            $lines[] = ($language === 'vi' ? 'Khác' : 'Other').': '.(int) $counts['other'];
+        }
+        $counted = (int) $counts['counted'];
+        $siteTotal = is_numeric($data['summary']['topic_count'] ?? null) ? (int) $data['summary']['topic_count'] : null;
+        $lines[] = ($language === 'vi' ? 'Tổng số chủ đề đã đếm' : 'Counted topics').': '.$counted;
+        if ($siteTotal !== null && $siteTotal !== $counted) {
+            $lines[] = $language === 'vi'
+                ? 'Số liệu tính trên '.$counted.' topic sau bộ lọc. Landscape chưa lọc có '.$siteTotal.' topic.'
+                : 'Counts cover '.$counted.' filtered topics. The unfiltered landscape has '.$siteTotal.' topics.';
+        } else {
+            $lines[] = $language === 'vi'
+                ? 'Số liệu tính trên toàn bộ topic của website trong landscape hiện tại.'
+                : 'Counts cover the complete current website landscape.';
+        }
+        $text = implode("\n", $lines);
+        $message = $language === 'vi' ? 'Thống kê độ bao phủ chủ đề.' : 'Topic coverage statistics.';
+
+        return new AgentResponse(
+            $message,
+            [['type' => 'markdown', 'text' => $text]],
+            [],
+            array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
+        );
+    }
+
+    private function coverageLine(string $label, int $count, mixed $href): string
+    {
+        if (is_string($href) && filter_var($href, FILTER_VALIDATE_URL) !== false && ! $this->isCredentialUrl($href)) {
+            return '['.$label.']('.$href.'): '.$count;
+        }
+
+        return $label.': '.$count;
+    }
+
+    private function partialCoverage(string $language, RetrievalBundle $bundle, int $pageCount, ?int $total): AgentResponse
+    {
+        $message = $language === 'vi'
+            ? 'Chỉ có '.$pageCount.' topic trong trang dữ liệu hiện tại'
+                .($total !== null ? ' của '.$total.' topic khớp bộ lọc' : '')
+                .'. Không dùng số dòng của trang này làm thống kê toàn website.'
+            : 'Only '.$pageCount.' topics are in the current page'
+                .($total !== null ? ' of '.$total.' matching topics' : '')
+                .'. This page count is not a website-wide statistic.';
+
+        return new AgentResponse(
+            $message,
+            [['type' => 'markdown', 'text' => $message]],
+            [],
+            array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
+        );
+    }
+
+    private function present(AgentResponse $response, RetrievalBundle $bundle): AgentResponse
+    {
+        return AgentEntityPresentationIndex::fromBundle($bundle)->decorate($response);
+    }
+
+    private function listingScope(RetrievalBundle $bundle, int $count, string $language): string
+    {
+        foreach ($bundle->sources as $source) {
+            if (! is_array($source->data['topics'] ?? null)) {
+                continue;
+            }
+            $total = $source->data['pagination']['total'] ?? null;
+            if (is_numeric($total) && (int) $total > $count) {
+                return $language === 'vi'
+                    ? 'Bảng này là trang hiện tại, không phải toàn bộ '.(int) $total.' topic.'
+                    : 'This table is the current page, not all '.(int) $total.' topics.';
+            }
+        }
+
+        return '';
+    }
+
+    private function isCredentialUrl(string $value): bool
+    {
+        return str_contains($value, 'access_tmp') || str_contains($value, '/api/v1/access/');
     }
 
     /**
@@ -168,6 +314,10 @@ final class FactualAgentResponseComposer
         $message = $language === 'vi'
             ? 'Có '.$count.' bản ghi phù hợp.'
             : $count.' matching records.';
+        $scope = $this->listingScope($bundle, $count, $language);
+        if ($scope !== '') {
+            $message .= ' '.$scope;
+        }
 
         return new AgentResponse(
             $message,
