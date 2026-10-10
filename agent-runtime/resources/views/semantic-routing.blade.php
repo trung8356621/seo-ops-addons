@@ -54,6 +54,14 @@
             </table>
         </div>
 
+        @if($level === 'global')
+            <div class="rounded-lg border border-gray-200 p-3">
+                <label class="font-medium">Lexical Hints</label>
+                <p class="mb-2 text-xs text-gray-500">JSON fields: id, module, phrases, weight (0-0.10), enabled. Hints only influence module candidate ranking.</p>
+                <textarea wire:model="lexicalText" rows="12" class="w-full rounded-md border-gray-300 font-mono text-xs"></textarea>
+            </div>
+        @endif
+
         <button type="button" wire:click="save" wire:loading.attr="disabled" class="rounded-md bg-gray-900 px-3 py-2 text-sm text-white">
             <span wire:loading.remove wire:target="save">Lưu</span>
             <span wire:loading wire:target="save">Đang lưu…</span>

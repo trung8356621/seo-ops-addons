@@ -93,6 +93,39 @@ final class SemanticRoutingConfig
             'revision' => max(1, (int) ($document['revision'] ?? 1)),
             'global' => $this->groups(is_array($document['global'] ?? null) ? $document['global'] : [], true),
             'modules' => $modules,
+            'lexical_hints' => $this->lexicalHints(is_array($document['lexical_hints'] ?? null) ? $document['lexical_hints'] : []),
+            'policy' => $this->policy(is_array($document['policy'] ?? null) ? $document['policy'] : []),
+        ];
+    }
+
+    /** @param list<mixed> $hints @return list<array<string, mixed>> */
+    private function lexicalHints(array $hints): array
+    {
+        $clean = [];
+        foreach ($hints as $hint) {
+            if (! is_array($hint) || ! SemanticOperationRegistry::knownModule((string) ($hint['module'] ?? ''))) continue;
+            $phrases = array_slice(array_values(array_unique(array_filter(array_map(
+                static fn (mixed $value): string => trim((string) $value), (array) ($hint['phrases'] ?? [])
+            )))), 0, 20);
+            $id = trim((string) ($hint['id'] ?? ''));
+            if ($id === '' || $phrases === []) continue;
+            $clean[] = ['id' => substr($id, 0, 80), 'module' => (string) $hint['module'], 'phrases' => $phrases,
+                'weight' => min(0.10, max(0.001, (float) ($hint['weight'] ?? 0.01))), 'enabled' => ($hint['enabled'] ?? true) !== false];
+        }
+        return $clean;
+    }
+
+    /** @param array<string, mixed> $policy @return array<string, mixed> */
+    private function policy(array $policy): array
+    {
+        return [
+            'min_semantic_candidate' => min(1.0, max(-1.0, (float) ($policy['min_semantic_candidate'] ?? 0.45))),
+            'min_operation_score' => min(1.0, max(-1.0, (float) ($policy['min_operation_score'] ?? 0.62))),
+            'final_margin' => min(2.0, max(0.0, (float) ($policy['final_margin'] ?? 0.08))),
+            'global_coefficient' => min(1.0, max(0.0, (float) ($policy['global_coefficient'] ?? 0.35))),
+            'internal_coefficient' => min(1.0, max(0.0, (float) ($policy['internal_coefficient'] ?? 0.65))),
+            'lexical_ceiling' => min(0.10, max(0.0, (float) ($policy['lexical_ceiling'] ?? 0.10))),
+            'max_modules' => min(3, max(1, (int) ($policy['max_modules'] ?? 3))),
         ];
     }
 
@@ -160,6 +193,15 @@ final class SemanticRoutingConfig
      */
     private function upgradePersisted(array $saved, array $defaults): array
     {
+        if (! array_key_exists('lexical_hints', $saved)) {
+            $saved['lexical_hints'] = $defaults['lexical_hints'] ?? [];
+        } else {
+            $known = array_column(array_filter((array) $saved['lexical_hints'], 'is_array'), null, 'id');
+            foreach ((array) ($defaults['lexical_hints'] ?? []) as $hint) {
+                if (is_array($hint) && ! isset($known[(string) ($hint['id'] ?? '')])) $saved['lexical_hints'][] = $hint;
+            }
+        }
+        $saved['policy'] = array_replace((array) ($defaults['policy'] ?? []), (array) ($saved['policy'] ?? []));
         $savedModules = is_array($saved['modules'] ?? null) ? $saved['modules'] : [];
         $defaultKeywords = is_array($defaults['modules']['keywords'] ?? null) ? $defaults['modules']['keywords'] : [];
         $savedKeywords = is_array($savedModules['keywords'] ?? null) ? array_values($savedModules['keywords']) : [];

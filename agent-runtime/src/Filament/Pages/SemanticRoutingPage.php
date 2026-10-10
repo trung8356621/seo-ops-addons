@@ -29,6 +29,8 @@ class SemanticRoutingPage extends Page
     /** @var array<string, string> */
     public array $exampleText = [];
 
+    public string $lexicalText = '';
+
     public function mount(SemanticRoutingConfig $config): void
     {
         $this->loadRows($config);
@@ -52,6 +54,12 @@ class SemanticRoutingPage extends Page
         $rows = $this->rowsFromForm();
         if ($this->level === 'global') {
             $document['global'] = $rows;
+            $decoded = json_decode($this->lexicalText, true);
+            if (! is_array($decoded)) {
+                Notification::make()->title('Lexical Hints JSON is invalid.')->danger()->send();
+                return;
+            }
+            $document['lexical_hints'] = $decoded;
         } else {
             $document['modules'][$this->module] = $rows;
         }
@@ -99,6 +107,7 @@ class SemanticRoutingPage extends Page
         foreach ($groups as $group) {
             $this->exampleText[(string) $group['id']] = implode("\n", $group['examples']);
         }
+        $this->lexicalText = json_encode($config->document()['lexical_hints'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '[]';
     }
 
     /** @return list<array<string, mixed>> */

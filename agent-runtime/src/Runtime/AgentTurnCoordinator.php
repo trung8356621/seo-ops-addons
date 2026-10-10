@@ -743,7 +743,10 @@ class AgentTurnCoordinator
             $text = match ($route->outcome) {
                 'ambiguous' => $extracted['language'] === 'vi'
                     ? 'Yêu cầu khớp nhiều hơn một công cụ. Hãy nói rõ capability cần dùng.'
-                    : 'The request matches more than one tool. Ask which capability to use.',
+                    : 'This request could mean more than one business action. Do you want existing data or improvement suggestions?',
+                'unsupported' => $extracted['language'] === 'vi'
+                    ? 'ÄÃ£ nháº­n diá»‡n nghiá»‡p vá»¥, nhÆ°ng há»‡ thá»‘ng chÆ°a cÃ³ thao tÃ¡c Ä‘Æ°á»£c há»— trá»£ Ä‘á»ƒ thá»±c hiá»‡n yÃªu cáº§u nÃ y.'
+                    : 'The business request was recognized, but no supported operation is currently available for it.',
                 'rejected' => $extracted['language'] === 'vi'
                     ? 'Capability khớp được không được phép thực thi, nên không có công cụ nào được chạy.'
                     : 'The matched capability is not available, so no tool was executed.',
@@ -1207,7 +1210,7 @@ class AgentTurnCoordinator
             if (! is_array($candidate) || ($candidate['ref'] ?? null) !== $selectedRef) {
                 continue;
             }
-            $score = $candidate['score'] ?? null;
+            $score = $candidate['semantic_relevance'] ?? $candidate['semantic_score'] ?? $candidate['internal_semantic_score'] ?? $candidate['score'] ?? null;
             if (! is_numeric($score)) {
                 return null;
             }

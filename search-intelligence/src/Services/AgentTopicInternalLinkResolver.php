@@ -15,12 +15,22 @@ final class AgentTopicInternalLinkResolver implements AgentInternalLinkResolver
 
     public function resolve(string $entityRef, AgentProjectScope $scope): ?string
     {
-        if (! $scope->isSite() || $scope->siteId === null
-            || preg_match('/^topic:([1-9]\d*)$/', $entityRef, $matches) !== 1) {
+        if (! $scope->isSite() || $scope->siteId === null) {
             return null;
         }
 
-        $url = KeywordResource::getUrl('cluster', ['topic' => (int) $matches[1]]);
+        if (preg_match('/^topic:([1-9]\d*)$/', $entityRef, $matches) === 1) {
+            $url = KeywordResource::getUrl('cluster', ['topic' => (int) $matches[1]]);
+
+            return $this->domainContext->appendSiteToUrl($url, $scope->siteId);
+        }
+
+        if (preg_match('/^coverage:(strong|medium|weak)$/', $entityRef, $matches) !== 1) {
+            return null;
+        }
+
+        $url = KeywordResource::getUrl('clusters');
+        $url .= (str_contains($url, '?') ? '&' : '?').http_build_query(['coverage' => $matches[1]]);
 
         return $this->domainContext->appendSiteToUrl($url, $scope->siteId);
     }

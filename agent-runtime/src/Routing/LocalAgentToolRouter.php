@@ -20,6 +20,9 @@ final class LocalAgentToolRouter
 
     public function route(string $message): LocalToolRoute
     {
+        if ($this->evaluator instanceof HybridRouteEvaluator) {
+            return $this->routeHybrid($message, $this->evaluator->evaluateHybrid($message, $this->config->document()));
+        }
         $global = $this->evaluator->evaluate($message, $this->enabled($this->config->globalGroups()));
         $diagnostics = ['global' => $this->trace($global), 'attempts' => []];
         if ($global->status === 'unavailable') {
@@ -59,6 +62,39 @@ final class LocalAgentToolRouter
         }
 
         return $this->unresolved('none', $global, $diagnostics);
+    }
+
+    /** @param array<string, mixed> $result */
+    private function routeHybrid(string $message, array $result): LocalToolRoute
+    {
+        $status = (string) ($result['status'] ?? 'unavailable');
+        $diagnostics = [
+            'global' => ['candidates' => (array) ($result['global_candidates'] ?? [])],
+            'internal' => ['candidates' => (array) ($result['operation_candidates'] ?? [])],
+            'decision_reason' => (string) ($result['reason'] ?? ''),
+        ];
+        if ($status !== 'confident') {
+            $outcome = in_array($status, ['none', 'ambiguous', 'unsupported', 'unavailable'], true) ? $status : 'unavailable';
+            return new LocalToolRoute($outcome, null, null, false, [], 'hybrid_weighted', null, null, null, false, [], $diagnostics);
+        }
+        $module = (string) ($result['module'] ?? '');
+        $operationRef = (string) ($result['operation'] ?? '');
+        $operation = SemanticOperationRegistry::operation($operationRef);
+        if (! SemanticOperationRegistry::knownModule($module) || $operation === null) {
+            return new LocalToolRoute('unsupported', null, null, false, [], 'hybrid_weighted', null, $module ?: null, null, false, [], $diagnostics);
+        }
+        $diagnostics['module'] = $module;
+        $diagnostics['operation'] = $operationRef;
+        $internal = new WeightedEvaluation('confident', $operationRef, array_map(static fn (array $row): array => [
+            'ref' => (string) ($row['operation'] ?? ''),
+            'semantic_relevance' => (float) ($row['internal_semantic_score'] ?? 0),
+            'weight' => 100.0,
+            'score' => (float) ($row['internal_semantic_score'] ?? 0),
+            'group_id' => (string) ($row['group_id'] ?? ''),
+            'example' => (string) ($row['example'] ?? ''),
+        ], array_values(array_filter((array) ($result['operation_candidates'] ?? []), 'is_array'))));
+
+        return $this->fromOperation($module, $operationRef, $operation, $internal, $diagnostics);
     }
 
     /** @param list<array<string, mixed>> $groups @return list<array<string, mixed>> */

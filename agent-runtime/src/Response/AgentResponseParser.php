@@ -34,6 +34,7 @@ final class AgentResponseParser
         $evidence = EvidenceNumberIndex::fromBundle($bundle);
         $links = EvidenceLinkIndex::fromBundle($bundle);
         $articleRecords = $this->articleRecords($bundle);
+        $topicRefs = $this->topicRefs($bundle);
         $links->assertMarkdown($message);
         $blocks = [];
         foreach ($blocksRaw as $block) {
@@ -42,7 +43,7 @@ final class AgentResponseParser
                 continue;
             }
             try {
-                $blocks[] = $this->block($block, $evidence, $links, $articleRecords);
+                $blocks[] = $this->block($block, $evidence, $links, $articleRecords, $topicRefs, $bundle->scope->siteRef);
             } catch (AgentResponseRejected $error) {
                 $this->rejections[] = $error->getMessage();
             }
@@ -66,7 +67,7 @@ final class AgentResponseParser
      * @param  array<string, array<string, mixed>>  $articleRecords
      * @return array<string, mixed>
      */
-    private function block(array $block, EvidenceNumberIndex $evidence, EvidenceLinkIndex $links, array $articleRecords): array
+    private function block(array $block, EvidenceNumberIndex $evidence, EvidenceLinkIndex $links, array $articleRecords, array $topicRefs, ?string $activeSiteRef): array
     {
         $type = (string) ($block['type'] ?? '');
 
@@ -77,7 +78,7 @@ final class AgentResponseParser
                 'text' => $this->requiredText($block),
             ],
             'chart' => $this->chartBlock($block, $evidence),
-            'table' => $this->tableBlock($block, $evidence, $articleRecords),
+            'table' => $this->tableBlock($block, $evidence, $articleRecords, $topicRefs, $activeSiteRef),
             default => throw new AgentResponseRejected('Agent response block type is not supported.'),
         };
     }
@@ -174,7 +175,7 @@ final class AgentResponseParser
      * @param  array<string, array<string, mixed>>  $articleRecords
      * @return array<string, mixed>
      */
-    private function tableBlock(array $block, EvidenceNumberIndex $evidence, array $articleRecords): array
+    private function tableBlock(array $block, EvidenceNumberIndex $evidence, array $articleRecords, array $topicRefs, ?string $activeSiteRef): array
     {
         $columns = $block['columns'] ?? null;
         $rows = $block['rows'] ?? null;
@@ -220,7 +221,7 @@ final class AgentResponseParser
                 $clean[$column['key']] = $value;
             }
             if (array_key_exists('item', $row)) {
-                $clean['item'] = $this->recommendationItem($row['item'], $record);
+                $clean['item'] = $this->recommendationItem($row['item'], $record, $topicRefs);
             }
             $rowOut[] = $clean;
         }
@@ -238,7 +239,7 @@ final class AgentResponseParser
                 break;
             }
         }
-        if ($hasItems || array_key_exists('actionable', $block)) {
+        if (array_key_exists('actionable', $block)) {
             if (! $hasItems) {
                 throw new AgentResponseRejected('Actionable table has no validated recommendations.');
             }
@@ -249,6 +250,9 @@ final class AgentResponseParser
             $siteRef = trim((string) ($actionable['site_ref'] ?? ''));
             if (preg_match('/^site:\d+$/', $siteRef) !== 1) {
                 throw new AgentResponseRejected('Actionable table site_ref is invalid.');
+            }
+            if ($siteRef !== $activeSiteRef) {
+                throw new AgentResponseRejected('Actionable table site_ref does not match the active scope.');
             }
             $out['actionable'] = [
                 'action' => 'content_project.draft.intake',
@@ -406,7 +410,7 @@ final class AgentResponseParser
      * @param  array<string, mixed>|null  $record
      * @return array<string, mixed>
      */
-    private function recommendationItem(mixed $item, ?array $record = null): array
+    private function recommendationItem(mixed $item, ?array $record = null, array $topicRefs = []): array
     {
         if (! is_array($item)) {
             throw new AgentResponseRejected('Recommendation item is malformed.');
@@ -419,6 +423,7 @@ final class AgentResponseParser
         $articleRef = trim((string) ($item['article_ref'] ?? ''));
         $title = trim((string) ($item['title'] ?? ''));
         $keyword = trim((string) ($item['keyword'] ?? ''));
+        $topicRef = trim((string) ($item['topic_ref'] ?? ''));
         if ($id === '') {
             throw new AgentResponseRejected('Recommendation item id is required.');
         }
@@ -427,6 +432,9 @@ final class AgentResponseParser
         }
         if ($type === 'new' && $title === '' && $keyword === '') {
             throw new AgentResponseRejected('New recommendations require a title or keyword.');
+        }
+        if ($topicRef !== '' && ! isset($topicRefs[$topicRef])) {
+            throw new AgentResponseRejected('Recommendation topic_ref is not present in retrieval evidence.');
         }
         $reasons = [];
         foreach (is_array($item['reasons'] ?? null) ? $item['reasons'] : [] as $reason) {
@@ -437,8 +445,8 @@ final class AgentResponseParser
         }
         $source = is_array($item['source'] ?? null) ? $item['source'] : [];
         $sourceType = trim((string) ($source['type'] ?? ''));
-        if ($sourceType === '') {
-            throw new AgentResponseRejected('Recommendation source is required.');
+        if (! in_array($sourceType, ['agent', 'seo_audit', 'draft_audit', 'gsc', 'manual_api'], true)) {
+            throw new AgentResponseRejected('Recommendation source is invalid.');
         }
 
         return [
@@ -447,6 +455,8 @@ final class AgentResponseParser
             'article_ref' => $articleRef !== '' ? $articleRef : null,
             'title' => $title,
             'keyword' => $keyword,
+            'topic_ref' => $topicRef !== '' ? $topicRef : null,
+            'inferred' => (bool) ($item['inferred'] ?? false),
             'reasons' => $reasons,
             'source' => [
                 'type' => $sourceType,
@@ -454,6 +464,30 @@ final class AgentResponseParser
                 'reason' => trim((string) ($source['reason'] ?? '')) ?: null,
             ],
         ];
+    }
+
+    /** @return array<string, true> */
+    private function topicRefs(RetrievalBundle $bundle): array
+    {
+        $refs = [];
+        $walk = function (array $node) use (&$walk, &$refs): void {
+            $ref = trim((string) ($node['topic_ref'] ?? ''));
+            if (preg_match('/^topic:[1-9]\d*$/', $ref) === 1) {
+                $refs[$ref] = true;
+            }
+            foreach ($node as $value) {
+                if (is_array($value)) {
+                    $walk($value);
+                }
+            }
+        };
+        foreach ($bundle->sources as $source) {
+            if ($source->status === 'ok') {
+                $walk($source->data);
+            }
+        }
+
+        return $refs;
     }
 
     /**

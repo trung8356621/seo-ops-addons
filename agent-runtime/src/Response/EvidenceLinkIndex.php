@@ -53,7 +53,7 @@ final class EvidenceLinkIndex
     private function walk(array $node): void
     {
         foreach ($node as $key => $value) {
-            if ($key === 'ui_href' && is_string($value) && $this->isHttpUrl($value)) {
+            if (in_array($key, ['ui_href', 'coverage_href'], true) && is_string($value) && $this->isHttpUrl($value)) {
                 $this->hrefs[$value] = true;
                 $this->addInternalOrigin($value);
                 continue;

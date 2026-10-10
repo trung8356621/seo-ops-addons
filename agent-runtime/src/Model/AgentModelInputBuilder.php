@@ -75,7 +75,20 @@ final class AgentModelInputBuilder
             'conversation' => $this->compactHistory($history),
             'retrieval_bundle' => $this->evidenceSanitizer->sanitize($bundle),
             'missing_capabilities' => SeoAccessCapabilityCatalog::missing(),
-            'response_contract' => 'AgentResponse JSON with message, blocks, actions. Chart and table numbers must come from retrieval_bundle sources whose status is ok.',
+            'response_contract' => [
+                'shape' => 'AgentResponse JSON with message, blocks, actions.',
+                'evidence' => 'Chart and factual table numbers must come from retrieval_bundle sources whose status is ok. Never treat a partial page as a full-site count.',
+                'read' => 'For factual READ requests, present retrieved facts only. Do not generate recommendations or Draft candidates.',
+                'coverage_links' => 'Use only supplied coverage_href values for Strong, Medium, and Weak filter links. Never construct navigation URLs.',
+                'recommendations' => 'For explicit content recommendation/opportunity/improvement requests, use concise table blocks grouped by existing Topic when available. Each distinct candidate includes title, keyword when identifiable, Topic/topic_ref when evidenced, short reason, type new|rewrite|improve, source attribution, and an item object. Clearly mark generated/inferred new ideas and never invent refs or metrics.',
+                'draft_intake' => [
+                    'action' => 'content_project.draft.intake',
+                    'user_initiated' => true,
+                    'supported_types' => ['new', 'rewrite', 'improve'],
+                    'source_type' => 'agent',
+                    'rule' => 'An actionable table is allowed for valid candidates in site scope. It only exposes selection controls; never submit automatically. Omit actionable metadata when a candidate cannot be submitted safely.',
+                ],
+            ],
             'selected_response_template' => $selectedResponseTemplate,
             'selected_response_language' => $selectedResponseLanguage,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

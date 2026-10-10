@@ -46,6 +46,14 @@ final class AgentEvidenceLinkEnricher
             }
         }
 
+        $coverage = strtolower(trim((string) ($node['coverage'] ?? '')));
+        if (in_array($coverage, ['strong', 'medium', 'weak'], true)) {
+            $href = $this->links->resolve('coverage:'.$coverage, $scope);
+            if ($href !== null) {
+                $node['coverage_href'] = $href;
+            }
+        }
+
         return $node;
     }
 }

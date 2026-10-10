@@ -1,14 +1,25 @@
 {
-  "revision": 1,
+  "revision": 2,
+  "policy": {"min_semantic_candidate":0.45,"min_operation_score":0.62,"final_margin":0.08,"global_coefficient":0.35,"internal_coefficient":0.65,"lexical_ceiling":0.10,"max_modules":3},
+  "lexical_hints": [
+    {"id":"topic_coverage","module":"keywords","phrases":["độ bao phủ","bao phủ chủ đề","topic coverage"],"weight":0.08,"enabled":true},
+    {"id":"topic_terms","module":"keywords","phrases":["topic group","chủ đề","topic"],"weight":0.03,"enabled":true},
+    {"id":"keyword_terms","module":"keywords","phrases":["từ khóa","keyword","tags"],"weight":0.04,"enabled":true},
+    {"id":"coverage_strength","module":"keywords","phrases":["strong medium weak","strong","medium","weak"],"weight":0.04,"enabled":true},
+    {"id":"seo_score","module":"seo_audit","phrases":["seo score","điểm seo"],"weight":0.07,"enabled":true},
+    {"id":"specific_article","module":"articles","phrases":["bài viết cụ thể","bài này"],"weight":0.06,"enabled":true},
+    {"id":"content_project","module":"content_projects","phrases":["content project","project planner","dự án nội dung"],"weight":0.08,"enabled":true},
+    {"id":"search_console","module":"gsc","phrases":["impression","ctr","clicks","gsc","search console"],"weight":0.08,"enabled":true}
+  ],
   "global": [
     {
       "id": "tracked_keyword_inventory",
       "name": "Tracked keyword inventory",
       "description": "Read the keywords the site already tracks.",
       "examples": [
-        "Website đang theo dõi những từ khóa SEO nào?",
-        "Hiển thị danh sách keyword đang được quản lý.",
-        "Site hiện có những từ khóa nào trong hệ thống?"
+        "Website dang theo d�i nh?ng t? kh�a SEO n�o?",
+        "Hi?n th? danh s�ch keyword dang du?c qu?n l�.",
+        "Site hi?n c� nh?ng t? kh�a n�o trong h? th?ng?"
       ],
       "enabled": true,
       "targets": [
@@ -21,9 +32,9 @@
       "name": "Keyword topic filter",
       "description": "Filter tracked keywords by topic or topic group.",
       "examples": [
-        "Cho xem keyword theo Topic Group balo đi học.",
-        "Lọc từ khóa thuộc nhóm chủ đề balo học sinh.",
-        "Keyword nào đang nằm trong topic group này?"
+        "Cho xem keyword theo Topic Group balo di h?c.",
+        "L?c t? kh�a thu?c nh�m ch? d? balo h?c sinh.",
+        "Keyword n�o dang n?m trong topic group n�y?"
       ],
       "enabled": true,
       "targets": [
@@ -32,13 +43,39 @@
       ]
     },
     {
+      "id": "topic_coverage_read",
+      "name": "Topic coverage read",
+      "description": "Read weak topics or aggregate Strong, Medium and Weak topic coverage.",
+      "examples": [
+        "Cho tôi xem những chủ đề có độ bao phủ SEO yếu.",
+        "Thống kê số chủ đề Strong, Medium và Weak của website.",
+        "Topic nào có coverage thấp?"
+      ],
+      "enabled": true,
+      "targets": [
+        {"ref": "keywords", "weight": 10},
+        {"ref": "seo_audit", "weight": 2}
+      ]
+    },
+    {
+      "id": "topic_content_suggestions",
+      "name": "Topic-based content suggestions",
+      "description": "Recognize improvement requests based on weak topic coverage; execution still requires an internal supported operation.",
+      "examples": [
+        "Dựa trên Topic bao phủ yếu, hãy đề xuất bài viết mới.",
+        "Gợi ý nội dung mới cho từng chủ đề Weak."
+      ],
+      "enabled": true,
+      "targets": [{"ref": "keywords", "weight": 10}]
+    },
+    {
       "id": "article_inventory",
       "name": "Article inventory",
       "description": "List articles without judging SEO quality.",
       "examples": [
-        "Kho bài viết trên site này hiện có những bài nào?",
-        "Liệt kê các bài viết đang có trên website.",
-        "Cho tôi danh sách bài trong kho nội dung."
+        "Kho b�i vi?t tr�n site n�y hi?n c� nh?ng b�i n�o?",
+        "Li?t k� c�c b�i vi?t dang c� tr�n website.",
+        "Cho t�i danh s�ch b�i trong kho n?i dung."
       ],
       "enabled": true,
       "targets": [
@@ -51,9 +88,9 @@
       "name": "Single specific article",
       "description": "A named article, not a bulk SEO list.",
       "examples": [
-        "Kiểm tra bài viết balo học sinh ABC.",
-        "Bài viết này có những vấn đề SEO gì?",
-        "Bài balo học sinh ABC cần cải thiện SEO thế nào?"
+        "Ki?m tra b�i vi?t balo h?c sinh ABC.",
+        "B�i vi?t n�y c� nh?ng v?n d? SEO g�?",
+        "B�i balo h?c sinh ABC c?n c?i thi?n SEO th? n�o?"
       ],
       "enabled": true,
       "targets": [
@@ -66,9 +103,9 @@
       "name": "Multiple articles requiring SEO evaluation",
       "description": "Low scores or a batch of articles to improve.",
       "examples": [
-        "Những bài nào có điểm SEO thấp?",
-        "Liệt kê 50 bài có SEO Score thấp nhất.",
-        "Cho tôi danh sách 50 bài đang có nhiều vấn đề SEO."
+        "Nh?ng b�i n�o c� di?m SEO th?p?",
+        "Li?t k� 50 b�i c� SEO Score th?p nh?t.",
+        "Cho t�i danh s�ch 50 b�i dang c� nhi?u v?n d? SEO."
       ],
       "enabled": true,
       "targets": [
@@ -81,9 +118,9 @@
       "name": "Missing focus keyword",
       "description": "Explain where to inspect articles without a focus keyword.",
       "examples": [
-        "Bài nào chưa có Focus Keyword?",
-        "Những bài viết chưa gắn từ khóa chính.",
-        "Bài nào đang thiếu focus keyword?"
+        "B�i n�o chua c� Focus Keyword?",
+        "Nh?ng b�i vi?t chua g?n t? kh�a ch�nh.",
+        "B�i n�o dang thi?u focus keyword?"
       ],
       "enabled": true,
       "targets": [
@@ -96,9 +133,9 @@
       "name": "Content project read",
       "description": "Project state and articles waiting inside a project.",
       "examples": [
-        "Những Content Project nào đang có bài chờ cải thiện?",
-        "Dự án nội dung nào còn bài chưa xử lý?",
-        "Xem các content project đang mở trên site."
+        "Nh?ng Content Project n�o dang c� b�i ch? c?i thi?n?",
+        "D? �n n?i dung n�o c�n b�i chua x? l�?",
+        "Xem c�c content project dang m? tr�n site."
       ],
       "enabled": true,
       "targets": [
@@ -110,9 +147,9 @@
       "name": "Search Console performance",
       "description": "Clicks, impressions, and search performance.",
       "examples": [
-        "Hiệu suất Search Console tháng này thế nào?",
-        "Query nào có nhiều impression?",
-        "Xem click và impression trên GSC."
+        "Hi?u su?t Search Console th�ng n�y th? n�o?",
+        "Query n�o c� nhi?u impression?",
+        "Xem click v� impression tr�n GSC."
       ],
       "enabled": true,
       "targets": [
@@ -124,9 +161,9 @@
       "name": "High impression and weak SEO",
       "description": "Needs search performance together with related article quality.",
       "examples": [
-        "Keyword nào có impression cao nhưng bài liên quan SEO thấp?",
-        "Từ khóa nhiều impression mà bài viết thì điểm SEO kém.",
-        "Impression cao nhưng SEO score của bài liên quan lại thấp."
+        "Keyword n�o c� impression cao nhung b�i li�n quan SEO th?p?",
+        "T? kh�a nhi?u impression m� b�i vi?t th� di?m SEO k�m.",
+        "Impression cao nhung SEO score c?a b�i li�n quan l?i th?p."
       ],
       "enabled": true,
       "targets": [
@@ -140,9 +177,9 @@
       "name": "Sitewide SEO improvement",
       "description": "Recommend how to improve the site after local evidence.",
       "examples": [
-        "Hãy đề xuất cách cải thiện SEO tổng thể cho site này.",
-        "Nên cải thiện SEO của cả website theo hướng nào?",
-        "Gợi ý hướng tối ưu SEO chung cho site."
+        "H�y d? xu?t c�ch c?i thi?n SEO t?ng th? cho site n�y.",
+        "N�n c?i thi?n SEO c?a c? website theo hu?ng n�o?",
+        "G?i � hu?ng t?i uu SEO chung cho site."
       ],
       "enabled": true,
       "targets": [
@@ -155,9 +192,9 @@
       "name": "Internal link inventory",
       "description": "Read internal links already on the site.",
       "examples": [
-        "Site đang có những liên kết nội bộ nào?",
-        "Liệt kê internal link hiện có.",
-        "Kho liên kết nội bộ của website."
+        "Site dang c� nh?ng li�n k?t n?i b? n�o?",
+        "Li?t k� internal link hi?n c�.",
+        "Kho li�n k?t n?i b? c?a website."
       ],
       "enabled": true,
       "targets": [
@@ -169,9 +206,9 @@
       "name": "Draft the current selection",
       "description": "Use the existing Draft action. Do not generate new articles.",
       "examples": [
-        "Đưa các bài vừa chọn vào Draft cải thiện.",
-        "Cho những bài đang chọn vào draft.",
-        "Đưa lựa chọn hiện tại vào Draft."
+        "�ua c�c b�i v?a ch?n v�o Draft c?i thi?n.",
+        "Cho nh?ng b�i dang ch?n v�o draft.",
+        "�ua l?a ch?n hi?n t?i v�o Draft."
       ],
       "enabled": true,
       "targets": [
@@ -186,9 +223,9 @@
         "id": "keywords_inventory",
         "name": "Keyword inventory",
         "examples": [
-          "Website đang theo dõi những từ khóa SEO nào?",
-          "Hiển thị danh sách keyword đang được quản lý.",
-          "Site hiện có những từ khóa nào trong hệ thống?"
+          "Website dang theo d�i nh?ng t? kh�a SEO n�o?",
+          "Hi?n th? danh s�ch keyword dang du?c qu?n l�.",
+          "Site hi?n c� nh?ng t? kh�a n�o trong h? th?ng?"
         ],
         "enabled": true,
         "targets": [
@@ -201,9 +238,9 @@
         "id": "keywords_landscape",
         "name": "Keyword landscape",
         "examples": [
-          "Những chủ đề nào có mức độ bao phủ SEO thấp?",
-          "Cho xem keyword landscape và điểm bao phủ theo chủ đề.",
-          "Topic SEO nào đang có coverage thấp?"
+          "Nh?ng ch? d? n�o c� m?c d? bao ph? SEO th?p?",
+          "Cho xem keyword landscape v� di?m bao ph? theo ch? d?.",
+          "Topic SEO n�o dang c� coverage th?p?"
         ],
         "enabled": true,
         "targets": [
@@ -215,9 +252,9 @@
         "id": "keywords_topic_filter",
         "name": "Keyword topic filter",
         "examples": [
-          "Cho xem keyword theo Topic Group balo đi học.",
-          "Lọc từ khóa thuộc nhóm chủ đề balo học sinh.",
-          "Keyword nào đang nằm trong topic group này?"
+          "Cho xem keyword theo Topic Group balo di h?c.",
+          "L?c t? kh�a thu?c nh�m ch? d? balo h?c sinh.",
+          "Keyword n�o dang n?m trong topic group n�y?"
         ],
         "enabled": true,
         "targets": [
@@ -231,9 +268,9 @@
         "id": "articles_inventory",
         "name": "Article inventory",
         "examples": [
-          "Kho bài viết trên site này hiện có những bài nào?",
-          "Liệt kê các bài viết đang có trên website.",
-          "Cho tôi danh sách bài trong kho nội dung."
+          "Kho b�i vi?t tr�n site n�y hi?n c� nh?ng b�i n�o?",
+          "Li?t k� c�c b�i vi?t dang c� tr�n website.",
+          "Cho t�i danh s�ch b�i trong kho n?i dung."
         ],
         "enabled": true,
         "targets": [{"ref": "articles.inventory", "weight": 10}]
@@ -242,9 +279,9 @@
         "id": "articles_single",
         "name": "Single article",
         "examples": [
-          "Kiểm tra bài viết balo học sinh ABC.",
-          "Bài viết này có những vấn đề SEO gì?",
-          "Bài balo học sinh ABC cần cải thiện SEO thế nào?"
+          "Ki?m tra b�i vi?t balo h?c sinh ABC.",
+          "B�i vi?t n�y c� nh?ng v?n d? SEO g�?",
+          "B�i balo h?c sinh ABC c?n c?i thi?n SEO th? n�o?"
         ],
         "enabled": true,
         "targets": [{"ref": "articles.inventory", "weight": 10}]
@@ -255,9 +292,9 @@
         "id": "audit_low_score",
         "name": "Low SEO score list",
         "examples": [
-          "Những bài nào có điểm SEO thấp?",
-          "Liệt kê 50 bài có SEO Score thấp nhất.",
-          "Danh sách bài điểm SEO thấp cần xem trước."
+          "Nh?ng b�i n�o c� di?m SEO th?p?",
+          "Li?t k� 50 b�i c� SEO Score th?p nh?t.",
+          "Danh s�ch b�i di?m SEO th?p c?n xem tru?c."
         ],
         "enabled": true,
         "targets": [
@@ -269,9 +306,9 @@
         "id": "audit_focus_keyword",
         "name": "Missing focus keyword guidance",
         "examples": [
-          "Bài nào chưa có Focus Keyword?",
-          "Những bài viết chưa gắn từ khóa chính.",
-          "Bài nào đang thiếu focus keyword?"
+          "B�i n�o chua c� Focus Keyword?",
+          "Nh?ng b�i vi?t chua g?n t? kh�a ch�nh.",
+          "B�i n�o dang thi?u focus keyword?"
         ],
         "enabled": true,
         "targets": [
@@ -283,9 +320,9 @@
         "id": "audit_site_improve",
         "name": "Sitewide improvement",
         "examples": [
-          "Hãy đề xuất cách cải thiện SEO tổng thể cho site này.",
-          "Nên cải thiện SEO của cả website theo hướng nào?",
-          "Gợi ý hướng tối ưu SEO chung cho site."
+          "H�y d? xu?t c�ch c?i thi?n SEO t?ng th? cho site n�y.",
+          "N�n c?i thi?n SEO c?a c? website theo hu?ng n�o?",
+          "G?i � hu?ng t?i uu SEO chung cho site."
         ],
         "enabled": true,
         "targets": [
@@ -297,9 +334,9 @@
         "id": "audit_draft_selection",
         "name": "Draft current selection",
         "examples": [
-          "Đưa các bài vừa chọn vào Draft cải thiện.",
-          "Cho những bài đang chọn vào draft.",
-          "Đưa lựa chọn hiện tại vào Draft."
+          "�ua c�c b�i v?a ch?n v�o Draft c?i thi?n.",
+          "Cho nh?ng b�i dang ch?n v�o draft.",
+          "�ua l?a ch?n hi?n t?i v�o Draft."
         ],
         "enabled": true,
         "targets": [
@@ -313,9 +350,9 @@
         "id": "gsc_overview",
         "name": "GSC overview",
         "examples": [
-          "Hiệu suất Search Console tháng này thế nào?",
-          "Query nào có nhiều impression?",
-          "Xem click và impression trên GSC."
+          "Hi?u su?t Search Console th�ng n�y th? n�o?",
+          "Query n�o c� nhi?u impression?",
+          "Xem click v� impression tr�n GSC."
         ],
         "enabled": true,
         "targets": [
@@ -327,9 +364,9 @@
         "id": "gsc_cross_quality",
         "name": "Impressions with weak related SEO",
         "examples": [
-          "Keyword nào có impression cao nhưng bài liên quan SEO thấp?",
-          "Từ khóa nhiều impression mà bài viết thì điểm SEO kém.",
-          "Impression cao nhưng SEO score của bài liên quan lại thấp."
+          "Keyword n�o c� impression cao nhung b�i li�n quan SEO th?p?",
+          "T? kh�a nhi?u impression m� b�i vi?t th� di?m SEO k�m.",
+          "Impression cao nhung SEO score c?a b�i li�n quan l?i th?p."
         ],
         "enabled": true,
         "targets": [
@@ -343,9 +380,9 @@
         "id": "projects_read",
         "name": "Content project read",
         "examples": [
-          "Những Content Project nào đang có bài chờ cải thiện?",
-          "Dự án nội dung nào còn bài chưa xử lý?",
-          "Xem các content project đang mở trên site."
+          "Nh?ng Content Project n�o dang c� b�i ch? c?i thi?n?",
+          "D? �n n?i dung n�o c�n b�i chua x? l�?",
+          "Xem c�c content project dang m? tr�n site."
         ],
         "enabled": true,
         "targets": [{"ref": "content_projects.read", "weight": 10}]
@@ -356,9 +393,9 @@
         "id": "links_internal",
         "name": "Internal links",
         "examples": [
-          "Site đang có những liên kết nội bộ nào?",
-          "Liệt kê internal link hiện có.",
-          "Kho liên kết nội bộ của website."
+          "Site dang c� nh?ng li�n k?t n?i b? n�o?",
+          "Li?t k� internal link hi?n c�.",
+          "Kho li�n k?t n?i b? c?a website."
         ],
         "enabled": true,
         "targets": [{"ref": "links.internal", "weight": 10}]
