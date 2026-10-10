@@ -8,11 +8,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun;
-use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
+use Omnichannel\Addons\AgentRuntime\Integration\RoutingReviewChoiceValidator;
 
 final class AgentRoutingFeedbackController
 {
-    public function store(Request $request, SemanticRoutingConfig $routing): JsonResponse
+    public function store(
+        Request $request,
+        RoutingReviewChoiceValidator $choices,
+    ): JsonResponse
     {
         $userId = (int) ($request->user()?->id ?? 0);
         $items = $request->input('items');
@@ -30,9 +33,14 @@ final class AgentRoutingFeedbackController
         $runByReview = [];
         foreach ($items as $item) {
             $runUlid = is_array($item) ? trim((string) ($item['run_ulid'] ?? '')) : '';
-            $rating = is_array($item) ? ($item['rating'] ?? null) : null;
-            if ($runUlid === '' || ! is_bool($rating)) {
-                continue;
+            $legacyRating = is_array($item) ? ($item['rating'] ?? null) : null;
+            $preferredCandidateId = is_array($item) ? ($item['preferred_candidate_id'] ?? null) : null;
+            $noneOfAbove = is_array($item) ? ($item['none_of_above'] ?? false) : false;
+            $isLegacy = is_bool($legacyRating)
+                && $preferredCandidateId === null
+                && $noneOfAbove === false;
+            if ($runUlid === '' || (! $isLegacy && ! is_bool($noneOfAbove))) {
+                return new JsonResponse(['message' => 'Feedback item is malformed.'], 422);
             }
             $run = AgentRun::query()
                 ->where('ulid', $runUlid)
@@ -43,7 +51,16 @@ final class AgentRoutingFeedbackController
                 ? ($run->retrieval_summary['model_diagnostics']['execution'] ?? null)
                 : null;
             if (! $run instanceof AgentRun || ! is_array($execution)) {
-                continue;
+                return new JsonResponse(['message' => 'Completed Agent response not found.'], 404);
+            }
+            $review = is_array($execution['routing_review'] ?? null) ? $execution['routing_review'] : null;
+            $validatedChoice = null;
+            if (! $isLegacy) {
+                try {
+                    $validatedChoice = $choices->validate($review, $preferredCandidateId, $noneOfAbove);
+                } catch (\InvalidArgumentException $exception) {
+                    return new JsonResponse(['message' => $exception->getMessage()], 422);
+                }
             }
             $operation = $execution['operation'] ?? null;
             $groupId = $execution['routing_group_id'] ?? null;
@@ -54,13 +71,19 @@ final class AgentRoutingFeedbackController
                 'review_id' => $reviewId,
                 'client_id' => $clientId,
                 'agent_app' => (string) $run->app_key,
-                'service_id' => 'seo-ops',
+                'service_id' => (string) ($execution['service_id'] ?? $run->app_key),
                 'module_id' => $execution['module'] ?? null,
                 'operation_id' => $operation,
                 'routing_group_id' => is_string($groupId) ? $groupId : null,
-                'routing_version' => (string) ($routing->document()['revision'] ?? ''),
+                'routing_version' => is_string($execution['routing_version'] ?? null)
+                    ? $execution['routing_version']
+                    : null,
                 'routing_outcome' => (string) ($execution['outcome'] ?? 'unknown'),
-                'rating' => $rating,
+                'review_kind' => $isLegacy ? 'answer_rating_legacy' : 'candidate_selection',
+                'rating' => $isLegacy ? $legacyRating : null,
+                'selected_candidate_id' => $isLegacy ? null : $validatedChoice['selected_candidate_id'],
+                'preferred_candidate_id' => $isLegacy ? null : $validatedChoice['preferred_candidate_id'],
+                'none_of_above' => $isLegacy ? false : $validatedChoice['none_of_above'],
             ];
             $runByReview[$reviewId] = $runUlid;
         }

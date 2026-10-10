@@ -31,6 +31,7 @@ use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
+use Omnichannel\Addons\AgentRuntime\Routing\HybridRouteEvaluator;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -229,8 +230,64 @@ final class AgentLocalExecutionTest extends TestCase
 
             self::assertSame('demo-ok:demo status', $result->response?->message);
             self::assertSame(['registered:demo.status'], $result->executionTrace['tools']);
+            self::assertSame(
+                'operation:demo.read|group:group',
+                $result->executionTrace['routing_review']['selected_candidate_id'],
+            );
+            self::assertCount(1, $result->executionTrace['routing_review']['candidates']);
+            self::assertSame('example', $result->executionTrace['routing_review']['candidates'][0]['question']);
         } finally {
             AgentCapabilityCatalog::unregister('demo.status');
+        }
+    }
+
+    #[Test]
+    public function routing_review_uses_selected_and_skipped_candidates_from_hybrid_evidence(): void
+    {
+        foreach (['demo.selected', 'demo.alternative'] as $key) {
+            AgentCapabilityCatalog::register($key, [
+                'label' => $key, 'description' => $key,
+                'jev_selectable' => true, 'execution_mode' => 'direct',
+                'requires_confirmation' => false, 'status' => 'available', 'modules' => [],
+            ]);
+        }
+        try {
+            $handlers = new AgentOperationHandlerRegistry();
+            $handlers->register('demo.selected', static fn (): AgentResponse => new AgentResponse(
+                'ok', [['type' => 'markdown', 'text' => 'ok']], [], [],
+            ));
+            $routing = new SemanticRoutingConfig([
+                'revision' => 3,
+                'global' => [['id' => 'demo', 'name' => 'Demo', 'examples' => ['Global demo question?'], 'targets' => [['ref' => 'demo', 'weight' => 10]]]],
+                'modules' => ['demo' => [
+                    ['id' => 'selected', 'name' => 'Selected', 'examples' => ['Selected natural question?'], 'targets' => [['ref' => 'demo.read', 'weight' => 10]]],
+                    ['id' => 'alternative', 'name' => 'Alternative', 'examples' => ['Alternative natural question?'], 'targets' => [['ref' => 'demo.other', 'weight' => 10]]],
+                ]],
+                'operations' => [
+                    'demo.read' => ['family' => 'READ', 'capability' => 'demo.selected', 'answer_model' => false, 'secondary' => []],
+                    'demo.other' => ['family' => 'READ', 'capability' => 'demo.alternative', 'answer_model' => false, 'secondary' => []],
+                ],
+                'policy' => [],
+            ]);
+            $coordinator = $this->coordinator(
+                $this->createMock(DecisionModelGateway::class),
+                $this->createMock(AnswerModelGateway::class),
+                new HybridReviewEvaluator(),
+                routing: $routing,
+                handlers: $handlers,
+            );
+
+            $review = $coordinator->send(1, AgentProjectScope::site(4), 'demo', [])->executionTrace['routing_review'];
+
+            self::assertSame('operation:demo.read|group:selected', $review['selected_candidate_id']);
+            self::assertSame(
+                ['Selected natural question?', 'Alternative natural question?'],
+                array_column($review['candidates'], 'question'),
+            );
+            self::assertSame([true, false], array_column($review['candidates'], 'selected'));
+        } finally {
+            AgentCapabilityCatalog::unregister('demo.selected');
+            AgentCapabilityCatalog::unregister('demo.alternative');
         }
     }
 
@@ -348,5 +405,30 @@ final class LocalExecutionTransport implements SeoAccessTransport
         }
 
         return ['status' => 200, 'json' => ['data' => ['available' => true]]];
+    }
+}
+
+final class HybridReviewEvaluator implements WeightedRouteEvaluator, HybridRouteEvaluator
+{
+    public function evaluate(string $query, array $groups): WeightedEvaluation
+    {
+        throw new \LogicException('Hybrid evaluator should not use staged evaluation.');
+    }
+
+    public function evaluateHybrid(string $query, array $document): array
+    {
+        return [
+            'status' => 'confident',
+            'module' => 'demo',
+            'operation' => 'demo.read',
+            'reason' => 'selected',
+            'global_candidates' => [
+                ['ref' => 'demo', 'group_id' => 'demo', 'example' => 'Global demo question?', 'semantic_score' => 0.9],
+            ],
+            'operation_candidates' => [
+                ['module' => 'demo', 'operation' => 'demo.read', 'group_id' => 'selected', 'example' => 'Selected natural question?', 'internal_semantic_score' => 0.9],
+                ['module' => 'demo', 'operation' => 'demo.other', 'group_id' => 'alternative', 'example' => 'Alternative natural question?', 'internal_semantic_score' => 0.8],
+            ],
+        ];
     }
 }

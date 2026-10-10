@@ -1224,12 +1224,16 @@ class AgentTurnCoordinator
 
     private function executionTrace(LocalToolRoute $route, array $parameters, array $tools): array
     {
+        $routingReview = $this->routingReviewSnapshot($route);
+
         return [
             'router' => $route->evidenceKind,
             'outcome' => $route->outcome,
             'module' => $route->module,
             'operation' => $route->diagnostics['operation'] ?? null,
             'family' => $route->intentFamily,
+            'service_id' => $route->diagnostics['service_id'] ?? null,
+            'routing_version' => $route->diagnostics['routing_version'] ?? null,
             'answer_model_required' => $route->answerModelRequired,
             'capabilities' => $route->capability !== null ? [$route->capability] : [],
             'parameters' => $parameters,
@@ -1242,6 +1246,7 @@ class AgentTurnCoordinator
                 $route->diagnostics['internal']['candidates'] ?? [],
                 $route->diagnostics['operation'] ?? null,
             ),
+            'routing_review' => $routingReview,
             'jev_scores' => [
                 'global' => $this->selectedSemanticScore(
                     $route->diagnostics['global']['candidates'] ?? [],
@@ -1252,6 +1257,63 @@ class AgentTurnCoordinator
                     $route->diagnostics['operation'] ?? null,
                 ),
             ],
+        ];
+    }
+
+    /** @return array{selected_candidate_id: string|null, candidates: list<array{id: string, question: string, selected: bool, considered_only: bool}>} */
+    private function routingReviewSnapshot(LocalToolRoute $route): array
+    {
+        $selectedOperation = is_string($route->diagnostics['operation'] ?? null)
+            ? $route->diagnostics['operation']
+            : null;
+        $selectedCandidateId = null;
+        $candidates = [];
+        $seen = [];
+
+        foreach ((array) ($route->diagnostics['internal']['candidates'] ?? []) as $candidate) {
+            if (! is_array($candidate)) continue;
+            $operation = trim((string) ($candidate['operation'] ?? $candidate['ref'] ?? ''));
+            $group = trim((string) ($candidate['group_id'] ?? ''));
+            $question = trim((string) ($candidate['example'] ?? ''));
+            if ($operation === '' || $group === '' || $question === '') continue;
+            $id = 'operation:'.$operation.'|group:'.$group;
+            if (isset($seen[$id]) || isset($seen['question:'.$question])) continue;
+            $selected = $route->outcome === 'confident'
+                && $route->catalogAuthorized
+                && $operation === $selectedOperation;
+            if ($selected) $selectedCandidateId = $id;
+            $seen[$id] = $seen['question:'.$question] = true;
+            $candidates[] = [
+                'id' => $id,
+                'question' => $question,
+                'selected' => $selected,
+                'considered_only' => ! $selected,
+            ];
+        }
+
+        foreach ((array) ($route->diagnostics['global']['candidates'] ?? []) as $candidate) {
+            if (count($candidates) >= 3 || ! is_array($candidate)) continue;
+            $module = trim((string) ($candidate['ref'] ?? ''));
+            $group = trim((string) ($candidate['group_id'] ?? ''));
+            $question = trim((string) ($candidate['example'] ?? ''));
+            if ($module === '' || $group === '' || $question === '') continue;
+            if ($route->module !== null && $module === $route->module) continue;
+            $id = 'module:'.$module.'|group:'.$group;
+            if (isset($seen[$id]) || isset($seen['question:'.$question])) continue;
+            $seen[$id] = $seen['question:'.$question] = true;
+            $candidates[] = [
+                'id' => $id,
+                'question' => $question,
+                'selected' => false,
+                'considered_only' => true,
+            ];
+        }
+
+        usort($candidates, static fn (array $left, array $right): int => ($right['selected'] <=> $left['selected']));
+
+        return [
+            'selected_candidate_id' => $selectedCandidateId,
+            'candidates' => array_slice($candidates, 0, 3),
         ];
     }
 

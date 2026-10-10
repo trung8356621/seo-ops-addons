@@ -20,11 +20,16 @@ final class LocalAgentToolRouter
 
     public function route(string $message): LocalToolRoute
     {
+        $document = $this->config->document();
+        $routingVersion = (string) ($document['revision'] ?? '1').':'.hash(
+            'sha256',
+            json_encode($document, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '',
+        );
         if ($this->evaluator instanceof HybridRouteEvaluator) {
-            return $this->routeHybrid($message, $this->evaluator->evaluateHybrid($message, $this->config->document()));
+            return $this->routeHybrid($message, $this->evaluator->evaluateHybrid($message, $document), $routingVersion);
         }
         $global = $this->evaluator->evaluate($message, $this->enabled($this->config->globalGroups()));
-        $diagnostics = ['global' => $this->trace($global), 'attempts' => []];
+        $diagnostics = ['global' => $this->trace($global), 'attempts' => [], 'routing_version' => $routingVersion];
         if ($global->status === 'unavailable') {
             return $this->unresolved('unavailable', $global, $diagnostics);
         }
@@ -57,6 +62,7 @@ final class LocalAgentToolRouter
             $diagnostics['module'] = $module;
             $diagnostics['operation'] = $internal->winner;
             $diagnostics['family'] = $operation['family'];
+            $diagnostics['service_id'] = $operation['service_id'] ?? null;
 
             return $this->fromOperation($module, $internal->winner, $operation, $internal, $diagnostics);
         }
@@ -65,13 +71,14 @@ final class LocalAgentToolRouter
     }
 
     /** @param array<string, mixed> $result */
-    private function routeHybrid(string $message, array $result): LocalToolRoute
+    private function routeHybrid(string $message, array $result, string $routingVersion): LocalToolRoute
     {
         $status = (string) ($result['status'] ?? 'unavailable');
         $diagnostics = [
             'global' => ['candidates' => (array) ($result['global_candidates'] ?? [])],
             'internal' => ['candidates' => (array) ($result['operation_candidates'] ?? [])],
             'decision_reason' => (string) ($result['reason'] ?? ''),
+            'routing_version' => $routingVersion,
         ];
         if ($status !== 'confident') {
             $outcome = in_array($status, ['none', 'ambiguous', 'unsupported', 'unavailable'], true) ? $status : 'unavailable';
@@ -85,6 +92,7 @@ final class LocalAgentToolRouter
         }
         $diagnostics['module'] = $module;
         $diagnostics['operation'] = $operationRef;
+        $diagnostics['service_id'] = $operation['service_id'] ?? null;
         $internal = new WeightedEvaluation('confident', $operationRef, array_map(static fn (array $row): array => [
             'ref' => (string) ($row['operation'] ?? ''),
             'semantic_relevance' => (float) ($row['internal_semantic_score'] ?? 0),

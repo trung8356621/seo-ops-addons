@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, ThumbsDown, ThumbsUp, Trash2, Video } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
 import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -9,7 +9,7 @@ import { ResponseView } from '../response/ResponseBlocks.jsx';
 import { ModelDebugModal } from './ModelDebugModal.jsx';
 import { copyPlainText } from './clipboard.js';
 import { responseToPlainText } from '../response/responseText.js';
-import { flushFeedback, queueFeedback } from './feedbackQueue.js';
+import { flushFeedback, queueRoutingReview, readReviewSelections } from './feedbackQueue.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -204,7 +204,9 @@ export function AgentWidget({
         feedbackUrl: rawEndpoints?.feedbackUrl || '/agent-runtime/feedback',
     };
 
-    const [feedbackRatings, setFeedbackRatings] = useState({});
+    const storedReviewSelections = typeof window === 'undefined' ? {} : readReviewSelections();
+    const [reviewSelections, setReviewSelections] = useState(storedReviewSelections);
+    const [confirmedReviews, setConfirmedReviews] = useState(storedReviewSelections);
 
     useEffect(() => {
         const deliver = () => flushFeedback(endpoints.feedbackUrl, csrf).catch(() => {});
@@ -212,12 +214,6 @@ export function AgentWidget({
         const interval = window.setInterval(deliver, 90000);
         return () => window.clearInterval(interval);
     }, [endpoints.feedbackUrl, csrf]);
-
-    function rateAnswer(runUlid, rating) {
-        if (!runUlid) return;
-        queueFeedback(runUlid, rating);
-        setFeedbackRatings((current) => ({ ...current, [runUlid]: rating }));
-    }
 
     // Initialize initial scope based on hostContext or fallback to global
     const initialScope = hostContext.scope;
@@ -1009,6 +1005,27 @@ export function AgentWidget({
     }
 
     const conversationTurns = groupConversation(messages);
+    const reviewTurn = conversationTurns.at(-1) || null;
+    const reviewVersionIndex = reviewTurn
+        ? Math.min(
+            selectedVersions[reviewTurn.id] ?? Math.max(0, reviewTurn.versions.length - 1),
+            Math.max(0, reviewTurn.versions.length - 1),
+        )
+        : 0;
+    const reviewVersion = reviewTurn?.versions?.[reviewVersionIndex] || null;
+    const reviewRunUlid = reviewVersion?.response?.run_ulid || '';
+    const routingReview = reviewVersion?.response?.execution?.routing_review || null;
+    const reviewCandidates = Array.isArray(routingReview?.candidates)
+        ? routingReview.candidates.filter((candidate) => candidate?.id && candidate?.question)
+        : [];
+    const activeReviewChoice = reviewRunUlid ? (reviewSelections[reviewRunUlid] || '') : '';
+
+    function confirmRoutingReview() {
+        if (!reviewRunUlid || !activeReviewChoice) return;
+        const preferred = activeReviewChoice === '__none__' ? null : activeReviewChoice;
+        queueRoutingReview(reviewRunUlid, preferred);
+        setConfirmedReviews((current) => ({ ...current, [reviewRunUlid]: activeReviewChoice }));
+    }
 
     const shellClass = [
         'agent-shell',
@@ -1368,17 +1385,6 @@ export function AgentWidget({
                                                         className="agent-message-action-btn"
                                                         onClick={() => copyText(responseToPlainText(version.response))}
                                                         title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
-                                                    <button type="button"
-                                                        className={`agent-message-action-btn ${feedbackRatings[version.response?.run_ulid] === true ? 'is-selected' : ''}`}
-                                                        onClick={() => rateAnswer(version.response?.run_ulid, true)}
-                                                        disabled={!version.response?.run_ulid}
-                                                        title="Useful" aria-label="Mark answer useful"><ThumbsUp size={13} /></button>
-                                                    <button type="button"
-                                                        className={`agent-message-action-btn ${feedbackRatings[version.response?.run_ulid] === false ? 'is-selected' : ''}`}
-                                                        onClick={() => rateAnswer(version.response?.run_ulid, false)}
-                                                        disabled={!version.response?.run_ulid}
-                                                        title="Not useful" aria-label="Mark answer not useful"><ThumbsDown size={13} /></button>
-
                                                     {!isViewingArchived && (
                                                         <button
                                                             type="button"
@@ -1445,6 +1451,57 @@ export function AgentWidget({
 
                         {error ? <div className="agent-error-banner">{error}</div> : null}
                     </div>
+
+                    {!isTestMode && !processingStatus && reviewRunUlid && reviewCandidates.length > 0 ? (
+                        <section className="agent-routing-review" aria-label="Đánh giá cách hiểu câu hỏi">
+                            <p className="agent-routing-review__question">
+                                Theo bạn, câu hỏi nào gần với ý bạn muốn hỏi nhất?
+                            </p>
+                            <div className="agent-routing-review__choices">
+                                {reviewCandidates.map((candidate) => (
+                                    <label key={candidate.id} className="agent-routing-review__choice">
+                                        <input
+                                            type="radio"
+                                            name={`routing-review-${reviewRunUlid}`}
+                                            checked={activeReviewChoice === candidate.id}
+                                            onChange={() => setReviewSelections((current) => ({
+                                                ...current,
+                                                [reviewRunUlid]: candidate.id,
+                                            }))}
+                                        />
+                                        <span>
+                                            {candidate.question}
+                                            <small>
+                                                {candidate.selected
+                                                    ? 'Hệ thống đã chọn'
+                                                    : 'Phương án khác đã được cân nhắc'}
+                                            </small>
+                                        </span>
+                                    </label>
+                                ))}
+                                <label className="agent-routing-review__choice">
+                                    <input
+                                        type="radio"
+                                        name={`routing-review-${reviewRunUlid}`}
+                                        checked={activeReviewChoice === '__none__'}
+                                        onChange={() => setReviewSelections((current) => ({
+                                            ...current,
+                                            [reviewRunUlid]: '__none__',
+                                        }))}
+                                    />
+                                    <span>Không câu nào đúng ý tôi</span>
+                                </label>
+                            </div>
+                            <button
+                                type="button"
+                                className="agent-routing-review__confirm"
+                                disabled={!activeReviewChoice}
+                                onClick={confirmRoutingReview}
+                            >
+                                {confirmedReviews[reviewRunUlid] === activeReviewChoice ? 'Đã ghi nhận' : 'Xác nhận'}
+                            </button>
+                        </section>
+                    ) : null}
 
                     {isTestMode ? null : isViewingArchived ? (
                         <div className="agent-archived-banner" role="status">

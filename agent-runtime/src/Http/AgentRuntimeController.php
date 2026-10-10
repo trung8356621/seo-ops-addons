@@ -1314,7 +1314,11 @@ final class AgentRuntimeController
         if ($answerModelCalled) {
             $calls = max(1, $calls);
         }
-        if ($tools === [] && $calls < 1) {
+        $routingReview = is_array($trace) && is_array($trace['routing_review'] ?? null)
+            ? $trace['routing_review']
+            : null;
+        $hasReview = is_array($routingReview) && (array) ($routingReview['candidates'] ?? []) !== [];
+        if ($tools === [] && $calls < 1 && ! $hasReview) {
             return null;
         }
 
@@ -1331,6 +1335,7 @@ final class AgentRuntimeController
             'jev_scores' => is_array($trace) && is_array($trace['jev_scores'] ?? null)
                 ? $trace['jev_scores']
                 : null,
+            'routing_review' => $routingReview,
         ];
     }
 

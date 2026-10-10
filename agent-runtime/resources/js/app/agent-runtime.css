@@ -506,17 +506,79 @@
     border-color: #cbd5e1;
 }
 
-.agent-message-action-btn.is-selected {
-    color: #2563eb;
-    border-color: #93c5fd;
-    background: #eff6ff;
-}
-
 .agent-message-action-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
     background: transparent;
     border-color: transparent;
+}
+
+.agent-routing-review {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0 16px;
+    padding: 12px 14px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px 10px 0 0;
+    background: #f8fbff;
+    box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.agent-routing-review__question {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.agent-routing-review__choices {
+    display: grid;
+    gap: 6px;
+}
+
+.agent-routing-review__choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 12px;
+    color: #334155;
+    cursor: pointer;
+}
+
+.agent-routing-review__choice input {
+    margin-top: 2px;
+}
+
+.agent-routing-review__choice small {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.agent-routing-review__confirm {
+    margin-top: 9px;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.agent-routing-review__confirm:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+@media (max-width: 640px) {
+    .agent-routing-review {
+        margin: 0 8px;
+        max-height: 42vh;
+        overflow-y: auto;
+    }
 }
 
 /* Welcome Screen / Empty State */

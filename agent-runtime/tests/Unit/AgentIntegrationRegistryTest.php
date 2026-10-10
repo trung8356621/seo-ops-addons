@@ -10,6 +10,7 @@ use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Omnichannel\Addons\AgentRuntime\Integration\RoutingReviewChoiceValidator;
 
 final class AgentIntegrationRegistryTest extends TestCase
 {
@@ -61,5 +62,34 @@ final class AgentIntegrationRegistryTest extends TestCase
         $registry = new AgentIntegrationRegistry();
         $registry->register('demo', 'a', 'b');
         $registry->register('demo', 'a', 'b');
+    }
+
+    public function test_routing_review_accepts_selected_alternative_and_none_but_rejects_fabrication(): void
+    {
+        $snapshot = [
+            'selected_candidate_id' => 'candidate-a',
+            'candidates' => [
+                ['id' => 'candidate-a', 'question' => 'Question A'],
+                ['id' => 'candidate-b', 'question' => 'Question B'],
+            ],
+        ];
+        $validator = new RoutingReviewChoiceValidator();
+
+        self::assertSame('candidate-a', $validator->validate($snapshot, 'candidate-a', false)['preferred_candidate_id']);
+        self::assertSame('candidate-b', $validator->validate($snapshot, 'candidate-b', false)['preferred_candidate_id']);
+        self::assertTrue($validator->validate($snapshot, null, true)['none_of_above']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $validator->validate($snapshot, 'fabricated', false);
+    }
+
+    public function test_feedback_ingestion_resolves_only_owned_completed_runs(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 2).'/src/Http/AgentRoutingFeedbackController.php');
+
+        self::assertIsString($source);
+        self::assertStringContainsString("->where('user_id', \$userId)", $source);
+        self::assertStringContainsString("->where('status', 'done')", $source);
+        self::assertStringContainsString('RoutingReviewChoiceValidator', $source);
     }
 }

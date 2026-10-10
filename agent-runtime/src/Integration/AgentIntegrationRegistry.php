@@ -53,6 +53,7 @@ final class AgentIntegrationRegistry
                 if (! is_array($operation)) {
                     throw new RuntimeException("Invalid Agent operation [{$ref}].");
                 }
+                $operation['service_id'] = $service;
                 $capability = $operation['capability'] ?? null;
                 foreach (array_filter(array_merge([$capability], (array) ($operation['secondary'] ?? [])), 'is_string') as $key) {
                     if (! AgentCapabilityCatalog::known($key)) {
