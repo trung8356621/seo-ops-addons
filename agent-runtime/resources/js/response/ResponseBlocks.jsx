@@ -444,7 +444,6 @@ export function ResponseView({ response, onAction, actionsBusy = false, draftInt
 
     return (
         <div className="agent-response">
-            <ToolTrace response={response} debug={debug} />
             {response.message && !hasMessageInBlocks ? (
                 <MarkdownBlock text={response.message} />
             ) : null}
@@ -478,6 +477,7 @@ export function ResponseView({ response, onAction, actionsBusy = false, draftInt
             ) : null}
 
             <ActionsBlock actions={response.actions} onAction={onAction} busy={actionsBusy} />
+            <ToolTrace response={response} debug={debug} />
             <SourcesBlock sources={response.sources} />
         </div>
     );
