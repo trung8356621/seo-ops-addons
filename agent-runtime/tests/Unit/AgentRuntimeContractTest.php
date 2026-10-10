@@ -2256,7 +2256,7 @@ final class AgentRuntimeContractTest extends TestCase
         self::assertSame('paused', $decisionApply['status']);
         self::assertSame('answer', $decisionApply['model_call']['key']);
 
-        // Invalid answer is recovered on the same run without another model call.
+        // Invalid answer rejects with 422 validation_error, keeping the run paused in awaiting_model for correction.
         $rejectedRes = $controller->modelDebugApply(
             $this->createTurnRequest([
                 'run_ulid' => $runUlid,
@@ -2268,16 +2268,30 @@ final class AgentRuntimeContractTest extends TestCase
             $resolver,
         );
 
-        self::assertSame(200, $rejectedRes->getStatusCode());
-        $rejectedData = $rejectedRes->getData(true)['data'];
-        self::assertNotSame('paused', $rejectedData['status'] ?? null);
-        self::assertNotEmpty($rejectedData['message']);
-        self::assertArrayNotHasKey('model_call', $rejectedData);
+        self::assertSame(422, $rejectedRes->getStatusCode());
+        $rejectedData = $rejectedRes->getData(true);
+        self::assertSame('paused', $rejectedData['data']['status'] ?? null);
+        self::assertArrayHasKey('validation_error', $rejectedData);
+        self::assertSame('answer', $rejectedData['data']['model_call']['key']);
 
         $runModel = \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->firstOrFail();
-        self::assertSame('done', $runModel->status);
-        self::assertNotNull($runModel->assistant_message_id);
-        self::assertSame(1, $runModel->thread->messages()->where('role', 'assistant')->count());
+        self::assertSame('awaiting_model', $runModel->status);
+        self::assertNull($runModel->assistant_message_id);
+        self::assertSame(0, $runModel->thread->messages()->where('role', 'assistant')->count());
+
+        // Corrected manual answer applies successfully
+        $validRes = $controller->modelDebugApply(
+            $this->createTurnRequest([
+                'run_ulid' => $runUlid,
+                'manual_result' => '{"message":"Valid answer","blocks":[],"actions":[]}',
+            ]),
+            $coordinator,
+            $threads,
+            $persistence,
+            $resolver,
+        );
+        self::assertSame(200, $validRes->getStatusCode());
+        self::assertSame('done', $runModel->fresh()->status);
     }
 
     public function test_debug_manual_decision_parser_rejection_keeps_same_checkpoint_retryable(): void
@@ -2381,15 +2395,22 @@ final class AgentRuntimeContractTest extends TestCase
             'manual_result' => '{"intent":"site","needs":{"site":0.2}}',
         ]), $coordinator, $threads, $persistence, $resolver);
 
-        // Invalid answer recovers and completes. A later manual result is a new run, not a retry of this one.
+        // Invalid answer rejects with 422 validation_error, allowing correction on the same run.
         $rejectedRes = $controller->modelDebugApply($this->createTurnRequest([
             'run_ulid' => $runUlid,
             'manual_result' => '{"invalid":1}',
         ]), $coordinator, $threads, $persistence, $resolver);
-        self::assertSame(200, $rejectedRes->getStatusCode());
-        self::assertNotEmpty($rejectedRes->getData(true)['data']['message']);
-        self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
+        self::assertSame(422, $rejectedRes->getStatusCode());
+        self::assertSame('awaiting_model', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
         self::assertSame(0, $answers->calls);
+
+        // Corrected answer applies successfully
+        $validRes = $controller->modelDebugApply($this->createTurnRequest([
+            'run_ulid' => $runUlid,
+            'manual_result' => '{"message":"Rerun answer","blocks":[],"actions":[]}',
+        ]), $coordinator, $threads, $persistence, $resolver);
+        self::assertSame(200, $validRes->getStatusCode());
+        self::assertSame('done', \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentRun::where('ulid', $runUlid)->value('status'));
     }
 
     public function test_diag_captures_redacted_decision_diagnostics(): void

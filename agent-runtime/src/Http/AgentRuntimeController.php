@@ -116,6 +116,7 @@ final class AgentRuntimeController
                     'turn' => ['scope' => $scope->toArray(), 'message' => (string) $userMessage->content, 'history' => $history],
                 ]);
                 $input = $answerInput->exportText();
+                $chatPrompt = $answerInput->exportForManualChat();
 
                 return new JsonResponse(['data' => [
                     'status' => 'paused',
@@ -125,6 +126,7 @@ final class AgentRuntimeController
                     'model_call' => [
                         'key' => 'answer',
                         'full_prompt' => $input,
+                        'chat_prompt' => $chatPrompt,
                         'prompt_size' => mb_strlen($input),
                         'assumed_model' => $modelResolver->resolveAnswerModel($userId)->toArray(),
                     ],
@@ -663,6 +665,7 @@ final class AgentRuntimeController
                 (array) ($routingData['messages'] ?? []),
             );
             $input = $routingInput->exportText();
+            $chatPrompt = $routingInput->exportForManualChat();
 
             return new JsonResponse([
                 'message' => 'Routing result rejected: '.$e->getMessage(),
@@ -675,25 +678,48 @@ final class AgentRuntimeController
                     'model_call' => [
                         'key' => 'decision',
                         'full_prompt' => $input,
+                        'chat_prompt' => $chatPrompt,
                         'prompt_size' => mb_strlen($input),
                         'assumed_model' => $modelResolver->resolveDecisionModel($userId)->toArray(),
                     ],
                     'error' => $e->getMessage(),
                 ],
             ], 422);
-        } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected) {
-            return $this->completeRecoveredAnswer(
-                $run,
-                $coordinator,
-                $persistence,
-                $threads,
-                $modelResolver,
-                $userId,
-                $turn,
-                $state,
-                $manualResult,
-                false,
+        } catch (\Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected $e) {
+            $persistence->pauseRun($run, 'answer', $state);
+            $thread = $run->thread()->firstOrFail();
+            $bundleData = is_array($state['bundle'] ?? null) ? $state['bundle'] : [];
+            $bundle = RetrievalBundle::fromArray($bundleData);
+            $answerInput = $coordinator->buildAnswerInput(
+                $scope,
+                (string) ($turn['message'] ?? ''),
+                (array) ($turn['history'] ?? []),
+                $bundle,
+                (string) ($state['selected_response_template'] ?? ''),
+                (string) ($state['selected_response_language'] ?? 'en'),
             );
+            $input = $answerInput->exportText();
+            $chatPrompt = $answerInput->exportForManualChat();
+
+            return new JsonResponse([
+                'message' => 'Answer result rejected: '.$e->getMessage(),
+                'validation_error' => $e->getMessage(),
+                'data' => [
+                    'status' => 'paused',
+                    'run_ulid' => $run->ulid,
+                    'thread_ulid' => $thread->ulid,
+                    'user_message_id' => $run->user_message_id,
+                    'model_call' => [
+                        'key' => 'answer',
+                        'full_prompt' => $input,
+                        'chat_prompt' => $chatPrompt,
+                        'prompt_size' => mb_strlen($input),
+                        'assumed_model' => $modelResolver->resolveAnswerModel($userId)->toArray(),
+                        'execution' => $this->pausedExecution($state, 'awaiting'),
+                    ],
+                    'error' => $e->getMessage(),
+                ],
+            ], 422);
         } catch (\Throwable $e) {
             $persistence->failRun($run, 'error', $e->getMessage());
             throw $e;
@@ -1120,6 +1146,7 @@ final class AgentRuntimeController
             $state['turn'] = $turnState;
             $persistence->pauseRun($run, $call->key, $state);
             $input = $call->input->exportText();
+            $chatPrompt = $call->input->exportForManualChat();
             $model = $call->key === 'decision'
                 ? $modelResolver->resolveDecisionModel($userId)
                 : $modelResolver->resolveAnswerModel($userId);
@@ -1132,6 +1159,7 @@ final class AgentRuntimeController
                 'model_call' => [
                     'key' => $call->key,
                     'full_prompt' => $input,
+                    'chat_prompt' => $chatPrompt,
                     'prompt_size' => mb_strlen($input),
                     'assumed_model' => $model->toArray(),
                     'execution' => $this->pausedExecution($state, $call->key === 'answer' ? 'awaiting' : null),
@@ -1250,20 +1278,24 @@ final class AgentRuntimeController
                 if (! is_array($messages) || $messages === []) {
                     return null;
                 }
-                $input = (new PreparedModelInput((string) ($routingData['stage'] ?? 'decision'), $messages))->exportText();
+                $inputObj = new PreparedModelInput((string) ($routingData['stage'] ?? 'decision'), $messages);
+                $input = $inputObj->exportText();
+                $chatPrompt = $inputObj->exportForManualChat();
             } else {
                 if (! $coordinator instanceof AgentTurnCoordinator || ! is_array($state['bundle'] ?? null) || $message === '') {
                     return null;
                 }
                 $scope = AgentProjectScope::fromArray(is_array($turn['scope'] ?? null) ? $turn['scope'] : []);
-                $input = $coordinator->buildAnswerInput(
+                $inputObj = $coordinator->buildAnswerInput(
                     $scope,
                     $message,
                     $history,
                     RetrievalBundle::fromArray($state['bundle']),
                     (string) ($state['selected_response_template'] ?? ''),
                     (string) ($state['selected_response_language'] ?? 'en'),
-                )->exportText();
+                );
+                $input = $inputObj->exportText();
+                $chatPrompt = $inputObj->exportForManualChat();
             }
         } catch (\Throwable) {
             return null;
@@ -1278,6 +1310,7 @@ final class AgentRuntimeController
             'model_call' => [
                 'key' => $callKey,
                 'full_prompt' => $input,
+                'chat_prompt' => $chatPrompt,
                 'prompt_size' => mb_strlen($input),
                 'execution' => $this->pausedExecution($state, 'awaiting'),
             ],

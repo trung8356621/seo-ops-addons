@@ -30,17 +30,30 @@ function AssumedModelHeader({ assumedModel }) {
 }
 
 export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, isApplying, parserError }) {
-    const [copied, setCopied] = useState(false);
+    const [copiedChat, setCopiedChat] = useState(false);
+    const [copiedRaw, setCopiedRaw] = useState(false);
     const [copyError, setCopyError] = useState('');
     if (!isOpen || !modelCall) return null;
 
-    async function copyPrompt() {
-        setCopied(false);
+    async function copyChatPrompt() {
+        setCopiedChat(false);
+        setCopyError('');
+        try {
+            await copyPlainText(modelCall.chat_prompt || modelCall.full_prompt || '');
+            setCopiedChat(true);
+            window.setTimeout(() => setCopiedChat(false), 1500);
+        } catch {
+            setCopyError('Could not copy. Select the prompt and copy it manually.');
+        }
+    }
+
+    async function copyRawPrompt() {
+        setCopiedRaw(false);
         setCopyError('');
         try {
             await copyPlainText(modelCall.full_prompt || '');
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
+            setCopiedRaw(true);
+            window.setTimeout(() => setCopiedRaw(false), 1500);
         } catch {
             setCopyError('Could not copy. Select the prompt and copy it manually.');
         }
@@ -66,10 +79,16 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                     <div className="agent-debug-card__section">
                         <div className="agent-debug-card__section-header">
                             <span className="agent-debug-card__section-title">FULL MODEL INPUT</span>
-                            <button type="button" className="agent-debug-copy-btn" onClick={copyPrompt}>
-                                {copied ? <Check size={14} /> : <Copy size={14} />}
-                                <span>{copied ? 'Copied' : 'Copy full prompt'}</span>
-                            </button>
+                            <div className="agent-debug-card__actions-group" style={{ display: 'flex', gap: '8px' }}>
+                                <button type="button" className="agent-debug-copy-btn agent-debug-copy-btn--primary" onClick={copyChatPrompt} title="Prompt đã tối ưu cho Gemini Chat">
+                                    {copiedChat ? <Check size={14} /> : <Copy size={14} />}
+                                    <span>{copiedChat ? 'Đã sao chép cho Gemini Chat' : 'Copy for Gemini Chat'}</span>
+                                </button>
+                                <button type="button" className="agent-debug-copy-btn" onClick={copyRawPrompt} title="Dữ liệu thô gửi đến model API">
+                                    {copiedRaw ? <Check size={14} /> : <Copy size={14} />}
+                                    <span>{copiedRaw ? 'Đã chép raw' : 'Copy raw input'}</span>
+                                </button>
+                            </div>
                         </div>
                         {copyError ? <p className="agent-debug-copy-error" role="alert">{copyError}</p> : null}
                         <textarea className="agent-debug-card__prompt-view" readOnly value={modelCall.full_prompt || ''} rows={10} />
@@ -77,9 +96,9 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                     <div className="agent-debug-card__section">
                         <div className="agent-debug-card__section-header">
                             <span className="agent-debug-card__section-title">MANUAL RESULT</span>
-                            <small className="agent-debug-card__hint">Paste the raw model completion</small>
+                            <small className="agent-debug-card__hint">Dán toàn bộ JSON mà Gemini trả về, không chỉ phần nội dung câu trả lời.</small>
                         </div>
-                        <textarea className="agent-debug-card__result-input" value={manualResult} onChange={(event) => onManualResultChange(event.target.value)} rows={8} disabled={isApplying} />
+                        <textarea className="agent-debug-card__result-input" value={manualResult} onChange={(event) => onManualResultChange(event.target.value)} rows={8} disabled={isApplying} placeholder='{"message": "...", "blocks": [...], "actions": [...]}' />
                     </div>
                     {modelCall.execution ? <ToolTrace response={{ execution: modelCall.execution }} debug /> : null}
                     {parserError ? (
