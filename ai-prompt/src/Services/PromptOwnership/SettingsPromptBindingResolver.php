@@ -19,7 +19,6 @@ final class SettingsPromptBindingResolver
     private const AGENT_SELF_HEAL_TYPES = [
         'agent.routing.decide' => 'routing',
         'agent.response.compose' => 'response',
-        'agent.topic_suggestions.generate' => 'topic_suggestions',
     ];
 
     public function __construct(
@@ -68,6 +67,20 @@ final class SettingsPromptBindingResolver
             throw new PromptHookException(
                 PromptHookErrorCode::HookPromptMismatch,
                 "Settings binding [{$hookKey}] points to prompt #{$promptId} with hook_key [{$promptHook}].",
+            );
+        }
+
+        if (! (bool) ($prompt->is_active ?? true)) {
+            throw new PromptHookException(
+                PromptHookErrorCode::HookPromptNotConfigured,
+                "Capability có Prompt bị vô hiệu hóa (is_active = false): {$hookKey} (prompt #{$promptId})",
+            );
+        }
+
+        if (trim((string) ($prompt->markdown_content ?? '')) === '') {
+            throw new PromptHookException(
+                PromptHookErrorCode::HookPromptNotConfigured,
+                "Capability có Prompt rỗng (empty markdown_content): {$hookKey} (prompt #{$promptId})",
             );
         }
 

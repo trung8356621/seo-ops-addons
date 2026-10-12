@@ -342,6 +342,88 @@ MARKDOWN;
         self::assertSame($versionsBeforeCurrentResolve, PromptVersion::query()->where('prompt_id', $prompt->id)->count());
     }
 
+    public function test_forward_migration_provisions_topic_suggestions_prompt_and_binding(): void
+    {
+        $migration = require dirname((new ReflectionClass(DefaultAgentRuntimePromptInstaller::class))->getFileName(), 4)
+            .'/database/migrations/2026_10_12_100000_install_default_topic_suggestions_prompt_binding.php';
+        $migration->up();
+
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->firstOrFail();
+        self::assertSame('SEO Keywords / Topic Suggestions', $prompt->name);
+        self::assertSame('0.1.0', $prompt->hook_version);
+        self::assertTrue((bool) $prompt->is_active);
+        self::assertSame((int) $prompt->id, app(SeoCreateArticleSettingsService::class)->getBoundPromptId('agent.topic_suggestions.generate'));
+
+        // Idempotent: repeated migration does not create duplicate
+        $migration->up();
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->count());
+    }
+
+    public function test_topic_suggestions_does_not_self_heal_when_binding_is_missing(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('topic_suggestions');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->firstOrFail();
+
+        // Intentionally clear binding
+        app(SeoCreateArticleSettingsService::class)->savePromptHookBindings([
+            'agent.topic_suggestions.generate' => null,
+        ]);
+
+        $this->expectException(PromptHookException::class);
+        $this->expectExceptionMessage('Capability chưa được cấu hình Prompt: agent.topic_suggestions.generate');
+        $this->resolver()->resolve('agent.topic_suggestions.generate');
+    }
+
+    public function test_topic_suggestions_fails_closed_when_prompt_is_inactive(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('topic_suggestions');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->firstOrFail();
+
+        $prompt->is_active = false;
+        $prompt->save();
+
+        $this->expectException(PromptHookException::class);
+        $this->expectExceptionMessage('is_active = false');
+        $this->resolver()->resolve('agent.topic_suggestions.generate');
+    }
+
+    public function test_topic_suggestions_fails_closed_when_prompt_markdown_is_empty(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('topic_suggestions');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->firstOrFail();
+
+        $prompt->markdown_content = '   ';
+        $prompt->save();
+
+        $this->expectException(PromptHookException::class);
+        $this->expectExceptionMessage('empty markdown_content');
+        $this->resolver()->resolve('agent.topic_suggestions.generate');
+    }
+
+    public function test_topic_suggestions_installer_recognizes_renamed_prompt_by_hook_key(): void
+    {
+        $installer = app(DefaultAgentRuntimePromptInstaller::class);
+        $installer->installType('topic_suggestions');
+        $prompt = SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->firstOrFail();
+        $promptId = (int) $prompt->id;
+
+        // Admin renames the prompt
+        $prompt->name = 'Custom Admin Renamed Topic Suggestions';
+        $prompt->save();
+
+        // Re-run installer: must find by hook_key and preserve the admin's custom name without duplicate
+        $result = $installer->installType('topic_suggestions');
+        self::assertFalse($result['created']);
+        self::assertSame(1, SeoPrompt::query()->where('hook_key', 'agent.topic_suggestions.generate')->count());
+
+        $prompt->refresh();
+        self::assertSame($promptId, (int) $prompt->id);
+        self::assertSame('Custom Admin Renamed Topic Suggestions', $prompt->name);
+    }
+
     private function resolver(): SettingsPromptBindingResolver
     {
         $loader = new PromptHookDefinitionLoader(
@@ -361,7 +443,7 @@ MARKDOWN;
         $expected = [
             'agent.routing.decide' => ['name' => 'Agent Routing / JEV', 'version' => '0.2.0'],
             'agent.response.compose' => ['name' => 'Agent Response Composer', 'version' => '0.2.0'],
-            'agent.topic_suggestions.generate' => ['name' => 'Agent Topic Content Suggestions', 'version' => '0.1.0'],
+            'agent.topic_suggestions.generate' => ['name' => 'SEO Keywords / Topic Suggestions', 'version' => '0.1.0'],
         ];
 
         foreach ($expected as $hook => $meta) {
