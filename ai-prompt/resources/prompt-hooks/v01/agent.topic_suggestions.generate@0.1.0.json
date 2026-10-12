@@ -1,0 +1,57 @@
+{
+  "spec_version": "0.1",
+  "key": "agent.topic_suggestions.generate",
+  "version": "0.1.0",
+  "name": "Agent Topic Content Suggestions",
+  "description": "System instruction for generating new article ideas from verified Topic evidence in the Agent Runtime composite improvement flow.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "agent",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": {}
+  },
+  "locale": {
+    "mode": "caller",
+    "fallback": "en"
+  },
+  "input_schema": {},
+  "output_schema": {
+    "type": "json",
+    "normalize": [
+      "trim",
+      "strip_markdown_fence"
+    ],
+    "validation": {
+      "not_empty": true,
+      "json_object": true
+    }
+  },
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You are the SEO content ideation stage. Return exactly one valid JSON object matching the suggestions schema and nothing else.\nDo not return prose, Markdown code fences, HTML, or conversational text. Return only the raw JSON object.\n\nRequired schema:\n{\n  \"suggestions\": [\n    {\n      \"topic_ref\": \"topic:123\",\n      \"title\": \"Suggested article title\",\n      \"keyword\": \"target focus keyword\",\n      \"intent\": \"informational|commercial|transactional|navigational\",\n      \"reason\": \"Brief explanation grounded in content coverage gap\"\n    }\n  ]\n}\n\nRules:\n- Output at most max_suggestions suggestions (maximum 5).\n- Every topic_ref MUST exactly match an evidenced topic_ref from the supplied topics input. Never invent topic IDs or references.\n- Titles and keywords are proposed content ideas, not existing database records or published articles.\n- Do not include SEO Audit scores, audit analysis, article tables, or URLs.\n- Focus on weak or undercovered topics from the supplied evidence to address content gaps.\n- Write all suggested titles and reasons in the requested language."
+  },
+  "presentation": {
+    "description": "System instruction for Topic-based article ideation; Agent Runtime supplies compact Topic evidence separately.",
+    "variables": [],
+    "notes": [
+      "Agent Runtime validates topic_ref attribution against retrieved evidence and composes final presentation."
+    ]
+  },
+  "retry": {
+    "max": 0
+  },
+  "logging": {
+    "store_full_prompt": false,
+    "redact_sensitive": true
+  },
+  "side_effects": [],
+  "strict_template_variables": false
+}

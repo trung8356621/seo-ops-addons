@@ -44,7 +44,7 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_fresh_install_provisions_exactly_two_owned_prompts_and_is_idempotent(): void
+    public function test_fresh_install_provisions_owned_prompts_and_is_idempotent(): void
     {
         $installer = app(DefaultAgentRuntimePromptInstaller::class);
 
@@ -52,15 +52,17 @@ final class AgentRuntimePromptReconciliationTest extends TestCase
         $versionsAfterFirstInstall = PromptVersion::query()->count();
         $second = $installer->install();
 
-        self::assertSame(['routing', 'response'], array_keys($first));
+        self::assertSame(['routing', 'response', 'topic_suggestions'], array_keys($first));
         self::assertTrue($first['routing']['created']);
         self::assertTrue($first['response']['created']);
+        self::assertTrue($first['topic_suggestions']['created']);
         self::assertFalse($second['routing']['created']);
         self::assertFalse($second['response']['created']);
+        self::assertFalse($second['topic_suggestions']['created']);
         $this->assertFinalInventory();
-        self::assertSame(2, SeoPrompt::query()->count());
+        self::assertSame(3, SeoPrompt::query()->count());
         self::assertSame($versionsAfterFirstInstall, PromptVersion::query()->count());
-        self::assertSame(2, $versionsAfterFirstInstall);
+        self::assertSame(3, $versionsAfterFirstInstall);
     }
 
     public function test_forward_migration_reconciles_jev_only_upgrade_without_duplicates(): void
@@ -357,17 +359,20 @@ MARKDOWN;
     private function assertFinalInventory(): void
     {
         $expected = [
-            'agent.routing.decide' => 'Agent Routing / JEV',
-            'agent.response.compose' => 'Agent Response Composer',
+            'agent.routing.decide' => ['name' => 'Agent Routing / JEV', 'version' => '0.2.0'],
+            'agent.response.compose' => ['name' => 'Agent Response Composer', 'version' => '0.2.0'],
+            'agent.topic_suggestions.generate' => ['name' => 'Agent Topic Content Suggestions', 'version' => '0.1.0'],
         ];
 
-        foreach ($expected as $hook => $name) {
+        foreach ($expected as $hook => $meta) {
+            $name = $meta['name'];
+            $version = $meta['version'];
             $prompts = SeoPrompt::query()->where('hook_key', $hook)->where('name', $name)->get();
             self::assertCount(1, $prompts);
             self::assertTrue((bool) $prompts->first()?->is_active);
             self::assertTrue((bool) data_get($prompts->first()?->settings, 'is_system_default'));
             self::assertSame('settings_binding', data_get($prompts->first()?->settings, 'ownership'));
-            self::assertSame('0.2.0', $prompts->first()?->hook_version);
+            self::assertSame($version, $prompts->first()?->hook_version);
             self::assertSame(1, PromptVersion::query()->where('prompt_id', $prompts->first()?->id)->count());
         }
 

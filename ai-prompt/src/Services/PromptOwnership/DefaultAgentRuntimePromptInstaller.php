@@ -16,6 +16,7 @@ final class DefaultAgentRuntimePromptInstaller
     private const TYPES = [
         'routing' => ['hook' => 'agent.routing.decide', 'name' => 'Agent Routing / JEV', 'version' => '0.2.0'],
         'response' => ['hook' => 'agent.response.compose', 'name' => 'Agent Response Composer', 'version' => '0.2.0'],
+        'topic_suggestions' => ['hook' => 'agent.topic_suggestions.generate', 'name' => 'Agent Topic Content Suggestions', 'version' => '0.1.0'],
     ];
 
     public function __construct(private readonly SeoCreateArticleSettingsService $settings) {}

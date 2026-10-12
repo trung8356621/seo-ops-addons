@@ -690,14 +690,20 @@ final class AgentRuntimeController
             $thread = $run->thread()->firstOrFail();
             $bundleData = is_array($state['bundle'] ?? null) ? $state['bundle'] : [];
             $bundle = RetrievalBundle::fromArray($bundleData);
-            $answerInput = $coordinator->buildAnswerInput(
-                $scope,
-                (string) ($turn['message'] ?? ''),
-                (array) ($turn['history'] ?? []),
-                $bundle,
-                (string) ($state['selected_response_template'] ?? ''),
-                (string) ($state['selected_response_language'] ?? 'en'),
-            );
+            $lang = (string) ($state['selected_response_language'] ?? 'en');
+            $isComposite = $coordinator->isImprovementComposite(null, (string) ($turn['message'] ?? ''), $bundle, $state);
+            if ($isComposite) {
+                $answerInput = $coordinator->buildTopicSuggestionsInput($scope, $bundle, $lang);
+            } else {
+                $answerInput = $coordinator->buildAnswerInput(
+                    $scope,
+                    (string) ($turn['message'] ?? ''),
+                    (array) ($turn['history'] ?? []),
+                    $bundle,
+                    (string) ($state['selected_response_template'] ?? ''),
+                    $lang,
+                );
+            }
             $input = $answerInput->exportText();
             $chatPrompt = $answerInput->exportForManualChat();
 

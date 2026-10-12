@@ -19,6 +19,7 @@ final class SettingsPromptBindingResolver
     private const AGENT_SELF_HEAL_TYPES = [
         'agent.routing.decide' => 'routing',
         'agent.response.compose' => 'response',
+        'agent.topic_suggestions.generate' => 'topic_suggestions',
     ];
 
     public function __construct(

@@ -109,6 +109,93 @@ final class AgentModelInputBuilder
         ], $this->redactor);
     }
 
+    public function buildTopicSuggestionsInput(
+        AgentProjectScope $scope,
+        RetrievalBundle $bundle,
+        string $language = 'vi',
+    ): PreparedModelInput {
+        $topics = $this->extractCompactTopics($bundle);
+        $user = json_encode([
+            'language' => $language,
+            'max_suggestions' => 5,
+            'site_context' => array_filter([
+                'site_ref' => $scope->siteRef,
+            ]),
+            'topics' => $topics,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return PreparedModelInput::make('topic_suggestions', [
+            ['role' => 'system', 'content' => $this->systemInstruction('agent.topic_suggestions.generate')],
+            ['role' => 'user', 'content' => is_string($user) ? $user : '{}'],
+        ], $this->redactor);
+    }
+
+    /**
+     * @return list<array{topic_ref: string, name: string, coverage: string, article_count?: int}>
+     */
+    public function extractCompactTopics(RetrievalBundle $bundle): array
+    {
+        $allTopics = [];
+        foreach ($bundle->sources as $source) {
+            $topics = is_array($source->data['topics'] ?? null) ? $source->data['topics'] : [];
+            foreach ($topics as $topic) {
+                if (! is_array($topic)) {
+                    continue;
+                }
+                $ref = trim((string) ($topic['topic_ref'] ?? ''));
+                if ($ref === '' && isset($topic['id'])) {
+                    $ref = 'topic:'.$topic['id'];
+                }
+                $name = trim((string) ($topic['name'] ?? ''));
+                if ($ref === '' || $name === '') {
+                    continue;
+                }
+                $coverage = trim((string) ($topic['coverage'] ?? 'unknown'));
+                $articleCount = isset($topic['article_count']) && is_numeric($topic['article_count']) ? (int) $topic['article_count'] : null;
+
+                $item = [
+                    'topic_ref' => $ref,
+                    'name' => $name,
+                    'coverage' => $coverage,
+                ];
+                if ($articleCount !== null) {
+                    $item['article_count'] = $articleCount;
+                }
+                $allTopics[$ref] = $item;
+            }
+        }
+
+        $sorted = array_values($allTopics);
+        usort($sorted, static function (array $a, array $b): int {
+            $priority = static function (array $t): int {
+                $cov = strtolower($t['coverage'] ?? '');
+                $count = $t['article_count'] ?? 10;
+                if ($cov === 'weak' || $cov === 'none' || $count === 0) {
+                    return 0;
+                }
+                if ($cov === 'medium' || $cov === 'low') {
+                    return 1;
+                }
+
+                return 2;
+            };
+
+            return $priority($a) <=> $priority($b);
+        });
+
+        return array_slice($sorted, 0, 8);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function extractAllowedTopicRefs(RetrievalBundle $bundle): array
+    {
+        $compact = $this->extractCompactTopics($bundle);
+
+        return array_map(static fn (array $t): string => $t['topic_ref'], $compact);
+    }
+
     /**
      * @param  list<array{role: string, content: string}>  $history
      * @return list<array{role: string, content: string}>

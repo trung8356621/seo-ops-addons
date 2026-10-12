@@ -19,6 +19,7 @@ use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
 use Omnichannel\Addons\AgentRuntime\Response\EvidenceNumberIndex;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
+use Omnichannel\Addons\AgentRuntime\Response\TopicSuggestionsResponseParser;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
@@ -128,6 +129,7 @@ class AgentTurnCoordinator
         private readonly ?AgentConfirmedToolExecutor $confirmedTools = null,
         private readonly ?GscContextSource $gscContext = null,
         private readonly ?AgentOperationHandlerRegistry $operationHandlers = null,
+        private readonly TopicSuggestionsResponseParser $topicSuggestionsParser = new TopicSuggestionsResponseParser(),
     ) {}
 
     /**
@@ -176,30 +178,54 @@ class AgentTurnCoordinator
             $trace['external_model'] = $this->assumedAnswerLabel($userId);
         }
 
+        $isComposite = $this->isImprovementComposite(null, $message, $prepared['bundle'], $trace);
+        if ($isComposite && is_array($trace)) {
+            $trace['prompt_hook'] = 'agent.topic_suggestions.generate@0.1.0';
+            $trace['operation'] = 'seo_audit.site_improve_composite';
+        }
+
         try {
             $raw = $this->answers->complete($userId, $prepared['answer']);
-            $recovered = $this->recoverParsedAnswer($raw, $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics);
-            $response = $recovered['response'];
-            $answerDiagnostics = $recovered['diagnostics'];
-            if (is_array($trace) && $recovered['diagnostics'] !== null) {
-                $trace['answer_status'] = 'rejected';
+            if ($isComposite) {
+                $response = $this->composeCompositeImprovementResponse($raw, $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
+                $answerDiagnostics = null;
+            } else {
+                $recovered = $this->recoverParsedAnswer($raw, $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics);
+                $response = $recovered['response'];
+                $answerDiagnostics = $recovered['diagnostics'];
+                if (is_array($trace) && $recovered['diagnostics'] !== null) {
+                    $trace['answer_status'] = 'rejected';
+                }
             }
         } catch (AgentResponseRejected $e) {
-            $response = $this->recoverParsedAnswer('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics)['response'];
+            if ($isComposite) {
+                $response = $this->composeCompositeImprovementResponse('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
+            } else {
+                $response = $this->recoverParsedAnswer('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()), $diagnostics)['response'];
+            }
             $answerDiagnostics = $diagnostics ? $this->answerDiagnostics($raw ?? '', $e) : null;
             if (is_array($trace)) {
                 $trace['answer_status'] = 'rejected';
             }
         } catch (Throwable $e) {
-            $response = $this->safeResponse(
-                'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
-                $prepared['bundle'],
-            );
-            $answerDiagnostics = $diagnostics ? [
-                'status' => 'failed',
-                'failure_code' => 'answer_failed',
-                'error' => $e->getMessage(),
-            ] : null;
+            if ($isComposite) {
+                $response = $this->composeCompositeImprovementResponse('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
+                $answerDiagnostics = $diagnostics ? [
+                    'status' => 'failed',
+                    'failure_code' => 'answer_failed',
+                    'error' => $e->getMessage(),
+                ] : null;
+            } else {
+                $response = $this->safeResponse(
+                    'The answer could not be verified against the retrieved evidence, so measured values were omitted.',
+                    $prepared['bundle'],
+                );
+                $answerDiagnostics = $diagnostics ? [
+                    'status' => 'failed',
+                    'failure_code' => 'answer_failed',
+                    'error' => $e->getMessage(),
+                ] : null;
+            }
         }
 
         if ($diagnostics && $answerDiagnostics !== null) {
@@ -307,10 +333,19 @@ class AgentTurnCoordinator
         $bundle = RetrievalBundle::fromArray($state['bundle']);
         $selectedResponseTemplate = (string) ($state['selected_response_template'] ?? '');
         $selectedResponseLanguage = (string) ($state['selected_response_language'] ?? $this->legacyResponseLanguage());
-        $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
-        $response = $this->responses->parse($rawCompletion, $bundle);
-        if ($this->responses->lastRejections() !== []) {
-            throw new AgentResponseRejected($this->responses->lastRejections()[0]);
+
+        $isComposite = $this->isImprovementComposite(null, $message, $bundle, $state);
+        if ($isComposite) {
+            $answerInput = $this->inputs->buildTopicSuggestionsInput($scope, $bundle, $selectedResponseLanguage);
+            $allowedTopicRefs = $this->inputs->extractAllowedTopicRefs($bundle);
+            $this->topicSuggestionsParser->parse($rawCompletion, $allowedTopicRefs);
+            $response = $this->composeCompositeImprovementResponse($rawCompletion, $bundle, $message, $selectedResponseLanguage);
+        } else {
+            $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
+            $response = $this->responses->parse($rawCompletion, $bundle);
+            if ($this->responses->lastRejections() !== []) {
+                throw new AgentResponseRejected($this->responses->lastRejections()[0]);
+            }
         }
 
         return AgentTurnProgress::completed(new AgentTurnResult(
@@ -361,6 +396,93 @@ class AgentTurnCoordinator
     public function buildAnswerInput(AgentProjectScope $scope, string $message, array $history, RetrievalBundle $bundle, string $selectedResponseTemplate, string $selectedResponseLanguage = 'en'): PreparedModelInput
     {
         return $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $selectedResponseTemplate, $selectedResponseLanguage);
+    }
+
+    public function buildTopicSuggestionsInput(AgentProjectScope $scope, RetrievalBundle $bundle, string $language = 'vi'): PreparedModelInput
+    {
+        return $this->inputs->buildTopicSuggestionsInput($scope, $bundle, $language);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $state
+     */
+    public function isImprovementComposite(
+        ?LocalToolRoute $route = null,
+        ?string $message = null,
+        ?RetrievalBundle $bundle = null,
+        ?array $state = null,
+    ): bool {
+        if ($route !== null && ($route->diagnostics['operation'] ?? null) === 'seo_audit.site_improve_composite') {
+            return true;
+        }
+        if (is_array($state) && (($state['operation'] ?? null) === 'seo_audit.site_improve_composite' || ($state['is_composite_improvement'] ?? false) === true)) {
+            return true;
+        }
+        if ($message !== null && $this->factual->isImprovementAnalysis($message) && ! $this->factual->isExplicitDraftRequest($message)) {
+            if ($bundle instanceof RetrievalBundle) {
+                $hasAudit = false;
+                $hasTopics = false;
+                foreach ($bundle->sources as $source) {
+                    if (($source->name ?? '') === 'topics' || isset($source->data['topics'])) {
+                        $hasTopics = true;
+                    }
+                    if (is_array($source->data['items'] ?? null) && (isset($source->data['items'][0]['seo_score']) || isset($source->data['items'][0]['reason_labels']))) {
+                        $hasAudit = true;
+                    }
+                }
+
+                return $hasAudit && $hasTopics;
+            }
+        }
+
+        return false;
+    }
+
+    public function composeCompositeImprovementResponse(
+        string $rawCompletion,
+        RetrievalBundle $bundle,
+        string $message,
+        string $language,
+    ): AgentResponse {
+        $auditSummary = $this->factual->auditImprovementSummary($bundle, $language);
+        $sectionABlocks = $auditSummary instanceof AgentResponse ? $auditSummary->blocks : [];
+
+        if ($sectionABlocks === []) {
+            $missingAuditNotice = $language === 'vi'
+                ? 'Không có sẵn dữ liệu kiểm toán SEO để hiển thị danh sách bài viết cần cải thiện.'
+                : 'SEO audit data is unavailable to display articles needing improvement.';
+            $sectionABlocks = [
+                ['type' => 'warning', 'text' => $missingAuditNotice],
+            ];
+        }
+
+        $allowedTopicRefs = $this->inputs->extractAllowedTopicRefs($bundle);
+        $sectionBBlocks = [];
+
+        try {
+            $parsedSuggestions = $this->topicSuggestionsParser->parse($rawCompletion, $allowedTopicRefs);
+            $sectionBBlocks = $this->factual->composeTopicSuggestionsBlocks($parsedSuggestions['suggestions'], $bundle, $language);
+        } catch (Throwable $e) {
+            $failNotice = $language === 'vi'
+                ? 'Không thể tạo đề xuất bài viết mới từ mô hình AI ('.$e->getMessage().').'
+                : 'Could not generate new article suggestions from AI model ('.$e->getMessage().').';
+            $sectionBBlocks = [
+                ['type' => 'warning', 'text' => $failNotice],
+            ];
+        }
+
+        $combinedBlocks = array_merge($sectionABlocks, $sectionBBlocks);
+
+        $summaryMessage = $language === 'vi'
+            ? 'Đề xuất cải thiện SEO tổng thể gồm các bài viết cần tối ưu lại và gợi ý nội dung mới theo Topic.'
+            : 'Overall SEO improvement proposal including articles needing optimization and new topic content suggestions.';
+
+        return new AgentResponse(
+            $summaryMessage,
+            $combinedBlocks,
+            [],
+            array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
+        );
     }
 
     /**
@@ -908,6 +1030,14 @@ class AgentTurnCoordinator
         $response = $processed['response'];
         $answer = $processed['answerInput'];
         $language = $processed['decision']?->responseLanguage ?? $extracted['language'];
+
+        $isComposite = $this->isImprovementComposite($route, $message, $bundle);
+        if ($isComposite && $bundle instanceof RetrievalBundle) {
+            $answer = $this->inputs->buildTopicSuggestionsInput($scope, $bundle, $language);
+            $trace['prompt_hook'] = 'agent.topic_suggestions.generate@0.1.0';
+            $trace['operation'] = 'seo_audit.site_improve_composite';
+        }
+
         if ($response === null && $bundle instanceof RetrievalBundle && ! $route->answerModelRequired) {
             $response = $this->factual->compose($bundle, $message, $language);
             if ($response === null && $route->capability === 'keywords.inventory') {
@@ -1453,6 +1583,8 @@ class AgentTurnCoordinator
             'selected_response_template' => (string) ($prepared['responseTemplate'] ?? 'text'),
             'selected_response_language' => (string) ($prepared['responseLanguage'] ?? 'en'),
             'execution' => $trace,
+            'operation' => is_array($trace) ? ($trace['operation'] ?? null) : null,
+            'is_composite_improvement' => is_array($trace) && (($trace['operation'] ?? null) === 'seo_audit.site_improve_composite'),
         ]));
     }
 

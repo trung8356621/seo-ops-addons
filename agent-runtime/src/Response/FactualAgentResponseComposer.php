@@ -596,4 +596,65 @@ final class FactualAgentResponseComposer
             array_map(static fn (RetrievalSource $source): array => $source->toArray(), $bundle->sources),
         );
     }
+
+    /**
+     * @param  list<array{topic_ref: string, title: string, keyword: string, intent: string, reason: string}>  $suggestions
+     * @return list<array<string, mixed>>
+     */
+    public function composeTopicSuggestionsBlocks(array $suggestions, RetrievalBundle $bundle, string $language): array
+    {
+        $topicNames = [];
+        foreach ($bundle->sources as $source) {
+            $topics = is_array($source->data['topics'] ?? null) ? $source->data['topics'] : [];
+            foreach ($topics as $topic) {
+                if (is_array($topic)) {
+                    $ref = trim((string) ($topic['topic_ref'] ?? ''));
+                    if ($ref === '' && isset($topic['id'])) {
+                        $ref = 'topic:'.$topic['id'];
+                    }
+                    $name = trim((string) ($topic['name'] ?? ''));
+                    if ($ref !== '' && $name !== '') {
+                        $topicNames[$ref] = $name;
+                    }
+                }
+            }
+        }
+
+        $headerText = $language === 'vi'
+            ? "### B. Bài viết mới nên bổ sung theo Topic\n*Dưới đây là các gợi ý nội dung mới (AI đề xuất) nhằm lấp khoảng trống bao phủ cho các Topic:*"
+            : "### B. Recommended New Content Based on Topics\n*Below are new content suggestions (AI-proposed) to address coverage gaps for Topics:*";
+
+        $columns = [
+            ['key' => 'n', 'label' => '#'],
+            ['key' => 'title', 'label' => $language === 'vi' ? 'Tiêu đề đề xuất' : 'Suggested Title'],
+            ['key' => 'keyword', 'label' => $language === 'vi' ? 'Từ khóa mục tiêu' : 'Target Keyword'],
+            ['key' => 'topic', 'label' => $language === 'vi' ? 'Chủ đề liên quan' : 'Related Topic'],
+            ['key' => 'intent', 'label' => $language === 'vi' ? 'Ý định tìm kiếm' : 'Search Intent'],
+            ['key' => 'reason', 'label' => $language === 'vi' ? 'Lý do đề xuất' : 'Reason'],
+        ];
+
+        $rows = [];
+        $i = 1;
+        foreach ($suggestions as $suggestion) {
+            $ref = $suggestion['topic_ref'];
+            $topicName = $topicNames[$ref] ?? $ref;
+            $rows[] = [
+                'n' => $i++,
+                'title' => $suggestion['title'],
+                'keyword' => $suggestion['keyword'],
+                'topic' => $topicName,
+                'intent' => $suggestion['intent'],
+                'reason' => $suggestion['reason'],
+            ];
+        }
+
+        return [
+            ['type' => 'markdown', 'text' => $headerText],
+            [
+                'type' => 'table',
+                'columns' => $columns,
+                'rows' => $rows,
+            ],
+        ];
+    }
 }

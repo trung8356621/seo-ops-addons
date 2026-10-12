@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AgentRuntime\Tests\Unit;
 
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
+use Omnichannel\Addons\AgentRuntime\Model\AgentModelInputBuilder;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseParser;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponseRejected;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
+use Omnichannel\Addons\AgentRuntime\Response\TopicSuggestionsResponseParser;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Routing\CatalogToolRouteAuthority;
@@ -17,6 +19,8 @@ use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
 use Omnichannel\Addons\AgentRuntime\Routing\SemanticRoutingConfig;
 use Omnichannel\Addons\AgentRuntime\Routing\WeightedRouteEvaluator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionMethod;
 use Tests\TestCase;
@@ -643,5 +647,252 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertNotEmpty($projected['analysis_task']);
         $tasksText = implode(' ', $projected['analysis_task']);
         self::assertStringContainsString('weak or undercovered Topics', $tasksText);
+    }
+
+    // ==========================================
+    // PROMPT-OWNED TOPIC SUGGESTIONS TESTS
+    // ==========================================
+
+    #[Test]
+    public function prompt_1_build_topic_suggestions_input_excludes_audit_and_compacts_topics(): void
+    {
+        $resolver = new class implements ResolvesSettingsPromptHook {
+            public function resolveSettingsHook(string $hookKey): SeoPrompt
+            {
+                $prompt = new SeoPrompt();
+                $prompt->hook_key = $hookKey;
+                $prompt->markdown_content = "Dedicated prompt for {$hookKey}";
+
+                return $prompt;
+            }
+        };
+
+        $builder = new AgentModelInputBuilder(promptBindings: $resolver);
+
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
+                'total' => 50,
+                'items' => [
+                    ['title' => 'Poor Article 1', 'seo_score' => 12, 'reason_labels' => ['Missing H1']],
+                    ['title' => 'Poor Article 2', 'seo_score' => 15, 'reason_labels' => ['Low word count']],
+                ],
+            ]),
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'summary' => ['topic_count' => 30],
+                'topics' => [
+                    ['topic_ref' => 'topic:101', 'name' => 'Balo Du Lịch', 'coverage' => 'weak', 'article_count' => 0],
+                    ['topic_ref' => 'topic:102', 'name' => 'Túi Xách Vải', 'coverage' => 'medium', 'article_count' => 2],
+                    ['topic_ref' => 'topic:103', 'name' => 'Balo Học Sinh', 'coverage' => 'strong', 'article_count' => 10],
+                ],
+            ]),
+        ]);
+
+        $input = $builder->buildTopicSuggestionsInput(AgentProjectScope::site(4), $bundle, 'vi');
+
+        self::assertSame('topic_suggestions', $input->stage);
+        self::assertStringContainsString('Dedicated prompt for agent.topic_suggestions.generate', $input->messages[0]['content']);
+        // Excludes SEO audit
+        self::assertStringNotContainsString('Poor Article', $input->messages[1]['content']);
+        self::assertStringNotContainsString('seo_score', $input->messages[1]['content']);
+        self::assertStringNotContainsString('Missing H1', $input->messages[1]['content']);
+        // Contains compact topics
+        self::assertStringContainsString('topic:101', $input->messages[1]['content']);
+        self::assertStringContainsString('Balo Du Lịch', $input->messages[1]['content']);
+        self::assertStringContainsString('site:4', $input->messages[1]['content']);
+
+        // Chat prompt export
+        $chat = $input->exportForManualChat();
+        self::assertStringContainsString('suggestions', $chat);
+        self::assertStringContainsString('Balo Du Lịch', $chat);
+    }
+
+    #[Test]
+    public function prompt_2_topic_suggestions_parser_validates_schema_and_topic_ref(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101', 'topic:102'];
+
+        // Valid JSON
+        $validJson = json_encode([
+            'suggestions' => [
+                [
+                    'topic_ref' => 'topic:101',
+                    'title' => 'Top 10 mẫu balo du lịch chống nước 2026',
+                    'keyword' => 'balo du lịch chống nước',
+                    'intent' => 'commercial',
+                    'reason' => 'Bổ sung nội dung cho chủ đề yếu',
+                ],
+            ],
+        ]);
+
+        $parsed = $parser->parse($validJson, $allowedRefs);
+        self::assertCount(1, $parsed['suggestions']);
+        self::assertSame('topic:101', $parsed['suggestions'][0]['topic_ref']);
+        self::assertSame('Top 10 mẫu balo du lịch chống nước 2026', $parsed['suggestions'][0]['title']);
+
+        // Markdown code fence stripped
+        $fenced = "```json\n".$validJson."\n```";
+        $parsedFenced = $parser->parse($fenced, $allowedRefs);
+        self::assertCount(1, $parsedFenced['suggestions']);
+
+        // Reject unknown topic_ref
+        $invalidRefJson = json_encode([
+            'suggestions' => [
+                [
+                    'topic_ref' => 'topic:999',
+                    'title' => 'Invented Title',
+                    'keyword' => 'invented keyword',
+                ],
+            ],
+        ]);
+
+        $this->expectException(AgentResponseRejected::class);
+        $this->expectExceptionMessage('Suggestion topic_ref [topic:999] is not present in topic evidence.');
+        $parser->parse($invalidRefJson, $allowedRefs);
+    }
+
+    #[Test]
+    public function prompt_3_topic_suggestions_parser_rejects_missing_title_or_invalid_json(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101'];
+
+        // Missing title
+        $missingTitle = json_encode([
+            'suggestions' => [
+                [
+                    'topic_ref' => 'topic:101',
+                    'keyword' => 'balo du lich',
+                ],
+            ],
+        ]);
+
+        try {
+            $parser->parse($missingTitle, $allowedRefs);
+            self::fail('Should have rejected missing title');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('missing title', $e->getMessage());
+        }
+
+        // Invalid JSON
+        try {
+            $parser->parse('invalid { json', $allowedRefs);
+            self::fail('Should have rejected invalid json');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('JSON is invalid', $e->getMessage());
+        }
+
+        // Empty suggestions
+        try {
+            $parser->parse('{"suggestions": []}', $allowedRefs);
+            self::fail('Should have rejected empty suggestions');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('suggestions list is empty', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function prompt_4_composite_response_composition_combines_sections_and_preserves_on_failure(): void
+    {
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'seo_audit.worst_articles', [
+                'total' => 20,
+                'items' => [
+                    ['title' => 'Worst Article 1', 'seo_score' => 15, 'reason_labels' => ['Thiếu H1']],
+                ],
+            ]),
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'summary' => ['topic_count' => 10],
+                'topics' => [
+                    ['topic_ref' => 'topic:101', 'name' => 'Balo Du Lịch', 'coverage' => 'weak', 'article_count' => 0],
+                ],
+            ]),
+        ]);
+
+        $resolver = new class implements ResolvesSettingsPromptHook {
+            public function resolveSettingsHook(string $hookKey): SeoPrompt
+            {
+                $prompt = new SeoPrompt();
+                $prompt->hook_key = $hookKey;
+                $prompt->markdown_content = "Prompt content for {$hookKey}";
+
+                return $prompt;
+            }
+        };
+
+        $retrieval = new \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor(
+            new \Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalPlanner(),
+            new \Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessExecutor(
+                new class implements \Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessTransport {
+                    public function request(string $method, string $url, array $query = [], ?string $bearer = null, ?array $jsonBody = null): array
+                    {
+                        return [];
+                    }
+                },
+                new class implements \Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential {
+                    public function bearer(): ?string
+                    {
+                        return 'test_token';
+                    }
+                },
+                new \Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessUrlPolicy(),
+                'https://app.example.test',
+            ),
+        );
+
+        $coordinator = new AgentTurnCoordinator(
+            inputs: new AgentModelInputBuilder(promptBindings: $resolver),
+            decisions: $this->createMock(\Omnichannel\Addons\AgentRuntime\Decision\DecisionModelGateway::class),
+            decisionParser: new \Omnichannel\Addons\AgentRuntime\Decision\RetrievalDecisionParser(),
+            retrieval: $retrieval,
+            answers: $this->createMock(\Omnichannel\Addons\AgentRuntime\Answer\AnswerModelGateway::class),
+            responses: new AgentResponseParser(),
+        );
+
+        $validSuggestions = json_encode([
+            'suggestions' => [
+                [
+                    'topic_ref' => 'topic:101',
+                    'title' => 'Kinh nghiệm chọn balo du lịch 2026',
+                    'keyword' => 'chọn balo du lịch',
+                    'intent' => 'informational',
+                    'reason' => 'Bổ sung nội dung cho topic chưa có bài',
+                ],
+            ],
+        ]);
+
+        // Success: both Section A and Section B present
+        $composed = $coordinator->composeCompositeImprovementResponse($validSuggestions, $bundle, 'Hãy đề xuất cải thiện SEO', 'vi');
+        self::assertCount(4, $composed->blocks); // Section A markdown + table, Section B markdown + table
+        self::assertSame('markdown', $composed->blocks[0]['type']);
+        self::assertSame('table', $composed->blocks[1]['type']);
+        self::assertSame('markdown', $composed->blocks[2]['type']);
+        self::assertSame('table', $composed->blocks[3]['type']);
+        self::assertStringContainsString('Balo Du Lịch', (string) ($composed->blocks[3]['rows'][0]['topic'] ?? ''));
+        self::assertSame('Kinh nghiệm chọn balo du lịch 2026', $composed->blocks[3]['rows'][0]['title']);
+
+        // Failure: invalid model suggestions -> Section A preserved + warning block
+        $composedFailed = $coordinator->composeCompositeImprovementResponse('invalid completion', $bundle, 'Hãy đề xuất cải thiện SEO', 'vi');
+        self::assertCount(3, $composedFailed->blocks); // Section A markdown + table, warning block for Section B
+        self::assertSame('table', $composedFailed->blocks[1]['type']); // Section A table preserved!
+        self::assertSame('warning', $composedFailed->blocks[2]['type']);
+    }
+
+    #[Test]
+    public function prompt_5_missing_prompt_hook_fails_closed(): void
+    {
+        $failingResolver = new class implements ResolvesSettingsPromptHook {
+            public function resolveSettingsHook(string $hookKey): SeoPrompt
+            {
+                throw new \RuntimeException("Prompt hook [{$hookKey}] is not configured.");
+            }
+        };
+
+        $builder = new AgentModelInputBuilder(promptBindings: $failingResolver);
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), []);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Prompt hook [agent.topic_suggestions.generate] is not configured.');
+        $builder->buildTopicSuggestionsInput(AgentProjectScope::site(4), $bundle, 'vi');
     }
 }
