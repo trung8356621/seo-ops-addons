@@ -649,7 +649,7 @@ final class FactualAgentResponseComposer
                 'keyword' => $keyword,
                 'topic_ref' => $ref,
                 'inferred' => true,
-                'reasons' => [$topicName !== '' ? "Topic: {$topicName}" : "Topic ref: {$ref}"],
+                'reasons' => [],
                 'source' => [
                     'type' => 'agent',
                     'ref' => $ref,

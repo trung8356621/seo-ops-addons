@@ -186,15 +186,20 @@ function ArticleCell({ row, outcome, issueOpen, onToggleIssue }) {
     const title = String(row.title ?? '');
     const ref = articleRef(row);
     const reasons = rowReasons(row);
+    const isNew = row?.item?.type === 'new' || row?.type === 'new';
     const rowId = row.item?.id || ref || String(row.n ?? title);
     return (
         <div className="agent-article-cell" data-issue-root="">
             {title ? <div className="agent-article-cell__title" title={title}>{title}</div> : null}
-            {ref || reasons.length ? (
+            {isNew || ref || reasons.length ? (
                 <div className="agent-article-cell__meta">
+                    {isNew ? <span className="agent-article-cell__ai-label">AI đề xuất</span> : null}
+                    {isNew && ref ? <span aria-hidden="true">·</span> : null}
                     {ref ? <span className="agent-article-cell__ref">{ref}</span> : null}
-                    {ref && reasons.length ? <span aria-hidden="true">·</span> : null}
-                    <IssueDisclosure rowId={rowId} reasons={reasons} open={issueOpen} onToggle={onToggleIssue} />
+                    {(ref || isNew) && reasons.length ? <span aria-hidden="true">·</span> : null}
+                    {reasons.length ? (
+                        <IssueDisclosure rowId={rowId} reasons={reasons} open={issueOpen} onToggle={onToggleIssue} />
+                    ) : null}
                 </div>
             ) : null}
             {issueOpen && reasons.length ? (

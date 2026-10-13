@@ -21,6 +21,9 @@ export function columnKind(key) {
 }
 
 export function rowReasons(row) {
+    if (row?.item?.type === 'new') {
+        return [];
+    }
     const raw = row?.item?.reasons;
     if (!Array.isArray(raw)) {
         return [];

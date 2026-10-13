@@ -49,6 +49,78 @@ async function postJson(url, csrf, body) {
     return payload;
 }
 
+function formatElapsed(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+export function AgentProcessingCard({ status, isRerun = false, locale = 'vi' }) {
+    const [seconds, setSeconds] = useState(0);
+    const isManualWait = typeof status === 'string' && status.startsWith('Waiting for manual');
+
+    useEffect(() => {
+        setSeconds(0);
+        if (isManualWait) return undefined;
+        const interval = setInterval(() => {
+            setSeconds((prev) => prev + 1);
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [status, isManualWait]);
+
+    const titleText = isManualWait
+        ? (locale === 'vi' ? 'Đang chờ can thiệp thủ công (Debug)' : 'Waiting for manual input (Debug)')
+        : (locale === 'vi' ? 'AI Agent đang xử lý' : 'AI Agent processing');
+
+    const subText = isManualWait
+        ? status
+        : (locale === 'vi' ? 'Đang chờ kết quả xử lý…' : 'Waiting for response…');
+
+    return (
+        <article
+            className="agent-message is-assistant agent-processing-status"
+            {...(isRerun ? { 'data-rerun-placeholder': 'true' } : {})}
+            role="status"
+        >
+            <div className="agent-status-indicator agent-processing-card">
+                <div className="agent-processing-card__header">
+                    <div className="agent-processing-card__indicator">
+                        <Loader2 size={16} className={`agent-spinner ${isManualWait ? 'is-paused' : ''}`} />
+                    </div>
+                    <div className="agent-processing-card__title-group">
+                        <span className="agent-processing-card__title">{titleText}</span>
+                        <span className="agent-processing-card__status">{subText}</span>
+                    </div>
+                    {!isManualWait ? (
+                        <div className="agent-processing-card__timer" aria-label="Thời gian chờ">
+                            <span>{locale === 'vi' ? 'Đã chờ:' : 'Elapsed:'}</span>
+                            <code>{formatElapsed(seconds)}</code>
+                        </div>
+                    ) : null}
+                </div>
+
+                {!isManualWait ? (
+                    <div className="agent-processing-card__footer">
+                        <div className="agent-processing-card__badges">
+                            <span className="agent-processing-card__badge">SEO Audit</span>
+                            <span className="agent-processing-card__badge-sep">·</span>
+                            <span className="agent-processing-card__badge">Topics</span>
+                            <span className="agent-processing-card__badge-sep">·</span>
+                            <span className="agent-processing-card__badge">AI Suggestions</span>
+                        </div>
+                        {seconds >= 15 ? (
+                            <div className="agent-processing-card__extended-notice">
+                                <span>{locale === 'vi' ? 'Hệ thống đang tổng hợp dữ liệu chuyên sâu…' : 'Synthesizing comprehensive analysis…'}</span>
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
+                <span className="sr-only">{typeof status === 'string' ? status : ''}</span>
+            </div>
+        </article>
+    );
+}
+
 function waitingForManualModel(modelCall) {
     const stage = String(modelCall?.key || 'model');
     const label = `${stage.charAt(0).toUpperCase()}${stage.slice(1)}`;
@@ -1498,12 +1570,7 @@ export function AgentWidget({
                                     </article>
 
                                     {rerunning ? (
-                                        <article className="agent-message is-assistant agent-processing-status" data-rerun-placeholder="true" role="status">
-                                            <div className="agent-status-indicator">
-                                                <Loader2 size={16} className="agent-spinner" />
-                                                <span>{rerunNotice || 'Thinking…'}</span>
-                                            </div>
-                                        </article>
+                                        <AgentProcessingCard status={rerunNotice || 'Thinking…'} isRerun={true} locale={locale} />
                                     ) : version ? (
                                         <article className="agent-message is-assistant">
                                             <div className="agent-message__header">
@@ -1622,12 +1689,7 @@ export function AgentWidget({
                         }) : null}
 
                         {!isTestMode && processingStatus ? (
-                            <article className="agent-message is-assistant agent-processing-status" role="status">
-                                <div className="agent-status-indicator">
-                                    <Loader2 size={16} className="agent-spinner" />
-                                    <span>{processingStatus}</span>
-                                </div>
-                            </article>
+                            <AgentProcessingCard status={processingStatus} isRerun={false} locale={locale} role="status" label={processingStatus} />
                         ) : null}
 
                         {error ? <div className="agent-error-banner">{error}</div> : null}
