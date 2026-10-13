@@ -147,6 +147,9 @@ class AgentTurnCoordinator
         ?string $tier = null,
         ?string $runUlid = null,
     ): AgentTurnResult {
+        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
+        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
+
         $prepared = $this->prepare($userId, $scope, $message, $history, $diagnostics);
         $modelDiagnostics = null;
         if ($diagnostics) {
@@ -171,10 +174,7 @@ class AgentTurnCoordinator
                     $trace['routing_policy'] = $routingPolicy->value;
                 }
             }
-            if ($runUlid !== null && trim($runUlid) !== '') {
-                $tracker = new AgentRunExecutionTracker(trim($runUlid), $userId, $tier, $routingPolicy?->value);
-                $tracker->markInternalOnly();
-            }
+            $tracker->markInternalOnly();
 
             return new AgentTurnResult(
                 $prepared['response'],
@@ -190,6 +190,8 @@ class AgentTurnCoordinator
         }
 
         if ($prepared['confirmationProposal'] instanceof AgentToolConfirmationProposal) {
+            $tracker->markPaused();
+
             return new AgentTurnResult(
                 null,
                 $prepared['routing'],
@@ -212,9 +214,6 @@ class AgentTurnCoordinator
                 $trace['routing_policy'] = $routingPolicy->value;
             }
         }
-
-        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
-        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
 
         $isComposite = $this->isImprovementComposite(null, $message, $prepared['bundle'], $trace);
         if ($isComposite && is_array($trace)) {
@@ -289,7 +288,7 @@ class AgentTurnCoordinator
         $attemptedModels = $tracker->getAttemptedModels();
 
         // If mock answer gateway was used in tests without provider attempts, preserve compatibility
-        $effectiveModel = $winningModel ?? (count($attempts) === 0 ? $assumedModel : null);
+        $effectiveModel = $winningModel ?? ($answerError === null && count($attempts) === 0 ? $assumedModel : null);
 
         if (is_array($trace)) {
             $trace['external_model'] = $effectiveModel;
@@ -685,15 +684,15 @@ class AgentTurnCoordinator
         ?string $tier = null,
         ?string $runUlid = null,
     ): AgentTurnResult {
+        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
+        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
+
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         $factual = $this->factual->compose($bundle, $message, $responseLanguage);
         $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate, $responseLanguage, $unresolved);
         if ($factual instanceof AgentResponse) {
-            if ($runUlid !== null && trim($runUlid) !== '') {
-                $tracker = new AgentRunExecutionTracker(trim($runUlid), $userId, $tier, $routingPolicy?->value);
-                $tracker->markInternalOnly();
-            }
+            $tracker->markInternalOnly();
 
             return new AgentTurnResult(
                 $factual,
@@ -714,8 +713,6 @@ class AgentTurnCoordinator
             );
         }
 
-        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
-        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
         $assumedModel = $this->assumedAnswerLabel($userId, $routingPolicy);
 
         $answerOptions = [
@@ -746,7 +743,7 @@ class AgentTurnCoordinator
         $costSummary = $tracker->getCostSummary();
         $attemptedModels = $tracker->getAttemptedModels();
 
-        $effectiveModel = $winningModel ?? (count($attempts) === 0 ? $assumedModel : null);
+        $effectiveModel = $winningModel ?? ($answerError === null && count($attempts) === 0 ? $assumedModel : null);
 
         $confirmedTrace = [
             'router' => 'local',

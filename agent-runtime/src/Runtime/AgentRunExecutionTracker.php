@@ -263,6 +263,7 @@ final class AgentRunExecutionTracker
         return [
             'run_status' => $runStatus,
             'run_ulid' => $this->runUlid,
+            'user_id' => $this->userId,
             'tier' => $this->tier,
             'routing_policy' => $this->routingPolicy,
             'internal_only' => count($this->attempts) === 0 && in_array($runStatus, ['done', 'completed'], true),
@@ -522,6 +523,9 @@ final class AgentRunExecutionTracker
     {
         $cached = Cache::get(self::CACHE_PREFIX . $run->ulid);
         if (is_array($cached) && ! empty($cached)) {
+            if (! isset($cached['user_id']) && $run->user_id !== null) {
+                $cached['user_id'] = (int) $run->user_id;
+            }
             // Update run_status if run already completed in DB
             if (in_array($run->status, ['done', 'failed', 'awaiting_model', 'awaiting_confirmation'], true)) {
                 $cached['run_status'] = $run->status === 'done' ? 'done' : ($run->status === 'failed' ? 'failed' : 'paused');
@@ -532,6 +536,9 @@ final class AgentRunExecutionTracker
         $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
         if (is_array($summary['live_execution'] ?? null)) {
             $data = $summary['live_execution'];
+            if (! isset($data['user_id']) && $run->user_id !== null) {
+                $data['user_id'] = (int) $run->user_id;
+            }
             if (in_array($run->status, ['done', 'failed'], true)) {
                 $data['run_status'] = $run->status;
             }
@@ -558,6 +565,7 @@ final class AgentRunExecutionTracker
         return [
             'run_status' => $run->status === 'done' ? 'done' : ($run->status === 'failed' ? 'failed' : 'processing'),
             'run_ulid' => $run->ulid,
+            'user_id' => (int) ($run->user_id ?? 0),
             'tier' => $summary['tier'] ?? ($execution['tier'] ?? 'free'),
             'routing_policy' => $summary['routing_policy'] ?? ($execution['routing_policy'] ?? 'free_only'),
             'internal_only' => ($execution['internal_only'] ?? null) === true || (count($attempts) === 0 && ($execution['synthesis'] ?? true) === false),

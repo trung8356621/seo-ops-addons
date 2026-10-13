@@ -212,7 +212,7 @@ export function AiExecutionDisclosure({ execution, locale = 'vi' }) {
 
     const isInternalOnly = execution.internal_only === true;
     const isManualDebug = execution.router === 'debug_manual' || execution.debug_manual === true;
-    const successfulModel = execution.successful_model || execution.external_model;
+    const successfulModel = execution.successful_model || null;
     const successfulProvider = execution.successful_provider;
     const attempts = Array.isArray(execution.attempts) ? execution.attempts : [];
     const usage = execution.usage || {};
@@ -262,10 +262,10 @@ export function AiExecutionDisclosure({ execution, locale = 'vi' }) {
                     </div>
                 ) : (
                     <>
-                        {isManualDebug && execution.assumed_model && (
+                        {execution.assumed_model && (!successfulModel || isManualDebug) && (
                             <div className="agent-ai-usage-row">
                                 <span className="agent-ai-usage-label">{locale === 'vi' ? 'Dự kiến:' : 'Assumed:'}</span>
-                                <span className="agent-ai-usage-value font-mono">{execution.assumed_model} (Debug)</span>
+                                <span className="agent-ai-usage-value font-mono">{execution.assumed_model}{isManualDebug ? ' (Debug)' : ''}</span>
                             </div>
                         )}
 

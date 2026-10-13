@@ -328,8 +328,13 @@ final class AgentRuntimeController
         $run = AgentRun::where('ulid', $runUlid)->first();
         if (! $run instanceof AgentRun) {
             $cached = \Illuminate\Support\Facades\Cache::get('agent_run_status:' . $runUlid);
-            if (is_array($cached) && (int) ($cached['user_id'] ?? $userId) === $userId) {
-                return new JsonResponse(['data' => $cached]);
+            if (is_array($cached)) {
+                if (isset($cached['user_id']) && (int) $cached['user_id'] === $userId) {
+                    return new JsonResponse(['data' => $cached]);
+                }
+                if (isset($cached['user_id']) && (int) $cached['user_id'] !== $userId) {
+                    return new JsonResponse(['message' => 'Forbidden.'], 403);
+                }
             }
 
             return new JsonResponse(['message' => 'Run not found.'], 404);

@@ -906,4 +906,131 @@ final class AgentLiveModelExecutionAndCostTransparencyTest extends TestCase
         $res = $controller->confirmRun($req, $run->ulid, $sites, $persistence, $threads, $tools, $coordinator);
         self::assertSame(200, $res->getStatusCode());
     }
+
+    // 21. Security fail-closed: runStatus rejects cached state without valid ownership
+    public function test_run_status_fails_closed_when_cached_user_id_mismatched_or_missing(): void
+    {
+        $controller = new AgentRuntimeController();
+        $sites = new MockSiteDirectory([1]);
+
+        $ulidMissingUser = '01TESTMISSINGUSER0000000000';
+        Cache::put('agent_run_status:' . $ulidMissingUser, [
+            'run_status' => 'processing',
+            'run_ulid' => $ulidMissingUser,
+            'tier' => 'free',
+            'attempts' => [],
+        ], 60);
+
+        $req1 = Request::create("/agent-runtime/runs/{$ulidMissingUser}/status", 'GET');
+        $req1->setUserResolver(fn () => $this->user);
+        $res1 = $controller->runStatus($req1, $ulidMissingUser, $sites);
+        self::assertSame(404, $res1->getStatusCode());
+
+        $ulidOtherUser = '01TESTOTHERUSER00000000000';
+        Cache::put('agent_run_status:' . $ulidOtherUser, [
+            'run_status' => 'processing',
+            'run_ulid' => $ulidOtherUser,
+            'user_id' => 999999, // Another user
+            'tier' => 'free',
+            'attempts' => [],
+        ], 60);
+
+        $req2 = Request::create("/agent-runtime/runs/{$ulidOtherUser}/status", 'GET');
+        $req2->setUserResolver(fn () => $this->user);
+        $res2 = $controller->runStatus($req2, $ulidOtherUser, $sites);
+        self::assertSame(403, $res2->getStatusCode());
+
+        $ulidOwner = '01TESTOWNER000000000000000';
+        Cache::put('agent_run_status:' . $ulidOwner, [
+            'run_status' => 'processing',
+            'run_ulid' => $ulidOwner,
+            'user_id' => (int) $this->user->id,
+            'tier' => 'free',
+            'attempts' => [],
+        ], 60);
+
+        $req3 = Request::create("/agent-runtime/runs/{$ulidOwner}/status", 'GET');
+        $req3->setUserResolver(fn () => $this->user);
+        $res3 = $controller->runStatus($req3, $ulidOwner, $sites);
+        self::assertSame(200, $res3->getStatusCode());
+        $data = json_decode((string) $res3->getContent(), true)['data'];
+        self::assertSame((int) $this->user->id, $data['user_id']);
+        self::assertSame('processing', $data['run_status']);
+    }
+
+    // 22. Live execution status lifecycle during pending provider request
+    public function test_live_execution_status_lifecycle_and_ownership_verification(): void
+    {
+        $runUlid = '01TESTRUNLIFECYCLE00000000';
+        $sites = new MockSiteDirectory([1]);
+        $controller = new AgentRuntimeController();
+
+        // 1. Dispatch starts tracker early: cache primed immediately
+        $tracker = new AgentRunExecutionTracker($runUlid, (int) $this->user->id, 'free', 'free_only');
+        $initialStatus = Cache::get('agent_run_status:' . $runUlid);
+        self::assertIsArray($initialStatus);
+        self::assertSame('processing', $initialStatus['run_status']);
+        self::assertSame((int) $this->user->id, $initialStatus['user_id']);
+        self::assertSame('free', $initialStatus['tier']);
+        self::assertCount(0, $initialStatus['attempts']);
+        self::assertNull($initialStatus['current_attempt']);
+
+        // 2. Poll during preparation returns HTTP 200 with processing status and no attempts yet
+        $req1 = Request::create("/agent-runtime/runs/{$runUlid}/status", 'GET');
+        $req1->setUserResolver(fn () => $this->user);
+        $res1 = $controller->runStatus($req1, $runUlid, $sites);
+        self::assertSame(200, $res1->getStatusCode());
+        $payload1 = $res1->getData(true)['data'];
+        self::assertSame('processing', $payload1['run_status']);
+        self::assertCount(0, $payload1['attempts']);
+
+        // 3. Provider attempt starts: recordAttemptStart updates live cache immediately
+        $attemptNum = $tracker->recordAttemptStart('openrouter', 'conn_free', 'meta-llama/llama-3.3-70b-instruct:free', 'free');
+        self::assertSame(1, $attemptNum);
+
+        // 4. Poll during execution returns HTTP 200 before completion with running attempt
+        $req2 = Request::create("/agent-runtime/runs/{$runUlid}/status", 'GET');
+        $req2->setUserResolver(fn () => $this->user);
+        $res2 = $controller->runStatus($req2, $runUlid, $sites);
+        self::assertSame(200, $res2->getStatusCode());
+        $payload2 = $res2->getData(true)['data'];
+        self::assertCount(1, $payload2['attempts']);
+        self::assertSame('running', $payload2['attempts'][0]['status']);
+        self::assertSame('meta-llama/llama-3.3-70b-instruct:free', $payload2['attempts'][0]['model']);
+        self::assertSame('openrouter', $payload2['attempts'][0]['provider']);
+        self::assertSame('free', $payload2['attempts'][0]['cost_class']);
+        self::assertNotNull($payload2['current_attempt']);
+        self::assertSame('meta-llama/llama-3.3-70b-instruct:free', $payload2['current_attempt']['model']);
+
+        // 5. Wrong user cannot read live running status (fails closed with 403)
+        $reqWrong = Request::create("/agent-runtime/runs/{$runUlid}/status", 'GET');
+        $reqWrong->setUserResolver(fn () => $this->otherUser);
+        $resWrong = $controller->runStatus($reqWrong, $runUlid, $sites);
+        self::assertSame(403, $resWrong->getStatusCode());
+
+        // 6. Provider attempt succeeds: marks completed with recorded attempt
+        $routed = $this->makeCandidate('meta-llama/llama-3.3-70b-instruct:free', true);
+        $tracker->recordAttemptSuccess($attemptNum, $routed, [
+            'prompt_tokens' => 150,
+            'completion_tokens' => 80,
+            'total_tokens' => 230,
+            'total_cost' => 0.0,
+        ]);
+        $tracker->markCompleted();
+
+        // 7. Poll after completion shows successful model and confirmed zero cost for free
+        $req3 = Request::create("/agent-runtime/runs/{$runUlid}/status", 'GET');
+        $req3->setUserResolver(fn () => $this->user);
+        $res3 = $controller->runStatus($req3, $runUlid, $sites);
+        self::assertSame(200, $res3->getStatusCode());
+        $payload3 = $res3->getData(true)['data'];
+        self::assertSame('done', $payload3['run_status']);
+        self::assertSame('meta-llama/llama-3.3-70b-instruct:free', $payload3['successful_model']);
+        self::assertSame('openrouter', $payload3['successful_provider']);
+        self::assertSame('free', $payload3['successful_cost_class']);
+        self::assertSame(230, $payload3['usage']['total_tokens']);
+        self::assertEquals(0.0, $payload3['usage']['recorded_cost']);
+        self::assertSame('confirmed', $payload3['usage']['state']);
+    }
 }
+
