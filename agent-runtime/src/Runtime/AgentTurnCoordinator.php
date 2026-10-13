@@ -32,6 +32,7 @@ use Omnichannel\Addons\AgentRuntime\Routing\DeterministicToolParameters;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 use Throwable;
 
 final class AgentTurnResult
@@ -135,8 +136,15 @@ class AgentTurnCoordinator
     /**
      * @param  list<array{role: string, content: string}>  $history
      */
-    public function send(int $userId, AgentProjectScope $scope, string $message, array $history, bool $diagnostics = false): AgentTurnResult
-    {
+    public function send(
+        int $userId,
+        AgentProjectScope $scope,
+        string $message,
+        array $history,
+        bool $diagnostics = false,
+        ?AiRoutingPolicy $routingPolicy = null,
+        ?string $tier = null,
+    ): AgentTurnResult {
         $prepared = $this->prepare($userId, $scope, $message, $history, $diagnostics);
         $modelDiagnostics = null;
         if ($diagnostics) {
@@ -175,7 +183,13 @@ class AgentTurnCoordinator
         if (is_array($trace)) {
             $trace['synthesis'] = true;
             $trace['external_model_calls'] = 1;
-            $trace['external_model'] = $this->assumedAnswerLabel($userId);
+            $trace['external_model'] = $this->assumedAnswerLabel($userId, $routingPolicy);
+            if ($tier !== null) {
+                $trace['tier'] = $tier;
+            }
+            if ($routingPolicy !== null) {
+                $trace['routing_policy'] = $routingPolicy->value;
+            }
         }
 
         $isComposite = $this->isImprovementComposite(null, $message, $prepared['bundle'], $trace);
@@ -184,8 +198,16 @@ class AgentTurnCoordinator
             $trace['operation'] = 'seo_audit.site_improve_composite';
         }
 
+        $answerOptions = [];
+        if ($routingPolicy !== null) {
+            $answerOptions['routing_policy'] = $routingPolicy;
+        }
+        if ($tier !== null) {
+            $answerOptions['tier'] = $tier;
+        }
+
         try {
-            $raw = $this->answers->complete($userId, $prepared['answer']);
+            $raw = $this->answers->complete($userId, $prepared['answer'], $answerOptions);
             if ($isComposite) {
                 $response = $this->composeCompositeImprovementResponse($raw, $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
                 $answerDiagnostics = null;
@@ -605,6 +627,8 @@ class AgentTurnCoordinator
         RetrievalBundle $bundle,
         string $responseTemplate,
         string $responseLanguage,
+        ?AiRoutingPolicy $routingPolicy = null,
+        ?string $tier = null,
     ): AgentTurnResult {
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         $factual = $this->factual->compose($bundle, $message, $responseLanguage);
@@ -623,15 +647,40 @@ class AgentTurnCoordinator
                     'external_model' => null,
                     'external_model_calls' => 0,
                     'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+                    'tier' => $tier,
+                    'routing_policy' => $routingPolicy?->value,
                 ],
             );
         }
 
+        $answerOptions = [];
+        if ($routingPolicy !== null) {
+            $answerOptions['routing_policy'] = $routingPolicy;
+        }
+        if ($tier !== null) {
+            $answerOptions['tier'] = $tier;
+        }
+
         try {
-            $raw = $this->answers->complete($userId, $answerInput);
+            $raw = $this->answers->complete($userId, $answerInput, $answerOptions);
             $response = $this->recoverParsedAnswer($raw, $bundle, $message, $responseLanguage, false)['response'];
         } catch (Throwable) {
             $response = $this->verifiedFallback($bundle, $message, $responseLanguage);
+        }
+
+        $confirmedTrace = [
+            'router' => 'local',
+            'synthesis' => true,
+            'external_model' => $this->assumedAnswerLabel($userId, $routingPolicy),
+            'external_model_calls' => 1,
+            'unresolved' => $unresolved,
+            'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+        ];
+        if ($tier !== null) {
+            $confirmedTrace['tier'] = $tier;
+        }
+        if ($routingPolicy !== null) {
+            $confirmedTrace['routing_policy'] = $routingPolicy->value;
         }
 
         return new AgentTurnResult(
@@ -640,14 +689,7 @@ class AgentTurnCoordinator
             $answerInput,
             true,
             $this->failureCodeFromBundle($bundle),
-            executionTrace: [
-                'router' => 'local',
-                'synthesis' => true,
-                'external_model' => $this->assumedAnswerLabel($userId),
-                'external_model_calls' => 1,
-                'unresolved' => $unresolved,
-                'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
-            ],
+            executionTrace: $confirmedTrace,
         );
     }
 
@@ -1588,7 +1630,7 @@ class AgentTurnCoordinator
         ]));
     }
 
-    private function assumedAnswerLabel(int $userId): ?string
+    private function assumedAnswerLabel(int $userId, ?AiRoutingPolicy $routingPolicy = null): ?string
     {
         if ($userId <= 0 || ! function_exists('app') || ! app()->bound(AssumedModelResolver::class)) {
             return null;
@@ -1597,7 +1639,7 @@ class AgentTurnCoordinator
         if (! $resolver instanceof AssumedModelResolver) {
             return null;
         }
-        $model = $resolver->resolveAnswerModel($userId);
+        $model = $resolver->resolveAnswerModel($userId, $routingPolicy);
 
         return $model->model ?? $model->displayName;
     }

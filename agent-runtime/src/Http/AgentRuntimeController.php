@@ -34,6 +34,7 @@ use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ServiceApi\ServiceApiDraftIntakeService;
 use Omnichannel\Addons\Seo\Services\GscContext\GscContextSource;
 use Omnichannel\Addons\AgentRuntime\Welcome\AgentWelcomeQuestions;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 
 final class AgentRuntimeController
 {
@@ -132,6 +133,13 @@ final class AgentRuntimeController
                     ],
                 ]]);
             }
+            $tier = is_string($summary['tier'] ?? null) ? $summary['tier'] : null;
+            $routingPolicy = $tier !== null ? match ($tier) {
+                'free' => AiRoutingPolicy::FreeOnly,
+                'pro' => AiRoutingPolicy::QuickFree,
+                'master' => AiRoutingPolicy::Normal,
+                default => null,
+            } : null;
             $result = $coordinator->answerConfirmed(
                 $userId,
                 $scope,
@@ -140,6 +148,8 @@ final class AgentRuntimeController
                 $bundle,
                 $proposal->responseTemplate,
                 $proposal->responseLanguage,
+                $routingPolicy,
+                $tier,
             );
             $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
             if ($result->failureCode !== null) {
@@ -246,6 +256,13 @@ final class AgentRuntimeController
             );
             $userMessage = $run->userMessage()->firstOrFail();
             $history = $this->historyBefore((int) $thread->id, (int) $userMessage->position);
+            $tier = is_string($summary['tier'] ?? null) ? $summary['tier'] : null;
+            $routingPolicy = $tier !== null ? match ($tier) {
+                'free' => AiRoutingPolicy::FreeOnly,
+                'pro' => AiRoutingPolicy::QuickFree,
+                'master' => AiRoutingPolicy::Normal,
+                default => null,
+            } : null;
             $result = $coordinator->answerConfirmed(
                 $userId,
                 $scope,
@@ -254,6 +271,8 @@ final class AgentRuntimeController
                 $bundle,
                 $proposal->responseTemplate,
                 $proposal->responseLanguage,
+                $routingPolicy,
+                $tier,
             );
             $notice = 'Bạn đã từ chối dữ liệu GSC theo kỳ yêu cầu. Agent sử dụng dữ liệu đã đồng bộ gần nhất: '
                 .$this->formatPeriod($latestPeriod).'.';
@@ -451,6 +470,22 @@ final class AgentRuntimeController
             return new JsonResponse(['message' => 'Message is required.'], 422);
         }
 
+        $tierRaw = $payload['tier'] ?? null;
+        $routingPolicy = null;
+        $tier = null;
+        if ($tierRaw !== null) {
+            $tier = strtolower(trim((string) $tierRaw));
+            $routingPolicy = match ($tier) {
+                'free' => AiRoutingPolicy::FreeOnly,
+                'pro' => AiRoutingPolicy::QuickFree,
+                'master' => AiRoutingPolicy::Normal,
+                default => null,
+            };
+            if ($routingPolicy === null) {
+                return new JsonResponse(['message' => 'Invalid tier.'], 422);
+            }
+        }
+
         try {
             $scope = AgentProjectScope::fromArray($scopeRaw);
         } catch (InvalidArgumentException $e) {
@@ -523,6 +558,8 @@ final class AgentRuntimeController
             $history,
             $debugMode,
             ($payload['diagnostics'] ?? false) === true,
+            $routingPolicy,
+            $tier,
         );
     }
 
@@ -985,6 +1022,27 @@ final class AgentRuntimeController
             $userId,
         );
 
+        $tierRaw = $request->input('tier');
+        if ($tierRaw === null) {
+            $prevRun = AgentRun::where('user_message_id', $userMessage->id)->latest('id')->first();
+            $prevSummary = is_array($prevRun?->retrieval_summary) ? $prevRun->retrieval_summary : [];
+            $tierRaw = $prevSummary['tier'] ?? null;
+        }
+        $routingPolicy = null;
+        $tier = null;
+        if ($tierRaw !== null) {
+            $tier = strtolower(trim((string) $tierRaw));
+            $routingPolicy = match ($tier) {
+                'free' => AiRoutingPolicy::FreeOnly,
+                'pro' => AiRoutingPolicy::QuickFree,
+                'master' => AiRoutingPolicy::Normal,
+                default => null,
+            };
+            if ($routingPolicy === null) {
+                return new JsonResponse(['message' => 'Invalid tier.'], 422);
+            }
+        }
+
         return $this->executeRun(
             $coordinator,
             $run,
@@ -998,6 +1056,8 @@ final class AgentRuntimeController
             $history,
             ($request->input('debug_mode', false)) === true,
             ($request->input('diagnostics', false)) === true,
+            $routingPolicy,
+            $tier,
         );
     }
 
@@ -1015,8 +1075,19 @@ final class AgentRuntimeController
         array $history,
         bool $debugMode,
         bool $diagnostics,
+        ?AiRoutingPolicy $routingPolicy = null,
+        ?string $tier = null,
     ): JsonResponse {
         try {
+            if ($tier !== null) {
+                $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+                $summary['tier'] = $tier;
+                if ($routingPolicy !== null) {
+                    $summary['routing_policy'] = $routingPolicy->value;
+                }
+                $run->update(['retrieval_summary' => $summary]);
+            }
+
             if ($debugMode) {
                 if ($modelResolver === null) {
                     throw new \LogicException('Debug mode requires an assumed model resolver.');
@@ -1033,7 +1104,7 @@ final class AgentRuntimeController
                 );
             }
 
-            $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics);
+            $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics, $routingPolicy, $tier);
             if (is_array($result->gscContinuation)) {
                 return $this->gscContinuationResponse($persistence, $threads, $run, $thread, $result);
             }
@@ -1375,6 +1446,8 @@ final class AgentRuntimeController
                 ? $trace['jev_scores']
                 : null,
             'routing_review' => $routingReview,
+            'tier' => is_array($trace) ? ($trace['tier'] ?? null) : null,
+            'routing_policy' => is_array($trace) ? ($trace['routing_policy'] ?? null) : null,
         ];
     }
 

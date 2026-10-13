@@ -8,5 +8,8 @@ use Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput;
 
 interface AnswerModelGateway
 {
-    public function complete(int $userId, PreparedModelInput $input): string;
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    public function complete(int $userId, PreparedModelInput $input, array $options = []): string;
 }

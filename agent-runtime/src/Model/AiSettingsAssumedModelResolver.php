@@ -68,7 +68,7 @@ final class AiSettingsAssumedModelResolver implements AssumedModelResolver
         );
     }
 
-    public function resolveAnswerModel(int $userId): AssumedModelMetadata
+    public function resolveAnswerModel(int $userId, ?\Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy $routingPolicy = null): AssumedModelMetadata
     {
         $targets = $this->routingTargets ?? (app()->bound(AiRoutingTargetService::class) ? app(AiRoutingTargetService::class) : null);
         $profile = AiExecutionProfile::TextReasoning;
@@ -88,6 +88,9 @@ final class AiSettingsAssumedModelResolver implements AssumedModelResolver
                 canonicalPromptKey: AnswerTextCompletionService::HOOK_KEY,
                 promptTaskType: 'agent_runtime_answer',
                 modelArea: $profile->value,
+                routingPolicy: $routingPolicy,
+                routingPolicyRequested: $routingPolicy,
+                routingPolicyEffective: $routingPolicy,
             );
             $candidates = $targets->eligibleCandidates($userId, $profile, $context);
         } catch (Throwable) {

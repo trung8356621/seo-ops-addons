@@ -14,8 +14,11 @@ final class AiSettingsAnswerModelGateway implements AnswerModelGateway
         private readonly int $maxOutputTokens = 2048,
     ) {}
 
-    public function complete(int $userId, PreparedModelInput $input): string
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    public function complete(int $userId, PreparedModelInput $input, array $options = []): string
     {
-        return $this->completion->complete($userId, $input->exportText(), $this->maxOutputTokens);
+        return $this->completion->complete($userId, $input->exportText(), $this->maxOutputTokens, $options);
     }
 }

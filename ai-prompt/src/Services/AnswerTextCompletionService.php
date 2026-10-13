@@ -20,22 +20,38 @@ final class AnswerTextCompletionService implements AnswerTextCompletion
         private readonly CanonicalAiTextExecutionService $execution,
     ) {}
 
-    public function complete(int $userId, string $prompt, int $maxOutputTokens): string
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    public function complete(int $userId, string $prompt, int $maxOutputTokens, array $options = []): string
     {
+        $policyRaw = $options['routing_policy'] ?? null;
+        $policy = $policyRaw instanceof \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy
+            ? $policyRaw
+            : \Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy::tryFromMixed($policyRaw);
+
         $context = new AiRoutingContext(
             userId: $userId,
             hookKey: self::HOOK_KEY,
             canonicalPromptKey: self::HOOK_KEY,
             promptTaskType: 'agent_runtime_answer',
             modelArea: AiExecutionProfile::TextReasoning->value,
+            routingPolicy: $policy,
+            routingPolicyRequested: $policy,
+            routingPolicyEffective: $policy,
         );
+
+        $executionOptions = array_merge(['max_output' => max(256, $maxOutputTokens)], $options);
+        if ($policy !== null) {
+            $executionOptions['routing_policy'] = $policy;
+        }
 
         [$output] = $this->execution->generate(
             $prompt,
             self::HOOK_KEY,
             AiExecutionProfile::TextReasoning,
             $context,
-            ['max_output' => max(256, $maxOutputTokens)],
+            $executionOptions,
         );
 
         return is_string($output) ? $output : '';

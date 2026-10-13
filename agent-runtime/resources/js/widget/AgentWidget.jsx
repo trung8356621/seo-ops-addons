@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, Copy, History, ImageIcon, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, Video, Vote } from 'lucide-react';
+import { Archive, Copy, History, ImageIcon, Loader2, Mic, MicOff, Plus, RotateCcw, Send, Sparkles, Square, Trash2, Video, Volume2, Vote } from 'lucide-react';
 import { WelcomeAccordion } from '../welcome/WelcomeAccordion.jsx';
 import { draftAfterSuggestion, userQuestionsPayload, WELCOME_MODULES } from '../welcome/welcomeQuestions.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -55,7 +55,21 @@ function formatElapsed(seconds) {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-export function AgentProcessingCard({ status, isRerun = false, locale = 'vi' }) {
+export function speechFriendlyText(plainText) {
+    if (!plainText) return '';
+    return String(plainText)
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/#{1,6}\s+/g, '')
+        .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\|/g, ', ')
+        .replace(/\n{2,}/g, '. ')
+        .replace(/\n/g, ' ')
+        .trim();
+}
+
+export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', tier = 'free' }) {
     const [seconds, setSeconds] = useState(0);
     const isManualWait = typeof status === 'string' && status.startsWith('Waiting for manual');
 
@@ -75,6 +89,13 @@ export function AgentProcessingCard({ status, isRerun = false, locale = 'vi' }) 
     const subText = isManualWait
         ? status
         : (locale === 'vi' ? 'Đang chờ kết quả xử lý…' : 'Waiting for response…');
+
+    const tierLabels = {
+        free: 'Free',
+        pro: 'Pro (Quick Free)',
+        master: 'Master',
+    };
+    const tierDisplay = tierLabels[tier] || 'Free';
 
     return (
         <article
@@ -102,6 +123,10 @@ export function AgentProcessingCard({ status, isRerun = false, locale = 'vi' }) 
                 {!isManualWait ? (
                     <div className="agent-processing-card__footer">
                         <div className="agent-processing-card__badges">
+                            <span className="agent-processing-card__badge agent-processing-card__badge--tier">
+                                {locale === 'vi' ? `Chế độ: ${tierDisplay}` : `Tier: ${tierDisplay}`}
+                            </span>
+                            <span className="agent-processing-card__badge-sep">·</span>
                             <span className="agent-processing-card__badge">SEO Audit</span>
                             <span className="agent-processing-card__badge-sep">·</span>
                             <span className="agent-processing-card__badge">Topics</span>
@@ -425,6 +450,120 @@ export function AgentWidget({
     const [rerunTargetId, setRerunTargetId] = useState(null);
     const [rerunNotice, setRerunNotice] = useState('');
     const [rerunErrorByTurn, setRerunErrorByTurn] = useState(null);
+
+    const [tier, setTier] = useState('free');
+    const [isListening, setIsListening] = useState(false);
+    const [voiceNotice, setVoiceNotice] = useState('');
+    const [speakingKey, setSpeakingKey] = useState(null);
+    const speechRecognitionRef = useRef(null);
+
+    const toggleListening = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setVoiceNotice(locale === 'vi' ? 'Trình duyệt không hỗ trợ nhận giọng nói' : 'Speech recognition not supported in browser');
+            setTimeout(() => setVoiceNotice(''), 4000);
+            return;
+        }
+
+        if (isListening) {
+            if (speechRecognitionRef.current) {
+                try {
+                    speechRecognitionRef.current.stop();
+                } catch (_) {}
+            }
+            setIsListening(false);
+            return;
+        }
+
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.lang = locale === 'vi' ? 'vi-VN' : 'en-US';
+            recognition.continuous = false;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = 0; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+                if (transcript) {
+                    setDraft((prev) => {
+                        const trimmed = prev.trim();
+                        return trimmed ? `${trimmed} ${transcript}` : transcript;
+                    });
+                }
+            };
+
+            recognition.onerror = (event) => {
+                setIsListening(false);
+                if (event.error && event.error !== 'aborted' && event.error !== 'no-speech') {
+                    setVoiceNotice(locale === 'vi' ? `Lỗi micro: ${event.error}` : `Microphone error: ${event.error}`);
+                    setTimeout(() => setVoiceNotice(''), 4000);
+                }
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+
+            speechRecognitionRef.current = recognition;
+            recognition.start();
+            setIsListening(true);
+            setVoiceNotice('');
+        } catch (err) {
+            setIsListening(false);
+            setVoiceNotice(locale === 'vi' ? 'Không thể khởi động microphone' : 'Could not start microphone');
+            setTimeout(() => setVoiceNotice(''), 4000);
+        }
+    }, [isListening, locale]);
+
+    const toggleSpeak = useCallback((key, response) => {
+        if (typeof window === 'undefined' || !window.speechSynthesis) {
+            return;
+        }
+
+        if (speakingKey === key) {
+            window.speechSynthesis.cancel();
+            setSpeakingKey(null);
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+        const text = speechFriendlyText(responseToPlainText(response));
+        if (!text) return;
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = locale === 'vi' ? 'vi-VN' : 'en-US';
+
+        const voices = window.speechSynthesis.getVoices() || [];
+        const prefix = locale === 'vi' ? 'vi' : 'en';
+        const matchedVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(prefix));
+        if (matchedVoice) {
+            utterance.voice = matchedVoice;
+        }
+
+        utterance.onend = () => {
+            setSpeakingKey(null);
+        };
+        utterance.onerror = () => {
+            setSpeakingKey(null);
+        };
+
+        setSpeakingKey(key);
+        window.speechSynthesis.speak(utterance);
+    }, [speakingKey, locale]);
+
+    useEffect(() => {
+        return () => {
+            if (typeof window !== 'undefined' && window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+            if (speechRecognitionRef.current) {
+                try { speechRecognitionRef.current.stop(); } catch (_) {}
+            }
+        };
+    }, []);
 
     const isDebugMode = developerMode === DEV_MODE_DEBUG;
     const isDiagnostics = developerMode === DEV_MODE_DIAG;
@@ -978,6 +1117,7 @@ export function AgentWidget({
                 thread_ulid: activeThreadUlid,
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
+                tier,
             });
 
             const data = payload?.data || {};
@@ -1158,6 +1298,7 @@ export function AgentWidget({
             const payload = await postJson(rerunUrl, csrf, {
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
+                tier,
             });
 
             const data = payload?.data || {};
@@ -1570,7 +1711,7 @@ export function AgentWidget({
                                     </article>
 
                                     {rerunning ? (
-                                        <AgentProcessingCard status={rerunNotice || 'Thinking…'} isRerun={true} locale={locale} />
+                                        <AgentProcessingCard status={rerunNotice || 'Thinking…'} isRerun={true} locale={locale} tier={tier} />
                                     ) : version ? (
                                         <article className="agent-message is-assistant">
                                             <div className="agent-message__header">
@@ -1664,6 +1805,15 @@ export function AgentWidget({
                                                 ) : null}
                                                 <button
                                                     type="button"
+                                                    className={`agent-message-action-btn agent-tts-btn${speakingKey === (version.id || turn.id) ? ' is-speaking' : ''}`}
+                                                    onClick={() => toggleSpeak(version.id || turn.id, version.response)}
+                                                    title={speakingKey === (version.id || turn.id) ? (locale === 'vi' ? 'Dừng đọc' : 'Stop speaking') : (locale === 'vi' ? 'Đọc câu trả lời' : 'Read answer')}
+                                                    aria-label="Text to speech"
+                                                >
+                                                    {speakingKey === (version.id || turn.id) ? <Square size={13} /> : <Volume2 size={13} />}
+                                                </button>
+                                                <button
+                                                    type="button"
                                                     className="agent-message-action-btn"
                                                     onClick={() => copyText(responseToPlainText(version.response))}
                                                     title="Copy answer" aria-label="Copy answer"><Copy size={13} /></button>
@@ -1689,7 +1839,7 @@ export function AgentWidget({
                         }) : null}
 
                         {!isTestMode && processingStatus ? (
-                            <AgentProcessingCard status={processingStatus} isRerun={false} locale={locale} role="status" label={processingStatus} />
+                            <AgentProcessingCard status={processingStatus} isRerun={false} locale={locale} tier={tier} role="status" label={processingStatus} />
                         ) : null}
 
                         {error ? <div className="agent-error-banner">{error}</div> : null}
@@ -1781,25 +1931,53 @@ export function AgentWidget({
                                     rows={2}
                                 />
                                 <div className="agent-composer-actions">
-                                    <button
-                                        type="button"
-                                        className="agent-copy-btn"
-                                        onClick={onCopy}
-                                        disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
-                                        title={locale === 'vi' ? 'Sao chép câu lệnh' : 'Copy prompt'}
-                                    >
-                                        <Copy size={15} />
-                                        <span>{copyState ? (locale === 'vi' ? 'Đã chép' : 'Copied') : (locale === 'vi' ? 'Sao chép' : 'Copy')}</span>
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="agent-send-btn"
-                                        disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
-                                        title={locale === 'vi' ? 'Gửi tin nhắn' : 'Send message'}
-                                        aria-label="Send message"
-                                    >
-                                        {busy ? <Loader2 size={16} className="agent-spinner" /> : <Send size={16} />}
-                                    </button>
+                                    <div className="agent-composer-actions__left">
+                                        <div className="agent-tier-selector" title={locale === 'vi' ? 'Chọn chế độ mô hình' : 'Select model tier'}>
+                                            <select
+                                                className="agent-tier-select"
+                                                value={tier}
+                                                onChange={(e) => setTier(e.target.value)}
+                                                disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || isViewingArchived}
+                                                aria-label="Model tier"
+                                            >
+                                                <option value="free">Free (Miễn phí)</option>
+                                                <option value="pro">Pro (Quick Free)</option>
+                                                <option value="master">Master (Đầy đủ)</option>
+                                            </select>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="agent-copy-btn"
+                                            onClick={onCopy}
+                                            disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
+                                            title={locale === 'vi' ? 'Sao chép câu lệnh' : 'Copy prompt'}
+                                        >
+                                            <Copy size={15} />
+                                            <span>{copyState ? (locale === 'vi' ? 'Đã chép' : 'Copied') : (locale === 'vi' ? 'Sao chép' : 'Copy')}</span>
+                                        </button>
+                                    </div>
+                                    <div className="agent-composer-actions__right">
+                                        {voiceNotice ? <span className="agent-voice-notice" title={voiceNotice}>{voiceNotice}</span> : null}
+                                        <button
+                                            type="button"
+                                            className={`agent-mic-btn${isListening ? ' is-listening' : ''}`}
+                                            onClick={toggleListening}
+                                            disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || isViewingArchived}
+                                            title={isListening ? (locale === 'vi' ? 'Dừng ghi âm' : 'Stop listening') : (locale === 'vi' ? 'Nói bằng giọng nói' : 'Voice input')}
+                                            aria-label="Voice input"
+                                        >
+                                            {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="agent-send-btn"
+                                            disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || !draft.trim() || isViewingArchived}
+                                            title={locale === 'vi' ? 'Gửi tin nhắn' : 'Send message'}
+                                            aria-label="Send message"
+                                        >
+                                            {busy ? <Loader2 size={16} className="agent-spinner" /> : <Send size={16} />}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </form>

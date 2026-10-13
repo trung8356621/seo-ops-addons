@@ -3060,12 +3060,16 @@ final class RecordingAnswerGateway implements AnswerModelGateway
 
     public string $lastExport = '';
 
+    /** @var array<string, mixed> */
+    public array $lastOptions = [];
+
     public function __construct(private readonly ?string $rawResponse = null) {}
 
-    public function complete(int $userId, PreparedModelInput $input): string
+    public function complete(int $userId, PreparedModelInput $input, array $options = []): string
     {
         $this->calls++;
         $this->lastExport = $input->exportText();
+        $this->lastOptions = $options;
 
         if ($this->rawResponse !== null) {
             return $this->rawResponse;
@@ -3165,7 +3169,7 @@ final class MockAssumedModelResolver implements \Omnichannel\Addons\AgentRuntime
         return $this->decisionMetadata;
     }
 
-    public function resolveAnswerModel(int $userId): \Omnichannel\Addons\AgentRuntime\Model\AssumedModelMetadata
+    public function resolveAnswerModel(int $userId, ?\Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy $routingPolicy = null): \Omnichannel\Addons\AgentRuntime\Model\AssumedModelMetadata
     {
         return $this->answerMetadata;
     }

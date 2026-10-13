@@ -1105,6 +1105,122 @@
     cursor: not-allowed;
 }
 
+.agent-composer-actions__left {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.agent-composer-actions__right {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.agent-tier-selector {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.agent-tier-select {
+    height: 30px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #334155;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    outline: none;
+}
+
+.agent-tier-select:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #059669;
+    color: #0f172a;
+}
+
+.agent-tier-select:focus {
+    border-color: #059669;
+    box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15);
+}
+
+.agent-tier-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.agent-mic-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.agent-mic-btn:hover:not(:disabled) {
+    background: #f1f5f9;
+    color: #0f172a;
+    border-color: #cbd5e1;
+}
+
+.agent-mic-btn.is-listening {
+    background: #fee2e2;
+    color: #dc2626;
+    border-color: #fca5a5;
+    animation: agent-mic-pulse 1.5s infinite;
+}
+
+.agent-mic-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.agent-voice-notice {
+    font-size: 11px;
+    color: #dc2626;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-tts-btn.is-speaking {
+    color: #059669;
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+}
+
+.agent-processing-card__badge--tier {
+    background: #f0fdf4 !important;
+    color: #166534 !important;
+    border-color: #bbf7d0 !important;
+    font-weight: 600 !important;
+}
+
+@keyframes agent-mic-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+    }
+}
+
 .agent-chart {
     width: 100%;
     height: 280px;

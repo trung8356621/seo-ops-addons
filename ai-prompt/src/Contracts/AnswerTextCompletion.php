@@ -10,5 +10,8 @@ namespace Omnichannel\Addons\AiPrompt\Contracts;
  */
 interface AnswerTextCompletion
 {
-    public function complete(int $userId, string $prompt, int $maxOutputTokens): string;
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    public function complete(int $userId, string $prompt, int $maxOutputTokens, array $options = []): string;
 }
