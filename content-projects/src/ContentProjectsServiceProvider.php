@@ -61,6 +61,7 @@ final class ContentProjectsServiceProvider extends ServiceProvider
                 return new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry([
                     $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\ExecutionWorkspaceCleaner::class),
                     $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PromptWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\OutlineWorkspaceCleaner::class),
                     $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\RuntimeWorkspaceCleaner::class),
                     $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\LocalMediaWorkspaceCleaner::class),
                     $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\GalleryExecutionWorkspaceCleaner::class),

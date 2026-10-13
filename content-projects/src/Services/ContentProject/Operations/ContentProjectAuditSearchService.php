@@ -45,6 +45,14 @@ final class ContentProjectAuditSearchService
             $query->where('item_ref', $ref);
         }
 
+        if (! empty($filters['article_id']) && Schema::connection(self::CONNECTION)->hasColumn('seo_content_project_business_audits', 'article_id')) {
+            $query->where('article_id', (int) $filters['article_id']);
+        }
+
+        if (! empty($filters['project_id']) && Schema::connection(self::CONNECTION)->hasColumn('seo_content_project_business_audits', 'project_id')) {
+            $query->where('project_id', (int) $filters['project_id']);
+        }
+
         if (! empty($filters['actor_type'])) {
             $query->where('actor_type', (string) $filters['actor_type']);
         }
@@ -70,7 +78,9 @@ final class ContentProjectAuditSearchService
                 'actor_type' => isset($row->actor_type) ? (string) $row->actor_type : null,
                 'actor_id' => $row->actor_id ?? null,
                 'project_ref' => isset($row->project_ref) ? (string) $row->project_ref : null,
+                'project_id' => isset($row->project_id) ? (int) $row->project_id : null,
                 'item_ref' => isset($row->item_ref) ? (string) $row->item_ref : null,
+                'article_id' => isset($row->article_id) ? (int) $row->article_id : null,
                 'result' => isset($row->result) ? (string) $row->result : null,
                 'result_code' => isset($row->result_code) ? (string) $row->result_code : null,
             ];

@@ -18,6 +18,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
@@ -277,7 +278,7 @@ final class ArchiveContentProjectService
             ]);
             $archive->save();
 
-            $this->syncArchiveItems($archive, $lockedProject, $now);
+            $snapshots = $this->syncArchiveItems($archive, $lockedProject, $now);
 
             $articleIds = SeoProjectTask::query()
                 ->where('project_id', (int) $lockedProject->getKey())
@@ -299,6 +300,8 @@ final class ArchiveContentProjectService
                 'archived_at' => $archivedAt,
                 'archived_by' => $userId,
             ])->saveQuietly();
+
+            $this->recordProjectAudits($archive, $lockedProject, $userId, $snapshots);
 
             // Drop MCP pipeline signal only — do not wipe other project.meta keys.
             $this->mcpPlanningMeta->clear($lockedProject);
@@ -533,11 +536,15 @@ final class ArchiveContentProjectService
         ];
     }
 
-    private function syncArchiveItems(SeoProjectArchive $archive, SeoProject $project, Carbon $now): void
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function syncArchiveItems(SeoProjectArchive $archive, SeoProject $project, Carbon $now): array
     {
         $tasks = $this->articleTasksForProject($project);
         $archiveId = (int) $archive->getKey();
         $currentArticleIds = [];
+        $snapshots = [];
         $position = 0;
 
         foreach ($tasks as $task) {
@@ -553,6 +560,8 @@ final class ArchiveContentProjectService
             $position++;
             $articleId = (int) $article->getKey();
             $currentArticleIds[] = $articleId;
+            $snapshot = $this->buildArticleSnapshot($task, $article);
+            $snapshots[] = $snapshot;
 
             SeoProjectArchiveItem::query()->updateOrCreate(
                 [
@@ -562,24 +571,77 @@ final class ArchiveContentProjectService
                 [
                     'task_id' => (int) $task->getKey(),
                     'position' => $position,
-                    'article_snapshot' => $this->buildArticleSnapshot($task, $article),
+                    'article_snapshot' => $snapshot,
                     'updated_at' => $now,
                 ],
             );
         }
 
         if ($currentArticleIds === []) {
-            SeoProjectArchiveItem::query()
-                ->where('seo_project_archive_id', $archiveId)
-                ->delete();
+            return $snapshots;
+        }
 
+        return $snapshots;
+    }
+
+    /**
+     * One business-audit row per article participation. Save/sync/publish do not write this action.
+     * Insert failure aborts the archive transaction so history and lifecycle stay together.
+     *
+     * @param  list<array<string, mixed>>  $snapshots
+     */
+    private function recordProjectAudits(SeoProjectArchive $archive, SeoProject $project, int $userId, array $snapshots): void
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_content_project_business_audits')) {
             return;
         }
 
-        SeoProjectArchiveItem::query()
-            ->where('seo_project_archive_id', $archiveId)
-            ->whereNotIn('article_id', $currentArticleIds)
-            ->delete();
+        $hasProjectColumn = Schema::connection('omi_seo_ai')->hasColumn('seo_content_project_business_audits', 'project_id');
+        $hasArticleColumn = Schema::connection('omi_seo_ai')->hasColumn('seo_content_project_business_audits', 'article_id');
+        $projectId = (int) $project->getKey();
+        $archiveId = (int) $archive->getKey();
+        $occurredAt = $archive->archived_at ?? now();
+
+        foreach ($snapshots as $snapshot) {
+            $articleId = (int) ($snapshot['article_id'] ?? 0);
+            if ($articleId <= 0) {
+                continue;
+            }
+
+            $taskId = (int) ($snapshot['task_id'] ?? 0);
+            $row = [
+                'actor_type' => 'user',
+                'actor_id' => $userId,
+                'action' => 'content_project.project_audit',
+                'project_ref' => ContentProjectPublicRef::project($projectId),
+                'item_ref' => $taskId > 0 ? ContentProjectPublicRef::item($taskId) : null,
+                'result' => 'success',
+                'result_code' => 'archived',
+                'metadata' => json_encode([
+                    'event' => 'project_audit',
+                    'article_id' => $articleId,
+                    'project_id' => $projectId,
+                    'archive_id' => $archiveId,
+                    'task_status' => $snapshot['status'] ?? null,
+                    'seo_score' => $snapshot['seo_score'] ?? null,
+                    'sync_status' => $snapshot['sync_status'] ?? null,
+                    'wordpress_post_id' => $snapshot['wordpress_post_id'] ?? null,
+                    'wordpress_url' => $snapshot['wordpress_url'] ?? null,
+                ], JSON_UNESCAPED_UNICODE),
+                'occurred_at' => $occurredAt,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if ($hasProjectColumn) {
+                $row['project_id'] = $projectId;
+            }
+            if ($hasArticleColumn) {
+                $row['article_id'] = $articleId;
+            }
+
+            DB::connection('omi_seo_ai')->table('seo_content_project_business_audits')->insert($row);
+        }
     }
 
     /**

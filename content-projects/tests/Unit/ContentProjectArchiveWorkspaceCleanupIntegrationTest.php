@@ -5,7 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
+use Omnichannel\Addons\Content\Models\ArticleMeta;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleOutlineResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Contracts\ContentProjectWorkspaceCleaner;
+use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
 use Omnichannel\Addons\Content\Models\SeoArticleRevision;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
@@ -19,6 +24,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Content
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard;
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -463,6 +469,158 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
         self::assertTrue(Storage::disk('public')->exists($reusedPath));
     }
 
+    public function test_article_can_be_audited_in_two_projects_without_losing_history_or_wp_identity(): void
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_content_project_business_audits')) {
+            $this->markTestSkipped('Business audit table unavailable.');
+        }
+
+        $siteId = 93006;
+        $article = $this->createArticle($siteId, 'Lifecycle article');
+        $body = (string) $article->body;
+        $this->putMeta((int) $article->id, ArticleOutlineResolver::META_KEY, '# Outline project 1');
+        $this->putMeta((int) $article->id, 'seo_meta_description', 'Published meta stays');
+
+        $wpPostId = null;
+        if (Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')) {
+            $wpPostId = 424242;
+            WordpressArticleLink::query()->create([
+                'article_id' => (int) $article->id,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_status' => 'synced',
+            ]);
+        }
+
+        $service = $this->resolveArchiveCleanupService();
+
+        $projectOne = $this->createProject(userId: 93061, siteId: $siteId, name: 'Lifecycle P1');
+        $this->createTask($projectOne, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+        $archiveOne = $service->archive($projectOne->fresh(), 1, note: 'audit-p1');
+
+        self::assertNull(
+            ArticleMeta::query()
+                ->where('article_id', (int) $article->id)
+                ->where('meta_key', ArticleOutlineResolver::META_KEY)
+                ->first(),
+        );
+        self::assertSame(
+            'Published meta stays',
+            (string) ArticleMeta::query()
+                ->where('article_id', (int) $article->id)
+                ->where('meta_key', 'seo_meta_description')
+                ->value('meta_value'),
+        );
+        $article->refresh();
+        self::assertSame($body, (string) $article->body);
+        self::assertFalse(app(ContentProjectArticleMembership::class)->belongsToActiveContentProject((int) $article->id));
+
+        if ($wpPostId !== null) {
+            self::assertSame($wpPostId, (int) WordpressArticleLink::query()->where('article_id', (int) $article->id)->value('wp_post_id'));
+        }
+
+        $this->putMeta((int) $article->id, ArticleOutlineResolver::META_KEY, '# Outline project 2');
+        $projectTwo = $this->createProject(userId: 93062, siteId: $siteId, name: 'Lifecycle P2');
+        $this->createTask($projectTwo, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+
+        $duringSecondProject = $service->cleanupArchivedWorkspace($archiveOne->fresh(['project', 'items']), 1);
+        self::assertSame(1, (int) ($duringSecondProject['workspace_articles_skipped_reused'] ?? 0));
+        self::assertSame(
+            '# Outline project 2',
+            (string) ArticleMeta::query()
+                ->where('article_id', (int) $article->id)
+                ->where('meta_key', ArticleOutlineResolver::META_KEY)
+                ->value('meta_value'),
+        );
+
+        $archiveTwo = $service->archive($projectTwo->fresh(), 1, note: 'audit-p2');
+
+        self::assertSame(2, SeoProjectArchiveItem::query()->where('article_id', (int) $article->id)->count());
+        self::assertNotNull(SeoProjectArchiveItem::query()->where('seo_project_archive_id', (int) $archiveOne->id)->where('article_id', (int) $article->id)->first());
+        self::assertNotNull(SeoProjectArchiveItem::query()->where('seo_project_archive_id', (int) $archiveTwo->id)->where('article_id', (int) $article->id)->first());
+        $auditQuery = DB::connection('omi_seo_ai')
+            ->table('seo_content_project_business_audits')
+            ->where('action', 'content_project.project_audit');
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_content_project_business_audits', 'article_id')) {
+            $auditQuery->where('article_id', (int) $article->id);
+        } else {
+            $auditQuery->where('metadata', 'like', '%"article_id":'.(int) $article->id.'%');
+        }
+        self::assertSame(2, $auditQuery->count());
+        self::assertNull(
+            ArticleMeta::query()
+                ->where('article_id', (int) $article->id)
+                ->where('meta_key', ArticleOutlineResolver::META_KEY)
+                ->first(),
+        );
+        $article->refresh();
+        self::assertSame($body, (string) $article->body);
+        self::assertSame((int) $article->id, (int) $article->getKey());
+
+        try {
+            $service->archive($projectOne->fresh(), 1, note: 'repeat');
+            self::fail('Repeated archive of a closed project must not rewrite history.');
+        } catch (RuntimeException) {
+        }
+
+        self::assertSame(2, SeoProjectArchiveItem::query()->where('article_id', (int) $article->id)->count());
+        $secondCleanup = $service->cleanupArchivedWorkspace($archiveOne->fresh(['project', 'items']), 1);
+        self::assertSame(1, (int) ($secondCleanup['workspace_articles_considered'] ?? 0));
+        self::assertSame(2, SeoProjectArchiveItem::query()->where('article_id', (int) $article->id)->count());
+    }
+
+    public function test_failed_workspace_cleanup_does_not_archive_the_project(): void
+    {
+        $siteId = 93007;
+        $article = $this->createArticle($siteId, 'Cleanup failure article');
+        $this->putMeta((int) $article->id, ArticleOutlineResolver::META_KEY, '# Keep until commit');
+
+        $project = $this->createProject(userId: 93071, siteId: $siteId, name: 'Cleanup failure');
+        $this->createTask($project, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+
+        $service = $this->resolveArchiveCleanupService();
+        app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry::class)
+            ->register(new class implements ContentProjectWorkspaceCleaner
+            {
+                public function key(): string
+                {
+                    return 'failing_probe';
+                }
+
+                public function clean(ContentProjectWorkspaceCleanupContext $context): void
+                {
+                    throw new RuntimeException('cleanup failed');
+                }
+            });
+
+        try {
+            $service->archive($project->fresh(), 1, note: 'should-roll-back');
+            self::fail('Archive must fail closed when workspace cleanup throws.');
+        } catch (RuntimeException $e) {
+            self::assertSame('cleanup failed', $e->getMessage());
+        }
+
+        $project->refresh();
+        self::assertNull($project->archived_at);
+        self::assertSame(0, SeoProjectArchive::query()->where('project_id', (int) $project->id)->count());
+        self::assertSame(
+            '# Keep until commit',
+            (string) ArticleMeta::query()
+                ->where('article_id', (int) $article->id)
+                ->where('meta_key', ArticleOutlineResolver::META_KEY)
+                ->value('meta_value'),
+        );
+        self::assertTrue(app(ContentProjectArticleMembership::class)->belongsToActiveContentProject((int) $article->id));
+    }
+
+    private function putMeta(int $articleId, string $key, string $value): void
+    {
+        ArticleMeta::query()->updateOrCreate(
+            ['article_id' => $articleId, 'meta_key' => $key],
+            ['meta_value' => $value],
+        );
+    }
+
     private function resolveArchiveCleanupService(): ArchiveContentProjectService
     {
         $registry = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry::class);
@@ -476,6 +634,7 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
                 new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\EditorRevisionWorkspaceCleaner,
                 new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PendingArtifactsWorkspaceCleaner,
                 new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\CacheLockWorkspaceCleaner,
+                new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\OutlineWorkspaceCleaner,
             ] as $cleaner) {
                 $registry->register($cleaner);
             }

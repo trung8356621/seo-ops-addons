@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -18,9 +19,14 @@ use Throwable;
  */
 final class ContentProjectAiWorkspaceDestroyer
 {
+    private ?ContentProjectArticleMembership $membership = null;
+
     public function __construct(
         private readonly ContentProjectWorkspaceCleanupRegistry $registry,
-    ) {}
+        ?ContentProjectArticleMembership $membership = null,
+    ) {
+        $this->membership = $membership;
+    }
 
     /**
      * Archive-time strong cleanup: merge article IDs from project tasks (+ optional extras).
@@ -84,10 +90,10 @@ final class ContentProjectAiWorkspaceDestroyer
             );
         }
 
-        $articleIds = $articleIds
-            ->unique()
-            ->values()
-            ->all();
+        $articleIds = $this->filterArticleIdsForCleanup(
+            $project,
+            $articleIds->unique()->values()->all(),
+        );
 
         $runIds = SeoProjectRun::query()
             ->where('project_id', (int) $project->getKey())
@@ -119,6 +125,40 @@ final class ContentProjectAiWorkspaceDestroyer
         ]);
 
         return $context;
+    }
+
+    /**
+     * Article-scoped cleanup may touch this project or a free article.
+     * An article already owned by a different active project is left intact.
+     *
+     * @param  list<int>  $articleIds
+     * @return list<int>
+     */
+    private function filterArticleIdsForCleanup(SeoProject $project, array $articleIds): array
+    {
+        $projectId = (int) $project->getKey();
+        $kept = [];
+
+        foreach ($articleIds as $articleId) {
+            if ($articleId <= 0) {
+                continue;
+            }
+
+            $owner = $this->membership()->activeTaskForArticle($articleId);
+            $ownerProjectId = $owner instanceof SeoProjectTask ? (int) $owner->project_id : 0;
+            if ($ownerProjectId > 0 && $ownerProjectId !== $projectId) {
+                continue;
+            }
+
+            $kept[] = $articleId;
+        }
+
+        return $kept;
+    }
+
+    private function membership(): ContentProjectArticleMembership
+    {
+        return $this->membership ??= app(ContentProjectArticleMembership::class);
     }
 
     /**

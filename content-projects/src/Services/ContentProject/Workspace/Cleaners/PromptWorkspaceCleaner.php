@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\AiPrompt\Models\SeoPromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Contracts\ContentProjectWorkspaceCleaner;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -40,7 +40,15 @@ final class PromptWorkspaceCleaner implements ContentProjectWorkspaceCleaner
             }
 
             if ($context->hasArticles()) {
-                $query->orWhereIn('article_id', $context->articleIds());
+                $query->orWhere(function ($articleQuery) use ($context): void {
+                    $articleQuery->whereIn('article_id', $context->articleIds());
+                    if ($context->hasTasks()) {
+                        $articleQuery->where(function ($taskQuery) use ($context): void {
+                            $taskQuery->whereNull('project_task_id')
+                                ->orWhereIn('project_task_id', $context->taskIds());
+                        });
+                    }
+                });
                 $hasFilter = true;
             }
 
@@ -83,6 +91,11 @@ final class PromptWorkspaceCleaner implements ContentProjectWorkspaceCleaner
             $context->bumpStat('articles_prompt_cleared', (int) $cleared);
         }
 
+        $promptResultIds = array_merge(
+            $promptResultIds,
+            $this->projectScopedPromptResultIds($context->projectId()),
+        );
+
         $promptResultIds = array_values(array_unique(array_filter(
             $promptResultIds,
             static fn (int $id): bool => $id > 0,
@@ -104,9 +117,39 @@ final class PromptWorkspaceCleaner implements ContentProjectWorkspaceCleaner
             return;
         }
 
-        $deletedResults = SeoPromptResult::query()
+        if (! Schema::connection('omi_seo_ai')->hasTable('prompt_results')) {
+            return;
+        }
+
+        $deletedResults = DB::connection('omi_seo_ai')
+            ->table('prompt_results')
             ->whereIn('id', $orphanIds)
             ->delete();
         $context->bumpStat('prompt_results_deleted', (int) $deletedResults);
+    }
+
+    /**
+     * Prompt results stamped with this content project, even when the link row is already gone.
+     *
+     * @return list<int>
+     */
+    private function projectScopedPromptResultIds(int $projectId): array
+    {
+        if ($projectId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('prompt_results')) {
+            return [];
+        }
+
+        if (! Schema::connection('omi_seo_ai')->hasColumn('prompt_results', 'content_project_id')) {
+            return [];
+        }
+
+        return DB::connection('omi_seo_ai')
+            ->table('prompt_results')
+            ->where('content_project_id', $projectId)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
     }
 }

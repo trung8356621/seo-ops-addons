@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaner
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\ExecutionWorkspaceCleaner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\GalleryExecutionWorkspaceCleaner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\LocalMediaWorkspaceCleaner;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\OutlineWorkspaceCleaner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PendingArtifactsWorkspaceCleaner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PromptWorkspaceCleaner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\RuntimeWorkspaceCleaner;
@@ -84,6 +85,10 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
 
         $archivePath = $this->readMethodSource($destroyer->getMethod('destroyInTransaction'));
         self::assertStringContainsString('mergeArticleIdsFromProjectTasks: true', $archivePath);
+
+        $filter = $this->readMethodSource($destroyer->getMethod('filterArticleIdsForCleanup'));
+        self::assertStringContainsString('activeTaskForArticle', $filter);
+        self::assertStringContainsString('$ownerProjectId !== $projectId', $filter);
     }
 
     public function test_ownership_guard_uses_active_content_project_membership(): void
@@ -114,10 +119,16 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
         $source = $this->readMethodSource(
             (new ReflectionClass(PromptWorkspaceCleaner::class))->getMethod('clean'),
         );
+        $file = (string) file_get_contents(
+            (string) (new ReflectionClass(PromptWorkspaceCleaner::class))->getFileName(),
+        );
 
         self::assertStringContainsString('stillLinked', $source);
         self::assertStringContainsString('orphanIds', $source);
         self::assertStringContainsString('array_diff($promptResultIds, $stillLinked)', $source);
+        self::assertStringContainsString("connection('omi_seo_ai')", $source);
+        self::assertStringContainsString('content_project_id', $file);
+        self::assertStringNotContainsString('SeoPromptResult::query()', $file);
     }
 
     public function test_cache_lock_cleaner_queues_only_context_article_ids(): void
@@ -180,6 +191,7 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
             'editor_revision',
             'pending_artifacts',
             'cache_lock',
+            'outline',
         ];
 
         foreach ($expectedKeys as $key) {
@@ -193,6 +205,7 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
                     'editor_revision' => 'EditorRevisionWorkspaceCleaner',
                     'pending_artifacts' => 'PendingArtifactsWorkspaceCleaner',
                     'cache_lock' => 'CacheLockWorkspaceCleaner',
+                    'outline' => 'OutlineWorkspaceCleaner',
                     default => $key,
                 }, $providerSource);
         }
@@ -238,6 +251,7 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
             EditorRevisionWorkspaceCleaner::class,
             PendingArtifactsWorkspaceCleaner::class,
             CacheLockWorkspaceCleaner::class,
+            OutlineWorkspaceCleaner::class,
         ] as $class) {
             $file = (string) file_get_contents((string) (new ReflectionClass($class))->getFileName());
             self::assertStringNotContainsString('ContentProjectArticleMembership', $file);
