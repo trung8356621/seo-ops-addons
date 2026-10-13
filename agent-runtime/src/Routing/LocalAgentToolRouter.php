@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\AgentRuntime\Routing;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 
 /**
- * Global JEV picks a module. Internal JEV picks one READ or IMPROVE operation.
+ * Global router picks a module. Internal router picks one READ or IMPROVE operation.
  * Soft preferences come from SemanticRoutingConfig. This class does not score text.
  */
 final class LocalAgentToolRouter

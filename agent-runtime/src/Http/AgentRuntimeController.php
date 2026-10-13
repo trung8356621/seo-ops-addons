@@ -150,6 +150,7 @@ final class AgentRuntimeController
                 $proposal->responseLanguage,
                 $routingPolicy,
                 $tier,
+                (string) $run->ulid,
             );
             $meta = $result->answerModelCalled ? ['answer_model' => 'called'] : [];
             if ($result->failureCode !== null) {
@@ -273,6 +274,7 @@ final class AgentRuntimeController
                 $proposal->responseLanguage,
                 $routingPolicy,
                 $tier,
+                (string) $run->ulid,
             );
             $notice = 'Bạn đã từ chối dữ liệu GSC theo kỳ yêu cầu. Agent sử dụng dữ liệu đã đồng bộ gần nhất: '
                 .$this->formatPeriod($latestPeriod).'.';
@@ -310,6 +312,50 @@ final class AgentRuntimeController
             $persistence->failRun($run, 'error', $e->getMessage());
             throw $e;
         }
+    }
+
+    public function runStatus(
+        Request $request,
+        string $runUlid,
+        SiteDirectory $sites,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+
+        $run = AgentRun::where('ulid', $runUlid)->first();
+        if (! $run instanceof AgentRun) {
+            $cached = \Illuminate\Support\Facades\Cache::get('agent_run_status:' . $runUlid);
+            if (is_array($cached) && (int) ($cached['user_id'] ?? $userId) === $userId) {
+                return new JsonResponse(['data' => $cached]);
+            }
+
+            return new JsonResponse(['message' => 'Run not found.'], 404);
+        }
+
+        if ($run->user_id !== null && (int) $run->user_id !== $userId) {
+            return new JsonResponse(['message' => 'Forbidden.'], 403);
+        }
+
+        $thread = $run->thread;
+        if ($thread instanceof \Omnichannel\Addons\AgentRuntime\Persistence\Models\AgentThread) {
+            if ($thread->principal_type === 'user' && (string) $thread->principal_ref !== (string) $userId) {
+                return new JsonResponse(['message' => 'Forbidden.'], 403);
+            }
+        }
+
+        if ($run->scope_type === 'site') {
+            $siteId = (int) str_replace('site:', '', (string) $run->scope_ref);
+            if ($siteId > 0 && ! $sites->isSiteVisible($siteId, $userId)) {
+                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+            }
+        }
+
+        $status = \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker::statusFor($run);
+
+        return new JsonResponse(['data' => $status]);
     }
 
     public function testArticles(Request $request, SiteDirectory $sites, AgentTestArticleCatalogService $articles): JsonResponse
@@ -486,6 +532,19 @@ final class AgentRuntimeController
             }
         }
 
+        $paidConsent = filter_var($payload['paid_consent'] ?? ($payload['paid_confirmed'] ?? false), FILTER_VALIDATE_BOOLEAN);
+        if (in_array($tier, ['pro', 'master'], true)) {
+            if (SeoAccessControl::isSeoPanelReadOnly()) {
+                return new JsonResponse(['message' => 'Tài khoản ở chế độ chỉ đọc, không thể sử dụng mô hình tính phí.'], 403);
+            }
+            if (! $paidConsent) {
+                return new JsonResponse([
+                    'message' => 'Yêu cầu xác nhận cho phép sử dụng mô hình có thể phát sinh chi phí trước khi thực hiện.',
+                    'error_code' => 'paid_confirmation_required',
+                ], 422);
+            }
+        }
+
         try {
             $scope = AgentProjectScope::fromArray($scopeRaw);
         } catch (InvalidArgumentException $e) {
@@ -531,6 +590,10 @@ final class AgentRuntimeController
             );
         }
 
+        $clientRunUlid = is_string($payload['run_ulid'] ?? ($payload['client_run_ulid'] ?? null))
+            ? trim((string) ($payload['run_ulid'] ?? $payload['client_run_ulid']))
+            : null;
+
         $userMessage = $persistence->persistUserMessage($thread, $message);
         $run = $persistence->startRun(
             $thread,
@@ -538,7 +601,8 @@ final class AgentRuntimeController
             $app->app_key,
             $scope->type,
             $scope->siteRef ?? 'global',
-            $userId
+            $userId,
+            $clientRunUlid,
         );
 
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
@@ -1050,6 +1114,28 @@ final class AgentRuntimeController
             };
         }
 
+        $paidConsent = filter_var($request->input('paid_consent', $request->input('paid_confirmed', false)), FILTER_VALIDATE_BOOLEAN);
+        $priorPaidApproved = $priorRun !== null && (
+            filter_var($priorRun->retrieval_summary['paid_confirmed'] ?? false, FILTER_VALIDATE_BOOLEAN) ||
+            in_array((string) ($priorRun->retrieval_summary['tier'] ?? ''), ['pro', 'master'], true)
+        );
+        $effectiveConsent = $paidConsent || $priorPaidApproved;
+        if (in_array($tier, ['pro', 'master'], true)) {
+            if (SeoAccessControl::isSeoPanelReadOnly()) {
+                return new JsonResponse(['message' => 'Tài khoản ở chế độ chỉ đọc, không thể sử dụng mô hình tính phí.'], 403);
+            }
+            if (! $effectiveConsent) {
+                return new JsonResponse([
+                    'message' => 'Yêu cầu xác nhận cho phép sử dụng mô hình có thể phát sinh chi phí trước khi thực hiện.',
+                    'error_code' => 'paid_confirmation_required',
+                ], 422);
+            }
+        }
+
+        $clientRunUlid = is_string($request->input('run_ulid', $request->input('client_run_ulid')))
+            ? trim((string) $request->input('run_ulid', $request->input('client_run_ulid')))
+            : null;
+
         $run = $persistence->startRerun(
             $thread,
             $userMessage,
@@ -1057,6 +1143,7 @@ final class AgentRuntimeController
             $thread->scope_type,
             $thread->scope_ref,
             $userId,
+            $clientRunUlid,
         );
 
         return $this->executeRun(
@@ -1126,7 +1213,7 @@ final class AgentRuntimeController
                 );
             }
 
-            $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics, $routingPolicy, $tier);
+            $result = $coordinator->send($userId, $scope, $message, $history, $diagnostics, $routingPolicy, $tier, (string) $run->ulid);
             if (is_array($result->gscContinuation)) {
                 return $this->gscContinuationResponse($persistence, $threads, $run, $thread, $result);
             }
@@ -1452,7 +1539,9 @@ final class AgentRuntimeController
             ? $trace['routing_review']
             : null;
         $hasReview = is_array($routingReview) && (array) ($routingReview['candidates'] ?? []) !== [];
-        if ($tools === [] && $calls < 1 && ! $hasReview) {
+        $isInternalOnly = (bool) (is_array($trace) && (($trace['internal_only'] ?? false) === true || (! $answerModelCalled && $calls === 0)));
+
+        if ($tools === [] && $calls < 1 && ! $hasReview && ! $isInternalOnly) {
             return null;
         }
 
@@ -1465,6 +1554,15 @@ final class AgentRuntimeController
             'tools' => $tools,
             'external_model_calls' => $calls,
             'external_model' => $calls > 0 && is_array($trace) ? ($trace['external_model'] ?? null) : null,
+            'successful_model' => is_array($trace) ? ($trace['successful_model'] ?? null) : null,
+            'successful_provider' => is_array($trace) ? ($trace['successful_provider'] ?? null) : null,
+            'successful_cost_class' => is_array($trace) ? ($trace['successful_cost_class'] ?? null) : null,
+            'attempted_models' => is_array($trace) ? ($trace['attempted_models'] ?? []) : [],
+            'attempts' => is_array($trace) ? ($trace['attempts'] ?? []) : [],
+            'internal_only' => $isInternalOnly,
+            'usage' => is_array($trace) ? ($trace['usage'] ?? null) : null,
+            'cost' => is_array($trace) ? ($trace['cost'] ?? null) : null,
+            'assumed_model' => is_array($trace) ? ($trace['assumed_model'] ?? null) : null,
             'answer_status' => is_array($trace) ? ($trace['answer_status'] ?? null) : null,
             'jev_scores' => is_array($trace) && is_array($trace['jev_scores'] ?? null)
                 ? $trace['jev_scores']

@@ -145,13 +145,13 @@ class AgentTierRoutingTest extends TestCase
 
         $coordinatorMethod = new \ReflectionMethod(AgentTurnCoordinator::class, 'send');
         $params = $coordinatorMethod->getParameters();
-        $this->assertCount(7, $params);
+        $this->assertCount(8, $params);
         $this->assertSame('routingPolicy', $params[5]->getName());
         $this->assertSame('tier', $params[6]->getName());
 
         $answerConfirmedMethod = new \ReflectionMethod(AgentTurnCoordinator::class, 'answerConfirmed');
         $acParams = $answerConfirmedMethod->getParameters();
-        $this->assertCount(9, $acParams);
+        $this->assertCount(10, $acParams);
         $this->assertSame('routingPolicy', $acParams[7]->getName());
         $this->assertSame('tier', $acParams[8]->getName());
     }

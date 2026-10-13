@@ -70,7 +70,7 @@ export function speechFriendlyText(plainText) {
         .trim();
 }
 
-export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', tier = 'free' }) {
+export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', tier = 'free', liveExecution = null }) {
     const [seconds, setSeconds] = useState(0);
     const isManualWait = typeof status === 'string' && status.startsWith('Waiting for manual');
 
@@ -87,16 +87,37 @@ export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', ti
         ? (locale === 'vi' ? 'Đang chờ can thiệp thủ công (Debug)' : 'Waiting for manual input (Debug)')
         : (locale === 'vi' ? 'AI Agent đang xử lý' : 'AI Agent processing');
 
-    const subText = isManualWait
-        ? status
-        : (locale === 'vi' ? 'Đang chờ kết quả xử lý…' : 'Waiting for response…');
-
     const tierLabels = {
         free: 'Free',
-        pro: 'Pro (Quick Free)',
+        pro: 'Pro',
         master: 'Master',
     };
-    const tierDisplay = tierLabels[tier] || 'Free';
+    const routingLabels = {
+        free_only: 'Free Only',
+        quick_free: 'Quick Free',
+        normal: 'Normal',
+    };
+    const effectiveTier = liveExecution?.tier || tier;
+    const effectiveRouting = liveExecution?.routing_policy
+        ? (routingLabels[liveExecution.routing_policy] || liveExecution.routing_policy)
+        : (effectiveTier === 'master' ? 'Normal' : effectiveTier === 'pro' ? 'Quick Free' : 'Free Only');
+
+    const attempts = Array.isArray(liveExecution?.attempts) ? liveExecution.attempts : [];
+    const currentAttempt = liveExecution?.current_attempt || (attempts.length > 0 ? attempts[attempts.length - 1] : null);
+    const hasAttempts = attempts.length > 0;
+
+    let fallbackNotice = null;
+    if (attempts.length > 1) {
+        const prevAttempt = attempts[attempts.length - 2];
+        const prevModel = prevAttempt?.model || prevAttempt?.requested_model || 'Model trước';
+        const failReason = prevAttempt?.failure_reason || prevAttempt?.failure_code ? ` (${prevAttempt.failure_reason || prevAttempt.failure_code})` : '';
+        const paidTransition = (prevAttempt?.cost_class === 'free' && currentAttempt?.cost_class === 'paid')
+            ? (locale === 'vi' ? ' [Chuyển sang mô hình có phí]' : ' [Transitioning to paid model]')
+            : '';
+        fallbackNotice = locale === 'vi'
+            ? `${prevModel} không hoàn thành${failReason} → đang thử model tiếp theo${paidTransition}`
+            : `${prevModel} failed${failReason} → trying next model${paidTransition}`;
+    }
 
     return (
         <article
@@ -111,7 +132,13 @@ export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', ti
                     </div>
                     <div className="agent-processing-card__title-group">
                         <span className="agent-processing-card__title">{titleText}</span>
-                        <span className="agent-processing-card__status">{subText}</span>
+                        <span className="agent-processing-card__status">
+                            {isManualWait
+                                ? status
+                                : !hasAttempts
+                                    ? (locale === 'vi' ? 'Đang chuẩn bị / chọn model…' : 'Preparing / selecting model…')
+                                    : (locale === 'vi' ? 'Đang xử lý…' : 'Processing…')}
+                        </span>
                     </div>
                     {!isManualWait ? (
                         <div className="agent-processing-card__timer" aria-label="Thời gian chờ">
@@ -121,29 +148,199 @@ export function AgentProcessingCard({ status, isRerun = false, locale = 'vi', ti
                     ) : null}
                 </div>
 
-                {!isManualWait ? (
-                    <div className="agent-processing-card__footer">
-                        <div className="agent-processing-card__badges">
-                            <span className="agent-processing-card__badge agent-processing-card__badge--tier">
-                                {locale === 'vi' ? `Chế độ: ${tierDisplay}` : `Tier: ${tierDisplay}`}
-                            </span>
-                            <span className="agent-processing-card__badge-sep">·</span>
-                            <span className="agent-processing-card__badge">SEO Audit</span>
-                            <span className="agent-processing-card__badge-sep">·</span>
-                            <span className="agent-processing-card__badge">Topics</span>
-                            <span className="agent-processing-card__badge-sep">·</span>
-                            <span className="agent-processing-card__badge">AI Suggestions</span>
-                        </div>
-                        {seconds >= 15 ? (
-                            <div className="agent-processing-card__extended-notice">
-                                <span>{locale === 'vi' ? 'Hệ thống đang tổng hợp dữ liệu chuyên sâu…' : 'Synthesizing comprehensive analysis…'}</span>
+                {!isManualWait && (
+                    <div className="agent-processing-card__body">
+                        <div className="agent-processing-card__meta-grid">
+                            <div className="agent-processing-card__meta-item">
+                                <span className="agent-processing-card__meta-label">{locale === 'vi' ? 'Chế độ:' : 'Mode:'}</span>
+                                <span className="agent-processing-card__meta-value">{tierLabels[effectiveTier] || effectiveTier}</span>
                             </div>
-                        ) : null}
+                            <div className="agent-processing-card__meta-item">
+                                <span className="agent-processing-card__meta-label">Routing:</span>
+                                <span className="agent-processing-card__meta-value">{effectiveRouting}</span>
+                            </div>
+                            {currentAttempt ? (
+                                <>
+                                    <div className="agent-processing-card__meta-item">
+                                        <span className="agent-processing-card__meta-label">Model:</span>
+                                        <span className="agent-processing-card__meta-value font-mono">
+                                            {currentAttempt.model || currentAttempt.requested_model}
+                                        </span>
+                                    </div>
+                                    <div className="agent-processing-card__meta-item">
+                                        <span className="agent-processing-card__meta-label">Provider:</span>
+                                        <span className="agent-processing-card__meta-value">
+                                            {currentAttempt.provider || 'AI Center'}
+                                        </span>
+                                    </div>
+                                    <div className="agent-processing-card__meta-item">
+                                        <span className="agent-processing-card__meta-label">{locale === 'vi' ? 'Lượt gọi:' : 'Attempt:'}</span>
+                                        <span className={`agent-processing-card__meta-value agent-cost-tag is-${currentAttempt.cost_class || 'unknown'}`}>
+                                            {currentAttempt.cost_class === 'free' ? 'Free' : currentAttempt.cost_class === 'paid' ? 'Paid' : 'Unknown'}
+                                            {attempts.length > 1 ? ` (#${currentAttempt.attempt_number || attempts.length})` : ''}
+                                        </span>
+                                    </div>
+                                    <div className="agent-processing-card__meta-item">
+                                        <span className="agent-processing-card__meta-label">{locale === 'vi' ? 'Trạng thái:' : 'Status:'}</span>
+                                        <span className="agent-processing-card__meta-value">
+                                            {currentAttempt.status === 'running'
+                                                ? (locale === 'vi' ? 'Đang xử lý…' : 'Processing…')
+                                                : currentAttempt.status}
+                                        </span>
+                                    </div>
+                                </>
+                            ) : null}
+                        </div>
+
+                        {fallbackNotice && (
+                            <div className="agent-processing-card__fallback-alert" role="alert">
+                                <span>{fallbackNotice}</span>
+                            </div>
+                        )}
                     </div>
-                ) : null}
+                )}
                 <span className="sr-only">{typeof status === 'string' ? status : ''}</span>
             </div>
         </article>
+    );
+}
+
+export function AiExecutionDisclosure({ execution, locale = 'vi' }) {
+    if (!execution || typeof execution !== 'object') {
+        return null;
+    }
+
+    const isInternalOnly = execution.internal_only === true;
+    const isManualDebug = execution.router === 'debug_manual' || execution.debug_manual === true;
+    const successfulModel = execution.successful_model || execution.external_model;
+    const successfulProvider = execution.successful_provider;
+    const attempts = Array.isArray(execution.attempts) ? execution.attempts : [];
+    const usage = execution.usage || {};
+    const cost = execution.cost || {};
+
+    const formatCost = () => {
+        if (isInternalOnly || isManualDebug) {
+            return '$0.00 (Miễn phí)';
+        }
+        if (cost?.state === 'confirmed') {
+            if (cost?.recorded_cost === 0 || cost?.recorded_cost === 0.0) {
+                return '$0.00 (Miễn phí)';
+            }
+            return `$${Number(cost.recorded_cost).toFixed(6).replace(/\.?0+$/, '')} ${cost.currency || 'USD'}`;
+        }
+        if (cost?.state === 'pending') {
+            return locale === 'vi' ? 'Chi phí đang chờ đối soát' : 'Cost pending reconciliation';
+        }
+        return locale === 'vi' ? 'Chưa có dữ liệu chi phí xác thực' : 'No verified cost recorded';
+    };
+
+    return (
+        <details className="agent-ai-usage-disclosure">
+            <summary className="agent-ai-usage-summary">
+                <span className="agent-ai-usage-summary__title">
+                    {locale === 'vi' ? 'Chi tiết sử dụng AI' : 'AI Execution Details'}
+                </span>
+                {successfulModel && !isInternalOnly && (
+                    <span className="agent-ai-usage-summary__badge font-mono">
+                        {successfulModel}
+                    </span>
+                )}
+                {isInternalOnly && (
+                    <span className="agent-ai-usage-summary__badge agent-ai-usage-summary__badge--internal">
+                        {locale === 'vi' ? 'Nội bộ' : 'Internal'}
+                    </span>
+                )}
+            </summary>
+
+            <div className="agent-ai-usage-body">
+                {isInternalOnly ? (
+                    <div className="agent-ai-usage-row">
+                        <span className="agent-ai-usage-label">{locale === 'vi' ? 'Xử lý:' : 'Execution:'}</span>
+                        <span className="agent-ai-usage-value font-semibold">
+                            {locale === 'vi' ? 'Xử lý nội bộ — không gọi AI ngoài' : 'Internal processing — no external AI called'}
+                        </span>
+                    </div>
+                ) : (
+                    <>
+                        {isManualDebug && execution.assumed_model && (
+                            <div className="agent-ai-usage-row">
+                                <span className="agent-ai-usage-label">{locale === 'vi' ? 'Dự kiến:' : 'Assumed:'}</span>
+                                <span className="agent-ai-usage-value font-mono">{execution.assumed_model} (Debug)</span>
+                            </div>
+                        )}
+
+                        <div className="agent-ai-usage-row">
+                            <span className="agent-ai-usage-label">{locale === 'vi' ? 'Model thực thi:' : 'Executed Model:'}</span>
+                            <span className="agent-ai-usage-value font-mono">
+                                {successfulModel || (locale === 'vi' ? 'Không có' : 'None')}
+                            </span>
+                        </div>
+
+                        {successfulProvider && (
+                            <div className="agent-ai-usage-row">
+                                <span className="agent-ai-usage-label">Provider:</span>
+                                <span className="agent-ai-usage-value">{successfulProvider}</span>
+                            </div>
+                        )}
+
+                        {attempts.length > 0 && (
+                            <div className="agent-ai-usage-attempts">
+                                <span className="agent-ai-usage-label">{locale === 'vi' ? 'Lượt gọi thực tế:' : 'Provider Attempts:'}</span>
+                                <ul className="agent-ai-usage-attempts-list">
+                                    {attempts.map((att, idx) => (
+                                        <li key={att.attempt_id || idx} className={`agent-ai-attempt-item is-${att.status}`}>
+                                            <span className="agent-ai-attempt-num">#{att.attempt_number || idx + 1}</span>
+                                            <span className="agent-ai-attempt-model font-mono">{att.model || att.requested_model}</span>
+                                            <span className="agent-ai-attempt-provider">({att.provider || 'AI Center'})</span>
+                                            <span className={`agent-cost-tag is-${att.cost_class}`}>
+                                                {att.cost_class === 'free' ? 'Free' : att.cost_class === 'paid' ? 'Paid' : 'Unknown'}
+                                            </span>
+                                            <span className={`agent-status-tag is-${att.status}`}>
+                                                {att.status === 'success' ? '✓' : att.status === 'failed' ? '✕' : att.status}
+                                            </span>
+                                            {att.duration_ms != null && (
+                                                <span className="agent-ai-attempt-time">{att.duration_ms}ms</span>
+                                            )}
+                                            {att.failure_reason && (
+                                                <span className="agent-ai-attempt-failure">({att.failure_reason})</span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        <div className="agent-ai-usage-grid">
+                            <div className="agent-ai-usage-col">
+                                <span className="agent-ai-usage-sublabel">Input Tokens</span>
+                                <span className="agent-ai-usage-num font-mono">{usage.input_tokens != null ? Number(usage.input_tokens).toLocaleString() : '—'}</span>
+                            </div>
+                            <div className="agent-ai-usage-col">
+                                <span className="agent-ai-usage-sublabel">Output Tokens</span>
+                                <span className="agent-ai-usage-num font-mono">{usage.output_tokens != null ? Number(usage.output_tokens).toLocaleString() : '—'}</span>
+                            </div>
+                            {usage.reasoning_tokens != null && (
+                                <div className="agent-ai-usage-col">
+                                    <span className="agent-ai-usage-sublabel">Reasoning Tokens</span>
+                                    <span className="agent-ai-usage-num font-mono">{Number(usage.reasoning_tokens).toLocaleString()}</span>
+                                </div>
+                            )}
+                            <div className="agent-ai-usage-col">
+                                <span className="agent-ai-usage-sublabel">Total Tokens</span>
+                                <span className="agent-ai-usage-num font-mono">{usage.total_tokens != null ? Number(usage.total_tokens).toLocaleString() : '—'}</span>
+                            </div>
+                        </div>
+
+                        <div className="agent-ai-usage-row agent-ai-usage-cost-row">
+                            <span className="agent-ai-usage-label">{locale === 'vi' ? 'Chi phí ghi nhận:' : 'Recorded Cost:'}</span>
+                            <span className="agent-ai-usage-cost-value font-mono font-semibold">
+                                {formatCost()}
+                            </span>
+                        </div>
+                    </>
+                )}
+            </div>
+        </details>
     );
 }
 
@@ -453,6 +650,58 @@ export function AgentWidget({
     const [rerunErrorByTurn, setRerunErrorByTurn] = useState(null);
 
     const [tier, setTier] = useState('free');
+    const [liveRunUlid, setLiveRunUlid] = useState(null);
+    const [liveExecutionStatus, setLiveExecutionStatus] = useState(null);
+    const [paidConsent, setPaidConsent] = useState(false);
+
+    function generateClientUlid() {
+        const time = Date.now().toString(36);
+        const random = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
+        return `01${time}${random}`.slice(0, 26).toUpperCase();
+    }
+
+    useEffect(() => {
+        if (!liveRunUlid || (!busy && !rerunTargetId)) {
+            return undefined;
+        }
+
+        let isSubscribed = true;
+        let pollTimeout = null;
+        let isRequestInFlight = false;
+
+        async function pollStatus() {
+            if (!isSubscribed || isRequestInFlight) return;
+            isRequestInFlight = true;
+            try {
+                const res = await fetch(`/agent-runtime/runs/${encodeURIComponent(liveRunUlid)}/status`, {
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                if (res.ok) {
+                    const payload = await res.json();
+                    if (isSubscribed && payload?.data) {
+                        setLiveExecutionStatus(payload.data);
+                    }
+                }
+            } catch {
+                // Ignore polling errors
+            } finally {
+                isRequestInFlight = false;
+                if (isSubscribed) {
+                    pollTimeout = setTimeout(pollStatus, 2000);
+                }
+            }
+        }
+
+        pollTimeout = setTimeout(pollStatus, 1200);
+
+        return () => {
+            isSubscribed = false;
+            if (pollTimeout) clearTimeout(pollTimeout);
+        };
+    }, [liveRunUlid, busy, rerunTargetId]);
     const [isListening, setIsListening] = useState(false);
     const [voiceNotice, setVoiceNotice] = useState('');
     const [speakingKey, setSpeakingKey] = useState(null);
@@ -1098,12 +1347,23 @@ export function AgentWidget({
             return;
         }
 
+        if ((tier === 'pro' || tier === 'master') && !paidConsent) {
+            setError(locale === 'vi'
+                ? `Vui lòng xác nhận cho phép sử dụng mô hình có thể phát sinh chi phí trước khi gửi ở chế độ ${tier === 'pro' ? 'Pro' : 'Master'}.`
+                : `Please confirm paid model capability before sending in ${tier === 'pro' ? 'Pro' : 'Master'} tier.`);
+            return;
+        }
+
         const userMessageText = draft.trim();
         setDraft('');
         setError('');
         setBusy(true);
         setProcessingStatus('Thinking…');
         setOpenReviewRunUlid(null);
+
+        const clientUlid = generateClientUlid();
+        setLiveRunUlid(clientUlid);
+        setLiveExecutionStatus(null);
 
         const tempUserId = `temp-${Date.now()}`;
         setMessages((current) => [...current, { role: 'user', id: tempUserId, content: userMessageText }]);
@@ -1121,6 +1381,8 @@ export function AgentWidget({
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
                 tier,
+                run_ulid: clientUlid,
+                paid_consent: paidConsent,
             });
 
             const data = payload?.data || {};
@@ -1174,6 +1436,8 @@ export function AgentWidget({
             setProcessingStatus(null);
         } finally {
             setBusy(false);
+            setLiveRunUlid(null);
+            setLiveExecutionStatus(null);
         }
     }
 
@@ -1290,6 +1554,18 @@ export function AgentWidget({
         if (busy || rerunTargetId || !activeThreadUlid || !userMessageId || isViewingArchived) {
             return;
         }
+
+        if ((tier === 'pro' || tier === 'master') && !paidConsent) {
+            setError(locale === 'vi'
+                ? `Vui lòng xác nhận cho phép sử dụng mô hình có thể phát sinh chi phí trước khi thử lại ở chế độ ${tier === 'pro' ? 'Pro' : 'Master'}.`
+                : `Please confirm paid model capability before rerunning in ${tier === 'pro' ? 'Pro' : 'Master'} tier.`);
+            return;
+        }
+
+        const clientUlid = generateClientUlid();
+        setLiveRunUlid(clientUlid);
+        setLiveExecutionStatus(null);
+
         setRerunTargetId(userMessageId);
         setRerunNotice('Thinking…');
         setRerunErrorByTurn(null);
@@ -1301,6 +1577,8 @@ export function AgentWidget({
             const payload = await postJson(rerunUrl, csrf, {
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
+                run_ulid: clientUlid,
+                paid_consent: paidConsent,
             });
 
             const data = payload?.data || {};
@@ -1334,6 +1612,9 @@ export function AgentWidget({
             setRerunErrorByTurn({ id: userMessageId, message: caught.message || 'Could not rerun message.' });
             setRerunTargetId(null);
             setRerunNotice('');
+        } finally {
+            setLiveRunUlid(null);
+            setLiveExecutionStatus(null);
         }
     }
 
@@ -1713,7 +1994,7 @@ export function AgentWidget({
                                     </article>
 
                                     {rerunning ? (
-                                        <AgentProcessingCard status={rerunNotice || 'Thinking…'} isRerun={true} locale={locale} tier={tier} />
+                                        <AgentProcessingCard status={rerunNotice || 'Thinking…'} isRerun={true} locale={locale} tier={tier} liveExecution={liveExecutionStatus} />
                                     ) : version ? (
                                         <article className="agent-message is-assistant">
                                             <div className="agent-message__header">
@@ -1730,6 +2011,10 @@ export function AgentWidget({
                                                     selectionKey={version.id || version.response?.run_ulid || turn.id}
                                                     debug={isDebugMode}
                                                 />
+                                                {(() => {
+                                                    const exec = version?.response?.execution || version?.response?.model_diagnostics?.execution;
+                                                    return <AiExecutionDisclosure execution={exec} locale={locale} />;
+                                                })()}
                                                 {(() => {
                                                     const modelDiag = version?.response?.model_diagnostics;
                                                     const answerDiag = version?.response?.answer_diagnostics;
@@ -1841,7 +2126,7 @@ export function AgentWidget({
                         }) : null}
 
                         {!isTestMode && processingStatus ? (
-                            <AgentProcessingCard status={processingStatus} isRerun={false} locale={locale} tier={tier} role="status" label={processingStatus} />
+                            <AgentProcessingCard status={processingStatus} isRerun={false} locale={locale} tier={tier} liveExecution={liveExecutionStatus} role="status" label={processingStatus} />
                         ) : null}
 
                         {error ? <div className="agent-error-banner">{error}</div> : null}
@@ -1932,6 +2217,27 @@ export function AgentWidget({
                                     disabled={busy || Boolean(threadLoadingUlid) || Boolean(rerunTargetId) || isViewingArchived}
                                     rows={2}
                                 />
+                                {(tier === 'pro' || tier === 'master') ? (
+                                    <div className="agent-paid-consent-banner">
+                                        <label className="agent-paid-consent-label">
+                                            <input
+                                                type="checkbox"
+                                                checked={paidConsent}
+                                                onChange={(e) => setPaidConsent(e.target.checked)}
+                                                disabled={busy || isViewingArchived}
+                                            />
+                                            <span>
+                                                {tier === 'pro'
+                                                    ? (locale === 'vi'
+                                                        ? 'Chế độ Pro: Ưu tiên mô hình miễn phí, có thể tự động chuyển sang mô hình có phí nếu cần. Tôi đồng ý xác nhận chi phí cho lượt này.'
+                                                        : 'Pro Tier: Prefers free models with possible fallback to paid models. I authorize recorded cost for this turn.')
+                                                    : (locale === 'vi'
+                                                        ? 'Chế độ Master: Có thể sử dụng mô hình AI tính phí để đạt chất lượng cao nhất. Tôi đồng ý xác nhận chi phí cho lượt này.'
+                                                        : 'Master Tier: May use paid AI models. I authorize recorded cost for this turn.')}
+                                            </span>
+                                        </label>
+                                    </div>
+                                ) : null}
                                 <div className="agent-composer-actions">
                                     <div className="agent-composer-actions__left">
                                         <div className="agent-tier-selector" title={locale === 'vi' ? 'Chọn chế độ mô hình' : 'Select model tier'}>

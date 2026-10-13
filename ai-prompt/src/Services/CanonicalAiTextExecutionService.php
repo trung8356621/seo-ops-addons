@@ -106,14 +106,41 @@ final class CanonicalAiTextExecutionService
             ]);
         }
 
+        $tracker = $options['execution_tracker'] ?? null;
+
         try {
             [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->router->executeWithProfile(
                 $profile->value,
                 $context,
-                function (RoutedAiCandidate $routed) use ($compiledPrompt, $hookKey, $options): array {
-                    return $this->executeCandidate($routed, $compiledPrompt, $hookKey, $options);
+                function (RoutedAiCandidate $routed) use ($compiledPrompt, $hookKey, $options, $tracker): array {
+                    $attemptNumber = null;
+                    if ($tracker instanceof \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker) {
+                        $attemptNumber = $tracker->recordAttemptStart(
+                            provider: (string) $routed->provider,
+                            connectionName: (string) $routed->connection->name,
+                            model: (string) $routed->model,
+                            costClass: $routed->isFree ? 'free' : 'paid',
+                        );
+                    }
+
+                    try {
+                        [$text, $usage] = $this->executeCandidate($routed, $compiledPrompt, $hookKey, $options);
+                        if ($tracker instanceof \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker && $attemptNumber !== null) {
+                            $tracker->recordAttemptSuccess($attemptNumber, $routed, is_array($usage) ? $usage : null);
+                        }
+                        return [$text, $usage];
+                    } catch (\Throwable $e) {
+                        if ($tracker instanceof \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker && $attemptNumber !== null) {
+                            $tracker->recordAttemptFailure($attemptNumber, $routed, $e);
+                        }
+                        throw $e;
+                    }
                 },
             );
+
+            if ($tracker instanceof \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker && is_array($routingAttempts)) {
+                $tracker->syncFinalRoutingAttempts($routingAttempts, is_array($usage) ? $usage : null, $candidate);
+            }
 
             if (is_array($routingAttempts) && $routingAttempts !== []) {
                 try {
@@ -133,6 +160,10 @@ final class CanonicalAiTextExecutionService
             return [$output, is_array($usage) ? $usage : null, $candidate];
         } catch (\Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException $e) {
             $exhaustedAttempts = $e->context['routing_attempts'] ?? [];
+            if ($tracker instanceof \Omnichannel\Addons\AgentRuntime\Runtime\AgentRunExecutionTracker && is_array($exhaustedAttempts)) {
+                $tracker->syncFinalRoutingAttempts($exhaustedAttempts, null, null);
+            }
+
             if (is_array($exhaustedAttempts) && $exhaustedAttempts !== []) {
                 try {
                     app(PromptExecutionPersistence::class)->recordRoutingAttempts(

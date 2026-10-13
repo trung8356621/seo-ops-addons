@@ -58,11 +58,11 @@ test('new conversation and scope changes clear stale paused state', () => {
 
 test('copy uses the exact full prompt and reports success only after copying', () => {
     assert.equal(modal.includes("await copyPlainText(modelCall.full_prompt || '');"), true);
-    const copyStart = modal.indexOf('async function copyPrompt()');
+    const copyStart = modal.indexOf('async function copyRawPrompt()');
     const copyPrompt = modal.slice(copyStart, modal.indexOf('    return (', copyStart));
-    assert.ok(copyPrompt.indexOf('await copyPlainText') < copyPrompt.indexOf('setCopied(true)'));
+    assert.ok(copyPrompt.indexOf('await copyPlainText') < copyPrompt.indexOf('setCopiedRaw(true)'));
     assert.match(copyPrompt, /catch \{[\s\S]*setCopyError\(/);
-    assert.equal(modal.includes("copied ? 'Copied' : 'Copy full prompt'"), true);
+    assert.equal(modal.includes("copiedRaw ? 'Đã chép raw' : 'Copy raw input'"), true);
 });
 
 test('clipboard helper falls back to an exact temporary textarea copy', () => {

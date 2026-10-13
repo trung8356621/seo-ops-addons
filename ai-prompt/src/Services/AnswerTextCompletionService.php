@@ -36,6 +36,7 @@ final class AnswerTextCompletionService implements AnswerTextCompletion
             canonicalPromptKey: self::HOOK_KEY,
             promptTaskType: 'agent_runtime_answer',
             modelArea: AiExecutionProfile::TextReasoning->value,
+            correlationId: is_string($options['correlation_id'] ?? null) ? $options['correlation_id'] : null,
             routingPolicy: $policy,
             routingPolicyRequested: $policy,
             routingPolicyEffective: $policy,

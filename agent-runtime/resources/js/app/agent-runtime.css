@@ -966,6 +966,265 @@
     color: #d97706;
 }
 
+/* Live Model Execution & Cost Transparency */
+.agent-processing-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.agent-processing-card__meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 6px 12px;
+    font-size: 11px;
+}
+
+.agent-processing-card__meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.agent-processing-card__meta-label {
+    color: #64748b;
+    font-weight: 500;
+}
+
+.agent-processing-card__meta-value {
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.agent-processing-card__fallback-alert {
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+/* Cost tags */
+.agent-cost-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.agent-cost-tag.is-free {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+}
+
+.agent-cost-tag.is-paid {
+    background: #fff1f2;
+    color: #e11d48;
+    border: 1px solid #fecdd3;
+}
+
+.agent-cost-tag.is-unknown {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
+}
+
+/* Paid Consent Banner */
+.agent-paid-consent-banner {
+    padding: 8px 12px;
+    background: #fffbeb;
+    border-top: 1px solid #fef3c7;
+    font-size: 12px;
+    color: #92400e;
+}
+
+.agent-paid-consent-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.agent-paid-consent-label input[type="checkbox"] {
+    margin-top: 2px;
+    accent-color: #d97706;
+}
+
+/* AI Usage Disclosure in Response */
+.agent-ai-usage-disclosure {
+    margin-top: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 12px;
+    color: #334155;
+    overflow: hidden;
+}
+
+.agent-ai-usage-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+}
+
+.agent-ai-usage-summary::-webkit-details-marker {
+    display: none;
+}
+
+.agent-ai-usage-summary__badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    color: #475569;
+    font-weight: 500;
+}
+
+.agent-ai-usage-summary__badge--internal {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.agent-ai-usage-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.agent-ai-usage-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.agent-ai-usage-label {
+    color: #64748b;
+    font-weight: 500;
+    min-width: 90px;
+}
+
+.agent-ai-usage-value {
+    color: #0f172a;
+}
+
+.agent-ai-usage-attempts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-ai-usage-attempts-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-ai-attempt-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: #f8fafc;
+    border-radius: 6px;
+    font-size: 11px;
+    border-left: 3px solid #cbd5e1;
+}
+
+.agent-ai-attempt-item.is-success {
+    border-left-color: #10b981;
+}
+
+.agent-ai-attempt-item.is-failed {
+    border-left-color: #ef4444;
+}
+
+.agent-ai-attempt-num {
+    font-weight: 700;
+    color: #64748b;
+}
+
+.agent-ai-attempt-time {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.agent-ai-attempt-failure {
+    color: #b91c1c;
+    font-size: 10px;
+}
+
+.agent-status-tag {
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.agent-status-tag.is-success {
+    color: #059669;
+}
+
+.agent-status-tag.is-failed {
+    color: #dc2626;
+}
+
+.agent-ai-usage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 8px;
+    padding: 8px;
+    background: #f8fafc;
+    border-radius: 6px;
+    margin-top: 4px;
+}
+
+.agent-ai-usage-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.agent-ai-usage-sublabel {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+}
+
+.agent-ai-usage-num {
+    font-size: 12px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.agent-ai-usage-cost-row {
+    padding-top: 6px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.agent-ai-usage-cost-value {
+    color: #0284c7;
+    font-size: 13px;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .agent-spinner {
         animation: none;

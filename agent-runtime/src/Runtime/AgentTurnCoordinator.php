@@ -33,6 +33,7 @@ use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
+use Illuminate\Support\Str;
 use Throwable;
 
 final class AgentTurnResult
@@ -144,6 +145,7 @@ class AgentTurnCoordinator
         bool $diagnostics = false,
         ?AiRoutingPolicy $routingPolicy = null,
         ?string $tier = null,
+        ?string $runUlid = null,
     ): AgentTurnResult {
         $prepared = $this->prepare($userId, $scope, $message, $history, $diagnostics);
         $modelDiagnostics = null;
@@ -155,6 +157,25 @@ class AgentTurnCoordinator
         }
 
         if ($prepared['response'] instanceof AgentResponse) {
+            $trace = $prepared['executionTrace'] ?? [];
+            if (is_array($trace)) {
+                $trace['router'] = $trace['router'] ?? 'local';
+                $trace['synthesis'] = false;
+                $trace['external_model'] = null;
+                $trace['external_model_calls'] = 0;
+                $trace['internal_only'] = true;
+                if ($tier !== null) {
+                    $trace['tier'] = $tier;
+                }
+                if ($routingPolicy !== null) {
+                    $trace['routing_policy'] = $routingPolicy->value;
+                }
+            }
+            if ($runUlid !== null && trim($runUlid) !== '') {
+                $tracker = new AgentRunExecutionTracker(trim($runUlid), $userId, $tier, $routingPolicy?->value);
+                $tracker->markInternalOnly();
+            }
+
             return new AgentTurnResult(
                 $prepared['response'],
                 $prepared['routing'],
@@ -163,7 +184,7 @@ class AgentTurnCoordinator
                 $prepared['failureCode'],
                 null,
                 $modelDiagnostics !== null && count($modelDiagnostics) > 0 ? $modelDiagnostics : null,
-                executionTrace: $prepared['executionTrace'] ?? null,
+                executionTrace: $trace,
                 gscContinuation: $prepared['gscContinuation'] ?? null,
             );
         }
@@ -179,11 +200,11 @@ class AgentTurnCoordinator
             );
         }
 
-        $trace = $prepared['executionTrace'] ?? null;
+        $assumedModel = $this->assumedAnswerLabel($userId, $routingPolicy);
+        $trace = $prepared['executionTrace'] ?? [];
         if (is_array($trace)) {
             $trace['synthesis'] = true;
-            $trace['external_model_calls'] = 1;
-            $trace['external_model'] = $this->assumedAnswerLabel($userId, $routingPolicy);
+            $trace['assumed_model'] = $assumedModel;
             if ($tier !== null) {
                 $trace['tier'] = $tier;
             }
@@ -192,13 +213,19 @@ class AgentTurnCoordinator
             }
         }
 
+        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
+        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
+
         $isComposite = $this->isImprovementComposite(null, $message, $prepared['bundle'], $trace);
         if ($isComposite && is_array($trace)) {
             $trace['prompt_hook'] = 'agent.topic_suggestions.generate@0.1.0';
             $trace['operation'] = 'seo_audit.site_improve_composite';
         }
 
-        $answerOptions = [];
+        $answerOptions = [
+            'execution_tracker' => $tracker,
+            'correlation_id' => $effectiveRunUlid,
+        ];
         if ($routingPolicy !== null) {
             $answerOptions['routing_policy'] = $routingPolicy;
         }
@@ -206,6 +233,7 @@ class AgentTurnCoordinator
             $answerOptions['tier'] = $tier;
         }
 
+        $answerError = null;
         try {
             $raw = $this->answers->complete($userId, $prepared['answer'], $answerOptions);
             if ($isComposite) {
@@ -220,6 +248,7 @@ class AgentTurnCoordinator
                 }
             }
         } catch (AgentResponseRejected $e) {
+            $answerError = $e->getMessage();
             if ($isComposite) {
                 $response = $this->composeCompositeImprovementResponse('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
             } else {
@@ -230,6 +259,7 @@ class AgentTurnCoordinator
                 $trace['answer_status'] = 'rejected';
             }
         } catch (Throwable $e) {
+            $answerError = $e->getMessage();
             if ($isComposite) {
                 $response = $this->composeCompositeImprovementResponse('', $prepared['bundle'], $message, (string) ($prepared['responseLanguage'] ?? $this->legacyResponseLanguage()));
                 $answerDiagnostics = $diagnostics ? [
@@ -248,6 +278,30 @@ class AgentTurnCoordinator
                     'error' => $e->getMessage(),
                 ] : null;
             }
+        }
+
+        $tracker->markCompleted($answerError);
+
+        $winningModel = $tracker->getSuccessfulModel();
+        $attempts = $tracker->getAttempts();
+        $usageSummary = $tracker->getUsageSummary();
+        $costSummary = $tracker->getCostSummary();
+        $attemptedModels = $tracker->getAttemptedModels();
+
+        // If mock answer gateway was used in tests without provider attempts, preserve compatibility
+        $effectiveModel = $winningModel ?? (count($attempts) === 0 ? $assumedModel : null);
+
+        if (is_array($trace)) {
+            $trace['external_model'] = $effectiveModel;
+            $trace['successful_model'] = $winningModel;
+            $trace['successful_provider'] = $tracker->getSuccessfulProvider();
+            $trace['successful_cost_class'] = $tracker->getSuccessfulCostClass();
+            $trace['external_model_calls'] = max(count($attempts), 1);
+            $trace['internal_only'] = false;
+            $trace['attempts'] = $attempts;
+            $trace['attempted_models'] = $attemptedModels;
+            $trace['usage'] = $usageSummary;
+            $trace['cost'] = $costSummary;
         }
 
         if ($diagnostics && $answerDiagnostics !== null) {
@@ -629,12 +683,18 @@ class AgentTurnCoordinator
         string $responseLanguage,
         ?AiRoutingPolicy $routingPolicy = null,
         ?string $tier = null,
+        ?string $runUlid = null,
     ): AgentTurnResult {
         $routingInput = $this->buildRoutingInput($scope, $message, $history);
         $factual = $this->factual->compose($bundle, $message, $responseLanguage);
         $unresolved = $this->factual->unresolvedRequirements($bundle, $message);
         $answerInput = $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, $responseTemplate, $responseLanguage, $unresolved);
         if ($factual instanceof AgentResponse) {
+            if ($runUlid !== null && trim($runUlid) !== '') {
+                $tracker = new AgentRunExecutionTracker(trim($runUlid), $userId, $tier, $routingPolicy?->value);
+                $tracker->markInternalOnly();
+            }
+
             return new AgentTurnResult(
                 $factual,
                 $routingInput,
@@ -646,6 +706,7 @@ class AgentTurnCoordinator
                     'synthesis' => false,
                     'external_model' => null,
                     'external_model_calls' => 0,
+                    'internal_only' => true,
                     'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
                     'tier' => $tier,
                     'routing_policy' => $routingPolicy?->value,
@@ -653,7 +714,14 @@ class AgentTurnCoordinator
             );
         }
 
-        $answerOptions = [];
+        $effectiveRunUlid = ($runUlid !== null && trim($runUlid) !== '') ? trim($runUlid) : (string) Str::ulid();
+        $tracker = new AgentRunExecutionTracker($effectiveRunUlid, $userId, $tier, $routingPolicy?->value);
+        $assumedModel = $this->assumedAnswerLabel($userId, $routingPolicy);
+
+        $answerOptions = [
+            'execution_tracker' => $tracker,
+            'correlation_id' => $effectiveRunUlid,
+        ];
         if ($routingPolicy !== null) {
             $answerOptions['routing_policy'] = $routingPolicy;
         }
@@ -661,20 +729,41 @@ class AgentTurnCoordinator
             $answerOptions['tier'] = $tier;
         }
 
+        $answerError = null;
         try {
             $raw = $this->answers->complete($userId, $answerInput, $answerOptions);
             $response = $this->recoverParsedAnswer($raw, $bundle, $message, $responseLanguage, false)['response'];
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            $answerError = $e->getMessage();
             $response = $this->verifiedFallback($bundle, $message, $responseLanguage);
         }
+
+        $tracker->markCompleted($answerError);
+
+        $winningModel = $tracker->getSuccessfulModel();
+        $attempts = $tracker->getAttempts();
+        $usageSummary = $tracker->getUsageSummary();
+        $costSummary = $tracker->getCostSummary();
+        $attemptedModels = $tracker->getAttemptedModels();
+
+        $effectiveModel = $winningModel ?? (count($attempts) === 0 ? $assumedModel : null);
 
         $confirmedTrace = [
             'router' => 'local',
             'synthesis' => true,
-            'external_model' => $this->assumedAnswerLabel($userId, $routingPolicy),
-            'external_model_calls' => 1,
+            'assumed_model' => $assumedModel,
+            'external_model' => $effectiveModel,
+            'successful_model' => $winningModel,
+            'successful_provider' => $tracker->getSuccessfulProvider(),
+            'successful_cost_class' => $tracker->getSuccessfulCostClass(),
+            'external_model_calls' => max(count($attempts), 1),
+            'internal_only' => false,
             'unresolved' => $unresolved,
             'tools' => array_map(static fn (RetrievalSource $source): string => $source->name, $bundle->sources),
+            'attempts' => $attempts,
+            'attempted_models' => $attemptedModels,
+            'usage' => $usageSummary,
+            'cost' => $costSummary,
         ];
         if ($tier !== null) {
             $confirmedTrace['tier'] = $tier;

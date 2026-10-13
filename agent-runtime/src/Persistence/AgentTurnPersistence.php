@@ -42,9 +42,12 @@ class AgentTurnPersistence
         string $scopeType,
         string $scopeRef,
         ?int $userId,
+        ?string $ulid = null,
     ): AgentRun {
+        $runUlid = ($ulid !== null && trim($ulid) !== '') ? trim($ulid) : (string) Str::ulid();
+
         return AgentRun::create([
-            'ulid' => (string) Str::ulid(),
+            'ulid' => $runUlid,
             'thread_id' => $thread->id,
             'user_message_id' => $userMessage->id,
             'app_key' => $appKey,
@@ -63,8 +66,9 @@ class AgentTurnPersistence
         string $scopeType,
         string $scopeRef,
         ?int $userId,
+        ?string $ulid = null,
     ): AgentRun {
-        return $this->startRun($thread, $userMessage, $appKey, $scopeType, $scopeRef, $userId);
+        return $this->startRun($thread, $userMessage, $appKey, $scopeType, $scopeRef, $userId, $ulid);
     }
 
     public function completeRun(

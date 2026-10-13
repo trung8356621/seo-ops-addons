@@ -230,7 +230,8 @@ final class AgentPersistenceContractTest extends TestCase
             new \Omnichannel\Addons\AgentRuntime\Response\AgentResponse('Hi', [['type' => 'text'], ['type' => 'warning', 'text' => 'global_access_unsupported']], [], []),
             $this->createMock(\Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput::class),
             $this->createMock(\Omnichannel\Addons\AgentRuntime\Model\PreparedModelInput::class),
-            false
+            false,
+            'global_access_unsupported'
         );
         $coordinator->method('send')->willReturn($result);
 
