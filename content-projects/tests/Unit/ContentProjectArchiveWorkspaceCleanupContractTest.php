@@ -214,7 +214,9 @@ final class ContentProjectArchiveWorkspaceCleanupContractTest extends TestCase
         $execution = $this->readMethodSource((new ReflectionClass(ExecutionWorkspaceCleaner::class))->getMethod('clean'));
         self::assertStringContainsString('runIds()', $execution);
         self::assertStringContainsString('taskIds()', $execution);
-        self::assertStringContainsString('articleIds()', $execution); // mixed: orphan run-items by article
+        self::assertStringContainsString('articleIds()', $execution);
+        self::assertStringContainsString("whereNull('run_id')", $execution);
+        self::assertStringNotContainsString('orWhereNull(\'run_id\')', $execution);
 
         // C. mixed prompt: run/task/article filters, but articleIds come from context only
         $prompt = $this->readMethodSource((new ReflectionClass(PromptWorkspaceCleaner::class))->getMethod('clean'));

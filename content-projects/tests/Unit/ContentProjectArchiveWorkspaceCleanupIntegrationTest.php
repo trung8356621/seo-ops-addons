@@ -19,6 +19,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard;
@@ -218,25 +219,32 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
         $this->createTask($archivedProject, null, SeoProjectTask::STATUS_PENDING);
 
         $now = now();
-        $promptId = (int) (\Illuminate\Support\Facades\DB::connection('omi_seo_ai')->table('prompts')->min('id') ?? 0);
+        $promptId = (int) (DB::connection('omi_seo_ai')->table('prompts')->min('id') ?? 0);
         if ($promptId <= 0) {
-            $promptId = (int) \Illuminate\Support\Facades\DB::connection('omi_seo_ai')->table('prompts')->insertGetId([
+            $promptRow = [
                 'name' => 'gc-cleanup-'.$this->seq++,
+                'title' => 'gc-cleanup',
                 'user_id' => 1,
-                'site_id' => $siteId,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ];
+            if (Schema::connection('omi_seo_ai')->hasColumn('prompts', 'site_id')) {
+                $promptRow['site_id'] = $siteId;
+            }
+            $promptId = (int) DB::connection('omi_seo_ai')->table('prompts')->insertGetId($promptRow);
         }
 
-        $promptResultId = (int) \Illuminate\Support\Facades\DB::connection('omi_seo_ai')->table('prompt_results')->insertGetId([
+        $resultRow = [
             'prompt_id' => $promptId,
             'status' => 'completed',
             'user_id' => 1,
-            'site_id' => $siteId,
             'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+        if (Schema::connection('omi_seo_ai')->hasColumn('prompt_results', 'site_id')) {
+            $resultRow['site_id'] = $siteId;
+        }
+        $promptResultId = (int) DB::connection('omi_seo_ai')->table('prompt_results')->insertGetId($resultRow);
 
         SeoPromptResultLink::query()->create([
             'prompt_result_id' => $promptResultId,
@@ -560,7 +568,8 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
         try {
             $service->archive($projectOne->fresh(), 1, note: 'repeat');
             self::fail('Repeated archive of a closed project must not rewrite history.');
-        } catch (RuntimeException) {
+        } catch (\Throwable $e) {
+            self::assertStringContainsString('đã được lưu trữ', $e->getMessage());
         }
 
         self::assertSame(2, SeoProjectArchiveItem::query()->where('article_id', (int) $article->id)->count());
@@ -579,24 +588,28 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
         $this->createTask($project, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
 
         $service = $this->resolveArchiveCleanupService();
-        app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry::class)
-            ->register(new class implements ContentProjectWorkspaceCleaner
+        $destroyer = (new \ReflectionProperty($service, 'workspaceDestroyer'))->getValue($service);
+        $registry = (new \ReflectionProperty($destroyer, 'registry'))->getValue($destroyer);
+        $registry->register(new class implements ContentProjectWorkspaceCleaner
+        {
+            public function key(): string
             {
-                public function key(): string
-                {
-                    return 'failing_probe';
-                }
+                return 'failing_probe';
+            }
 
-                public function clean(ContentProjectWorkspaceCleanupContext $context): void
-                {
-                    throw new RuntimeException('cleanup failed');
-                }
-            });
+            public function clean(ContentProjectWorkspaceCleanupContext $context): void
+            {
+                throw new \RuntimeException('cleanup failed');
+            }
+        });
 
         try {
             $service->archive($project->fresh(), 1, note: 'should-roll-back');
             self::fail('Archive must fail closed when workspace cleanup throws.');
-        } catch (RuntimeException $e) {
+        } catch (\Throwable $e) {
+            if ($e instanceof \PHPUnit\Framework\AssertionFailedError) {
+                throw $e;
+            }
             self::assertSame('cleanup failed', $e->getMessage());
         }
 
@@ -611,6 +624,124 @@ final class ContentProjectArchiveWorkspaceCleanupIntegrationTest extends TestCas
                 ->value('meta_value'),
         );
         self::assertTrue(app(ContentProjectArticleMembership::class)->belongsToActiveContentProject((int) $article->id));
+    }
+
+    public function test_null_run_id_cleanup_cannot_delete_another_projects_run_item(): void
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_project_run_items')) {
+            $this->markTestSkipped('Run item table unavailable.');
+        }
+
+        $siteId = 93008;
+        $article = $this->createArticle($siteId, 'Null run article');
+        $projectOne = $this->createProject(userId: 93081, siteId: $siteId, name: 'Null run P1');
+        $taskOne = $this->createTask($projectOne, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+        $projectTwo = $this->createProject(userId: 93082, siteId: $siteId, name: 'Null run P2');
+        $taskTwo = $this->createTask($projectTwo, null, SeoProjectTask::STATUS_PENDING);
+
+        $runTwo = SeoProjectRun::query()->create([
+            'project_id' => (int) $projectTwo->id,
+            'user_id' => 93082,
+            'mode' => SeoProjectRun::MODE_FULL,
+            'status' => SeoProjectRun::STATUS_COMPLETED,
+            'total' => 1,
+            'succeeded' => 1,
+            'failed' => 0,
+            'finished_at' => now(),
+        ]);
+        $foreignItem = SeoProjectRunItem::query()->create([
+            'run_id' => (int) $runTwo->id,
+            'task_id' => (int) $taskTwo->id,
+            'article_id' => (int) $article->id,
+            'action' => 'generate',
+            'status' => 'completed',
+            'attempt' => 1,
+        ]);
+        $runOne = SeoProjectRun::query()->create([
+            'project_id' => (int) $projectOne->id,
+            'user_id' => 93081,
+            'mode' => SeoProjectRun::MODE_FULL,
+            'status' => SeoProjectRun::STATUS_COMPLETED,
+            'total' => 1,
+            'succeeded' => 1,
+            'failed' => 0,
+            'finished_at' => now(),
+        ]);
+        $ownItem = SeoProjectRunItem::query()->create([
+            'run_id' => (int) $runOne->id,
+            'task_id' => (int) $taskOne->id,
+            'article_id' => (int) $article->id,
+            'action' => 'generate',
+            'status' => 'completed',
+            'attempt' => 1,
+        ]);
+
+        $cleaner = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\ExecutionWorkspaceCleaner::class))->getFileName(),
+        );
+        self::assertStringContainsString("whereNull('run_id')", $cleaner);
+        self::assertStringContainsString('taskIds()', $cleaner);
+        self::assertStringNotContainsString("orWhereNull('run_id')", $cleaner);
+
+        $this->resolveArchiveCleanupService()->archive($projectOne->fresh(), 1, note: 'null-run');
+
+        self::assertNotNull(SeoProjectRunItem::query()->find($foreignItem->id));
+        self::assertNotNull(SeoProjectRun::query()->find($runTwo->id));
+        self::assertNull(SeoProjectRunItem::query()->find($ownItem->id));
+    }
+
+    public function test_restore_then_rearchive_does_not_inflate_workload(): void
+    {
+        $siteId = 93009;
+        $article = $this->createArticle($siteId, 'Workload article');
+        $other = $this->createArticle($siteId, 'Workload other');
+        $project = $this->createProject(userId: 93091, siteId: $siteId, name: 'Workload project');
+        $task = $this->createTask($project, (int) $article->id, SeoProjectTask::STATUS_COMPLETED);
+        $service = $this->resolveArchiveCleanupService();
+
+        $archive = $service->archive($project->fresh(), 1, note: 'workload-1');
+        $before = $this->archivedItemCount((int) $project->id);
+        self::assertSame(1, $before);
+
+        $service->restore($project->fresh(), 1);
+        $task->refresh();
+        $task->forceFill([
+            'article_id' => (int) $other->id,
+            'status' => SeoProjectTask::STATUS_COMPLETED,
+        ])->saveQuietly();
+
+        $service->archive($project->fresh(), 1, note: 'workload-2');
+
+        self::assertSame(1, SeoProjectArchive::query()->where('project_id', (int) $project->id)->count());
+        self::assertSame(1, SeoProjectArchiveItem::query()->where('seo_project_archive_id', (int) $archive->id)->count());
+        self::assertSame(1, $this->archivedItemCount((int) $project->id));
+        self::assertNull(
+            SeoProjectArchiveItem::query()
+                ->where('seo_project_archive_id', (int) $archive->id)
+                ->where('article_id', (int) $article->id)
+                ->first(),
+        );
+        self::assertNotNull(
+            SeoProjectArchiveItem::query()
+                ->where('seo_project_archive_id', (int) $archive->id)
+                ->where('article_id', (int) $other->id)
+                ->first(),
+        );
+        self::assertSame(
+            2,
+            DB::connection('omi_seo_ai')->table('seo_content_project_business_audits')
+                ->where('action', 'content_project.project_audit')
+                ->where('project_ref', ContentProjectPublicRef::project((int) $project->id))
+                ->count(),
+        );
+    }
+
+    private function archivedItemCount(int $projectId): int
+    {
+        return (int) app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService::class)
+            ->archivedCanonicalItemQuery('2026-09-01')
+            ->where('a.project_id', $projectId)
+            ->count();
     }
 
     private function putMeta(int $articleId, string $key, string $value): void

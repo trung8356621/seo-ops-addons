@@ -581,6 +581,11 @@ final class ArchiveContentProjectService
             return $snapshots;
         }
 
+        SeoProjectArchiveItem::query()
+            ->where('seo_project_archive_id', $archiveId)
+            ->whereNotIn('article_id', $currentArticleIds)
+            ->delete();
+
         return $snapshots;
     }
 

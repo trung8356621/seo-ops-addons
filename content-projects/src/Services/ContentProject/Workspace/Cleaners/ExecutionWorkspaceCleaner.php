@@ -48,19 +48,13 @@ final class ExecutionWorkspaceCleaner implements ContentProjectWorkspaceCleaner
             $context->bumpStat('task_events_deleted', (int) $deletedEventsByTask);
         }
 
-        if ($context->hasArticles()) {
-            $orphanItems = SeoProjectRunItem::query()
-                ->whereIn('article_id', $context->articleIds());
-            if ($context->hasRuns()) {
-                $orphanItems->where(function ($query) use ($context): void {
-                    $query->whereIn('run_id', $context->runIds())
-                        ->orWhereNull('run_id');
-                });
-            } else {
-                $orphanItems->whereNull('run_id');
-            }
-            $deletedOrphanItems = $orphanItems->delete();
-            $context->bumpStat('run_items_deleted', (int) $deletedOrphanItems);
+        if ($context->hasArticles() && $context->hasTasks()) {
+            $deletedNullRunItems = SeoProjectRunItem::query()
+                ->whereIn('article_id', $context->articleIds())
+                ->whereIn('task_id', $context->taskIds())
+                ->whereNull('run_id')
+                ->delete();
+            $context->bumpStat('run_items_deleted', (int) $deletedNullRunItems);
         }
     }
 }
