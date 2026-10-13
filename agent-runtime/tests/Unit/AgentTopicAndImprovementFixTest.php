@@ -702,7 +702,7 @@ final class AgentTopicAndImprovementFixTest extends TestCase
 
         // Chat prompt export
         $chat = $input->exportForManualChat();
-        self::assertStringContainsString('suggestions', $chat);
+        self::assertStringContainsString('topics', $chat);
         self::assertStringContainsString('Balo Du Lịch', $chat);
     }
 
@@ -714,13 +714,15 @@ final class AgentTopicAndImprovementFixTest extends TestCase
 
         // Valid JSON
         $validJson = json_encode([
-            'suggestions' => [
+            'topics' => [
                 [
-                    'topic_ref' => 'topic:101',
-                    'title' => 'Top 10 mẫu balo du lịch chống nước 2026',
-                    'keyword' => 'balo du lịch chống nước',
-                    'intent' => 'commercial',
-                    'reason' => 'Bổ sung nội dung cho chủ đề yếu',
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        [
+                            'balo du lịch chống nước',
+                            'Top 10 mẫu balo du lịch chống nước 2026',
+                        ],
+                    ],
                 ],
             ],
         ]);
@@ -729,6 +731,7 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertCount(1, $parsed['suggestions']);
         self::assertSame('topic:101', $parsed['suggestions'][0]['topic_ref']);
         self::assertSame('Top 10 mẫu balo du lịch chống nước 2026', $parsed['suggestions'][0]['title']);
+        self::assertSame('balo du lịch chống nước', $parsed['suggestions'][0]['keyword']);
 
         // Markdown code fence stripped
         $fenced = "```json\n".$validJson."\n```";
@@ -737,17 +740,18 @@ final class AgentTopicAndImprovementFixTest extends TestCase
 
         // Reject unknown topic_ref
         $invalidRefJson = json_encode([
-            'suggestions' => [
+            'topics' => [
                 [
-                    'topic_ref' => 'topic:999',
-                    'title' => 'Invented Title',
-                    'keyword' => 'invented keyword',
+                    'ref' => 'topic:999',
+                    'ideas' => [
+                        ['invented keyword', 'Invented Title'],
+                    ],
                 ],
             ],
         ]);
 
         $this->expectException(AgentResponseRejected::class);
-        $this->expectExceptionMessage('Suggestion topic_ref [topic:999] is not present in topic evidence.');
+        $this->expectExceptionMessage('Topic ref [topic:999] is not present in authorized topic evidence.');
         $parser->parse($invalidRefJson, $allowedRefs);
     }
 
@@ -757,12 +761,14 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         $parser = new TopicSuggestionsResponseParser();
         $allowedRefs = ['topic:101'];
 
-        // Missing title
+        // Missing title (only 1 element in array)
         $missingTitle = json_encode([
-            'suggestions' => [
+            'topics' => [
                 [
-                    'topic_ref' => 'topic:101',
-                    'keyword' => 'balo du lich',
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        ['balo du lich'],
+                    ],
                 ],
             ],
         ]);
@@ -771,7 +777,7 @@ final class AgentTopicAndImprovementFixTest extends TestCase
             $parser->parse($missingTitle, $allowedRefs);
             self::fail('Should have rejected missing title');
         } catch (AgentResponseRejected $e) {
-            self::assertStringContainsString('missing title', $e->getMessage());
+            self::assertStringContainsString('exactly two non-empty strings', $e->getMessage());
         }
 
         // Invalid JSON
@@ -784,7 +790,7 @@ final class AgentTopicAndImprovementFixTest extends TestCase
 
         // Empty suggestions
         try {
-            $parser->parse('{"suggestions": []}', $allowedRefs);
+            $parser->parse('{"topics": []}', $allowedRefs);
             self::fail('Should have rejected empty suggestions');
         } catch (AgentResponseRejected $e) {
             self::assertStringContainsString('suggestions list is empty', $e->getMessage());
@@ -850,13 +856,15 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         );
 
         $validSuggestions = json_encode([
-            'suggestions' => [
+            'topics' => [
                 [
-                    'topic_ref' => 'topic:101',
-                    'title' => 'Kinh nghiệm chọn balo du lịch 2026',
-                    'keyword' => 'chọn balo du lịch',
-                    'intent' => 'informational',
-                    'reason' => 'Bổ sung nội dung cho topic chưa có bài',
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        [
+                            'chọn balo du lịch',
+                            'Kinh nghiệm chọn balo du lịch 2026',
+                        ],
+                    ],
                 ],
             ],
         ]);
@@ -870,6 +878,8 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         self::assertSame('table', $composed->blocks[3]['type']);
         self::assertStringContainsString('Balo Du Lịch', (string) ($composed->blocks[3]['rows'][0]['topic'] ?? ''));
         self::assertSame('Kinh nghiệm chọn balo du lịch 2026', $composed->blocks[3]['rows'][0]['title']);
+        self::assertSame('new', $composed->blocks[3]['rows'][0]['type']);
+        self::assertSame('content_project.draft.intake', $composed->blocks[3]['actionable']['action']);
 
         // Failure: invalid model suggestions -> Section A preserved + warning block
         $composedFailed = $coordinator->composeCompositeImprovementResponse('invalid completion', $bundle, 'Hãy đề xuất cải thiện SEO', 'vi');
@@ -895,4 +905,297 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         $this->expectExceptionMessage('Prompt hook [agent.topic_suggestions.generate] is not configured.');
         $builder->buildTopicSuggestionsInput(AgentProjectScope::site(4), $bundle, 'vi');
     }
+
+    #[Test]
+    public function prompt_6_parser_supports_multiple_ideas_under_one_topic(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101'];
+
+        $json = json_encode([
+            'topics' => [
+                [
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        ['may balo qua tang', 'Kinh nghiệm đặt may balo quà tặng doanh nghiệp'],
+                        ['balo in logo', 'Cách lựa chọn balo quà tặng in logo phù hợp'],
+                        ['xuong may balo', 'Top xưởng may balo uy tín tại Hà Nội'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $parsed = $parser->parse($json, $allowedRefs);
+        self::assertCount(3, $parsed['suggestions']);
+        self::assertSame('may balo qua tang', $parsed['suggestions'][0]['keyword']);
+        self::assertSame('balo in logo', $parsed['suggestions'][1]['keyword']);
+        self::assertSame('xuong may balo', $parsed['suggestions'][2]['keyword']);
+    }
+
+    #[Test]
+    public function prompt_7_parser_supports_multiple_topic_groups(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101', 'topic:102'];
+
+        $json = json_encode([
+            'topics' => [
+                [
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        ['balo hoc sinh', 'Các mẫu balo học sinh cấp 1 bền đẹp'],
+                    ],
+                ],
+                [
+                    'ref' => 'topic:102',
+                    'ideas' => [
+                        ['tui canvas', 'Xu hướng sử dụng túi canvas thân thiện môi trường'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $parsed = $parser->parse($json, $allowedRefs);
+        self::assertCount(2, $parsed['suggestions']);
+        self::assertSame('topic:101', $parsed['suggestions'][0]['topic_ref']);
+        self::assertSame('topic:102', $parsed['suggestions'][1]['topic_ref']);
+    }
+
+    #[Test]
+    public function prompt_8_parser_enforces_15_ideas_maximum(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101'];
+
+        $ideas = [];
+        for ($i = 1; $i <= 16; $i++) {
+            $ideas[] = ["tu khoa {$i}", "Tieu de bai viet {$i}"];
+        }
+
+        $json = json_encode([
+            'topics' => [
+                [
+                    'ref' => 'topic:101',
+                    'ideas' => $ideas,
+                ],
+            ],
+        ]);
+
+        $this->expectException(AgentResponseRejected::class);
+        $this->expectExceptionMessage('Total accepted ideas exceeds maximum allowed limit of 15.');
+        $parser->parse($json, $allowedRefs);
+    }
+
+    #[Test]
+    public function prompt_9_parser_rejects_empty_keyword_or_title(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101'];
+
+        // Empty keyword
+        $emptyKw = json_encode([
+            'topics' => [
+                ['ref' => 'topic:101', 'ideas' => [['', 'Tiêu đề hợp lệ']]],
+            ],
+        ]);
+        try {
+            $parser->parse($emptyKw, $allowedRefs);
+            self::fail('Should reject empty keyword');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('empty keyword', $e->getMessage());
+        }
+
+        // Empty title
+        $emptyTitle = json_encode([
+            'topics' => [
+                ['ref' => 'topic:101', 'ideas' => [['Từ khóa hợp lệ', '   ']]],
+            ],
+        ]);
+        try {
+            $parser->parse($emptyTitle, $allowedRefs);
+            self::fail('Should reject empty title');
+        } catch (AgentResponseRejected $e) {
+            self::assertStringContainsString('empty title', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function prompt_10_parser_deduplicates_duplicate_keyword_title_pairs(): void
+    {
+        $parser = new TopicSuggestionsResponseParser();
+        $allowedRefs = ['topic:101'];
+
+        $json = json_encode([
+            'topics' => [
+                [
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        ['balo nam', 'Balo Nam Đẹp'],
+                        ['balo nam', 'Balo Nam Đẹp'], // duplicate
+                        ['balo nu', 'Balo Nữ Cá Tính'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $parsed = $parser->parse($json, $allowedRefs);
+        self::assertCount(2, $parsed['suggestions']);
+        self::assertSame('balo nam', $parsed['suggestions'][0]['keyword']);
+        self::assertSame('balo nu', $parsed['suggestions'][1]['keyword']);
+    }
+
+    #[Test]
+    public function prompt_11_debug_manual_result_validation_parity(): void
+    {
+        $resolver = new class implements ResolvesSettingsPromptHook {
+            public function resolveSettingsHook(string $hookKey): SeoPrompt
+            {
+                $prompt = new SeoPrompt();
+                $prompt->hook_key = $hookKey;
+                $prompt->markdown_content = "Prompt for {$hookKey}";
+
+                return $prompt;
+            }
+        };
+
+        $coordinator = (new \ReflectionClass(AgentTurnCoordinator::class))->newInstanceWithoutConstructor();
+        $propertyInputs = new \ReflectionProperty($coordinator, 'inputs');
+        $propertyInputs->setValue($coordinator, new AgentModelInputBuilder(promptBindings: $resolver));
+        $propertyFactual = new \ReflectionProperty($coordinator, 'factual');
+        $propertyFactual->setValue($coordinator, new FactualAgentResponseComposer());
+        $propertyResponses = new \ReflectionProperty($coordinator, 'responses');
+        $propertyResponses->setValue($coordinator, new AgentResponseParser());
+        $propertyParser = new \ReflectionProperty($coordinator, 'topicSuggestionsParser');
+        $propertyParser->setValue($coordinator, new TopicSuggestionsResponseParser());
+
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'topics' => [
+                    ['topic_ref' => 'topic:101', 'name' => 'Balo Thời Trang', 'coverage' => 'weak'],
+                ],
+            ]),
+        ]);
+
+        // State for manual debug intercepted pause
+        $state = [
+            'bundle' => $bundle->toArray(),
+            'is_composite_improvement' => true,
+            'selected_response_language' => 'vi',
+        ];
+
+        // Valid completion in manual debug modal
+        $validManualJson = json_encode([
+            'topics' => [
+                [
+                    'ref' => 'topic:101',
+                    'ideas' => [
+                        ['balo du lịch', 'Top 5 balo du lịch tốt nhất'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $progress = $coordinator->resumeIntercepted(
+            AgentProjectScope::site(4),
+            'Hãy đề xuất cách cải thiện SEO tổng thể cho site này.',
+            [],
+            'answer',
+            $validManualJson,
+            $state,
+            1,
+        );
+
+        self::assertNotNull($progress->result);
+        self::assertNotNull($progress->result->response);
+        self::assertTrue($progress->result->answerModelCalled);
+
+        // Invalid completion in manual debug modal fails closed with AgentResponseRejected
+        $this->expectException(AgentResponseRejected::class);
+        $coordinator->resumeIntercepted(
+            AgentProjectScope::site(4),
+            'Hãy đề xuất cách cải thiện SEO tổng thể cho site này.',
+            [],
+            'answer',
+            '{"invalid": "format"}',
+            $state,
+            1,
+        );
+    }
+
+    #[Test]
+    public function prompt_12_new_idea_draft_submission_item_structure_matches_intake(): void
+    {
+        $composer = new FactualAgentResponseComposer();
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('topics', 'ok', 'keywords.landscape', [
+                'topics' => [
+                    ['topic_ref' => 'topic:101', 'name' => 'Balo Du Lịch', 'coverage' => 'weak'],
+                ],
+            ]),
+        ]);
+
+        $suggestions = [
+            [
+                'topic_ref' => 'topic:101',
+                'title' => 'Kinh nghiệm chọn balo du lịch',
+                'keyword' => 'balo du lich',
+            ],
+        ];
+
+        $blocks = $composer->composeTopicSuggestionsBlocks($suggestions, $bundle, 'vi');
+        $tableBlock = $blocks[1];
+
+        self::assertSame('content_project.draft.intake', $tableBlock['actionable']['action']);
+        self::assertSame('site:4', $tableBlock['actionable']['site_ref']);
+
+        $rowItem = $tableBlock['rows'][0]['item'];
+        self::assertSame('new', $rowItem['type']);
+        self::assertSame('Kinh nghiệm chọn balo du lịch', $rowItem['title']);
+        self::assertSame('balo du lich', $rowItem['keyword']);
+        self::assertSame('topic:101', $rowItem['topic_ref']);
+        self::assertTrue($rowItem['inferred']);
+        self::assertSame('agent', $rowItem['source']['type']);
+        self::assertSame('topic:101', $rowItem['source']['ref']);
+
+        // Test that ServiceApiDraftIntakeService accepts this exact item format
+        $intake = $this->createMock(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ServiceApi\ServiceApiDraftIntakeService::class);
+        $intake->expects($this->once())
+            ->method('intake')
+            ->with($this->callback(function (array $payload): bool {
+                $item = $payload['items'][0];
+                return $payload['site_id'] === 4
+                    && $item['type'] === 'new'
+                    && $item['title'] === 'Kinh nghiệm chọn balo du lịch'
+                    && $item['keyword'] === 'balo du lich'
+                    && $item['source']['type'] === 'agent';
+            }))
+            ->willReturn(new \Omnichannel\Addons\ContentProjects\Services\ContentProject\ServiceApi\ServiceApiDraftIntakeResult(
+                'project:10',
+                'site:4',
+                1,
+                1,
+                0,
+                0,
+                [new \Omnichannel\Addons\ContentProjects\Services\ContentProject\ServiceApi\ServiceApiDraftIntakeItemResult(0, 'added', 'item:50')],
+            ));
+
+        $sites = new class implements \Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory {
+            public function listActiveSites(?int $userId = null): array { return []; }
+            public function isSiteVisible(int $siteId, ?int $userId = null): bool { return $siteId === 4; }
+        };
+
+        $controller = new \Omnichannel\Addons\AgentRuntime\Http\AgentRuntimeController();
+        $request = \Illuminate\Http\Request::create('/agent-runtime/draft-intake', 'POST', [
+            'site_id' => 4,
+            'items' => [$rowItem],
+        ]);
+        $request->setUserResolver(static fn () => new class { public int $id = 1; });
+
+        $response = $controller->draftIntake($request, $sites, $intake);
+        self::assertSame(200, $response->getStatusCode());
+        $data = $response->getData(true)['data'];
+        self::assertSame(1, $data['added']);
+        self::assertSame('/seo/content-projects/10', $data['draft_url']);
+    }
 }
+

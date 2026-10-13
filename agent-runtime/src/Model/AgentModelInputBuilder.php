@@ -117,7 +117,8 @@ final class AgentModelInputBuilder
         $topics = $this->extractCompactTopics($bundle);
         $user = json_encode([
             'language' => $language,
-            'max_suggestions' => 5,
+            'default_ideas' => 12,
+            'max_ideas' => 15,
             'site_context' => array_filter([
                 'site_ref' => $scope->siteRef,
             ]),

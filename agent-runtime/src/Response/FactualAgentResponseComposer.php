@@ -598,7 +598,7 @@ final class FactualAgentResponseComposer
     }
 
     /**
-     * @param  list<array{topic_ref: string, title: string, keyword: string, intent: string, reason: string}>  $suggestions
+     * @param  list<array{topic_ref: string, title: string, keyword: string}>  $suggestions
      * @return list<array<string, mixed>>
      */
     public function composeTopicSuggestionsBlocks(array $suggestions, RetrievalBundle $bundle, string $language): array
@@ -626,35 +626,64 @@ final class FactualAgentResponseComposer
 
         $columns = [
             ['key' => 'n', 'label' => '#'],
-            ['key' => 'title', 'label' => $language === 'vi' ? 'Tiêu đề đề xuất' : 'Suggested Title'],
-            ['key' => 'keyword', 'label' => $language === 'vi' ? 'Từ khóa mục tiêu' : 'Target Keyword'],
-            ['key' => 'topic', 'label' => $language === 'vi' ? 'Chủ đề liên quan' : 'Related Topic'],
-            ['key' => 'intent', 'label' => $language === 'vi' ? 'Ý định tìm kiếm' : 'Search Intent'],
-            ['key' => 'reason', 'label' => $language === 'vi' ? 'Lý do đề xuất' : 'Reason'],
+            ['key' => 'title', 'label' => $language === 'vi' ? 'Tiêu đề đề xuất' : 'Title'],
+            ['key' => 'keyword', 'label' => $language === 'vi' ? 'Từ khóa mục tiêu' : 'Keyword'],
+            ['key' => 'topic', 'label' => $language === 'vi' ? 'Chủ đề' : 'Topic'],
+            ['key' => 'type', 'label' => $language === 'vi' ? 'Loại' : 'Type'],
         ];
 
+        $siteRef = (string) ($bundle->scope->siteRef ?? '');
         $rows = [];
         $i = 1;
         foreach ($suggestions as $suggestion) {
             $ref = $suggestion['topic_ref'];
             $topicName = $topicNames[$ref] ?? $ref;
+            $title = $suggestion['title'];
+            $keyword = $suggestion['keyword'];
+            $identity = 'topic_suggestion:'.$ref.':'.md5($title.'|'.$keyword);
+
+            $recommendationItem = [
+                'id' => $identity,
+                'type' => 'new',
+                'title' => $title,
+                'keyword' => $keyword,
+                'topic_ref' => $ref,
+                'inferred' => true,
+                'reasons' => [$topicName !== '' ? "Topic: {$topicName}" : "Topic ref: {$ref}"],
+                'source' => [
+                    'type' => 'agent',
+                    'ref' => $ref,
+                    'reason' => 'AI topic suggestion',
+                ],
+            ];
+
             $rows[] = [
                 'n' => $i++,
-                'title' => $suggestion['title'],
-                'keyword' => $suggestion['keyword'],
+                'title' => $title,
+                'keyword' => $keyword,
                 'topic' => $topicName,
-                'intent' => $suggestion['intent'],
-                'reason' => $suggestion['reason'],
+                'type' => 'new',
+                'item' => $recommendationItem,
+            ];
+        }
+
+        $tableBlock = [
+            'type' => 'table',
+            'title' => '',
+            'columns' => $columns,
+            'rows' => $rows,
+        ];
+
+        if ($siteRef !== '' && $bundle->scope->siteId !== null) {
+            $tableBlock['actionable'] = [
+                'action' => 'content_project.draft.intake',
+                'site_ref' => $siteRef,
             ];
         }
 
         return [
             ['type' => 'markdown', 'text' => $headerText],
-            [
-                'type' => 'table',
-                'columns' => $columns,
-                'rows' => $rows,
-            ],
+            $tableBlock,
         ];
     }
 }

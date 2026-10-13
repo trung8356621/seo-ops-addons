@@ -66,13 +66,14 @@ readonly class PreparedModelInput
 
             $sections[] = <<<INSTRUCTION
 You are acting as an internal AI backend engine for an SEO Operations Agent.
-Follow the system instructions and topic evidence below to produce article suggestions.
+Follow the system instructions and topic evidence below to produce article ideas.
 
 CRITICAL INSTRUCTIONS FOR THIS CHAT TURN:
-1. Respond ONLY with a single valid JSON object containing a "suggestions" array.
+1. Respond ONLY with a single valid JSON object containing a "topics" array.
 2. Do NOT output conversational greetings, preamble, explanations, apologies, or markdown code fences (no ```json or ```).
 3. Output raw JSON starting with '{' and ending with '}'.
-4. Every topic_ref MUST exactly match an evidenced topic_ref from the supplied topics.
+4. Every "ref" MUST exactly match an evidenced topic_ref from the supplied topics.
+5. Each idea is a 2-element array: [keyword, title].
 INSTRUCTION;
 
             if ($systemText !== '') {
@@ -85,7 +86,7 @@ INSTRUCTION;
 
             $sections[] = <<<FINAL
 === OUTPUT REQUIREMENT ===
-Return ONLY the raw suggestions JSON object now. Do not include markdown code fences or any conversational text.
+Return ONLY the raw topics JSON object now. Do not include markdown code fences or any conversational text.
 FINAL;
 
             return implode("\n\n", $sections);
