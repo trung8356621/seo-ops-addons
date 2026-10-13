@@ -97,12 +97,13 @@ class AgentTurnPersistence
     /** @param array<string, mixed> $state */
     public function pauseRun(AgentRun $run, string $callKey, array $state): void
     {
+        $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
+        $summary['model_call'] = $callKey;
+        $summary['runtime_state'] = $state;
+
         $run->update([
             'status' => 'awaiting_model',
-            'retrieval_summary' => [
-                'model_call' => $callKey,
-                'runtime_state' => $state,
-            ],
+            'retrieval_summary' => $summary,
         ]);
     }
 

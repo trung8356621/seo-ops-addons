@@ -653,6 +653,12 @@ final class AgentRuntimeController
         $callKey = (string) ($checkpoint['model_call'] ?? '');
         $state = (array) ($checkpoint['runtime_state'] ?? []);
         $turn = (array) ($state['turn'] ?? []);
+        if (! isset($turn['tier']) && isset($checkpoint['tier'])) {
+            $turn['tier'] = $checkpoint['tier'];
+        }
+        if (! isset($turn['routing_policy']) && isset($checkpoint['routing_policy'])) {
+            $turn['routing_policy'] = $checkpoint['routing_policy'];
+        }
 
         if ($recoverStranded || $useVerified) {
             return $this->completeRecoveredAnswer(
@@ -757,7 +763,12 @@ final class AgentRuntimeController
                         'full_prompt' => $input,
                         'chat_prompt' => $chatPrompt,
                         'prompt_size' => mb_strlen($input),
-                        'assumed_model' => $modelResolver->resolveAnswerModel($userId)->toArray(),
+                        'assumed_model' => $modelResolver->resolveAnswerModel(
+                            $userId,
+                            is_string($turn['routing_policy'] ?? ($checkpoint['routing_policy'] ?? null))
+                                ? AiRoutingPolicy::tryFrom((string) ($turn['routing_policy'] ?? $checkpoint['routing_policy']))
+                                : null
+                        )->toArray(),
                         'execution' => $this->pausedExecution($state, 'awaiting'),
                     ],
                     'error' => $e->getMessage(),
@@ -1013,6 +1024,32 @@ final class AgentRuntimeController
         }
 
         $history = $this->historyBefore($thread->id, $userMessage->position);
+
+        $priorRun = AgentRun::where('user_message_id', $userMessage->id)->latest('id')->first();
+        $priorSummary = is_array($priorRun?->retrieval_summary) ? $priorRun->retrieval_summary : [];
+        $priorTier = isset($priorSummary['tier']) && is_string($priorSummary['tier'])
+            ? strtolower(trim($priorSummary['tier']))
+            : null;
+
+        $tierRaw = $request->input('tier');
+        if ($tierRaw !== null) {
+            $normalizedSupplied = strtolower(trim((string) $tierRaw));
+            if (! in_array($normalizedSupplied, ['free', 'pro', 'master'], true)) {
+                return new JsonResponse(['message' => 'Invalid tier.'], 422);
+            }
+        }
+
+        $tier = $priorTier;
+        $routingPolicy = null;
+        if ($tier !== null) {
+            $routingPolicy = match ($tier) {
+                'free' => AiRoutingPolicy::FreeOnly,
+                'pro' => AiRoutingPolicy::QuickFree,
+                'master' => AiRoutingPolicy::Normal,
+                default => null,
+            };
+        }
+
         $run = $persistence->startRerun(
             $thread,
             $userMessage,
@@ -1021,27 +1058,6 @@ final class AgentRuntimeController
             $thread->scope_ref,
             $userId,
         );
-
-        $tierRaw = $request->input('tier');
-        if ($tierRaw === null) {
-            $prevRun = AgentRun::where('user_message_id', $userMessage->id)->latest('id')->first();
-            $prevSummary = is_array($prevRun?->retrieval_summary) ? $prevRun->retrieval_summary : [];
-            $tierRaw = $prevSummary['tier'] ?? null;
-        }
-        $routingPolicy = null;
-        $tier = null;
-        if ($tierRaw !== null) {
-            $tier = strtolower(trim((string) $tierRaw));
-            $routingPolicy = match ($tier) {
-                'free' => AiRoutingPolicy::FreeOnly,
-                'pro' => AiRoutingPolicy::QuickFree,
-                'master' => AiRoutingPolicy::Normal,
-                default => null,
-            };
-            if ($routingPolicy === null) {
-                return new JsonResponse(['message' => 'Invalid tier.'], 422);
-            }
-        }
 
         return $this->executeRun(
             $coordinator,
@@ -1100,7 +1116,13 @@ final class AgentRuntimeController
                     $threads,
                     $modelResolver,
                     $userId,
-                    ['scope' => $scope->toArray(), 'message' => $message, 'history' => $history],
+                    [
+                        'scope' => $scope->toArray(),
+                        'message' => $message,
+                        'history' => $history,
+                        'tier' => $tier,
+                        'routing_policy' => $routingPolicy?->value,
+                    ],
                 );
             }
 
@@ -1224,9 +1246,11 @@ final class AgentRuntimeController
             $persistence->pauseRun($run, $call->key, $state);
             $input = $call->input->exportText();
             $chatPrompt = $call->input->exportForManualChat();
+            $policyVal = $turnState['routing_policy'] ?? null;
+            $routingPolicy = is_string($policyVal) ? AiRoutingPolicy::tryFrom($policyVal) : null;
             $model = $call->key === 'decision'
                 ? $modelResolver->resolveDecisionModel($userId)
-                : $modelResolver->resolveAnswerModel($userId);
+                : $modelResolver->resolveAnswerModel($userId, $routingPolicy);
 
             return new JsonResponse(['data' => [
                 'status' => 'paused',

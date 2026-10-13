@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { rerunHidesTurn, scopeEntryAction, threadLoadIsCurrent } from './agentLoadingState.js';
+import { computeSpeechDraft } from './agentSpeech.js';
 
 const widget = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../app/agent-runtime.css', import.meta.url), 'utf8');
@@ -37,6 +38,8 @@ test('rerun hides only that response, keeps versions, and restores them on failu
     assert.equal(rerun.includes('Number.MAX_SAFE_INTEGER'), true);
     assert.equal(rerun.includes('setRerunTargetId(null)'), true);
     assert.equal(rerun.includes('confirmedReviews'), false);
+    assert.equal(rerun.includes('tier,'), false);
+    assert.equal(rerun.includes('tier:'), false);
     assert.equal(widget.includes('data-rerun-placeholder="true"'), true);
     assert.equal(widget.includes('rerunning ?'), true);
     assert.equal(rerunHidesTurn('user-1', 'user-1'), true);
@@ -46,6 +49,51 @@ test('rerun hides only that response, keeps versions, and restores them on failu
     const paused = rerun.slice(rerun.indexOf("if (data.status === 'paused')"), rerun.indexOf('setMessages((current)'));
     assert.equal(paused.includes('setRerunTargetId(null)'), false);
     assert.equal(paused.includes('setRerunNotice(waitingForManualModel'), true);
+});
+
+test('speech recognition draft does not duplicate on interim updates and preserves prior input', () => {
+    // 1. Single interim result
+    const step1 = computeSpeechDraft('', [
+        [{ transcript: 'cải thiện' }]
+    ]);
+    assert.equal(step1, 'cải thiện');
+
+    // 2. Updated interim result replaces the previous interim result (no duplication!)
+    const step2 = computeSpeechDraft('', [
+        [{ transcript: 'cải thiện SEO' }]
+    ]);
+    assert.equal(step2, 'cải thiện SEO');
+
+    // 3. Finalized result + next interim result
+    const step3 = computeSpeechDraft('', [
+        { isFinal: true, 0: { transcript: 'cải thiện SEO' } },
+        { isFinal: false, 0: { transcript: 'cho trang web' } }
+    ]);
+    assert.equal(step3, 'cải thiện SEO cho trang web');
+
+    // 4. Pre-existing draft preserved when mic starts
+    const baseText = 'Đang xem xét:';
+    const withBase = computeSpeechDraft(baseText, [
+        [{ transcript: 'từ khóa' }]
+    ]);
+    assert.equal(withBase, 'Đang xem xét: từ khóa');
+
+    // 5. Subsequent update retains base and does not duplicate
+    const withBase2 = computeSpeechDraft(baseText, [
+        [{ transcript: 'từ khóa chính xác' }]
+    ]);
+    assert.equal(withBase2, 'Đang xem xét: từ khóa chính xác');
+
+    // 6. Empty results or whitespace only return base
+    assert.equal(computeSpeechDraft('test', []), 'test');
+    assert.equal(computeSpeechDraft('test', null), 'test');
+    assert.equal(computeSpeechDraft('test', [[{ transcript: '   ' }]]), 'test');
+
+    // 7. Verify AgentWidget wiring
+    const widgetSTT = slice('const toggleListening = useCallback', 'const toggleSpeak = useCallback');
+    assert.equal(widgetSTT.includes('baseDraftRef.current = draft'), true);
+    assert.equal(widgetSTT.includes('computeSpeechDraft(baseDraftRef.current, event.results)'), true);
+    assert.equal(widgetSTT.includes('setDraft((prev) =>'), false);
 });
 
 test('site switch opens Welcome and a late result from the previous site cannot render', () => {

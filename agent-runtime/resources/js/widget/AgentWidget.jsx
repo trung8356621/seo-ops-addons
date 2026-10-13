@@ -13,6 +13,7 @@ import { flushFeedback, queueRoutingReview, readReviewSelections } from './feedb
 import { completedReviewRun, defaultReviewChoice, findReviewResponse, resolveReviewIndicator, reviewCandidates, soleAgentChoice, toggleReviewRun } from './reviewIndicator.js';
 import { archiveThreadLocally, prependThread, threadTitleFromMessage } from './threadSidebar.js';
 import { scopeEntryAction, threadLoadIsCurrent } from './agentLoadingState.js';
+import { computeSpeechDraft } from './agentSpeech.js';
 import {
     clearStoredThreadUlid,
     formatTimeAgo,
@@ -456,6 +457,7 @@ export function AgentWidget({
     const [voiceNotice, setVoiceNotice] = useState('');
     const [speakingKey, setSpeakingKey] = useState(null);
     const speechRecognitionRef = useRef(null);
+    const baseDraftRef = useRef('');
 
     const toggleListening = useCallback(() => {
         if (typeof window === 'undefined') return;
@@ -472,6 +474,7 @@ export function AgentWidget({
                     speechRecognitionRef.current.stop();
                 } catch (_) {}
             }
+            baseDraftRef.current = '';
             setIsListening(false);
             return;
         }
@@ -482,20 +485,17 @@ export function AgentWidget({
             recognition.continuous = false;
             recognition.interimResults = true;
 
+            baseDraftRef.current = draft;
+
             recognition.onresult = (event) => {
-                let transcript = '';
-                for (let i = 0; i < event.results.length; i++) {
-                    transcript += event.results[i][0].transcript;
-                }
-                if (transcript) {
-                    setDraft((prev) => {
-                        const trimmed = prev.trim();
-                        return trimmed ? `${trimmed} ${transcript}` : transcript;
-                    });
+                const newDraft = computeSpeechDraft(baseDraftRef.current, event.results);
+                if (newDraft) {
+                    setDraft(newDraft);
                 }
             };
 
             recognition.onerror = (event) => {
+                baseDraftRef.current = '';
                 setIsListening(false);
                 if (event.error && event.error !== 'aborted' && event.error !== 'no-speech') {
                     setVoiceNotice(locale === 'vi' ? `Lỗi micro: ${event.error}` : `Microphone error: ${event.error}`);
@@ -504,6 +504,7 @@ export function AgentWidget({
             };
 
             recognition.onend = () => {
+                baseDraftRef.current = '';
                 setIsListening(false);
             };
 
@@ -512,11 +513,12 @@ export function AgentWidget({
             setIsListening(true);
             setVoiceNotice('');
         } catch (err) {
+            baseDraftRef.current = '';
             setIsListening(false);
             setVoiceNotice(locale === 'vi' ? 'Không thể khởi động microphone' : 'Could not start microphone');
             setTimeout(() => setVoiceNotice(''), 4000);
         }
-    }, [isListening, locale]);
+    }, [draft, isListening, locale]);
 
     const toggleSpeak = useCallback((key, response) => {
         if (typeof window === 'undefined' || !window.speechSynthesis) {
@@ -561,6 +563,7 @@ export function AgentWidget({
             }
             if (speechRecognitionRef.current) {
                 try { speechRecognitionRef.current.stop(); } catch (_) {}
+                baseDraftRef.current = '';
             }
         };
     }, []);
@@ -1298,7 +1301,6 @@ export function AgentWidget({
             const payload = await postJson(rerunUrl, csrf, {
                 debug_mode: isDebugMode,
                 diagnostics: isDiagnostics,
-                tier,
             });
 
             const data = payload?.data || {};
