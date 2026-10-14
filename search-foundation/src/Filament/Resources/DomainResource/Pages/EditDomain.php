@@ -9,7 +9,9 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\DomainResource\Pages\Concerns
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\Concerns\PersistsSeoDomainMetas;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\Concerns\SyncsDomainPromptContextFromWordPress;
+use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpAppliedFieldPersister;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDraft;
+use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpFormApplicator;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpGenerator;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpPreview;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
@@ -17,6 +19,8 @@ use App\Models\Site;
 use App\Support\RuntimeLogger;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Cache;
+use InvalidArgumentException;
 use Throwable;
 
 class EditDomain extends SeoEditRecord
@@ -30,6 +34,8 @@ class EditDomain extends SeoEditRecord
     protected static string $view = 'seo-content-ai::filament.resources.domain-resource.pages.edit-domain';
 
     public bool $siteMcpDraftGenerating = false;
+
+    public bool $siteMcpApplying = false;
 
     public bool $siteMcpDraftPanelOpen = false;
 
@@ -114,43 +120,137 @@ class EditDomain extends SeoEditRecord
     }
 
     /**
-     * Generate or regenerate Site MCP draft — never touches official form fields.
+     * Regenerate Site MCP, then open the panel. Form state is left untouched.
+     * A failed run keeps the previous preview.
      */
     public function generateSiteMcpDraftAction(): void
     {
+        $this->assertCanEditDomain();
+
+        /** @var Site $site */
+        $site = $this->record;
+        $lock = Cache::lock('site-mcp-generate:'.(int) $site->getKey(), 180);
+        if (! $lock->get()) {
+            Notification::make()
+                ->title('Đang chuẩn bị thông tin MCP.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         $this->siteMcpDraftGenerating = true;
 
         try {
-            /** @var Site $site */
-            $site = $this->record;
             $draft = app(SiteMcpGenerator::class)->generateDraft($site);
             $this->siteMcpDraftPreview = app(SiteMcpPreview::class)->present($draft);
             $this->siteMcpDraftPanelOpen = true;
 
             Notification::make()
-                ->title(__('MCP draft site created'))
-                ->body(__('Draft only — official data unchanged.'))
+                ->title('Đã cập nhật thông tin MCP.')
                 ->success()
                 ->send();
         } catch (Throwable $e) {
             RuntimeLogger::report($e, [
                 'endpoint' => 'seo.site_mcp.generate_draft',
-                'site_id' => (int) $this->record->getKey(),
+                'site_id' => (int) $site->getKey(),
             ]);
 
             Notification::make()
-                ->title(__('Creating Site MCP draft failed'))
+                ->title('Không tạo được thông tin MCP')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
         } finally {
             $this->siteMcpDraftGenerating = false;
+            $lock->release();
         }
     }
 
-    public function hasSiteMcpDraft(): bool
+    /**
+     * Apply mapped MCP values, then persist only those fields. Does not sync WordPress.
+     */
+    public function applySiteMcpToForm(): void
     {
-        return ($this->getSiteMcpDraftPreview()['has_draft'] ?? false) === true;
+        $this->assertCanEditDomain();
+
+        if ($this->siteMcpDraftGenerating || $this->siteMcpApplying) {
+            return;
+        }
+
+        /** @var Site $site */
+        $site = $this->record;
+        $lock = Cache::lock('site-mcp-apply:'.(int) $site->getKey(), 30);
+        if (! $lock->get()) {
+            Notification::make()
+                ->title('Đang áp dụng và lưu MCP.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->siteMcpApplying = true;
+
+        try {
+            $plan = app(SiteMcpFormApplicator::class)->plan(
+                $this->getSiteMcpDraftPreview(),
+                $this->form->getRawState(),
+            );
+            $applied = $plan['applied'];
+            if ($applied === []) {
+                Notification::make()
+                    ->title('Không có trường MCP nào để áp dụng vào biểu mẫu.')
+                    ->warning()
+                    ->send();
+
+                return;
+            }
+
+            $saved = app(SiteMcpAppliedFieldPersister::class)->persist($site, $applied, $plan['state']);
+            if ($saved === 0) {
+                Notification::make()
+                    ->title('Không có trường MCP nào để áp dụng vào biểu mẫu.')
+                    ->warning()
+                    ->send();
+
+                return;
+            }
+
+            $this->form->fill($plan['state']);
+
+            Notification::make()
+                ->title('Đã áp dụng và lưu '.$saved.' trường từ MCP.')
+                ->success()
+                ->send();
+        } catch (InvalidArgumentException $e) {
+            Notification::make()
+                ->title('Không áp dụng được thông tin MCP')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        } catch (Throwable $e) {
+            RuntimeLogger::report($e, [
+                'endpoint' => 'seo.site_mcp.apply_form',
+                'site_id' => (int) $site->getKey(),
+            ]);
+
+            Notification::make()
+                ->title('Không áp dụng được thông tin MCP')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        } finally {
+            $this->siteMcpApplying = false;
+            $lock->release();
+        }
+    }
+
+    private function assertCanEditDomain(): void
+    {
+        $site = $this->getRecord();
+        abort_unless($site instanceof Site, 404);
+        abort_unless(DomainResource::canEdit($site), 403);
     }
 
     /**
@@ -159,19 +259,26 @@ class EditDomain extends SeoEditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('generate_site_mcp_draft')
-                ->label(fn (): string => $this->hasSiteMcpDraft()
-                    ? (string) __('Regenerate draft')
-                    : (string) __('Generate Site MCP Draft'))
-                ->icon('heroicon-o-sparkles')
-                ->color('primary')
-                ->action('generateSiteMcpDraftAction'),
-            Action::make('show_site_mcp_draft')
-                ->label(__('Show draft panel'))
-                ->icon('heroicon-o-eye')
+            Action::make('apply_site_mcp')
+                ->label('Áp dụng & Lưu MCP')
+                ->icon('heroicon-o-arrow-down-tray')
                 ->color('gray')
-                ->visible(fn (): bool => $this->hasSiteMcpDraft() && ! $this->siteMcpDraftPanelOpen)
-                ->action('openSiteMcpDraftPanel'),
+                ->disabled(fn (): bool => $this->siteMcpDraftGenerating || $this->siteMcpApplying)
+                ->extraAttributes([
+                    'wire:loading.attr' => 'disabled',
+                    'wire:target' => 'mountAction,callMountedAction',
+                ])
+                ->action('applySiteMcpToForm'),
+            Action::make('view_site_mcp')
+                ->label('Xem MCP')
+                ->icon('heroicon-o-eye')
+                ->color('primary')
+                ->disabled(fn (): bool => $this->siteMcpDraftGenerating)
+                ->extraAttributes([
+                    'wire:loading.attr' => 'disabled',
+                    'wire:target' => 'mountAction',
+                ])
+                ->action('generateSiteMcpDraftAction'),
             ...parent::getHeaderActions(),
         ];
     }

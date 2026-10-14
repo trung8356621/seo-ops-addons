@@ -5,8 +5,6 @@
     $content = $preview['content_context'] ?? [];
     $contact = $preview['contact'] ?? [];
     $pages = $preview['important_pages'] ?? [];
-    $generation = $preview['generation'] ?? [];
-    $counts = $preview['counts'] ?? [];
     $keyword = $preview['keyword_context'] ?? [];
     $mainTopics = $keyword['main_topics'] ?? [];
     $topicRecords = $keyword['main_topic_records'] ?? [];
@@ -108,10 +106,10 @@
     }"
 >
     <div class="flex shrink-0 items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <div>
-            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">{{ __('Site MCP Draft') }}</h3>
+        <div class="min-w-0">
+            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">Thông tin MCP</h3>
             <p class="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                {{ __('Draft only — official data unchanged') }}
+                Dữ liệu MCP chưa được áp dụng
             </p>
         </div>
         <x-filament::button
@@ -133,7 +131,7 @@
 
         <div wire:loading.remove wire:target="generateSiteMcpDraftAction" class="space-y-3">
             @if(! ($preview['has_draft'] ?? false))
-                <p class="text-gray-500">{{ __('There is no draft yet. Click Generate / Regenerate in the header.') }}</p>
+                <p class="text-gray-500">Chưa có thông tin MCP.</p>
             @else
                 {{-- Accordion 1: Full Site MCP Draft --}}
                 <div class="rounded-lg border border-gray-200 dark:border-gray-700">
@@ -142,7 +140,7 @@
                         class="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-gray-900 dark:text-white"
                         @click="open = open === 'full' ? '' : 'full'"
                     >
-                        <span>{{ __('Full Site MCP Draft') }}</span>
+                        <span>Thông tin website</span>
                         <span class="text-xs text-gray-400" x-text="open === 'full' ? '−' : '+'"></span>
                     </button>
                     <div x-show="open === 'full'" x-cloak class="space-y-4 border-t border-gray-200 px-3 py-3 dark:border-gray-700">
@@ -285,29 +283,6 @@
                             </section>
                         @endif
 
-                        <section class="space-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs dark:bg-gray-950">
-                            <h4 class="font-semibold text-gray-900 dark:text-white">{{ __('Generation Metadata') }}</h4>
-                            <div>generated_at: {{ $generation['generated_at'] ?? '—' }}</div>
-                            <div>source: {{ $generation['source'] ?? '—' }}</div>
-                            <div>sync_run: {{ $generation['sync_run'] ?? 'null' }}</div>
-                            <div>version: {{ $generation['version'] ?? '—' }}</div>
-                            <div>official_site_mcp_exists: {{ ($generation['official_site_mcp_exists'] ?? false) ? 'true' : 'false' }}</div>
-                            <div class="font-medium text-emerald-700 dark:text-emerald-300">official_fields_modified: false</div>
-                            <div class="mt-1 text-gray-500">
-                                stats:
-                                post={{ (int) ($counts['post'] ?? 0) }},
-                                page={{ (int) ($counts['page'] ?? 0) }},
-                                product={{ (int) ($counts['product'] ?? 0) }} (excluded),
-                                product_cat={{ (int) ($counts['product_cat'] ?? 0) }},
-                                root_product_cat={{ (int) ($counts['root_product_cat'] ?? 0) }},
-                                attachment={{ (int) ($counts['attachment'] ?? 0) }}
-                            </div>
-                            @if(in_array('ROOT_PRODUCT_CATEGORIES_NOT_AVAILABLE', $warnings, true))
-                                <div class="mt-1 font-medium text-amber-700 dark:text-amber-300">
-                                    ROOT_PRODUCT_CATEGORIES_NOT_AVAILABLE
-                                </div>
-                            @endif
-                        </section>
                     </div>
                 </div>
 
@@ -381,12 +356,6 @@
                     </div>
                 </div>
 
-                <details class="rounded-lg border border-dashed border-gray-300 px-3 py-2 dark:border-gray-600">
-                    <summary class="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-300">
-                        {{ __('Developer: raw JSON') }}
-                    </summary>
-                    <pre class="mt-2 max-h-64 overflow-auto text-[11px] leading-snug text-gray-700 dark:text-gray-300">{{ $preview['raw_json'] ?? '' }}</pre>
-                </details>
             @endif
         </div>
     </div>

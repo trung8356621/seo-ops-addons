@@ -601,14 +601,12 @@ HTML;
     public function test_draft_preview_accordion_lives_on_edit_domain_sidebar(): void
     {
         $edit = (string) file_get_contents((new ReflectionClass(EditDomain::class))->getFileName());
-        $editView = dirname((new ReflectionClass(EditDomain::class))->getFileName(), 5)
-            .'/resources/views/filament/resources/domain-resource/pages/edit-domain.blade.php';
-        $panel = dirname((new ReflectionClass(EditDomain::class))->getFileName(), 5)
-            .'/resources/views/filament/resources/domain-resource/pages/partials/site-mcp-draft-panel.blade.php';
+        $addonsRoot = dirname((new ReflectionClass(EditDomain::class))->getFileName(), 7);
+        $editView = $addonsRoot.'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/edit-domain.blade.php';
+        $panel = $addonsRoot.'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/partials/site-mcp-draft-panel.blade.php';
         $general = (string) file_get_contents((new ReflectionClass(GeneralDomain::class))->getFileName());
         $generalView = (string) file_get_contents(
-            dirname((new ReflectionClass(GeneralDomain::class))->getFileName(), 5)
-            .'/resources/views/filament/resources/domain-resource/pages/general-domain.blade.php'
+            $addonsRoot.'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/general-domain.blade.php'
         );
         $resource = (string) file_get_contents((new ReflectionClass(DomainResource::class))->getFileName());
         $panelSrc = (string) file_get_contents($panel);
@@ -621,9 +619,20 @@ HTML;
         self::assertFileExists($panel);
         self::assertStringContainsString("route('/{record}/edit')", $resource);
         self::assertStringContainsString('generateSiteMcpDraftAction', $edit);
+        self::assertStringContainsString('applySiteMcpToForm', $edit);
+        self::assertStringContainsString('SiteMcpAppliedFieldPersister', $edit);
+        self::assertStringContainsString('Xem MCP', $edit);
+        self::assertStringContainsString('Áp dụng & Lưu MCP', $edit);
+        self::assertStringContainsString('Đã áp dụng và lưu ', $edit);
+        self::assertStringNotContainsString('show_site_mcp_draft', $edit);
         self::assertStringContainsString('seo-site-mcp-draft-drawer', (string) file_get_contents($editView));
-        self::assertStringContainsString('Draft only — official data unchanged', $panelSrc);
-        self::assertStringContainsString('Full Site MCP Draft', $panelSrc);
+        self::assertStringContainsString('Thông tin MCP', $panelSrc);
+        self::assertStringContainsString('Dữ liệu MCP chưa được áp dụng', $panelSrc);
+        self::assertStringContainsString('Thông tin website', $panelSrc);
+        self::assertStringNotContainsString('Áp dụng tất cả', $panelSrc);
+        self::assertStringNotContainsString('Áp dụng MCP', $panelSrc);
+        self::assertStringContainsString('copyText', $panelSrc);
+        self::assertStringNotContainsString('Developer: raw JSON', $panelSrc);
         self::assertStringContainsString('Article Context Preview', $panelSrc);
         self::assertStringContainsString('New Keyword Context Preview', $panelSrc);
         self::assertStringContainsString('Use Site MCP', $panelSrc);
@@ -632,8 +641,10 @@ HTML;
         self::assertStringContainsString("Repeater::make('phones')", $form);
         self::assertStringContainsString('cta_intro', $form);
         self::assertStringNotContainsString('phone_1', $form);
-        self::assertStringNotContainsString('Apply', $panelSrc);
         self::assertStringNotContainsString('Merge', $panelSrc);
+        self::assertStringNotContainsString('saveForSite', $edit);
+        self::assertStringNotContainsString('syncCompanyShortIdentityFromWordPress', $form);
+        self::assertStringNotContainsString('syncShortDescriptionFromWordPress', $form);
         self::assertStringNotContainsString('generateSiteMcpDraftAction', $general);
         self::assertStringNotContainsString('CanonicalCapabilityRegistry', $edit);
     }

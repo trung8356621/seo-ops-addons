@@ -125,7 +125,7 @@
         <aside
             class="seo-site-mcp-draft-drawer"
             wire:key="site-mcp-draft-drawer-{{ $this->siteMcpDraftPanelOpen ? 'open' : 'closed' }}"
-            aria-label="{{ __('Site MCP Draft') }}"
+            aria-label="Thông tin MCP"
         >
             <div class="seo-site-mcp-draft-drawer__card">
                 @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-mcp-draft-panel', [
