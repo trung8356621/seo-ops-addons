@@ -157,7 +157,54 @@ final class AgentLocalExecutionTest extends TestCase
         self::assertSame('out_of_scope', $result->failureCode);
         self::assertFalse($result->answerModelCalled);
         self::assertSame(0, $result->executionTrace['external_model_calls']);
+        self::assertFalse($result->executionTrace['uncertain_interpretation']);
         self::assertStringContainsString('ngoài phạm vi', $result->response->message);
+    }
+
+    #[Test]
+    public function informal_work_questions_stay_on_work_stats_without_a_model(): void
+    {
+        $evaluator = $this->createMock(WeightedRouteEvaluator::class);
+        $evaluator->expects($this->never())->method('evaluate');
+        $router = new LocalAgentToolRouter($evaluator, new SemanticRoutingConfig());
+        foreach ([
+            'Tôi còn nợ mấy bài?',
+            'Còn việc gì chưa xong?',
+        ] as $message) {
+            $route = $router->route($message);
+            self::assertSame('work.stats', $route->capability, $message);
+            self::assertSame('confident', $route->outcome, $message);
+            self::assertFalse($route->answerModelRequired, $message);
+        }
+    }
+
+    #[Test]
+    public function ambiguous_site_question_asks_using_existing_candidates_without_a_model_or_mutation(): void
+    {
+        $decisions = $this->createMock(DecisionModelGateway::class);
+        $decisions->expects($this->never())->method('decide');
+        $answers = $this->createMock(AnswerModelGateway::class);
+        $answers->expects($this->never())->method('complete');
+        $transport = new LocalExecutionTransport();
+        $coordinator = $this->coordinator($decisions, $answers, new CyclingWeightedEvaluator([
+            new WeightedEvaluation('none', null, [
+                ['ref' => 'seo_audit', 'semantic_relevance' => 0.2, 'weight' => 1, 'score' => 0.2, 'group_id' => 'audit', 'example' => 'SEO Audit'],
+                ['ref' => 'gsc', 'semantic_relevance' => 0.18, 'weight' => 1, 'score' => 0.18, 'group_id' => 'gsc', 'example' => 'Google Search Console'],
+            ]),
+        ]), $transport);
+
+        $result = $coordinator->send(1, AgentProjectScope::site(4), 'Site tôi đang thế nào?', []);
+
+        self::assertSame('uncertain_interpretation', $result->failureCode);
+        self::assertTrue($result->executionTrace['uncertain_interpretation']);
+        self::assertSame(['seo_audit', 'gsc'], $result->executionTrace['uncertain_candidates']);
+        self::assertSame(0, $result->executionTrace['external_model_calls']);
+        self::assertFalse($result->answerModelCalled);
+        self::assertNull($result->confirmationProposal);
+        self::assertSame([], $transport->methods);
+        self::assertStringContainsString('SEO Audit', $result->response->message);
+        self::assertStringContainsString('Google Search Console', $result->response->message);
+        self::assertStringNotContainsString('ngoài phạm vi', $result->response->message);
     }
 
     #[Test]

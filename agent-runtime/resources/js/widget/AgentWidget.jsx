@@ -951,9 +951,9 @@ export function AgentWidget({
     const selected = switchProject(projects, selectedKey);
     const isTestMode = selected?.type === 'utility' && selected?.key === 'test';
     const siteProjects = projects.filter((project) => project.type === 'site');
-    const currentScopeRef = isTestMode
-        ? (testSiteId ? `site:${testSiteId}` : null)
-        : (selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global'));
+    const currentScopeRef = isTestMode ? (testSiteId ? `site:${testSiteId}` : null) : selected.type === 'assigned'
+        ? 'assigned'
+        : (selected.siteRef || selected.ref || (selected.siteId ? `site:${selected.siteId}` : 'global'));
     const messagesRef = useRef(null);
     const threadLoadSeq = useRef(0);
     const threadAbortRef = useRef(null);
@@ -1031,6 +1031,9 @@ export function AgentWidget({
             if (activeRes.ok) {
                 const activeData = await activeRes.json();
                 setActiveThreads(activeData.data || []);
+            } else {
+                const body = await activeRes.json().catch(() => ({}));
+                setError(body.message || 'Could not load conversation history.');
             }
 
             // Fetch archived threads
@@ -1047,9 +1050,12 @@ export function AgentWidget({
             if (archRes.ok) {
                 const archData = await archRes.json();
                 setArchivedThreads(archData.data || []);
+            } else {
+                const body = await archRes.json().catch(() => ({}));
+                setError(body.message || 'Could not load archived conversations.');
             }
-        } catch {
-            // Non-critical background fetch failure
+        } catch (err) {
+            setError(err?.message || 'Could not load conversation history.');
         } finally {
             setLoadingThreads(false);
         }
@@ -1229,6 +1235,8 @@ export function AgentWidget({
                 if (viewingThreadUlid === ulid || activeThreadUlid === ulid) {
                     onNewConversation();
                 }
+            } else {
+                setError(payload?.message || 'Could not archive conversation.');
             }
         } catch (err) {
             setError(err.message || 'Could not archive conversation.');
@@ -1906,6 +1914,16 @@ export function AgentWidget({
                                 </option>
                             ))}
                         </select>
+
+                        <button
+                            type="button"
+                            className="agent-history-btn"
+                            onClick={() => setShowHistoryMobile((current) => !current)}
+                            title="Toggle History"
+                            aria-label="Toggle History"
+                        >
+                            <History size={16} />
+                        </button>
 
                         <div className="agent-dev-tabs" role="tablist" aria-label="Developer mode">
                             <span className="agent-dev-label">Dev</span>

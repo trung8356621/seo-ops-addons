@@ -48,6 +48,7 @@ class AgentThreadRepository
         ?string $appKey = null,
         ?string $scopeRef = null,
         int $perPage = 20,
+        array $scopeRefs = [],
     ): LengthAwarePaginator {
         $query = AgentThread::forPrincipal($principalType, $principalRef)
             ->active()
@@ -60,7 +61,9 @@ class AgentThreadRepository
             });
         }
 
-        if ($scopeRef !== null) {
+        if ($scopeRefs !== []) {
+            $query->whereIn('scope_ref', $scopeRefs);
+        } elseif ($scopeRef !== null) {
             $query->where('scope_ref', $scopeRef);
         }
 
@@ -78,6 +81,7 @@ class AgentThreadRepository
         ?string $appKey = null,
         ?string $scopeRef = null,
         int $perPage = 20,
+        array $scopeRefs = [],
     ): LengthAwarePaginator {
         $query = AgentThread::forPrincipal($principalType, $principalRef)
             ->archived()
@@ -90,7 +94,9 @@ class AgentThreadRepository
             });
         }
 
-        if ($scopeRef !== null) {
+        if ($scopeRefs !== []) {
+            $query->whereIn('scope_ref', $scopeRefs);
+        } elseif ($scopeRef !== null) {
             $query->where('scope_ref', $scopeRef);
         }
 

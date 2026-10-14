@@ -31,6 +31,7 @@ use Omnichannel\Addons\AgentRuntime\Model\AssumedModelResolver;
 use Omnichannel\Addons\AgentRuntime\Routing\DeterministicToolParameters;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalAgentToolRouter;
 use Omnichannel\Addons\AgentRuntime\Routing\LocalToolRoute;
+use Omnichannel\Addons\AgentRuntime\Routing\UncertainScopeInterpretation;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutingPolicy;
 use Illuminate\Support\Str;
@@ -976,6 +977,26 @@ class AgentTurnCoordinator
             ];
         }
         if ($route->outcome === 'none') {
+            $interpretation = (new UncertainScopeInterpretation())->interpret($route);
+            if ($interpretation['kind'] === 'clarify') {
+                $trace['uncertain_interpretation'] = true;
+                $trace['uncertain_candidates'] = $interpretation['refs'];
+                $bundle = new RetrievalBundle($scope, [], ['uncertain_interpretation']);
+                $text = $extracted['language'] === 'vi' ? $interpretation['vi'] : $interpretation['en'];
+
+                return [
+                    'routing' => $routingInput,
+                    'answer' => $this->inputs->buildAnswerInput($scope, $message, $history, $bundle, 'text', $extracted['language']),
+                    'bundle' => $bundle,
+                    'response' => $this->safeResponse($text, $bundle),
+                    'failureCode' => 'uncertain_interpretation',
+                    'decisionDiagnostics' => $diagnostics ? $trace : null,
+                    'confirmationProposal' => null,
+                    'executionTrace' => $trace,
+                ];
+            }
+
+            $trace['uncertain_interpretation'] = false;
             $bundle = new RetrievalBundle($scope, [], ['out_of_scope']);
 
             return [

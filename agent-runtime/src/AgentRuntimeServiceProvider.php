@@ -38,8 +38,11 @@ use Filament\View\PanelsRenderHook;
 use Illuminate\Support\HtmlString;
 use Omnichannel\Addons\AgentRuntime\Console\RunRoutingCasesCommand;
 use Omnichannel\Addons\AgentRuntime\Access\AgentActorAccessResolver;
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkHistoryReader;
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkHistoryService;
 use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsReader;
 use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsService;
+use Omnichannel\Addons\AgentRuntime\Access\EloquentAgentWorkHistoryReader;
 use Omnichannel\Addons\AgentRuntime\Access\EloquentAgentWorkStatsReader;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
 use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
@@ -98,8 +101,18 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         $this->app->singleton(AgentActorAccessResolver::class);
         $this->app->singleton(AgentWorkStatsReader::class, EloquentAgentWorkStatsReader::class);
         $this->app->singleton(AgentWorkStatsService::class);
+        $this->app->singleton(AgentWorkHistoryReader::class, EloquentAgentWorkHistoryReader::class);
+        $this->app->singleton(AgentWorkHistoryService::class);
         $this->app->afterResolving(AgentOperationHandlerRegistry::class, static function (AgentOperationHandlerRegistry $registry, $app): void {
             AgentWorkStatsService::registerCapability();
+            AgentWorkHistoryService::registerCapability();
+            if (! $registry->canDispatch('work.history')) {
+                $registry->register('work.history', static function (array $payload) use ($app): AgentResponse {
+                    $context = $app->make(AgentActorAccessResolver::class)->forUserId((int) ($payload['user_id'] ?? 0));
+
+                    return $app->make(AgentWorkHistoryService::class)->answer($context, (string) ($payload['message'] ?? ''));
+                });
+            }
             if ($registry->canDispatch('work.stats')) {
                 return;
             }

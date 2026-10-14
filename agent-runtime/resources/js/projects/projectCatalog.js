@@ -59,6 +59,7 @@ export function switchProject(items, key) {
     return {
         type: next.type,
         key: next.key,
+        ref: next.ref || next.siteRef || null,
         siteId: next.siteId,
         siteRef: next.siteRef,
         label: next.label,

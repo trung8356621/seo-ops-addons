@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Routing;
 
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkHistoryService;
 use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsService;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 
@@ -21,6 +22,11 @@ final class LocalAgentToolRouter
 
     public function route(string $message): LocalToolRoute
     {
+        $history = $this->workHistoryRoute($message);
+        if ($history instanceof LocalToolRoute) {
+            return $history;
+        }
+
         $work = $this->workStatsRoute($message);
         if ($work instanceof LocalToolRoute) {
             return $work;
@@ -74,6 +80,31 @@ final class LocalAgentToolRouter
         }
 
         return $this->unresolved('none', $global, $diagnostics);
+    }
+
+    private function workHistoryRoute(string $message): ?LocalToolRoute
+    {
+        $text = mb_strtolower($message);
+        if (preg_match('/lịch sử công việc|lich su cong viec|work history/u', $text) !== 1) {
+            return null;
+        }
+
+        AgentWorkHistoryService::registerCapability();
+
+        return new LocalToolRoute(
+            'confident',
+            'work.history',
+            1.0,
+            true,
+            [],
+            'deterministic',
+            'READ',
+            'content_projects',
+            null,
+            false,
+            [],
+            ['operation' => 'work.history'],
+        );
     }
 
     private function workStatsRoute(string $message): ?LocalToolRoute

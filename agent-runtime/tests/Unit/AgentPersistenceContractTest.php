@@ -336,4 +336,26 @@ final class AgentPersistenceContractTest extends TestCase
         self::assertNotNull($thread);
         self::assertSame($ownerId, $thread->owner_id);
     }
+
+    public function test_content_manager_lists_assigned_and_legacy_global_threads_without_other_users(): void
+    {
+        $app = AgentApp::findByKey('seo-ops');
+        $repo = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $ownAssigned = $repo->createThread($app, 'user', '101', 101, 888, 'assigned', 'assigned', 'mine');
+        $ownGlobal = $repo->createThread($app, 'user', '101', 101, 888, 'global', 'global', 'legacy');
+        $ownSite = $repo->createThread($app, 'user', '101', 101, 888, 'site', 'site:7', 'site');
+        $other = $repo->createThread($app, 'user', '2', 2, 2, 'assigned', 'assigned', 'other');
+        $repo->archiveThread($ownGlobal->fresh());
+
+        $active = $repo->listForPrincipal('user', '101', 'seo-ops', null, 20, ['assigned', 'global']);
+        $archived = $repo->listArchivedForPrincipal('user', '101', 'seo-ops', null, 20, ['assigned', 'global']);
+        $activeUlids = collect($active->items())->pluck('ulid')->all();
+        $archivedUlids = collect($archived->items())->pluck('ulid')->all();
+
+        self::assertContains($ownAssigned->ulid, $activeUlids);
+        self::assertNotContains($ownSite->ulid, $activeUlids);
+        self::assertNotContains($other->ulid, $activeUlids);
+        self::assertContains($ownGlobal->ulid, $archivedUlids);
+        self::assertNull($repo->findForPrincipal($ownAssigned->ulid, 'user', '2'));
+    }
 }

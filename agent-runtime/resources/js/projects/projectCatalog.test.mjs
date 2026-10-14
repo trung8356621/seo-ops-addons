@@ -37,6 +37,14 @@ test('All Sites scope is not a fake site id', () => {
     });
 });
 
+test('assigned personal-work scope keeps a stable ref', () => {
+    const items = buildProjectItems([], { assignedOnly: true });
+    const selected = switchProject(items, 'assigned');
+    assert.equal(selected.type, 'assigned');
+    assert.equal(selected.ref, 'assigned');
+    assert.deepEqual(scopePayload(selected), { type: 'assigned' });
+});
+
 test('switching projects does not mutate website rows', () => {
     const sites = [{ id: 7, domain: 'congtybalo.com' }];
     const before = structuredClone(sites);
@@ -82,12 +90,13 @@ test('Test utility renders one shared shell and never enters normal Agent scope 
     assert.equal(source.includes('onSubmit={onRunTest}'), true);
     assert.equal(source.includes('article_id: testArticleId ? Number(testArticleId) : null'), true);
     assert.equal(source.includes('setTestArticleId(String(article.id))'), true);
-    assert.equal(source.includes('setTestResult(payload?.data || null)'), true);
+    assert.equal(source.includes('setTestResult(result)'), true);
     assert.equal(source.includes('testResult.output_type'), true);
     assert.equal(source.includes("media.type === 'image'"), true);
     assert.equal(source.includes('executedModelsText(testResult.models)'), true);
     assert.equal(source.includes("? (testSiteId ? `site:${testSiteId}` : null)"), true);
     assert.equal(source.includes('if (!currentScopeRef)'), true);
+    assert.equal(source.includes("selected.type === 'assigned'"), true);
 });
 
 test('main entry point exports canonical widget, mount adapter, and sets window.AgentRuntime', () => {

@@ -915,6 +915,10 @@ final class AgentRuntimeController
 
         $scopeType = $payload['scope_type'] ?? 'global';
         $scopeRef = $payload['scope_ref'] ?? 'global';
+        if ($user instanceof \App\Models\User && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            $scopeType = 'assigned';
+            $scopeRef = 'assigned';
+        }
         $title = $payload['title'] ?? null;
 
         $thread = $threads->createThread(
@@ -949,13 +953,18 @@ final class AgentRuntimeController
 
         $appKey = $request->query('appKey');
         $scopeRef = $request->query('scope_ref');
+        $scopeRefs = [];
+        if ($user instanceof \App\Models\User && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            $scopeRefs = ['assigned', 'global'];
+            $scopeRef = null;
+        }
         $perPage = (int) $request->query('per_page', 20);
         $status = $request->query('status', 'active');
 
         if ($status === 'archived') {
-            $paginator = $threads->listArchivedForPrincipal($principalType, $principalRef, $appKey, $scopeRef, $perPage);
+            $paginator = $threads->listArchivedForPrincipal($principalType, $principalRef, $appKey, is_string($scopeRef) ? $scopeRef : null, $perPage, $scopeRefs);
         } else {
-            $paginator = $threads->listForPrincipal($principalType, $principalRef, $appKey, $scopeRef, $perPage);
+            $paginator = $threads->listForPrincipal($principalType, $principalRef, $appKey, is_string($scopeRef) ? $scopeRef : null, $perPage, $scopeRefs);
         }
 
         return new JsonResponse($paginator);
