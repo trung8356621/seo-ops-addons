@@ -468,6 +468,19 @@ final class AgentRuntimeController
     {
         $user = $request->user();
         $userId = $user ? (int) $user->id : null;
+        if ($user instanceof \App\Models\User && \Omnichannel\Addons\Seo\Support\SeoAccessControl::roleForUser($user) === \Omnichannel\Addons\Seo\Support\SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            return new JsonResponse([
+                'data' => [
+                    'projects' => [[
+                        'type' => 'assigned',
+                        'key' => 'assigned',
+                        'label' => 'Công việc của tôi',
+                        'retrieval' => 'supported',
+                    ]],
+                    'addWebsite' => false,
+                ],
+            ]);
+        }
         $items = [[
             'type' => 'global',
             'key' => 'global',
@@ -554,6 +567,10 @@ final class AgentRuntimeController
             $scope = AgentProjectScope::fromArray($scopeRaw);
         } catch (InvalidArgumentException $e) {
             return new JsonResponse(['message' => $e->getMessage()], 422);
+        }
+
+        if ($user instanceof \App\Models\User && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            $scope = AgentProjectScope::assigned();
         }
 
         if ($scope->isSite()) {

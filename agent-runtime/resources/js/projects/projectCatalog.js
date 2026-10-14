@@ -2,7 +2,17 @@
  * Agent-local project list. All Sites is a global scope, not a fake site id.
  * @param {Array<{id:number, domain:string}>} sites
  */
-export function buildProjectItems(sites) {
+export function buildProjectItems(sites, options = {}) {
+    if (options.assignedOnly === true) {
+        return [{
+            type: 'assigned',
+            key: 'assigned',
+            ref: 'assigned',
+            label: 'Công việc của tôi',
+            retrieval: 'supported',
+        }];
+    }
+
     const items = [
         {
             type: 'global',
@@ -59,6 +69,9 @@ export function switchProject(items, key) {
 export function scopePayload(item) {
     if (!item || item.type === 'global') {
         return { type: 'global' };
+    }
+    if (item.type === 'assigned') {
+        return { type: 'assigned' };
     }
     if (item.type === 'site' && Number.isInteger(item.siteId) && item.siteId > 0) {
         return {

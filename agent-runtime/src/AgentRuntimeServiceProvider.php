@@ -37,7 +37,12 @@ use Filament\Support\Facades\FilamentView;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Support\HtmlString;
 use Omnichannel\Addons\AgentRuntime\Console\RunRoutingCasesCommand;
+use Omnichannel\Addons\AgentRuntime\Access\AgentActorAccessResolver;
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsReader;
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsService;
+use Omnichannel\Addons\AgentRuntime\Access\EloquentAgentWorkStatsReader;
 use Omnichannel\Addons\AgentRuntime\Integration\AgentOperationHandlerRegistry;
+use Omnichannel\Addons\AgentRuntime\Response\AgentResponse;
 use Omnichannel\Addons\AgentRuntime\Integration\SeoOpsAgentIntegration;
 
 final class AgentRuntimeServiceProvider extends ServiceProvider
@@ -90,6 +95,20 @@ final class AgentRuntimeServiceProvider extends ServiceProvider
         $this->app->singleton(WeightedRouteEvaluator::class, SemanticWeightedClient::class);
         $this->app->singleton(AgentIntegrationRegistry::class, static fn (): AgentIntegrationRegistry => SemanticRoutingConfig::builtInRegistry());
         $this->app->singleton(AgentOperationHandlerRegistry::class);
+        $this->app->singleton(AgentActorAccessResolver::class);
+        $this->app->singleton(AgentWorkStatsReader::class, EloquentAgentWorkStatsReader::class);
+        $this->app->singleton(AgentWorkStatsService::class);
+        $this->app->afterResolving(AgentOperationHandlerRegistry::class, static function (AgentOperationHandlerRegistry $registry, $app): void {
+            AgentWorkStatsService::registerCapability();
+            if ($registry->canDispatch('work.stats')) {
+                return;
+            }
+            $registry->register('work.stats', static function (array $payload) use ($app): AgentResponse {
+                $context = $app->make(AgentActorAccessResolver::class)->forUserId((int) ($payload['user_id'] ?? 0));
+
+                return $app->make(AgentWorkStatsService::class)->answer($context, (string) ($payload['message'] ?? ''));
+            });
+        });
         $this->app->singleton(SemanticRoutingConfig::class, static fn ($app): SemanticRoutingConfig => new SemanticRoutingConfig(null, $app->make(AgentIntegrationRegistry::class)));
         $this->app->singleton(LocalAgentToolRouter::class);
         $this->app->singleton(AnswerModelGateway::class, static function ($app): AnswerModelGateway {

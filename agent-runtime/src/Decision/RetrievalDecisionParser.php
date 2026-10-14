@@ -14,7 +14,7 @@ final class RetrievalDecisionParser
     private const MODULES = ['site', 'articles', 'internal_links', 'external_links', 'keywords', 'topics', 'content_projects', 'gsc'];
 
     /** @var list<string> */
-    private const PARAMETERS = ['period', 'task', 'limit_min', 'limit_max', 'article_ref', 'topic_ref'];
+    private const PARAMETERS = ['period', 'task', 'limit_min', 'limit_max', 'article_ref', 'topic_ref', 'subject', 'unsupported_constraint'];
 
     public function parse(string $raw): RetrievalDecision
     {
@@ -203,6 +203,12 @@ final class RetrievalDecisionParser
         }
         if (isset($parameters['topic_ref']) && (! is_string($parameters['topic_ref']) || preg_match('/^topic:[1-9]\d*$/', $parameters['topic_ref']) !== 1)) {
             throw new InvalidArgumentException('topic_ref is invalid.');
+        }
+        if (isset($parameters['subject']) && (! is_string($parameters['subject']) || mb_strlen($parameters['subject']) < 2 || mb_strlen($parameters['subject']) > 80)) {
+            throw new InvalidArgumentException('subject is invalid.');
+        }
+        if (isset($parameters['unsupported_constraint']) && $parameters['unsupported_constraint'] !== 'article_similarity') {
+            throw new InvalidArgumentException('unsupported_constraint is invalid.');
         }
     }
 

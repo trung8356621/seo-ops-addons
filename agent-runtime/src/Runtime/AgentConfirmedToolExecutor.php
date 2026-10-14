@@ -31,7 +31,7 @@ final class AgentConfirmedToolExecutor
     public function execute(AgentToolConfirmationProposal $proposal, int $userId): RetrievalBundle
     {
         $scope = AgentProjectScope::fromArray($proposal->scope);
-        if (! $scope->isSite() || $scope->siteId === null) {
+        if (! $scope->isSite() && ! $scope->isAssigned()) {
             throw new InvalidArgumentException('Confirmed Tool execution requires a site scope.');
         }
 
@@ -68,6 +68,14 @@ final class AgentConfirmedToolExecutor
         }
 
         $limit = max(1, min(100, (int) ($proposal->parameters['limit_max'] ?? 50)));
+        $subject = trim((string) ($proposal->parameters['subject'] ?? ''));
+        $unsupported = trim((string) ($proposal->parameters['unsupported_constraint'] ?? ''));
+        if ($unsupported !== '') {
+            return $this->limitationBundle($scope, $unsupported === 'article_similarity'
+                ? 'Bộ lọc độ tương đồng bài viết chưa được hỗ trợ vì không có article vector. Kết quả không lọc đã không được trả về.'
+                : 'Bộ lọc yêu cầu chưa được hỗ trợ. Kết quả không lọc đã không được trả về.');
+        }
+
         $context = new AgentExecutionContext(
             actorRef: 'user:'.$userId,
             actorType: 'agent',
@@ -78,17 +86,26 @@ final class AgentConfirmedToolExecutor
             resolvedActorUserId: $userId,
             scopes: ['content-project:read'],
         );
-        $data = $this->seoAudit->listArticles($context, [
+        $listInput = [
             'low_score' => true,
             'limit' => $limit,
             'published_only' => true,
             'sort_score_asc' => true,
-        ]);
+        ];
+        if ($subject !== '') {
+            $restrict = $scope->isAssigned() ? $this->seoAudit->ownedArticleIds($userId) : null;
+            $matched = $this->seoAudit->articleIdsForTopicSubject((int) ($scope->siteId ?? 0), $subject, $restrict);
+            if ($matched['supported'] !== true) {
+                return $this->limitationBundle($scope, 'Không áp dụng được bộ lọc chủ đề "'.$subject.'" trên quan hệ Topic/Keyword hiện có. Kết quả không lọc đã không được trả về.');
+            }
+            $listInput['article_ids'] = $matched['ids'];
+        }
+        $data = $this->seoAudit->listArticles($context, $listInput);
         $data['draft_action'] = 'content_project.draft.intake';
         $data['draft_item_type'] = 'improve';
         $data['draft_source'] = 'seo_audit';
 
-        return $this->appendTopicGroups(new RetrievalBundle(
+        $bundle = new RetrievalBundle(
             $scope,
             [...$bundle->sources, new RetrievalSource(
                 'articles',
@@ -97,7 +114,23 @@ final class AgentConfirmedToolExecutor
                 $data,
             )],
             $bundle->warnings,
-        ), $proposal->intent);
+        );
+        if ($subject !== '') {
+            return $bundle;
+        }
+
+        return $this->appendTopicGroups($bundle, $proposal->intent);
+    }
+
+    private function limitationBundle(AgentProjectScope $scope, string $text): RetrievalBundle
+    {
+        return new RetrievalBundle($scope, [
+            new RetrievalSource('articles', 'unsupported', 'constraint', [
+                'items' => [],
+                'total' => 0,
+                'limitation' => $text,
+            ]),
+        ], ['constraint_unsupported']);
     }
 
     private function appendTopicGroups(RetrievalBundle $bundle, string $query): RetrievalBundle

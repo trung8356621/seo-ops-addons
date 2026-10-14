@@ -848,11 +848,15 @@ export function AgentWidget({
                     return;
                 }
                 const rows = payload?.data?.projects || [];
+                const assignedOnly = rows.some((row) => row.type === 'assigned') && !rows.some((row) => row.type === 'site');
                 const sites = rows
                     .filter((row) => row.type === 'site')
                     .map((row) => ({ id: row.siteId, domain: row.label }));
-                const items = buildProjectItems(sites);
+                const items = buildProjectItems(sites, { assignedOnly });
                 setProjects(items);
+                if (assignedOnly) {
+                    setSelectedKey('assigned');
+                }
 
                 if (initialKey && items.some((item) => item.key === initialKey)) {
                     setSelectedKey(initialKey);

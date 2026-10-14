@@ -24,6 +24,16 @@ final class FactualAgentResponseComposer
 
     public function verifiedFacts(RetrievalBundle $bundle, string $language, string $message = ''): ?AgentResponse
     {
+        foreach ($bundle->sources as $source) {
+            $limitation = $source->data['limitation'] ?? null;
+            if (is_string($limitation) && $limitation !== '') {
+                return new AgentResponse($limitation, [
+                    ['type' => 'markdown', 'text' => $limitation],
+                    ['type' => 'warning', 'text' => $limitation],
+                ], [], array_map(static fn (RetrievalSource $row): array => $row->toArray(), $bundle->sources));
+            }
+        }
+
         $isImprovement = $this->isImprovementAnalysis($message);
         $isExplicitDraft = $this->isExplicitDraftRequest($message);
 

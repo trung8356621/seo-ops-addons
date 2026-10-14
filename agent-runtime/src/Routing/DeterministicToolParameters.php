@@ -31,7 +31,9 @@ final class DeterministicToolParameters
             return ['parameters' => [], 'clarification' => $text, 'language' => $language];
         }
 
-        if (preg_match('/(\d{1,3})\s*(?:-|–|—|đến|\bto\b)\s*(\d{1,3})/iu', $message, $range) === 1) {
+        if (preg_match('/(?:tối đa|toi da|at most|up to|maximum|max(?:imum)?)\s*(\d{1,3})/iu', $message, $atMost) === 1) {
+            $parameters['limit_max'] = (int) $atMost[1];
+        } elseif (preg_match('/(\d{1,3})\s*(?:-|–|—|đến|\bto\b)\s*(\d{1,3})/iu', $message, $range) === 1) {
             $low = (int) $range[1];
             $high = (int) $range[2];
             $parameters['limit_min'] = min($low, $high);
@@ -52,6 +54,15 @@ final class DeterministicToolParameters
         }
         if (preg_match('/\btopic:[\w:-]+\b/i', $message, $topic) === 1) {
             $parameters['topic_ref'] = $topic[0];
+        }
+
+        if (preg_match('/\b(similar to|giống với|giong voi|article similarity)\b/iu', $message) === 1) {
+            $parameters['unsupported_constraint'] = 'article_similarity';
+        } else {
+            $subject = $this->subject($message);
+            if ($subject !== null) {
+                $parameters['subject'] = $subject;
+            }
         }
 
         return ['parameters' => $parameters, 'clarification' => null, 'language' => $language];
@@ -87,5 +98,20 @@ final class DeterministicToolParameters
         }
 
         return null;
+    }
+
+    private function subject(string $message): ?string
+    {
+        if (preg_match('/(?:\bvề\b|\bliên quan(?:\s+(?:đến|tới))?\b|\bchủ đề\b|\btopic\b|\bkeyword\b)\s+([^,.\n]{2,80})/iu', $message, $match) !== 1) {
+            return null;
+        }
+
+        $subject = trim((string) preg_replace('/\s+(hãy|để|de|có điểm|co diem|với điểm).*$/iu', '', $match[1]));
+        $subject = trim($subject, " \t\"'");
+        if (mb_strlen($subject) < 2 || mb_strlen($subject) > 80) {
+            return null;
+        }
+
+        return $subject;
     }
 }

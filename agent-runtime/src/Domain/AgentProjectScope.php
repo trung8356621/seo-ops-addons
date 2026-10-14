@@ -33,6 +33,11 @@ final readonly class AgentProjectScope
         return new self('site', $siteId, 'site:'.$siteId);
     }
 
+    public static function assigned(): self
+    {
+        return new self('assigned', null, 'assigned');
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -41,6 +46,9 @@ final readonly class AgentProjectScope
         $type = strtolower(trim((string) ($payload['type'] ?? '')));
         if ($type === 'global') {
             return self::global();
+        }
+        if ($type === 'assigned') {
+            return self::assigned();
         }
         if ($type === 'site') {
             $siteId = (int) ($payload['siteId'] ?? $payload['site_id'] ?? 0);
@@ -54,7 +62,7 @@ final readonly class AgentProjectScope
             return self::site($siteId);
         }
 
-        throw new InvalidArgumentException('Project scope type must be global or site.');
+        throw new InvalidArgumentException('Project scope type must be global, site, or assigned.');
     }
 
     public function isGlobal(): bool
@@ -67,6 +75,11 @@ final readonly class AgentProjectScope
         return $this->type === 'site';
     }
 
+    public function isAssigned(): bool
+    {
+        return $this->type === 'assigned';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -74,6 +87,9 @@ final readonly class AgentProjectScope
     {
         if ($this->isGlobal()) {
             return ['type' => 'global'];
+        }
+        if ($this->isAssigned()) {
+            return ['type' => 'assigned', 'site_ref' => 'assigned'];
         }
 
         return [

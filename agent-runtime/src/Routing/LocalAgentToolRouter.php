@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Routing;
 
+use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsService;
 use Omnichannel\Addons\AgentRuntime\Catalog\AgentCapabilityCatalog;
 
 /**
@@ -20,6 +21,11 @@ final class LocalAgentToolRouter
 
     public function route(string $message): LocalToolRoute
     {
+        $work = $this->workStatsRoute($message);
+        if ($work instanceof LocalToolRoute) {
+            return $work;
+        }
+
         $document = $this->config->document();
         $routingVersion = (string) ($document['revision'] ?? '1').':'.hash(
             'sha256',
@@ -68,6 +74,32 @@ final class LocalAgentToolRouter
         }
 
         return $this->unresolved('none', $global, $diagnostics);
+    }
+
+    private function workStatsRoute(string $message): ?LocalToolRoute
+    {
+        $text = mb_strtolower($message);
+        $matched = preg_match('/tháng này tôi cần làm|tôi còn bao nhiêu|chưa hoàn thành|seo score trung bình|ai đang có seo score|ai có năng suất|năng suất thấp nhất/u', $text) === 1;
+        if (! $matched) {
+            return null;
+        }
+
+        AgentWorkStatsService::registerCapability();
+
+        return new LocalToolRoute(
+            'confident',
+            'work.stats',
+            1.0,
+            true,
+            [],
+            'deterministic',
+            'READ',
+            'content_projects',
+            null,
+            false,
+            [],
+            ['operation' => 'work.stats'],
+        );
     }
 
     /** @param array<string, mixed> $result */
