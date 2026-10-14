@@ -15,6 +15,7 @@ use Livewire\WithPagination;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel;
@@ -523,6 +524,7 @@ final class KeywordGroups extends Page
         }
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        app(KeywordGroupSemanticReadiness::class)->markPending($siteId);
         try {
             RefreshKeywordGroupsJob::dispatchSync(
                 $siteId,

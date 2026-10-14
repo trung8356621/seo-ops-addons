@@ -476,11 +476,8 @@ final class AgentTopicAndImprovementFixTest extends TestCase
         }
 
         self::assertNotNull($tableBlock);
-        // Selection controls must NOT appear in improvement fallback
         self::assertArrayNotHasKey('actionable', $tableBlock);
-        // At most 8 sample rows are shown, not all 50
-        self::assertLessThanOrEqual(8, count($tableBlock['rows']));
-        self::assertCount(8, $tableBlock['rows']);
+        self::assertCount(50, $tableBlock['rows']);
         // Rows must not have draft intake item
         self::assertArrayNotHasKey('item', $tableBlock['rows'][0]);
     }

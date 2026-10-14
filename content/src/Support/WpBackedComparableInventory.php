@@ -119,13 +119,50 @@ final class WpBackedComparableInventory
      */
     public static function countByWpPostType(int $siteId): array
     {
+        if ($siteId <= 0
+            || ! Schema::connection('omi_seo_ai')->hasTable('articles')
+            || ! Schema::connection('omi_seo_ai')->hasTable('wordpress_article_links')
+        ) {
+            return [];
+        }
+
+        $systemTypes = array_map(
+            static fn (string $type): string => strtolower($type),
+            ArticleSeoInventoryPolicy::SYSTEM_WP_POST_TYPES,
+        );
+        $placeholders = implode(',', array_fill(0, count($systemTypes), '?'));
+
+        $rows = DB::connection('omi_seo_ai')
+            ->table('articles as a')
+            ->join('wordpress_article_links as wal', 'wal.article_id', '=', 'a.id')
+            ->leftJoin('article_meta as am_pt', function ($join): void {
+                $join->on('am_pt.article_id', '=', 'a.id')->where('am_pt.meta_key', '=', 'wp_post_type');
+            })
+            ->leftJoin('article_meta as am_term', function ($join): void {
+                $join->on('am_term.article_id', '=', 'a.id')->where('am_term.meta_key', '=', 'wp_is_term');
+            })
+            ->where('a.site_id', $siteId)
+            ->whereNull('a.deleted_at')
+            ->where('wal.wp_post_id', '>', 0)
+            ->where(function ($query): void {
+                $query->whereNull('am_term.meta_value')
+                    ->orWhereRaw("LOWER(TRIM(am_term.meta_value)) NOT IN ('1', 'true', 'yes')");
+            })
+            ->whereRaw("LOWER(TRIM(COALESCE(am_pt.meta_value, ''))) <> ''")
+            ->whereRaw('LOWER(TRIM(am_pt.meta_value)) NOT IN ('.$placeholders.')', $systemTypes)
+            ->whereRaw("LOWER(TRIM(am_pt.meta_value)) NOT LIKE ? ESCAPE ?", ['wp\_%', '\\'])
+            ->groupBy(DB::raw('LOWER(TRIM(am_pt.meta_value))'))
+            ->selectRaw('LOWER(TRIM(am_pt.meta_value)) as wp_type')
+            ->selectRaw('COUNT(DISTINCT a.id) as aggregate')
+            ->get();
+
         $by = [];
-        foreach (self::rows($siteId) as $row) {
-            $type = strtolower(trim((string) ($row->wp_post_type ?? '')));
+        foreach ($rows as $row) {
+            $type = (string) ($row->wp_type ?? '');
             if ($type === '') {
                 continue;
             }
-            $by[$type] = ($by[$type] ?? 0) + 1;
+            $by[$type] = (int) $row->aggregate;
         }
 
         return $by;

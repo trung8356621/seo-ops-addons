@@ -49,9 +49,13 @@ final class KeywordGroupManualService
     {
         $this->assertReady($siteId);
         $group = $this->requireGroup($siteId, $groupId);
+        $wasSemantic = (string) $group->source === KeywordGroupSource::SEMANTIC;
         $group->name = $this->normalizeName($name);
         $group->source = KeywordGroupSource::MANUAL;
         $group->save();
+        if ($wasSemantic) {
+            $this->revokeSemanticReadinessIfCleared($siteId);
+        }
 
         return $group;
     }
@@ -79,7 +83,7 @@ final class KeywordGroupManualService
             throw new InvalidArgumentException('keyword_group_not_found');
         }
 
-        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId): array {
+        $result = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId): array {
             $group = SeoKeywordGroup::query()
                 ->where('site_id', $siteId)
                 ->whereKey($groupId)
@@ -89,6 +93,7 @@ final class KeywordGroupManualService
                 throw new InvalidArgumentException('keyword_group_not_found');
             }
 
+            $wasSemantic = (string) $group->source === KeywordGroupSource::SEMANTIC;
             $deletedMembers = (int) SeoKeywordGroupKeyword::query()
                 ->where('site_id', $siteId)
                 ->where('group_id', $groupId)
@@ -107,8 +112,15 @@ final class KeywordGroupManualService
             return [
                 'deleted_members' => $deletedMembers,
                 'detached_topics' => $detachedTopics,
+                'was_semantic' => $wasSemantic,
             ];
         });
+        if ($result['was_semantic'] === true) {
+            $this->revokeSemanticReadinessIfCleared($siteId);
+        }
+        unset($result['was_semantic']);
+
+        return $result;
     }
 
     public function assignKeyword(int $siteId, int $keywordId, ?int $targetGroupId): void
@@ -118,7 +130,8 @@ final class KeywordGroupManualService
             throw new InvalidArgumentException('invalid_keyword_group_assignment');
         }
 
-        DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $keywordId, $targetGroupId): void {
+        $convertedSemantic = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $keywordId, $targetGroupId): bool {
+            $convertedSemantic = false;
             $current = SeoKeywordGroupKeyword::query()
                 ->where('site_id', $siteId)
                 ->where('keyword_id', $keywordId)
@@ -139,7 +152,7 @@ final class KeywordGroupManualService
 
             $targetId = $target instanceof SeoKeywordGroup ? (int) $target->id : 0;
             if ($current !== null && (int) $current->group_id === $targetId) {
-                return;
+                return false;
             }
 
             if ($current !== null) {
@@ -150,13 +163,13 @@ final class KeywordGroupManualService
                     ->first();
                 $current->delete();
                 if ($old instanceof SeoKeywordGroup) {
-                    $this->promoteToManual($old);
+                    $convertedSemantic = $this->promoteToManual($old) || $convertedSemantic;
                     $this->repairRepresentative($old);
                 }
             }
 
             if (! $target instanceof SeoKeywordGroup) {
-                return;
+                return $convertedSemantic;
             }
 
             $payload = [
@@ -168,12 +181,17 @@ final class KeywordGroupManualService
             ];
             $this->applyDefaultTopicCandidateFields($payload);
             SeoKeywordGroupKeyword::query()->create($payload);
-            $this->promoteToManual($target);
+            $convertedSemantic = $this->promoteToManual($target) || $convertedSemantic;
             if ((int) ($target->representative_keyword_id ?? 0) <= 0) {
                 $target->representative_keyword_id = $keywordId;
                 $target->save();
             }
+
+            return $convertedSemantic;
         });
+        if ($convertedSemantic) {
+            $this->revokeSemanticReadinessIfCleared($siteId);
+        }
     }
 
     /**
@@ -196,7 +214,7 @@ final class KeywordGroupManualService
             return [];
         }
 
-        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId, $ids): array {
+        $appended = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groupId, $ids): array {
             $target = SeoKeywordGroup::query()
                 ->where('site_id', $siteId)
                 ->whereKey($groupId)
@@ -232,16 +250,25 @@ final class KeywordGroupManualService
                 $appended[] = $keywordId;
             }
 
+            $convertedSemantic = false;
             if ($appended !== []) {
-                $this->promoteToManual($target);
+                $convertedSemantic = $this->promoteToManual($target);
                 if ((int) ($target->representative_keyword_id ?? 0) <= 0) {
                     $target->representative_keyword_id = $appended[0];
                     $target->save();
                 }
             }
 
-            return $appended;
+            return [
+                'appended' => $appended,
+                'converted_semantic' => $convertedSemantic,
+            ];
         });
+        if ($appended['converted_semantic'] === true) {
+            $this->revokeSemanticReadinessIfCleared($siteId);
+        }
+
+        return $appended['appended'];
     }
 
     /**
@@ -322,14 +349,22 @@ final class KeywordGroupManualService
         return mb_substr($name, 0, 255);
     }
 
-    private function promoteToManual(SeoKeywordGroup $group): void
+    private function promoteToManual(SeoKeywordGroup $group): bool
     {
+        $wasSemantic = (string) $group->source === KeywordGroupSource::SEMANTIC;
         if (KeywordGroupSource::isManual($group->source)) {
-            return;
+            return false;
         }
 
         $group->source = KeywordGroupSource::MANUAL;
         $group->save();
+
+        return $wasSemantic;
+    }
+
+    private function revokeSemanticReadinessIfCleared(int $siteId): void
+    {
+        app(KeywordGroupSemanticReadiness::class)->revokeIfNoSemanticGroups($siteId);
     }
 
     private function repairRepresentative(SeoKeywordGroup $group): void

@@ -160,6 +160,11 @@
             </x-filament::section>
         @else
             <div class="seo-domain-overview__grid seo-domain-overview__grid--2">
+                @if($this->statisticsUpdatedLabel())
+                    <p class="text-sm text-gray-500 dark:text-gray-400 sm:col-span-2">Thống kê cập nhật: {{ $this->statisticsUpdatedLabel() }}</p>
+                @else
+                    <p class="text-sm text-amber-700 dark:text-amber-300 sm:col-span-2">Thống kê chưa sẵn sàng.</p>
+                @endif
                 {{-- Chấm điểm SEO --}}
                 <x-filament::section class="seo-domain-overview__section">
                     <x-slot name="heading">{{ __('SEO scoring') }}</x-slot>
@@ -167,7 +172,9 @@
                         {{ __('Effective SEO score from plugin (Rank Math / Yoast) — different from Workspace analyzer scoring rate.') }}
                     </x-slot>
 
-                    @if($scoring['scored'] === 0)
+                    @if(! $this->statisticsAvailable())
+                        <p class="text-sm text-amber-700 dark:text-amber-300">Thống kê chưa sẵn sàng.</p>
+                    @elseif($scoring['scored'] === 0)
                         <p class="text-sm text-amber-700 dark:text-amber-300">
                             {{ __('There are no graded entries yet. Need Focus Keyword on WordPress.') }}
                         </p>
@@ -185,6 +192,9 @@
                     <x-slot name="heading">{{ __('Synchronous statistics') }}</x-slot>
                     <x-slot name="description">{{ __('Quantity by type on SEO content warehouse.') }}</x-slot>
 
+                    @if(! $this->statisticsAvailable())
+                        <p class="text-sm text-amber-700 dark:text-amber-300">Thống kê chưa sẵn sàng.</p>
+                    @else
                     @php
                         $wpTypeCounts = $stats['wp_post_type_counts'] ?? [];
                         $defaultLabels = ['post' => __('Article'), 'page' => __('Trang'), 'product' => __('Product')];
@@ -228,6 +238,7 @@
 
                         <p class="text-gray-500">{{ __('Total records') }}: {{ $stats['total'] }}</p>
                     </div>
+                    @endif
 
                     @php $seoScoring = $this->getSeoScoringProgress(); @endphp
                     <div class="mt-4 space-y-1 border-t border-gray-200 pt-4 text-sm dark:border-gray-700">
@@ -272,7 +283,9 @@
                 </div>
 
                 <div>
-                    @if($this->internalLinkTab === 'keywords')
+                    @if(! $this->statisticsAvailable())
+                        <p class="text-sm text-amber-700 dark:text-amber-300">Thống kê chưa sẵn sàng.</p>
+                    @elseif($this->internalLinkTab === 'keywords')
                         @php $topKeywords = $this->getTopKeywords(); @endphp
                         @if($topKeywords->isEmpty())
                             <p class="text-sm text-gray-500 italic">{{ __('There are no keywords associated with the article.') }}</p>

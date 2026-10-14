@@ -110,7 +110,7 @@
             @php
                 $checked = (bool) ($metric['checked'] ?? false);
                 $raw = $card[$metricKey] ?? null;
-                $display = $checked && $raw !== null
+                $display = ($card['statistics_ready'] ?? false) && $checked && $raw !== null
                     ? number_format((int) $raw)
                     : '—';
             @endphp

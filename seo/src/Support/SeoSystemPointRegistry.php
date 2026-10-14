@@ -134,10 +134,14 @@ final class SeoSystemPointRegistry
      * @param  Builder<SeoArticle>  $query
      * @return Builder<SeoArticle>
      */
-    public static function scopeOrdinaryQuality(Builder $query): Builder
+    public static function scopeOrdinaryQuality(Builder $query, bool $applyInventoryScope = true): Builder
     {
         self::scopeExcludePages($query);
         self::scopeHasCanonicalFocusKeyword($query);
+
+        if (! $applyInventoryScope) {
+            return $query;
+        }
 
         return ArticleSeoInventoryPolicy::scopeCandidates($query);
     }

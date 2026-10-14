@@ -1402,6 +1402,9 @@ final class RunSiteSyncV3Orchestrator
             'meta' => $meta,
         ])->save();
 
+        app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class)
+            ->afterSuccessfulSync((int) $run->site_id, $terminalStatus);
+
         return false;
     }
 

@@ -23,6 +23,9 @@ use Omnichannel\Addons\Seo\Support\SeoSystemPointRegistry;
 
 final class DomainOverviewService
 {
+    /** @var array<int, array{statistics: array<string, mixed>, distribution: array<string, mixed>}> */
+    private array $qualitySnapshotCache = [];
+
     /**
      * @return array{
      *     read_token_masked: string,
@@ -78,42 +81,7 @@ final class DomainOverviewService
      */
     public function getScoreDistribution(int $siteId): array
     {
-        $membership = $this->wpBackedScoringArticlesQuery($siteId);
-        $base = $this->ordinaryQualityScoringQuery($siteId);
-        $total = (clone $membership)->count();
-        $scoreCol = $this->seoScoreColumn();
-        $scored = (clone $base)->whereNotNull($scoreCol)->count();
-
-        if ($scored === 0) {
-            return [
-                'total' => $total,
-                'scored' => 0,
-                'segments' => [],
-            ];
-        }
-
-        $row = (clone $base)
-            ->whereNotNull($scoreCol)
-            ->select(DB::raw("
-                SUM(CASE WHEN {$scoreCol} < 50 THEN 1 ELSE 0 END) as poor,
-                SUM(CASE WHEN {$scoreCol} >= 50 AND {$scoreCol} < 70 THEN 1 ELSE 0 END) as fair,
-                SUM(CASE WHEN {$scoreCol} >= 70 AND {$scoreCol} < 90 THEN 1 ELSE 0 END) as good,
-                SUM(CASE WHEN {$scoreCol} >= 90 THEN 1 ELSE 0 END) as excellent
-            "))
-            ->first();
-
-        $segments = [
-            ['label' => '0–49', 'key' => 'poor', 'count' => (int) ($row->poor ?? 0), 'color' => '#ef4444'],
-            ['label' => '50–69', 'key' => 'fair', 'count' => (int) ($row->fair ?? 0), 'color' => '#f59e0b'],
-            ['label' => '70–89', 'key' => 'good', 'count' => (int) ($row->good ?? 0), 'color' => '#3b82f6'],
-            ['label' => '90–100', 'key' => 'excellent', 'count' => (int) ($row->excellent ?? 0), 'color' => '#22c55e'],
-        ];
-
-        return [
-            'total' => $total,
-            'scored' => $scored,
-            'segments' => $segments,
-        ];
+        return $this->qualitySnapshot($siteId)['distribution'];
     }
 
     public function buildArticlesFilterUrl(int $siteId, string $band): string
@@ -210,25 +178,58 @@ final class DomainOverviewService
      */
     public function getScoringStatistics(int $siteId): array
     {
-        $scoreCol = $this->seoScoreColumn();
-        $base = $this->ordinaryQualityScoringQuery($siteId)
-            ->whereNotNull($scoreCol);
-        $scored = (clone $base)->count();
+        return $this->qualitySnapshot($siteId)['statistics'];
+    }
 
-        if ($scored === 0) {
-            return [
-                'scored' => 0,
-                'avg_score' => null,
-                'min_score' => null,
-                'max_score' => null,
-            ];
+    /**
+     * One aggregate for the donut and the avg/min/max card.
+     *
+     * @return array{statistics: array<string, mixed>, distribution: array<string, mixed>}
+     */
+    private function qualitySnapshot(int $siteId): array
+    {
+        if (isset($this->qualitySnapshotCache[$siteId])) {
+            return $this->qualitySnapshotCache[$siteId];
         }
 
-        return [
+        $scoreCol = $this->seoScoreColumn();
+        $total = (clone $this->wpBackedScoringArticlesQuery($siteId))->count();
+        $aggregate = $this->ordinaryQualityScoringQuery($siteId);
+        $aggregate->getQuery()->columns = null;
+        $row = $aggregate
+            ->selectRaw("
+                SUM(CASE WHEN {$scoreCol} IS NOT NULL THEN 1 ELSE 0 END) as scored,
+                AVG({$scoreCol}) as avg_score,
+                MIN({$scoreCol}) as min_score,
+                MAX({$scoreCol}) as max_score,
+                SUM(CASE WHEN {$scoreCol} IS NOT NULL AND {$scoreCol} < 50 THEN 1 ELSE 0 END) as poor,
+                SUM(CASE WHEN {$scoreCol} >= 50 AND {$scoreCol} < 70 THEN 1 ELSE 0 END) as fair,
+                SUM(CASE WHEN {$scoreCol} >= 70 AND {$scoreCol} < 90 THEN 1 ELSE 0 END) as good,
+                SUM(CASE WHEN {$scoreCol} >= 90 THEN 1 ELSE 0 END) as excellent
+            ")
+            ->first();
+
+        $scored = (int) ($row->scored ?? 0);
+        $statistics = [
             'scored' => $scored,
-            'avg_score' => round((float) (clone $base)->avg($scoreCol), 1),
-            'min_score' => round((float) (clone $base)->min($scoreCol), 1),
-            'max_score' => round((float) (clone $base)->max($scoreCol), 1),
+            'avg_score' => $scored > 0 ? round((float) $row->avg_score, 1) : null,
+            'min_score' => $scored > 0 ? round((float) $row->min_score, 1) : null,
+            'max_score' => $scored > 0 ? round((float) $row->max_score, 1) : null,
+        ];
+        $distribution = [
+            'total' => $total,
+            'scored' => $scored,
+            'segments' => $scored === 0 ? [] : [
+                ['label' => '0–49', 'key' => 'poor', 'count' => (int) ($row->poor ?? 0), 'color' => '#ef4444'],
+                ['label' => '50–69', 'key' => 'fair', 'count' => (int) ($row->fair ?? 0), 'color' => '#f59e0b'],
+                ['label' => '70–89', 'key' => 'good', 'count' => (int) ($row->good ?? 0), 'color' => '#3b82f6'],
+                ['label' => '90–100', 'key' => 'excellent', 'count' => (int) ($row->excellent ?? 0), 'color' => '#22c55e'],
+            ],
+        ];
+
+        return $this->qualitySnapshotCache[$siteId] = [
+            'statistics' => $statistics,
+            'distribution' => $distribution,
         ];
     }
 
@@ -265,6 +266,7 @@ final class DomainOverviewService
     {
         return SeoSystemPointRegistry::scopeOrdinaryQuality(
             $this->wpBackedScoringArticlesQuery($siteId),
+            applyInventoryScope: false,
         );
     }
 

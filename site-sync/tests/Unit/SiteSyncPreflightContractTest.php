@@ -103,9 +103,13 @@ final class SiteSyncPreflightContractTest extends TestCase
         $src = (string) file_get_contents($presenter);
 
         self::assertStringContainsString('seo_ops_data', $src);
-        self::assertStringContainsString('evaluateLocalOnly', $src);
+        self::assertStringContainsString('SiteStatisticsSnapshotStore', $src);
         self::assertStringContainsString('SEO Ops data health', $src);
-        self::assertStringContainsString('DomainLinkInventoryReadModel', $src);
+        $rebuilder = (string) file_get_contents(
+            dirname(__DIR__, 3).'/seo/src/Services/SiteStatistics/SiteStatisticsRebuilder.php',
+        );
+        self::assertStringContainsString('evaluateLocalOnly', $rebuilder);
+        self::assertStringContainsString('DomainLinkInventoryReadModel', $rebuilder);
         self::assertStringContainsString('ArticleSeoInventoryPolicy', (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/LinkAnalysis/DomainLinkInventoryReadModel.php',
         ));

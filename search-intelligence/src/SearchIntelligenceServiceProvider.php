@@ -43,7 +43,9 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTo
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicGroupingProviderMode;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipCapabilityService;
 use Omnichannel\Addons\AgentRuntime\Navigation\AgentInternalLinkResolver;
+use Omnichannel\Addons\AgentRuntime\Projects\AgentSemanticSiteReadiness;
 use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Services\AgentTopicInternalLinkResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\TopicGroup\TopicGroupArticleRetriever;
 use Omnichannel\Addons\SearchIntelligence\Support\TopicalMapAccess;
@@ -84,6 +86,8 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         $this->app->singleton(TopicalMapAccess::class);
         $this->app->singleton(AgentInternalLinkResolver::class, AgentTopicInternalLinkResolver::class);
         $this->app->singleton(TopicGroupArticleSource::class, TopicGroupArticleRetriever::class);
+        $this->app->singleton(KeywordGroupSemanticReadiness::class);
+        $this->app->singleton(AgentSemanticSiteReadiness::class, static fn ($app): AgentSemanticSiteReadiness => $app->make(KeywordGroupSemanticReadiness::class));
         $this->registerCapabilities();
     }
 

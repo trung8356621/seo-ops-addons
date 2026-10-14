@@ -101,6 +101,10 @@ final class AgentConfirmedToolExecutor
             $listInput['article_ids'] = $matched['ids'];
         }
         $data = $this->seoAudit->listArticles($context, $listInput);
+        $data['query_constraint'] = [
+            'subject' => $subject !== '' ? $subject : null,
+            'requested_limit' => $limit,
+        ];
         $data['draft_action'] = 'content_project.draft.intake';
         $data['draft_item_type'] = 'improve';
         $data['draft_source'] = 'seo_audit';

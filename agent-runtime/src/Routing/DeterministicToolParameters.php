@@ -106,12 +106,22 @@ final class DeterministicToolParameters
             return null;
         }
 
-        $subject = trim((string) preg_replace('/\s+(hãy|để|de|có điểm|co diem|với điểm).*$/iu', '', $match[1]));
-        $subject = trim($subject, " \t\"'");
+        $subject = $this->trimSubjectTail($match[1]);
         if (mb_strlen($subject) < 2 || mb_strlen($subject) > 80) {
             return null;
         }
 
         return $subject;
+    }
+
+    private function trimSubjectTail(string $subject): string
+    {
+        $subject = trim((string) preg_replace(
+            '/\s+(?:hãy|để|de|có\s+điểm|co\s+diem|với\s+điểm|có\s+seo(?:\s*score)?|seo\s*score|điểm\s*seo|diem\s*seo|thấp\s+nhất|lowest).*$/iu',
+            '',
+            $subject,
+        ));
+
+        return trim($subject, " \t\"'");
     }
 }

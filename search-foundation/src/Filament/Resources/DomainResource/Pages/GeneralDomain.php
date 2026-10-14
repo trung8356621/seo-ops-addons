@@ -55,6 +55,66 @@ class GeneralDomain extends Page
 
     public string $internalLinkTab = 'keywords';
 
+    private ?DomainOverviewService $domainOverviewService = null;
+
+    private bool $statisticsSnapshotLoaded = false;
+
+    /** @var array<string, mixed>|null */
+    private ?array $statisticsSnapshot = null;
+
+    /** @var array<string, mixed>|null */
+    private ?array $siteSyncStatusPayload = null;
+
+    private function domainOverview(): DomainOverviewService
+    {
+        return $this->domainOverviewService ??= app(DomainOverviewService::class);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function statisticsSnapshot(): ?array
+    {
+        if ($this->statisticsSnapshotLoaded) {
+            return $this->statisticsSnapshot;
+        }
+
+        $this->statisticsSnapshotLoaded = true;
+        $this->statisticsSnapshot = app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsSnapshotStore::class)
+            ->get((int) $this->getRecord()->getKey());
+
+        return $this->statisticsSnapshot;
+    }
+
+    public function statisticsAvailable(): bool
+    {
+        return is_array($this->statisticsSnapshot());
+    }
+
+    public function statisticsUpdatedLabel(): ?string
+    {
+        $at = $this->statisticsSnapshot()['generated_at'] ?? null;
+        if (! is_string($at) || $at === '') {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($at)->timezone((string) config('app.timezone'))->format('d/m/Y H:i');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function statistic(string $key): ?array
+    {
+        $value = $this->statisticsSnapshot()['statistics'][$key] ?? null;
+
+        return is_array($value) ? $value : null;
+    }
+
     public bool $tokensUnlocked = false;
 
     public bool $readTokenVisible = false;
@@ -597,6 +657,7 @@ class GeneralDomain extends Page
             /** @var Site $site */
             $site = $this->getRecord();
             $status = app(SiteSyncStatusPresenter::class)->forSite($site);
+            $this->siteSyncStatusPayload = $status;
             $wasRunning = $this->siteSyncV2Running;
             $this->siteSyncV2Running = (bool) $status['running'];
             $this->siteSyncV2Resumable = (bool) $status['resumable'];
@@ -1187,7 +1248,7 @@ class GeneralDomain extends Page
     public function getSiteHealthCard(): array
     {
         return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\SiteHealthCardPresenter::class)
-            ->forSite($this->getSite());
+            ->forSite($this->getSite(), $this->siteSyncStatusPayload);
     }
 
     public function reconcileSiteWordPressState(): void
@@ -1223,7 +1284,7 @@ class GeneralDomain extends Page
      */
     public function getScoringStatistics(): array
     {
-        return app(DomainOverviewService::class)->getScoringStatistics((int) $this->getRecord()->getKey());
+        return $this->statistic('scoring') ?? ['scored' => null, 'avg_score' => null, 'min_score' => null, 'max_score' => null];
     }
 
     /**
@@ -1231,7 +1292,7 @@ class GeneralDomain extends Page
      */
     public function getScoreDistribution(): array
     {
-        return app(DomainOverviewService::class)->getScoreDistribution((int) $this->getRecord()->getKey());
+        return $this->statistic('score_distribution') ?? ['total' => null, 'scored' => null, 'segments' => []];
     }
 
     /**
@@ -1239,7 +1300,7 @@ class GeneralDomain extends Page
      */
     public function getSyncStatistics(): array
     {
-        return app(DomainOverviewService::class)->getSyncStatistics((int) $this->getRecord()->getKey());
+        return $this->statistic('sync') ?? [];
     }
 
     /**
@@ -1247,7 +1308,9 @@ class GeneralDomain extends Page
      */
     public function getTopKeywords(): Collection
     {
-        return app(DomainOverviewService::class)->getTopKeywords((int) $this->getRecord()->getKey());
+        $rows = $this->statisticsSnapshot()['statistics']['top_keywords'] ?? null;
+
+        return collect(is_array($rows) ? $rows : [])->map(static fn (mixed $row): object => (object) $row);
     }
 
     /**
@@ -1255,7 +1318,9 @@ class GeneralDomain extends Page
      */
     public function getTopLinks(): Collection
     {
-        return app(DomainOverviewService::class)->getTopLinks((int) $this->getRecord()->getKey());
+        $rows = $this->statisticsSnapshot()['statistics']['top_links'] ?? null;
+
+        return collect(is_array($rows) ? $rows : [])->map(static fn (mixed $row): object => (object) $row);
     }
 
     /**
@@ -1263,7 +1328,7 @@ class GeneralDomain extends Page
      */
     public function getTechnicalSeoSummary(): array
     {
-        return app(DomainOverviewService::class)->getTechnicalSeoSummary($this->getSite());
+        return $this->domainOverview()->getTechnicalSeoSummary($this->getSite());
     }
 
     /**
@@ -1644,8 +1709,7 @@ class GeneralDomain extends Page
     public function getSeoScoringProgress(): array
     {
         // Website/WP-backed presentation — not Workspace eligibility (local-only).
-        return app(\Omnichannel\Addons\Seo\Services\DomainOverviewService::class)
-            ->getWpBackedScoringProgress((int) $this->getRecord()->getKey());
+        return $this->domainOverview()->getWpBackedScoringProgress((int) $this->getRecord()->getKey());
     }
 
     public function runQueueMissingSeoScoringAction(): void

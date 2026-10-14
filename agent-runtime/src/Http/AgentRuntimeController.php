@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use InvalidArgumentException;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
+use Omnichannel\Addons\AgentRuntime\Projects\AgentSemanticSiteReadiness;
 use Omnichannel\Addons\AgentRuntime\Projects\SiteDirectory;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnCoordinator;
 use Omnichannel\Addons\AgentRuntime\Runtime\AgentTurnResult;
@@ -62,7 +63,7 @@ final class AgentRuntimeController
             $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
             $proposal = AgentToolConfirmationProposal::fromArray((array) ($summary['confirmation']['proposal'] ?? []));
             $scope = AgentProjectScope::fromArray($proposal->scope);
-            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+            if (! $scope->isSite() || ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
                 $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
 
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
@@ -203,7 +204,7 @@ final class AgentRuntimeController
             $summary = is_array($run->retrieval_summary) ? $run->retrieval_summary : [];
             $proposal = AgentToolConfirmationProposal::fromArray((array) ($summary['confirmation']['proposal'] ?? []));
             $scope = AgentProjectScope::fromArray($proposal->scope);
-            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+            if (! $scope->isSite() || ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
                 $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
 
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
@@ -353,7 +354,7 @@ final class AgentRuntimeController
 
         if ($run->scope_type === 'site') {
             $siteId = (int) str_replace('site:', '', (string) $run->scope_ref);
-            if ($siteId > 0 && ! $sites->isSiteVisible($siteId, $userId)) {
+            if ($siteId > 0 && ! $this->selectedSiteAllowed($sites, $siteId, $userId)) {
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
             }
         }
@@ -371,7 +372,7 @@ final class AgentRuntimeController
         }
         $userId = (int) $user->id;
         $siteId = (int) $request->query('site_id', 0);
-        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+        if ($siteId <= 0 || ! $this->selectedSiteAllowed($sites, $siteId, $userId)) {
             return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
         $ownerId = (method_exists($user, 'accountOwnerId') ? $user->accountOwnerId() : null) ?? $userId;
@@ -396,7 +397,7 @@ final class AgentRuntimeController
         }
         $userId = (int) $user->id;
         $siteId = (int) $request->input('site_id', 0);
-        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+        if ($siteId <= 0 || ! $this->selectedSiteAllowed($sites, $siteId, $userId)) {
             return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
         $app = AgentApp::findByKey((string) $request->input('app_key', 'seo-ops')) ?? AgentApp::findByKey('seo-ops');
@@ -487,7 +488,21 @@ final class AgentRuntimeController
             'label' => 'All Sites',
             'retrieval' => 'unsupported',
         ]];
-        foreach ($sites->listActiveSites($userId) as $site) {
+        $catalog = $sites->listActiveSites($userId);
+        $readyIds = null;
+        if (app()->bound(AgentSemanticSiteReadiness::class)) {
+            $readyIds = array_fill_keys(
+                app(AgentSemanticSiteReadiness::class)->filterReadySiteIds(array_map(
+                    static fn (array $site): int => (int) $site['id'],
+                    $catalog,
+                )),
+                true,
+            );
+        }
+        foreach ($catalog as $site) {
+            if ($readyIds !== null && ! isset($readyIds[(int) $site['id']])) {
+                continue;
+            }
             $items[] = [
                 'type' => 'site',
                 'key' => 'site:'.$site['id'],
@@ -573,10 +588,8 @@ final class AgentRuntimeController
             $scope = AgentProjectScope::assigned();
         }
 
-        if ($scope->isSite()) {
-            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
-                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
-            }
+        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
 
         $appKey = $payload['hostContext']['appKey'] ?? 'seo-ops';
@@ -677,10 +690,8 @@ final class AgentRuntimeController
             return new JsonResponse(['message' => $e->getMessage()], 422);
         }
 
-        if ($scope->isSite()) {
-            if (! $sites->isSiteVisible($scope->siteId, $userId)) {
-                return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
-            }
+        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
 
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
@@ -1105,7 +1116,7 @@ final class AgentRuntimeController
             'type' => $thread->scope_type,
             'ref' => $thread->scope_ref,
         ]);
-        if ($scope->isSite() && ! $sites->isSiteVisible($scope->siteId, $userId)) {
+        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
             return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
 
@@ -1736,7 +1747,7 @@ final class AgentRuntimeController
             $state = (array) ($summary['gsc_continuation'] ?? []);
             $proposal = AgentToolConfirmationProposal::fromArray((array) ($state['proposal'] ?? []));
             $scope = AgentProjectScope::fromArray($proposal->scope);
-            if (! $scope->isSite() || ! $sites->isSiteVisible($scope->siteId, $userId)) {
+            if (! $scope->isSite() || ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
                 $persistence->failRun($run, 'site_access_denied', 'Site is invalid or inaccessible.');
 
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
@@ -1882,6 +1893,19 @@ final class AgentRuntimeController
             'user_message_id' => $run->user_message_id,
             'assistant_message_id' => $assistant->id,
         ]]);
+    }
+
+    private function selectedSiteAllowed(SiteDirectory $sites, int $siteId, int $userId): bool
+    {
+        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
+            return false;
+        }
+
+        if (! app()->bound(AgentSemanticSiteReadiness::class)) {
+            return true;
+        }
+
+        return app(AgentSemanticSiteReadiness::class)->isReady($siteId);
     }
 
     private function formatPeriod(string $period): string

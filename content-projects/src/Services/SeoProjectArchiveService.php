@@ -70,6 +70,7 @@ final class SeoProjectArchiveService
         $now = now();
         $archivedArticles = 0;
         $tasksArchived = 0;
+        $statisticsSiteId = 0;
         /** @var array<int, true> $archivedArticleIds */
         $archivedArticleIds = [];
 
@@ -99,6 +100,7 @@ final class SeoProjectArchiveService
             if ($mirrorOk) {
                 $archivedArticleIds[$articleId] = true;
                 $archivedArticles++;
+                $statisticsSiteId = $siteId;
             }
         }
 
@@ -139,6 +141,11 @@ final class SeoProjectArchiveService
         $lockedProject->update([
             'status' => SeoProject::STATUS_MANUAL,
         ]);
+
+        if ($archivedArticles > 0 && $statisticsSiteId > 0) {
+            app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class)
+                ->afterSuccessfulArchive($statisticsSiteId);
+        }
 
         return [
             'archived' => max($archivedArticles, $tasksArchived),
@@ -197,6 +204,8 @@ final class SeoProjectArchiveService
 
         $now = now();
         $archived = 0;
+        /** @var array<int, true> $statisticsSiteIds */
+        $statisticsSiteIds = [];
 
         foreach ($taskIds as $taskId) {
             $task = $tasks->get($taskId);
@@ -242,7 +251,7 @@ final class SeoProjectArchiveService
                 continue;
             }
 
-            $this->tryPersistArchiveMirrorFromTask(
+            $mirrored = $this->tryPersistArchiveMirrorFromTask(
                 $task->fresh() ?? $task,
                 $lockedProject,
                 $siteId,
@@ -250,6 +259,9 @@ final class SeoProjectArchiveService
                 $note,
                 $now,
             );
+            if ($mirrored) {
+                $statisticsSiteIds[$siteId] = true;
+            }
         }
 
         if ($archived === 0) {
@@ -257,6 +269,11 @@ final class SeoProjectArchiveService
         }
 
         $lockedProject->syncTotalTasksCounter();
+
+        $refresh = app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class);
+        foreach (array_keys($statisticsSiteIds) as $statisticsSiteId) {
+            $refresh->afterSuccessfulArchive((int) $statisticsSiteId);
+        }
 
         return [
             'archived' => $archived,

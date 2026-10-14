@@ -9,6 +9,8 @@ use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsReader;
 use Omnichannel\Addons\AgentRuntime\Access\AgentWorkStatsService;
 use Omnichannel\Addons\AgentRuntime\Domain\AgentProjectScope;
 use Omnichannel\Addons\AgentRuntime\Response\FactualAgentResponseComposer;
+use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalBundle;
+use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalSource;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalExecutor;
 use Omnichannel\Addons\AgentRuntime\Retrieval\RetrievalPlanner;
 use Omnichannel\Addons\AgentRuntime\Retrieval\SeoAccessCredential;
@@ -45,6 +47,10 @@ final class AgentConstraintPreservationTest extends TestCase
     {
         $topic = (new DeterministicToolParameters())->extract('Trong các bài viết về vali du lịch, hãy tìm tối đa 20 bài có điểm SEO thấp.')['parameters'];
         self::assertSame('vali du lịch', $topic['subject']);
+
+        $ordered = (new DeterministicToolParameters())->extract('Cho tôi 20 bài về balo học sinh có SEO Score thấp nhất.')['parameters'];
+        self::assertSame('balo học sinh', $ordered['subject']);
+        self::assertSame(20, $ordered['limit_max']);
 
         $exact = (new DeterministicToolParameters())->extract('Cho tôi 20 bài tệ nhất')['parameters'];
         self::assertSame(20, $exact['limit_min']);
@@ -118,6 +124,45 @@ final class AgentConstraintPreservationTest extends TestCase
         self::assertStringContainsString('không có article vector', (string) $bundle->sources[0]->data['limitation']);
         $response = (new FactualAgentResponseComposer())->compose($bundle, 'bài giống với balo', 'vi');
         self::assertStringContainsString('không có article vector', (string) $response?->message);
+    }
+
+    #[Test]
+    public function shortfall_keeps_the_same_subject_pool_and_empty_topics_do_not_widen(): void
+    {
+        $composer = new FactualAgentResponseComposer();
+        $items = [];
+        for ($i = 1; $i <= 7; $i++) {
+            $items[] = ['article_ref' => 'article:'.$i, 'title' => 'Balo '.$i, 'seo_score' => $i, 'focus_keyword' => 'balo học sinh'];
+        }
+        $bundle = new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'list', [
+                'items' => $items,
+                'total' => 7,
+                'query_constraint' => ['subject' => 'balo học sinh', 'requested_limit' => 20],
+                'draft_action' => 'content_project.draft.intake',
+                'draft_item_type' => 'improve',
+                'draft_source' => 'seo_audit',
+            ]),
+        ]);
+        $a1 = $composer->compose($bundle, 'Trong các bài viết về balo học sinh, hãy tìm tối đa 20 bài có điểm SEO thấp để ưu tiên cải thiện.', 'vi');
+        $a2 = $composer->compose($bundle, 'Cho tôi 20 bài về balo học sinh có SEO Score thấp nhất.', 'vi');
+        self::assertSame(
+            array_column($a1->blocks[0]['rows'], 'article_ref'),
+            array_column($a2->blocks[0]['rows'], 'article_ref'),
+        );
+        self::assertCount(7, $a2->blocks[0]['rows']);
+        self::assertStringContainsString('ít hơn 20', $a2->message);
+        self::assertArrayNotHasKey('actionable', $a2->blocks[0]);
+
+        $empty = $composer->compose(new RetrievalBundle(AgentProjectScope::site(4), [
+            new RetrievalSource('articles', 'ok', 'list', [
+                'items' => [],
+                'total' => 0,
+                'query_constraint' => ['subject' => 'zzqq', 'requested_limit' => 20],
+            ]),
+        ]), 'Trong các bài viết về zzqq, hãy tìm tối đa 20 bài có điểm SEO thấp.', 'vi');
+        self::assertStringContainsString('zzqq', $empty->message);
+        self::assertStringContainsString('không được nới rộng', $empty->message);
     }
 
     #[Test]

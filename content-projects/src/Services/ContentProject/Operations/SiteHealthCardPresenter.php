@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations;
 
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SiteSync\Services\Heartbeat\WordPressHeartbeatPollService;
-use Omnichannel\Addons\SiteSync\Services\Preflight\SiteSyncPreflightService;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use App\Models\Site;
 
@@ -22,12 +21,30 @@ final class SiteHealthCardPresenter
     /**
      * @return array<string, mixed>
      */
-    public function forSite(Site $site): array
+    public function forSite(Site $site, ?array $knownSyncStatus = null): array
     {
+        $snapshot = app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsSnapshotStore::class)
+            ->get((int) $site->id);
+        $statisticsReady = is_array($snapshot);
+        $stats = $statisticsReady && is_array($snapshot['statistics'] ?? null) ? $snapshot['statistics'] : [];
+
         $raw = $this->health->snapshot([(int) $site->id])[0] ?? [];
         $heartbeat = $this->heartbeat($site);
-        $linkAnalysis = app(\Omnichannel\Addons\SiteSync\Services\LinkAnalysis\DomainLinkInventoryReadModel::class)
-            ->forSite($site);
+        $linkAnalysis = $statisticsReady && is_array($stats['link_inventory'] ?? null)
+            ? $stats['link_inventory']
+            : [
+                'internal_links' => null,
+                'external_links' => null,
+                'orphan_pages' => null,
+                'inventory_available' => false,
+                'inventory_state' => 'Thống kê chưa sẵn sàng',
+                'link_opportunities' => null,
+                'opportunities_checked' => false,
+                'broken_links' => null,
+                'remote_health_checked' => false,
+                'remote_health_state' => 'Thống kê chưa sẵn sàng',
+                'last_remote_analyzed_at' => null,
+            ];
         $dictionary = $this->jsonMeta($site, 'seo_keyword_dictionary');
 
         $wpOnline = ($heartbeat['status'] ?? '') === 'ok'
@@ -51,7 +68,9 @@ final class SiteHealthCardPresenter
             },
         ];
         try {
-            $syncUi = app(SiteSyncStatusPresenter::class)->forSite($site);
+            $syncUi = is_array($knownSyncStatus)
+                ? $knownSyncStatus
+                : app(SiteSyncStatusPresenter::class)->forSite($site);
             if (($syncUi['running'] ?? false) || ($syncUi['stuck'] ?? false)) {
                 $syncLines = array_values(array_filter([
                     (string) ($syncUi['phase_label'] ?? 'Đang chạy'),
@@ -120,7 +139,7 @@ final class SiteHealthCardPresenter
             ],
         ];
 
-        $dataHealth = $this->dataHealthSection($site);
+        $dataHealth = $this->dataHealthSection($site, is_array($stats['preflight_local'] ?? null) ? $stats['preflight_local'] : null, $statisticsReady);
         if ($dataHealth !== null) {
             $fields = is_array($dataHealth['payload']['data_health']['fields'] ?? null)
                 ? $dataHealth['payload']['data_health']['fields']
@@ -156,7 +175,7 @@ final class SiteHealthCardPresenter
             $sections['seo_ops_data'] = $dataHealth;
         }
 
-        $focusCoverage = $this->focusKeywordCoverageSection($site);
+        $focusCoverage = $this->focusKeywordCoverageSection($site, is_array($stats['focus_keyword_coverage'] ?? null) ? $stats['focus_keyword_coverage'] : null, $statisticsReady);
         if ($focusCoverage !== null) {
             $sections['focus_keywords'] = $focusCoverage;
         }
@@ -175,6 +194,7 @@ final class SiteHealthCardPresenter
             'internal_links' => (int) ($linkAnalysis['internal_links'] ?? 0),
             'external_links' => (int) ($linkAnalysis['external_links'] ?? 0),
             'link_inventory' => $linkAnalysis,
+            'statistics_ready' => $statisticsReady,
             'dictionary_version' => $dictionary['version'] ?? null,
             'raw' => $raw,
         ];
@@ -185,13 +205,20 @@ final class SiteHealthCardPresenter
      *
      * @return array{label: string, ok: bool, lines: list<string>, payload?: array<string, mixed>}|null
      */
-    private function focusKeywordCoverageSection(Site $site): ?array
+    private function focusKeywordCoverageSection(Site $site, ?array $coverage, bool $statisticsReady): ?array
     {
+        if (! $statisticsReady || $coverage === null) {
+            return [
+                'label' => 'Focus Keywords',
+                'ok' => false,
+                'lines' => ['Thống kê chưa sẵn sàng'],
+            ];
+        }
+
         try {
             $filterUrl = app(\Omnichannel\Addons\Seo\Services\DomainOverviewService::class)
                 ->buildArticlesFilterUrlForMissingFocusKeyword((int) $site->id);
-            $coverage = app(\Omnichannel\Addons\Seo\Services\FocusKeywordCoverageService::class)
-                ->forSite((int) $site->id, $filterUrl);
+            $coverage['filter_url'] = $coverage['filter_url'] ?? $filterUrl;
         } catch (\Throwable) {
             return null;
         }
@@ -219,12 +246,14 @@ final class SiteHealthCardPresenter
      *
      * @return array{label: string, ok: bool, lines: list<string>, payload?: array<string, mixed>}|null
      */
-    private function dataHealthSection(Site $site): ?array
+    private function dataHealthSection(Site $site, ?array $preflight, bool $statisticsReady): ?array
     {
-        try {
-            $preflight = app(SiteSyncPreflightService::class)->evaluateLocalOnly($site);
-        } catch (\Throwable) {
-            return null;
+        if (! $statisticsReady || $preflight === null) {
+            return [
+                'label' => 'SEO Ops data health',
+                'ok' => false,
+                'lines' => ['Thống kê chưa sẵn sàng'],
+            ];
         }
 
         $fields = is_array($preflight['data_health']['fields'] ?? null)

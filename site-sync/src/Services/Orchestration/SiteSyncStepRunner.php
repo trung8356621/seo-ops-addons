@@ -566,6 +566,8 @@ final class SiteSyncStepRunner
             'current_step' => 'finalize',
             'finished_at' => now(),
         ])->save();
+        app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class)
+            ->afterSuccessfulSync((int) $run->site_id, $finalStatus);
         $this->checkpointProgress($run, 'finalize', [
             'status' => $finalStatus,
             'finished_at' => now()->toIso8601String(),

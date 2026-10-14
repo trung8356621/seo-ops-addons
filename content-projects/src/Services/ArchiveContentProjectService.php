@@ -326,6 +326,9 @@ final class ArchiveContentProjectService
             $this->workspaceDestroyer->releaseDeferredSideEffects($cleanupContext);
         }
 
+        app(\Omnichannel\Addons\Seo\Services\SiteStatistics\SiteStatisticsRefresh::class)
+            ->afterSuccessfulArchive((int) ($archive->site_id ?? 0));
+
         return $archive;
     }
 

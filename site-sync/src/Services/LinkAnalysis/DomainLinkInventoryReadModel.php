@@ -153,7 +153,13 @@ final class DomainLinkInventoryReadModel
             return 0;
         }
 
-        $candidateRows = DB::connection('omi_seo_ai')
+        $systemTypes = array_map(
+            static fn (string $type): string => strtolower($type),
+            ArticleSeoInventoryPolicy::SYSTEM_WP_POST_TYPES,
+        );
+        $placeholders = implode(',', array_fill(0, count($systemTypes), '?'));
+
+        $count = DB::connection('omi_seo_ai')
             ->table('articles as a')
             ->join('wordpress_article_links as wal', 'wal.article_id', '=', 'a.id')
             ->leftJoin('article_meta as am_term', function ($j): void {
@@ -166,50 +172,32 @@ final class DomainLinkInventoryReadModel
             ->where('wal.wp_post_id', '>', 0)
             ->whereNull('a.deleted_at')
             ->whereNotIn('a.status', ['trash', 'draft', 'auto-draft', 'pending'])
-            ->select([
-                'a.id',
-                'a.status',
-                'am_term.meta_value as wp_is_term',
-                'am_pt.meta_value as wp_post_type',
-            ])
-            ->get();
-
-        $eligibleIds = [];
-        foreach ($candidateRows as $row) {
-            $wpPostType = $row->wp_post_type !== null ? (string) $row->wp_post_type : null;
-            $wpIsTerm = $row->wp_is_term !== null ? (string) $row->wp_is_term : null;
-            if (! ArticleSeoInventoryPolicy::isSeoInventoryCandidate($wpPostType, $wpIsTerm)) {
-                continue;
-            }
-            $eligibleIds[] = (int) $row->id;
-        }
-
-        if ($eligibleIds === []) {
-            return 0;
-        }
-
-        $linkedTargets = DB::connection('omi_seo_ai')
-            ->table('seo_link_maps as m')
-            ->join('articles as src', 'src.id', '=', 'm.source_article_id')
-            ->where('src.site_id', $siteId)
-            ->whereNull('src.deleted_at')
-            ->where('m.link_type', SeoLinkMapType::Internal->value)
-            ->where('m.status', '!=', SeoLinkMapStatus::Ignored->value)
-            ->whereNotNull('m.target_article_id')
-            ->whereIn('m.target_article_id', $eligibleIds)
+            ->where(function ($query): void {
+                $query->whereNull('am_term.meta_value')
+                    ->orWhereRaw("LOWER(TRIM(COALESCE(am_term.meta_value, ''))) NOT IN ('1', 'true', 'yes')");
+            })
+            ->where(function ($query) use ($systemTypes, $placeholders): void {
+                $query->whereNull('am_pt.meta_value')
+                    ->orWhereRaw("TRIM(am_pt.meta_value) = ''")
+                    ->orWhere(function ($typed) use ($systemTypes, $placeholders): void {
+                        $typed->whereRaw('LOWER(TRIM(am_pt.meta_value)) NOT IN ('.$placeholders.')', $systemTypes)
+                            ->whereRaw("LOWER(TRIM(am_pt.meta_value)) NOT LIKE ? ESCAPE ?", ['wp\_%', '\\']);
+                    });
+            })
+            ->whereNotExists(function ($sub) use ($siteId): void {
+                $sub->selectRaw('1')
+                    ->from('seo_link_maps as m')
+                    ->join('articles as src', 'src.id', '=', 'm.source_article_id')
+                    ->whereColumn('m.target_article_id', 'a.id')
+                    ->where('src.site_id', $siteId)
+                    ->whereNull('src.deleted_at')
+                    ->where('m.link_type', SeoLinkMapType::Internal->value)
+                    ->where('m.status', '!=', SeoLinkMapStatus::Ignored->value)
+                    ->whereNotNull('m.target_article_id');
+            })
             ->distinct()
-            ->pluck('m.target_article_id')
-            ->map(static fn ($id): int => (int) $id)
-            ->all();
+            ->count('a.id');
 
-        $linkedSet = array_fill_keys($linkedTargets, true);
-        $orphans = 0;
-        foreach ($eligibleIds as $id) {
-            if (! isset($linkedSet[$id])) {
-                $orphans++;
-            }
-        }
-
-        return $orphans;
+        return (int) $count;
     }
 }

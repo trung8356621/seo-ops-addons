@@ -1386,20 +1386,27 @@
 
 .agent-tier-select {
     height: 30px;
-    padding: 2px 8px;
+    padding: 2px 28px 2px 8px;
     font-size: 12px;
     font-weight: 500;
     color: #334155;
-    background: #f8fafc;
+    background-color: #f8fafc;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px 14px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
     outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
 }
 
 .agent-tier-select:hover:not(:disabled) {
-    background: #f1f5f9;
+    background-color: #f1f5f9;
     border-color: #059669;
     color: #0f172a;
 }

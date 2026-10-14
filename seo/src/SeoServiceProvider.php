@@ -89,6 +89,12 @@ final class SeoServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Omnichannel\Addons\Seo\Console\RebuildSiteStatisticsCommand::class,
+            ]);
+        }
+
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'seo');
 
         if ($this->app->bound(CapabilityRegistry::class)) {

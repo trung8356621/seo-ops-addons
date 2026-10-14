@@ -23,7 +23,11 @@ final class FocusKeywordCoverageDomainCardContractTest extends TestCase
 
         self::assertStringContainsString('focusKeywordCoverageSection', $presenterSrc);
         self::assertStringContainsString("'focus_keywords'", $presenterSrc);
-        self::assertStringContainsString('FocusKeywordCoverageService', $presenterSrc);
+        self::assertStringContainsString('SiteStatisticsSnapshotStore', $presenterSrc);
+        $rebuilder = (string) file_get_contents(
+            dirname(__DIR__, 3).'/seo/src/Services/SiteStatistics/SiteStatisticsRebuilder.php',
+        );
+        self::assertStringContainsString('FocusKeywordCoverageService', $rebuilder);
         self::assertStringContainsString("'focus_keywords'", $bladeSrc);
         self::assertStringContainsString('Focus Keyword Coverage (detail)', $bladeSrc);
         self::assertStringContainsString('buildArticlesFilterUrlForMissingFocusKeyword', $overviewSrc);

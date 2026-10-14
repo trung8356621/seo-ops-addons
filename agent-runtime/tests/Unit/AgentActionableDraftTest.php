@@ -78,7 +78,12 @@ final class AgentActionableDraftTest extends TestCase
             ]),
         ]);
 
-        $response = $composer->compose($bundle, 'tháng 9 này cần sửa những bài nào', 'vi');
+        $read = $composer->compose($bundle, 'tháng 9 này cần sửa những bài nào', 'vi');
+        self::assertArrayNotHasKey('actionable', $read->blocks[0]);
+        self::assertArrayNotHasKey('item', $read->blocks[0]['rows'][0]);
+        self::assertSame('article:7', $read->blocks[0]['rows'][0]['article_ref']);
+
+        $response = $composer->compose($bundle, 'Đưa các bài này vào draft', 'vi');
         $block = $response->blocks[0];
         self::assertSame('content_project.draft.intake', $block['actionable']['action']);
         self::assertSame('site:4', $block['actionable']['site_ref']);

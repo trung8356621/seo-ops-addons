@@ -524,6 +524,7 @@ export function AgentWidget({
         }
         return buildProjectItems([]);
     });
+    const [projectsLoaded, setProjectsLoaded] = useState(!endpoints.projectsUrl);
 
     const [selectedKey, setSelectedKey] = useState(initialKey);
     const [activeThreadUlid, setActiveThreadUlid] = useState(null);
@@ -854,16 +855,23 @@ export function AgentWidget({
                     .map((row) => ({ id: row.siteId, domain: row.label }));
                 const items = buildProjectItems(sites, { assignedOnly });
                 setProjects(items);
-                if (assignedOnly) {
-                    setSelectedKey('assigned');
-                }
-
-                if (initialKey && items.some((item) => item.key === initialKey)) {
-                    setSelectedKey(initialKey);
-                }
+                setProjectsLoaded(true);
+                setSelectedKey((current) => {
+                    if (assignedOnly) {
+                        return 'assigned';
+                    }
+                    if (items.some((item) => item.key === current)) {
+                        return current;
+                    }
+                    if (initialKey && items.some((item) => item.key === initialKey)) {
+                        return initialKey;
+                    }
+                    return items[0]?.key ?? current;
+                });
             })
             .catch(() => {
                 if (!cancelled) {
+                    setProjectsLoaded(true);
                     setError('Could not load sites.');
                 }
             });
@@ -874,6 +882,9 @@ export function AgentWidget({
     }, [endpoints.projectsUrl, initialKey]);
 
     const selected = switchProject(projects, selectedKey);
+    const semanticGroupingEmpty = projectsLoaded
+        && !projects.some((project) => project.type === 'site' || project.type === 'assigned');
+    const semanticGroupingEmptyText = 'No domains are available until semantic grouping is completed in Keywords → Keyword Groups.';
     const isTestMode = selected?.type === 'utility' && selected?.key === 'test';
     const siteProjects = projects.filter((project) => project.type === 'site');
     const currentScopeRef = isTestMode
@@ -1716,6 +1727,9 @@ export function AgentWidget({
                                 </option>
                             ))}
                         </select>
+                        {semanticGroupingEmpty ? (
+                            <p className="agent-kicker">{semanticGroupingEmptyText}</p>
+                        ) : null}
 
                         <div className="agent-dev-tabs" role="tablist" aria-label="Developer mode">
                             <span className="agent-dev-label">Dev</span>
@@ -1776,6 +1790,9 @@ export function AgentWidget({
                             </li>
                         ))}
                     </ul>
+                    {semanticGroupingEmpty ? (
+                        <p className="agent-kicker">{semanticGroupingEmptyText}</p>
+                    ) : null}
                 </aside>
             ) : null}
 
@@ -1865,6 +1882,9 @@ export function AgentWidget({
                                             <option key={site.key} value={site.siteId}>{site.label}</option>
                                         ))}
                                     </select>
+                                    {semanticGroupingEmpty ? (
+                                        <p className="agent-kicker">{semanticGroupingEmptyText}</p>
+                                    ) : null}
                                 </div>
 
                                 <div className="agent-test-field">

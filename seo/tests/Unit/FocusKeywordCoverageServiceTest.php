@@ -141,7 +141,11 @@ final class FocusKeywordCoverageServiceTest extends TestCase
 
         self::assertStringContainsString('FocusKeywordCoverageQuery', $srcAudit);
         self::assertStringContainsString("focus_keyword_status", $srcArticle);
-        self::assertStringContainsString('FocusKeywordCoverageService', $srcPresenter);
+        self::assertStringContainsString('SiteStatisticsSnapshotStore', $srcPresenter);
+        self::assertStringContainsString(
+            'FocusKeywordCoverageService',
+            (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/SiteStatistics/SiteStatisticsRebuilder.php'),
+        );
         self::assertStringContainsString('FocusKeywordCoverageQuery', $srcArticle);
 
         $query = new FocusKeywordCoverageQuery();

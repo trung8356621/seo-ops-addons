@@ -51,24 +51,20 @@ final class ArticleRequiredDataHealthAuditor
      */
     public function audit(int $siteId, ?string $language = null): array
     {
-        $rows = $this->loadCandidateRows($siteId, $language);
-        $seoInventoryTotal = count($rows);
-        $byType = $this->countByContentTypeFromRows($rows);
+        $summary = $this->aggregateCandidates($siteId, $language);
+        $seoInventoryTotal = $summary['total'];
+        $byType = $summary['by_content_type'];
         $fields = [];
         $maxMissing = 0;
         $worst = ArticleRequiredDataRegistry::SEVERITY_GREEN;
 
         foreach (ArticleRequiredDataRegistry::all() as $def) {
-            $bucket = [
+            $bucket = $summary['fields'][$def['key']] ?? [
                 self::OUTCOME_PRESENT => 0,
                 self::OUTCOME_MISSING => 0,
                 self::OUTCOME_NOT_APPLICABLE => 0,
                 self::OUTCOME_SOURCE_ABSENT => 0,
             ];
-            foreach ($rows as $row) {
-                $outcome = $this->classifyField($def['key'], $row);
-                $bucket[$outcome]++;
-            }
 
             $present = $bucket[self::OUTCOME_PRESENT];
             $missing = $bucket[self::OUTCOME_MISSING];
@@ -335,19 +331,164 @@ final class ArticleRequiredDataHealthAuditor
      * @param  list<array<string, mixed>>  $rows
      * @return array{post: int, page: int, product: int, other: int}
      */
-    private function countByContentTypeFromRows(array $rows): array
+    /**
+     * @return array{
+     *   total: int,
+     *   by_content_type: array{post: int, page: int, product: int, other: int},
+     *   fields: array<string, array{present: int, missing: int, not_applicable: int, source_absent_expected: int}>
+     * }
+     */
+    private function aggregateCandidates(int $siteId, ?string $language): array
     {
-        $by = ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0];
-        foreach ($rows as $row) {
-            $ct = strtolower(trim((string) ($row['content_type'] ?? '')));
-            if (isset($by[$ct])) {
-                $by[$ct]++;
-            } else {
-                $by['other']++;
-            }
+        $emptyFields = [];
+        foreach (ArticleRequiredDataRegistry::keys() as $key) {
+            $emptyFields[$key] = [
+                self::OUTCOME_PRESENT => 0,
+                self::OUTCOME_MISSING => 0,
+                self::OUTCOME_NOT_APPLICABLE => 0,
+                self::OUTCOME_SOURCE_ABSENT => 0,
+            ];
+        }
+        $empty = [
+            'total' => 0,
+            'by_content_type' => ['post' => 0, 'page' => 0, 'product' => 0, 'other' => 0],
+            'fields' => $emptyFields,
+        ];
+        if (! Schema::connection('omi_seo_ai')->hasTable('articles')) {
+            return $empty;
         }
 
-        return $by;
+        $systemTypes = array_map(
+            static fn (string $type): string => strtolower($type),
+            ArticleSeoInventoryPolicy::SYSTEM_WP_POST_TYPES,
+        );
+        $systemPlaceholders = implode(',', array_fill(0, count($systemTypes), '?'));
+        $quote = static fn (string $value): string => "'".str_replace("'", "''", $value)."'";
+        $contentSql = implode(',', array_map($quote, ContentType::values()));
+        $draftSql = implode(',', array_map($quote, ArticleSeoInventoryPolicy::DRAFTISH_STATUSES));
+        $language = $language !== null ? trim($language) : '';
+
+        $inner = DB::connection('omi_seo_ai')
+            ->table('articles as a')
+            ->leftJoin('wordpress_article_links as wal', 'wal.article_id', '=', 'a.id')
+            ->leftJoin('article_meta as am', function ($join): void {
+                $join->on('am.article_id', '=', 'a.id')
+                    ->whereIn('am.meta_key', ['content_type', 'wp_post_type', 'wp_is_term', 'wp_permalink']);
+            })
+            ->where('a.site_id', $siteId)
+            ->whereNull('a.deleted_at')
+            ->when($language !== '', fn ($query) => $query->where('a.language', $language))
+            ->groupBy('a.id', 'a.title', 'a.slug', 'a.status')
+            ->select('a.id')
+            ->selectRaw('MAX(a.title) as title')
+            ->selectRaw('MAX(a.slug) as slug')
+            ->selectRaw('MAX(a.status) as status')
+            ->selectRaw('MAX(wal.wp_post_id) as wp_post_id')
+            ->selectRaw("MAX(CASE WHEN am.meta_key = 'content_type' THEN am.meta_value END) as content_type")
+            ->selectRaw("MAX(CASE WHEN am.meta_key = 'wp_post_type' THEN am.meta_value END) as wp_post_type")
+            ->selectRaw("MAX(CASE WHEN am.meta_key = 'wp_is_term' THEN am.meta_value END) as wp_is_term")
+            ->selectRaw("MAX(CASE WHEN am.meta_key = 'wp_permalink' THEN am.meta_value END) as wp_permalink");
+
+        $filled = static fn (string $column): string => "TRIM(COALESCE({$column}, '')) <> ''";
+        $wp = 'wp_post_id IS NOT NULL AND wp_post_id > 0';
+        $draft = "LOWER(TRIM(COALESCE(status, ''))) IN ({$draftSql})";
+        $ctOk = "LOWER(TRIM(COALESCE(content_type, ''))) IN ({$contentSql})";
+
+        $row = DB::connection('omi_seo_ai')
+            ->query()
+            ->fromSub($inner, 'candidate')
+            ->whereRaw("LOWER(TRIM(COALESCE(wp_is_term, ''))) NOT IN ('1', 'true', 'yes')")
+            ->where(function ($query) use ($systemTypes, $systemPlaceholders): void {
+                $query->whereRaw("TRIM(COALESCE(wp_post_type, '')) = ''")
+                    ->orWhere(function ($typed) use ($systemTypes, $systemPlaceholders): void {
+                        $typed->whereRaw('LOWER(TRIM(wp_post_type)) NOT IN ('.$systemPlaceholders.')', $systemTypes)
+                            ->whereRaw("LOWER(TRIM(wp_post_type)) NOT LIKE ? ESCAPE ?", ['wp\_%', '\\']);
+                    });
+            })
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("SUM(CASE WHEN LOWER(TRIM(COALESCE(content_type, ''))) = 'post' THEN 1 ELSE 0 END) as ct_post")
+            ->selectRaw("SUM(CASE WHEN LOWER(TRIM(COALESCE(content_type, ''))) = 'page' THEN 1 ELSE 0 END) as ct_page")
+            ->selectRaw("SUM(CASE WHEN LOWER(TRIM(COALESCE(content_type, ''))) = 'product' THEN 1 ELSE 0 END) as ct_product")
+            ->selectRaw("SUM(CASE WHEN LOWER(TRIM(COALESCE(content_type, ''))) NOT IN ('post', 'page', 'product') THEN 1 ELSE 0 END) as ct_other")
+            ->selectRaw("SUM(CASE WHEN {$wp} THEN 1 ELSE 0 END) as source_present")
+            ->selectRaw("SUM(CASE WHEN NOT ({$wp}) THEN 1 ELSE 0 END) as source_na")
+            ->selectRaw("SUM(CASE WHEN {$filled('title')} THEN 1 ELSE 0 END) as title_present")
+            ->selectRaw("SUM(CASE WHEN NOT ({$filled('title')}) THEN 1 ELSE 0 END) as title_missing")
+            ->selectRaw("SUM(CASE WHEN {$filled('slug')} THEN 1 ELSE 0 END) as slug_present")
+            ->selectRaw("SUM(CASE WHEN NOT ({$filled('slug')}) AND {$draft} THEN 1 ELSE 0 END) as slug_source_absent")
+            ->selectRaw("SUM(CASE WHEN NOT ({$filled('slug')}) AND NOT ({$draft}) THEN 1 ELSE 0 END) as slug_missing")
+            ->selectRaw("SUM(CASE WHEN NOT ({$wp}) THEN 1 ELSE 0 END) as permalink_na")
+            ->selectRaw("SUM(CASE WHEN {$wp} AND {$filled('wp_permalink')} THEN 1 ELSE 0 END) as permalink_present")
+            ->selectRaw("SUM(CASE WHEN {$wp} AND NOT ({$filled('wp_permalink')}) AND {$draft} THEN 1 ELSE 0 END) as permalink_source_absent")
+            ->selectRaw("SUM(CASE WHEN {$wp} AND NOT ({$filled('wp_permalink')}) AND NOT ({$draft}) THEN 1 ELSE 0 END) as permalink_missing")
+            ->selectRaw("SUM(CASE WHEN {$ctOk} THEN 1 ELSE 0 END) as content_type_present")
+            ->selectRaw("SUM(CASE WHEN NOT ({$ctOk}) THEN 1 ELSE 0 END) as content_type_missing")
+            ->selectRaw("SUM(CASE WHEN NOT ({$wp}) THEN 1 ELSE 0 END) as wp_post_type_na")
+            ->selectRaw("SUM(CASE WHEN {$wp} AND {$filled('wp_post_type')} THEN 1 ELSE 0 END) as wp_post_type_present")
+            ->selectRaw("SUM(CASE WHEN {$wp} AND NOT ({$filled('wp_post_type')}) THEN 1 ELSE 0 END) as wp_post_type_missing")
+            ->selectRaw("SUM(CASE WHEN {$filled('status')} THEN 1 ELSE 0 END) as status_present")
+            ->selectRaw("SUM(CASE WHEN NOT ({$filled('status')}) THEN 1 ELSE 0 END) as status_missing")
+            ->first();
+
+        if ($row === null) {
+            return $empty;
+        }
+
+        $n = static fn (string $key): int => (int) ($row->{$key} ?? 0);
+
+        return [
+            'total' => $n('total'),
+            'by_content_type' => [
+                'post' => $n('ct_post'),
+                'page' => $n('ct_page'),
+                'product' => $n('ct_product'),
+                'other' => $n('ct_other'),
+            ],
+            'fields' => [
+                'source_id' => [
+                    self::OUTCOME_PRESENT => $n('source_present'),
+                    self::OUTCOME_MISSING => 0,
+                    self::OUTCOME_NOT_APPLICABLE => $n('source_na'),
+                    self::OUTCOME_SOURCE_ABSENT => 0,
+                ],
+                'title' => [
+                    self::OUTCOME_PRESENT => $n('title_present'),
+                    self::OUTCOME_MISSING => $n('title_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => 0,
+                    self::OUTCOME_SOURCE_ABSENT => 0,
+                ],
+                'slug' => [
+                    self::OUTCOME_PRESENT => $n('slug_present'),
+                    self::OUTCOME_MISSING => $n('slug_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => 0,
+                    self::OUTCOME_SOURCE_ABSENT => $n('slug_source_absent'),
+                ],
+                'permalink' => [
+                    self::OUTCOME_PRESENT => $n('permalink_present'),
+                    self::OUTCOME_MISSING => $n('permalink_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => $n('permalink_na'),
+                    self::OUTCOME_SOURCE_ABSENT => $n('permalink_source_absent'),
+                ],
+                'content_type' => [
+                    self::OUTCOME_PRESENT => $n('content_type_present'),
+                    self::OUTCOME_MISSING => $n('content_type_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => 0,
+                    self::OUTCOME_SOURCE_ABSENT => 0,
+                ],
+                'wp_post_type' => [
+                    self::OUTCOME_PRESENT => $n('wp_post_type_present'),
+                    self::OUTCOME_MISSING => $n('wp_post_type_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => $n('wp_post_type_na'),
+                    self::OUTCOME_SOURCE_ABSENT => 0,
+                ],
+                'status' => [
+                    self::OUTCOME_PRESENT => $n('status_present'),
+                    self::OUTCOME_MISSING => $n('status_missing'),
+                    self::OUTCOME_NOT_APPLICABLE => 0,
+                    self::OUTCOME_SOURCE_ABSENT => 0,
+                ],
+            ],
+        ];
     }
 
     private function worseSeverity(string $current, string $candidate): string

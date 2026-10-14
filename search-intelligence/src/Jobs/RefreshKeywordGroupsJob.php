@@ -11,7 +11,10 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticRefreshService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
+use RuntimeException;
 
 /**
  * Group semantic refresh. Persists Groups only — never Topic apply.
@@ -53,8 +56,16 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
         ];
     }
 
-    public function handle(KeywordGroupSemanticRefreshService $refresh): void
-    {
-        $refresh->refreshSite($this->siteId, $this->language, $this->languageVariants);
+    public function handle(
+        KeywordGroupSemanticRefreshService $refresh,
+        KeywordGroupSemanticReadiness $readiness,
+    ): void {
+        $readiness->run($this->siteId, function () use ($refresh): void {
+            if (! KeywordGroupSchema::tablesReady()) {
+                throw new RuntimeException('keyword_group_tables_missing');
+            }
+
+            $refresh->refreshSite($this->siteId, $this->language, $this->languageVariants);
+        });
     }
 }

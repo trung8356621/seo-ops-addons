@@ -41,39 +41,30 @@ final class FocusKeywordCoverageService
      *   filter_url: string|null
      * }
      */
-    public function forSite(int $siteId, ?string $missingFilterUrl = null): array
+    public function forSite(int $siteId, ?string $missingFilterUrl = null, bool $withMissingIds = true): array
     {
         if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('articles')) {
             return $this->empty($missingFilterUrl);
         }
 
-        $eligibleIds = $this->query->eligibleQuery($siteId)
-            ->orderBy('articles.id')
-            ->pluck('articles.id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->all();
-
-        $eligibleCount = count($eligibleIds);
+        $eligibleCount = (int) $this->query->eligibleQuery($siteId)->count();
         if ($eligibleCount === 0) {
             return $this->empty($missingFilterUrl);
         }
 
         $coveredIds = $this->query->coveredEligibleQuery($siteId)
-            ->orderBy('articles.id')
             ->pluck('articles.id')
             ->map(static fn (mixed $id): int => (int) $id)
             ->all();
-
-        $coveredSet = array_fill_keys($coveredIds, true);
-        $missingIds = [];
-        foreach ($eligibleIds as $id) {
-            if (! isset($coveredSet[$id])) {
-                $missingIds[] = $id;
-            }
-        }
-
         $coveredCount = count($coveredIds);
-        $missingCount = count($missingIds);
+        $missingCount = max(0, $eligibleCount - $coveredCount);
+        $missingIds = $withMissingIds
+            ? $this->query->missingEligibleQuery($siteId)
+                ->orderBy('articles.id')
+                ->pluck('articles.id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->all()
+            : [];
         $phraseStats = $this->phraseAndSourceStats($coveredIds);
 
         return [
@@ -134,10 +125,10 @@ final class FocusKeywordCoverageService
         $metaPhrases = DB::connection('omi_seo_ai')
             ->table('article_meta')
             ->where('meta_key', 'seo_focus_keyword')
-            ->whereIn('article_id', $coveredIds)
             ->whereNotNull('meta_value')
             ->where('meta_value', '!=', '')
             ->whereRaw("TRIM(meta_value) <> ''")
+            ->tap(fn ($query) => $this->whereInChunks($query, 'article_id', $coveredIds))
             ->get(['article_id', 'meta_value']);
 
         $metaByArticle = [];
@@ -156,7 +147,11 @@ final class FocusKeywordCoverageService
                 ->table('keyword_meta as km')
                 ->join('keywords as k', 'k.id', '=', 'km.keyword_id')
                 ->where('km.meta_key', KeywordMetaKey::MainArticleId->value)
-                ->whereIn('km.meta_value', array_map(static fn (int $id): string => (string) $id, $coveredIds))
+                ->tap(fn ($query) => $this->whereInChunks(
+                    $query,
+                    'km.meta_value',
+                    array_map(static fn (int $id): string => (string) $id, $coveredIds),
+                ))
                 ->whereNotNull('k.phrase')
                 ->where('k.phrase', '!=', '')
                 ->whereRaw("TRIM(k.phrase) <> ''")
@@ -225,6 +220,25 @@ final class FocusKeywordCoverageService
             SiteSyncSchema::SOURCE_LEGACY_WORKSPACE => SiteSyncSchema::SOURCE_WORKSPACE,
             default => $source !== '' ? $source : 'other',
         };
+    }
+
+    /**
+     * @param  list<int|string>  $ids
+     */
+    private function whereInChunks(object $query, string $column, array $ids, int $size = 500): void
+    {
+        $ids = array_values($ids);
+        if ($ids === []) {
+            $query->whereRaw('0 = 1');
+
+            return;
+        }
+
+        $query->where(function ($chunked) use ($column, $ids, $size): void {
+            foreach (array_chunk($ids, $size) as $chunk) {
+                $chunked->orWhereIn($column, $chunk);
+            }
+        });
     }
 
     private function sourceRank(string $source): int

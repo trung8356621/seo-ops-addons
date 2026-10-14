@@ -34,21 +34,16 @@ final class FactualAgentResponseComposer
             }
         }
 
-        $isImprovement = $this->isImprovementAnalysis($message);
-        $isExplicitDraft = $this->isExplicitDraftRequest($message);
-
-        if (! $isImprovement || $isExplicitDraft) {
+        if ($this->isExplicitDraftRequest($message)) {
             $actionable = $this->draftAction($bundle);
             if ($actionable !== null) {
                 return $this->actionableTable($actionable, $language, $bundle);
             }
         }
 
-        if ($isImprovement && ! $isExplicitDraft) {
-            $summary = $this->auditImprovementSummary($bundle, $language);
-            if ($summary !== null) {
-                return $summary;
-            }
+        $summary = $this->auditImprovementSummary($bundle, $language);
+        if ($summary !== null) {
+            return $summary;
         }
 
         $coverage = $this->coverageStatistics($bundle, $message, $language);
@@ -511,6 +506,20 @@ final class FactualAgentResponseComposer
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function queryConstraint(RetrievalBundle $bundle): array
+    {
+        foreach ($bundle->sources as $source) {
+            if (is_array($source->data['query_constraint'] ?? null)) {
+                return $source->data['query_constraint'];
+            }
+        }
+
+        return [];
+    }
+
     private function isPolicySource(RetrievalSource $source): bool
     {
         return str_ends_with($source->name, '_policy');
@@ -518,9 +527,17 @@ final class FactualAgentResponseComposer
 
     private function emptyList(string $language, RetrievalBundle $bundle): AgentResponse
     {
-        $message = $language === 'vi'
-            ? 'Không có bản ghi phù hợp với yêu cầu.'
-            : 'No matching records were found.';
+        $constraint = $this->queryConstraint($bundle);
+        $subject = trim((string) ($constraint['subject'] ?? ''));
+        if ($subject !== '') {
+            $message = $language === 'vi'
+                ? 'Không có bài viết phù hợp với chủ đề "'.$subject.'" trong phạm vi đang chọn. Phạm vi tìm kiếm không được nới rộng.'
+                : 'No articles match the subject "'.$subject.'" in the current scope. The search was not widened.';
+        } else {
+            $message = $language === 'vi'
+                ? 'Không có bản ghi phù hợp với yêu cầu.'
+                : 'No matching records were found.';
+        }
 
         return new AgentResponse(
             $message,
@@ -557,16 +574,19 @@ final class FactualAgentResponseComposer
         }
 
         $items = array_values(array_filter($auditSource->data['items'], 'is_array'));
-        $total = (int) $auditSource->data['total'];
-        $sample = array_slice($items, 0, 8);
+        $constraint = is_array($auditSource->data['query_constraint'] ?? null) ? $auditSource->data['query_constraint'] : [];
+        $subject = trim((string) ($constraint['subject'] ?? ''));
+        $requested = (int) ($constraint['requested_limit'] ?? 0);
+        $available = (int) ($auditSource->data['total'] ?? count($items));
         $rows = [];
         $i = 1;
-        foreach ($sample as $item) {
+        foreach ($items as $item) {
             $score = $item['seo_score'] ?? $item['quality_score'] ?? null;
             $reasons = is_array($item['reason_labels'] ?? null) ? implode(', ', $item['reason_labels']) : '';
             $rows[] = [
                 'n' => $i++,
                 'title' => (string) ($item['title'] ?? ''),
+                'article_ref' => (string) ($item['article_ref'] ?? ''),
                 'focus_keyword' => (string) ($item['focus_keyword'] ?? $item['keyword'] ?? ''),
                 'seo_score' => is_numeric($score) ? $score : null,
                 'issues' => $reasons,
@@ -576,28 +596,34 @@ final class FactualAgentResponseComposer
         $columns = [
             ['key' => 'n', 'label' => '#'],
             ['key' => 'title', 'label' => $language === 'vi' ? 'Tiêu đề' : 'Title'],
+            ['key' => 'article_ref', 'label' => 'Article'],
             ['key' => 'focus_keyword', 'label' => $language === 'vi' ? 'Từ khóa chính' : 'Focus Keyword'],
             ['key' => 'seo_score', 'label' => 'SEO Score'],
             ['key' => 'issues', 'label' => $language === 'vi' ? 'Vấn đề chính' : 'Main Issues'],
         ];
 
-        $sampleCount = count($rows);
-        $message = $language === 'vi'
-            ? "Tổng số bài viết cần cải thiện SEO là {$total}. Dưới đây là mẫu {$sampleCount} bài viết có điểm SEO thấp nhất đã truy xuất:"
-            : "Total articles needing SEO improvement: {$total}. Below is a sample of the {$sampleCount} lowest-scoring articles retrieved:";
+        $shown = count($rows);
+        if ($language === 'vi') {
+            $message = $subject !== ''
+                ? 'Có '.$shown.' bài viết về "'.$subject.'" có điểm SEO thấp, xếp từ thấp đến cao.'
+                : 'Có '.$shown.' bài viết có điểm SEO thấp nhất, xếp từ thấp đến cao.';
+            if ($requested > $shown && $available < $requested) {
+                $message .= ' Chỉ có '.$available.' bài phù hợp, ít hơn '.$requested.' bài đã yêu cầu.';
+            }
+        } else {
+            $message = $subject !== ''
+                ? $shown.' low-SEO articles about "'.$subject.'," ordered by ascending score.'
+                : $shown.' lowest-SEO articles, ordered by ascending score.';
+            if ($requested > $shown && $available < $requested) {
+                $message .= ' Only '.$available.' articles match, fewer than the '.$requested.' requested.';
+            }
+        }
 
-        $sectionHeader = $language === 'vi'
-            ? "### A. Bài viết hiện có cần cải thiện\n{$message}"
-            : "### A. Existing Articles Needing Improvement\n{$message}";
-
-        $blocks = [
-            ['type' => 'markdown', 'text' => $sectionHeader],
-            [
-                'type' => 'table',
-                'columns' => $columns,
-                'rows' => $rows,
-            ],
-        ];
+        $blocks = [[
+            'type' => 'table',
+            'columns' => $columns,
+            'rows' => $rows,
+        ]];
 
         return new AgentResponse(
             $message,
