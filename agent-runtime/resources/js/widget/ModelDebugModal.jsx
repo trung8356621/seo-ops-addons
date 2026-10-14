@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Check, Copy } from 'lucide-react';
 import { ToolTrace } from '../response/ResponseBlocks.jsx';
 import { copyPlainText } from './clipboard.js';
@@ -29,10 +29,21 @@ function AssumedModelHeader({ assumedModel }) {
     );
 }
 
-export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, isApplying, parserError }) {
+export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, onManualResultChange, onApply, onCancel, isApplying, parserError }) {
     const [copiedChat, setCopiedChat] = useState(false);
     const [copiedRaw, setCopiedRaw] = useState(false);
     const [copyError, setCopyError] = useState('');
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const onKey = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel?.();
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [isOpen, onCancel]);
     if (!isOpen || !modelCall) return null;
 
     async function copyChatPrompt() {
@@ -67,6 +78,9 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         <h2>MODEL DEBUG · {String(modelCall.key || 'model').toUpperCase()}</h2>
                         <span className="agent-debug-modal__badge">PRODUCTION TURN · MANUAL COMPLETION</span>
                         <span className="agent-debug-modal__scope">{scopeLabel}</span>
+                    </div>
+                    <div className="agent-debug-modal__header-right">
+                        <button type="button" className="agent-debug-btn agent-debug-reset-btn" onClick={onCancel}>Đóng</button>
                     </div>
                 </div>
                 <div className="agent-debug-modal__body">
@@ -105,6 +119,7 @@ export function ModelDebugModal({ isOpen, scopeLabel, modelCall, manualResult, o
                         <div className="agent-debug-card__parser-error" role="alert"><AlertTriangle size={15} /><p>{parserError}</p></div>
                     ) : null}
                     <div className="agent-debug-card__actions">
+                        <button type="button" className="agent-debug-btn agent-debug-reset-btn" onClick={onCancel}>Hủy</button>
                         <button type="button" className="agent-debug-apply-btn" onClick={onApply} disabled={isApplying || !manualResult.trim()}>
                             {isApplying ? 'Applying...' : 'Apply'}
                         </button>

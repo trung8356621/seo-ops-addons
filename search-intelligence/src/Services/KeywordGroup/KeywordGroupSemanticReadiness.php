@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\AgentRuntime\Projects\AgentSemanticSiteReadiness;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
+use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupSemanticState;
 use Throwable;
@@ -21,6 +22,11 @@ use Throwable;
  */
 final class KeywordGroupSemanticReadiness implements AgentSemanticSiteReadiness
 {
+    /**
+     * Matches RefreshKeywordGroupsJob uniqueness. Older pending/running rows
+     * are recoverable and must not hide a site forever.
+     */
+    private const PROCESSING_TTL_SECONDS = 3600;
     public function markPending(int $siteId): void
     {
         $this->mutate($siteId, static function (SeoKeywordGroupSemanticState $row): void {
@@ -112,6 +118,97 @@ final class KeywordGroupSemanticReadiness implements AgentSemanticSiteReadiness
             ->exists();
     }
 
+    public function isProcessing(int $siteId): bool
+    {
+        if ($siteId <= 0 || ! $this->tableReady()) {
+            return false;
+        }
+
+        return SeoKeywordGroupSemanticState::query()
+            ->where('site_id', $siteId)
+            ->whereIn('phase', [
+                SeoKeywordGroupSemanticState::PHASE_PENDING,
+                SeoKeywordGroupSemanticState::PHASE_RUNNING,
+            ])
+            ->where('updated_at', '>=', now()->subSeconds(self::PROCESSING_TTL_SECONDS))
+            ->exists();
+    }
+
+    public function filterProcessingSiteIds(array $siteIds): array
+    {
+        $ids = [];
+        foreach ($siteIds as $siteId) {
+            $siteId = (int) $siteId;
+            if ($siteId > 0) {
+                $ids[$siteId] = $siteId;
+            }
+        }
+        if ($ids === [] || ! $this->tableReady()) {
+            return [];
+        }
+
+        return SeoKeywordGroupSemanticState::query()
+            ->whereIn('site_id', array_values($ids))
+            ->whereIn('phase', [
+                SeoKeywordGroupSemanticState::PHASE_PENDING,
+                SeoKeywordGroupSemanticState::PHASE_RUNNING,
+            ])
+            ->where('updated_at', '>=', now()->subSeconds(self::PROCESSING_TTL_SECONDS))
+            ->orderBy('site_id')
+            ->pluck('site_id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+    }
+
+    public function enforcementAvailable(): bool
+    {
+        return $this->tableReady();
+    }
+
+    public function requestRefresh(int $siteId): string
+    {
+        if ($siteId <= 0 || ! $this->tableReady()) {
+            return 'unavailable';
+        }
+
+        $decision = DB::connection('omi_seo_ai')->transaction(function () use ($siteId): string {
+            $row = SeoKeywordGroupSemanticState::query()
+                ->where('site_id', $siteId)
+                ->lockForUpdate()
+                ->first();
+            if ($row instanceof SeoKeywordGroupSemanticState && $row->ready_at !== null && $row->invalidated_at === null) {
+                return 'ready';
+            }
+            if ($row instanceof SeoKeywordGroupSemanticState && $this->rowIsFreshProcessing($row)) {
+                return 'processing';
+            }
+            if (! $row instanceof SeoKeywordGroupSemanticState) {
+                $row = SeoKeywordGroupSemanticState::query()->create([
+                    'site_id' => $siteId,
+                    'phase' => SeoKeywordGroupSemanticState::PHASE_PENDING,
+                ]);
+            }
+            $row->phase = SeoKeywordGroupSemanticState::PHASE_PENDING;
+            $row->save();
+
+            return 'accepted';
+        });
+
+        if ($decision !== 'accepted') {
+            return $decision;
+        }
+
+        try {
+            RefreshKeywordGroupsJob::dispatch($siteId);
+        } catch (Throwable $e) {
+            $this->markFailed($siteId, $e->getMessage());
+
+            throw $e;
+        }
+
+        return 'accepted';
+    }
+
     public function filterReadySiteIds(array $siteIds): array
     {
         $ids = [];
@@ -133,6 +230,20 @@ final class KeywordGroupSemanticReadiness implements AgentSemanticSiteReadiness
             ->pluck('site_id')
             ->map(static fn (mixed $id): int => (int) $id)
             ->all();
+    }
+
+    private function rowIsFreshProcessing(SeoKeywordGroupSemanticState $row): bool
+    {
+        if (! in_array($row->phase, [
+            SeoKeywordGroupSemanticState::PHASE_PENDING,
+            SeoKeywordGroupSemanticState::PHASE_RUNNING,
+        ], true)) {
+            return false;
+        }
+
+        $updatedAt = $row->updated_at;
+
+        return $updatedAt !== null && $updatedAt->greaterThanOrEqualTo(now()->subSeconds(self::PROCESSING_TTL_SECONDS));
     }
 
     private function tableReady(): bool

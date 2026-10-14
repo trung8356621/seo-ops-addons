@@ -50,6 +50,19 @@ async function postJson(url, csrf, body) {
     return payload;
 }
 
+function catalogFromPayload(payload) {
+    const rows = payload?.data?.projects || [];
+    const assignedOnly = rows.some((row) => row.type === 'assigned') && !rows.some((row) => row.type === 'site');
+    const sites = rows
+        .filter((row) => row.type === 'site')
+        .map((row) => ({ id: row.siteId, domain: row.label }));
+
+    return {
+        assignedOnly,
+        items: buildProjectItems(sites, { assignedOnly }),
+    };
+}
+
 function formatElapsed(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -494,6 +507,7 @@ export function AgentWidget({
         threadsUrl: propThreadsUrl || rawEndpoints?.threadsUrl || '/agent-runtime/threads',
         copyUrl: propCopyUrl || rawEndpoints?.copyUrl || '/agent-runtime/model-input',
         modelDebugApplyUrl: propModelDebugApplyUrl || rawEndpoints?.modelDebugApplyUrl || '/agent-runtime/model-debug/apply',
+        modelDebugCancelUrl: rawEndpoints?.modelDebugCancelUrl || '/agent-runtime/model-debug/cancel',
         draftIntakeUrl: propDraftIntakeUrl || rawEndpoints?.draftIntakeUrl || '/agent-runtime/draft-intake',
         testCatalogUrl: propTestCatalogUrl || rawEndpoints?.testCatalogUrl || '/agent-runtime/test-catalog',
         testArticlesUrl: rawEndpoints?.testArticlesUrl || '/agent-runtime/test-articles',
@@ -524,7 +538,7 @@ export function AgentWidget({
         }
         return buildProjectItems([]);
     });
-    const [projectsLoaded, setProjectsLoaded] = useState(!endpoints.projectsUrl);
+    const [watchedSiteId, setWatchedSiteId] = useState(0);
 
     const [selectedKey, setSelectedKey] = useState(initialKey);
     const [activeThreadUlid, setActiveThreadUlid] = useState(null);
@@ -848,14 +862,8 @@ export function AgentWidget({
                 if (cancelled) {
                     return;
                 }
-                const rows = payload?.data?.projects || [];
-                const assignedOnly = rows.some((row) => row.type === 'assigned') && !rows.some((row) => row.type === 'site');
-                const sites = rows
-                    .filter((row) => row.type === 'site')
-                    .map((row) => ({ id: row.siteId, domain: row.label }));
-                const items = buildProjectItems(sites, { assignedOnly });
+                const { items, assignedOnly } = catalogFromPayload(payload);
                 setProjects(items);
-                setProjectsLoaded(true);
                 setSelectedKey((current) => {
                     if (assignedOnly) {
                         return 'assigned';
@@ -871,7 +879,6 @@ export function AgentWidget({
             })
             .catch(() => {
                 if (!cancelled) {
-                    setProjectsLoaded(true);
                     setError('Could not load sites.');
                 }
             });
@@ -881,10 +888,66 @@ export function AgentWidget({
         };
     }, [endpoints.projectsUrl, initialKey]);
 
+    useEffect(() => {
+        if (!watchedSiteId || !endpoints.projectsUrl) {
+            return undefined;
+        }
+        let cancelled = false;
+        const started = Date.now();
+        const siteId = watchedSiteId;
+        const noteFor = (text) => {
+            setMessages((current) => current.map((message) => (
+                message.semanticSiteId === siteId
+                    ? {
+                        ...message,
+                        content: text,
+                        response: {
+                            ...(message.response || {}),
+                            message: text,
+                            actions: [],
+                            blocks: [{ type: 'markdown', text }],
+                        },
+                    }
+                    : message
+            )));
+        };
+        const tick = async () => {
+            if (cancelled) return;
+            if (Date.now() - started > 180000) {
+                setWatchedSiteId(0);
+                noteFor('Phân nhóm chưa có kết quả trong thời gian chờ. Tải lại trang để cập nhật. Nếu thất bại, website sẽ hiện lại để thử lại.');
+                return;
+            }
+            try {
+                const response = await fetch(endpoints.projectsUrl, {
+                    credentials: 'same-origin',
+                    headers: { Accept: 'application/json' },
+                });
+                if (!response.ok || cancelled) return;
+                const { items } = catalogFromPayload(await response.json());
+                if (cancelled) return;
+                setProjects(items);
+                setSelectedKey((current) => (
+                    items.some((item) => item.key === current)
+                        ? current
+                        : (items.find((item) => item.type === 'global')?.key ?? items[0]?.key ?? current)
+                ));
+                if (items.some((item) => item.siteId === siteId)) {
+                    setWatchedSiteId(0);
+                    noteFor('Phân nhóm từ khóa ngữ nghĩa đã cập nhật. Bạn có thể chọn lại website và gửi câu hỏi.');
+                }
+            } catch {
+                // The next poll retries. A failed refresh stays recoverable on the server.
+            }
+        };
+        const timer = window.setInterval(() => { void tick(); }, 8000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [watchedSiteId, endpoints.projectsUrl]);
+
     const selected = switchProject(projects, selectedKey);
-    const semanticGroupingEmpty = projectsLoaded
-        && !projects.some((project) => project.type === 'site' || project.type === 'assigned');
-    const semanticGroupingEmptyText = 'No domains are available until semantic grouping is completed in Keywords → Keyword Groups.';
     const isTestMode = selected?.type === 'utility' && selected?.key === 'test';
     const siteProjects = projects.filter((project) => project.type === 'site');
     const currentScopeRef = isTestMode
@@ -1262,6 +1325,26 @@ export function AgentWidget({
         }
     }
 
+    async function onCancelDebug() {
+        const runUlid = debugRunUlid;
+        setDebugOpen(false);
+        setDebugParserError('');
+        setDebugManualResult('');
+        setDebugCall(null);
+        setDebugRunUlid('');
+        setProcessingStatus(null);
+        setRerunNotice('');
+        setDebugBusy(false);
+        if (!runUlid) {
+            return;
+        }
+        try {
+            await postJson(endpoints.modelDebugCancelUrl, csrf, { run_ulid: runUlid });
+        } catch (caught) {
+            setError(caught.message || 'Không thể hủy quyết định debug đang chờ.');
+        }
+    }
+
     async function finishStrandedRun(runUlid, stillCurrent = null) {
         if (!runUlid || !endpoints.modelDebugApplyUrl) {
             return;
@@ -1401,6 +1484,18 @@ export function AgentWidget({
             });
 
             const data = payload?.data || {};
+            if (data.status === 'semantic_grouping_required' || data.status === 'semantic_grouping_processing') {
+                setMessages((current) => [...current, {
+                    role: 'assistant',
+                    id: `semantic-${data.site_id || tempUserId}`,
+                    originUserMessageId: tempUserId,
+                    content: data.message || '',
+                    response: data,
+                    semanticSiteId: data.site_id || null,
+                }]);
+                setProcessingStatus(null);
+                return;
+            }
             const returnedUlid = data.thread_ulid;
             if (returnedUlid && !activeThreadUlid) {
                 setActiveThreadUlid(returnedUlid);
@@ -1456,7 +1551,61 @@ export function AgentWidget({
         }
     }
 
+    async function onSemanticGroupingAction(action) {
+        const siteId = Number(action?.site_id || 0);
+        if (!siteId || busy) return;
+        if (action.action === 'later') {
+            setMessages((current) => current.map((message) => (
+                message.semanticSiteId === siteId
+                    ? { ...message, response: { ...(message.response || {}), actions: [] } }
+                    : message
+            )));
+            return;
+        }
+        if (action.action !== 'sync') return;
+
+        setBusy(true);
+        setError('');
+        setProcessingStatus('Đang gửi yêu cầu phân nhóm…');
+        try {
+            const payload = await postJson(`/agent-runtime/sites/${siteId}/semantic-grouping`, csrf, {});
+            const status = payload?.data?.status;
+            const note = status === 'ready'
+                ? 'Website đã sẵn sàng. Hãy gửi lại câu hỏi.'
+                : 'Đã bắt đầu phân nhóm từ khóa ngữ nghĩa. Website tạm ẩn khỏi Agent cho đến khi hoàn tất.';
+            if (status === 'accepted' || status === 'processing') {
+                setProjects((current) => current.filter((item) => item.siteId !== siteId));
+                setSelectedKey((current) => (current === `site:${siteId}` ? 'global' : current));
+                setWatchedSiteId(siteId);
+            }
+            setMessages((current) => current.map((message) => (
+                message.semanticSiteId === siteId
+                    ? {
+                        ...message,
+                        content: note,
+                        response: {
+                            ...(message.response || {}),
+                            message: note,
+                            actions: [],
+                            blocks: [{ type: 'markdown', text: note }],
+                        },
+                    }
+                    : message
+            )));
+            setProcessingStatus(null);
+        } catch (caught) {
+            setError(caught.message || 'Không thể bắt đầu phân nhóm từ khóa.');
+            setProcessingStatus(null);
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function onConfirmationAction(action) {
+        if (action?.type === 'semantic_grouping') {
+            void onSemanticGroupingAction(action);
+            return;
+        }
         const runUlid = String(action?.run_ulid || '');
         const decision = action?.action === 'confirm'
             ? 'confirm'
@@ -1727,9 +1876,6 @@ export function AgentWidget({
                                 </option>
                             ))}
                         </select>
-                        {semanticGroupingEmpty ? (
-                            <p className="agent-kicker">{semanticGroupingEmptyText}</p>
-                        ) : null}
 
                         <div className="agent-dev-tabs" role="tablist" aria-label="Developer mode">
                             <span className="agent-dev-label">Dev</span>
@@ -1790,9 +1936,6 @@ export function AgentWidget({
                             </li>
                         ))}
                     </ul>
-                    {semanticGroupingEmpty ? (
-                        <p className="agent-kicker">{semanticGroupingEmptyText}</p>
-                    ) : null}
                 </aside>
             ) : null}
 
@@ -1882,9 +2025,6 @@ export function AgentWidget({
                                             <option key={site.key} value={site.siteId}>{site.label}</option>
                                         ))}
                                     </select>
-                                    {semanticGroupingEmpty ? (
-                                        <p className="agent-kicker">{semanticGroupingEmptyText}</p>
-                                    ) : null}
                                 </div>
 
                                 <div className="agent-test-field">
@@ -2467,6 +2607,7 @@ export function AgentWidget({
                 manualResult={debugManualResult}
                 onManualResultChange={setDebugManualResult}
                 onApply={onApplyDebugResult}
+                onCancel={onCancelDebug}
                 isApplying={debugBusy}
                 parserError={debugParserError}
             />

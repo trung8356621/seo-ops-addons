@@ -68,6 +68,11 @@ final class AgentRuntimeController
 
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
             }
+            if ($grouping = $this->semanticGroupingResponse($scope, $userId)) {
+                $persistence->failRun($run, 'semantic_grouping_required', 'Semantic keyword grouping is required.');
+
+                return $grouping;
+            }
 
             $thread = $run->thread()->firstOrFail();
             $userMessage = $run->userMessage()->firstOrFail();
@@ -400,6 +405,9 @@ final class AgentRuntimeController
         if ($siteId <= 0 || ! $this->selectedSiteAllowed($sites, $siteId, $userId)) {
             return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
         }
+        if ($grouping = $this->semanticGroupingResponse(AgentProjectScope::site($siteId), $userId)) {
+            return $grouping;
+        }
         $app = AgentApp::findByKey((string) $request->input('app_key', 'seo-ops')) ?? AgentApp::findByKey('seo-ops');
         if ($app === null) {
             return new JsonResponse(['message' => 'Agent app not found.'], 422);
@@ -489,18 +497,21 @@ final class AgentRuntimeController
             'retrieval' => 'unsupported',
         ]];
         $catalog = $sites->listActiveSites($userId);
-        $readyIds = null;
+        $processingIds = [];
         if (app()->bound(AgentSemanticSiteReadiness::class)) {
-            $readyIds = array_fill_keys(
-                app(AgentSemanticSiteReadiness::class)->filterReadySiteIds(array_map(
-                    static fn (array $site): int => (int) $site['id'],
-                    $catalog,
-                )),
-                true,
-            );
+            $readiness = app(AgentSemanticSiteReadiness::class);
+            if ($readiness->enforcementAvailable()) {
+                $processingIds = array_fill_keys(
+                    $readiness->filterProcessingSiteIds(array_map(
+                        static fn (array $site): int => (int) $site['id'],
+                        $catalog,
+                    )),
+                    true,
+                );
+            }
         }
         foreach ($catalog as $site) {
-            if ($readyIds !== null && ! isset($readyIds[(int) $site['id']])) {
+            if (isset($processingIds[(int) $site['id']])) {
                 continue;
             }
             $items[] = [
@@ -588,8 +599,11 @@ final class AgentRuntimeController
             $scope = AgentProjectScope::assigned();
         }
 
-        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
-            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        if ($denied = $this->denyInaccessibleSite($sites, $scope, $userId)) {
+            return $denied;
+        }
+        if ($grouping = $this->semanticGroupingResponse($scope, $userId)) {
+            return $grouping;
         }
 
         $appKey = $payload['hostContext']['appKey'] ?? 'seo-ops';
@@ -690,8 +704,11 @@ final class AgentRuntimeController
             return new JsonResponse(['message' => $e->getMessage()], 422);
         }
 
-        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
-            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        if ($denied = $this->denyInaccessibleSite($sites, $scope, $userId)) {
+            return $denied;
+        }
+        if ($grouping = $this->semanticGroupingResponse($scope, $userId)) {
+            return $grouping;
         }
 
         $history = is_array($payload['history'] ?? null) ? $payload['history'] : [];
@@ -1116,8 +1133,11 @@ final class AgentRuntimeController
             'type' => $thread->scope_type,
             'ref' => $thread->scope_ref,
         ]);
-        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
-            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        if ($denied = $this->denyInaccessibleSite($sites, $scope, $userId)) {
+            return $denied;
+        }
+        if ($grouping = $this->semanticGroupingResponse($scope, $userId)) {
+            return $grouping;
         }
 
         $history = $this->historyBefore($thread->id, $userMessage->position);
@@ -1752,6 +1772,11 @@ final class AgentRuntimeController
 
                 return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
             }
+            if ($grouping = $this->semanticGroupingResponse($scope, $userId)) {
+                $persistence->failRun($run, 'semantic_grouping_required', 'Semantic keyword grouping is required.');
+
+                return $grouping;
+            }
             $cached = trim((string) ($state['cached_period'] ?? ''));
             $requested = is_string($state['requested_period'] ?? null) ? $state['requested_period'] : null;
             if (preg_match('/^\d{4}-\d{2}$/', $cached) !== 1) {
@@ -1895,17 +1920,111 @@ final class AgentRuntimeController
         ]]);
     }
 
+    public function prepareSemanticGrouping(Request $request, int $siteId, SiteDirectory $sites): JsonResponse
+    {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        if ($user instanceof \App\Models\User && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+        if (! $this->selectedSiteAllowed($sites, $siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+        if (! app()->bound(AgentSemanticSiteReadiness::class)) {
+            return new JsonResponse(['message' => 'Semantic grouping is unavailable.'], 422);
+        }
+
+        $status = app(AgentSemanticSiteReadiness::class)->requestRefresh($siteId);
+        if ($status === 'unavailable') {
+            return new JsonResponse(['message' => 'Semantic grouping is unavailable.'], 422);
+        }
+
+        return new JsonResponse(['data' => [
+            'status' => $status,
+            'site_id' => $siteId,
+        ]]);
+    }
+
+    public function modelDebugCancel(
+        Request $request,
+        AgentTurnPersistence $persistence,
+    ): JsonResponse {
+        $user = $request->user();
+        if ($user === null || (int) $user->id <= 0) {
+            return new JsonResponse(['message' => 'Unauthenticated.'], 401);
+        }
+        $userId = (int) $user->id;
+        $runUlid = trim((string) $request->input('run_ulid', ''));
+        if ($runUlid === '') {
+            return new JsonResponse(['message' => 'Run is required.'], 422);
+        }
+
+        $run = AgentRun::query()
+            ->where('ulid', $runUlid)
+            ->where('user_id', $userId)
+            ->first();
+        if (! $run instanceof AgentRun) {
+            return new JsonResponse(['message' => 'Paused run not found.'], 404);
+        }
+        if ($run->status === 'awaiting_model') {
+            $persistence->failRun($run, 'debug_cancelled', 'Manual model completion cancelled.');
+        }
+
+        return new JsonResponse(['data' => [
+            'status' => 'cancelled',
+            'run_ulid' => $run->ulid,
+            'run_status' => (string) $run->fresh()?->status,
+        ]]);
+    }
+
+    private function denyInaccessibleSite(SiteDirectory $sites, AgentProjectScope $scope, int $userId): ?JsonResponse
+    {
+        if ($scope->isSite() && ! $this->selectedSiteAllowed($sites, (int) $scope->siteId, $userId)) {
+            return new JsonResponse(['message' => 'Site is invalid or inaccessible.'], 403);
+        }
+
+        return null;
+    }
+
+    private function semanticGroupingResponse(AgentProjectScope $scope, int $userId): ?JsonResponse
+    {
+        if ($userId <= 0 || ! $scope->isSite() || ! app()->bound(AgentSemanticSiteReadiness::class)) {
+            return null;
+        }
+
+        $readiness = app(AgentSemanticSiteReadiness::class);
+        if (! $readiness->enforcementAvailable()) {
+            return null;
+        }
+
+        $siteId = (int) $scope->siteId;
+        if ($readiness->isReady($siteId)) {
+            return null;
+        }
+
+        $processing = $readiness->isProcessing($siteId);
+        $message = $processing
+            ? 'Website này đang được phân nhóm từ khóa ngữ nghĩa. Hãy chờ hoàn tất rồi gửi lại câu hỏi.'
+            : 'Website này chưa hoàn tất phân nhóm từ khóa ngữ nghĩa. Bạn có muốn đồng bộ ngay để sử dụng AI Agent không?';
+
+        return new JsonResponse(['data' => [
+            'status' => $processing ? 'semantic_grouping_processing' : 'semantic_grouping_required',
+            'message' => $message,
+            'blocks' => [['type' => 'markdown', 'text' => $message]],
+            'actions' => $processing ? [] : [
+                ['type' => 'semantic_grouping', 'action' => 'sync', 'label' => 'Đồng bộ ngay', 'site_id' => $siteId],
+                ['type' => 'semantic_grouping', 'action' => 'later', 'label' => 'Để sau', 'site_id' => $siteId],
+            ],
+            'site_id' => $siteId,
+        ]]);
+    }
+
     private function selectedSiteAllowed(SiteDirectory $sites, int $siteId, int $userId): bool
     {
-        if ($siteId <= 0 || ! $sites->isSiteVisible($siteId, $userId)) {
-            return false;
-        }
-
-        if (! app()->bound(AgentSemanticSiteReadiness::class)) {
-            return true;
-        }
-
-        return app(AgentSemanticSiteReadiness::class)->isReady($siteId);
+        return $siteId > 0 && $sites->isSiteVisible($siteId, $userId);
     }
 
     private function formatPeriod(string $period): string

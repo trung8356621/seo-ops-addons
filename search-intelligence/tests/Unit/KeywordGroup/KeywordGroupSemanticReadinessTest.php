@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\KeywordGroup;
 
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
@@ -144,6 +145,43 @@ final class KeywordGroupSemanticReadinessTest extends TestCase
 
         self::assertFalse($this->readiness->isReady(4));
         self::assertSame(KeywordGroupSource::MANUAL, (string) SeoKeywordGroup::query()->find($semantic->id)?->source);
+    }
+
+    public function test_request_refresh_dispatches_once_until_the_run_is_terminal(): void
+    {
+        Bus::fake();
+
+        self::assertSame('accepted', $this->readiness->requestRefresh(7));
+        self::assertSame('processing', $this->readiness->requestRefresh(7));
+        Bus::assertDispatchedTimes(RefreshKeywordGroupsJob::class, 1);
+        self::assertTrue($this->readiness->isProcessing(7));
+        self::assertSame([7], $this->readiness->filterProcessingSiteIds([7, 8]));
+
+        $this->readiness->markSucceeded(7);
+        self::assertFalse($this->readiness->isProcessing(7));
+        self::assertSame([], $this->readiness->filterProcessingSiteIds([7]));
+        self::assertSame('ready', $this->readiness->requestRefresh(7));
+        Bus::assertDispatchedTimes(RefreshKeywordGroupsJob::class, 1);
+    }
+
+    public function test_failed_and_stale_runs_can_be_retried_without_clearing_prior_success(): void
+    {
+        Bus::fake();
+        $this->readiness->markSucceeded(3);
+        $this->readiness->markFailed(3, 'later refresh failed');
+        self::assertTrue($this->readiness->isReady(3));
+        self::assertFalse($this->readiness->isProcessing(3));
+        self::assertSame('ready', $this->readiness->requestRefresh(3));
+
+        $this->readiness->markPending(7);
+        DB::connection('omi_seo_ai')->table('seo_keyword_group_semantic_states')->where('site_id', 7)->update([
+            'updated_at' => now()->subSeconds(3601)->toDateTimeString(),
+        ]);
+        self::assertFalse($this->readiness->isProcessing(7));
+        self::assertSame([], $this->readiness->filterProcessingSiteIds([7]));
+        self::assertSame('accepted', $this->readiness->requestRefresh(7));
+        Bus::assertDispatchedTimes(RefreshKeywordGroupsJob::class, 1);
+        self::assertFalse($this->readiness->isReady(7));
     }
 
     private function phase(int $siteId): string

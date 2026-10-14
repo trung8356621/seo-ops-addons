@@ -18,6 +18,8 @@ Route::middleware(['web', 'auth'])
         Route::post('/turns', [AgentRuntimeController::class, 'turn'])->name('agent-runtime.turns');
         Route::post('/model-input', [AgentRuntimeController::class, 'modelInput'])->name('agent-runtime.model-input');
         Route::post('/model-debug/apply', [AgentRuntimeController::class, 'modelDebugApply'])->name('agent-runtime.model-debug.apply');
+        Route::post('/model-debug/cancel', [AgentRuntimeController::class, 'modelDebugCancel'])->name('agent-runtime.model-debug.cancel');
+        Route::post('/sites/{siteId}/semantic-grouping', [AgentRuntimeController::class, 'prepareSemanticGrouping'])->whereNumber('siteId')->name('agent-runtime.sites.semantic-grouping');
         Route::post('/runs/{runUlid}/confirm', [AgentRuntimeController::class, 'confirmRun'])->name('agent-runtime.runs.confirm');
         Route::post('/runs/{runUlid}/reject', [AgentRuntimeController::class, 'rejectRun'])->name('agent-runtime.runs.reject');
         Route::get('/runs/{runUlid}/status', [AgentRuntimeController::class, 'runStatus'])->name('agent-runtime.runs.status');

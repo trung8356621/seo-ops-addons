@@ -397,7 +397,7 @@ function ActionsBlock({ actions, onAction, busy }) {
     }
     return (
         <div className="agent-actions">
-            {actions.map((action, index) => action.type === 'confirmation' || action.type === 'gsc_continuation' ? (
+            {actions.map((action, index) => action.type === 'confirmation' || action.type === 'gsc_continuation' || action.type === 'semantic_grouping' ? (
                 action.href ? (
                     <a key={index} className="agent-confirmation-action is-connect" href={action.href}>{action.label || action.action}</a>
                 ) : (

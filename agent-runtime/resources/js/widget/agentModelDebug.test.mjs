@@ -97,6 +97,22 @@ test('debug pauses show manual waiting status and Apply restores Thinking while 
     assert.equal(apply.includes('resetDebugState();'), true);
 });
 
+test('Cancel closes the debug modal without applying manual output', () => {
+    assert.equal(modal.includes('>Hủy<'), true);
+    assert.equal(modal.includes('>Đóng<'), true);
+    assert.equal(modal.includes("event.key !== 'Escape'"), true);
+    assert.equal(modal.includes('onClick={onCancel}'), true);
+    const cancelButton = modal.slice(modal.indexOf('>Hủy<') - 180, modal.indexOf('>Hủy<'));
+    assert.equal(cancelButton.includes('disabled'), false);
+
+    const cancel = widget.slice(widget.indexOf('async function onCancelDebug()'), widget.indexOf('async function finishStrandedRun'));
+    assert.equal(cancel.includes('setDebugOpen(false);'), true);
+    assert.equal(cancel.includes('setProcessingStatus(null);'), true);
+    assert.equal(cancel.includes('manual_result'), false);
+    assert.equal(cancel.includes('postJson(endpoints.modelDebugCancelUrl, csrf, { run_ulid: runUlid })'), true);
+    assert.equal(widget.includes('onCancel={onCancelDebug}'), true);
+});
+
 test('processing status is frontend-only and lifecycle resets clear it', () => {
     assert.match(widget, /\{!isTestMode && processingStatus \? \([\s\S]*role="status"[\s\S]*\{processingStatus\}/);
     assert.equal(widget.includes("role: 'status'"), false);
