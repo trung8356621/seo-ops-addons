@@ -7,8 +7,10 @@ namespace Omnichannel\Addons\AgentRuntime\Access;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 
 /**
- * Outstanding work is generated work already in the Content Manager workflow.
- * Ungenerated plans stay out of the count. Completed, archived and cancelled tasks stay out.
+ * Outstanding work has left the ungenerated plan state.
+ * Pending create without a result article, and pending rewrite/improve whose article_id is only the source, stay out.
+ * Writing, failed, processing, draft and reviewing count for both create and rewrite.
+ * Completed, archived and cancelled stay out.
  */
 final class WorkStatsTaskLedger
 {
@@ -23,10 +25,10 @@ final class WorkStatsTaskLedger
             return false;
         }
 
-        if ($status === SeoProjectTask::STATUS_REVIEWING) {
-            return true;
+        if ($status === SeoProjectTask::STATUS_PENDING && ($type !== SeoProjectTask::TYPE_CREATE || (int) $articleId <= 0)) {
+            return false;
         }
 
-        return $type === SeoProjectTask::TYPE_CREATE && (int) $articleId > 0;
+        return true;
     }
 }
