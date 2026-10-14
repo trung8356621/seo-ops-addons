@@ -1,4 +1,5 @@
 import { mountAgentWidget } from '../widget/mountAgentWidget.js';
+import { shouldRemountDrawer } from '../widget/agentDrawerMount.js';
 import { AgentWidget } from '../widget/AgentWidget.jsx';
 import { normalizeHostContext } from '../host/hostContext.js';
 import { buildProjectItems, scopePayload, switchProject } from '../projects/projectCatalog.js';
@@ -50,8 +51,12 @@ export function mountDrawer() {
     if (!drawerRoot) {
         return null;
     }
-    if (drawerHandle) {
+    if (!shouldRemountDrawer(drawerRoot, drawerHandle)) {
         return drawerHandle;
+    }
+    if (drawerHandle) {
+        drawerHandle.unmount();
+        drawerHandle = null;
     }
     const hostContext = parseHostContext(drawerRoot);
     drawerHandle = mountAgentWidget(drawerRoot, {

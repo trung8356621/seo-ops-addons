@@ -1,6 +1,31 @@
 import { createRoot } from 'react-dom/client';
-import { createElement } from 'react';
+import { Component, createElement } from 'react';
 import { AgentWidget } from './AgentWidget.jsx';
+
+class AgentMountBoundary extends Component {
+    constructor(props) {
+        super(props);
+        this.state = { failed: false };
+    }
+
+    static getDerivedStateFromError() {
+        return { failed: true };
+    }
+
+    render() {
+        if (!this.state.failed) {
+            return this.props.children;
+        }
+
+        return createElement('div', { className: 'agent-mount-error', role: 'alert' },
+            createElement('p', null, 'Không thể khởi tạo Agent.'),
+            createElement('button', {
+                type: 'button',
+                onClick: () => this.setState({ failed: false }),
+            }, 'Thử lại'),
+        );
+    }
+}
 
 /**
  * Mounts the canonical Agent React widget into any container element.
@@ -20,11 +45,15 @@ export function mountAgentWidget(container, options = {}) {
     }
 
     const root = createRoot(container);
-    root.render(createElement(AgentWidget, options));
+    root.render(createElement(AgentMountBoundary, null, createElement(AgentWidget, options)));
+    container.dataset.agentMounted = '1';
 
     return {
         unmount() {
             root.unmount();
+            if (container.isConnected) {
+                delete container.dataset.agentMounted;
+            }
         },
     };
 }

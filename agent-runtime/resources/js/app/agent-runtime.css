@@ -1767,6 +1767,19 @@
     overflow: hidden;
 }
 
+.agent-mount-error {
+    margin: 24px;
+    padding: 16px;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    background: #fff;
+    color: #991b1b;
+}
+
+.agent-mount-error button {
+    margin-top: 12px;
+}
+
 @media (min-width: 1024px) {
     .fi-body:not(:has(.fi-sidebar.fi-sidebar-open)) .agent-drawer-container {
         left: var(--collapsed-sidebar-width, 4rem);

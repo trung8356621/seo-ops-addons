@@ -58,11 +58,58 @@ final class AgentWorkStatsService
             default => $this->planText($stats, $window),
         };
 
-        return new AgentResponse($text, [['type' => 'markdown', 'text' => $text]], [], [[
+        return new AgentResponse($text, $this->blocks($text, $stats, $kind), [], [[
             'name' => 'work.stats',
             'status' => 'ok',
             'request' => $kind,
         ]]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stats
+     * @return list<array<string, mixed>>
+     */
+    private function blocks(string $text, array $stats, string $kind): array
+    {
+        $blocks = [['type' => 'markdown', 'text' => $text]];
+        if ($kind !== 'remaining' || (int) ($stats['open_tasks'] ?? 0) <= 0) {
+            return $blocks;
+        }
+
+        $rows = [];
+        foreach (is_array($stats['projects'] ?? null) ? $stats['projects'] : [] as $project) {
+            if (! is_array($project)) {
+                continue;
+            }
+            $id = (int) ($project['id'] ?? 0);
+            $outstanding = (int) ($project['outstanding'] ?? 0);
+            if ($id <= 0 || $outstanding <= 0) {
+                continue;
+            }
+            $label = (string) ($project['name'] ?? '');
+            $href = ContentProjectAgentLink::url($id);
+            $rows[] = [
+                'project' => $href !== null ? ['label' => $label, 'href' => $href] : $label,
+                'period' => (string) ($project['month'] ?? ''),
+                'outstanding' => $outstanding,
+            ];
+        }
+        if ($rows === []) {
+            return $blocks;
+        }
+
+        $blocks[] = [
+            'type' => 'table',
+            'title' => 'Theo Content Project',
+            'columns' => [
+                ['key' => 'project', 'label' => 'Content Project'],
+                ['key' => 'period', 'label' => 'Tháng'],
+                ['key' => 'outstanding', 'label' => 'Chưa hoàn thành'],
+            ],
+            'rows' => $rows,
+        ];
+
+        return $blocks;
     }
 
     public function kind(string $message): string

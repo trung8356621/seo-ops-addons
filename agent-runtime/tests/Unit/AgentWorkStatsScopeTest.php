@@ -54,6 +54,29 @@ final class AgentWorkStatsScopeTest extends TestCase
     }
 
     #[Test]
+    public function outstanding_breakdown_sums_to_the_aggregate_and_zero_has_no_rows(): void
+    {
+        $context = new AgentActorAccessContext(9, SeoAccessControl::ROLE_CONTENT_MANAGER, [3, 8], [4], false, false);
+        $service = new AgentWorkStatsService($this->reader(30, [], [
+            ['id' => 3, 'name' => 'Tháng 10', 'month' => '10/2026', 'outstanding' => 12],
+            ['id' => 8, 'name' => 'Tháng 9', 'month' => '09/2026', 'outstanding' => 18],
+        ]));
+        $response = $service->answer($context, 'Tôi còn bao nhiêu bài viết chưa hoàn thành?');
+        $table = $response->blocks[1];
+        $sum = array_sum(array_column($table['rows'], 'outstanding'));
+
+        self::assertSame('Bạn còn 30 bài chưa hoàn thành.', $response->message);
+        self::assertSame('table', $table['type']);
+        self::assertSame(30, $sum);
+        self::assertSame('Tháng 10', $table['rows'][0]['project']['label'] ?? $table['rows'][0]['project']);
+        self::assertArrayNotHasKey('id', $table['rows'][0]);
+
+        $empty = (new AgentWorkStatsService($this->reader(0)))->answer($context, 'Tôi còn bao nhiêu bài chưa hoàn thành?');
+        self::assertCount(1, $empty->blocks);
+        self::assertSame('Bạn còn 0 bài chưa hoàn thành.', $empty->message);
+    }
+
+    #[Test]
     public function leaderboard_keeps_missing_scores_unranked(): void
     {
         $context = new AgentActorAccessContext(9, SeoAccessControl::ROLE_CONTENT_MANAGER, [3], [4], true, false);
@@ -99,14 +122,19 @@ final class AgentWorkStatsScopeTest extends TestCase
     /**
      * @param  list<array<string, mixed>>  $members
      */
-    private function reader(int $open, array $members = []): AgentWorkStatsReader
+    /**
+     * @param  list<array<string, mixed>>  $members
+     * @param  list<array<string, mixed>>  $projects
+     */
+    private function reader(int $open, array $members = [], array $projects = []): AgentWorkStatsReader
     {
-        return new class($open, $members) implements AgentWorkStatsReader
+        return new class($open, $members, $projects) implements AgentWorkStatsReader
         {
             /**
              * @param  list<array<string, mixed>>  $members
+             * @param  list<array<string, mixed>>  $projects
              */
-            public function __construct(private int $open, private array $members) {}
+            public function __construct(private int $open, private array $members, private array $projects) {}
 
             public function summarize(AgentActorAccessContext $context, string $kind, WorkStatsWindow $window): array
             {
@@ -114,11 +142,12 @@ final class AgentWorkStatsScopeTest extends TestCase
                     'open_tasks' => $this->open,
                     'completed_tasks' => 0,
                     'average_seo_score' => null,
-                    'project_count' => 1,
+                    'project_count' => count($this->projects),
                     'lowest_score_user' => null,
                     'lowest_output_user' => null,
                     'most_completed_user' => null,
                     'members' => $this->members,
+                    'projects' => $this->projects,
                     'limitation' => null,
                     'kind' => $kind,
                 ];

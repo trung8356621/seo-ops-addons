@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\AgentRuntime\Access;
 use App\Core\Sites\SiteAccess;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Seo\Models\SeoArticleProfile;
@@ -50,11 +51,12 @@ final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
             : SeoProjectTask::query()->active()
                 ->whereIn('project_id', $projectIds)
                 ->where('status', '!=', SeoProjectTask::STATUS_ARCHIVED)
-                ->get(['project_id', 'status', 'article_id'])
+                ->get(['project_id', 'status', 'type', 'article_id'])
                 ->all();
 
         $open = 0;
         $done = 0;
+        $openByProject = [];
         $assignedByUser = [];
         $completedByUser = [];
         $articlesByUser = [];
@@ -73,8 +75,9 @@ final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
                 if ($userId > 0) {
                     $completedByUser[$userId] = ($completedByUser[$userId] ?? 0) + 1;
                 }
-            } elseif (in_array($projectId, $openProjectIds, true)) {
+            } elseif (in_array($projectId, $openProjectIds, true) && WorkStatsTaskLedger::isOutstanding($status, $task->type ?? null, $task->article_id ?? null)) {
                 $open++;
+                $openByProject[$projectId] = ($openByProject[$projectId] ?? 0) + 1;
             }
             $articleId = (int) ($task->article_id ?? 0);
             if ($userId > 0 && $articleId > 0) {
@@ -123,6 +126,7 @@ final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
             'lowest_output_user' => $slowestUser,
             'most_completed_user' => $mostUser,
             'members' => $members,
+            'projects' => $team ? [] : $this->breakdown($projects, $openByProject),
             'limitation' => null,
             'kind' => $kind,
         ];
@@ -155,7 +159,7 @@ final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
             $query->whereBetween('month', [$window->from, $window->to]);
         }
 
-        return $query->get(['id', 'user_id', 'status'])->all();
+        return $query->get(['id', 'user_id', 'status', 'name', 'month'])->all();
     }
 
     /**
@@ -372,9 +376,36 @@ final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
             'lowest_output_user' => null,
             'most_completed_user' => null,
             'members' => [],
+            'projects' => [],
             'limitation' => $limitation,
             'kind' => $kind,
         ];
+    }
+
+    /**
+     * @param  list<SeoProject>  $projects
+     * @param  array<int, int>  $openByProject
+     * @return list<array{id: int, name: string, month: string, outstanding: int}>
+     */
+    private function breakdown(array $projects, array $openByProject): array
+    {
+        $rows = [];
+        foreach ($projects as $project) {
+            $id = (int) $project->getKey();
+            $outstanding = (int) ($openByProject[$id] ?? 0);
+            if ($id <= 0 || $outstanding <= 0) {
+                continue;
+            }
+            $month = $project->month;
+            $rows[] = [
+                'id' => $id,
+                'name' => trim((string) ($project->name ?? '')) !== '' ? (string) $project->name : 'Content Project '.$id,
+                'month' => $month ? Carbon::parse($month)->format('m/Y') : '',
+                'outstanding' => $outstanding,
+            ];
+        }
+
+        return $rows;
     }
 
     private function isTeamKind(string $kind): bool
