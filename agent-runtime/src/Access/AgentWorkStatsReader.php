@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\AgentRuntime\Access;
 interface AgentWorkStatsReader
 {
     /**
-     * @return array<string, int|float|string|null>
+     * @return array<string, mixed>
      */
-    public function summarize(AgentActorAccessContext $context, string $kind): array;
+    public function summarize(AgentActorAccessContext $context, string $kind, WorkStatsWindow $window): array;
 }

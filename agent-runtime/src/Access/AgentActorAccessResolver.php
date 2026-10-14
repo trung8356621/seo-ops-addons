@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Access;
 
+use App\Core\Sites\SiteAccess;
 use App\Models\User;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -20,12 +21,14 @@ final class AgentActorAccessResolver
 
         $role = SeoAccessControl::roleForUser($user);
         if ($role === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            $ownerId = (int) ($user->accountOwnerId() ?? 0);
+
             return new AgentActorAccessContext(
                 $userId,
                 $role,
                 $this->assignedProjectIds($userId),
-                [],
-                false,
+                $ownerId > 0 ? $this->siteIdsFor($user) : [],
+                $ownerId > 0,
                 false,
             );
         }
@@ -77,5 +80,17 @@ final class AgentActorAccessResolver
         }
 
         return $query->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function siteIdsFor(User $user): array
+    {
+        try {
+            return app(SiteAccess::class)->accessibleSiteIds($user);
+        } catch (Throwable) {
+            return [];
+        }
     }
 }

@@ -4,105 +4,382 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AgentRuntime\Access;
 
+use App\Core\Sites\SiteAccess;
 use App\Models\User;
-use Illuminate\Support\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Seo\Models\SeoArticleProfile;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Throwable;
 
 final class EloquentAgentWorkStatsReader implements AgentWorkStatsReader
 {
-    public function summarize(AgentActorAccessContext $context, string $kind): array
+    public function summarize(AgentActorAccessContext $context, string $kind, WorkStatsWindow $window): array
     {
-        $projectIds = $context->authorizedProjectIds();
-        $monthStart = Carbon::now()->startOfMonth();
-        $monthEnd = Carbon::now()->endOfMonth();
-        $projects = SeoProject::query()->whereIn('id', $projectIds === [] ? [-1] : $projectIds);
-        if (! $context->includeArchivedProjects) {
-            $projects->whereNull('archived_at');
+        $team = $this->isTeamKind($kind);
+        $memberIds = $team && $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER
+            ? $this->contentManagerIds($context)
+            : [];
+        if ($team && $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER && $memberIds === []) {
+            return $this->emptyStats($kind, 'Không xác định được quan hệ team từ tài khoản hiện tại. So sánh nhân sự không được mở rộng ngoài phạm vi này.');
         }
-        $projects->whereBetween('month', [$monthStart->toDateString(), $monthEnd->toDateString()]);
-        $monthProjectIds = $projects->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
 
-        $tasks = SeoProjectTask::query()->active()->whereIn('project_id', $monthProjectIds === [] ? [-1] : $monthProjectIds);
-        $open = (clone $tasks)->whereNotIn('status', [
-            SeoProjectTask::STATUS_COMPLETED,
-            SeoProjectTask::STATUS_ARCHIVED,
-            SeoProjectTask::STATUS_CANCELLED,
-        ])->count();
-        $done = (clone $tasks)->where('status', SeoProjectTask::STATUS_COMPLETED)->count();
-        $articleIds = (clone $tasks)->where('article_id', '>', 0)->pluck('article_id')->map(static fn (mixed $id): int => (int) $id)->all();
-        $average = $articleIds === []
-            ? null
-            : SeoArticleProfile::query()->whereIn('article_id', $articleIds)->avg('seo_score');
+        $siteIds = $context->siteIds;
+        if ($team && $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER && $siteIds === []) {
+            $siteIds = $this->siteIdsFor($context->userId);
+        }
+        if ($team && $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER && $siteIds === []) {
+            return $this->emptyStats($kind, 'Không xác định được site trong phạm vi tài khoản. Bảng xếp hạng không lấy dữ liệu ngoài site được phép.');
+        }
 
+        $projects = $this->projects($context, $window, $team, $memberIds, $siteIds);
+        $projectIds = array_map(static fn (SeoProject $project): int => (int) $project->getKey(), $projects);
+        $openProjectIds = [];
+        $userByProject = [];
+        foreach ($projects as $project) {
+            $projectId = (int) $project->getKey();
+            $userByProject[$projectId] = (int) $project->user_id;
+            if ((string) $project->status !== SeoProject::STATUS_COMPLETED) {
+                $openProjectIds[] = $projectId;
+            }
+        }
+
+        $taskRows = $projectIds === []
+            ? []
+            : SeoProjectTask::query()->active()
+                ->whereIn('project_id', $projectIds)
+                ->where('status', '!=', SeoProjectTask::STATUS_ARCHIVED)
+                ->get(['project_id', 'status', 'article_id'])
+                ->all();
+
+        $open = 0;
+        $done = 0;
+        $assignedByUser = [];
+        $completedByUser = [];
+        $articlesByUser = [];
+        foreach ($taskRows as $task) {
+            $projectId = (int) $task->project_id;
+            $status = (string) $task->status;
+            $userId = $userByProject[$projectId] ?? 0;
+            if ($status === SeoProjectTask::STATUS_CANCELLED) {
+                continue;
+            }
+            if ($userId > 0) {
+                $assignedByUser[$userId] = ($assignedByUser[$userId] ?? 0) + 1;
+            }
+            if ($status === SeoProjectTask::STATUS_COMPLETED) {
+                $done++;
+                if ($userId > 0) {
+                    $completedByUser[$userId] = ($completedByUser[$userId] ?? 0) + 1;
+                }
+            } elseif (in_array($projectId, $openProjectIds, true)) {
+                $open++;
+            }
+            $articleId = (int) ($task->article_id ?? 0);
+            if ($userId > 0 && $articleId > 0) {
+                $articlesByUser[$userId][$articleId] = $articleId;
+            }
+        }
+
+        $articleIds = [];
+        foreach ($articlesByUser as $ids) {
+            foreach ($ids as $articleId) {
+                $articleIds[$articleId] = $articleId;
+            }
+        }
+        $scores = $this->rankableScores(array_values($articleIds));
+        $ownArticleIds = [];
+        if (! $team) {
+            foreach ($taskRows as $task) {
+                $articleId = (int) ($task->article_id ?? 0);
+                if ($articleId > 0 && (string) $task->status !== SeoProjectTask::STATUS_CANCELLED) {
+                    $ownArticleIds[$articleId] = $articleId;
+                }
+            }
+        }
+        $average = $this->average(array_intersect_key($scores, $ownArticleIds));
+
+        $members = [];
         $lowestUser = null;
         $slowestUser = null;
-        if ($context->teamVisible && $monthProjectIds !== []) {
-            $byUser = SeoProject::query()->whereIn('id', $monthProjectIds)->pluck('user_id', 'id');
-            $scores = [];
-            $output = [];
-            foreach ($byUser as $projectId => $writerId) {
-                $writerId = (int) $writerId;
-                if ($writerId <= 0) {
-                    continue;
-                }
-                $writerTasks = SeoProjectTask::query()->active()->where('project_id', (int) $projectId);
-                $output[$writerId] = ($output[$writerId] ?? 0) + (clone $writerTasks)->where('status', SeoProjectTask::STATUS_COMPLETED)->count();
-                $ids = (clone $writerTasks)->where('article_id', '>', 0)->pluck('article_id')->all();
-                if ($ids !== []) {
-                    $score = SeoArticleProfile::query()->whereIn('article_id', $ids)->avg('seo_score');
-                    if ($score !== null) {
-                        $scores[$writerId][] = (float) $score;
-                    }
-                }
-            }
-            $lowestUser = $this->lowestAverage($scores);
-            if ($output !== []) {
-                $sorted = $this->sortedAsc($output);
-                $slowestId = (int) array_key_first($sorted);
-                $slowestUser = $this->userLabel($slowestId).' ('.(int) $sorted[$slowestId].')';
-            }
+        $mostUser = null;
+        if ($team) {
+            $roster = $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER
+                ? $memberIds
+                : array_values(array_unique(array_filter($userByProject, static fn (int $id): bool => $id > 0)));
+            $members = $this->members($roster, $assignedByUser, $completedByUser, $articlesByUser, $scores, $kind);
+            $lowestUser = $this->labeledScore($members, true);
+            $slowestUser = $this->labeledCount($members, 'completed', true);
+            $mostUser = $this->labeledCount($members, 'completed', false);
         }
 
         return [
             'open_tasks' => $open,
             'completed_tasks' => $done,
-            'average_seo_score' => $average === null ? null : round((float) $average, 1),
-            'project_count' => count($monthProjectIds),
+            'average_seo_score' => $average,
+            'project_count' => count($projectIds),
             'lowest_score_user' => $lowestUser,
             'lowest_output_user' => $slowestUser,
+            'most_completed_user' => $mostUser,
+            'members' => $members,
+            'limitation' => null,
             'kind' => $kind,
         ];
     }
 
     /**
-     * @param  array<int, list<float>>  $scores
+     * @param  list<int>  $memberIds
+     * @param  list<int>  $siteIds
+     * @return list<SeoProject>
      */
-    private function lowestAverage(array $scores): ?string
+    private function projects(AgentActorAccessContext $context, WorkStatsWindow $window, bool $team, array $memberIds, array $siteIds): array
     {
-        $bestId = null;
-        $best = null;
-        foreach ($scores as $userId => $values) {
-            $avg = array_sum($values) / max(1, count($values));
-            if ($best === null || $avg < $best) {
-                $best = $avg;
-                $bestId = (int) $userId;
-            }
+        $query = SeoProject::query();
+        if ($team && $context->role === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+            $query->whereIn('user_id', $memberIds);
+            $query->where(function (Builder $inner) use ($siteIds): void {
+                $inner->whereIn('site_id', $siteIds)->orWhereNull('site_id');
+            });
+        } else {
+            $ids = $context->authorizedProjectIds();
+            $query->whereIn('id', $ids === [] ? [-1] : $ids);
+        }
+        if (! $context->includeArchivedProjects) {
+            $query->whereNull('archived_at');
+        }
+        $query->where(function (Builder $inner): void {
+            $inner->whereNull('kind')->orWhere('kind', '!=', SeoProject::KIND_ARCHIVE);
+        });
+        if ($window->mode !== 'all' && $window->from !== null && $window->to !== null) {
+            $query->whereBetween('month', [$window->from, $window->to]);
         }
 
-        return $bestId === null ? null : $this->userLabel($bestId).' ('.round((float) $best, 1).')';
+        return $query->get(['id', 'user_id', 'status'])->all();
     }
 
     /**
-     * @param  array<int, int>  $counts
-     * @return array<int, int>
+     * @return list<int>
      */
-    private function sortedAsc(array $counts): array
+    private function contentManagerIds(AgentActorAccessContext $context): array
     {
-        asort($counts);
+        $actor = $context->userId > 0 ? User::query()->find($context->userId) : null;
+        if (! $actor instanceof User) {
+            return [];
+        }
+        $ownerId = (int) ($actor->accountOwnerId() ?? 0);
+        if ($ownerId <= 0) {
+            return [];
+        }
 
-        return $counts;
+        $ids = [];
+        $staff = User::query()->where('parent_id', $ownerId)->where('role', User::ROLE_STAFF)->get();
+        foreach ($staff as $member) {
+            if (SeoAccessControl::roleForUser($member) === SeoAccessControl::ROLE_CONTENT_MANAGER) {
+                $ids[] = (int) $member->getKey();
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function siteIdsFor(int $userId): array
+    {
+        $user = User::query()->find($userId);
+        if (! $user instanceof User) {
+            return [];
+        }
+        try {
+            return app(SiteAccess::class)->accessibleSiteIds($user);
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param  list<int>  $articleIds
+     * @return array<int, float>
+     */
+    private function rankableScores(array $articleIds): array
+    {
+        if ($articleIds === []) {
+            return [];
+        }
+
+        $rows = SeoArticleProfile::query()
+            ->whereIn('article_id', $articleIds)
+            ->whereNotNull('seo_score')
+            ->where(function (Builder $inner): void {
+                $inner->where('skip_seo_score', false)->orWhereNull('skip_seo_score');
+            })
+            ->get(['article_id', 'seo_score']);
+
+        $scores = [];
+        foreach ($rows as $row) {
+            $scores[(int) $row->article_id] = (float) $row->seo_score;
+        }
+
+        return $scores;
+    }
+
+    /**
+     * @param  array<int, float>  $scores
+     */
+    private function average(array $scores): ?float
+    {
+        if ($scores === []) {
+            return null;
+        }
+
+        return round(array_sum($scores) / count($scores), 1);
+    }
+
+    /**
+     * @param  list<int>  $roster
+     * @param  array<int, int>  $assignedByUser
+     * @param  array<int, int>  $completedByUser
+     * @param  array<int, array<int, int>>  $articlesByUser
+     * @param  array<int, float>  $scores
+     * @return list<array{user_id: int, name: string, assigned: int, completed: int, average_seo_score: float|null, rank: int|null}>
+     */
+    private function members(array $roster, array $assignedByUser, array $completedByUser, array $articlesByUser, array $scores, string $kind): array
+    {
+        $rows = [];
+        foreach ($roster as $userId) {
+            $userId = (int) $userId;
+            if ($userId <= 0 || isset($rows[$userId])) {
+                continue;
+            }
+            $articleScores = [];
+            foreach ($articlesByUser[$userId] ?? [] as $articleId) {
+                if (isset($scores[$articleId])) {
+                    $articleScores[] = $scores[$articleId];
+                }
+            }
+            $rows[$userId] = [
+                'user_id' => $userId,
+                'name' => $this->userLabel($userId),
+                'assigned' => (int) ($assignedByUser[$userId] ?? 0),
+                'completed' => (int) ($completedByUser[$userId] ?? 0),
+                'average_seo_score' => $articleScores === [] ? null : round(array_sum($articleScores) / count($articleScores), 1),
+                'rank' => null,
+            ];
+        }
+
+        $list = array_values($rows);
+        $byScore = $kind === 'leaderboard' || $kind === 'lowest_score';
+        $lowestFirst = $kind === 'lowest_score' || $kind === 'lowest_output';
+        usort($list, static function (array $a, array $b) use ($byScore, $lowestFirst): int {
+            if ($byScore) {
+                $aScore = $a['average_seo_score'];
+                $bScore = $b['average_seo_score'];
+                if ($aScore === null && $bScore !== null) {
+                    return 1;
+                }
+                if ($aScore !== null && $bScore === null) {
+                    return -1;
+                }
+                if ($aScore !== null && $bScore !== null && $aScore !== $bScore) {
+                    return $lowestFirst ? $aScore <=> $bScore : $bScore <=> $aScore;
+                }
+            } else {
+                $count = $lowestFirst ? $a['completed'] <=> $b['completed'] : $b['completed'] <=> $a['completed'];
+                if ($count !== 0) {
+                    return $count;
+                }
+            }
+
+            return $a['user_id'] <=> $b['user_id'];
+        });
+
+        $rank = 0;
+        foreach ($list as $index => $row) {
+            if ($byScore && $row['average_seo_score'] === null) {
+                $list[$index]['rank'] = null;
+                continue;
+            }
+            $rank++;
+            $list[$index]['rank'] = $rank;
+        }
+
+        return $list;
+    }
+
+    /**
+     * @param  list<array{name: string, average_seo_score: float|null}>  $members
+     */
+    private function labeledScore(array $members, bool $lowest): ?string
+    {
+        $picked = null;
+        foreach ($members as $row) {
+            if ($row['average_seo_score'] === null) {
+                continue;
+            }
+            if ($picked === null) {
+                $picked = $row;
+                continue;
+            }
+            $better = $lowest
+                ? $row['average_seo_score'] < $picked['average_seo_score']
+                : $row['average_seo_score'] > $picked['average_seo_score'];
+            if ($better) {
+                $picked = $row;
+            }
+        }
+
+        return $picked === null ? null : $picked['name'].' ('.$picked['average_seo_score'].')';
+    }
+
+    /**
+     * @param  list<array{name: string, completed: int}>  $members
+     */
+    private function labeledCount(array $members, string $field, bool $lowest): ?string
+    {
+        if ($members === []) {
+            return null;
+        }
+        $picked = null;
+        foreach ($members as $row) {
+            if ($picked === null) {
+                $picked = $row;
+                continue;
+            }
+            $value = (int) ($row[$field] ?? 0);
+            $best = (int) ($picked[$field] ?? 0);
+            $better = $lowest ? $value < $best : $value > $best;
+            if ($better) {
+                $picked = $row;
+            }
+        }
+
+        return $picked['name'].' ('.(int) ($picked[$field] ?? 0).')';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyStats(string $kind, string $limitation): array
+    {
+        return [
+            'open_tasks' => 0,
+            'completed_tasks' => 0,
+            'average_seo_score' => null,
+            'project_count' => 0,
+            'lowest_score_user' => null,
+            'lowest_output_user' => null,
+            'most_completed_user' => null,
+            'members' => [],
+            'limitation' => $limitation,
+            'kind' => $kind,
+        ];
+    }
+
+    private function isTeamKind(string $kind): bool
+    {
+        return in_array($kind, ['lowest_score', 'lowest_output', 'leaderboard', 'most_completed'], true);
     }
 
     private function userLabel(int $userId): string

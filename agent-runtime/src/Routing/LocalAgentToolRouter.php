@@ -79,7 +79,7 @@ final class LocalAgentToolRouter
     private function workStatsRoute(string $message): ?LocalToolRoute
     {
         $text = mb_strtolower($message);
-        $matched = preg_match('/tháng này tôi cần làm|tôi còn bao nhiêu|chưa hoàn thành|seo score trung bình|ai đang có seo score|ai có năng suất|năng suất thấp nhất/u', $text) === 1;
+        $matched = preg_match('/tháng này tôi cần làm|tôi còn bao nhiêu|tôi còn nợ|nợ mấy bài|chưa hoàn thành|chưa xong|seo score trung bình|ai đang có seo score|ai có năng suất|năng suất thấp nhất|xếp hạng.{0,80}(?:seo|team|thành viên)|seo score.{0,80}(?:team|thành viên)|hoàn thành nhiều bài|nhiều bài nhất/u', $text) === 1;
         if (! $matched) {
             return null;
         }
