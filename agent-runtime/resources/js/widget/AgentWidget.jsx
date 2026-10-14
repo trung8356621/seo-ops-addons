@@ -18,6 +18,7 @@ import {
     clearStoredThreadUlid,
     formatTimeAgo,
     getStoredThreadUlid,
+    recoverMissingThread,
     setStoredThreadUlid,
 } from './agentThreadState.js';
 import {
@@ -1095,7 +1096,22 @@ export function AgentWidget({
                 signal: controller.signal,
             });
             if (!res.ok) {
-                throw new Error('Could not load conversation.');
+                const body = await res.json().catch(() => ({}));
+                if (res.status === 404) {
+                    clearStoredThreadUlid(hostContext.appKey, scopeRef, hostContext.principalId);
+                    if (!threadLoadCurrent(seq, scopeRef)) {
+                        return;
+                    }
+                    const recovered = recoverMissingThread({});
+                    setActiveThreadUlid(recovered.activeThreadUlid);
+                    setViewingThreadUlid(recovered.viewingThreadUlid);
+                    setIsViewingArchived(recovered.isViewingArchived);
+                    setMessages(recovered.messages);
+                    setThreadLoadError(recovered.threadLoadError);
+                    setError('');
+                    return;
+                }
+                throw new Error(body.message || 'Could not load conversation.');
             }
             const payload = await res.json();
             const threadData = payload?.data || {};
@@ -1138,7 +1154,7 @@ export function AgentWidget({
             setIsViewingArchived(threadIsArchived);
             if (!threadIsArchived) {
                 setActiveThreadUlid(ulid);
-                setStoredThreadUlid(hostContext.appKey, scopeRef, ulid);
+                setStoredThreadUlid(hostContext.appKey, scopeRef, ulid, hostContext.principalId);
             }
 
             const pending = threadData.pending_model_call || null;
@@ -1178,7 +1194,7 @@ export function AgentWidget({
                 setThreadLoadingUlid('');
             }
         }
-    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, resetDebugState]);
+    }, [endpoints.threadsUrl, endpoints.modelDebugApplyUrl, csrf, hostContext.appKey, hostContext.principalId, resetDebugState]);
 
     // New conversation action
     const onNewConversation = useCallback(() => {
@@ -1193,11 +1209,11 @@ export function AgentWidget({
         setRerunTargetId(null);
         setRerunNotice('');
         setRerunErrorByTurn(null);
-        clearStoredThreadUlid(hostContext.appKey, currentScopeRef);
+        clearStoredThreadUlid(hostContext.appKey, currentScopeRef, hostContext.principalId);
         resetDebugState();
         setDebugOpen(false);
         setOpenReviewRunUlid(null);
-    }, [hostContext.appKey, currentScopeRef, resetDebugState]);
+    }, [hostContext.appKey, hostContext.principalId, currentScopeRef, resetDebugState]);
 
     // Archive conversation action
     const onArchiveThread = useCallback(async (ulid) => {
@@ -1374,7 +1390,7 @@ export function AgentWidget({
         if (!currentScopeRef) {
             return;
         }
-        const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef);
+        const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef, hostContext.principalId);
         const action = scopeEntryAction(lastScopeRef.current, currentScopeRef, storedUlid);
         if (action === 'ignore') {
             return;
@@ -1399,7 +1415,7 @@ export function AgentWidget({
         setViewingThreadUlid(null);
         setIsViewingArchived(false);
         setMessages([]);
-    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, resetDebugState]);
+    }, [currentScopeRef, fetchThreads, loadThread, hostContext.appKey, hostContext.principalId, resetDebugState]);
 
     async function copyText(text) {
         await copyPlainText(text);
@@ -1500,7 +1516,7 @@ export function AgentWidget({
             if (returnedUlid && !activeThreadUlid) {
                 setActiveThreadUlid(returnedUlid);
                 setViewingThreadUlid(returnedUlid);
-                setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid);
+                setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid, hostContext.principalId);
                 setActiveThreads((current) => prependThread(current, {
                     ulid: returnedUlid,
                     title: data.title || threadTitleFromMessage(userMessageText),
@@ -1542,6 +1558,20 @@ export function AgentWidget({
             revealCompletedReview(data);
             setProcessingStatus(null);
         } catch (caught) {
+            if (caught.status === 404) {
+                const recovered = recoverMissingThread({ pendingText: userMessageText });
+                clearStoredThreadUlid(hostContext.appKey, currentScopeRef, hostContext.principalId);
+                setActiveThreadUlid(recovered.activeThreadUlid);
+                setViewingThreadUlid(recovered.viewingThreadUlid);
+                setIsViewingArchived(recovered.isViewingArchived);
+                setMessages((current) => current.filter((msg) => msg.id !== tempUserId));
+                setDraft(recovered.draft);
+                setError(locale === 'vi'
+                    ? 'Hội thoại trước không còn dùng được. Nội dung chưa gửi được giữ lại.'
+                    : 'The previous conversation is no longer available. Your unsent text was kept.');
+                setProcessingStatus(null);
+                return;
+            }
             setError(caught.message);
             setProcessingStatus(null);
         } finally {

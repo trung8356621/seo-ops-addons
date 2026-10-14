@@ -5,6 +5,7 @@ import {
     clearStoredThreadUlid,
     formatTimeAgo,
     getStoredThreadUlid,
+    recoverMissingThread,
     setStoredThreadUlid,
 } from './agentThreadState.js';
 
@@ -19,18 +20,36 @@ globalThis.window = {
     },
 };
 
-test('thread state helper stores, retrieves, and clears thread ULID scoped by appKey and scopeRef', () => {
+test('thread state helper stores, retrieves, and clears thread ULID scoped by principal, appKey and scopeRef', () => {
     mockSessionStorage.clear();
 
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:2', '11'), null);
     assert.equal(getStoredThreadUlid('seo-ops', 'site:2'), null);
 
-    setStoredThreadUlid('seo-ops', 'site:2', '01JABCDEF1234567890ABCDEF');
-    assert.equal(getStoredThreadUlid('seo-ops', 'site:2'), '01JABCDEF1234567890ABCDEF');
-    assert.equal(getStoredThreadUlid('seo-ops', 'site:3'), null);
-    assert.equal(getStoredThreadUlid('wordpress', 'site:2'), null);
-
-    clearStoredThreadUlid('seo-ops', 'site:2');
+    setStoredThreadUlid('seo-ops', 'site:2', '01JABCDEF1234567890ABCDEF', '11');
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:2', '11'), '01JABCDEF1234567890ABCDEF');
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:2', '22'), null);
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:3', '11'), null);
+    assert.equal(getStoredThreadUlid('wordpress', 'site:2', '11'), null);
     assert.equal(getStoredThreadUlid('seo-ops', 'site:2'), null);
+
+    clearStoredThreadUlid('seo-ops', 'site:2', '22');
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:2', '11'), '01JABCDEF1234567890ABCDEF');
+    clearStoredThreadUlid('seo-ops', 'site:2', '11');
+    assert.equal(getStoredThreadUlid('seo-ops', 'site:2', '11'), null);
+});
+
+test('missing thread recovery clears selection, keeps unsent text, and does not resubmit', () => {
+    const recovered = recoverMissingThread({
+        draft: '',
+        pendingText: 'Tôi còn bao nhiêu bài viết chưa hoàn thành?',
+    });
+
+    assert.equal(recovered.activeThreadUlid, null);
+    assert.deepEqual(recovered.messages, []);
+    assert.equal(recovered.threadLoadError, '');
+    assert.equal(recovered.draft, 'Tôi còn bao nhiêu bài viết chưa hoàn thành?');
+    assert.equal(recovered.resubmit, false);
 });
 
 test('formatTimeAgo produces human readable relative times', () => {
@@ -62,7 +81,7 @@ test('first Send uses /turns and stores thread_ulid while subsequent Send reuses
     assert.equal(source.includes('const data = payload?.data || {};'), true);
     assert.equal(source.includes('const returnedUlid = data.thread_ulid;'), true);
     assert.equal(source.includes('setActiveThreadUlid(returnedUlid)'), true);
-    assert.equal(source.includes('setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid)'), true);
+    assert.equal(source.includes('setStoredThreadUlid(hostContext.appKey, currentScopeRef, returnedUlid, hostContext.principalId)'), true);
 });
 
 test('New Conversation clears active thread, messages, and saved state', () => {
@@ -71,7 +90,7 @@ test('New Conversation clears active thread, messages, and saved state', () => {
     assert.equal(source.includes('const onNewConversation = useCallback(() => {'), true);
     assert.equal(source.includes('setActiveThreadUlid(null);'), true);
     assert.equal(source.includes('setMessages([]);'), true);
-    assert.equal(source.includes('clearStoredThreadUlid(hostContext.appKey, currentScopeRef);'), true);
+    assert.equal(source.includes('clearStoredThreadUlid(hostContext.appKey, currentScopeRef, hostContext.principalId);'), true);
 });
 
 test('selecting history hydrates thread messages without calling any model', () => {
@@ -144,7 +163,9 @@ test('switching scope resets or hydrates scoped thread and refreshes thread list
     const source = readFileSync(new URL('./AgentWidget.jsx', import.meta.url), 'utf8');
 
     assert.equal(source.includes('fetchThreads(currentScopeRef)'), true);
-    assert.equal(source.includes('const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef)'), true);
+    assert.equal(source.includes('const storedUlid = getStoredThreadUlid(hostContext.appKey, currentScopeRef, hostContext.principalId)'), true);
+    assert.equal(source.includes('recoverMissingThread'), true);
+    assert.equal(source.includes('resubmit'), false);
     assert.equal(source.includes('loadThread(storedUlid, currentScopeRef)'), true);
     assert.equal(source.includes('setActiveThreadUlid(null);'), true);
 });

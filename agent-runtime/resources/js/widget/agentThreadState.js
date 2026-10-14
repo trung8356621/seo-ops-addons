@@ -1,28 +1,38 @@
 /**
  * Thread state persistence helper using sessionStorage.
- * Stores the active thread ULID scoped by appKey and scopeRef.
- * Does not replace the DB as source of truth for message transcripts.
+ * The active ULID is scoped by authenticated principal, appKey and scopeRef.
+ * Keys from another account are never read. The database remains the transcript source.
  */
 
 const STORAGE_PREFIX = 'agent_runtime_thread:';
 
-export function getStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global') {
-    if (typeof window === 'undefined' || !window.sessionStorage) {
+export function threadStorageKey(appKey = 'seo-ops', scopeRef = 'global', principalId = '') {
+    const principal = String(principalId || '').trim();
+    if (principal === '') {
+        return null;
+    }
+
+    return `${STORAGE_PREFIX}${principal}:${appKey}:${scopeRef}`;
+}
+
+export function getStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global', principalId = '') {
+    const key = threadStorageKey(appKey, scopeRef, principalId);
+    if (key === null || typeof window === 'undefined' || !window.sessionStorage) {
         return null;
     }
     try {
-        return window.sessionStorage.getItem(`${STORAGE_PREFIX}${appKey}:${scopeRef}`) || null;
+        return window.sessionStorage.getItem(key) || null;
     } catch {
         return null;
     }
 }
 
-export function setStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global', ulid = null) {
-    if (typeof window === 'undefined' || !window.sessionStorage) {
+export function setStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global', ulid = null, principalId = '') {
+    const key = threadStorageKey(appKey, scopeRef, principalId);
+    if (key === null || typeof window === 'undefined' || !window.sessionStorage) {
         return;
     }
     try {
-        const key = `${STORAGE_PREFIX}${appKey}:${scopeRef}`;
         if (ulid) {
             window.sessionStorage.setItem(key, ulid);
         } else {
@@ -33,8 +43,26 @@ export function setStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global', uli
     }
 }
 
-export function clearStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global') {
-    setStoredThreadUlid(appKey, scopeRef, null);
+export function clearStoredThreadUlid(appKey = 'seo-ops', scopeRef = 'global', principalId = '') {
+    setStoredThreadUlid(appKey, scopeRef, null, principalId);
+}
+
+/**
+ * Client recovery after a 404 Thread not found.
+ * Clears the stale selection and keeps unsent text. Does not resubmit.
+ */
+export function recoverMissingThread({ draft = '', pendingText = '' } = {}) {
+    const kept = String(pendingText || '').trim() !== '' ? pendingText : draft;
+
+    return {
+        activeThreadUlid: null,
+        viewingThreadUlid: null,
+        isViewingArchived: false,
+        messages: [],
+        threadLoadError: '',
+        draft: kept,
+        resubmit: false,
+    };
 }
 
 /**

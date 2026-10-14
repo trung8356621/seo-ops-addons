@@ -6,7 +6,13 @@ test('normalizeHostContext defaults to standalone app with null scope', () => {
     const ctx = normalizeHostContext();
     assert.equal(ctx.appKey, 'standalone');
     assert.equal(ctx.scope, null);
+    assert.equal(ctx.principalId, '');
     assert.deepEqual(ctx.capabilities, ['turn', 'model-input']);
+});
+
+test('normalizeHostContext keeps the authenticated principal id', () => {
+    const ctx = normalizeHostContext({ appKey: 'seo-ops', principalId: 22 });
+    assert.equal(ctx.principalId, '22');
 });
 
 test('normalizeHostContext normalizes seo-ops host with site scope and ref', () => {

@@ -62,6 +62,40 @@ final class AgentPersistenceContractTest extends TestCase
         self::assertNull($found);
     }
 
+    public function test_stale_thread_for_another_user_returns_404_without_disclosure_or_new_messages(): void
+    {
+        $app = AgentApp::findByKey('seo-ops');
+        $repo = app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentThreadRepository::class);
+        $thread = $repo->createThread($app, 'user', '1', 1, 1, 'global', 'global', 'private-title');
+        $before = AgentMessage::count();
+        [$sites, $coordinator] = $this->setupRunDependencies();
+        $coordinator->expects($this->never())->method('send');
+        $controller = new AgentRuntimeController();
+
+        $turn = $controller->threadTurn(
+            $this->turnRequest([
+                'message' => 'Tôi còn bao nhiêu bài viết chưa hoàn thành?',
+                'scope' => ['type' => 'global'],
+            ], 2),
+            $thread->ulid,
+            $coordinator,
+            $sites,
+            $repo,
+            app(\Omnichannel\Addons\AgentRuntime\Persistence\AgentTurnPersistence::class),
+        );
+        $show = $controller->showThread($this->turnRequest([], 2), $thread->ulid, $repo);
+        $owner = $controller->showThread($this->turnRequest([], 1), $thread->ulid, $repo);
+
+        self::assertSame(404, $turn->getStatusCode());
+        self::assertSame('Thread not found.', $turn->getData(true)['message']);
+        self::assertStringNotContainsString('private-title', json_encode($turn->getData(true), JSON_THROW_ON_ERROR));
+        self::assertSame(404, $show->getStatusCode());
+        self::assertArrayNotHasKey('data', $show->getData(true));
+        self::assertSame(200, $owner->getStatusCode());
+        self::assertSame($thread->ulid, $owner->getData(true)['data']['ulid']);
+        self::assertSame($before, AgentMessage::count());
+    }
+
     public function test_thread_list_is_principal_scoped(): void
     {
         $app = AgentApp::findByKey('seo-ops');

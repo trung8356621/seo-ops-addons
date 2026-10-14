@@ -3,7 +3,8 @@
  * {
  *   appKey: string,
  *   scope: { type: 'global' | 'site', ref: string, siteId?: number, label?: string } | null,
- *   capabilities: string[]
+ *   capabilities: string[],
+ *   principalId: string
  * }
  */
 export function normalizeHostContext(raw = {}) {
@@ -43,10 +44,13 @@ export function normalizeHostContext(raw = {}) {
         ? raw.capabilities.filter((item) => typeof item === 'string')
         : ['turn', 'model-input'];
 
+    const principalId = String(raw?.principalId ?? raw?.principal_id ?? '').trim();
+
     return {
         appKey,
         scope,
         capabilities,
+        principalId,
     };
 }
 

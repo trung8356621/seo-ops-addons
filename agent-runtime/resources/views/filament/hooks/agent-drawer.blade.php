@@ -23,6 +23,7 @@
         'appKey' => $appKey,
         'scope' => $scope,
         'capabilities' => ['turn', 'model-input'],
+        'principalId' => auth()->id() ? (string) auth()->id() : '',
     ];
 @endphp
 

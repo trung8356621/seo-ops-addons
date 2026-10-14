@@ -12,6 +12,7 @@
         data-host-context="{{ json_encode([
             'appKey' => 'seo-ops',
             'capabilities' => ['turn', 'model-input'],
+            'principalId' => auth()->id() ? (string) auth()->id() : '',
         ]) }}"
     ></div>
     @vite('addons/agent-runtime/resources/js/app/main.jsx', 'build-agent')
