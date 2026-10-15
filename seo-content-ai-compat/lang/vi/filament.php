@@ -3890,6 +3890,7 @@ return [
         'ops_draft_hint' => 'Chưa từng generate AI — draft của Content Project (không phải article/WP draft).',
         'ops_normal' => 'Normal',
         'ops_normal_hint' => 'Working Set: item còn trong Content Project (chưa vào Publishing Queue). Không phải WordPress draft.',
+        'ops_normal_operational_hint' => 'Item đã vào workflow Content Manager. Task kế hoạch chưa generate không tính vào số này.',
         'ops_generated' => 'Đã tạo / Thành công',
         'ops_pending' => 'Chờ',
         'ops_running' => 'Đang chạy',

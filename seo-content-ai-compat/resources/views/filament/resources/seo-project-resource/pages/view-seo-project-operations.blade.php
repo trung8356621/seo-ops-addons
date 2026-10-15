@@ -24,7 +24,7 @@
     $failureTypes = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailureTypeMapper::filterKeys();
     $kpiCards = $cmOps
         ? [
-            ['key' => 'normal', 'card' => 'normal', 'label' => __('seo-content-ai::filament.projects.ops_normal'), 'count_key' => 'normal', 'hint' => __('seo-content-ai::filament.projects.ops_normal_hint'), 'divider_before' => false],
+            ['key' => 'normal', 'card' => 'normal', 'label' => __('seo-content-ai::filament.projects.ops_normal'), 'count_key' => 'normal', 'hint' => __('seo-content-ai::filament.projects.ops_normal_operational_hint'), 'divider_before' => false],
             ['key' => 'recently_completed', 'card' => 'recently_completed', 'label' => __('seo-content-ai::filament.projects.ops_needs_review'), 'count_key' => 'needs_review', 'hint' => __('seo-content-ai::filament.projects.ops_needs_review_hint'), 'divider_before' => false],
             ['key' => 'waiting_review', 'card' => 'review', 'label' => __('seo-content-ai::filament.projects.ops_in_review'), 'count_key' => 'review', 'hint' => __('seo-content-ai::filament.projects.ops_in_review_hint'), 'divider_before' => false],
         ]

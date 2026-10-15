@@ -192,12 +192,20 @@ final class ContentProjectItemOperationsReadModel
             );
         }
 
-        $stats = ContentProjectOpsStateClassifier::countSummary($rows);
+        $contentManager = $this->viewerIsContentManager($viewerUserId);
+        $operationalRows = self::contentManagerOperationalRows($rows);
+        $planningSummary = ContentProjectOpsStateClassifier::countSummary($rows);
+        $stats = $planningSummary;
+        if ($contentManager) {
+            $generated = (int) ($planningSummary['generated'] ?? 0);
+            $stats = ContentProjectOpsStateClassifier::countSummary($operationalRows);
+            $stats['generated'] = $generated;
+        }
         $stats += self::runtimeSummary($rows, $latestRun);
         $stats['runtime_revision'] = self::runtimeRevisionFingerprint($rows, $runtimeContext);
 
         // Badge SoT (B): project total INCLUDES items handed to Publishing Queue.
-        // Working set (Normal) stays scoped to $rows (publishing_queued_at IS NULL).
+        // Planner/Manager Normal = full working set. Content Manager Normal = operational list.
         $workingSetCount = count($rows);
         $publishingQueueCount = SeoProjectTask::query()
             ->where('project_id', $projectId)
@@ -206,16 +214,10 @@ final class ContentProjectItemOperationsReadModel
             ->count();
         $stats['working_set'] = $workingSetCount;
         $stats['publishing_queue'] = $publishingQueueCount;
-        $stats['normal'] = $workingSetCount;
+        $stats['normal'] = $contentManager ? count($operationalRows) : $workingSetCount;
         $stats['total_items'] = $workingSetCount + $publishingQueueCount;
 
-        $listRows = $this->viewerIsContentManager($viewerUserId)
-            ? array_values(array_filter($rows, static fn (array $row): bool => ! SeoProjectTask::isUngeneratedPlanStatus(
-                (string) ($row['task_status'] ?? ''),
-                (string) ($row['type'] ?? ''),
-                $row['article_id'] ?? 0,
-            )))
-            : $rows;
+        $listRows = $contentManager ? $operationalRows : $rows;
         $filtered = $this->applyFilters(collect($listRows), $filters);
         $generationFilter = trim((string) ($filters['generation'] ?? ''));
         if ($generationFilter === ContentProjectRecentlyCompletedDefinition::FILTER) {
@@ -542,6 +544,24 @@ final class ContentProjectItemOperationsReadModel
         }
 
         return $map;
+    }
+
+    /**
+     * Same predicate as the Content Manager item list: planning-only tasks stay out.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public static function contentManagerOperationalRows(array $rows): array
+    {
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => ! SeoProjectTask::isUngeneratedPlanStatus(
+                (string) ($row['task_status'] ?? ''),
+                (string) ($row['type'] ?? ''),
+                $row['article_id'] ?? 0,
+            ),
+        ));
     }
 
     private function viewerIsContentManager(int $viewerUserId): bool

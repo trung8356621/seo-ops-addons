@@ -3891,6 +3891,7 @@ return [
         'ops_draft_hint' => 'Never generated AI — Content Project draft (not article/WP draft).',
         'ops_normal' => 'Normal',
         'ops_normal_hint' => 'Working Set: items still in Content Project (not in Publishing Queue). Not WordPress draft.',
+        'ops_normal_operational_hint' => 'Items already in the Content Manager workflow. Ungenerated planning tasks are excluded.',
         'ops_generated' => 'Generated / Succeeded',
         'ops_pending' => 'Pending',
         'ops_running' => 'Running',
