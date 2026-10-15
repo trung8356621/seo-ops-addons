@@ -99,6 +99,8 @@ final class KeywordQualityClassifierTest extends TestCase
             'Balo 20L',
             'Balo Nike Air Max 90',
             'Balo size 12',
+            'Công ty may ba lô túi xách quận 12',
+            'BALO HỌC SINH CÔNG ĐOÀN QUẬN 6',
             'Top 10 balo đẹp',
         ] as $phrase) {
             self::assertNotContains(KeywordQualityCode::TRAILING_SEQUENCE_NUMBER, $this->classifier->classify($phrase), $phrase);
@@ -125,5 +127,154 @@ final class KeywordQualityClassifierTest extends TestCase
             KeywordQualityCode::SENTENCE_LIKE,
             $this->classifier->classify('balo học sinh loại nào tốt nhất cho bé đi học mẫu giáo'),
         );
+    }
+
+    public function test_structural_sentence_question_and_short_period(): void
+    {
+        self::assertContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Balo chống nước, trải nghiệm tuyệt vời cho mỗi chuyến đi'),
+        );
+        self::assertNotContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Cách chọn size balo phù hợp theo giới tính và mục đích sử dụng'),
+        );
+        self::assertNotContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Balo họa tiết vs trơn: Phong cách nào phù hợp với học sinh?'),
+        );
+        self::assertContains(KeywordQualityCode::MALFORMED_TEXT, $this->classifier->classify('Hợp Phát.'));
+        self::assertSame([], $this->classifier->classify('Balo chống nước 2026'));
+        self::assertSame([], $this->classifier->classify('Balo Adidas nữ'));
+        self::assertSame([], $this->classifier->classify('bảo dưỡng balo da'));
+        self::assertSame([], $this->classifier->classify('các mẫu sản phẩm tại Hợp Phát'));
+        self::assertSame([], $this->classifier->classify('cách phối đồ cho tuổi 13'));
+        self::assertSame([], $this->classifier->classify('Cặp sách học sinh cấp 3'));
+        self::assertContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Màu sắc balo phù hợp với thương hiệu công ty'),
+        );
+    }
+
+    public function test_template_names_ignore_attributes_brands_and_other_sites_are_separate_calls(): void
+    {
+        $site = [
+            1 => 'Balo quà tặng Viettel',
+            2 => 'Balo quà tặng VNPT',
+            3 => 'Balo quà tặng FPT Shop',
+            4 => 'Balo quà tặng Sacombank',
+            5 => 'Balo quà tặng học sinh',
+            6 => 'Balo quà tặng doanh nghiệp',
+            7 => 'Balo Adidas nữ',
+            8 => 'Balo chống nước 2026',
+            9 => 'balo học sinh',
+        ];
+        $ids = array_fill_keys($this->classifier->templateNameIds($site), true);
+        self::assertArrayHasKey(1, $ids);
+        self::assertArrayHasKey(2, $ids);
+        self::assertArrayHasKey(4, $ids);
+        self::assertArrayNotHasKey(5, $ids);
+        self::assertArrayNotHasKey(6, $ids);
+        self::assertArrayNotHasKey(7, $ids);
+        self::assertArrayNotHasKey(8, $ids);
+        self::assertArrayNotHasKey(9, $ids);
+
+        $otherSite = [
+            1 => 'Balo quà tặng Viettel',
+            2 => 'Balo học sinh',
+        ];
+        self::assertSame([], $this->classifier->templateNameIds($otherSite));
+    }
+
+    public function test_school_name_truncation_and_punctuation_duplicate(): void
+    {
+        self::assertContains(
+            KeywordQualityCode::SUSPECT_PROPER_NAME,
+            $this->classifier->classify('Balo trường mầm non Happy Kids'),
+        );
+        self::assertNotContains(
+            KeywordQualityCode::SUSPECT_PROPER_NAME,
+            $this->classifier->classify('may balo trung tâm anh ngữ'),
+        );
+        self::assertContains(
+            KeywordQualityCode::SUSPECT_PROPER_NAME,
+            $this->classifier->classify('Balo IELTS Hiền Nguyễn'),
+        );
+
+        $normalized = [
+            3 => $this->classifier->normalized('Xưởng may balo trẻ em Hợp Phát'),
+            8 => $this->classifier->normalized('ưởng may balo trẻ em Hợp Phát'),
+            9 => $this->classifier->normalized('sửa balo túi xách tại tphcm.'),
+            10 => $this->classifier->normalized('sửa balo túi xách tại tphcm'),
+        ];
+        self::assertContains(8, $this->classifier->truncatedCopyIds($normalized));
+        self::assertNotContains(3, $this->classifier->truncatedCopyIds($normalized));
+        $duplicates = $this->classifier->duplicateKeywordIds($normalized);
+        self::assertContains(10, $duplicates);
+        self::assertNotContains(9, $duplicates);
+    }
+
+    public function test_recall_flags_uncertain_anchors_and_keeps_product_variants(): void
+    {
+        self::assertContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Balo da thật, canvas dày cho bé đi học'),
+        );
+        self::assertContains(
+            KeywordQualityCode::CTA_ANCHOR,
+            $this->classifier->classify('Xưởng may balo học sinh mua ngay tại cửa hàng'),
+        );
+        self::assertContains(KeywordQualityCode::MALFORMED_TEXT, $this->classifier->classify('Balo học sinh | xem thêm'));
+        self::assertNotContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('Cách chọn size balo phù hợp theo giới tính và mục đích sử dụng'),
+        );
+        self::assertSame([], $this->classifier->classify('Balo Adidas nữ'));
+        self::assertSame([], $this->classifier->classify('Balo Nike Air Max 90'));
+
+        $lower = [
+            1 => 'balo quà tặng viettel',
+            2 => 'balo quà tặng vnpt',
+            3 => 'balo quà tặng fpt',
+        ];
+        $template = array_fill_keys($this->classifier->templateNameIds($lower), true);
+        self::assertArrayHasKey(1, $template);
+        self::assertArrayHasKey(2, $template);
+        self::assertArrayHasKey(3, $template);
+        self::assertSame([], $this->classifier->templateNameIds([
+            1 => 'balo quà tặng viettel',
+            2 => 'balo quà tặng vnpt',
+        ]));
+
+        $site = [
+            1 => 'Balo quà tặng Hợp Phát',
+            2 => 'Túi xách quà tặng Hợp Phát',
+            3 => 'Cặp sách quà tặng Hợp Phát',
+            4 => 'Balo học sinh',
+            5 => 'Balo học sinh chống nước',
+            6 => 'Balo học sinh Viettel',
+            7 => 'Cách chọn balo học sinh chống nước cho bé',
+            8 => 'Balo Adidas nữ',
+        ];
+        $extensions = array_fill_keys($this->classifier->patternExtensionIds($site), true);
+        self::assertArrayHasKey(1, $extensions);
+        self::assertArrayHasKey(2, $extensions);
+        self::assertArrayHasKey(3, $extensions);
+        self::assertArrayHasKey(6, $extensions);
+        self::assertArrayNotHasKey(4, $extensions);
+        self::assertArrayNotHasKey(5, $extensions);
+        self::assertArrayNotHasKey(7, $extensions);
+        self::assertArrayNotHasKey(8, $extensions);
+
+        $copies = $this->classifier->containedCopyIds([
+            1 => 'balo học sinh',
+            2 => 'balo học sinh cấp 2',
+            3 => 'balo học sinh của trường viettel rất đẹp',
+            4 => 'làm sao chọn balo học sinh phù hợp với trẻ',
+        ]);
+        self::assertContains(3, $copies);
+        self::assertNotContains(1, $copies);
+        self::assertNotContains(2, $copies);
+        self::assertNotContains(4, $copies);
     }
 }

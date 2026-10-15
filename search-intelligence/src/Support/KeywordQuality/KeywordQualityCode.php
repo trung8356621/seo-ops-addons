@@ -22,7 +22,7 @@ final class KeywordQualityCode
 
     public const TRAILING_SEQUENCE_NUMBER = 'TRAILING_SEQUENCE_NUMBER';
 
-    public const CLASSIFIER_VERSION = 2;
+    public const CLASSIFIER_VERSION = 4;
 
     /**
      * @return list<string>

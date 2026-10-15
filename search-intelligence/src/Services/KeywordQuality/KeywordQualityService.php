@@ -56,6 +56,12 @@ final class KeywordQualityService
             $normalized[(int) $id] = $this->classifier->normalized((string) $phrase);
         }
         $duplicateSet = array_fill_keys($this->classifier->duplicateKeywordIds($normalized), true);
+        $templateSet = array_fill_keys([
+            ...$this->classifier->templateNameIds($phrasesById),
+            ...$this->classifier->patternExtensionIds($phrasesById),
+        ], true);
+        $truncatedSet = array_fill_keys($this->classifier->truncatedCopyIds($normalized), true);
+        $containedSet = array_fill_keys($this->classifier->containedCopyIds($phrasesById), true);
         $processed = 0;
 
         try {
@@ -68,11 +74,17 @@ final class KeywordQualityService
                 $existing = $this->tagOrigins($siteId, $staleIds);
                 $suppressed = $this->suppressedCodes($siteId, $staleIds);
 
-                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $existing, $suppressed): void {
+                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $templateSet, $truncatedSet, $containedSet, $existing, $suppressed): void {
                     $now = now();
                     foreach ($staleIds as $keywordId) {
                         $phrase = (string) ($chunk[$keywordId] ?? '');
-                        $detected = $this->classifier->classify($phrase, isset($duplicateSet[$keywordId]));
+                        $detected = $this->classifier->classify(
+                            $phrase,
+                            isset($duplicateSet[$keywordId]),
+                            isset($templateSet[$keywordId]),
+                            isset($truncatedSet[$keywordId]),
+                            isset($containedSet[$keywordId]),
+                        );
                         $blocked = $suppressed[$keywordId] ?? [];
                         $current = $existing[$keywordId] ?? [];
                         $manual = [];
