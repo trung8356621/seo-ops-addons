@@ -953,12 +953,22 @@ class SeoProjectResource extends SeoPanelResource
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('active_generated_count')
-                    ->label(__('seo-content-ai::filament.projects.generated'))
+                    ->label(fn (): string => SeoAccessControl::usesContentManagerOpsPresentation()
+                        ? (string) __('seo-content-ai::filament.projects.ops_needs_review')
+                        : (string) __('seo-content-ai::filament.projects.generated'))
                     ->numeric()
                     ->alignCenter()
                     ->sortable()
-                    ->getStateUsing(fn (SeoProject $record): int => $record->displayGeneratedCount())
-                    ->tooltip(__('seo-content-ai::filament.projects.generated_tooltip')),
+                    ->getStateUsing(function (SeoProject $record): int {
+                        if (SeoAccessControl::usesContentManagerOpsPresentation()) {
+                            return (int) ($record->getAttribute('needs_editing_count') ?? 0);
+                        }
+
+                        return $record->displayGeneratedCount();
+                    })
+                    ->tooltip(fn (): string => SeoAccessControl::usesContentManagerOpsPresentation()
+                        ? (string) __('seo-content-ai::filament.projects.ops_needs_review_hint')
+                        : (string) __('seo-content-ai::filament.projects.generated_tooltip')),
 
                 Tables\Columns\TextColumn::make('active_pending_count')
                     ->label(__('seo-content-ai::filament.projects.pending_never_generated'))

@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMon
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectNeedsEditingIndex;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -23,7 +24,11 @@ use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\MaxWidth;
+use Illuminate\Contracts\Pagination\CursorPaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -71,6 +76,82 @@ class ListSeoProjects extends ListRecords
             $this->projectType,
             ContentProjectMonthContext::toDateString($this->planningMonth ?: null),
         );
+    }
+
+    protected function applySortingToTableQuery(Builder $query): Builder
+    {
+        if ($this->sortsNeedsEditingColumn()) {
+            return $query;
+        }
+
+        return parent::applySortingToTableQuery($query);
+    }
+
+    protected function paginateTableQuery(Builder $query): Paginator|CursorPaginator
+    {
+        if (! SeoAccessControl::usesContentManagerOpsPresentation()) {
+            return parent::paginateTableQuery($query);
+        }
+
+        if ($this->sortsNeedsEditingColumn()) {
+            return $this->paginateSortedByNeedsEditing($query);
+        }
+
+        $records = parent::paginateTableQuery($query);
+        if ($records instanceof LengthAwarePaginator) {
+            $this->attachNeedsEditingCounts($records->getCollection());
+        }
+
+        return $records;
+    }
+
+    private function sortsNeedsEditingColumn(): bool
+    {
+        return SeoAccessControl::usesContentManagerOpsPresentation()
+            && $this->getTableSortColumn() === 'active_generated_count';
+    }
+
+    private function paginateSortedByNeedsEditing(Builder $query): LengthAwarePaginator
+    {
+        /** @var Collection<int, SeoProject> $projects */
+        $projects = (clone $query)->get();
+        $this->attachNeedsEditingCounts($projects);
+        $direction = $this->getTableSortDirection() === 'asc' ? 1 : -1;
+        $sorted = $projects->sort(static function (SeoProject $left, SeoProject $right) use ($direction): int {
+            $cmp = ((int) $left->getAttribute('needs_editing_count')) <=> ((int) $right->getAttribute('needs_editing_count'));
+            if ($cmp !== 0) {
+                return $cmp * $direction;
+            }
+
+            return ((int) $left->getKey()) <=> ((int) $right->getKey());
+        })->values();
+
+        $perPage = $this->getTableRecordsPerPage();
+        $total = $sorted->count();
+        $per = $perPage === 'all' ? max($total, 1) : (int) $perPage;
+        $page = max(1, (int) $this->getTablePage());
+        $slice = $sorted->forPage($page, $per)->values();
+
+        return (new LengthAwarePaginator(
+            $slice,
+            $total,
+            $per,
+            $page,
+            ['pageName' => $this->getTablePaginationPageName()],
+        ))->onEachSide(0);
+    }
+
+    /**
+     * @param  Collection<int, SeoProject>  $projects
+     */
+    private function attachNeedsEditingCounts(Collection $projects): void
+    {
+        $ids = $projects->map(static fn (SeoProject $project): int => (int) $project->getKey())->all();
+        $counts = ContentProjectNeedsEditingIndex::countsByProject($ids, (int) (auth()->id() ?? 0));
+        foreach ($projects as $project) {
+            $projectId = (int) $project->getKey();
+            $project->setAttribute('needs_editing_count', (int) ($counts[$projectId] ?? 0));
+        }
     }
 
     /**

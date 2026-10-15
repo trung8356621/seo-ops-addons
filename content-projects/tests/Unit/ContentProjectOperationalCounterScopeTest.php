@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemOperationsReadModel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsStateClassifier;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
 final class ContentProjectOperationalCounterScopeTest extends TestCase
 {
@@ -64,5 +65,14 @@ final class ContentProjectOperationalCounterScopeTest extends TestCase
         self::assertSame(1, $summary['recently_completed']);
         self::assertSame(0, $summary['waiting_review']);
         self::assertSame($planning['generated'], $summary['generated']);
+    }
+
+    public function test_content_manager_scope_uses_the_ops_presentation_gate(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectItemOperationsReadModel::class))->getFileName(),
+        );
+        self::assertStringContainsString('usesContentManagerOpsPresentation()', $src);
+        self::assertStringContainsString("\$stats['normal'] = \$contentManager ? count(\$operationalRows) : \$workingSetCount;", $src);
     }
 }

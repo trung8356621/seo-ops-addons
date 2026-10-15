@@ -566,7 +566,18 @@ final class ContentProjectItemOperationsReadModel
 
     private function viewerIsContentManager(int $viewerUserId): bool
     {
-        $user = $viewerUserId > 0 ? User::query()->find($viewerUserId) : auth()->user();
+        $authUser = auth()->user();
+        $authId = $authUser instanceof User ? (int) $authUser->getKey() : 0;
+        if ($authUser instanceof User && ($viewerUserId <= 0 || $viewerUserId === $authId)) {
+            // Same gate as the 3-card ops page, including View As Content Manager.
+            return SeoAccessControl::usesContentManagerOpsPresentation();
+        }
+
+        if ($viewerUserId <= 0) {
+            return false;
+        }
+
+        $user = User::query()->find($viewerUserId);
 
         return $user instanceof User
             && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER;
