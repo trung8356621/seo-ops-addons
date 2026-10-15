@@ -47,6 +47,11 @@ final class AgentWorkHistoryTest extends TestCase
         self::assertSame('outstanding', WorkHistoryRecord::classification(SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::TYPE_CREATE, 13921, false, false, true));
         self::assertSame('archived', WorkHistoryRecord::classification(SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::TYPE_REWRITE, 4283, false, true, true));
         self::assertSame('planned', WorkHistoryRecord::classification(SeoProjectTask::STATUS_PENDING, SeoProjectTask::TYPE_CREATE, 0, false, false, false));
+        self::assertTrue(SeoProjectTask::isUngeneratedPlanStatus(SeoProjectTask::STATUS_PENDING, SeoProjectTask::TYPE_CREATE, 0));
+        self::assertTrue(SeoProjectTask::isUngeneratedPlanStatus(SeoProjectTask::STATUS_PENDING, SeoProjectTask::TYPE_REWRITE, 4283));
+        self::assertFalse(SeoProjectTask::isUngeneratedPlanStatus(SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::TYPE_CREATE, 13921));
+        self::assertFalse(SeoProjectTask::isUngeneratedPlanStatus(SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::TYPE_REWRITE, 4283));
+        self::assertFalse(SeoProjectTask::isUngeneratedPlanStatus(SeoProjectTask::STATUS_ARCHIVED, SeoProjectTask::TYPE_CREATE, 15));
 
         $context = new AgentActorAccessContext(9, SeoAccessControl::ROLE_CONTENT_MANAGER, [501], [4], false, false);
         $service = new AgentWorkHistoryService(new class implements AgentWorkHistoryReader

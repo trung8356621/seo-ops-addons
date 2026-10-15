@@ -41,7 +41,8 @@ final class EloquentAgentWorkHistoryReader implements AgentWorkHistoryReader
                 ->orWhere('status', SeoProjectTask::STATUS_ARCHIVED)
                 ->orWhereIn('project_id', (clone $projects)->whereNotNull('archived_at')->select('id'));
         })->count();
-        $total = (clone $tasks)->count();
+        $visible = (clone $tasks)->exceptUngeneratedPlans();
+        $total = (clone $visible)->count();
         $openProjectIds = (clone $projects)
             ->whereNull('archived_at')
             ->where('status', '!=', SeoProject::STATUS_COMPLETED)
@@ -58,7 +59,7 @@ final class EloquentAgentWorkHistoryReader implements AgentWorkHistoryReader
             'total' => $total,
             'page' => $page,
             'per_page' => $perPage,
-            'rows' => $this->pageRows($tasks, $projects, $openProjectIds, (int) $context->userId, $page, $perPage, $total),
+            'rows' => $this->pageRows($visible, $projects, $openProjectIds, (int) $context->userId, $page, $perPage, $total),
         ];
     }
 

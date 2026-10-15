@@ -52,9 +52,9 @@ final class AgentWorkStatsService
             'remaining' => 'Bạn còn '.(int) $stats['open_tasks'].' bài chưa hoàn thành'.$this->scopeSuffix($window).'.',
             'average' => 'SEO Score trung bình công việc của bạn'.$this->scopeSuffix($window).' là '.$this->scoreLabel($stats['average_seo_score'] ?? null).'.',
             'lowest_score' => $this->lowestScoreText($stats, $window),
-            'lowest_output' => 'Năng suất thấp nhất'.$this->scopeSuffix($window).' trong phạm vi được phép: '.($stats['lowest_output_user'] ?? 'không có dữ liệu').'.'.$this->table($stats),
+            'lowest_output' => 'Năng suất thấp nhất'.$this->scopeSuffix($window).' trong phạm vi được phép: '.($stats['lowest_output_user'] ?? 'không có dữ liệu').'.',
             'most_completed' => $this->mostCompletedText($stats, $window),
-            'leaderboard' => $this->leaderboardIntro($window).$this->table($stats),
+            'leaderboard' => $this->leaderboardIntro($window),
             default => $this->planText($stats, $window),
         };
 
@@ -72,6 +72,26 @@ final class AgentWorkStatsService
     private function blocks(string $text, array $stats, string $kind): array
     {
         $blocks = [['type' => 'markdown', 'text' => $text]];
+        if ($this->isTeamQuestion($kind)) {
+            $members = $this->memberRows($stats);
+            if ($members === []) {
+                return $blocks;
+            }
+            $blocks[] = [
+                'type' => 'table',
+                'title' => 'Team',
+                'columns' => [
+                    ['key' => 'rank', 'label' => 'Hạng'],
+                    ['key' => 'name', 'label' => 'Thành viên'],
+                    ['key' => 'assigned', 'label' => 'Bài được giao'],
+                    ['key' => 'completed', 'label' => 'Bài hoàn thành'],
+                    ['key' => 'average_seo_score', 'label' => 'SEO Score'],
+                ],
+                'rows' => $members,
+            ];
+
+            return $blocks;
+        }
         if ($kind !== 'remaining' || (int) ($stats['open_tasks'] ?? 0) <= 0) {
             return $blocks;
         }
@@ -175,7 +195,7 @@ final class AgentWorkStatsService
             ? 'SEO Score thấp nhất'.$this->scopeSuffix($window).' trong team: '.$name.'.'
             : 'Chưa có dữ liệu SEO Score'.$this->scopeSuffix($window).' trong phạm vi team được phép.';
 
-        return $lead.$this->table($stats);
+        return $lead;
     }
 
     /**
@@ -188,7 +208,7 @@ final class AgentWorkStatsService
             ? 'Người hoàn thành nhiều bài nhất'.$this->scopeSuffix($window).': '.$name.'.'
             : 'Chưa có bài hoàn thành'.$this->scopeSuffix($window).' trong phạm vi team được phép.';
 
-        return $lead.$this->table($stats);
+        return $lead;
     }
 
     private function leaderboardIntro(WorkStatsWindow $window): string
@@ -202,33 +222,30 @@ final class AgentWorkStatsService
 
     /**
      * @param  array<string, mixed>  $stats
+     * @return list<array<string, mixed>>
      */
-    private function table(array $stats): string
+    private function memberRows(array $stats): array
     {
         $members = $stats['members'] ?? null;
-        if (! is_array($members) || $members === []) {
-            return '';
+        if (! is_array($members)) {
+            return [];
         }
 
-        $lines = [
-            '',
-            '',
-            '| Hạng | Thành viên | Bài được giao | Bài hoàn thành | SEO Score |',
-            '| --- | --- | --- | --- | --- |',
-        ];
+        $rows = [];
         foreach ($members as $row) {
             if (! is_array($row)) {
                 continue;
             }
             $rank = $row['rank'] ?? null;
-            $lines[] = '| '.($rank === null ? '—' : (string) $rank)
-                .' | '.(string) ($row['name'] ?? '')
-                .' | '.(int) ($row['assigned'] ?? 0)
-                .' | '.(int) ($row['completed'] ?? 0)
-                .' | '.$this->scoreLabel($row['average_seo_score'] ?? null)
-                .' |';
+            $rows[] = [
+                'rank' => $rank === null ? '—' : (string) $rank,
+                'name' => (string) ($row['name'] ?? ''),
+                'assigned' => (int) ($row['assigned'] ?? 0),
+                'completed' => (int) ($row['completed'] ?? 0),
+                'average_seo_score' => $this->scoreLabel($row['average_seo_score'] ?? null),
+            ];
         }
 
-        return implode("\n", $lines);
+        return $rows;
     }
 }

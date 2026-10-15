@@ -1518,11 +1518,11 @@
 .agent-table-wrap td {
     border-bottom: 1px solid #e2e8f0;
     text-align: left;
-    padding: 5px 8px;
+    padding: 8px 12px;
     font-size: 13px;
-    line-height: 1.35;
+    line-height: 1.4;
     max-width: 24rem;
-    vertical-align: top;
+    vertical-align: middle;
     overflow-wrap: break-word;
 }
 
@@ -1538,15 +1538,34 @@
 }
 
 .agent-table-wrap th.is-score,
-.agent-table-wrap td.is-score {
+.agent-table-wrap td.is-score,
+.agent-table-wrap th.is-number,
+.agent-table-wrap td.is-number {
     text-align: right;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.agent-table-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #1d4ed8;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.agent-table-link:hover,
+.agent-table-link:focus-visible {
+    color: #1e3a8a;
+    outline: 2px solid #93c5fd;
+    outline-offset: 2px;
 }
 
 .agent-table-wrap a,
 .agent-table-wrap code {
     overflow-wrap: anywhere;
-    word-break: break-all;
+    word-break: break-word;
 }
 
 .agent-spin {

@@ -33,6 +33,8 @@ use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecove
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Models\User;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -207,7 +209,14 @@ final class ContentProjectItemOperationsReadModel
         $stats['normal'] = $workingSetCount;
         $stats['total_items'] = $workingSetCount + $publishingQueueCount;
 
-        $filtered = $this->applyFilters(collect($rows), $filters);
+        $listRows = $this->viewerIsContentManager($viewerUserId)
+            ? array_values(array_filter($rows, static fn (array $row): bool => ! SeoProjectTask::isUngeneratedPlanStatus(
+                (string) ($row['task_status'] ?? ''),
+                (string) ($row['type'] ?? ''),
+                $row['article_id'] ?? 0,
+            )))
+            : $rows;
+        $filtered = $this->applyFilters(collect($listRows), $filters);
         $generationFilter = trim((string) ($filters['generation'] ?? ''));
         if ($generationFilter === ContentProjectRecentlyCompletedDefinition::FILTER) {
             $filtered = collect(
@@ -535,6 +544,14 @@ final class ContentProjectItemOperationsReadModel
         return $map;
     }
 
+    private function viewerIsContentManager(int $viewerUserId): bool
+    {
+        $user = $viewerUserId > 0 ? User::query()->find($viewerUserId) : auth()->user();
+
+        return $user instanceof User
+            && SeoAccessControl::roleForUser($user) === SeoAccessControl::ROLE_CONTENT_MANAGER;
+    }
+
     /**
      * @param  array<string, mixed>|null  $latestExecution  Real execution attempt (not membership-only)
      * @param  array<string, mixed>|null  $currentMembership  Current bulk run_item for this task (may be unvisited)
@@ -776,6 +793,7 @@ final class ContentProjectItemOperationsReadModel
         return [
             'index' => $index,
             'task_id' => $tid,
+            'task_status' => (string) ($task->status ?? ''),
             'type' => $type,
             'type_label' => match ($type) {
                 SeoProjectTask::TYPE_REWRITE => 'rewrite',

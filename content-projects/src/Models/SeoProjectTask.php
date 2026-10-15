@@ -154,13 +154,38 @@ class SeoProjectTask extends Model
      */
     public function scopeActiveNeverGenerated(Builder $query): Builder
     {
-        return $query->active()
-            ->where('status', self::STATUS_PENDING)
-            ->where(static function (Builder $inner): void {
-                $inner->where('type', '!=', self::TYPE_CREATE)
-                    ->orWhereNull('article_id')
-                    ->orWhere('article_id', '<=', 0);
-            });
+        return $query->active()->where(static function (Builder $inner): void {
+            $inner->where('status', self::STATUS_PENDING)
+                ->where(static function (Builder $plan): void {
+                    $plan->where('type', '!=', self::TYPE_CREATE)
+                        ->orWhereNull('article_id')
+                        ->orWhere('article_id', '<=', 0);
+                });
+        });
+    }
+
+    public static function isUngeneratedPlanStatus(?string $status, ?string $type, mixed $articleId): bool
+    {
+        return (string) $status === self::STATUS_PENDING
+            && ($type !== self::TYPE_CREATE || (int) $articleId <= 0);
+    }
+
+    /**
+     * Operational rows. Planning-only tasks stay in planned counters and planner screens.
+     *
+     * @param  Builder<SeoProjectTask>  $query
+     * @return Builder<SeoProjectTask>
+     */
+    public function scopeExceptUngeneratedPlans(Builder $query): Builder
+    {
+        return $query->where(static function (Builder $inner): void {
+            $inner->where('status', '!=', self::STATUS_PENDING)
+                ->orWhere(static function (Builder $create): void {
+                    $create->where('type', self::TYPE_CREATE)
+                        ->whereNotNull('article_id')
+                        ->where('article_id', '>', 0);
+                });
+        });
     }
 
     /**

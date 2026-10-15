@@ -16,7 +16,8 @@ export function columnKind(key) {
     if (key === 'n') return 'index';
     if (key === 'title') return 'article';
     if (key === 'focus_keyword' || key === 'keyword') return 'keyword';
-    if (key === 'seo_score') return 'score';
+    if (key === 'seo_score' || key === 'average_seo_score') return 'score';
+    if (['outstanding', 'rank', 'assigned', 'completed', 'task_id', 'article_id'].includes(key)) return 'number';
     return 'extra';
 }
 

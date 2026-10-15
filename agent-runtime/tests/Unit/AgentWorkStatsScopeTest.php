@@ -94,9 +94,12 @@ final class AgentWorkStatsScopeTest extends TestCase
             'rank' => null,
         ]])))->answer($context, 'Xếp hạng SEO Score các thành viên trong team.');
 
-        self::assertStringContainsString('An', $response->message);
-        self::assertStringContainsString('Chưa có dữ liệu', $response->message);
-        self::assertStringNotContainsString('| 0 |', $response->message);
+        self::assertStringNotContainsString('|', $response->message);
+        self::assertSame('table', $response->blocks[1]['type']);
+        self::assertSame('An', $response->blocks[1]['rows'][0]['name']);
+        self::assertSame('1', $response->blocks[1]['rows'][0]['rank']);
+        self::assertSame('Chưa có dữ liệu', $response->blocks[1]['rows'][1]['average_seo_score']);
+        self::assertSame('—', $response->blocks[1]['rows'][1]['rank']);
         self::assertSame([], $response->actions);
     }
 

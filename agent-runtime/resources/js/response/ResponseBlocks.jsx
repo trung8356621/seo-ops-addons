@@ -112,7 +112,12 @@ function ChartBlock({ block }) {
 function TableBlock({ block, draftIntakeUrl, csrf, siteId, selectionKey }) {
     const actionable = eligibleRows(block);
     const renderCell = (value) => value && typeof value === 'object' && value.label && value.href
-        ? <a href={value.href} target="_blank" rel="noopener noreferrer">{value.label}</a>
+        ? (
+            <a className="agent-table-link" href={value.href} target="_blank" rel="noopener noreferrer">
+                {value.label}
+                <ExternalLink size={14} aria-hidden="true" />
+            </a>
+        )
         : (value ?? '');
     if (actionable.length === 0 && block.actionable?.action !== 'content_project.draft.intake') {
         return <ReadOnlyTable block={block} renderCell={renderCell} />;

@@ -11,6 +11,10 @@ test('assistant conversation surface is flat while semantic blocks remain availa
     assert.match(css, /article\.is-assistant \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/);
     assert.equal(css.includes('.agent-warning'), true);
     assert.equal(css.includes('.agent-table-wrap'), true);
+    assert.equal(css.includes('.agent-table-link'), true);
+    const blocks = readFileSync(new URL('../response/ResponseBlocks.jsx', import.meta.url), 'utf8');
+    assert.equal(blocks.includes('className="agent-table-link"'), true);
+    assert.equal(blocks.includes('<ExternalLink'), true);
     assert.equal(css.includes('.agent-chart'), true);
 });
 
