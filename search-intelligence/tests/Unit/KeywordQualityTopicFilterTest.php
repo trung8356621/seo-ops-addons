@@ -147,6 +147,50 @@ final class KeywordQualityTopicFilterTest extends TestCase
         self::assertSame($before, SeoTopicKeyword::query()->count());
     }
 
+    public function test_proper_name_rows_are_removed_without_changing_topic_membership(): void
+    {
+        $id = $this->keyword('balo học sinh', self::SITE_A);
+        $this->membership(self::SITE_A, 7, $id);
+        $before = SeoTopicKeyword::query()->count();
+        $now = now();
+        $db = DB::connection('omi_seo_ai');
+        $db->table('seo_keyword_quality_tags')->insert([
+            ['site_id' => self::SITE_A, 'keyword_id' => $id, 'code' => 'SUSPECT_PROPER_NAME', 'origin' => 'auto', 'created_at' => $now, 'updated_at' => $now],
+            ['site_id' => self::SITE_A, 'keyword_id' => $id, 'code' => KeywordQualityCode::MALFORMED_TEXT, 'origin' => 'manual', 'created_at' => $now, 'updated_at' => $now],
+        ]);
+        $db->table('seo_keyword_quality_policies')->insert([
+            ['site_id' => self::SITE_A, 'code' => 'SUSPECT_PROPER_NAME', 'exclude_from_topic' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['site_id' => self::SITE_A, 'code' => KeywordQualityCode::CTA_ANCHOR, 'exclude_from_topic' => 0, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+        $db->table('seo_keyword_quality_suppressions')->insert([
+            ['site_id' => self::SITE_A, 'keyword_id' => $id, 'code' => 'SUSPECT_PROPER_NAME', 'created_at' => $now, 'updated_at' => $now],
+            ['site_id' => self::SITE_A, 'keyword_id' => $id, 'code' => KeywordQualityCode::ENCODING_ERROR, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        $service = app(KeywordQualityService::class);
+        $service->scanPhrases(self::SITE_A, [$id => 'balo học sinh']);
+        self::assertSame([KeywordQualityCode::MALFORMED_TEXT], $service->codesFor(self::SITE_A, $id));
+        self::assertSame($before, SeoTopicKeyword::query()->count());
+
+        $db->table('seo_keyword_quality_tags')->insert([
+            'site_id' => self::SITE_A,
+            'keyword_id' => $id,
+            'code' => 'SUSPECT_PROPER_NAME',
+            'origin' => 'manual',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        (require dirname(__DIR__, 2).'/database/migrations/2026_10_15_163000_remove_suspect_proper_name_quality_rows.php')->up();
+
+        self::assertSame(0, $db->table('seo_keyword_quality_tags')->where('code', 'SUSPECT_PROPER_NAME')->count());
+        self::assertSame(1, $db->table('seo_keyword_quality_tags')->where('code', KeywordQualityCode::MALFORMED_TEXT)->count());
+        self::assertSame(0, $db->table('seo_keyword_quality_policies')->where('code', 'SUSPECT_PROPER_NAME')->count());
+        self::assertSame(0, (int) $db->table('seo_keyword_quality_policies')->where('code', KeywordQualityCode::CTA_ANCHOR)->value('exclude_from_topic'));
+        self::assertSame(0, $db->table('seo_keyword_quality_suppressions')->where('code', 'SUSPECT_PROPER_NAME')->count());
+        self::assertSame(1, $db->table('seo_keyword_quality_suppressions')->where('code', KeywordQualityCode::ENCODING_ERROR)->count());
+        self::assertSame($before, SeoTopicKeyword::query()->count());
+    }
+
     private function keyword(string $phrase, int $siteId): int
     {
         $id = (int) Keyword::query()->create([

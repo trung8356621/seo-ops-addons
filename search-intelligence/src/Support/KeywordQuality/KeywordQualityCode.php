@@ -16,13 +16,11 @@ final class KeywordQualityCode
 
     public const SENTENCE_LIKE = 'SENTENCE_LIKE';
 
-    public const SUSPECT_PROPER_NAME = 'SUSPECT_PROPER_NAME';
-
     public const DUPLICATE_VARIANT = 'DUPLICATE_VARIANT';
 
     public const TRAILING_SEQUENCE_NUMBER = 'TRAILING_SEQUENCE_NUMBER';
 
-    public const CLASSIFIER_VERSION = 4;
+    public const CLASSIFIER_VERSION = 5;
 
     /**
      * @return list<string>
@@ -35,7 +33,6 @@ final class KeywordQualityCode
             self::MALFORMED_TEXT,
             self::ENCODING_ERROR,
             self::SENTENCE_LIKE,
-            self::SUSPECT_PROPER_NAME,
             self::DUPLICATE_VARIANT,
             self::TRAILING_SEQUENCE_NUMBER,
         ];

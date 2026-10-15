@@ -866,8 +866,6 @@ return [
         'quality_tag_encoding_error_help' => 'Exclude keywords with this tag from Topic counts and candidate sets.',
         'quality_tag_sentence_like' => 'Sentence-like',
         'quality_tag_sentence_like_help' => 'Exclude keywords with this tag from Topic counts and candidate sets.',
-        'quality_tag_suspect_proper_name' => 'Suspect proper name',
-        'quality_tag_suspect_proper_name_help' => 'Exclude keywords with this tag from Topic counts and candidate sets.',
         'quality_tag_trailing_sequence_number' => 'Trailing sequence number',
         'quality_tag_duplicate_variant' => 'Duplicate variant',
         'quality_tag_duplicate_variant_help' => 'Exclude keywords with this tag from Topic counts and candidate sets.',

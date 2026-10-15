@@ -866,8 +866,6 @@ return [
         'quality_tag_encoding_error_help' => 'Loại keyword mang tag này khỏi bộ đếm và tập keyword Topic.',
         'quality_tag_sentence_like' => 'Sentence-like',
         'quality_tag_sentence_like_help' => 'Loại keyword mang tag này khỏi bộ đếm và tập keyword Topic.',
-        'quality_tag_suspect_proper_name' => 'Tên riêng nghi vấn',
-        'quality_tag_suspect_proper_name_help' => 'Loại keyword mang tag này khỏi bộ đếm và tập keyword Topic.',
         'quality_tag_trailing_sequence_number' => 'Số thứ tự cuối cụm',
         'quality_tag_duplicate_variant' => 'Biến thể trùng',
         'quality_tag_duplicate_variant_help' => 'Loại keyword mang tag này khỏi bộ đếm và tập keyword Topic.',

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityClassifier;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
@@ -56,12 +57,9 @@ final class KeywordQualityService
             $normalized[(int) $id] = $this->classifier->normalized((string) $phrase);
         }
         $duplicateSet = array_fill_keys($this->classifier->duplicateKeywordIds($normalized), true);
-        $templateSet = array_fill_keys([
-            ...$this->classifier->templateNameIds($phrasesById),
-            ...$this->classifier->patternExtensionIds($phrasesById),
-        ], true);
         $truncatedSet = array_fill_keys($this->classifier->truncatedCopyIds($normalized), true);
         $containedSet = array_fill_keys($this->classifier->containedCopyIds($phrasesById), true);
+        $ctaSet = array_fill_keys($this->transactionalDestinationIds($siteId), true);
         $processed = 0;
 
         try {
@@ -74,16 +72,16 @@ final class KeywordQualityService
                 $existing = $this->tagOrigins($siteId, $staleIds);
                 $suppressed = $this->suppressedCodes($siteId, $staleIds);
 
-                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $templateSet, $truncatedSet, $containedSet, $existing, $suppressed): void {
+                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $truncatedSet, $containedSet, $ctaSet, $existing, $suppressed): void {
                     $now = now();
                     foreach ($staleIds as $keywordId) {
                         $phrase = (string) ($chunk[$keywordId] ?? '');
                         $detected = $this->classifier->classify(
                             $phrase,
                             isset($duplicateSet[$keywordId]),
-                            isset($templateSet[$keywordId]),
                             isset($truncatedSet[$keywordId]),
                             isset($containedSet[$keywordId]),
+                            isset($ctaSet[$keywordId]),
                         );
                         $blocked = $suppressed[$keywordId] ?? [];
                         $current = $existing[$keywordId] ?? [];
@@ -101,7 +99,7 @@ final class KeywordQualityService
                             $keepAuto[$code] = true;
                         }
                         foreach ($current as $code => $origin) {
-                            if ($origin === 'auto' && ! isset($keepAuto[$code])) {
+                            if (! KeywordQualityCode::isKnown($code) || ($origin === 'auto' && ! isset($keepAuto[$code]))) {
                                 $this->deleteTag($siteId, $keywordId, $code);
                             }
                         }
@@ -123,6 +121,32 @@ final class KeywordQualityService
             $this->markScan($siteId, 'failed', $total, $processed, $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function transactionalDestinationIds(int $siteId): array
+    {
+        $schema = Schema::connection('omi_seo_ai');
+        if (! $schema->hasTable('seo_link_maps') || ! $schema->hasTable('articles')) {
+            return [];
+        }
+
+        $select = ['m.keyword_id'];
+        foreach (['target_external_url', 'link_type', 'destination_kind'] as $column) {
+            if ($schema->hasColumn('seo_link_maps', $column)) {
+                $select[] = 'm.'.$column;
+            }
+        }
+
+        $links = DB::connection('omi_seo_ai')->table('seo_link_maps as m')
+            ->join('articles as a', 'a.id', '=', 'm.source_article_id')
+            ->where('a.site_id', $siteId)
+            ->whereNotNull('m.keyword_id')
+            ->get($select);
+
+        return $this->classifier->transactionalDestinationKeywordIds($links);
     }
 
     /**

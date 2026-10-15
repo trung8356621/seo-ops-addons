@@ -55,16 +55,12 @@ final class KeywordQualityClassifierTest extends TestCase
         self::assertSame([], $this->classifier->classify('Nguyễn Văn An'));
     }
 
-    public function test_suspect_proper_name_needs_a_name_inside_other_text(): void
+    public function test_proper_name_code_is_not_a_quality_tag(): void
     {
-        self::assertContains(
-            KeywordQualityCode::SUSPECT_PROPER_NAME,
-            $this->classifier->classify('Balo anh văn phạm nguyễn'),
-        );
-        self::assertNotContains(
-            KeywordQualityCode::SUSPECT_PROPER_NAME,
-            $this->classifier->classify('balo học sinh'),
-        );
+        self::assertFalse(KeywordQualityCode::isKnown('SUSPECT_PROPER_NAME'));
+        self::assertNotContains('SUSPECT_PROPER_NAME', KeywordQualityCode::all());
+        self::assertSame([], $this->classifier->classify('Balo anh văn phạm nguyễn'));
+        self::assertSame([], $this->classifier->classify('Balo Adidas nữ'));
     }
 
     public function test_encoding_error_and_duplicate_ids(): void
@@ -112,13 +108,9 @@ final class KeywordQualityClassifierTest extends TestCase
 
     public function test_proper_name_and_promotional_sentence_heuristics(): void
     {
-        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh văn phạm nguyễn'));
-        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Nguyễn Văn An'));
-        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo John Smith'));
-        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh văn global'));
-        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh ngữ australia – vietnam'));
-        self::assertNotContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Adidas nữ'));
-        self::assertNotContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Nike Air Max 90'));
+        self::assertSame([], $this->classifier->classify('Balo Nguyễn Văn An'));
+        self::assertSame([], $this->classifier->classify('Balo Adidas nữ'));
+        self::assertSame([], $this->classifier->classify('Balo Nike Air Max 90'));
         self::assertSame([], $this->classifier->classify('Nguyễn Văn An'));
 
         $promo = 'Balo adidas nữ - khẳng định phong cách thời trang cá tính tuổi teen.';
@@ -156,50 +148,51 @@ final class KeywordQualityClassifierTest extends TestCase
         );
     }
 
-    public function test_template_names_ignore_attributes_brands_and_other_sites_are_separate_calls(): void
+    public function test_cta_requires_anchor_wording_or_transactional_destination(): void
     {
-        $site = [
-            1 => 'Balo quà tặng Viettel',
-            2 => 'Balo quà tặng VNPT',
-            3 => 'Balo quà tặng FPT Shop',
-            4 => 'Balo quà tặng Sacombank',
-            5 => 'Balo quà tặng học sinh',
-            6 => 'Balo quà tặng doanh nghiệp',
-            7 => 'Balo Adidas nữ',
-            8 => 'Balo chống nước 2026',
-            9 => 'balo học sinh',
-        ];
-        $ids = array_fill_keys($this->classifier->templateNameIds($site), true);
+        self::assertContains(KeywordQualityCode::CTA_ANCHOR, $this->classifier->classify('Liên hệ ngay'));
+        self::assertContains(KeywordQualityCode::CTA_ANCHOR, $this->classifier->classify('Nhận báo giá'));
+        self::assertNotContains(
+            KeywordQualityCode::CTA_ANCHOR,
+            $this->classifier->classify('Bắt đầu chiến dịch Marketing túi vải ngay'),
+        );
+        self::assertContains(
+            KeywordQualityCode::CTA_ANCHOR,
+            $this->classifier->classify('Bắt đầu chiến dịch Marketing túi vải ngay', false, false, false, true),
+        );
+        self::assertNotContains(
+            KeywordQualityCode::CTA_ANCHOR,
+            $this->classifier->classify('Balo học sinh', false, false, false, true),
+        );
+        self::assertNotContains(
+            KeywordQualityCode::CTA_ANCHOR,
+            $this->classifier->classify('Công nghệ in Flexo', false, false, false, false),
+        );
+
+        $ids = array_fill_keys($this->classifier->transactionalDestinationKeywordIds([
+            ['keyword_id' => 1, 'target_external_url' => 'https://xuongmaytuikhongdet.com/lien-he', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 2, 'target_external_url' => 'https://xuongmaytuikhongdet.com/bao-gia', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 3, 'target_external_url' => 'https://xuongmaytuikhongdet.com/', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 4, 'target_external_url' => 'https://xuongmaytuikhongdet.com/cong-nghe-in-flexo', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 5, 'target_external_url' => '', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 6, 'target_external_url' => 'https://xuongmaytuikhongdet.com/', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 6, 'target_external_url' => 'https://xuongmaytuikhongdet.com/tui-vai', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 7, 'target_external_url' => 'https://xuongmaytuikhongdet.com/', 'link_type' => 'internal', 'destination_kind' => 'content'],
+            ['keyword_id' => 7, 'target_external_url' => 'https://xuongmaytuikhongdet.com/lien-he', 'link_type' => 'internal', 'destination_kind' => 'content'],
+        ]), true);
         self::assertArrayHasKey(1, $ids);
         self::assertArrayHasKey(2, $ids);
-        self::assertArrayHasKey(4, $ids);
+        self::assertArrayHasKey(7, $ids);
+        self::assertArrayNotHasKey(3, $ids);
+        self::assertArrayNotHasKey(4, $ids);
         self::assertArrayNotHasKey(5, $ids);
         self::assertArrayNotHasKey(6, $ids);
-        self::assertArrayNotHasKey(7, $ids);
-        self::assertArrayNotHasKey(8, $ids);
-        self::assertArrayNotHasKey(9, $ids);
-
-        $otherSite = [
-            1 => 'Balo quà tặng Viettel',
-            2 => 'Balo học sinh',
-        ];
-        self::assertSame([], $this->classifier->templateNameIds($otherSite));
     }
 
     public function test_school_name_truncation_and_punctuation_duplicate(): void
     {
-        self::assertContains(
-            KeywordQualityCode::SUSPECT_PROPER_NAME,
-            $this->classifier->classify('Balo trường mầm non Happy Kids'),
-        );
-        self::assertNotContains(
-            KeywordQualityCode::SUSPECT_PROPER_NAME,
-            $this->classifier->classify('may balo trung tâm anh ngữ'),
-        );
-        self::assertContains(
-            KeywordQualityCode::SUSPECT_PROPER_NAME,
-            $this->classifier->classify('Balo IELTS Hiền Nguyễn'),
-        );
+        self::assertNotContains('SUSPECT_PROPER_NAME', $this->classifier->classify('Balo trường mầm non Happy Kids'));
+        self::assertNotContains('SUSPECT_PROPER_NAME', $this->classifier->classify('may balo trung tâm anh ngữ'));
 
         $normalized = [
             3 => $this->classifier->normalized('Xưởng may balo trẻ em Hợp Phát'),
@@ -231,40 +224,6 @@ final class KeywordQualityClassifierTest extends TestCase
         );
         self::assertSame([], $this->classifier->classify('Balo Adidas nữ'));
         self::assertSame([], $this->classifier->classify('Balo Nike Air Max 90'));
-
-        $lower = [
-            1 => 'balo quà tặng viettel',
-            2 => 'balo quà tặng vnpt',
-            3 => 'balo quà tặng fpt',
-        ];
-        $template = array_fill_keys($this->classifier->templateNameIds($lower), true);
-        self::assertArrayHasKey(1, $template);
-        self::assertArrayHasKey(2, $template);
-        self::assertArrayHasKey(3, $template);
-        self::assertSame([], $this->classifier->templateNameIds([
-            1 => 'balo quà tặng viettel',
-            2 => 'balo quà tặng vnpt',
-        ]));
-
-        $site = [
-            1 => 'Balo quà tặng Hợp Phát',
-            2 => 'Túi xách quà tặng Hợp Phát',
-            3 => 'Cặp sách quà tặng Hợp Phát',
-            4 => 'Balo học sinh',
-            5 => 'Balo học sinh chống nước',
-            6 => 'Balo học sinh Viettel',
-            7 => 'Cách chọn balo học sinh chống nước cho bé',
-            8 => 'Balo Adidas nữ',
-        ];
-        $extensions = array_fill_keys($this->classifier->patternExtensionIds($site), true);
-        self::assertArrayHasKey(1, $extensions);
-        self::assertArrayHasKey(2, $extensions);
-        self::assertArrayHasKey(3, $extensions);
-        self::assertArrayHasKey(6, $extensions);
-        self::assertArrayNotHasKey(4, $extensions);
-        self::assertArrayNotHasKey(5, $extensions);
-        self::assertArrayNotHasKey(7, $extensions);
-        self::assertArrayNotHasKey(8, $extensions);
 
         $copies = $this->classifier->containedCopyIds([
             1 => 'balo học sinh',
