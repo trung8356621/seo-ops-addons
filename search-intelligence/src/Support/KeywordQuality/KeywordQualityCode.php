@@ -20,7 +20,9 @@ final class KeywordQualityCode
 
     public const DUPLICATE_VARIANT = 'DUPLICATE_VARIANT';
 
-    public const CLASSIFIER_VERSION = 1;
+    public const TRAILING_SEQUENCE_NUMBER = 'TRAILING_SEQUENCE_NUMBER';
+
+    public const CLASSIFIER_VERSION = 2;
 
     /**
      * @return list<string>
@@ -35,6 +37,7 @@ final class KeywordQualityCode
             self::SENTENCE_LIKE,
             self::SUSPECT_PROPER_NAME,
             self::DUPLICATE_VARIANT,
+            self::TRAILING_SEQUENCE_NUMBER,
         ];
     }
 
@@ -54,9 +57,8 @@ final class KeywordQualityCode
 
     public static function description(string $code): string
     {
-        $key = 'seo-content-ai::filament.keyword.quality_tag_'.strtolower($code).'_help';
-        $label = __($key);
+        unset($code);
 
-        return $label === $key ? '' : $label;
+        return __('seo-content-ai::filament.keyword.quality_exclude_help');
     }
 }

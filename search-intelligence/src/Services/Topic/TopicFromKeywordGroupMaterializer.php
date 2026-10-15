@@ -17,6 +17,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupTopicCandidatePolicy;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Build Topics from persisted Keyword Groups — no semantic regrouping.
@@ -160,6 +161,11 @@ final class TopicFromKeywordGroupMaterializer
             return ['anchor_count' => 0, 'clusters' => []];
         }
 
+        $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
+        $existingTopicKeywordIds = array_fill_keys(
+            SeoTopicKeyword::query()->where('site_id', $siteId)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all(),
+            true,
+        );
         $keywordIds = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
         $phrases = Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id')->all();
         $focusMap = KeywordGroupSchema::topicCandidateOverrideReady()
@@ -186,6 +192,9 @@ final class TopicFromKeywordGroupMaterializer
                 $isCandidate = KeywordGroupSchema::topicCandidateReady()
                     ? (bool) ($row->is_topic_candidate ?? true)
                     : true;
+            }
+            if (isset($excluded[$kid])) {
+                $isCandidate = false;
             }
             $phrase = (string) ($phrases[$kid] ?? '');
             $members[$kid] = [
@@ -367,6 +376,9 @@ final class TopicFromKeywordGroupMaterializer
         // Assign remaining group members (candidates + blocked) via matcher — Group pool only.
         foreach ($members as $kid => $member) {
             if (isset($assigned[$kid])) {
+                continue;
+            }
+            if (isset($excluded[$kid]) && ! isset($existingTopicKeywordIds[$kid])) {
                 continue;
             }
             $phrase = $member['phrase'];

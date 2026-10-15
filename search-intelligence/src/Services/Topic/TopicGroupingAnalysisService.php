@@ -20,6 +20,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\SemanticHttpTo
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputFactory;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputHasher;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposal;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Analyze-only Topic grouping orchestration.
@@ -84,7 +85,8 @@ final class TopicGroupingAnalysisService
 
         try {
             $this->siteKeywords->ensureForSite($siteId);
-            $seedRows = $this->seeds->resolve($siteId);
+            $excluded = app(KeywordQualityTopicFilter::class);
+            $seedRows = $excluded->withoutExcluded($siteId, $this->seeds->resolve($siteId));
             $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
             $locked = $this->loadLockedTopicsAndKeywords($siteId);
             $manualInventory = $this->loadManualInventoryTopics($siteId, $locked['locked_topic_ids']);
@@ -125,7 +127,7 @@ final class TopicGroupingAnalysisService
      */
     public function currentInputHash(int $siteId): string
     {
-        $seedRows = $this->seeds->resolve($siteId);
+        $seedRows = app(KeywordQualityTopicFilter::class)->withoutExcluded($siteId, $this->seeds->resolve($siteId));
         $eligible = $this->siteKeywords->loadTopicCandidateKeywords($siteId);
         $locked = $this->loadLockedTopicsAndKeywords($siteId);
         $manualInventory = $this->loadManualInventoryTopics($siteId, $locked['locked_topic_ids']);

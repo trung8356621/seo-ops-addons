@@ -382,14 +382,16 @@ body:has(.keyword-workspace-page) .fi-page-content {
 }
 
 .keyword-dictionary-stats--board {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.keyword-dictionary-stats--board > .keyword-dictionary-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(7.75rem, 1fr));
     gap: 0.5rem;
     align-items: stretch;
-}
-
-.keyword-dictionary-stats--board > .keyword-dictionary-stats {
-    display: contents;
 }
 
 .keyword-dictionary-stats--board .keyword-dictionary-stat-card {

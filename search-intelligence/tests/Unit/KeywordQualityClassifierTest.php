@@ -81,4 +81,49 @@ final class KeywordQualityClassifierTest extends TestCase
             $this->classifier->classify('balo học sinh', true),
         );
     }
+
+    public function test_trailing_sequence_number_ignores_year_measure_rank_and_model(): void
+    {
+        foreach ([
+            'Ba lô thời trang hợp phát 1',
+            'Balo học sinh 2',
+            'Balo chống nước 12',
+            'Balo quà tặng 3',
+        ] as $phrase) {
+            self::assertContains(KeywordQualityCode::TRAILING_SEQUENCE_NUMBER, $this->classifier->classify($phrase), $phrase);
+        }
+
+        foreach ([
+            'Balo học sinh 2026',
+            'Balo 15 inch',
+            'Balo 20L',
+            'Balo Nike Air Max 90',
+            'Balo size 12',
+            'Top 10 balo đẹp',
+        ] as $phrase) {
+            self::assertNotContains(KeywordQualityCode::TRAILING_SEQUENCE_NUMBER, $this->classifier->classify($phrase), $phrase);
+        }
+
+        $once = $this->classifier->classify('Balo học sinh 2');
+        self::assertSame($once, $this->classifier->classify('Balo học sinh 2'));
+    }
+
+    public function test_proper_name_and_promotional_sentence_heuristics(): void
+    {
+        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh văn phạm nguyễn'));
+        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Nguyễn Văn An'));
+        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo John Smith'));
+        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh văn global'));
+        self::assertContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo anh ngữ australia – vietnam'));
+        self::assertNotContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Adidas nữ'));
+        self::assertNotContains(KeywordQualityCode::SUSPECT_PROPER_NAME, $this->classifier->classify('Balo Nike Air Max 90'));
+        self::assertSame([], $this->classifier->classify('Nguyễn Văn An'));
+
+        $promo = 'Balo adidas nữ - khẳng định phong cách thời trang cá tính tuổi teen.';
+        self::assertContains(KeywordQualityCode::SENTENCE_LIKE, $this->classifier->classify($promo));
+        self::assertNotContains(
+            KeywordQualityCode::SENTENCE_LIKE,
+            $this->classifier->classify('balo học sinh loại nào tốt nhất cho bé đi học mẫu giáo'),
+        );
+    }
 }

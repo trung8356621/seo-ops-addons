@@ -15,6 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictio
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSiteKeywordService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Tests\TestCase;
 
 final class KeywordQualityTopicFilterTest extends TestCase
@@ -115,8 +116,20 @@ final class KeywordQualityTopicFilterTest extends TestCase
         $candidateIds = array_column($candidates, 'keyword_id');
         self::assertNotContains($cta, $candidateIds);
         self::assertContains($clean, $candidateIds);
+        $seedRows = [
+            ['keyword_id' => $cta, 'phrase' => 'mua ngay'],
+            ['keyword_id' => $clean, 'phrase' => 'balo học sinh'],
+        ];
+        self::assertSame(
+            [$clean],
+            array_column(app(KeywordQualityTopicFilter::class)->withoutExcluded(self::SITE_A, $seedRows), 'keyword_id'),
+        );
+        $tagged = $dictionary->filteredForSummary(self::SITE_A, null, ['quality_scope' => 'tagged']);
+        self::assertStringContainsString('seo_keyword_quality_tags', $tagged->toSql());
+        self::assertSame($summary['unique_tagged'], $tagged->count());
 
         $service->setExcluded(self::SITE_A, KeywordQualityCode::CTA_ANCHOR, false);
+        self::assertCount(2, app(KeywordQualityTopicFilter::class)->withoutExcluded(self::SITE_A, $seedRows));
         $counts = app(TopicMembershipQuery::class)->keywordCountsByTopicIds(self::SITE_A, [7]);
         self::assertSame(2, $counts[7]);
         self::assertContains(

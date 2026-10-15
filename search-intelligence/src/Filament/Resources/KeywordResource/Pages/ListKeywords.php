@@ -203,6 +203,7 @@ class ListKeywords extends ListRecords
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
             ->modifyQueryUsing(function (Builder $query): Builder {
                 $query = $this->applyDictionaryCardFilter($query);
+                $query = $this->applyQualityCardToTableQuery($query);
 
                 return $this->applyTopicAssignmentTableFilter($query);
             });
@@ -227,13 +228,7 @@ class ListKeywords extends ListRecords
      */
     public function getDictionaryStats(): array
     {
-        $card = $this->qualityCardFilter;
-        $this->qualityCardFilter = null;
-        try {
-            return $this->resolveDictionaryStats();
-        } finally {
-            $this->qualityCardFilter = $card;
-        }
+        return $this->resolveDictionaryStats();
     }
 
     /**
@@ -614,7 +609,7 @@ class ListKeywords extends ListRecords
         return app(KeywordDictionaryQuery::class)->filteredForSummary(
             $siteId > 0 ? $siteId : null,
             $this->resolveKeywordLanguageFilterVariants(),
-            $this->currentDictionaryFilterBag(),
+            $this->currentDictionaryFilterBag(false),
         );
     }
 
@@ -627,7 +622,37 @@ class ListKeywords extends ListRecords
      *     types: list<mixed>
      * }
      */
-    protected function currentDictionaryFilterBag(): array
+    protected function applyQualityCardToTableQuery(Builder $query): Builder
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $card = $this->qualityCardFilter;
+        if ($siteId <= 0 || ! is_string($card) || $card === '') {
+            return $query;
+        }
+
+        $codes = [];
+        $scope = null;
+        if (KeywordQualityCode::isKnown($card)) {
+            $codes = [$card];
+        } elseif ($card === 'tagged' || $card === 'excluded') {
+            $scope = $card;
+        } else {
+            return $query;
+        }
+
+        return app(KeywordDictionaryQuery::class)->applyQuality($query, $siteId, $codes, $scope);
+    }
+
+    /**
+     * @return array{
+     *     search: string|null,
+     *     focus: bool,
+     *     seo_hidden: bool|null,
+     *     tags: list<mixed>,
+     *     types: list<mixed>
+     * }
+     */
+    protected function currentDictionaryFilterBag(bool $includeQualityCard = true): array
     {
         $seoHiddenState = $this->getTableFilterState('seo_hidden') ?? [];
         $seoHiddenValue = $seoHiddenState['value'] ?? null;
@@ -640,7 +665,7 @@ class ListKeywords extends ListRecords
 
         $qualityCodes = (array) (($this->getTableFilterState('quality_codes') ?? [])['codes'] ?? []);
         $qualityScope = ($this->getTableFilterState('quality_scope') ?? [])['value'] ?? null;
-        $card = $this->qualityCardFilter;
+        $card = $includeQualityCard ? $this->qualityCardFilter : null;
         if (is_string($card) && KeywordQualityCode::isKnown($card)) {
             $qualityCodes = [$card];
             $qualityScope = null;
@@ -721,6 +746,8 @@ class ListKeywords extends ListRecords
             });
         $actions[] = Actions\Action::make('quality_settings')
             ->label(__('seo-content-ai::filament.keyword.quality_settings'))
+            ->modalHeading(__('seo-content-ai::filament.keyword.quality_settings_modal'))
+            ->modalDescription(__('seo-content-ai::filament.keyword.quality_settings_description'))
             ->icon('heroicon-o-adjustments-horizontal')
             ->visible(fn (): bool => $this->canManageKeywordQualitySite())
             ->fillForm(function (): array {
@@ -842,18 +869,10 @@ class ListKeywords extends ListRecords
             return null;
         }
 
-        $card = $this->qualityCardFilter;
-        $this->qualityCardFilter = null;
-        try {
-            $filters = $this->currentDictionaryFilterBag();
-        } finally {
-            $this->qualityCardFilter = $card;
-        }
-
         return app(KeywordQualityService::class)->summary(
             $siteId,
             $this->resolveKeywordLanguageFilterVariants(),
-            $filters,
+            $this->currentDictionaryFilterBag(false),
         );
     }
 

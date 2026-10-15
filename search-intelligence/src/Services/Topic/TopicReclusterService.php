@@ -17,6 +17,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\Topi
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputFactory;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposal;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposalMapper;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 
 /**
@@ -97,7 +98,7 @@ final class TopicReclusterService
             $metrics['classifications_ensured'] = $classified['ensured'];
             $metrics['seo_keywords'] = $classified['seo_keywords'];
 
-            $seedRows = $this->seeds->resolve($siteId);
+            $seedRows = app(KeywordQualityTopicFilter::class)->withoutExcluded($siteId, $this->seeds->resolve($siteId));
             foreach ($seedRows as $seed) {
                 if ($seed['source'] === 'link_list') {
                     $metrics['seeds_link_list']++;

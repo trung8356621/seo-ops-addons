@@ -43,7 +43,7 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-6"
             preset="filament-table"
-            targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,dictionaryStatFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
+            targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,applyQualityCardFilter,dictionaryStatFilter,qualityCardFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
         >
             @if ($showDictionaryChrome)
                 <div class="keyword-dictionary-stats keyword-dictionary-stats--board">

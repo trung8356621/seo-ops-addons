@@ -33,6 +33,23 @@ final class KeywordQualityTopicFilter
     }
 
     /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public function withoutExcluded(int $siteId, array $rows, string $idKey = 'keyword_id'): array
+    {
+        $excluded = $this->excludedIdSet($siteId);
+        if ($excluded === []) {
+            return $rows;
+        }
+
+        return array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => ! isset($excluded[(int) ($row[$idKey] ?? 0)]),
+        ));
+    }
+
+    /**
      * @return array<int, true>
      */
     public function excludedIdSet(int $siteId): array
