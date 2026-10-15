@@ -16,6 +16,10 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
+use Omnichannel\Addons\SearchIntelligence\Jobs\ScanKeywordQualityJob;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality\KeywordQualityService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
@@ -47,6 +51,9 @@ class ListKeywords extends ListRecords
     #[Url(as: 'stat')]
     public ?string $dictionaryStatFilter = null;
 
+    #[Url(as: 'quality')]
+    public ?string $qualityCardFilter = null;
+
     /** @var array{total: int, active: int, errors: int, no_topic?: int, mode?: string}|null */
     public ?array $dictionaryStats = null;
 
@@ -68,6 +75,8 @@ class ListKeywords extends ListRecords
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->canAccessDictionarySite = null;
+        $this->dictionaryStatFilter = null;
+        $this->qualityCardFilter = null;
         $this->resetPage();
         $this->flushCachedTableRecords();
     }
@@ -198,6 +207,12 @@ class ListKeywords extends ListRecords
                 return $this->applyTopicAssignmentTableFilter($query);
             });
 
+        if ($this->activeSummaryFilterLabel() !== null) {
+            $table->emptyStateHeading(__('seo-content-ai::filament.keyword.quality_empty', [
+                'label' => $this->activeSummaryFilterLabel(),
+            ]));
+        }
+
         return $table
             ->actions($this->listPageTableActions());
     }
@@ -211,6 +226,20 @@ class ListKeywords extends ListRecords
      * @return array{total: int, active: int, errors: int, no_topic?: int, mode?: string}
      */
     public function getDictionaryStats(): array
+    {
+        $card = $this->qualityCardFilter;
+        $this->qualityCardFilter = null;
+        try {
+            return $this->resolveDictionaryStats();
+        } finally {
+            $this->qualityCardFilter = $card;
+        }
+    }
+
+    /**
+     * @return array{total: int, active: int, errors: int, no_topic?: int, mode?: string}
+     */
+    private function resolveDictionaryStats(): array
     {
         if ($this->canUseCachedDictionaryStats()) {
             $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
@@ -301,6 +330,41 @@ class ListKeywords extends ListRecords
             && ($filters['topic_assignment'] ?? null) === null;
     }
 
+    public function applyQualityCardFilter(string $key): void
+    {
+        $allowed = array_merge(['total', 'tagged', 'excluded'], KeywordQualityCode::all());
+        if (! in_array($key, $allowed, true)) {
+            return;
+        }
+
+        $this->dictionaryStatFilter = null;
+        $this->qualityCardFilter = ($key === 'total' || $this->qualityCardFilter === $key) ? null : $key;
+        $this->resetPage();
+        $this->flushCachedTableRecords();
+        $this->clearKeywordDictionaryStats();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
+    }
+
+    public function activeSummaryFilterLabel(): ?string
+    {
+        $card = $this->qualityCardFilter;
+        if ($card === 'tagged') {
+            return __('seo-content-ai::filament.keyword.quality_scope_tagged');
+        }
+        if ($card === 'excluded') {
+            return __('seo-content-ai::filament.keyword.quality_scope_excluded');
+        }
+        if (is_string($card) && KeywordQualityCode::isKnown($card)) {
+            return KeywordQualityCode::label($card);
+        }
+
+        return match ($this->dictionaryStatFilter) {
+            'active' => __('seo-content-ai::filament.keyword.stat_active'),
+            'errors', 'needs_optimization' => __('seo-content-ai::filament.keyword.stat_errors'),
+            default => null,
+        };
+    }
+
     public function applyDictionaryStatFilter(string $statKey): void
     {
         $allowed = ['total', 'active', 'errors'];
@@ -311,6 +375,7 @@ class ListKeywords extends ListRecords
             return;
         }
 
+        $this->qualityCardFilter = null;
         $this->dictionaryStatFilter = $this->dictionaryStatFilter === $statKey ? null : $statKey;
         $this->resetPage();
         $this->flushCachedTableRecords();
@@ -344,6 +409,47 @@ class ListKeywords extends ListRecords
                     // No-op: keyword-quick-copy-script intercepts in capture phase.
                 }),
             Tables\Actions\ActionGroup::make([
+                Tables\Actions\Action::make('quality_tags')
+                    ->label(__('seo-content-ai::filament.keyword.quality_edit'))
+                    ->visible(fn (Keyword $record): bool => $this->canEditKeywordQuality($record))
+                    ->fillForm(fn (Keyword $record): array => [
+                        'codes' => app(KeywordQualityService::class)->codesFor(
+                            (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0),
+                            (int) $record->id,
+                        ),
+                    ])
+                    ->form([
+                        Forms\Components\CheckboxList::make('codes')
+                            ->label(__('seo-content-ai::filament.keyword.quality_tags'))
+                            ->options(collect(KeywordQualityCode::all())->mapWithKeys(
+                                static fn (string $code): array => [$code => KeywordQualityCode::label($code)],
+                            )->all()),
+                    ])
+                    ->action(function (Keyword $record, array $data): void {
+                        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                        try {
+                            app(KeywordQualityService::class)->syncManual($siteId, (int) $record->id, (array) ($data['codes'] ?? []));
+                        } catch (\Throwable) {
+                            Notification::make()->title(__('seo-content-ai::filament.keyword.quality_edit_failed'))->danger()->send();
+
+                            return;
+                        }
+                        Notification::make()->title(__('seo-content-ai::filament.keyword.quality_edit_saved'))->success()->send();
+                    }),
+                Tables\Actions\Action::make('quality_restore')
+                    ->label(__('seo-content-ai::filament.keyword.quality_restore'))
+                    ->visible(fn (Keyword $record): bool => $this->canEditKeywordQuality($record))
+                    ->action(function (Keyword $record): void {
+                        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                        try {
+                            app(KeywordQualityService::class)->restoreAutomatic($siteId, (int) $record->id);
+                        } catch (\Throwable) {
+                            Notification::make()->title(__('seo-content-ai::filament.keyword.quality_edit_failed'))->danger()->send();
+
+                            return;
+                        }
+                        Notification::make()->title(__('seo-content-ai::filament.keyword.quality_restore_saved'))->success()->send();
+                    }),
                 Tables\Actions\Action::make('item_edit')
                     ->label(__('seo-content-ai::filament.keyword.edit'))
                     ->action(fn (Keyword $record): mixed => $this->openKeywordEdit((int) $record->id)),
@@ -532,6 +638,17 @@ class ListKeywords extends ListRecords
             $seoHidden = false;
         }
 
+        $qualityCodes = (array) (($this->getTableFilterState('quality_codes') ?? [])['codes'] ?? []);
+        $qualityScope = ($this->getTableFilterState('quality_scope') ?? [])['value'] ?? null;
+        $card = $this->qualityCardFilter;
+        if (is_string($card) && KeywordQualityCode::isKnown($card)) {
+            $qualityCodes = [$card];
+            $qualityScope = null;
+        } elseif ($card === 'tagged' || $card === 'excluded') {
+            $qualityCodes = [];
+            $qualityScope = $card;
+        }
+
         return [
             'search' => $this->getTableSearch(),
             'focus' => $this->getKeywordWorkspaceMode() === 'focus',
@@ -539,6 +656,8 @@ class ListKeywords extends ListRecords
             'tags' => (array) (($this->getTableFilterState('operational_tags') ?? [])['tags'] ?? []),
             'types' => (array) (($this->getTableFilterState('keyword_type') ?? [])['types'] ?? []),
             'topic_assignment' => $this->resolveTopicAssignmentFilterValue(),
+            'quality_codes' => $qualityCodes,
+            'quality_scope' => $qualityScope,
         ];
     }
 
@@ -588,6 +707,48 @@ class ListKeywords extends ListRecords
     {
         $actions = [];
 
+        $actions[] = Actions\Action::make('quality_scan')
+            ->label(__('seo-content-ai::filament.keyword.quality_scan'))
+            ->icon('heroicon-o-tag')
+            ->visible(fn (): bool => $this->canManageKeywordQualitySite())
+            ->action(function (): void {
+                $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                if (! $this->canManageKeywordQualitySite()) {
+                    return;
+                }
+                ScanKeywordQualityJob::dispatch($siteId);
+                Notification::make()->title(__('seo-content-ai::filament.keyword.quality_scan_queued'))->success()->send();
+            });
+        $actions[] = Actions\Action::make('quality_settings')
+            ->label(__('seo-content-ai::filament.keyword.quality_settings'))
+            ->icon('heroicon-o-adjustments-horizontal')
+            ->visible(fn (): bool => $this->canManageKeywordQualitySite())
+            ->fillForm(function (): array {
+                $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                $service = app(KeywordQualityService::class);
+                $data = [];
+                foreach (KeywordQualityCode::all() as $code) {
+                    $data['exclude_'.$code] = $service->isExcluded($siteId, $code);
+                }
+
+                return $data;
+            })
+            ->form(collect(KeywordQualityCode::all())->map(
+                static fn (string $code): Forms\Components\Toggle => Forms\Components\Toggle::make('exclude_'.$code)
+                    ->label(KeywordQualityCode::label($code))
+                    ->helperText(KeywordQualityCode::description($code)),
+            )->all())
+            ->action(function (array $data): void {
+                $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+                if (! $this->canManageKeywordQualitySite()) {
+                    return;
+                }
+                $service = app(KeywordQualityService::class);
+                foreach (KeywordQualityCode::all() as $code) {
+                    $service->setExcluded($siteId, $code, (bool) ($data['exclude_'.$code] ?? false));
+                }
+                Notification::make()->title(__('seo-content-ai::filament.keyword.quality_settings_saved'))->success()->send();
+            });
         $actions[] = Actions\Action::make('add_keywords')
             ->label(__('seo-content-ai::filament.keyword.add_keyword'))
             ->icon('heroicon-o-plus')
@@ -669,5 +830,47 @@ class ListKeywords extends ListRecords
     protected function keywordDetailDrawerSiteScope(): ?int
     {
         return $this->resolveKeywordWorkspaceSiteId();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function keywordQualitySummary(): ?array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
+            return null;
+        }
+
+        $card = $this->qualityCardFilter;
+        $this->qualityCardFilter = null;
+        try {
+            $filters = $this->currentDictionaryFilterBag();
+        } finally {
+            $this->qualityCardFilter = $card;
+        }
+
+        return app(KeywordQualityService::class)->summary(
+            $siteId,
+            $this->resolveKeywordLanguageFilterVariants(),
+            $filters,
+        );
+    }
+
+    private function canManageKeywordQualitySite(): bool
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return $siteId > 0
+            && KeywordQualitySchema::tablesReady()
+            && SeoAccessControl::canMutateInSeoPanel()
+            && SeoAccessControl::canAccessPlannerFeatures()
+            && SeoAccessControl::canAccessSite($siteId);
+    }
+
+    private function canEditKeywordQuality(Keyword $record): bool
+    {
+        return $this->canManageKeywordQualitySite()
+            && (int) $record->id > 0;
     }
 }

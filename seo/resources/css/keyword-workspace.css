@@ -381,6 +381,59 @@ body:has(.keyword-workspace-page) .fi-page-content {
     gap: 1rem;
 }
 
+.keyword-dictionary-stats--board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7.75rem, 1fr));
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.keyword-dictionary-stats--board > .keyword-dictionary-stats {
+    display: contents;
+}
+
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card {
+    min-height: 4.75rem;
+    height: 100%;
+    padding: 0.65rem 0.7rem 0.55rem;
+}
+
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card__wave,
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card__top {
+    display: none;
+}
+
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card__label {
+    font-size: 0.75rem;
+    line-height: 1.25;
+    min-height: 2.5em;
+}
+
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card__value {
+    margin-top: 0.125rem;
+    font-size: 1.25rem;
+}
+
+.keyword-dictionary-stats--board .keyword-dictionary-stat-card__percent {
+    margin-top: 0.125rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: rgb(107 114 128);
+}
+
+.keyword-dictionary-stats--board .keyword-quality-scan-status,
+.keyword-dictionary-stats--board .keyword-quality-filter-status {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.keyword-dictionary-stat-card:focus-visible {
+    outline: 2px solid rgb(109 40 217);
+    outline-offset: 2px;
+}
+
 @media (max-width: 639px) {
     .keyword-dictionary-stats {
         grid-template-columns: minmax(0, 1fr);

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Site-scoped Topic membership reads.
@@ -74,9 +75,12 @@ final class TopicMembershipQuery
             return [];
         }
 
-        return SeoTopicKeyword::query()
+        $query = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('topic_id', $topicId)
+            ->where('topic_id', $topicId);
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'seo_topic_keywords.keyword_id');
+
+        return $query
             ->pluck('keyword_id')
             ->map(static fn ($id): int => (int) $id)
             ->all();
@@ -100,9 +104,11 @@ final class TopicMembershipQuery
             return [];
         }
 
-        $rows = SeoTopicKeyword::query()
+        $query = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->whereIn('topic_id', $topicIds)
+            ->whereIn('topic_id', $topicIds);
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'seo_topic_keywords.keyword_id');
+        $rows = $query
             ->selectRaw('topic_id, COUNT(*) as keyword_count')
             ->groupBy('topic_id')
             ->get();

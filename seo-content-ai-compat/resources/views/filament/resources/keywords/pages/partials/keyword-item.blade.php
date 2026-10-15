@@ -152,6 +152,14 @@
             </div>
         @endif
 
+        @if (($item['quality_tags'] ?? []) !== [])
+            <div class="keyword-item__planning">
+                @foreach ($item['quality_tags'] as $tag)
+                    <span class="{{ $tag['badge_class'] }}">{{ $tag['label'] }}</span>
+                @endforeach
+            </div>
+        @endif
+
         @if ($item['operational_tags'] !== [])
             <div class="keyword-item__operational">
                 @foreach ($item['operational_tags'] as $tag)

@@ -10,6 +10,8 @@ use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 
 /**
@@ -86,6 +88,12 @@ final class KeywordDictionaryQuery
             $siteId,
             isset($filters['topic_assignment']) ? (string) $filters['topic_assignment'] : null,
         );
+        $query = $this->applyQuality(
+            $query,
+            $siteId,
+            is_array($filters['quality_codes'] ?? null) ? $filters['quality_codes'] : [],
+            isset($filters['quality_scope']) ? (string) $filters['quality_scope'] : null,
+        );
 
         return $query;
     }
@@ -120,6 +128,16 @@ final class KeywordDictionaryQuery
                 ->where('meta_key', KeywordMetaKey::McpExcluded->value)
                 ->where('meta_value', '1'),
         ]);
+
+        if ($siteId > 0 && KeywordQualitySchema::tablesReady()) {
+            $query->selectSub(
+                DB::connection('omi_seo_ai')->table('seo_keyword_quality_tags as kq_list')
+                    ->selectRaw('GROUP_CONCAT(kq_list.code)')
+                    ->whereColumn('kq_list.keyword_id', 'keywords.id')
+                    ->where('kq_list.site_id', $siteId),
+                'quality_tag_codes',
+            );
+        }
 
         if ($siteId <= 0) {
             return $query->selectRaw('0 as focus_article_count, 0 as linked_article_count');
@@ -172,6 +190,57 @@ final class KeywordDictionaryQuery
      * @param  'assigned'|'unassigned'|string|null  $assignment
      * @return Builder<Keyword>
      */
+    /**
+     * @param  Builder<Keyword>  $query
+     * @param  list<mixed>  $codes
+     * @return Builder<Keyword>
+     */
+    public function applyQuality(Builder $query, ?int $siteId, array $codes, ?string $scope): Builder
+    {
+        $siteId = (int) ($siteId ?? 0);
+        if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
+            return $query;
+        }
+
+        $codes = array_values(array_filter(
+            $codes,
+            static fn (mixed $code): bool => is_string($code) && KeywordQualityCode::isKnown($code),
+        ));
+        if ($codes !== []) {
+            $query->whereExists(function ($sub) use ($siteId, $codes): void {
+                $sub->selectRaw('1')
+                    ->from('seo_keyword_quality_tags as kq_filter')
+                    ->whereColumn('kq_filter.keyword_id', 'keywords.id')
+                    ->where('kq_filter.site_id', $siteId)
+                    ->whereIn('kq_filter.code', $codes);
+            });
+        }
+
+        $scope = is_string($scope) ? trim($scope) : '';
+        if ($scope === 'tagged') {
+            $query->whereExists(function ($sub) use ($siteId): void {
+                $sub->selectRaw('1')
+                    ->from('seo_keyword_quality_tags as kq_tagged')
+                    ->whereColumn('kq_tagged.keyword_id', 'keywords.id')
+                    ->where('kq_tagged.site_id', $siteId);
+            });
+        } elseif ($scope === 'excluded') {
+            $query->whereExists(function ($sub) use ($siteId): void {
+                $sub->selectRaw('1')
+                    ->from('seo_keyword_quality_tags as kq_excluded_tags')
+                    ->join('seo_keyword_quality_policies as kq_excluded_policies', function ($join): void {
+                        $join->on('kq_excluded_policies.site_id', '=', 'kq_excluded_tags.site_id')
+                            ->on('kq_excluded_policies.code', '=', 'kq_excluded_tags.code');
+                    })
+                    ->whereColumn('kq_excluded_tags.keyword_id', 'keywords.id')
+                    ->where('kq_excluded_tags.site_id', $siteId)
+                    ->where('kq_excluded_policies.exclude_from_topic', 1);
+            });
+        }
+
+        return $query;
+    }
+
     public function applyTopicAssignment(Builder $query, ?int $siteId, ?string $assignment): Builder
     {
         $assignment = is_string($assignment) ? trim($assignment) : '';

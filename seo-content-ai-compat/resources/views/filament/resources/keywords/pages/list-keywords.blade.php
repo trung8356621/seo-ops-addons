@@ -46,7 +46,15 @@
             targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,dictionaryStatFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
         >
             @if ($showDictionaryChrome)
-                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
+                <div class="keyword-dictionary-stats keyword-dictionary-stats--board">
+                    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
+                    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-quality-summary')
+                    @if ($activeSummaryFilter = $this->activeSummaryFilterLabel())
+                        <p class="keyword-quality-filter-status">
+                            {{ __('seo-content-ai::filament.keyword.quality_filter_status', ['label' => $activeSummaryFilter]) }}
+                        </p>
+                    @endif
+                </div>
             @endif
 
             <div

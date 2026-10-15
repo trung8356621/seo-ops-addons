@@ -11,6 +11,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywo
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordRuleClassifier;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Ensure / refresh seo_site_keywords for one site (classification ≠ membership).
@@ -162,17 +163,18 @@ final class TopicSiteKeywordService
                 ->all();
         }
 
+        $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
         $out = [];
         Keyword::query()
             ->forSite($siteId)
             ->orderBy('id')
-            ->chunkById(200, function ($chunk) use ($hide, $seoByKeyword, &$out): void {
+            ->chunkById(200, function ($chunk) use ($hide, $seoByKeyword, $excluded, &$out): void {
                 foreach ($chunk as $keyword) {
                     if (! $keyword instanceof Keyword) {
                         continue;
                     }
                     $keywordId = (int) $keyword->id;
-                    if ($keywordId <= 0 || $hide->isHidden($keywordId)) {
+                    if ($keywordId <= 0 || $hide->isHidden($keywordId) || isset($excluded[$keywordId])) {
                         continue;
                     }
                     $phrase = trim((string) $keyword->phrase);

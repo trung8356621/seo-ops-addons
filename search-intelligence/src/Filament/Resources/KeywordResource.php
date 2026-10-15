@@ -35,6 +35,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywo
 use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTag;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
@@ -316,6 +317,37 @@ class KeywordResource extends SeoPanelResource
                         return $labels === []
                             ? null
                             : __('seo-content-ai::filament.keyword.operational_tags').': '.implode(', ', $labels);
+                    }),
+                Tables\Filters\SelectFilter::make('quality_scope')
+                    ->label(__('seo-content-ai::filament.keyword.quality_scope'))
+                    ->options([
+                        'tagged' => __('seo-content-ai::filament.keyword.quality_scope_tagged'),
+                        'excluded' => __('seo-content-ai::filament.keyword.quality_scope_excluded'),
+                    ])
+                    ->placeholder(__('seo-content-ai::filament.keyword.quality_scope_all')),
+                Tables\Filters\Filter::make('quality_codes')
+                    ->label(__('seo-content-ai::filament.keyword.quality_tags'))
+                    ->form([
+                        Forms\Components\Select::make('codes')
+                            ->label(__('seo-content-ai::filament.keyword.quality_tags'))
+                            ->options(collect(KeywordQualityCode::all())->mapWithKeys(
+                                static fn (string $code): array => [$code => KeywordQualityCode::label($code)],
+                            )->all())
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->native(false),
+                    ])
+                    ->indicateUsing(function (array $data): ?string {
+                        $labels = collect($data['codes'] ?? [])
+                            ->filter(static fn (mixed $value): bool => is_string($value) && KeywordQualityCode::isKnown($value))
+                            ->map(static fn (string $code): string => KeywordQualityCode::label($code))
+                            ->values()
+                            ->all();
+
+                        return $labels === []
+                            ? null
+                            : __('seo-content-ai::filament.keyword.quality_tags').': '.implode(', ', $labels);
                     }),
                 Tables\Filters\Filter::make('keyword_type')
                     ->label(__('seo-content-ai::filament.keyword.legacy_type'))

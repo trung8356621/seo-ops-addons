@@ -14,6 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordTopicAssignmentStats;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
@@ -581,6 +582,7 @@ final class TopicListQuery
         if ($allowedKeywordIds !== null) {
             $query->whereIn('count_members.keyword_id', clone $allowedKeywordIds);
         }
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'count_members.keyword_id');
 
         return $query;
     }

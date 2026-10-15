@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 
 /**
@@ -44,10 +45,11 @@ final class TopicDetailQuery
             return null;
         }
 
-        $memberships = SeoTopicKeyword::query()
+        $membershipQuery = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('topic_id', $topicId)
-            ->get(['keyword_id', 'source', 'is_seed', 'is_locked', 'confidence']);
+            ->where('topic_id', $topicId);
+        app(KeywordQualityTopicFilter::class)->apply($membershipQuery, $siteId, 'seo_topic_keywords.keyword_id');
+        $memberships = $membershipQuery->get(['keyword_id', 'source', 'is_seed', 'is_locked', 'confidence']);
 
         $keywordCount = $memberships->count();
         $lockedMemberCount = $memberships->where('is_locked', true)->count();
@@ -94,10 +96,12 @@ final class TopicDetailQuery
      */
     private function buildIdeaCoverage(int $siteId, int $topicId): ?array
     {
+        $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
         $rows = SeoTopicKeywordDna::query()
             ->where('site_id', $siteId)
             ->where('topic_id', $topicId)
-            ->get(['keyword_id', 'value']);
+            ->get(['keyword_id', 'value'])
+            ->reject(static fn ($row): bool => isset($excluded[(int) $row->keyword_id]));
         if ($rows->isEmpty()) {
             return null;
         }
@@ -151,9 +155,11 @@ final class TopicDetailQuery
             return new Paginator([], 0, max(1, $perPage));
         }
 
-        $paginator = SeoTopicKeyword::query()
+        $memberQuery = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('topic_id', $topicId)
+            ->where('topic_id', $topicId);
+        app(KeywordQualityTopicFilter::class)->apply($memberQuery, $siteId, 'seo_topic_keywords.keyword_id');
+        $paginator = $memberQuery
             ->orderByDesc('is_seed')
             ->orderBy('keyword_id')
             ->paginate($perPage);

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordLinkDetailPanelPresenter;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -109,6 +110,7 @@ final class KeywordItemPresenter
             'raw_phrase' => (string) $keyword->phrase,
             'display_phrase' => KeywordPhrasePresentation::present((string) $keyword->phrase),
             'semantic_tags' => $semanticTags,
+            'quality_tags' => $this->qualityTags($keyword),
             'operational_tags' => $groupedTags['operational'],
             'planning_tags' => $groupedTags['planning'],
             'intent' => '',
@@ -193,6 +195,32 @@ final class KeywordItemPresenter
     /**
      * Canonical Focus Article count for current site (normally 0|1).
      */
+    /**
+     * @return list<array{code: string, label: string, badge_class: string}>
+     */
+    private function qualityTags(Keyword $keyword): array
+    {
+        $raw = (string) ($keyword->getAttributes()['quality_tag_codes'] ?? '');
+        if ($raw === '') {
+            return [];
+        }
+
+        $items = [];
+        foreach (explode(',', $raw) as $code) {
+            $code = trim($code);
+            if (! KeywordQualityCode::isKnown($code) || isset($items[$code])) {
+                continue;
+            }
+            $items[$code] = [
+                'code' => $code,
+                'label' => KeywordQualityCode::label($code),
+                'badge_class' => 'keyword-item-tag keyword-item-tag--planning',
+            ];
+        }
+
+        return array_values($items);
+    }
+
     private function resolveFocusArticleCount(
         Keyword $keyword,
         ?int $siteId,

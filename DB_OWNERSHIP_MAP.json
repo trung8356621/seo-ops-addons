@@ -9,7 +9,7 @@
     "core": ["users", "sites", "site_services", "site_meta", "services", "service_database_connections", "automation_*", "wallets", "orders"],
     "search-foundation": ["keywords", "keyword_meta", "seo_link_maps", "seo_site_link_*", "seo_match_research_custom_concepts", "seo_match_research_locale_overlays", "seo_match_consumer_policies"],
     "seo": ["seo audit indexes", "seo_article_index_checks", "seo_article_index_health"],
-    "search-intelligence": ["keyword_rank_*", "seo_gsc_* facts", "seo_gsc_url_inspection_runs", "seo_gsc_url_inspection_run_items", "seo_serp_* (without cluster evidence)", "seo_site_keywords", "seo_keyword_groups", "seo_keyword_group_keywords", "seo_keyword_group_semantic_states", "seo_topics", "seo_topic_keywords", "seo_topic_keyword_dna", "seo_topic_tags", "seo_topic_tag_assignments"],
+    "search-intelligence": ["keyword_rank_*", "seo_gsc_* facts", "seo_gsc_url_inspection_runs", "seo_gsc_url_inspection_run_items", "seo_serp_* (without cluster evidence)", "seo_site_keywords", "seo_keyword_groups", "seo_keyword_group_keywords", "seo_keyword_group_semantic_states", "seo_topics", "seo_topic_keywords", "seo_topic_keyword_dna", "seo_topic_tags", "seo_topic_tag_assignments", "seo_keyword_quality_tags", "seo_keyword_quality_suppressions", "seo_keyword_quality_policies", "seo_keyword_quality_seen", "seo_keyword_quality_scans"],
     "ai-prompt": ["prompts", "prompt_results", "hook bindings"],
     "content": ["articles", "article_meta", "article_editor_sessions", "seo_article_revisions", "seo_faqs", "seo_article_cta_runs"],
     "content-projects": [
