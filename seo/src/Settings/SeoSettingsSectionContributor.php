@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\Seo\Settings;
 
 use App\Core\Settings\SettingsSection;
 use App\Core\Settings\SettingsSectionContributor;
-use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsScoring;
@@ -46,15 +45,6 @@ final class SeoSettingsSectionContributor implements SettingsSectionContributor
                 url: $this->url(SeoSettingsEditor::class, '/admin/settings/editor'),
                 owner: 'seo',
                 sort: 40,
-                coreShared: false,
-            ),
-            new SettingsSection(
-                id: 'keywords',
-                label: 'Match & Research',
-                icon: 'heroicon-o-key',
-                url: $this->url(SeoSettingsKeywords::class, '/admin/settings/keywords'),
-                owner: 'seo',
-                sort: 50,
                 coreShared: false,
             ),
             new SettingsSection(

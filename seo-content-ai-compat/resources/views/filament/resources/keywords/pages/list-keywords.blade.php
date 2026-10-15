@@ -46,7 +46,10 @@
             targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,applyQualityCardFilter,dictionaryStatFilter,qualityCardFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
         >
             @if ($showDictionaryChrome)
-                <div class="keyword-dictionary-stats keyword-dictionary-stats--board">
+                <div
+                    class="keyword-dictionary-stats keyword-dictionary-stats--board"
+                    @if ($this->qualityScanPolling) wire:poll.3s="refreshQualityScan" @endif
+                >
                     @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
                     @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-quality-summary')
                     @if ($activeSummaryFilter = $this->activeSummaryFilterLabel())

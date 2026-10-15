@@ -54,6 +54,8 @@ class ListKeywords extends ListRecords
     #[Url(as: 'quality')]
     public ?string $qualityCardFilter = null;
 
+    public bool $qualityScanPolling = false;
+
     /** @var array{total: int, active: int, errors: int, no_topic?: int, mode?: string}|null */
     public ?array $dictionaryStats = null;
 
@@ -77,6 +79,7 @@ class ListKeywords extends ListRecords
         $this->canAccessDictionarySite = null;
         $this->dictionaryStatFilter = null;
         $this->qualityCardFilter = null;
+        $this->qualityScanPolling = false;
         $this->resetPage();
         $this->flushCachedTableRecords();
     }
@@ -741,40 +744,10 @@ class ListKeywords extends ListRecords
                 if (! $this->canManageKeywordQualitySite()) {
                     return;
                 }
+                app(KeywordQualityService::class)->noteScanQueued($siteId);
                 ScanKeywordQualityJob::dispatch($siteId);
+                $this->qualityScanPolling = true;
                 Notification::make()->title(__('seo-content-ai::filament.keyword.quality_scan_queued'))->success()->send();
-            });
-        $actions[] = Actions\Action::make('quality_settings')
-            ->label(__('seo-content-ai::filament.keyword.quality_settings'))
-            ->modalHeading(__('seo-content-ai::filament.keyword.quality_settings_modal'))
-            ->modalDescription(__('seo-content-ai::filament.keyword.quality_settings_description'))
-            ->icon('heroicon-o-adjustments-horizontal')
-            ->visible(fn (): bool => $this->canManageKeywordQualitySite())
-            ->fillForm(function (): array {
-                $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-                $service = app(KeywordQualityService::class);
-                $data = [];
-                foreach (KeywordQualityCode::all() as $code) {
-                    $data['exclude_'.$code] = $service->isExcluded($siteId, $code);
-                }
-
-                return $data;
-            })
-            ->form(collect(KeywordQualityCode::all())->map(
-                static fn (string $code): Forms\Components\Toggle => Forms\Components\Toggle::make('exclude_'.$code)
-                    ->label(KeywordQualityCode::label($code))
-                    ->helperText(KeywordQualityCode::description($code)),
-            )->all())
-            ->action(function (array $data): void {
-                $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-                if (! $this->canManageKeywordQualitySite()) {
-                    return;
-                }
-                $service = app(KeywordQualityService::class);
-                foreach (KeywordQualityCode::all() as $code) {
-                    $service->setExcluded($siteId, $code, (bool) ($data['exclude_'.$code] ?? false));
-                }
-                Notification::make()->title(__('seo-content-ai::filament.keyword.quality_settings_saved'))->success()->send();
             });
         $actions[] = Actions\Action::make('add_keywords')
             ->label(__('seo-content-ai::filament.keyword.add_keyword'))
@@ -859,9 +832,40 @@ class ListKeywords extends ListRecords
         return $this->resolveKeywordWorkspaceSiteId();
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
+    public function refreshQualityScan(): void
+    {
+        if (! $this->qualityScanPolling) {
+            return;
+        }
+
+        $summary = $this->keywordQualitySummary();
+        if ($summary === null) {
+            $this->qualityScanPolling = false;
+
+            return;
+        }
+
+        $status = (string) ($summary['scan_status'] ?? '');
+        if ($status === '' || $status === 'queued' || $status === 'running') {
+            return;
+        }
+
+        $this->qualityScanPolling = false;
+        if ($status === 'failed') {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.quality_scan_failed'))
+                ->body((string) ($summary['scan_error'] ?? ''))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->flushCachedTableRecords();
+        $this->clearKeywordDictionaryStats();
+        $this->reloadKeywordWorkspaceStatisticsAfterRender();
+    }
+
     public function keywordQualitySummary(): ?array
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
@@ -882,9 +886,8 @@ class ListKeywords extends ListRecords
 
         return $siteId > 0
             && KeywordQualitySchema::tablesReady()
-            && SeoAccessControl::canMutateInSeoPanel()
-            && SeoAccessControl::canAccessPlannerFeatures()
-            && SeoAccessControl::canAccessSite($siteId);
+            && $this->canAccessKeywordListSite()
+            && $this->canManageKeywordListRecord(new Keyword);
     }
 
     private function canEditKeywordQuality(Keyword $record): bool

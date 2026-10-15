@@ -191,6 +191,30 @@ final class KeywordQualityTopicFilterTest extends TestCase
         self::assertSame($before, SeoTopicKeyword::query()->count());
     }
 
+    public function test_note_scan_queued_does_not_change_tags_or_topic_rows(): void
+    {
+        $id = $this->keyword('balo học sinh', self::SITE_A);
+        $this->membership(self::SITE_A, 7, $id);
+        $before = SeoTopicKeyword::query()->count();
+        $now = now();
+        DB::connection('omi_seo_ai')->table('seo_keyword_quality_tags')->insert([
+            'site_id' => self::SITE_A,
+            'keyword_id' => $id,
+            'code' => KeywordQualityCode::CTA_ANCHOR,
+            'origin' => 'manual',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        app(KeywordQualityService::class)->noteScanQueued(self::SITE_A);
+
+        $scan = DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_A)->first();
+        self::assertSame('queued', (string) $scan->status);
+        self::assertSame(1, DB::connection('omi_seo_ai')->table('seo_keyword_quality_tags')->count());
+        self::assertSame($before, SeoTopicKeyword::query()->count());
+        self::assertSame(0, DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_B)->count());
+    }
+
     private function keyword(string $phrase, int $siteId): int
     {
         $id = (int) Keyword::query()->create([

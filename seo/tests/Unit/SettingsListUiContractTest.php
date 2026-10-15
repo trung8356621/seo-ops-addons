@@ -42,16 +42,15 @@ final class SettingsListUiContractTest extends TestCase
         self::assertStringNotContainsString('Forms\Components\Textarea', $code);
     }
 
-    public function test_seo_settings_keywords_renders_all_editable_registry_rules(): void
+    public function test_cta_blacklist_stays_in_registry_without_match_research_editor(): void
     {
         $code = (string) file_get_contents((new \ReflectionClass(SeoSettingsKeywords::class))->getFileName());
         $definitions = (new GlobalMatchRuleRegistry)->definitions();
 
         $editable = array_values(array_filter($definitions, static fn (array $rule): bool => $rule['editable']));
         self::assertSame(['cta_blacklist'], array_column($editable, 'key'));
-        self::assertStringContainsString('collect($settings->definitions())', $code);
-        self::assertStringContainsString("Forms\\Components\\TagsInput::make(\$definition['key'])", $code);
-        self::assertStringNotContainsString('Forms\Components\Textarea', $code);
+        self::assertStringNotContainsString('TagsInput', $code);
+        self::assertStringContainsString('semantic-routing', $code);
     }
 
     public function test_legacy_seo_settings_overview_kept_compatible_without_textarea_drift(): void

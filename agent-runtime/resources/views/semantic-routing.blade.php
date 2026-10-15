@@ -1,10 +1,16 @@
 <x-filament-panels::page>
     <div class="seo-settings-root">
         @include('seo-content-ai::filament.pages.partials.seo-settings-sidebar', ['active' => 'semantic-routing'])
-        <div class="seo-settings-main space-y-4">
+        <div class="seo-settings-main space-y-8">
             <header class="seo-settings-header">
                 <h1>Semantic Routing</h1>
                 <p>Trạng thái tích hợp Agent do service sở hữu. Cấu hình định tuyến chỉ đọc và được nạp từ các file đã đăng ký.</p>
+            </header>
+
+            <section class="space-y-4">
+            <header>
+                <h2 class="text-base font-semibold">{{ __('seo-content-ai::semantic_routing.agent_heading') }}</h2>
+                <p class="text-sm text-gray-500">{{ __('seo-content-ai::semantic_routing.agent_intro') }}</p>
             </header>
         @if($persistedCompatibility['present'])
             <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
@@ -66,7 +72,9 @@
                 <pre class="max-h-80 overflow-auto whitespace-pre-wrap text-xs">{{ $lexicalText }}</pre>
             </div>
         @endif
+            </section>
 
+            @livewire(\Omnichannel\Addons\SearchIntelligence\Livewire\IndustryMatchingPanel::class)
         </div>
     </div>
 </x-filament-panels::page>

@@ -471,6 +471,15 @@ final class KeywordQualityService
         );
     }
 
+    public function noteScanQueued(int $siteId): void
+    {
+        if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
+            return;
+        }
+
+        $this->markScan($siteId, 'queued', 0, 0, null);
+    }
+
     private function markScan(int $siteId, string $status, int $total, int $processed, ?string $error): void
     {
         $now = now();

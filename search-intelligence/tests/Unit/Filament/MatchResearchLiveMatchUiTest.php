@@ -4,127 +4,77 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Filament;
 
+use Omnichannel\Addons\SearchFoundation\DTO\IndustryGroup\IndustryGroup;
+use Omnichannel\Addons\SearchFoundation\Enums\IndustryGroupType;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
-use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupEntityMatchResult;
-use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchEvidence;
-use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchResult;
-use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticDisabledException;
-use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticUnavailableException;
+use Omnichannel\Addons\SearchIntelligence\Livewire\IndustryMatchingPanel;
 use PHPUnit\Framework\TestCase;
 
 final class MatchResearchLiveMatchUiTest extends TestCase
 {
-    public function test_page_drops_old_matcher_and_cta_debug_surfaces(): void
+    public function test_match_research_settings_ui_redirects_and_does_not_mutate(): void
     {
         $page = $this->source(SeoSettingsKeywords::class);
         $view = (string) file_get_contents(dirname(__DIR__, 4).'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-keywords.blade.php');
+        $panel = $this->source(IndustryMatchingPanel::class);
+        $panelView = (string) file_get_contents(dirname(__DIR__, 3).'/resources/views/livewire/industry-matching-panel.blade.php');
+        $routing = (string) file_get_contents(dirname(__DIR__, 4).'/agent-runtime/resources/views/semantic-routing.blade.php');
 
-        foreach (['debugPhrase', 'matcherReport', 'debugReport', 'debugMatcher', 'debugCtaBlacklist', 'industryRules', 'MatchRuleMatcher', 'CtaKeywordBlacklistDebugService', 'Debug Matcher'] as $gone) {
+        self::assertStringContainsString("redirect('/admin/settings/semantic-routing')", $page);
+        foreach (['saveKeywordSettings', 'saveCustomConcept', 'deleteCustomConcept', 'testIndustryMatch', 'importLocalizationResult', 'exportLocalizationPrompt', 'TagsInput'] as $gone) {
             self::assertStringNotContainsString($gone, $page, $gone);
             self::assertStringNotContainsString($gone, $view, $gone);
         }
-
-        self::assertStringContainsString('IndustryGroupSemanticMatcher', $page);
-        self::assertStringContainsString('function testIndustryMatch', $page);
-        self::assertStringContainsString("ref: 'ui:test'", $page);
-        self::assertStringNotContainsString('SemanticAnalyticsClient', $page);
-        self::assertStringContainsString('Live Industry Match', $view);
-        self::assertStringContainsString('Show all evidence', $view);
-        self::assertStringContainsString('x-show="showAll"', $view);
-        self::assertStringContainsString('Semantic similarity (positive_max)', $view);
-        self::assertStringNotContainsString('confidence', strtolower($view));
-        self::assertStringContainsString('match_revision_inactive', $view);
-        self::assertStringContainsString('Industry Groups', $view);
-        self::assertStringContainsString('Other Industry Rules', $view);
-        self::assertStringContainsString('heading="Localization"', $view);
-        self::assertStringContainsString('saveCustomConcept', $view);
-        self::assertStringContainsString('Site-scoped custom Match & Research concepts.', $view);
-        self::assertStringNotContainsString('No semantic auto-tagging', $view);
-        self::assertStringNotContainsString('Legacy runtime settings', $page);
-        self::assertStringNotContainsString('Still used by legacy consumers', $view);
-        self::assertStringContainsString('CTA / Noise', $page);
-        self::assertStringContainsString('Keyword filters', $view);
+        foreach (['function save', 'function create', 'function delete', 'function update', 'testIndustryMatch', 'importLocalization'] as $gone) {
+            self::assertStringNotContainsString($gone, $panel, $gone);
+        }
+        self::assertStringNotContainsString('wire:click', $panelView);
+        self::assertStringNotContainsString('wire:submit', $panelView);
+        self::assertStringContainsString('IndustryMatchingPanel', $routing);
+        self::assertStringContainsString('Global JEV', $routing);
+        self::assertStringContainsString('Internal Module JEV', $routing);
+        self::assertStringNotContainsString('Match & Research', $this->source(\Omnichannel\Addons\Seo\Settings\SeoSettingsSectionContributor::class));
     }
 
-    public function test_suggested_rows_are_the_default_matches(): void
+    public function test_industry_panel_presents_only_supplied_group_fields(): void
     {
-        $result = new IndustryGroupMatchResult(
-            scopeRef: 'ui:industry-match',
-            entities: [
-                new IndustryGroupEntityMatchResult('ui:test', 'balo học sinh cấp 1', [
-                    $this->evidence('industry.products.balo', 'products', true, 0.483, true),
-                    $this->evidence('industry.products.zalo', 'products', false, 0.91, false),
-                ]),
-            ],
-            conceptsUsed: 2,
-            staleGroupsSkipped: 0,
-            disabledGroupsSkipped: 0,
-            calledPython: true,
-            analysisId: 'an-1',
+        $group = new IndustryGroup(
+            key: 'industry.products.balo',
+            groupType: IndustryGroupType::Products,
+            sourceLocale: 'vi',
+            name: 'Balo',
+            aliases: ['backpack'],
+            positiveExamples: ['balo học sinh'],
+            negativeExamples: ['túi xách'],
+            matchMode: 'hybrid',
+            provenance: ['industry_context_key' => 'bags', 'match_revision_id' => 9],
+            stale: false,
+            enabled: true,
+            industryContextKey: 'bags',
+            requestedLocale: 'vi',
+            effectiveLocale: 'vi',
+            localized: true,
         );
 
-        $presented = SeoSettingsKeywords::presentIndustryMatch($result);
-        self::assertTrue($presented['called_python']);
-        self::assertSame('an-1', $presented['analysis_id']);
-        self::assertSame(2, $presented['concepts_used']);
-
-        $visible = SeoSettingsKeywords::visibleIndustryEvidence($presented['evidence'], false);
-        self::assertCount(1, $visible);
-        self::assertSame('industry.products.balo', $visible[0]['industry_group_key']);
-        self::assertTrue($visible[0]['suggested_match']);
-
-        $all = SeoSettingsKeywords::visibleIndustryEvidence($presented['evidence'], true);
-        self::assertCount(2, $all);
-        self::assertFalse($all[1]['suggested_match']);
-        self::assertArrayHasKey('positive_max', $all[1]);
-        self::assertArrayNotHasKey('confidence', $all[1]);
-    }
-
-    public function test_inactive_revision_and_python_failure_do_not_invent_matches(): void
-    {
-        self::assertSame(
-            'Match & Research revision chưa được kích hoạt.',
-            SeoSettingsKeywords::industryMatchStatusLabel('match_revision_inactive'),
-        );
-        self::assertSame(
-            'Chưa có revision Match & Research cho Industry Context của site hiện tại.',
-            SeoSettingsKeywords::industryMatchStatusLabel('no_match_revision'),
+        $rows = IndustryMatchingPanel::present(
+            [$group],
+            ['industry.products.balo' => 'School backpacks'],
+            ['industry_context_key' => 'bags', 'match_revision_id' => 9],
         );
 
-        $disabled = SeoSettingsKeywords::failureIndustryMatch(SemanticDisabledException::disabled());
-        self::assertFalse($disabled['called_python']);
-        self::assertSame('semantic_disabled', $disabled['reason']);
-        self::assertSame([], $disabled['evidence']);
-
-        $down = SeoSettingsKeywords::failureIndustryMatch(SemanticUnavailableException::connectionFailed('refused'));
-        self::assertFalse($down['called_python']);
-        self::assertSame('semantic_unavailable', $down['reason']);
-        self::assertSame([], $down['evidence']);
-        self::assertStringNotContainsString('MatchRuleMatcher', $this->source(SeoSettingsKeywords::class));
+        self::assertCount(1, $rows);
+        self::assertSame('Balo', $rows[0]['name']);
+        self::assertSame('School backpacks', $rows[0]['description']);
+        self::assertSame(['balo học sinh'], $rows[0]['positive_examples']);
+        self::assertSame(['túi xách'], $rows[0]['negative_examples']);
+        self::assertSame('vi', $rows[0]['language']);
+        self::assertTrue($rows[0]['enabled']);
+        self::assertSame(9, $rows[0]['revision']);
+        self::assertSame([], IndustryMatchingPanel::present([], [], null));
     }
 
     private function source(string $class): string
     {
         return (string) file_get_contents((string) (new \ReflectionClass($class))->getFileName());
-    }
-
-    private function evidence(string $key, string $type, bool $lexical, float $positive, bool $suggested): IndustryGroupMatchEvidence
-    {
-        return new IndustryGroupMatchEvidence(
-            entityRef: 'ui:test',
-            industryGroupKey: $key,
-            groupType: $type,
-            lexicalMatched: $lexical,
-            lexicalNegativeMatched: false,
-            lexicalMatchedExamples: $lexical ? ['balo'] : [],
-            positiveMax: $positive,
-            positiveTopKMean: 0.4,
-            negativeMax: 0.1,
-            margin: 0.2,
-            bestPositiveExample: 'balo',
-            bestNegativeExample: null,
-            suggestedMatch: $suggested,
-            matchingStrategy: 'hybrid',
-        );
     }
 }

@@ -16,7 +16,7 @@ final class CleanCtaKeywordsCommand extends Command
         {--site-id= : Chỉ dọn keyword của một site_id}
         {--dry-run : Chỉ thống kê, không xóa}';
 
-    protected $description = 'Xóa keyword khớp CTA blacklist trong Settings (/seo/settings/keywords).';
+    protected $description = 'Xóa keyword khớp CTA blacklist đã lưu (seo_keyword_settings).';
 
     public function handle(
         SeoKeywordSettingsService $settings,

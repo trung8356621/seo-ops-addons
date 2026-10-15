@@ -214,7 +214,7 @@ final class KeywordItemPresenter
             $items[$code] = [
                 'code' => $code,
                 'label' => KeywordQualityCode::label($code),
-                'badge_class' => 'keyword-item-tag keyword-item-tag--planning',
+                'badge_class' => 'ws-badge ws-badge--compact ws-badge--gray',
             ];
         }
 

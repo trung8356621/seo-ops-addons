@@ -52,7 +52,7 @@
         @endforeach
     </div>
     @if (($quality['scan_status'] ?? null) !== null)
-        <p class="keyword-quality-scan-status" @if (($quality['scan_status'] ?? null) === 'running') wire:poll.5s @endif>
+        <p class="keyword-quality-scan-status">
             {{ __('seo-content-ai::filament.keyword.quality_scan_status', [
                 'status' => $quality['scan_status'],
                 'processed' => $quality['scan_processed'],

@@ -3992,6 +3992,10 @@ body.keyword-drawer-open {
     color: rgb(71 85 105);
 }
 
+.keyword-item__planning .ws-badge {
+    border: 1px solid rgb(209 213 219);
+}
+
 .keyword-item__footer {
     display: flex;
     flex-wrap: wrap;
