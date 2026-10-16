@@ -15,12 +15,21 @@ final class KeywordQualityUxContractTest extends TestCase
         $summary = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/keyword-quality-summary.blade.php');
         $listView = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/list-keywords.blade.php');
 
+        $settings = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Pages/KeywordQualitySourceSettings.php');
+        $topicView = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php');
+
         self::assertStringNotContainsString("Action::make('quality_settings')", $list);
         self::assertStringContainsString('refreshQualityScan', $list);
         self::assertStringContainsString('noteScanQueued', $list);
         self::assertStringNotContainsString('resetPage()', $this->methodBody($list, 'refreshQualityScan'));
-        self::assertStringContainsString("Action::make('quality_settings')", $topic);
-        self::assertStringContainsString('setExcluded', $topic);
+        self::assertStringNotContainsString("Action::make('quality_settings')", $topic);
+        self::assertStringNotContainsString('setExcluded', $topic);
+        self::assertStringContainsString('keywordSourceSettingsUrl', $topic);
+        self::assertStringContainsString('heroicon-o-cog-6-tooth', $topicView);
+        self::assertStringContainsString('quality_settings', $topicView);
+        self::assertStringContainsString('setExcluded', $settings);
+        self::assertStringContainsString('authorizedSiteId', $settings);
+        self::assertStringNotContainsString('wire:model', (string) file_get_contents(dirname(__DIR__, 2).'/resources/views/filament/pages/keyword-quality-source-settings.blade.php'));
         self::assertStringNotContainsString('wire:poll.5s', $summary);
         self::assertSame(1, substr_count($listView, 'wire:poll.3s="refreshQualityScan"'));
         self::assertStringContainsString('quality_unique_excluded', (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/lang/vi/filament.php'));

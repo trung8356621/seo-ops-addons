@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Settings;
 
 use App\Core\Settings\SettingsSection;
 use App\Core\Settings\SettingsSectionContributor;
+use Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordQualitySourceSettings;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsScoring;
@@ -45,6 +46,15 @@ final class SeoSettingsSectionContributor implements SettingsSectionContributor
                 url: $this->url(SeoSettingsEditor::class, '/admin/settings/editor'),
                 owner: 'seo',
                 sort: 40,
+                coreShared: false,
+            ),
+            new SettingsSection(
+                id: 'keyword-sources',
+                label: 'seo-content-ai::filament.keyword.quality_settings',
+                icon: 'heroicon-o-cog-6-tooth',
+                url: $this->url(KeywordQualitySourceSettings::class, '/admin/settings/keyword-sources'),
+                owner: 'seo',
+                sort: 55,
                 coreShared: false,
             ),
             new SettingsSection(

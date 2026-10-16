@@ -78,7 +78,24 @@
                 <h2 class="topic-index-section-heading__title">
                     {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
                 </h2>
-                @php $topicalMapUrl = $this->getTopicalMapUrl(); @endphp
+                @php
+                    $topicalMapUrl = $this->getTopicalMapUrl();
+                    $keywordSourceSettingsUrl = $this->keywordSourceSettingsUrl();
+                @endphp
+                @if (is_string($keywordSourceSettingsUrl) && $keywordSourceSettingsUrl !== '')
+                    <x-filament::button
+                        tag="a"
+                        size="sm"
+                        color="gray"
+                        :href="$keywordSourceSettingsUrl"
+                        class="topic-index-section-heading__map-link"
+                    >
+                        <span class="inline-flex items-center gap-1.5">
+                            <x-filament::icon icon="heroicon-o-cog-6-tooth" class="h-4 w-4" />
+                            {{ __('seo-content-ai::filament.keyword.quality_settings') }}
+                        </span>
+                    </x-filament::button>
+                @endif
                 @if (is_string($topicalMapUrl) && $topicalMapUrl !== '')
                     <x-filament::button
                         tag="a"

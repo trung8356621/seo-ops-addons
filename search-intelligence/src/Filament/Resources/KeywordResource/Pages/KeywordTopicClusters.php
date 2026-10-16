@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages;
 
 use App\Models\Site;
-use Filament\Actions;
-use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
+use Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordQualitySourceSettings;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\TopicalMapAppPage;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopics;
@@ -19,9 +18,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersSiteTopics;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\RunsTopicalMapAuditAndTags;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality\KeywordQualityService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicListQuery;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicManualCreateService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicRenameService;
@@ -338,45 +335,14 @@ final class KeywordTopicClusters extends Page
         return 'clusters';
     }
 
-    /**
-     * @return list<Actions\Action>
-     */
-    protected function getHeaderActions(): array
+    public function keywordSourceSettingsUrl(): ?string
     {
-        return [
-            Actions\Action::make('quality_settings')
-                ->label(__('seo-content-ai::filament.keyword.quality_settings'))
-                ->modalHeading(__('seo-content-ai::filament.keyword.quality_settings_modal'))
-                ->modalDescription(__('seo-content-ai::filament.keyword.quality_settings_description'))
-                ->icon('heroicon-o-adjustments-horizontal')
-                ->visible(fn (): bool => $this->canConfigureKeywordQualitySources())
-                ->fillForm(function (): array {
-                    $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-                    $service = app(KeywordQualityService::class);
-                    $data = [];
-                    foreach (KeywordQualityCode::all() as $code) {
-                        $data['exclude_'.$code] = $service->isExcluded($siteId, $code);
-                    }
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if (! $this->canConfigureKeywordQualitySources()) {
+            return null;
+        }
 
-                    return $data;
-                })
-                ->form(collect(KeywordQualityCode::all())->map(
-                    static fn (string $code): Forms\Components\Toggle => Forms\Components\Toggle::make('exclude_'.$code)
-                        ->label(KeywordQualityCode::label($code))
-                        ->helperText(KeywordQualityCode::description($code)),
-                )->all())
-                ->action(function (array $data): void {
-                    $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-                    if (! $this->canConfigureKeywordQualitySources()) {
-                        return;
-                    }
-                    $service = app(KeywordQualityService::class);
-                    foreach (KeywordQualityCode::all() as $code) {
-                        $service->setExcluded($siteId, $code, (bool) ($data['exclude_'.$code] ?? false));
-                    }
-                    Notification::make()->title(__('seo-content-ai::filament.keyword.quality_settings_saved'))->success()->send();
-                }),
-        ];
+        return KeywordQualitySourceSettings::urlForSite($siteId);
     }
 
     private function canConfigureKeywordQualitySources(): bool
