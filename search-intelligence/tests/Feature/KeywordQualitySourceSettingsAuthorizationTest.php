@@ -12,6 +12,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\KeywordQualitySourceSettings;
@@ -67,9 +68,9 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         $opened = $this->pageFor(5, $this->admin);
         $opened->assertOk()->assertSet('siteId', 5);
 
-        $page = $this->pageFor(5, $this->admin)
-            ->fillForm($this->policy([KeywordQualityCode::CTA_ANCHOR => true]));
-        $this->savePolicy($page, 5)->assertOk();
+        $this->pageFor(5, $this->admin)
+            ->fillForm($this->policy([KeywordQualityCode::CTA_ANCHOR => true]))
+            ->call('savePolicy');
 
         self::assertTrue($service->isExcluded(5, KeywordQualityCode::CTA_ANCHOR));
         self::assertTrue($service->isExcluded(7, KeywordQualityCode::CTA_ANCHOR));
@@ -80,22 +81,27 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
             ->assertSet('siteId', 5);
     }
 
-    public function test_livewire_save_uses_referer_site_and_rejects_tampered_component_state(): void
+    public function test_livewire_save_keeps_mounted_site_and_rejects_client_site_change(): void
     {
         $service = app(KeywordQualityService::class);
         $service->setExcluded(7, KeywordQualityCode::CTA_ANCHOR, true);
 
-        $page = $this->pageFor(5, $this->admin)
-            ->fillForm($this->policy([KeywordQualityCode::GENERIC_ANCHOR => true]));
-        $this->savePolicy($page, 5)->assertOk();
+        $this->pageFor(5, $this->admin)
+            ->fillForm($this->policy([KeywordQualityCode::GENERIC_ANCHOR => true]))
+            ->call('savePolicy');
 
         self::assertTrue($service->isExcluded(5, KeywordQualityCode::GENERIC_ANCHOR));
         self::assertTrue($service->isExcluded(7, KeywordQualityCode::CTA_ANCHOR));
         self::assertFalse($service->isExcluded(7, KeywordQualityCode::GENERIC_ANCHOR));
 
-        $tampered = $this->pageFor(5, $this->admin)->set('siteId', 7);
-        $this->savePolicy($tampered, 5)->assertForbidden();
+        $page = $this->pageFor(5, $this->admin);
+        try {
+            $page->set('siteId', 7);
+            self::fail('Locked site id must not accept a client update.');
+        } catch (CannotUpdateLockedPropertyException) {
+        }
 
+        self::assertSame(5, $page->get('siteId'));
         self::assertFalse($service->isExcluded(7, KeywordQualityCode::GENERIC_ANCHOR));
     }
 
@@ -137,26 +143,6 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         return Livewire::actingAs($user)
             ->withQueryParams(['site_id' => $siteId])
             ->test(KeywordQualitySourceSettings::class);
-    }
-
-    private function savePolicy(Testable $page, int $siteId): \Illuminate\Testing\TestResponse
-    {
-        return $this->withoutMiddleware()
-            ->actingAs($this->admin)
-            ->post('/livewire/update', [
-                'components' => [[
-                    'snapshot' => json_encode($page->snapshot),
-                    'calls' => [[
-                        'path' => '',
-                        'method' => 'savePolicy',
-                        'params' => [],
-                    ]],
-                    'updates' => [],
-                ]],
-            ], [
-                'X-Livewire' => 'true',
-                'Referer' => 'http://seo-ops.test/admin/settings/keyword-sources?site_id='.$siteId,
-            ]);
     }
 
     /**

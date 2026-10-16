@@ -35,6 +35,43 @@ final class SeoSettingsMenu
     }
 
     /**
+     * @return list<array{id: string, label: string, items: list<array{id: string, label: string, icon: string, url: string}>}>
+     */
+    public static function groups(): array
+    {
+        $buckets = [];
+        foreach (self::items() as $item) {
+            $buckets[self::groupKey((string) $item['id'])][] = $item;
+        }
+
+        $out = [];
+        foreach (['general', 'ai', 'seo', 'automation', 'data'] as $key) {
+            if (($buckets[$key] ?? []) === []) {
+                continue;
+            }
+
+            $out[] = [
+                'id' => $key,
+                'label' => __('seo-content-ai::filament.settings_nav.'.$key),
+                'items' => $buckets[$key],
+            ];
+        }
+
+        return $out;
+    }
+
+    public static function groupKey(string $sectionId): string
+    {
+        return match ($sectionId) {
+            'ai-center', 'semantic-routing', 'api' => 'ai',
+            'keyword-sources', 'editor', 'scoring' => 'seo',
+            'workflows' => 'automation',
+            'import-export', 'seeding-service' => 'data',
+            default => 'general',
+        };
+    }
+
+    /**
      * @return list<array{id: string, label: string, icon: string, url: string}>
      */
     private static function fallbackItems(): array

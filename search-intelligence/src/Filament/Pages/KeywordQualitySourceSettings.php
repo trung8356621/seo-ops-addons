@@ -8,12 +8,12 @@ use App\Core\Addon\AddonEnablement;
 use App\Models\Site;
 use App\Models\User;
 use Filament\Forms;
-use Illuminate\Http\Request;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Livewire\Attributes\Locked;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality\KeywordQualityService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
@@ -33,6 +33,7 @@ class KeywordQualitySourceSettings extends Page implements HasForms
 
     protected static string $view = 'search-intelligence::filament.pages.keyword-quality-source-settings';
 
+    #[Locked]
     public int $siteId = 0;
 
     public string $siteLabel = '';
@@ -132,45 +133,21 @@ class KeywordQualitySourceSettings extends Page implements HasForms
 
     private function authorizedSiteId(): int
     {
-        $siteId = $this->explicitRequestSiteId();
+        $siteId = $this->siteId;
         abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
-        abort_unless($siteId === $this->siteId, 403);
+
+        $requested = $this->explicitRequestSiteId();
+        if ($requested > 0) {
+            abort_unless($requested === $siteId, 403);
+        }
 
         return $siteId;
     }
 
-    /**
-     * GET carries site_id on the query string. Livewire saves POST /livewire/update
-     * and only the Referer still has the page query. Never fall back to public state.
-     */
     private function explicitRequestSiteId(): int
     {
-        $request = request();
-        foreach ([$request->query('site_id'), $this->refererSiteId($request)] as $value) {
-            if (is_numeric($value) && (int) $value > 0) {
-                return (int) $value;
-            }
-        }
+        $requested = request()->query('site_id');
 
-        return 0;
-    }
-
-    private function refererSiteId(Request $request): ?string
-    {
-        $referer = (string) $request->headers->get('referer', '');
-        if ($referer === '') {
-            return null;
-        }
-
-        $queryString = parse_url($referer, PHP_URL_QUERY);
-        if (! is_string($queryString) || $queryString === '') {
-            return null;
-        }
-
-        $query = [];
-        parse_str($queryString, $query);
-        $siteId = $query['site_id'] ?? null;
-
-        return is_scalar($siteId) ? (string) $siteId : null;
+        return is_numeric($requested) && (int) $requested > 0 ? (int) $requested : 0;
     }
 }

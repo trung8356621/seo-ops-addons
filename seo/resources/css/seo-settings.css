@@ -27,6 +27,25 @@
     background: rgb(var(--gray-950));
 }
 
+.seo-settings-nav__group + .seo-settings-nav__group {
+    margin-top: 0.75rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid rgb(var(--gray-200));
+}
+
+.dark .seo-settings-nav__group + .seo-settings-nav__group {
+    border-top-color: rgb(var(--gray-700));
+}
+
+.seo-settings-nav__label {
+    padding: 0.1rem 0.9rem 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(var(--gray-500));
+}
+
 .seo-settings-nav__item {
     display: flex;
     align-items: center;

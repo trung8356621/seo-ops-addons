@@ -32,7 +32,7 @@ final class SeoSettingsSectionContributor implements SettingsSectionContributor
         return [
             new SettingsSection(
                 id: 'workflows',
-                label: 'Workflows',
+                label: 'seo-content-ai::filament.settings_workflows.nav',
                 icon: 'heroicon-o-arrows-right-left',
                 url: $this->url(SeoSettingsWorkflows::class, '/admin/settings/workflows'),
                 owner: 'seo',

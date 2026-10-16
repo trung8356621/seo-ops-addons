@@ -1839,6 +1839,14 @@ return [
         'audit_link_status_empty' => 'No seo_link_maps records found for this domain.',
         'audit_link_status_failed' => 'Link health audit failed',
     ],
+    'settings_nav' => [
+        'general' => 'General',
+        'ai' => 'AI & Agent',
+        'seo' => 'SEO & Content',
+        'automation' => 'Automation',
+        'data' => 'Data & operations',
+        'seeding_connection' => 'Seeding connection',
+    ],
     'settings_general' => [
         'nav' => 'General',
         'page_title' => 'General',
@@ -2449,6 +2457,8 @@ return [
         ],
     ],
     'settings_workflows' => [
+        'nav' => 'Assign workflows',
+        'page_title' => 'Assign workflows',
         'publish_article' => 'Publish article',
         'publish_article_hint' => 'Runs when creating a new article from keywords, posting article content, etc.',
         'rewrite_article' => 'Rewrite article',

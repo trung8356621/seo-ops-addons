@@ -8,13 +8,18 @@
 @endif
 
 <nav class="seo-settings-nav h-full" aria-label="{{ __('SEO settings') }}">
-    @foreach(SeoSettingsMenu::items() as $item)
-        <a
-            href="{{ $item['url'] }}"
-            class="seo-settings-nav__item {{ ($active ?? '') === $item['id'] ? 'is-active' : '' }}"
-        >
-            <x-filament::icon :icon="$item['icon']" class="seo-settings-nav__icon" />
-            <span>{{ __($item['label']) }}</span>
-        </a>
+    @foreach(SeoSettingsMenu::groups() as $group)
+        <div class="seo-settings-nav__group">
+            <div class="seo-settings-nav__label">{{ $group['label'] }}</div>
+            @foreach($group['items'] as $item)
+                <a
+                    href="{{ $item['url'] }}"
+                    class="seo-settings-nav__item {{ ($active ?? '') === $item['id'] ? 'is-active' : '' }}"
+                >
+                    <x-filament::icon :icon="$item['icon']" class="seo-settings-nav__icon" />
+                    <span>{{ __($item['label']) }}</span>
+                </a>
+            @endforeach
+        </div>
     @endforeach
 </nav>

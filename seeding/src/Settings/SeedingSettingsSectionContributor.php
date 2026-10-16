@@ -29,7 +29,7 @@ final class SeedingSettingsSectionContributor implements SettingsSectionContribu
         return [
             new SettingsSection(
                 id: 'seeding-service',
-                label: 'Seeding',
+                label: 'seo-content-ai::filament.settings_nav.seeding_connection',
                 icon: 'heroicon-o-chat-bubble-left-right',
                 url: $this->statusUrl(),
                 owner: SeedingServiceResolver::SLUG,

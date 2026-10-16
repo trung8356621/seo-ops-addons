@@ -40,7 +40,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
 
     public function getTitle(): string
     {
-        return __('Workflows');
+        return __('seo-content-ai::filament.settings_workflows.page_title');
     }
 
 

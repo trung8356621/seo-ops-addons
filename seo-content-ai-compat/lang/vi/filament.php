@@ -1838,6 +1838,14 @@ return [
         'audit_link_status_empty' => 'Không có bản ghi seo_link_maps trên domain này.',
         'audit_link_status_failed' => 'Kiểm tra link chết thất bại',
     ],
+    'settings_nav' => [
+        'general' => 'Chung',
+        'ai' => 'AI & Agent',
+        'seo' => 'SEO & Nội dung',
+        'automation' => 'Tự động hóa',
+        'data' => 'Dữ liệu & vận hành',
+        'seeding_connection' => 'Kết nối Seeding',
+    ],
     'settings_general' => [
         'nav' => 'Chung',
         'page_title' => 'Chung',
@@ -2448,6 +2456,8 @@ return [
         ],
     ],
     'settings_workflows' => [
+        'nav' => 'Gán quy trình',
+        'page_title' => 'Gán quy trình',
         'publish_article' => 'Đăng bài viết',
         'publish_article_hint' => 'Chạy khi tạo bài mới từ khóa, đăng nội dung bài viết, v.v.',
         'rewrite_article' => 'Viết lại bài',
