@@ -28,6 +28,8 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 3600;
 
+    public int $timeout = 3600;
+
     /**
      * @param  list<string>|null  $languageVariants
      */

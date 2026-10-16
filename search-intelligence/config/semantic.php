@@ -37,5 +37,12 @@ return [
         (int) env('SEMANTIC_CONCEPT_MATCH_ENTITY_BATCH_SIZE', 100),
     ),
 
+    /**
+     * Keyword embedding batch size for large semantic grouping.
+     * Must stay at or below Python TOPIC_MAX_KEYWORDS (2000).
+     * Sets larger than this are clamped. One global cluster follows the batches.
+     */
+    'keyword_group_batch_size' => max(1, min(2000, (int) env('SEMANTIC_KEYWORD_GROUP_BATCH_SIZE', 1000))),
+
     'wiki_suggestions' => (bool) env('SEMANTIC_WIKI_SUGGESTIONS', false),
 ];

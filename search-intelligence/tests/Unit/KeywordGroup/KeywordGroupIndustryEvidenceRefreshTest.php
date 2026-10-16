@@ -126,6 +126,60 @@ final class KeywordGroupIndustryEvidenceRefreshTest extends TestCase
         }
     }
 
+    public function test_industry_evidence_batches_keep_refs_and_feed_one_global_cluster(): void
+    {
+        config([
+            'semantic.concept_match_entity_batch_size' => 2,
+            'semantic.keyword_group_batch_size' => 2,
+        ]);
+        $conceptBatches = [];
+        $embedSizes = [];
+        Http::fake(function (Request $request) use (&$conceptBatches, &$embedSizes) {
+            $data = $request->data();
+            if (str_contains($request->url(), '/v1/concept-matches/')) {
+                $conceptBatches[] = array_column($data['entities'] ?? [], 'ref');
+
+                return Http::response($this->conceptResponse($data, [
+                    '1' => [
+                        'industry.products.balo.b1616081' => ['suggested' => true, 'lexical' => true],
+                    ],
+                    '4' => [
+                        'industry.products.balo.b1616081' => ['suggested' => true, 'lexical' => true],
+                    ],
+                ]), 200);
+            }
+            if (str_contains($request->url(), '/v1/keyword-groups/embedding-batches')) {
+                self::assertArrayNotHasKey('industry_evidence', $data);
+                $embedSizes[] = count($data['keywords'] ?? []);
+
+                return Http::response([
+                    'scope_ref' => '7',
+                    'keyword_count' => count($data['keywords'] ?? []),
+                    'embedding_cache' => ['hits' => 0, 'misses' => count($data['keywords'] ?? [])],
+                ], 200);
+            }
+            if (str_contains($request->url(), '/v1/keyword-groups/analyses/from-cache')) {
+                $this->captured['group'] = $data;
+
+                return Http::response($this->groupingResponse($data), 200);
+            }
+
+            return Http::response('unexpected '.$request->url(), 404);
+        });
+
+        $keywords = [];
+        for ($id = 1; $id <= 5; $id++) {
+            $keywords[] = ['keyword_id' => $id, 'phrase' => 'balo học sinh '.$id];
+        }
+        $this->service($this->industryGroups())->refreshKeywords(self::SITE, 'vi', $keywords);
+
+        self::assertSame([['1', '2'], ['3', '4'], ['5']], $conceptBatches);
+        self::assertSame([2, 2, 1], $embedSizes);
+        self::assertSame(['1', '2', '3', '4', '5'], array_column($this->captured['group']['keywords'], 'ref'));
+        self::assertSame(['1', '4'], array_column($this->captured['group']['industry_evidence'], 'ref'));
+        Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/v1/keyword-groups/analyses'));
+    }
+
     public function test_protected_keywords_are_omitted_from_industry_evidence(): void
     {
         $manual = SeoKeywordGroup::query()->create([

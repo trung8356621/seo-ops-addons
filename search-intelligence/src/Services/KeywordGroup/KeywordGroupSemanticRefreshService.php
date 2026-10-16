@@ -12,7 +12,9 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchEntity;
 use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticAnalyticsClient;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticInvalidResponseException;
+use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticTransportException;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInputHasher;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 
@@ -103,15 +105,7 @@ final class KeywordGroupSemanticRefreshService
 
         $scopeRef = (string) $siteId;
         $language = $this->normalizeLanguage($language);
-        $body = [
-            'scope_ref' => $scopeRef,
-            'language' => $language,
-            'keywords' => $payload,
-        ];
-        if ($industry['evidence'] !== []) {
-            $body['industry_evidence'] = $industry['evidence'];
-        }
-        $response = $this->client->postJson('/v1/keyword-groups/analyses', $body, 'keyword-group-'.$scopeRef);
+        $response = $this->requestGlobalAnalysis($scopeRef, $language, $payload, $industry['evidence']);
 
         $parsed = $this->parseResponse($response, $known);
         $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords);
@@ -129,6 +123,74 @@ final class KeywordGroupSemanticRefreshService
             $industry['keyword_count'],
             $industry['membership_count'],
         );
+    }
+
+    /**
+     * Small sets use one analysis call. Larger sets embed under the Python
+     * request cap, then cluster once from the shared embedding cache so
+     * keywords from different batches can join the same group.
+     * Persistence happens only after this returns.
+     *
+     * @param  list<array{ref: string, text: string}>  $payload
+     * @param  list<array{ref: string, memberships: list<array{key: string, group_type: string}>}>  $industryEvidence
+     * @return array<string, mixed>
+     */
+    private function requestGlobalAnalysis(string $scopeRef, ?string $language, array $payload, array $industryEvidence): array
+    {
+        $body = [
+            'scope_ref' => $scopeRef,
+            'language' => $language,
+            'keywords' => $payload,
+        ];
+        if ($industryEvidence !== []) {
+            $body['industry_evidence'] = $industryEvidence;
+        }
+
+        $batchSize = $this->embeddingBatchSize();
+        if (count($payload) <= $batchSize) {
+            return $this->client->postJson('/v1/keyword-groups/analyses', $body, 'keyword-group-'.$scopeRef);
+        }
+
+        $chunks = array_chunk($payload, $batchSize);
+        $total = count($chunks);
+        foreach ($chunks as $index => $chunk) {
+            try {
+                $this->client->postJson('/v1/keyword-groups/embedding-batches', [
+                    'scope_ref' => $scopeRef,
+                    'language' => $language,
+                    'keywords' => array_values($chunk),
+                ], 'keyword-group-'.$scopeRef.'-embed-'.($index + 1));
+            } catch (SemanticHttpException $e) {
+                throw new SemanticTransportException(
+                    'keyword group embedding batch '.($index + 1).'/'.$total.' failed: '.$e->getMessage(),
+                    $e->errorCode,
+                    $e->httpStatus,
+                    $e,
+                );
+            }
+        }
+
+        try {
+            return $this->client->postJson(
+                '/v1/keyword-groups/analyses/from-cache',
+                $body,
+                'keyword-group-'.$scopeRef.'-cluster',
+            );
+        } catch (SemanticHttpException $e) {
+            throw new SemanticTransportException(
+                'keyword group clustering failed: '.$e->getMessage(),
+                $e->errorCode,
+                $e->httpStatus,
+                $e,
+            );
+        }
+    }
+
+    private function embeddingBatchSize(): int
+    {
+        $size = (int) config('semantic.keyword_group_batch_size', 1000);
+
+        return max(1, min(2000, $size));
     }
 
     /**
