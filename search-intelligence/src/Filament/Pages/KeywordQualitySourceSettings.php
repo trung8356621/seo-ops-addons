@@ -6,7 +6,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 
 use App\Core\Addon\AddonEnablement;
 use App\Models\Site;
+use App\Models\User;
 use Filament\Forms;
+use Illuminate\Http\Request;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -42,8 +44,8 @@ class KeywordQualitySourceSettings extends Page implements HasForms
     {
         abort_unless(static::canAccess(), 403);
 
-        $requested = request()->query('site_id');
-        $siteId = is_numeric($requested) ? (int) $requested : (int) (SeoAccessControl::globalSiteId() ?? 0);
+        $requested = $this->explicitRequestSiteId();
+        $siteId = $requested > 0 ? $requested : (int) (SeoAccessControl::globalSiteId() ?? 0);
         abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
 
         $site = Site::query()->find($siteId);
@@ -52,7 +54,7 @@ class KeywordQualitySourceSettings extends Page implements HasForms
         $this->siteId = $siteId;
         $this->siteLabel = trim((string) ($site->domain ?: $site->name ?: ('#'.$siteId)));
 
-        if (! is_numeric($requested) || (int) $requested !== $siteId) {
+        if ($requested !== $siteId) {
             $this->redirect(app(DomainContextResolver::class)->appendSiteToUrl(static::getUrl(panel: 'admin'), $siteId));
 
             return;
@@ -106,7 +108,15 @@ class KeywordQualitySourceSettings extends Page implements HasForms
             return false;
         }
 
-        return SeoAccessControl::canMutateInSeoPanel() && SeoAccessControl::canAccessPlannerFeatures();
+        $user = auth()->user();
+        if ($user instanceof User
+            && in_array((string) $user->role, [User::ROLE_OWNER, User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
+        return SeoAccessControl::canMutateInSeoPanel()
+            && SeoAccessControl::canAccessPlannerFeatures();
     }
 
     public static function urlForSite(int $siteId): string
@@ -122,13 +132,45 @@ class KeywordQualitySourceSettings extends Page implements HasForms
 
     private function authorizedSiteId(): int
     {
-        $fromUrl = request()->query('site_id');
-        $siteId = is_numeric($fromUrl) ? (int) $fromUrl : 0;
-        abort_unless(
-            $siteId > 0 && $siteId === $this->siteId && SeoAccessControl::canAccessSite($siteId),
-            403,
-        );
+        $siteId = $this->explicitRequestSiteId();
+        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        abort_unless($siteId === $this->siteId, 403);
 
         return $siteId;
+    }
+
+    /**
+     * GET carries site_id on the query string. Livewire saves POST /livewire/update
+     * and only the Referer still has the page query. Never fall back to public state.
+     */
+    private function explicitRequestSiteId(): int
+    {
+        $request = request();
+        foreach ([$request->query('site_id'), $this->refererSiteId($request)] as $value) {
+            if (is_numeric($value) && (int) $value > 0) {
+                return (int) $value;
+            }
+        }
+
+        return 0;
+    }
+
+    private function refererSiteId(Request $request): ?string
+    {
+        $referer = (string) $request->headers->get('referer', '');
+        if ($referer === '') {
+            return null;
+        }
+
+        $queryString = parse_url($referer, PHP_URL_QUERY);
+        if (! is_string($queryString) || $queryString === '') {
+            return null;
+        }
+
+        $query = [];
+        parse_str($queryString, $query);
+        $siteId = $query['site_id'] ?? null;
+
+        return is_scalar($siteId) ? (string) $siteId : null;
     }
 }

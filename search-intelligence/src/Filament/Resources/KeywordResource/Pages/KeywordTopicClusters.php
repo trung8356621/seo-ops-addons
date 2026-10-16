@@ -351,8 +351,7 @@ final class KeywordTopicClusters extends Page
 
         return $siteId > 0
             && KeywordQualitySchema::tablesReady()
-            && SeoAccessControl::canMutateInSeoPanel()
-            && SeoAccessControl::canAccessPlannerFeatures()
+            && KeywordQualitySourceSettings::canAccess()
             && SeoAccessControl::canAccessSite($siteId);
     }
 
