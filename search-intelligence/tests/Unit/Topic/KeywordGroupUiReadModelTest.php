@@ -81,6 +81,13 @@ final class KeywordGroupUiReadModelTest extends TestCase
         self::assertCount(1, $page->items()[0]['members']);
         self::assertSame(1, (int) $page->items()[0]['member_count']);
 
+        $viPage = $reader->paginateGroups(self::SITE, 1, 20, ['vi']);
+        self::assertCount(1, $viPage->items());
+        self::assertSame(1, (int) $viPage->items()[0]['member_count']);
+        self::assertSame([], $reader->paginateGroups(self::SITE, 1, 20, ['en'])->items());
+        self::assertSame(1, $reader->groupCount(self::SITE, ['vi']));
+        self::assertSame(0, $reader->groupCount(self::SITE, ['en']));
+
         app(KeywordGroupManualService::class)->assignKeyword(self::SITE, $unassignedVi, (int) $group->id);
         self::assertSame(1, $reader->unassignedCount(self::SITE, ['vi']));
         self::assertSame([], $reader->searchUnassigned(self::SITE, 'cặp', ['vi']));

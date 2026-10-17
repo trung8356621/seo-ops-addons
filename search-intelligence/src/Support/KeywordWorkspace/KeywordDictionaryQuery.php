@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 
 /**
@@ -153,15 +154,20 @@ final class KeywordDictionaryQuery
             ->leftJoin('keyword_meta as list_legacy_focus_meta', function ($join): void {
                 $join->on('list_legacy_focus_meta.keyword_id', '=', 'keywords.id')
                     ->where('list_legacy_focus_meta.meta_key', '=', KeywordMetaKey::MainArticleId->value);
-            })
-            ->leftJoin('articles as list_focus_article', function ($join) use ($siteId): void {
-                $join->on('list_focus_article.id', '=', DB::raw(
-                    'COALESCE(list_site_focus_meta.meta_value, list_legacy_focus_meta.meta_value)',
-                ))
-                    ->where('list_focus_article.site_id', '=', $siteId)
-                    ->whereNull('list_focus_article.deleted_at');
-            })
-            ->selectRaw('CASE WHEN list_focus_article.id IS NULL THEN 0 ELSE 1 END as focus_article_count');
+            });
+
+        // Do not join `articles` here. Dictionary filters use EXISTS (SELECT * FROM articles),
+        // and MySQL treats review_status as ambiguous when articles is also in the outer FROM.
+        $focusArticleId = '(SELECT list_focus_article.id FROM articles list_focus_article '
+            .'WHERE list_focus_article.id = COALESCE(list_site_focus_meta.meta_value, list_legacy_focus_meta.meta_value) '
+            .'AND list_focus_article.site_id = ? '
+            .'AND list_focus_article.deleted_at IS NULL '
+            .'LIMIT 1)';
+
+        $query->selectRaw(
+            'CASE WHEN '.$focusArticleId.' IS NULL THEN 0 ELSE 1 END as focus_article_count',
+            [$siteId],
+        );
 
         $query->selectRaw(
             '(SELECT COUNT(DISTINCT list_maps.source_article_id) '
@@ -172,10 +178,12 @@ final class KeywordDictionaryQuery
             .'AND list_maps.status != ? '
             .'AND list_sources.deleted_at IS NULL '
             .'AND list_sources.site_id = ? '
-            .'AND (list_focus_article.id IS NULL '
-            .'OR list_maps.source_article_id != list_focus_article.id)) as linked_article_count',
+            .'AND ('.$focusArticleId.' IS NULL '
+            .'OR list_maps.source_article_id != '.$focusArticleId.')) as linked_article_count',
             [
                 SeoLinkMapStatus::Ignored->value,
+                $siteId,
+                $siteId,
                 $siteId,
             ],
         );
@@ -253,6 +261,7 @@ final class KeywordDictionaryQuery
                 ->from('seo_topic_keywords')
                 ->whereColumn('seo_topic_keywords.keyword_id', 'keywords.id')
                 ->where('seo_topic_keywords.site_id', $siteId);
+            app(KeywordQualityTopicFilter::class)->apply($sub, $siteId, 'seo_topic_keywords.keyword_id');
         };
 
         if ($assignment === 'unassigned' || $assignment === 'none' || $assignment === '0') {
@@ -341,7 +350,7 @@ final class KeywordDictionaryQuery
     {
         return $query->where(function (Builder $builder): void {
             $builder
-                ->whereIn('review_status', ['danger', 'warning'])
+                ->whereIn('keywords.review_status', ['danger', 'warning'])
                 ->orWhereHas(
                     'metas',
                     static fn (Builder $meta): Builder => $meta
@@ -367,7 +376,7 @@ final class KeywordDictionaryQuery
                         'linkMaps',
                         static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
                     );
-            })->where('review_status', 'active'),
+            })->where('keywords.review_status', 'active'),
             false,
         );
     }

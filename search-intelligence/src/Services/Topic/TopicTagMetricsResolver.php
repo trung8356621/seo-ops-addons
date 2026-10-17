@@ -9,6 +9,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Batch Topic tag metrics (intent / coverage / Auto|Manual) from Topic Core tables.
@@ -61,7 +62,7 @@ final class TopicTagMetricsResolver
             return $out;
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
 
         /** @var array<int, string> $topicSourceById */
         $topicSourceById = SeoTopic::query()

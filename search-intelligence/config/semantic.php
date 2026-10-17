@@ -44,5 +44,20 @@ return [
      */
     'keyword_group_batch_size' => max(1, min(2000, (int) env('SEMANTIC_KEYWORD_GROUP_BATCH_SIZE', 1000))),
 
+    /**
+     * Full-set cluster call. Pairwise hybrid grouping for several thousand
+     * keywords runs far longer than a single embedding batch.
+     */
+    'keyword_group_cluster_timeout' => max(120, (int) env('SEMANTIC_KEYWORD_GROUP_CLUSTER_TIMEOUT', 1800)),
+
+    /** Dataset batch upload. Independent of the long cluster timeout. */
+    'keyword_group_dataset_batch_size' => max(1, min(1000, (int) env('SEMANTIC_KEYWORD_GROUP_DATASET_BATCH_SIZE', 1000))),
+
+    'keyword_group_dataset_timeout' => max(1, (int) env('SEMANTIC_KEYWORD_GROUP_DATASET_TIMEOUT', 60)),
+
+    'keyword_group_dataset_retries' => max(1, (int) env('SEMANTIC_KEYWORD_GROUP_DATASET_RETRIES', 3)),
+
+    'keyword_group_dataset_lock_seconds' => max(30, (int) env('SEMANTIC_KEYWORD_GROUP_DATASET_LOCK_SECONDS', 600)),
+
     'wiki_suggestions' => (bool) env('SEMANTIC_WIKI_SUGGESTIONS', false),
 ];

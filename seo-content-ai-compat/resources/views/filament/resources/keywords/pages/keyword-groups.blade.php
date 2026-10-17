@@ -28,6 +28,7 @@
                     wire:click="refreshSemanticGroups"
                     wire:loading.attr="disabled"
                     wire:target="refreshSemanticGroups"
+                    @disabled($this->analysisActive)
                 >
                     <svg wire:loading wire:target="refreshSemanticGroups" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -37,6 +38,30 @@
                 </button>
             @endif
         </header>
+
+        @if ($analysisPhase !== 'idle')
+            <div
+                class="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm dark:border-gray-800 dark:bg-gray-900"
+                @if ($analysisActive) wire:poll.5s="refreshAnalysisStatus" @endif
+            >
+                <p class="font-medium text-gray-950 dark:text-white">
+                    {{ __('seo-content-ai::filament.keyword.keyword_group_analysis_phase_'.$analysisPhase) }}
+                </p>
+                @if (in_array($analysisPhase, ['finalizing', 'finalized'], true) && ($analysisGroups > 0 || $analysisMembers > 0))
+                    <p class="mt-1 text-gray-600 dark:text-gray-300">
+                        {{ __('seo-content-ai::filament.keyword.keyword_group_analysis_counts', ['groups' => $analysisGroups, 'members' => $analysisMembers]) }}
+                    </p>
+                @endif
+                @if ($analysisError)
+                    <p class="mt-1 text-danger-600 dark:text-danger-400">{{ $analysisError }}</p>
+                @endif
+                @if ($analysisWorkerWarning)
+                    <p class="mt-1 text-warning-600 dark:text-warning-400">
+                        {{ __('seo-content-ai::filament.keyword.keyword_group_analysis_worker') }}
+                    </p>
+                @endif
+            </div>
+        @endif
 
         @if ($canMutate)
             <form class="flex flex-wrap items-center gap-2" wire:submit="createGroup">
@@ -64,6 +89,7 @@
             </span>
         </div>
 
+        <div wire:loading.class="opacity-60 pointer-events-none" wire:target="keywordLanguageFilter">
         @forelse ($groups as $group)
             @php
                 $groupId = (int) $group['id'];
@@ -76,7 +102,7 @@
             @endphp
             <article
                 id="keyword-group-{{ $groupId }}"
-                wire:key="keyword-group-card-{{ $groupId }}"
+                wire:key="keyword-group-card-{{ $groupId }}-{{ $this->keywordLanguageFilter }}"
                 class="rounded-xl border bg-white p-4 dark:bg-gray-900 {{ $focused ? 'border-primary-500' : 'border-gray-200 dark:border-gray-800' }}"
                 @if ($canMutate)
                     x-data="{
@@ -474,6 +500,7 @@
         @empty
             <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.keyword.keyword_group_empty') }}</p>
         @endforelse
+        </div>
 
         @if ($groups->hasPages())
             <div class="pt-2">

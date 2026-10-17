@@ -67,6 +67,7 @@ class ListKeywords extends ListRecords
     {
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->syncQualityScanWatch();
     }
 
     public function getKeywordWorkspaceMode(): string
@@ -79,7 +80,7 @@ class ListKeywords extends ListRecords
         $this->canAccessDictionarySite = null;
         $this->dictionaryStatFilter = null;
         $this->qualityCardFilter = null;
-        $this->qualityScanPolling = false;
+        $this->syncQualityScanWatch();
         $this->resetPage();
         $this->flushCachedTableRecords();
     }
@@ -736,18 +737,43 @@ class ListKeywords extends ListRecords
         $actions = [];
 
         $actions[] = Actions\Action::make('quality_scan')
-            ->label(__('seo-content-ai::filament.keyword.quality_scan'))
-            ->icon('heroicon-o-tag')
+            ->label(function (): string {
+                $progress = $this->qualityScanProgress();
+                if ($progress['status'] === 'queued' && $progress['active']) {
+                    return __('seo-content-ai::filament.keyword.quality_scan_queued_label');
+                }
+                if ($progress['active']) {
+                    return __('seo-content-ai::filament.keyword.quality_scan_running', [
+                        'processed' => $progress['processed'],
+                        'total' => $progress['total'],
+                    ]);
+                }
+
+                return __('seo-content-ai::filament.keyword.quality_scan');
+            })
+            ->icon(fn (): string => $this->qualityScanProgress()['active'] ? 'heroicon-o-arrow-path' : 'heroicon-o-tag')
+            ->color(fn (): string => $this->qualityScanProgress()['active'] ? 'warning' : 'primary')
+            ->disabled(fn (): bool => $this->qualityScanProgress()['active'])
             ->visible(fn (): bool => $this->canManageKeywordQualitySite())
             ->action(function (): void {
                 $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
                 if (! $this->canManageKeywordQualitySite()) {
                     return;
                 }
-                app(KeywordQualityService::class)->noteScanQueued($siteId);
+                $service = app(KeywordQualityService::class);
+                if ($service->scanProgress($siteId)['active']) {
+                    $this->qualityScanProgressCache = null;
+                    $this->qualityScanPolling = true;
+                    Notification::make()->title(__('seo-content-ai::filament.keyword.quality_scan_busy'))->info()->send();
+
+                    return;
+                }
+                ScanKeywordQualityJob::releaseLocks($siteId);
+                $service->noteScanQueued($siteId);
                 ScanKeywordQualityJob::dispatch($siteId);
+                $this->qualityScanProgressCache = null;
                 $this->qualityScanPolling = true;
-                Notification::make()->title(__('seo-content-ai::filament.keyword.quality_scan_queued'))->success()->send();
+                Notification::make()->title(__('seo-content-ai::filament.keyword.quality_scan_queued'))->info()->send();
             });
         $actions[] = Actions\Action::make('add_keywords')
             ->label(__('seo-content-ai::filament.keyword.add_keyword'))
@@ -838,32 +864,46 @@ class ListKeywords extends ListRecords
             return;
         }
 
-        $summary = $this->keywordQualitySummary();
-        if ($summary === null) {
-            $this->qualityScanPolling = false;
-
-            return;
-        }
-
-        $status = (string) ($summary['scan_status'] ?? '');
-        if ($status === '' || $status === 'queued' || $status === 'running') {
+        $this->qualityScanProgressCache = null;
+        $progress = $this->qualityScanProgress();
+        if ($progress['active']) {
             return;
         }
 
         $this->qualityScanPolling = false;
-        if ($status === 'failed') {
+        if ($progress['stale']) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.quality_scan_stale'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if ($progress['status'] === 'failed') {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.quality_scan_failed'))
-                ->body((string) ($summary['scan_error'] ?? ''))
+                ->body((string) ($progress['error'] ?? ''))
                 ->danger()
                 ->send();
 
             return;
         }
 
+        if ($progress['status'] !== 'done') {
+            return;
+        }
+
         $this->flushCachedTableRecords();
         $this->clearKeywordDictionaryStats();
         $this->reloadKeywordWorkspaceStatisticsAfterRender();
+        Notification::make()
+            ->title(__('seo-content-ai::filament.keyword.quality_scan_done', [
+                'processed' => $progress['processed'],
+                'total' => $progress['total'],
+            ]))
+            ->success()
+            ->send();
     }
 
     public function keywordQualitySummary(): ?array
@@ -878,6 +918,29 @@ class ListKeywords extends ListRecords
             $this->resolveKeywordLanguageFilterVariants(),
             $this->currentDictionaryFilterBag(false),
         );
+    }
+
+    /** @var array{status: ?string, processed: int, total: int, error: ?string, stale: bool, active: bool}|null */
+    private ?array $qualityScanProgressCache = null;
+
+    /**
+     * @return array{status: ?string, processed: int, total: int, error: ?string, stale: bool, active: bool}
+     */
+    private function qualityScanProgress(): array
+    {
+        if ($this->qualityScanProgressCache !== null) {
+            return $this->qualityScanProgressCache;
+        }
+
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        return $this->qualityScanProgressCache = app(KeywordQualityService::class)->scanProgress($siteId);
+    }
+
+    private function syncQualityScanWatch(): void
+    {
+        $this->qualityScanProgressCache = null;
+        $this->qualityScanPolling = $this->qualityScanProgress()['active'];
     }
 
     private function canManageKeywordQualitySite(): bool

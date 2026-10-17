@@ -9,6 +9,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscape;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordLandscapeTopic;
 
@@ -193,6 +194,7 @@ final class KeywordLandscapeReadModel
             ->where('site_id', $siteId)
             ->whereIn('topic_id', $topicIds)
             ->get(['topic_id', 'keyword_id', 'value']);
+        $excludeKeywordIds = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $excludeKeywordIds);
 
         /** @var array<int, array<string, array{phrase: string, weight: int}>> $byTopic */
         $byTopic = [];

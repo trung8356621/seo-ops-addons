@@ -46,8 +46,8 @@ class KeywordQualitySourceSettings extends Page implements HasForms
         abort_unless(static::canAccess(), 403);
 
         $requested = $this->explicitRequestSiteId();
-        $siteId = $requested > 0 ? $requested : (int) (SeoAccessControl::globalSiteId() ?? 0);
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $siteId = $this->resolveOwnerSiteId();
+        abort_unless($siteId > 0, 403);
 
         $site = Site::query()->find($siteId);
         abort_unless($site instanceof Site, 404);
@@ -110,14 +110,8 @@ class KeywordQualitySourceSettings extends Page implements HasForms
         }
 
         $user = auth()->user();
-        if ($user instanceof User
-            && in_array((string) $user->role, [User::ROLE_OWNER, User::ROLE_ADMIN], true)
-        ) {
-            return true;
-        }
 
-        return SeoAccessControl::canMutateInSeoPanel()
-            && SeoAccessControl::canAccessPlannerFeatures();
+        return $user instanceof User && (string) $user->role === User::ROLE_OWNER;
     }
 
     public static function urlForSite(int $siteId): string
@@ -142,6 +136,27 @@ class KeywordQualitySourceSettings extends Page implements HasForms
         }
 
         return $siteId;
+    }
+
+    /**
+     * Owner account scope only. Admin root stays on SiteAccess and cannot
+     * borrow another account's sites.
+     */
+    private function resolveOwnerSiteId(): int
+    {
+        $requested = $this->explicitRequestSiteId();
+        if ($requested > 0) {
+            return SeoAccessControl::canAccessSite($requested) ? $requested : 0;
+        }
+
+        $global = (int) (SeoAccessControl::globalSiteId() ?? 0);
+        if ($global > 0 && SeoAccessControl::canAccessSite($global)) {
+            return $global;
+        }
+
+        $fallback = SeoAccessControl::accessibleSitesQuery()->orderBy('id')->value('id');
+
+        return is_numeric($fallback) ? (int) $fallback : 0;
     }
 
     private function explicitRequestSiteId(): int

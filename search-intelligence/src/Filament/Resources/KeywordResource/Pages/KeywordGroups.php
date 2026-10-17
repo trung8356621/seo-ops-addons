@@ -15,12 +15,13 @@ use Livewire\WithPagination;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupAnalysisDispatcher;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshOutcome;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticSearchService;
-use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticHttpException;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceMetricCache;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -80,6 +81,18 @@ final class KeywordGroups extends Page
      */
     public array $recheckInFlight = [];
 
+    public string $analysisPhase = 'idle';
+
+    public ?string $analysisError = null;
+
+    public int $analysisGroups = 0;
+
+    public int $analysisMembers = 0;
+
+    public bool $analysisWorkerWarning = false;
+
+    public bool $analysisActive = false;
+
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
@@ -87,6 +100,7 @@ final class KeywordGroups extends Page
             return;
         }
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->loadAnalysisStatus();
         $this->focusGroupPageIfNeeded();
     }
 
@@ -112,6 +126,14 @@ final class KeywordGroups extends Page
         $this->resetMemberState();
         $this->resetPage();
         $this->clearKeywordWorkspaceTabCountsCache();
+        $this->loadAnalysisStatus();
+    }
+
+    public function onKeywordWorkspaceLanguageFilterChanged(): void
+    {
+        $this->semanticSuggestions = [];
+        $this->resetMemberState();
+        $this->loadAnalysisStatus();
     }
 
     public function canMutateKeywordGroups(): bool
@@ -524,20 +546,28 @@ final class KeywordGroups extends Page
         }
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        app(KeywordGroupSemanticReadiness::class)->markPending($siteId);
-        try {
-            RefreshKeywordGroupsJob::dispatchSync(
-                $siteId,
-                $this->keywordLanguageFilter,
-                $this->resolveKeywordLanguageFilterVariants(),
-            );
-        } catch (SemanticHttpException $e) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.keyword_group_refresh_failed'))
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
+        $result = app(KeywordGroupAnalysisDispatcher::class)->enqueue(
+            $siteId,
+            $this->keywordLanguageFilter !== '' ? $this->keywordLanguageFilter : null,
+        );
+        $this->loadAnalysisStatus();
+        $title = match ($result) {
+            'queued' => __('seo-content-ai::filament.keyword.keyword_group_analysis_queued'),
+            'busy' => __('seo-content-ai::filament.keyword.keyword_group_analysis_busy'),
+            'sync_driver' => __('seo-content-ai::filament.keyword.keyword_group_analysis_sync_driver'),
+            default => __('seo-content-ai::filament.keyword.keyword_group_refresh_failed'),
+        };
+        Notification::make()
+            ->title($title)
+            ->{$result === 'queued' ? 'success' : 'warning'}()
+            ->send();
+    }
 
+    public function refreshAnalysisStatus(): void
+    {
+        $previous = $this->analysisPhase;
+        $this->loadAnalysisStatus();
+        if ($previous === 'finalized' || $this->analysisPhase !== 'finalized') {
             return;
         }
 
@@ -546,8 +576,47 @@ final class KeywordGroups extends Page
         $this->afterGroupMutation(countsMayChange: true);
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.keyword_group_refresh_done'))
+            ->body(__('seo-content-ai::filament.keyword.keyword_group_analysis_counts', [
+                'groups' => $this->analysisGroups,
+                'members' => $this->analysisMembers,
+            ]))
             ->success()
             ->send();
+    }
+
+    /**
+     * Technical fallback for the previous synchronous pipeline. The page button does not call this.
+     */
+    private function fallbackRefreshSemanticGroupsSynchronously(): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        app(KeywordGroupSemanticReadiness::class)->markPending($siteId);
+        KeywordGroupRefreshOutcome::clear();
+        RefreshKeywordGroupsJob::dispatchSync(
+            $siteId,
+            $this->keywordLanguageFilter,
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
+    }
+
+    private function loadAnalysisStatus(): void
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        $language = $this->keywordLanguageFilter !== '' ? $this->keywordLanguageFilter : null;
+        $dispatcher = app(KeywordGroupAnalysisDispatcher::class);
+        $status = $dispatcher->status($siteId, $language);
+        if ($status['phase'] === 'idle' && $language !== null && $language === $this->resolveKeywordWorkspacePrimaryLanguage()) {
+            $legacy = $dispatcher->status($siteId, null);
+            if ($legacy['phase'] !== 'idle') {
+                $status = $legacy;
+            }
+        }
+        $this->analysisPhase = $status['phase'];
+        $this->analysisError = $status['error'];
+        $this->analysisGroups = $status['group_count'];
+        $this->analysisMembers = $status['member_count'];
+        $this->analysisWorkerWarning = $status['worker_warning'];
+        $this->analysisActive = $status['active'];
     }
 
     private function isRecheckBusy(): bool
@@ -563,7 +632,10 @@ final class KeywordGroups extends Page
         }
 
         $perPage = KeywordGroupReadModel::DEFAULT_PER_PAGE;
-        $total = (int) SeoKeywordGroup::query()->where('site_id', $siteId)->count();
+        $total = app(KeywordGroupReadModel::class)->groupCount(
+            $siteId,
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
         $lastPage = max(1, (int) ceil($total / $perPage));
         if ($this->getPage() > $lastPage) {
             $this->setPage($lastPage);
@@ -579,6 +651,7 @@ final class KeywordGroups extends Page
             $groupId,
             KeywordGroupReadModel::MEMBER_PAGE_SIZE,
             $offset,
+            $this->resolveKeywordLanguageFilterVariants(),
         );
 
         if ($reset) {
@@ -605,6 +678,7 @@ final class KeywordGroups extends Page
             $siteId,
             $groupId,
             KeywordGroupReadModel::DEFAULT_PER_PAGE,
+            $this->resolveKeywordLanguageFilterVariants(),
         );
         if ($page !== null) {
             $this->setPage($page);

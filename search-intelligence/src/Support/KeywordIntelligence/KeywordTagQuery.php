@@ -58,7 +58,7 @@ final class KeywordTagQuery
 
         return match ($tag) {
             KeywordTag::SEO_EXCLUDED => $query->whereHas('metas', $hiddenMeta),
-            KeywordTag::ERROR => $query->whereIn('review_status', [
+            KeywordTag::ERROR => $query->whereIn('keywords.review_status', [
                 KeywordReviewStatus::Danger->value,
                 KeywordReviewStatus::Warning->value,
             ]),

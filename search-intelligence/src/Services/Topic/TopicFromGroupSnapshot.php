@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupTopicCandidatePolicy;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Cheap aggregate counts for Topic rebuild modal — COUNT only, no hydration.
@@ -78,9 +79,15 @@ final class TopicFromGroupSnapshot
         $noFocus = 0;
         $blocked = 0;
         $overrideReady = KeywordGroupSchema::topicCandidateOverrideReady();
+        $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
 
         foreach ($rows as $row) {
             $kid = (int) ($row->keyword_id ?? 0);
+            if (isset($excluded[$kid])) {
+                $blocked++;
+
+                continue;
+            }
             if ($overrideReady) {
                 $raw = $row->topic_candidate_override ?? null;
                 $override = $raw === null ? null : (bool) $raw;

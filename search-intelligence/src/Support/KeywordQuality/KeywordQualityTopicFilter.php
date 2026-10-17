@@ -79,4 +79,13 @@ final class KeywordQualityTopicFilter
 
         return $set;
     }
+
+    /**
+     * @param  array<int, true>  $exclude
+     * @return array<int, true>
+     */
+    public function mergeExcluded(int $siteId, array $exclude): array
+    {
+        return $exclude + $this->excludedIdSet($siteId);
+    }
 }

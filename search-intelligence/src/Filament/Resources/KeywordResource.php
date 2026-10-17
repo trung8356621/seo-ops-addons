@@ -1359,8 +1359,8 @@ class KeywordResource extends SeoPanelResource
     {
         return $query->where(function (Builder $builder): void {
             $builder
-                ->whereNull('type')
-                ->orWhere('type', '!=', Keyword::TYPE_SUGGEST);
+                ->whereNull('keywords.type')
+                ->orWhere('keywords.type', '!=', Keyword::TYPE_SUGGEST);
         });
     }
 
@@ -1447,7 +1447,7 @@ class KeywordResource extends SeoPanelResource
      */
     private static function wordCountExpression(): string
     {
-        $normalized = "TRIM(REPLACE(REPLACE(REPLACE(`phrase`, CHAR(9), ' '), CHAR(10), ' '), CHAR(13), ' '))";
+        $normalized = "TRIM(REPLACE(REPLACE(REPLACE(`keywords`.`phrase`, CHAR(9), ' '), CHAR(10), ' '), CHAR(13), ' '))";
         // Gộp '  ' → ' ' (4 vòng đủ cho phrase keyword thông thường).
         $collapsed = "REPLACE(REPLACE(REPLACE(REPLACE({$normalized}, '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')";
 

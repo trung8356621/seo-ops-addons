@@ -51,7 +51,16 @@
             </button>
         @endforeach
     </div>
-    @if (($quality['scan_status'] ?? null) !== null)
+    @if (! empty($quality['scan_stale']))
+        <p class="keyword-quality-scan-status">
+            {{ __('seo-content-ai::filament.keyword.quality_scan_stale') }}
+            {{ __('seo-content-ai::filament.keyword.quality_scan_status', [
+                'status' => $quality['scan_status'],
+                'processed' => $quality['scan_processed'],
+                'total' => $quality['scan_total'],
+            ]) }}
+        </p>
+    @elseif (($quality['scan_status'] ?? null) !== null)
         <p class="keyword-quality-scan-status">
             {{ __('seo-content-ai::filament.keyword.quality_scan_status', [
                 'status' => $quality['scan_status'],

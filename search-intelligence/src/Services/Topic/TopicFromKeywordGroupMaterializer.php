@@ -162,10 +162,6 @@ final class TopicFromKeywordGroupMaterializer
         }
 
         $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
-        $existingTopicKeywordIds = array_fill_keys(
-            SeoTopicKeyword::query()->where('site_id', $siteId)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all(),
-            true,
-        );
         $keywordIds = $memberships->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
         $phrases = Keyword::query()->whereIn('id', $keywordIds)->pluck('phrase', 'id')->all();
         $focusMap = KeywordGroupSchema::topicCandidateOverrideReady()
@@ -378,7 +374,7 @@ final class TopicFromKeywordGroupMaterializer
             if (isset($assigned[$kid])) {
                 continue;
             }
-            if (isset($excluded[$kid]) && ! isset($existingTopicKeywordIds[$kid])) {
+            if (isset($excluded[$kid])) {
                 continue;
             }
             $phrase = $member['phrase'];

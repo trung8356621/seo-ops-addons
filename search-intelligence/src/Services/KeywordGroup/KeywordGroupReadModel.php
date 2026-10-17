@@ -40,7 +40,6 @@ final class KeywordGroupReadModel
         int $perPage = self::DEFAULT_PER_PAGE,
         ?array $languageVariants = null,
     ): LengthAwarePaginator {
-        unset($languageVariants);
         $perPage = max(1, min(50, $perPage));
         $page = max(1, $page);
 
@@ -49,9 +48,14 @@ final class KeywordGroupReadModel
         }
 
         // Stable identity order — mutable Group name must not reshuffle cards.
-        $groupQuery = SeoKeywordGroup::query()
-            ->where('site_id', $siteId)
-            ->withCount('memberships');
+        $groupQuery = SeoKeywordGroup::query()->where('site_id', $siteId);
+        $this->constrainGroupsToLanguage($groupQuery, $siteId, $languageVariants);
+        $groupQuery->withCount([
+            'memberships as memberships_count' => function ($query) use ($siteId, $languageVariants): void {
+                $query->where('seo_keyword_group_keywords.site_id', $siteId);
+                $this->constrainMembershipLanguage($query, $siteId, $languageVariants);
+            },
+        ]);
         if (KeywordGroupSchema::topicLinkReady()) {
             $groupQuery->withCount('topics');
         }
@@ -74,7 +78,7 @@ final class KeywordGroupReadModel
             ->pluck('id')
             ->map(static fn ($id): int => (int) $id)
             ->all();
-        $memberPreview = $this->firstMemberBatches($siteId, $groupIds, self::MEMBER_PAGE_SIZE);
+        $memberPreview = $this->firstMemberBatches($siteId, $groupIds, self::MEMBER_PAGE_SIZE, $languageVariants);
 
         $rows = $paginator->getCollection()->map(function ($group) use ($phrases, $memberPreview): array {
             $groupId = (int) $group->id;
@@ -102,12 +106,26 @@ final class KeywordGroupReadModel
     }
 
     /**
-     * First member batch only for Groups on the current page.
-     *
+     * @param  list<string>|null  $languageVariants
+     */
+    public function groupCount(int $siteId, ?array $languageVariants = null): int
+    {
+        if ($siteId <= 0 || ! KeywordGroupSchema::tablesReady()) {
+            return 0;
+        }
+
+        $query = SeoKeywordGroup::query()->where('site_id', $siteId);
+        $this->constrainGroupsToLanguage($query, $siteId, $languageVariants);
+
+        return (int) $query->count();
+    }
+
+    /**
+     * @param  list<string>|null  $languageVariants
      * @param  list<int>  $groupIds
      * @return array<int, array{members: list<array<string, mixed>>, has_more: bool}>
      */
-    private function firstMemberBatches(int $siteId, array $groupIds, int $limit): array
+    private function firstMemberBatches(int $siteId, array $groupIds, int $limit, ?array $languageVariants = null): array
     {
         $out = [];
         foreach ($groupIds as $groupId) {
@@ -127,9 +145,11 @@ final class KeywordGroupReadModel
         if (KeywordGroupSchema::topicCandidateOverrideReady()) {
             $select[] = 'topic_candidate_override';
         }
-        $memberships = SeoKeywordGroupKeyword::query()
+        $membershipQuery = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
-            ->whereIn('group_id', array_keys($out))
+            ->whereIn('group_id', array_keys($out));
+        $this->constrainMembershipLanguage($membershipQuery, $siteId, $languageVariants);
+        $memberships = $membershipQuery
             ->orderBy('group_id')
             ->orderBy('keyword_id')
             ->get($select);
@@ -180,26 +200,27 @@ final class KeywordGroupReadModel
     /**
      * 1-based page that contains the Group, or null when not found.
      */
-    public function pageForGroup(int $siteId, int $groupId, int $perPage = self::DEFAULT_PER_PAGE): ?int
+    public function pageForGroup(int $siteId, int $groupId, int $perPage = self::DEFAULT_PER_PAGE, ?array $languageVariants = null): ?int
     {
         if ($siteId <= 0 || $groupId <= 0 || ! KeywordGroupSchema::tablesReady()) {
             return null;
         }
 
         $perPage = max(1, min(50, $perPage));
-        $exists = SeoKeywordGroup::query()
+        $existsQuery = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
-            ->whereKey($groupId)
-            ->exists();
-        if (! $exists) {
+            ->whereKey($groupId);
+        $this->constrainGroupsToLanguage($existsQuery, $siteId, $languageVariants);
+        if (! $existsQuery->exists()) {
             return null;
         }
 
         // Same authority as paginateGroups(): orderBy id.
-        $position = (int) SeoKeywordGroup::query()
+        $positionQuery = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
-            ->where('id', '<=', $groupId)
-            ->count();
+            ->where('id', '<=', $groupId);
+        $this->constrainGroupsToLanguage($positionQuery, $siteId, $languageVariants);
+        $position = (int) $positionQuery->count();
 
         if ($position <= 0) {
             return null;
@@ -209,13 +230,14 @@ final class KeywordGroupReadModel
     }
 
     /**
+     * @param  list<string>|null  $languageVariants
      * @return array{
      *     members: list<array<string, mixed>>,
      *     has_more: bool,
      *     total: int
      * }
      */
-    public function groupMembers(int $siteId, int $groupId, int $limit = self::MEMBER_PAGE_SIZE, int $offset = 0): array
+    public function groupMembers(int $siteId, int $groupId, int $limit = self::MEMBER_PAGE_SIZE, int $offset = 0, ?array $languageVariants = null): array
     {
         $limit = max(1, min(200, $limit));
         $offset = max(0, $offset);
@@ -232,10 +254,11 @@ final class KeywordGroupReadModel
             return ['members' => [], 'has_more' => false, 'total' => 0];
         }
 
-        $total = (int) SeoKeywordGroupKeyword::query()
+        $totalQuery = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
-            ->where('group_id', $groupId)
-            ->count();
+            ->where('group_id', $groupId);
+        $this->constrainMembershipLanguage($totalQuery, $siteId, $languageVariants);
+        $total = (int) $totalQuery->count();
 
         $select = ['keyword_id'];
         if (KeywordGroupSchema::topicCandidateReady()) {
@@ -244,9 +267,11 @@ final class KeywordGroupReadModel
         if (KeywordGroupSchema::topicCandidateOverrideReady()) {
             $select[] = 'topic_candidate_override';
         }
-        $memberships = SeoKeywordGroupKeyword::query()
+        $membershipQuery = SeoKeywordGroupKeyword::query()
             ->where('site_id', $siteId)
-            ->where('group_id', $groupId)
+            ->where('group_id', $groupId);
+        $this->constrainMembershipLanguage($membershipQuery, $siteId, $languageVariants);
+        $memberships = $membershipQuery
             ->orderBy('keyword_id')
             ->offset($offset)
             ->limit($limit)
@@ -456,6 +481,45 @@ final class KeywordGroupReadModel
         }
 
         return array_values($tokens);
+    }
+
+    /**
+     * @param  list<string>|null  $languageVariants
+     * @return Builder<Keyword>
+     */
+    /**
+     * Groups stay language-neutral in storage. A selected language shows a group
+     * only when it still has a member inside that language inventory.
+     *
+     * @param  Builder<SeoKeywordGroup>  $query
+     * @param  list<string>|null  $languageVariants
+     */
+    private function constrainGroupsToLanguage(Builder $query, int $siteId, ?array $languageVariants): void
+    {
+        if ($languageVariants === null) {
+            return;
+        }
+
+        $query->whereHas('memberships', function ($memberships) use ($siteId, $languageVariants): void {
+            $memberships->where('seo_keyword_group_keywords.site_id', $siteId);
+            $this->constrainMembershipLanguage($memberships, $siteId, $languageVariants);
+        });
+    }
+
+    /**
+     * @param  Builder<SeoKeywordGroupKeyword>  $query
+     * @param  list<string>|null  $languageVariants
+     */
+    private function constrainMembershipLanguage(Builder $query, int $siteId, ?array $languageVariants): void
+    {
+        if ($languageVariants === null) {
+            return;
+        }
+
+        $query->whereIn(
+            'keyword_id',
+            app(KeywordUiInventoryQuery::class)->keywordIdSubquery($siteId, $languageVariants),
+        );
     }
 
     /**

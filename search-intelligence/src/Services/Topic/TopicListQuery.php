@@ -321,6 +321,7 @@ final class TopicListQuery
                 $memberQuery->whereIn('keyword_id', $allowedKeywordIds);
             }
         }
+        app(KeywordQualityTopicFilter::class)->apply($memberQuery, $siteId, 'seo_topic_keywords.keyword_id');
         $memberCounts = $memberQuery
             ->selectRaw('topic_id, COUNT(*) as member_count, SUM(CASE WHEN is_locked = 1 THEN 1 ELSE 0 END) as locked_member_count')
             ->groupBy('topic_id')
@@ -329,9 +330,11 @@ final class TopicListQuery
 
         $rawMemberTotals = [];
         if ($allowedKeywordIds !== null) {
-            $rawMemberTotals = SeoTopicKeyword::query()
+            $rawMemberQuery = SeoTopicKeyword::query()
                 ->where('site_id', $siteId)
-                ->whereIn('topic_id', $topicIds)
+                ->whereIn('topic_id', $topicIds);
+            app(KeywordQualityTopicFilter::class)->apply($rawMemberQuery, $siteId, 'seo_topic_keywords.keyword_id');
+            $rawMemberTotals = $rawMemberQuery
                 ->selectRaw('topic_id, COUNT(*) as member_count')
                 ->groupBy('topic_id')
                 ->pluck('member_count', 'topic_id')
@@ -492,6 +495,7 @@ final class TopicListQuery
                     ->whereColumn('locked_members.topic_id', 'seo_topics.id')
                     ->where('locked_members.site_id', $siteId)
                     ->where('locked_members.is_locked', true);
+                app(KeywordQualityTopicFilter::class)->apply($members, $siteId, 'locked_members.keyword_id');
                 if ($allowedKeywordIds !== null) {
                     $members->whereIn('locked_members.keyword_id', clone $allowedKeywordIds);
                 }
@@ -630,6 +634,7 @@ final class TopicListQuery
             ->where('focus_members.site_id', $siteId)
             ->where('focus_articles.site_id', $siteId)
             ->whereNull('focus_articles.deleted_at');
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'focus_members.keyword_id');
         if ($allowedKeywordIds !== null) {
             $query->whereIn('focus_members.keyword_id', clone $allowedKeywordIds);
         }
@@ -731,6 +736,7 @@ final class TopicListQuery
                 $membershipLockedQuery->whereIn('keyword_id', $allowedKeywordIds);
             }
         }
+        app(KeywordQualityTopicFilter::class)->apply($membershipLockedQuery, $siteId, 'seo_topic_keywords.keyword_id');
         $membershipLocked = (int) $membershipLockedQuery->count();
 
         return [

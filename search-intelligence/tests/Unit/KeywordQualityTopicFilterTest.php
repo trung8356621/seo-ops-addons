@@ -10,9 +10,16 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Support\Facades\Queue;
+use Omnichannel\Addons\SearchIntelligence\Jobs\ScanKeywordQualityJob;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality\KeywordQualityService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\Contracts\TopicGroupingProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingInput;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\Grouping\TopicGroupingProposal;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicReclusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicSiteKeywordService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
@@ -213,6 +220,194 @@ final class KeywordQualityTopicFilterTest extends TestCase
         self::assertSame(1, DB::connection('omi_seo_ai')->table('seo_keyword_quality_tags')->count());
         self::assertSame($before, SeoTopicKeyword::query()->count());
         self::assertSame(0, DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_B)->count());
+    }
+
+    public function test_scan_progress_stays_active_until_terminal_and_unlocks_when_stale(): void
+    {
+        $service = app(KeywordQualityService::class);
+        $service->noteScanQueued(self::SITE_A);
+        $queued = $service->scanProgress(self::SITE_A);
+        self::assertSame('queued', $queued['status']);
+        self::assertTrue($queued['active']);
+        self::assertFalse($queued['stale']);
+        self::assertSame(0, $queued['processed']);
+
+        $id = $this->keyword('balo học sinh', self::SITE_A);
+        $service->scanPhrases(self::SITE_A, [$id => 'balo học sinh']);
+        $done = $service->scanProgress(self::SITE_A);
+        self::assertSame('done', $done['status']);
+        self::assertFalse($done['active']);
+        self::assertSame(1, $done['processed']);
+        self::assertSame(1, $done['total']);
+        self::assertFalse($service->summary(self::SITE_A)['scan_stale']);
+
+        DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_A)->update([
+            'status' => 'running',
+            'total' => 10,
+            'processed' => 4,
+            'last_error' => null,
+            'updated_at' => now()->subSeconds(30),
+        ]);
+        $running = $service->scanProgress(self::SITE_A);
+        self::assertTrue($running['active']);
+        self::assertSame(4, $running['processed']);
+        self::assertSame(10, $running['total']);
+
+        DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_A)->update([
+            'updated_at' => now()->subSeconds(KeywordQualityService::SCAN_STALE_SECONDS + 5),
+        ]);
+        $stale = $service->scanProgress(self::SITE_A);
+        self::assertSame('running', $stale['status']);
+        self::assertTrue($stale['stale']);
+        self::assertFalse($stale['active']);
+        self::assertTrue($service->summary(self::SITE_A)['scan_stale']);
+
+        DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', self::SITE_A)->update([
+            'status' => 'failed',
+            'last_error' => 'boom',
+            'updated_at' => now(),
+        ]);
+        $failed = $service->scanProgress(self::SITE_A);
+        self::assertSame('failed', $failed['status']);
+        self::assertFalse($failed['active']);
+        self::assertFalse($failed['stale']);
+        self::assertSame('boom', $failed['error']);
+    }
+
+    public function test_stale_unique_lock_can_be_released_for_retry(): void
+    {
+        Queue::fake();
+        $job = new ScanKeywordQualityJob(self::SITE_A);
+        $lock = app(UniqueLock::class);
+        self::assertTrue($lock->acquire($job));
+        self::assertFalse($lock->acquire($job));
+
+        ScanKeywordQualityJob::releaseLocks(self::SITE_A);
+        ScanKeywordQualityJob::dispatch(self::SITE_A);
+
+        Queue::assertPushed(ScanKeywordQualityJob::class, 1);
+        ScanKeywordQualityJob::dispatch(self::SITE_A);
+        Queue::assertPushed(ScanKeywordQualityJob::class, 1);
+        self::assertFalse($lock->acquire(new ScanKeywordQualityJob(self::SITE_A)));
+    }
+
+    public function test_policy_gates_manual_tags_reads_and_recluster_without_deleting_rows(): void
+    {
+        $clean = $this->keyword('balo học sinh', self::SITE_A);
+        $manual = $this->keyword('câu này quá dài để là keyword', self::SITE_A);
+        $multi = $this->keyword('mua ngay hôm nay', self::SITE_A);
+        $kept = $this->keyword('túi xách', self::SITE_B);
+        $service = app(KeywordQualityService::class);
+        $service->syncManual(self::SITE_A, $manual, [KeywordQualityCode::SENTENCE_LIKE]);
+        $service->syncManual(self::SITE_A, $multi, [
+            KeywordQualityCode::SENTENCE_LIKE,
+            KeywordQualityCode::CTA_ANCHOR,
+        ]);
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::CTA_ANCHOR, false);
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::SENTENCE_LIKE, false);
+
+        self::assertContains($manual, array_column(
+            app(TopicSiteKeywordService::class)->loadTopicCandidateKeywords(self::SITE_A),
+            'keyword_id',
+        ));
+
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::CTA_ANCHOR, true);
+        $excluded = app(KeywordQualityTopicFilter::class)->excludedIdSet(self::SITE_A);
+        self::assertArrayHasKey($multi, $excluded);
+        self::assertArrayNotHasKey($manual, $excluded);
+        self::assertArrayNotHasKey($clean, $excluded);
+
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::SENTENCE_LIKE, true);
+        $this->membership(self::SITE_A, 7, $manual);
+        $this->membership(self::SITE_B, 8, $kept);
+        $topicRows = SeoTopicKeyword::query()->count();
+        $keywordRows = Keyword::query()->count();
+        $articleRows = DB::connection('omi_seo_ai')->table('articles')->count();
+
+        self::assertSame([], app(TopicMembershipQuery::class)->topicIdsByKeywordId(self::SITE_A, [$manual]));
+        self::assertNull(app(TopicMembershipQuery::class)->topicForKeyword(self::SITE_A, $manual));
+        self::assertSame(8, app(TopicMembershipQuery::class)->topicIdsByKeywordId(self::SITE_B, [$kept])[$kept]);
+        self::assertNotContains($manual, array_column(
+            app(TopicSiteKeywordService::class)->loadTopicCandidateKeywords(self::SITE_A),
+            'keyword_id',
+        ));
+        self::assertSame(0, app(KeywordDictionaryQuery::class)->filtered(self::SITE_A, null, [
+            'topic_assignment' => 'assigned',
+        ])->whereKey($manual)->count());
+
+        $service->scanPhrases(self::SITE_A, [
+            $clean => 'balo học sinh',
+            $manual => 'câu này quá dài để là keyword',
+            $multi => 'mua ngay hôm nay',
+        ]);
+        self::assertSame(1, (int) DB::connection('omi_seo_ai')->table('seo_keyword_quality_policies')
+            ->where('site_id', self::SITE_A)
+            ->where('code', KeywordQualityCode::SENTENCE_LIKE)
+            ->value('exclude_from_topic'));
+        self::assertSame(1, (int) DB::connection('omi_seo_ai')->table('seo_keyword_quality_policies')
+            ->where('site_id', self::SITE_A)
+            ->where('code', KeywordQualityCode::CTA_ANCHOR)
+            ->value('exclude_from_topic'));
+
+        $schema = Schema::connection('omi_seo_ai');
+        $schema->create('seo_topics', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->string('name');
+            $table->string('source')->default('auto');
+            $table->string('status')->default('active');
+            $table->boolean('is_locked')->default(false);
+            $table->timestamps();
+        });
+        $schema->create('seo_site_keywords', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->unsignedBigInteger('keyword_id');
+            $table->boolean('is_seo_keyword')->default(true);
+        });
+        DB::connection('omi_seo_ai')->table('seo_topics')->insert([
+            ['id' => 7, 'site_id' => self::SITE_A, 'name' => 'Balo', 'source' => 'auto', 'status' => 'active', 'is_locked' => 0, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 9, 'site_id' => self::SITE_A, 'name' => 'Khác', 'source' => 'auto', 'status' => 'active', 'is_locked' => 0, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->app->bind(TopicGroupingProvider::class, static fn (): TopicGroupingProvider => new class implements TopicGroupingProvider {
+            public function analyze(TopicGroupingInput $input): TopicGroupingProposal
+            {
+                throw new \RuntimeException('unused');
+            }
+        });
+        app(TopicReclusterService::class)->persistResolvedClusters(self::SITE_A, [[
+            'name' => 'Khác',
+            'topic_id' => 9,
+            'is_locked' => false,
+            'members' => [
+                ['keyword_id' => $clean, 'phrase' => 'balo học sinh', 'source' => 'recluster', 'is_seed' => false, 'confidence' => 0.8, 'is_locked' => false],
+                ['keyword_id' => $manual, 'phrase' => 'câu này quá dài để là keyword', 'source' => 'recluster', 'is_seed' => false, 'confidence' => 0.8, 'is_locked' => false],
+                ['keyword_id' => $multi, 'phrase' => 'mua ngay hôm nay', 'source' => 'recluster', 'is_seed' => false, 'confidence' => 0.8, 'is_locked' => false],
+            ],
+        ]], false, [
+            'locked_topic_ids' => [],
+            'preserved_topic_ids' => [],
+            'locked_keyword_ids' => [],
+            'locked_memberships_by_topic' => [],
+            'topics' => [],
+        ], [], []);
+
+        self::assertSame(7, (int) SeoTopicKeyword::query()->where('keyword_id', $manual)->value('topic_id'));
+        self::assertNull(SeoTopicKeyword::query()->where('keyword_id', $multi)->value('topic_id'));
+        self::assertSame(9, (int) SeoTopicKeyword::query()->where('keyword_id', $clean)->value('topic_id'));
+        self::assertSame($topicRows + 1, SeoTopicKeyword::query()->count());
+        self::assertSame($keywordRows, Keyword::query()->count());
+        self::assertSame($articleRows, DB::connection('omi_seo_ai')->table('articles')->count());
+        self::assertSame(2, DB::connection('omi_seo_ai')->table('seo_topics')->count());
+
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::SENTENCE_LIKE, false);
+        $service->setExcluded(self::SITE_A, KeywordQualityCode::CTA_ANCHOR, false);
+        self::assertContains($manual, array_column(
+            app(TopicSiteKeywordService::class)->loadTopicCandidateKeywords(self::SITE_A),
+            'keyword_id',
+        ));
+        self::assertSame(7, app(TopicMembershipQuery::class)->topicIdsByKeywordId(self::SITE_A, [$manual])[$manual]);
     }
 
     private function keyword(string $phrase, int $siteId): int

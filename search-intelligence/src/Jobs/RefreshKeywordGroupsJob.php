@@ -9,8 +9,8 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshOutcome;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticRefreshService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
@@ -52,9 +52,7 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
     public function middleware(): array
     {
         return [
-            (new WithoutOverlapping('keyword-group-refresh:'.$this->siteId))
-                ->releaseAfter(30)
-                ->expireAfter(3600),
+            new PreventOverlappingKeywordGroupRefresh($this->siteId),
         ];
     }
 
@@ -62,12 +60,18 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
         KeywordGroupSemanticRefreshService $refresh,
         KeywordGroupSemanticReadiness $readiness,
     ): void {
+        if (function_exists('set_time_limit')) {
+            set_time_limit(0);
+        }
+
         $readiness->run($this->siteId, function () use ($refresh): void {
             if (! KeywordGroupSchema::tablesReady()) {
                 throw new RuntimeException('keyword_group_tables_missing');
             }
 
-            $refresh->refreshSite($this->siteId, $this->language, $this->languageVariants);
+            KeywordGroupRefreshOutcome::store(
+                $refresh->refreshSite($this->siteId, $this->language, $this->languageVariants),
+            );
         });
     }
 }

@@ -11,6 +11,8 @@ use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupCandidateLoader;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshFeedback;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshOutcome;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticRefreshService;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\Exceptions\SemanticTransportException;
 use Omnichannel\Addons\SearchIntelligence\Services\Semantic\SemanticAnalyticsClient;
@@ -44,6 +46,7 @@ final class KeywordGroupSemanticBatchRefreshTest extends TestCase
         DB::purge('omi_seo_ai');
         $migration = require dirname(__DIR__, 3).'/database/migrations/2026_10_07_180000_create_seo_keyword_groups.php';
         $migration->up();
+        KeywordGroupRefreshOutcome::clear();
     }
 
     public function test_batch_sizes_and_cross_batch_group_persistence(): void
@@ -146,6 +149,48 @@ final class KeywordGroupSemanticBatchRefreshTest extends TestCase
         self::assertSame($existing->id, SeoKeywordGroup::query()->value('id'));
         self::assertSame(11, (int) SeoKeywordGroupKeyword::query()->value('keyword_id'));
         Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/analyses/from-cache'));
+    }
+
+    public function test_missing_embedding_endpoint_does_not_persist_groups(): void
+    {
+        Http::fake(fn () => Http::response(['detail' => 'Not Found'], 404));
+
+        try {
+            $this->service()->refreshKeywords(self::SITE, 'vi', $this->keywords(2500));
+            self::fail('expected missing endpoint');
+        } catch (SemanticTransportException $e) {
+            self::assertStringContainsString('404', $e->getMessage());
+            self::assertStringContainsString('embedding batch 1/3 failed', $e->getMessage());
+        }
+
+        self::assertSame(0, SeoKeywordGroup::query()->count());
+        self::assertSame(0, SeoKeywordGroupKeyword::query()->count());
+        self::assertSame(
+            KeywordGroupRefreshFeedback::NOT_RUN,
+            KeywordGroupRefreshFeedback::kind(KeywordGroupRefreshOutcome::result()),
+        );
+    }
+
+    public function test_completed_empty_python_groups_are_not_a_save(): void
+    {
+        Http::fake(fn () => Http::response([
+            'status' => 'completed',
+            'groups' => [],
+            'unassigned' => [],
+            'input_hash' => 'abc',
+            'diagnostics' => ['algorithm' => 'hybrid_semantic_lexical_v1'],
+        ], 200));
+
+        $result = $this->service()->refreshKeywords(self::SITE, 'vi', $this->keywords(3));
+
+        self::assertFalse($result->skipped);
+        self::assertSame(3, $result->eligibleCount);
+        self::assertSame(0, $result->groupCount);
+        self::assertSame(0, $result->memberCount);
+        self::assertSame(0, SeoKeywordGroup::query()->count());
+        self::assertSame(KeywordGroupRefreshFeedback::PYTHON_ZERO, KeywordGroupRefreshFeedback::kind($result));
+        KeywordGroupRefreshOutcome::store($result);
+        self::assertSame(KeywordGroupRefreshFeedback::PYTHON_ZERO, KeywordGroupRefreshFeedback::kind(KeywordGroupRefreshOutcome::result()));
     }
 
     public function test_retry_after_failure_replaces_once_without_duplicate_memberships(): void

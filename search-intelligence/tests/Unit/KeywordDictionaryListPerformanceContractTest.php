@@ -29,6 +29,7 @@ final class KeywordDictionaryListPerformanceContractTest extends TestCase
         self::assertStringContainsString('COUNT(DISTINCT list_maps.source_article_id)', $source);
         self::assertStringContainsString('list_sources.site_id = ?', $source);
         self::assertStringContainsString('leftJoin(\'keyword_meta as list_site_focus_meta\'', $source);
+        self::assertStringNotContainsString('leftJoin(\'articles as list_focus_article\'', $source);
         self::assertSame(1, substr_count($source, 'COALESCE(list_site_focus_meta.meta_value, list_legacy_focus_meta.meta_value)'));
     }
 

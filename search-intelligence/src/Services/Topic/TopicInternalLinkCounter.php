@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 
@@ -26,7 +27,7 @@ final class TopicInternalLinkCounter
             return 0;
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
 
         $keywordIds = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -82,7 +83,7 @@ final class TopicInternalLinkCounter
             return $out;
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
 
         $memberships = SeoTopicKeyword::query()
             ->where('site_id', $siteId)

@@ -86,7 +86,7 @@ final class KeywordGroupSemanticRefreshService
         $industry = $this->industryEvidence($siteId, $language, $payload);
 
         if ($payload === []) {
-            $this->replaceSemanticGroups($siteId, [], null, null, $protectedKeywords);
+            $this->replaceSemanticGroups($siteId, [], null, null, $protectedKeywords, array_keys($known));
 
             return new KeywordGroupRefreshResult(
                 0,
@@ -108,11 +108,11 @@ final class KeywordGroupSemanticRefreshService
         $response = $this->requestGlobalAnalysis($scopeRef, $language, $payload, $industry['evidence']);
 
         $parsed = $this->parseResponse($response, $known);
-        $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords);
+        $written = $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords, array_keys($known));
 
         return new KeywordGroupRefreshResult(
-            count($parsed['groups']),
-            array_sum(array_map(static fn (array $group): int => count($group['members']), $parsed['groups'])),
+            $written['groups'],
+            $written['members'],
             count($protectedGroupIds),
             false,
             $candidateCount,
@@ -122,6 +122,29 @@ final class KeywordGroupSemanticRefreshService
             $industry['status'],
             $industry['keyword_count'],
             $industry['membership_count'],
+        );
+    }
+
+    /**
+     * Publish one completed Python run. The caller must already have checked
+     * dataset freshness. This method does not call Python.
+     *
+     * @param  array<string, mixed>  $response
+     * @param  array<int, true>  $knownKeywordIds
+     * @return array{groups: int, members: int}
+     */
+    public function publishAnalysisResponse(int $siteId, array $response, array $knownKeywordIds): array
+    {
+        $parsed = $this->parseResponse($response, $knownKeywordIds);
+        [, $protectedKeywords] = $this->protectedState($siteId);
+
+        return $this->replaceSemanticGroups(
+            $siteId,
+            $parsed['groups'],
+            $parsed['input_hash'],
+            $parsed['algorithm'],
+            $protectedKeywords,
+            array_keys($knownKeywordIds),
         );
     }
 
@@ -175,6 +198,7 @@ final class KeywordGroupSemanticRefreshService
                 '/v1/keyword-groups/analyses/from-cache',
                 $body,
                 'keyword-group-'.$scopeRef.'-cluster',
+                $this->clusterTimeoutSeconds(),
             );
         } catch (SemanticHttpException $e) {
             throw new SemanticTransportException(
@@ -191,6 +215,11 @@ final class KeywordGroupSemanticRefreshService
         $size = (int) config('semantic.keyword_group_batch_size', 1000);
 
         return max(1, min(2000, $size));
+    }
+
+    private function clusterTimeoutSeconds(): int
+    {
+        return max(120, (int) config('semantic.keyword_group_cluster_timeout', 1800));
     }
 
     /**
@@ -320,6 +349,8 @@ final class KeywordGroupSemanticRefreshService
     /**
      * @param  list<array{ref: string, name: string, representative_keyword_id: int, members: list<array{keyword_id: int, similarity_score: ?float}>}>  $groups
      * @param  array<int, true>  $protectedKeywords
+     * @param  list<int>  $scopeKeywordIds
+     * @return array{groups: int, members: int}
      */
     private function replaceSemanticGroups(
         int $siteId,
@@ -327,8 +358,13 @@ final class KeywordGroupSemanticRefreshService
         ?string $inputHash,
         ?string $algorithm,
         array $protectedKeywords,
-    ): void {
-        DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groups, $inputHash, $algorithm, $protectedKeywords): void {
+        array $scopeKeywordIds,
+    ): array {
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groups, $inputHash, $algorithm, $protectedKeywords, $scopeKeywordIds): array {
+            if ($groups === [] && $scopeKeywordIds === []) {
+                return ['groups' => 0, 'members' => 0];
+            }
+
             $protectedGroupIds = SeoKeywordGroup::query()
                 ->where('site_id', $siteId)
                 ->get()
@@ -336,15 +372,31 @@ final class KeywordGroupSemanticRefreshService
                 ->map(static fn (SeoKeywordGroup $group): int => (int) $group->id)
                 ->all();
 
-            $memberDelete = SeoKeywordGroupKeyword::query()->where('site_id', $siteId);
-            $groupDelete = SeoKeywordGroup::query()->where('site_id', $siteId);
-            if ($protectedGroupIds !== []) {
-                $memberDelete->whereNotIn('group_id', $protectedGroupIds);
-                $groupDelete->whereNotIn('id', $protectedGroupIds);
+            foreach (array_chunk($scopeKeywordIds, 500) as $chunk) {
+                $memberDelete = SeoKeywordGroupKeyword::query()
+                    ->where('site_id', $siteId)
+                    ->whereIn('keyword_id', $chunk);
+                if ($protectedGroupIds !== []) {
+                    $memberDelete->whereNotIn('group_id', $protectedGroupIds);
+                }
+                $memberDelete->delete();
             }
-            $memberDelete->delete();
-            $groupDelete->delete();
 
+            $emptyGroups = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->where('source', KeywordGroupSource::SEMANTIC)
+                ->where('is_locked', false)
+                ->whereDoesntHave('memberships');
+            if ($protectedGroupIds !== []) {
+                $emptyGroups->whereNotIn('id', $protectedGroupIds);
+            }
+            $emptyIds = $emptyGroups->pluck('id');
+            if ($emptyIds->isNotEmpty()) {
+                SeoKeywordGroup::query()->whereIn('id', $emptyIds->all())->delete();
+            }
+
+            $writtenGroups = 0;
+            $writtenMembers = 0;
             foreach ($groups as $group) {
                 $members = [];
                 foreach ($group['members'] as $member) {
@@ -356,6 +408,8 @@ final class KeywordGroupSemanticRefreshService
                 if ($members === []) {
                     continue;
                 }
+                $writtenGroups++;
+                $writtenMembers += count($members);
 
                 $representativeId = (int) $group['representative_keyword_id'];
                 $memberIds = array_column($members, 'keyword_id');
@@ -391,6 +445,8 @@ final class KeywordGroupSemanticRefreshService
                     SeoKeywordGroupKeyword::query()->create($payload);
                 }
             }
+
+            return ['groups' => $writtenGroups, 'members' => $writtenMembers];
         });
     }
 

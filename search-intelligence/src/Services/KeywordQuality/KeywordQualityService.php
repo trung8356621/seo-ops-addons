@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordQuality;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
@@ -15,6 +16,8 @@ use RuntimeException;
 
 final class KeywordQualityService
 {
+    public const SCAN_STALE_SECONDS = 180;
+
     public function __construct(
         private readonly KeywordQualityClassifier $classifier = new KeywordQualityClassifier,
     ) {}
@@ -284,6 +287,7 @@ final class KeywordQualityService
             'scan_processed' => 0,
             'scan_total' => 0,
             'scan_error' => null,
+            'scan_stale' => false,
         ];
         if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
             return $empty;
@@ -309,7 +313,7 @@ final class KeywordQualityService
         $scanned = (int) DB::connection('omi_seo_ai')->table('seo_keyword_quality_seen')
             ->where('site_id', $siteId)
             ->count();
-        $scan = DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', $siteId)->first();
+        $progress = $this->scanProgress($siteId);
 
         $tags = [];
         foreach (KeywordQualityCode::all() as $code) {
@@ -330,10 +334,11 @@ final class KeywordQualityService
             'unique_excluded_percent' => $this->percent($uniqueExcluded, $total),
             'scanned' => $scanned,
             'tags' => $tags,
-            'scan_status' => is_object($scan) ? (string) $scan->status : null,
-            'scan_processed' => is_object($scan) ? (int) $scan->processed : 0,
-            'scan_total' => is_object($scan) ? (int) $scan->total : 0,
-            'scan_error' => is_object($scan) && $scan->last_error !== null ? (string) $scan->last_error : null,
+            'scan_status' => $progress['status'],
+            'scan_processed' => $progress['processed'],
+            'scan_total' => $progress['total'],
+            'scan_error' => $progress['error'],
+            'scan_stale' => $progress['stale'],
         ];
     }
 
@@ -471,6 +476,41 @@ final class KeywordQualityService
         );
     }
 
+    /**
+     * @return array{status: ?string, processed: int, total: int, error: ?string, stale: bool, active: bool}
+     */
+    public function scanProgress(int $siteId): array
+    {
+        $empty = [
+            'status' => null,
+            'processed' => 0,
+            'total' => 0,
+            'error' => null,
+            'stale' => false,
+            'active' => false,
+        ];
+        if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
+            return $empty;
+        }
+
+        $scan = DB::connection('omi_seo_ai')->table('seo_keyword_quality_scans')->where('site_id', $siteId)->first();
+        if (! is_object($scan)) {
+            return $empty;
+        }
+
+        $status = (string) $scan->status;
+        $stale = $this->scanRowIsStale($scan);
+
+        return [
+            'status' => $status,
+            'processed' => (int) $scan->processed,
+            'total' => (int) $scan->total,
+            'error' => $scan->last_error !== null ? (string) $scan->last_error : null,
+            'stale' => $stale,
+            'active' => ($status === 'queued' || $status === 'running') && ! $stale,
+        ];
+    }
+
     public function noteScanQueued(int $siteId): void
     {
         if ($siteId <= 0 || ! KeywordQualitySchema::tablesReady()) {
@@ -478,6 +518,21 @@ final class KeywordQualityService
         }
 
         $this->markScan($siteId, 'queued', 0, 0, null);
+    }
+
+    private function scanRowIsStale(object $scan): bool
+    {
+        $status = (string) ($scan->status ?? '');
+        if ($status !== 'queued' && $status !== 'running') {
+            return false;
+        }
+
+        $updatedAt = $scan->updated_at ?? null;
+        if ($updatedAt === null || $updatedAt === '') {
+            return true;
+        }
+
+        return Carbon::parse((string) $updatedAt)->lt(now()->subSeconds(self::SCAN_STALE_SECONDS));
     }
 
     private function markScan(int $siteId, string $status, int $total, int $processed, ?string $error): void

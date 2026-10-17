@@ -97,6 +97,10 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
         if (method_exists($this, 'reloadKeywordWorkspaceStatisticsAfterRender')) {
             $this->reloadKeywordWorkspaceStatisticsAfterRender();
         }
+
+        if (method_exists($this, 'onKeywordWorkspaceLanguageFilterChanged')) {
+            $this->onKeywordWorkspaceLanguageFilterChanged();
+        }
     }
 
     protected function dispatchKeywordWorkspaceLanguageContext(): void

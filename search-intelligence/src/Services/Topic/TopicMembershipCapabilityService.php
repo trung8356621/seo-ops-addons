@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 
 use Omnichannel\Addons\SearchIntelligence\Contracts\TopicMembershipCapability;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
-use Omnichannel\Addons\SearchIntelligence\Services\Topic\TopicMembershipQuery;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 final class TopicMembershipCapabilityService implements TopicMembershipCapability
 {
@@ -36,8 +36,10 @@ final class TopicMembershipCapabilityService implements TopicMembershipCapabilit
             return [];
         }
 
-        return SeoTopicKeyword::query()
-            ->where('site_id', $siteId)
+        $query = SeoTopicKeyword::query()->where('site_id', $siteId);
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'seo_topic_keywords.keyword_id');
+
+        return $query
             ->pluck('keyword_id')
             ->map(static fn ($id): int => (int) $id)
             ->unique()

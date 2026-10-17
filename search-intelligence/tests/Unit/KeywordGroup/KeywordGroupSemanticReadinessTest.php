@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\KeywordGroup;
 
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
+use Omnichannel\Addons\SearchIntelligence\Jobs\KeywordGroupRefreshInProgressException;
+use Omnichannel\Addons\SearchIntelligence\Jobs\PreventOverlappingKeywordGroupRefresh;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshFeedback;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshOutcome;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupSemanticState;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
@@ -87,6 +92,31 @@ final class KeywordGroupSemanticReadinessTest extends TestCase
             self::assertSame('keyword_group_tables_missing', $e->getMessage());
         }
         self::assertFalse($this->readiness->isReady(9));
+    }
+
+    public function test_sync_overlap_does_not_run_or_count_as_saved(): void
+    {
+        $job = (new RefreshKeywordGroupsJob(6))->onConnection('sync');
+        $middleware = new PreventOverlappingKeywordGroupRefresh(6);
+        $lock = Cache::lock($middleware->key(), 60);
+        self::assertTrue($lock->get());
+        KeywordGroupRefreshOutcome::clear();
+
+        try {
+            $middleware->handle($job, static function (): void {
+                self::fail('refresh must not run while overlap lock is held');
+            });
+            self::fail('expected in-progress exception');
+        } catch (KeywordGroupRefreshInProgressException $e) {
+            self::assertStringContainsString('site 6', $e->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        self::assertSame(
+            KeywordGroupRefreshFeedback::NOT_RUN,
+            KeywordGroupRefreshFeedback::kind(KeywordGroupRefreshOutcome::result()),
+        );
     }
 
     public function test_refresh_failure_keeps_previous_success_and_success_clears_invalidation(): void

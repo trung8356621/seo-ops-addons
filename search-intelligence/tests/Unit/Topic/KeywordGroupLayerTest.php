@@ -427,7 +427,7 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertNotFalse($tags);
         self::assertTrue($groups > $focus && $groups < $topics && $topics < $tags);
         self::assertStringContainsString('KeywordWorkspaceMetricCache::GROUPS', $nav);
-        self::assertStringContainsString('SeoKeywordGroup::query()', $nav);
+        self::assertStringContainsString('->groupCount($siteId, $languageVariants)', $nav);
         self::assertStringContainsString("summary(\$siteId, \$languageVariants)['topic_count']", $nav);
 
         $page = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php');

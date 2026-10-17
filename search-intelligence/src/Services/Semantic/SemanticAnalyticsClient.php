@@ -30,18 +30,27 @@ final class SemanticAnalyticsClient
     /**
      * @return array<string, mixed>
      */
-    public function getJson(string $path, ?string $requestId = null): array
+    public function getJson(string $path, ?string $requestId = null, ?int $timeoutSeconds = null): array
     {
-        return $this->send('GET', $path, null, $requestId);
+        return $this->send('GET', $path, null, $requestId, timeoutSeconds: $timeoutSeconds);
     }
 
     /**
      * @param  array<string, mixed>  $body
      * @return array<string, mixed>
      */
-    public function postJson(string $path, array $body, ?string $requestId = null): array
+    public function postJson(string $path, array $body, ?string $requestId = null, ?int $timeoutSeconds = null): array
     {
-        return $this->send('POST', $path, $body, $requestId);
+        return $this->send('POST', $path, $body, $requestId, timeoutSeconds: $timeoutSeconds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function putJson(string $path, array $body, ?string $requestId = null, ?int $timeoutSeconds = null): array
+    {
+        return $this->send('PUT', $path, $body, $requestId, timeoutSeconds: $timeoutSeconds);
     }
 
     public function delete(string $path, ?string $requestId = null): void
@@ -59,11 +68,12 @@ final class SemanticAnalyticsClient
         ?array $body,
         ?string $requestId,
         bool $expectBody = true,
+        ?int $timeoutSeconds = null,
     ): array {
         $url = $this->url($path);
         $pending = Http::baseUrl($this->resolvedBaseUrl())
             ->connectTimeout($this->resolvedConnectTimeout())
-            ->timeout($this->resolvedTimeout())
+            ->timeout($timeoutSeconds ?? $this->resolvedTimeout())
             ->acceptJson()
             ->asJson();
 
@@ -75,6 +85,7 @@ final class SemanticAnalyticsClient
             $response = match (strtoupper($method)) {
                 'GET' => $pending->get($path),
                 'POST' => $pending->post($path, $body ?? []),
+                'PUT' => $pending->put($path, $body ?? []),
                 'DELETE' => $pending->delete($path),
                 default => throw new \InvalidArgumentException('Unsupported HTTP method: '.$method),
             };

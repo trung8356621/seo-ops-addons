@@ -31,10 +31,11 @@ final class TopicMembershipQuery
             return [];
         }
 
-        $rows = SeoTopicKeyword::query()
+        $query = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->whereIn('keyword_id', $keywordIds)
-            ->get(['keyword_id', 'topic_id']);
+            ->whereIn('keyword_id', $keywordIds);
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'seo_topic_keywords.keyword_id');
+        $rows = $query->get(['keyword_id', 'topic_id']);
 
         $out = [];
         foreach ($rows as $row) {
@@ -50,10 +51,11 @@ final class TopicMembershipQuery
             return null;
         }
 
-        $membership = SeoTopicKeyword::query()
+        $membershipQuery = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('keyword_id', $keywordId)
-            ->first();
+            ->where('keyword_id', $keywordId);
+        app(KeywordQualityTopicFilter::class)->apply($membershipQuery, $siteId, 'seo_topic_keywords.keyword_id');
+        $membership = $membershipQuery->first();
         if (! $membership instanceof SeoTopicKeyword) {
             return null;
         }

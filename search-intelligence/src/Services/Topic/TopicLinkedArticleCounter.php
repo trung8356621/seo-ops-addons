@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\Topic;
 use Illuminate\Support\Facades\DB;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 
 /**
  * Site-scoped DISTINCT Focus Article counts for Topic / Keyword Landscape.
@@ -29,7 +30,7 @@ final class TopicLinkedArticleCounter
             return 0;
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
 
         $keywordIds = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -79,7 +80,7 @@ final class TopicLinkedArticleCounter
             return $out;
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
 
         $memberships = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
@@ -133,7 +134,7 @@ final class TopicLinkedArticleCounter
             return [];
         }
 
-        $exclude = $this->normalizeExcludeMap($excludeKeywordIds);
+        $exclude = app(KeywordQualityTopicFilter::class)->mergeExcluded($siteId, $this->normalizeExcludeMap($excludeKeywordIds));
         $keywordIds = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
             ->where('topic_id', $topicId)

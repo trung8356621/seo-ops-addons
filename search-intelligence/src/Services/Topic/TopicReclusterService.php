@@ -265,6 +265,45 @@ final class TopicReclusterService
     }
 
     /**
+     * @param  array<int, true>  $qualityExcluded
+     * @param  array<int, array{topic_id: int, source: string, is_seed: bool, confidence: float|null, is_locked: bool}>  $desiredByKeyword
+     * @param  array<int, true>  $keepTopicIds
+     * @param  array<int, true>  $dnaTopicIds
+     */
+    private function pinQualityExcludedMemberships(
+        int $siteId,
+        array $qualityExcluded,
+        array &$desiredByKeyword,
+        array &$keepTopicIds,
+        array &$dnaTopicIds,
+    ): void {
+        if ($qualityExcluded === []) {
+            return;
+        }
+
+        $rows = SeoTopicKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('keyword_id', array_keys($qualityExcluded))
+            ->get(['keyword_id', 'topic_id', 'source', 'is_seed', 'confidence', 'is_locked']);
+        foreach ($rows as $row) {
+            $keywordId = (int) $row->keyword_id;
+            $topicId = (int) $row->topic_id;
+            if ($keywordId <= 0 || $topicId <= 0) {
+                continue;
+            }
+            $desiredByKeyword[$keywordId] = [
+                'topic_id' => $topicId,
+                'source' => (string) $row->source,
+                'is_seed' => (bool) $row->is_seed,
+                'confidence' => $row->confidence !== null ? (float) $row->confidence : null,
+                'is_locked' => (bool) $row->is_locked,
+            ];
+            $keepTopicIds[$topicId] = true;
+            $dnaTopicIds[$topicId] = true;
+        }
+    }
+
+    /**
      * Snapshot seed membership anchors: keyword_id → topic_id (site-scoped).
      *
      * @return array<int, int>
@@ -598,6 +637,7 @@ final class TopicReclusterService
         $membershipsWritten = 0;
         $topicsReused = 0;
         $topicsCreated = 0;
+        $qualityExcluded = app(KeywordQualityTopicFilter::class)->excludedIdSet($siteId);
 
         // Membership-lock-only parents: lock rows stay on their topic (not whole-topic lock).
         foreach ($locked['locked_memberships_by_topic'] as $topicId => $members) {
@@ -677,7 +717,7 @@ final class TopicReclusterService
 
             foreach ($cluster['members'] as $member) {
                 $keywordId = (int) $member['keyword_id'];
-                if ($keywordId <= 0) {
+                if ($keywordId <= 0 || isset($qualityExcluded[$keywordId])) {
                     continue;
                 }
 
@@ -763,6 +803,8 @@ final class TopicReclusterService
             );
             $membershipsWritten++;
         }
+
+        $this->pinQualityExcludedMemberships($siteId, $qualityExcluded, $desiredByKeyword, $keepTopicIds, $dnaTopicIds);
 
         // Drop unlocked memberships that are not part of the desired set (unmatched SEO → no row).
         SeoTopicKeyword::query()

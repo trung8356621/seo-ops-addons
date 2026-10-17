@@ -21,6 +21,12 @@ final class KeywordQualityUxContractTest extends TestCase
         self::assertStringNotContainsString("Action::make('quality_settings')", $list);
         self::assertStringContainsString('refreshQualityScan', $list);
         self::assertStringContainsString('noteScanQueued', $list);
+        self::assertStringContainsString('releaseLocks', $list);
+        self::assertStringContainsString('syncQualityScanWatch', $list);
+        self::assertStringContainsString('quality_scan_done', $this->methodBody($list, 'refreshQualityScan'));
+        self::assertStringContainsString('quality_scan_stale', $list);
+        self::assertStringContainsString("quality_scan_queued'))->info()", $list);
+        self::assertStringNotContainsString("quality_scan_queued'))->success()", $list);
         self::assertStringNotContainsString('resetPage()', $this->methodBody($list, 'refreshQualityScan'));
         self::assertStringNotContainsString("Action::make('quality_settings')", $topic);
         self::assertStringNotContainsString('setExcluded', $topic);
@@ -32,8 +38,11 @@ final class KeywordQualityUxContractTest extends TestCase
         self::assertStringNotContainsString('wire:model', (string) file_get_contents(dirname(__DIR__, 2).'/resources/views/filament/pages/keyword-quality-source-settings.blade.php'));
         self::assertStringNotContainsString('wire:poll.5s', $summary);
         self::assertSame(1, substr_count($listView, 'wire:poll.3s="refreshQualityScan"'));
-        self::assertStringContainsString('quality_unique_excluded', (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/lang/vi/filament.php'));
         $vi = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/lang/vi/filament.php');
+        self::assertStringContainsString('quality_unique_excluded', $vi);
+        self::assertStringContainsString('quality_scan_done', $vi);
+        self::assertStringContainsString('quality_scan_stale', $vi);
+        self::assertStringContainsString('scan_stale', $summary);
         $presenter = (string) file_get_contents(dirname(__DIR__, 2).'/src/Support/KeywordIntelligence/KeywordItemPresenter.php');
         foreach ([
             'Kêu gọi hành động',

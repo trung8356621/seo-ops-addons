@@ -50,8 +50,8 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         $this->owner = $this->user('owner@example.test', User::ROLE_OWNER);
         $this->staff = $this->user('staff@example.test', User::ROLE_STAFF, (int) $this->owner->id);
 
-        $this->site(5, (int) $this->admin->id, 'site-five.test');
-        $this->site(7, (int) $this->owner->id, 'site-seven.test');
+        $this->site(5, (int) $this->owner->id, 'site-five.test');
+        $this->site(7, (int) $this->admin->id, 'site-seven.test');
 
         config(['addons.skip_slugs' => []]);
         app(AddonRegistry::class)->markEnabled('seo');
@@ -60,15 +60,15 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
     }
 
-    public function test_admin_opens_site_settings_and_save_does_not_touch_another_site(): void
+    public function test_owner_opens_site_settings_and_save_does_not_touch_another_site(): void
     {
         $service = app(KeywordQualityService::class);
         $service->setExcluded(7, KeywordQualityCode::CTA_ANCHOR, true);
 
-        $opened = $this->pageFor(5, $this->admin);
+        $opened = $this->pageFor(5, $this->owner);
         $opened->assertOk()->assertSet('siteId', 5);
 
-        $this->pageFor(5, $this->admin)
+        $this->pageFor(5, $this->owner)
             ->fillForm($this->policy([KeywordQualityCode::CTA_ANCHOR => true]))
             ->call('savePolicy');
 
@@ -76,7 +76,7 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         self::assertTrue($service->isExcluded(7, KeywordQualityCode::CTA_ANCHOR));
         self::assertFalse($service->isExcluded(7, KeywordQualityCode::GENERIC_ANCHOR));
 
-        $this->pageFor(5, $this->admin)
+        $this->pageFor(5, $this->owner)
             ->assertSet('policyData.exclude_'.KeywordQualityCode::CTA_ANCHOR, true)
             ->assertSet('siteId', 5);
     }
@@ -86,7 +86,7 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         $service = app(KeywordQualityService::class);
         $service->setExcluded(7, KeywordQualityCode::CTA_ANCHOR, true);
 
-        $this->pageFor(5, $this->admin)
+        $this->pageFor(5, $this->owner)
             ->fillForm($this->policy([KeywordQualityCode::GENERIC_ANCHOR => true]))
             ->call('savePolicy');
 
@@ -94,7 +94,7 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         self::assertTrue($service->isExcluded(7, KeywordQualityCode::CTA_ANCHOR));
         self::assertFalse($service->isExcluded(7, KeywordQualityCode::GENERIC_ANCHOR));
 
-        $page = $this->pageFor(5, $this->admin);
+        $page = $this->pageFor(5, $this->owner);
         try {
             $page->set('siteId', 7);
             self::fail('Locked site id must not accept a client update.');
@@ -112,8 +112,11 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         $this->get('/admin/settings/keyword-sources?site_id=5')
             ->assertForbidden();
 
-        $this->actingAs($this->admin)
-            ->get('/admin/settings/keyword-sources?site_id=7')
+        $this->actingAs($this->admin);
+        self::assertFalse(KeywordQualitySourceSettings::canAccess());
+        $this->get('/admin/settings/keyword-sources?site_id=7')
+            ->assertForbidden();
+        $this->get('/admin/settings/keyword-sources?site_id=5')
             ->assertForbidden();
 
         session(['seo_simulated_role' => SeoAccessControl::ROLE_CONTENT_MANAGER]);
@@ -125,9 +128,16 @@ final class KeywordQualitySourceSettingsAuthorizationTest extends TestCase
         $this->pageFor(8, $this->owner)->assertOk()->assertSet('siteId', 8);
     }
 
+    public function test_owner_without_site_query_resolves_an_owned_site(): void
+    {
+        Livewire::actingAs($this->owner)
+            ->test(KeywordQualitySourceSettings::class)
+            ->assertRedirect();
+    }
+
     public function test_topic_shortcut_targets_the_resolved_site(): void
     {
-        $this->actingAs($this->admin);
+        $this->actingAs($this->owner);
         $page = new KeywordTopicClusters();
         $page->keywordWorkspaceSiteId = 5;
 

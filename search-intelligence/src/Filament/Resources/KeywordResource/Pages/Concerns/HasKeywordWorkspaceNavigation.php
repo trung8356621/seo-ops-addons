@@ -192,20 +192,13 @@ trait HasKeywordWorkspaceNavigation
         if ($siteId !== null && $siteId > 0) {
             $groups = (int) ($metricCache->rememberMetrics(
                 $siteId,
-                null,
+                $languageCode,
                 KeywordWorkspaceMetricCache::GROUPS,
                 ['total'],
-                function () use ($siteId): array {
-                    if (! \Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::tablesReady()) {
-                        return ['total' => 0];
-                    }
-
-                    return [
-                        'total' => (int) \Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup::query()
-                            ->where('site_id', $siteId)
-                            ->count(),
-                    ];
-                },
+                fn (): array => [
+                    'total' => app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel::class)
+                        ->groupCount($siteId, $languageVariants),
+                ],
             )['total'] ?? 0);
             $topics = (int) ($metricCache->rememberMetrics(
                 $siteId,

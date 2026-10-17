@@ -16,6 +16,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoSiteKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityTopicFilter;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\KeywordRelationship;
 use Omnichannel\Addons\SearchIntelligence\Services\Topic\Dto\RelationshipListSlice;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
@@ -183,10 +184,11 @@ final class KeywordRelationshipReadModel
             return null;
         }
 
-        $row = SeoTopicKeyword::query()
+        $query = SeoTopicKeyword::query()
             ->where('site_id', $siteId)
-            ->where('keyword_id', $keywordId)
-            ->first();
+            ->where('keyword_id', $keywordId);
+        app(KeywordQualityTopicFilter::class)->apply($query, $siteId, 'seo_topic_keywords.keyword_id');
+        $row = $query->first();
 
         return $row instanceof SeoTopicKeyword ? $row : null;
     }
