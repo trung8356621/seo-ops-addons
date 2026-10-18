@@ -14,6 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterSiteTopicsJob;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RefreshKeywordGroupsJob;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupAnalysisRun;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupCandidateLoader;
@@ -255,23 +256,22 @@ final class KeywordGroupLayerTest extends TestCase
         });
     }
 
-    public function test_empty_eligible_set_clears_unprotected_semantic_groups_without_python(): void
+    public function test_empty_eligible_set_preserves_groups_when_language_has_no_run(): void
     {
         $manual = $this->group('Manual keep', KeywordGroupSource::MANUAL, false, 10);
         $this->member($manual, 10, KeywordGroupSource::MANUAL);
         $locked = $this->group('Locked keep', KeywordGroupSource::SEMANTIC, true, 30);
         $this->member($locked, 30, KeywordGroupSource::SEMANTIC);
-        $old = $this->group('Dirty semantic', KeywordGroupSource::SEMANTIC, false, 20);
-        $this->member($old, 20, KeywordGroupSource::SEMANTIC);
+        $unknown = $this->group('Dirty semantic', KeywordGroupSource::SEMANTIC, false, 20);
+        $this->member($unknown, 20, KeywordGroupSource::SEMANTIC);
+        $english = $this->group('English semantic', KeywordGroupSource::SEMANTIC, false, 21);
+        $english->input_hash = 'en-hash';
+        $english->save();
+        $this->member($english, 21, KeywordGroupSource::SEMANTIC);
 
         Http::fake();
 
-        $result = $this->service()->refreshKeywords(self::SITE, 'vi', [
-            ['keyword_id' => 10, 'phrase' => 'manual keyword'],
-            ['keyword_id' => 30, 'phrase' => 'locked keyword'],
-            ['keyword_id' => 41, 'phrase' => 'Zalo: 0909983833'],
-            ['keyword_id' => 42, 'phrase' => 'https://example.com'],
-        ]);
+        $result = $this->service()->refreshKeywords(self::SITE, 'vi', $this->emptyEligibleKeywords());
 
         Http::assertNothingSent();
         self::assertTrue($result->skipped);
@@ -280,11 +280,58 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertSame(0, $result->eligibleCount);
         self::assertSame(2, $result->excludedCount);
         self::assertSame(2, $result->preservedGroupCount);
-        self::assertNull(SeoKeywordGroup::query()->find($old->id));
+        self::assertSame(1, $result->preservedUnknownLanguageGroupCount);
+        self::assertNotNull(SeoKeywordGroup::query()->find($unknown->id));
+        self::assertSame($unknown->id, $this->groupIdForKeyword(20));
+        self::assertSame($english->id, $this->groupIdForKeyword(21));
+        self::assertSame('en-hash', SeoKeywordGroup::query()->whereKey($english->id)->value('input_hash'));
         self::assertSame($manual->id, $this->groupIdForKeyword(10));
         self::assertSame($locked->id, $this->groupIdForKeyword(30));
         self::assertSame('Manual keep', $manual->fresh()?->name);
+        self::assertSame(KeywordGroupSource::MANUAL, $manual->fresh()?->source);
         self::assertTrue((bool) $locked->fresh()?->is_locked);
+    }
+
+    public function test_empty_eligible_set_clears_only_groups_owned_by_that_language_run(): void
+    {
+        $this->bootAnalysisRuns();
+        $manual = $this->group('Manual keep', KeywordGroupSource::MANUAL, false, 10);
+        $this->member($manual, 10, KeywordGroupSource::MANUAL);
+        $locked = $this->group('Locked keep', KeywordGroupSource::SEMANTIC, true, 30);
+        $locked->input_hash = 'vi-hash';
+        $locked->save();
+        $this->member($locked, 30, KeywordGroupSource::SEMANTIC);
+        $owned = $this->group('Vietnamese semantic', KeywordGroupSource::SEMANTIC, false, 20);
+        $owned->input_hash = 'vi-hash';
+        $owned->save();
+        $this->member($owned, 20, KeywordGroupSource::SEMANTIC);
+        $english = $this->group('English semantic', KeywordGroupSource::SEMANTIC, false, 21);
+        $english->input_hash = 'en-hash';
+        $english->save();
+        $this->member($english, 21, KeywordGroupSource::SEMANTIC);
+        $unknown = $this->group('Legacy semantic', KeywordGroupSource::SEMANTIC, false, 22);
+        $this->member($unknown, 22, KeywordGroupSource::SEMANTIC);
+        $this->analysisRun('vi', 'vi-hash');
+        $this->analysisRun('en', 'en-hash');
+
+        Http::fake();
+
+        $result = $this->service()->refreshKeywords(self::SITE, 'vi', $this->emptyEligibleKeywords());
+
+        Http::assertNothingSent();
+        self::assertTrue($result->skipped);
+        self::assertSame(0, $result->eligibleCount);
+        self::assertSame(1, $result->preservedUnknownLanguageGroupCount);
+        self::assertNull(SeoKeywordGroup::query()->find($owned->id));
+        self::assertNull($this->groupIdForKeyword(20));
+        self::assertSame($english->id, $this->groupIdForKeyword(21));
+        self::assertSame($unknown->id, $this->groupIdForKeyword(22));
+        self::assertNull(SeoKeywordGroup::query()->whereKey($unknown->id)->value('input_hash'));
+        self::assertSame($manual->id, $this->groupIdForKeyword(10));
+        self::assertSame(KeywordGroupSource::MANUAL, $manual->fresh()?->source);
+        self::assertSame($locked->id, $this->groupIdForKeyword(30));
+        self::assertTrue((bool) $locked->fresh()?->is_locked);
+        self::assertSame('vi-hash', $locked->fresh()?->input_hash);
     }
 
     public function test_http_and_contract_failures_leave_groups_and_topics_intact(): void
@@ -427,7 +474,7 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertNotFalse($tags);
         self::assertTrue($groups > $focus && $groups < $topics && $topics < $tags);
         self::assertStringContainsString('KeywordWorkspaceMetricCache::GROUPS', $nav);
-        self::assertStringContainsString('->groupCount($siteId, $languageVariants)', $nav);
+        self::assertStringContainsString('->groupCount($siteId, $languageVariants, $scopedLanguage, $acceptLegacyLanguage)', $nav);
         self::assertStringContainsString("summary(\$siteId, \$languageVariants)['topic_count']", $nav);
 
         $page = (string) file_get_contents(dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php');
@@ -489,6 +536,41 @@ final class KeywordGroupLayerTest extends TestCase
         self::assertTrue(class_exists(ReclusterSiteTopicsJob::class));
         self::assertTrue(class_exists(TopicGroupingApplyService::class));
         self::assertTrue(class_exists(RefreshKeywordGroupsJob::class));
+    }
+
+    /**
+     * @return list<array{keyword_id: int, phrase: string}>
+     */
+    private function emptyEligibleKeywords(): array
+    {
+        return [
+            ['keyword_id' => 10, 'phrase' => 'manual keyword'],
+            ['keyword_id' => 30, 'phrase' => 'locked keyword'],
+            ['keyword_id' => 41, 'phrase' => 'Zalo: 0909983833'],
+            ['keyword_id' => 42, 'phrase' => 'https://example.com'],
+        ];
+    }
+
+    private function bootAnalysisRuns(): void
+    {
+        $create = require dirname(__DIR__, 3).'/database/migrations/2026_10_17_120000_create_seo_keyword_group_analysis_runs.php';
+        $create->up();
+        $scope = require dirname(__DIR__, 3).'/database/migrations/2026_10_17_180000_scope_keyword_group_analysis_runs_by_language.php';
+        $scope->up();
+    }
+
+    private function analysisRun(string $language, string $hash): void
+    {
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => self::SITE,
+            'run_id' => $language.'-run',
+            'language' => $language,
+            'dataset_revision' => 1,
+            'dataset_hash' => $hash,
+            'fingerprint' => 'fp-'.$language,
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'finalized',
+        ]);
     }
 
     private function service(): KeywordGroupSemanticRefreshService

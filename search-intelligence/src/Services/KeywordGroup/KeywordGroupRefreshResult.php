@@ -21,5 +21,6 @@ final class KeywordGroupRefreshResult
         public readonly ?string $industryEvidenceStatus = null,
         public readonly int $industryEvidenceKeywordCount = 0,
         public readonly int $industryMembershipCount = 0,
+        public readonly int $preservedUnknownLanguageGroupCount = 0,
     ) {}
 }

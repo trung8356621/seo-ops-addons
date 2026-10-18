@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Contracts\IndustryContextKeyResolver;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupAnalysisRun;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupMatchEntity;
 use Omnichannel\Addons\SearchIntelligence\Services\IndustryGroup\IndustryGroupSemanticMatcher;
@@ -85,8 +87,9 @@ final class KeywordGroupSemanticRefreshService
         $excludedCount = $candidateCount - $eligibleCount;
         $industry = $this->industryEvidence($siteId, $language, $payload);
 
+        $language = $this->normalizeLanguage($language);
         if ($payload === []) {
-            $this->replaceSemanticGroups($siteId, [], null, null, $protectedKeywords, array_keys($known));
+            $unknownLanguageGroups = $this->clearGroupsOwnedByLanguage($siteId, $language);
 
             return new KeywordGroupRefreshResult(
                 0,
@@ -100,15 +103,15 @@ final class KeywordGroupSemanticRefreshService
                 $industry['status'],
                 $industry['keyword_count'],
                 $industry['membership_count'],
+                $unknownLanguageGroups,
             );
         }
 
         $scopeRef = (string) $siteId;
-        $language = $this->normalizeLanguage($language);
         $response = $this->requestGlobalAnalysis($scopeRef, $language, $payload, $industry['evidence']);
 
         $parsed = $this->parseResponse($response, $known);
-        $written = $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords, array_keys($known));
+        $written = $this->replaceSemanticGroups($siteId, $parsed['groups'], $parsed['input_hash'], $parsed['algorithm'], $protectedKeywords, array_keys($known), $language);
 
         return new KeywordGroupRefreshResult(
             $written['groups'],
@@ -133,7 +136,7 @@ final class KeywordGroupSemanticRefreshService
      * @param  array<int, true>  $knownKeywordIds
      * @return array{groups: int, members: int}
      */
-    public function publishAnalysisResponse(int $siteId, array $response, array $knownKeywordIds): array
+    public function publishAnalysisResponse(int $siteId, array $response, array $knownKeywordIds, ?string $language = null): array
     {
         $parsed = $this->parseResponse($response, $knownKeywordIds);
         [, $protectedKeywords] = $this->protectedState($siteId);
@@ -145,6 +148,7 @@ final class KeywordGroupSemanticRefreshService
             $parsed['algorithm'],
             $protectedKeywords,
             array_keys($knownKeywordIds),
+            $this->normalizeLanguage($language),
         );
     }
 
@@ -359,10 +363,31 @@ final class KeywordGroupSemanticRefreshService
         ?string $algorithm,
         array $protectedKeywords,
         array $scopeKeywordIds,
+        ?string $language = null,
     ): array {
-        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groups, $inputHash, $algorithm, $protectedKeywords, $scopeKeywordIds): array {
+        return DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $groups, $inputHash, $algorithm, $protectedKeywords, $scopeKeywordIds, $language): array {
             if ($groups === [] && $scopeKeywordIds === []) {
                 return ['groups' => 0, 'members' => 0];
+            }
+
+            $foreignHashes = $this->foreignDatasetHashes($siteId, $language);
+            $foreignGroupIds = $foreignHashes === []
+                ? []
+                : SeoKeywordGroup::query()
+                    ->where('site_id', $siteId)
+                    ->where('source', KeywordGroupSource::SEMANTIC)
+                    ->whereIn('input_hash', $foreignHashes)
+                    ->pluck('id')
+                    ->map(static fn ($id): int => (int) $id)
+                    ->all();
+            if ($foreignGroupIds !== []) {
+                $foreignKeywordIds = SeoKeywordGroupKeyword::query()
+                    ->where('site_id', $siteId)
+                    ->whereIn('group_id', $foreignGroupIds)
+                    ->pluck('keyword_id');
+                foreach ($foreignKeywordIds as $keywordId) {
+                    $protectedKeywords[(int) $keywordId] = true;
+                }
             }
 
             $protectedGroupIds = SeoKeywordGroup::query()
@@ -371,6 +396,7 @@ final class KeywordGroupSemanticRefreshService
                 ->filter(static fn (SeoKeywordGroup $group): bool => $group->isProtectedFromSemanticRefresh())
                 ->map(static fn (SeoKeywordGroup $group): int => (int) $group->id)
                 ->all();
+            $protectedGroupIds = array_values(array_unique(array_merge($protectedGroupIds, $foreignGroupIds)));
 
             foreach (array_chunk($scopeKeywordIds, 500) as $chunk) {
                 $memberDelete = SeoKeywordGroupKeyword::query()
@@ -389,6 +415,13 @@ final class KeywordGroupSemanticRefreshService
                 ->whereDoesntHave('memberships');
             if ($protectedGroupIds !== []) {
                 $emptyGroups->whereNotIn('id', $protectedGroupIds);
+            }
+            if ($foreignHashes !== []) {
+                $emptyGroups->where(function ($query) use ($foreignHashes): void {
+                    $query->whereNull('input_hash')
+                        ->orWhere('input_hash', '')
+                        ->orWhereNotIn('input_hash', $foreignHashes);
+                });
             }
             $emptyIds = $emptyGroups->pluck('id');
             if ($emptyIds->isNotEmpty()) {
@@ -528,6 +561,103 @@ final class KeywordGroupSemanticRefreshService
             'keyword_count' => count($evidence),
             'membership_count' => $membershipCount,
         ];
+    }
+
+    /**
+     * Empty eligible input removes only unlocked semantic groups whose hash belongs
+     * to an analysis run of this language. Unknown hashes and other languages stay.
+     */
+    private function clearGroupsOwnedByLanguage(int $siteId, ?string $language): int
+    {
+        return (int) DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $language): int {
+            $unknown = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->where('source', KeywordGroupSource::SEMANTIC)
+                ->where('is_locked', false)
+                ->where(function ($query): void {
+                    $query->whereNull('input_hash')->orWhere('input_hash', '');
+                })
+                ->count();
+
+            $hashes = $this->ownedDatasetHashes($siteId, $language);
+            if ($hashes === []) {
+                return $unknown;
+            }
+
+            $ownedIds = SeoKeywordGroup::query()
+                ->where('site_id', $siteId)
+                ->where('source', KeywordGroupSource::SEMANTIC)
+                ->where('is_locked', false)
+                ->whereIn('input_hash', $hashes)
+                ->pluck('id');
+            if ($ownedIds->isEmpty()) {
+                return $unknown;
+            }
+
+            SeoKeywordGroupKeyword::query()
+                ->where('site_id', $siteId)
+                ->whereIn('group_id', $ownedIds->all())
+                ->delete();
+            SeoKeywordGroup::query()->whereIn('id', $ownedIds->all())->delete();
+
+            return $unknown;
+        });
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function ownedDatasetHashes(int $siteId, ?string $language): array
+    {
+        if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_group_analysis_runs')) {
+            return [];
+        }
+
+        $query = SeoKeywordGroupAnalysisRun::query()
+            ->where('site_id', $siteId)
+            ->whereNotNull('dataset_hash')
+            ->where('dataset_hash', '!=', '');
+        if ($language === null || $language === '') {
+            $query->whereNull('language');
+        } else {
+            $query->where('language', $language);
+        }
+
+        return $query->pluck('dataset_hash')
+            ->map(static fn ($hash): string => (string) $hash)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Dataset hashes owned by a different language. Those semantic groups stay untouched.
+     *
+     * @return list<string>
+     */
+    private function foreignDatasetHashes(int $siteId, ?string $language): array
+    {
+        if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_group_analysis_runs')) {
+            return [];
+        }
+
+        $query = SeoKeywordGroupAnalysisRun::query()
+            ->where('site_id', $siteId)
+            ->whereNotNull('dataset_hash')
+            ->where('dataset_hash', '!=', '');
+        if ($language === null || $language === '') {
+            $query->whereNotNull('language');
+        } else {
+            $query->where(function ($languages) use ($language): void {
+                $languages->whereNull('language')->orWhere('language', '!=', $language);
+            });
+        }
+
+        return $query->pluck('dataset_hash')
+            ->map(static fn ($hash): string => (string) $hash)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function normalizeLanguage(?string $language): ?string

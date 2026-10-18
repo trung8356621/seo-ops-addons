@@ -150,10 +150,9 @@ final class KeywordGroups extends Page
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
 
-        return app(KeywordGroupReadModel::class)->unassignedCount(
-            $siteId,
-            $this->resolveKeywordLanguageFilterVariants(),
-        );
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
+
+        return app(KeywordGroupReadModel::class)->unassignedCount($siteId, $variants, $code, $legacy);
     }
 
     public function getGroupsPaginator(): LengthAwarePaginator
@@ -163,11 +162,15 @@ final class KeywordGroups extends Page
             return new Paginator([], 0, KeywordGroupReadModel::DEFAULT_PER_PAGE);
         }
 
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
+
         return app(KeywordGroupReadModel::class)->paginateGroups(
             $siteId,
             max(1, (int) $this->getPage()),
             KeywordGroupReadModel::DEFAULT_PER_PAGE,
-            $this->resolveKeywordLanguageFilterVariants(),
+            $variants,
+            $code,
+            $legacy,
         )->withPath(KeywordResource::getUrl('groups'))
             ->appends(array_filter([
                 'group' => $this->focusGroupId > 0 ? $this->focusGroupId : null,
@@ -194,10 +197,15 @@ final class KeywordGroups extends Page
             return $this->semanticSuggestions[$groupId];
         }
 
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
+
         return app(KeywordGroupReadModel::class)->searchUnassigned(
             $siteId,
             $needle,
-            $this->resolveKeywordLanguageFilterVariants(),
+            $variants,
+            KeywordGroupReadModel::SEARCH_LIMIT,
+            $code,
+            $legacy,
         );
     }
 
@@ -209,7 +217,8 @@ final class KeywordGroups extends Page
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         try {
-            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, $groupId);
+            [$variants, $code, $legacy] = $this->groupLanguageScope();
+            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, $groupId, $code, $variants, $legacy);
         } catch (InvalidArgumentException) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.keyword_group_assign_failed'))
@@ -232,7 +241,8 @@ final class KeywordGroups extends Page
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         try {
-            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, null);
+            [$variants, $code, $legacy] = $this->groupLanguageScope();
+            app(KeywordGroupManualService::class)->assignKeyword($siteId, $keywordId, null, $code, $variants, $legacy);
         } catch (InvalidArgumentException) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.keyword_group_assign_failed'))
@@ -632,10 +642,8 @@ final class KeywordGroups extends Page
         }
 
         $perPage = KeywordGroupReadModel::DEFAULT_PER_PAGE;
-        $total = app(KeywordGroupReadModel::class)->groupCount(
-            $siteId,
-            $this->resolveKeywordLanguageFilterVariants(),
-        );
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
+        $total = app(KeywordGroupReadModel::class)->groupCount($siteId, $variants, $code, $legacy);
         $lastPage = max(1, (int) ceil($total / $perPage));
         if ($this->getPage() > $lastPage) {
             $this->setPage($lastPage);
@@ -646,12 +654,15 @@ final class KeywordGroups extends Page
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         $offset = $reset ? 0 : count($this->loadedMembers[$groupId] ?? []);
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
         $chunk = app(KeywordGroupReadModel::class)->groupMembers(
             $siteId,
             $groupId,
             KeywordGroupReadModel::MEMBER_PAGE_SIZE,
             $offset,
-            $this->resolveKeywordLanguageFilterVariants(),
+            $variants,
+            $code,
+            $legacy,
         );
 
         if ($reset) {
@@ -674,15 +685,33 @@ final class KeywordGroups extends Page
         }
 
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        [$variants, $code, $legacy] = $this->groupLanguageScope();
         $page = app(KeywordGroupReadModel::class)->pageForGroup(
             $siteId,
             $groupId,
             KeywordGroupReadModel::DEFAULT_PER_PAGE,
-            $this->resolveKeywordLanguageFilterVariants(),
+            $variants,
+            $code,
+            $legacy,
         );
         if ($page !== null) {
             $this->setPage($page);
         }
+    }
+
+    /**
+     * @return array{0: list<string>|null, 1: ?string, 2: bool}
+     */
+    private function groupLanguageScope(): array
+    {
+        $code = trim((string) ($this->keywordLanguageFilter ?? ''));
+        $code = $code === '' ? null : $code;
+
+        return [
+            $this->resolveKeywordLanguageFilterVariants(),
+            $code,
+            $code !== null && $code === $this->resolveKeywordWorkspacePrimaryLanguage(),
+        ];
     }
 
     private function resetMemberState(): void

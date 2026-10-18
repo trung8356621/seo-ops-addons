@@ -123,14 +123,20 @@ final class KeywordGroupManualService
         return $result;
     }
 
-    public function assignKeyword(int $siteId, int $keywordId, ?int $targetGroupId): void
-    {
+    public function assignKeyword(
+        int $siteId,
+        int $keywordId,
+        ?int $targetGroupId,
+        ?string $languageCode = null,
+        ?array $languageVariants = null,
+        bool $acceptLegacyNullLanguage = false,
+    ): void {
         $this->assertReady($siteId);
         if ($keywordId <= 0) {
             throw new InvalidArgumentException('invalid_keyword_group_assignment');
         }
 
-        $convertedSemantic = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $keywordId, $targetGroupId): bool {
+        $convertedSemantic = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $keywordId, $targetGroupId, $languageCode, $languageVariants, $acceptLegacyNullLanguage): bool {
             $convertedSemantic = false;
             $current = SeoKeywordGroupKeyword::query()
                 ->where('site_id', $siteId)
@@ -154,6 +160,15 @@ final class KeywordGroupManualService
             if ($current !== null && (int) $current->group_id === $targetId) {
                 return false;
             }
+
+            $this->assertLanguageScope(
+                $siteId,
+                $current !== null ? (int) $current->group_id : 0,
+                $target,
+                $languageCode,
+                $languageVariants,
+                $acceptLegacyNullLanguage,
+            );
 
             if ($current !== null) {
                 $old = SeoKeywordGroup::query()
@@ -323,6 +338,46 @@ final class KeywordGroupManualService
     {
         if ($siteId <= 0 || ! KeywordGroupSchema::tablesReady()) {
             throw new InvalidArgumentException('keyword_groups_unavailable');
+        }
+    }
+
+    /**
+     * @param  list<string>|null  $languageVariants
+     */
+    private function assertLanguageScope(
+        int $siteId,
+        int $currentGroupId,
+        ?SeoKeywordGroup $target,
+        ?string $languageCode,
+        ?array $languageVariants,
+        bool $acceptLegacyNullLanguage,
+    ): void {
+        $languageCode = trim((string) $languageCode);
+        if ($languageCode === '') {
+            return;
+        }
+
+        $reader = app(KeywordGroupReadModel::class);
+        if ($currentGroupId > 0 && ! $reader->groupVisible($siteId, $currentGroupId, $languageVariants, $languageCode, $acceptLegacyNullLanguage)) {
+            throw new InvalidArgumentException('keyword_group_language_mismatch');
+        }
+
+        if (! $target instanceof SeoKeywordGroup) {
+            return;
+        }
+
+        if (KeywordGroupSource::isManual($target->source)) {
+            $hasMembers = SeoKeywordGroupKeyword::query()
+                ->where('site_id', $siteId)
+                ->where('group_id', $target->id)
+                ->exists();
+            if (! $hasMembers) {
+                return;
+            }
+        }
+
+        if (! $reader->groupVisible($siteId, (int) $target->id, $languageVariants, $languageCode, $acceptLegacyNullLanguage)) {
+            throw new InvalidArgumentException('keyword_group_language_mismatch');
         }
     }
 

@@ -176,7 +176,7 @@ final class KeywordGroupAnalysisFinalizer
                 'input_hash' => $run->dataset_hash,
                 'diagnostics' => ['algorithm' => $run->algorithm],
                 'groups' => $groups,
-            ], $known);
+            ], $known, $run->language);
             $fresh->phase = 'finalized';
             $fresh->group_count = $written['groups'];
             $fresh->member_count = $written['members'];

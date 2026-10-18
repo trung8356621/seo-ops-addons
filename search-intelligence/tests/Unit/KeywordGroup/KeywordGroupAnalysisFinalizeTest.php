@@ -76,6 +76,78 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
         ]);
     }
 
+    public function test_english_publish_does_not_replace_vietnamese_groups(): void
+    {
+        $siteId = 61;
+        $vi = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Balo',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'representative_keyword_id' => 10,
+            'input_hash' => 'vi-hash',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $vi->id,
+            'keyword_id' => 10,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $manual = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Manual VI',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => true,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $manual->id,
+            'keyword_id' => 11,
+            'source' => KeywordGroupSource::MANUAL,
+        ]);
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => $siteId,
+            'run_id' => 'vi-run',
+            'language' => 'vi',
+            'dataset_revision' => 1,
+            'dataset_hash' => 'vi-hash',
+            'fingerprint' => 'fp-vi',
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'finalized',
+        ]);
+
+        $service = new KeywordGroupSemanticRefreshService(
+            new SemanticAnalyticsClient(healthReporter: null),
+            new TopicGroupingInputHasher(),
+            new KeywordGroupCandidateLoader(),
+        );
+        $written = $service->publishAnalysisResponse($siteId, [
+            'status' => 'completed',
+            'input_hash' => 'en-hash',
+            'diagnostics' => ['algorithm' => 'hybrid_semantic_lexical_v1'],
+            'groups' => [[
+                'group_ref' => 'en-1',
+                'representative_ref' => '12',
+                'representative_text' => 'school bag',
+                'members' => [
+                    ['ref' => '10', 'similarity_score' => 1],
+                    ['ref' => '12', 'similarity_score' => 0.9],
+                ],
+            ]],
+        ], [10 => true, 12 => true], 'en');
+
+        self::assertSame(1, $written['groups']);
+        self::assertSame(1, $written['members']);
+        self::assertSame('Balo', SeoKeywordGroup::query()->whereKey($vi->id)->value('name'));
+        self::assertSame('vi-hash', SeoKeywordGroup::query()->whereKey($vi->id)->value('input_hash'));
+        self::assertSame(10, (int) SeoKeywordGroupKeyword::query()->where('group_id', $vi->id)->value('keyword_id'));
+        self::assertSame(KeywordGroupSource::MANUAL, SeoKeywordGroup::query()->whereKey($manual->id)->value('source'));
+        self::assertTrue((bool) SeoKeywordGroup::query()->whereKey($manual->id)->value('is_locked'));
+        self::assertSame(11, (int) SeoKeywordGroupKeyword::query()->where('group_id', $manual->id)->value('keyword_id'));
+        self::assertSame(12, (int) SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 12)->value('keyword_id'));
+        self::assertNotSame((int) $vi->id, (int) SeoKeywordGroupKeyword::query()->where('keyword_id', 12)->value('group_id'));
+    }
+
     public function test_queued_and_running_do_not_write_groups(): void
     {
         $this->remoteStatus = 'queued';

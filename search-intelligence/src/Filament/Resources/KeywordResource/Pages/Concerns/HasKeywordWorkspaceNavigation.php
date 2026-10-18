@@ -162,6 +162,9 @@ trait HasKeywordWorkspaceNavigation
 
         $metricCache = app(KeywordWorkspaceMetricCache::class);
         $languageCode = $this->keywordLanguageFilter;
+        $scopedLanguage = is_string($languageCode) && $languageCode !== '' ? $languageCode : null;
+        $acceptLegacyLanguage = $scopedLanguage !== null
+            && $scopedLanguage === $this->resolveKeywordWorkspacePrimaryLanguage();
         $dictionaryMetrics = $metricCache->rememberMetrics(
             (int) ($siteId ?? 0),
             $languageCode,
@@ -197,7 +200,7 @@ trait HasKeywordWorkspaceNavigation
                 ['total'],
                 fn (): array => [
                     'total' => app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel::class)
-                        ->groupCount($siteId, $languageVariants),
+                        ->groupCount($siteId, $languageVariants, $scopedLanguage, $acceptLegacyLanguage),
                 ],
             )['total'] ?? 0);
             $topics = (int) ($metricCache->rememberMetrics(
