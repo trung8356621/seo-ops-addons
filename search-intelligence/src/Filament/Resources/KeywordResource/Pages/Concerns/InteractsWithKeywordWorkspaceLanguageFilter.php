@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cookie;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceLanguageScope;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
@@ -14,11 +15,15 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
 {
     public ?string $keywordLanguageFilter = null;
 
+    public bool $keywordLanguagePinned = false;
+
     protected function initializeKeywordWorkspaceLanguageFilter(): void
     {
         $options = $this->getKeywordLanguageFilterOptions();
+        $pinned = $this->pinnedKeywordWorkspaceLanguage();
+        $this->keywordLanguagePinned = $pinned !== null;
         $this->keywordLanguageFilter = KeywordWorkspaceLanguageScope::resolveSelectedCode(
-            null,
+            $pinned,
             $options,
             $this->resolveKeywordWorkspacePrimaryLanguage(),
         );
@@ -73,6 +78,8 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
             $options,
             $this->resolveKeywordWorkspacePrimaryLanguage(),
         );
+        $this->keywordLanguagePinned = true;
+        $this->rememberKeywordWorkspaceLanguage();
 
         if (method_exists($this, 'clearKeywordWorkspaceTabCountsCache')) {
             $this->clearKeywordWorkspaceTabCountsCache();
@@ -146,6 +153,71 @@ trait InteractsWithKeywordWorkspaceLanguageFilter
         }
 
         return KeywordWorkspaceLanguageScope::applyToSeoLinkMapQuery($query, $variants);
+    }
+
+    public function pinKeywordWorkspaceLanguage(): void
+    {
+        if ($this->keywordLanguagePinned) {
+            return;
+        }
+
+        $this->keywordLanguagePinned = true;
+        $this->rememberKeywordWorkspaceLanguage();
+        if (method_exists($this, 'loadAnalysisStatus')) {
+            $this->loadAnalysisStatus();
+        }
+        if (method_exists($this, 'focusGroupPageIfNeeded')) {
+            $this->focusGroupPageIfNeeded();
+        }
+        if (method_exists($this, 'reloadKeywordWorkspaceStatisticsAfterRender')) {
+            $this->reloadKeywordWorkspaceStatisticsAfterRender();
+        }
+    }
+
+    private function pinnedKeywordWorkspaceLanguage(): ?string
+    {
+        if (! method_exists($this, 'resolveKeywordWorkspaceSiteId')) {
+            return null;
+        }
+
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            return null;
+        }
+
+        $pinned = request()->cookie('kw_lang_'.$siteId);
+        if (! is_string($pinned)) {
+            return null;
+        }
+
+        $pinned = trim($pinned);
+
+        return $pinned === '' ? null : $pinned;
+    }
+
+    private function rememberKeywordWorkspaceLanguage(): void
+    {
+        if (! method_exists($this, 'resolveKeywordWorkspaceSiteId')) {
+            return;
+        }
+
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        $code = trim((string) ($this->keywordLanguageFilter ?? ''));
+        if ($siteId === null || $siteId <= 0 || $code === '') {
+            return;
+        }
+
+        Cookie::queue(cookie(
+            'kw_lang_'.$siteId,
+            $code,
+            60 * 24 * 365,
+            '/',
+            null,
+            false,
+            false,
+            false,
+            'lax',
+        ));
     }
 
     private function resolveKeywordWorkspaceSiteModel(): ?Site

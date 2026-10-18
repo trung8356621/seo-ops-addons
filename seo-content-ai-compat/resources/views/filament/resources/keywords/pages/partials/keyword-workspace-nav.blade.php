@@ -3,6 +3,8 @@
     $languageSiteId = $languageSiteId ?? ($this->resolveKeywordWorkspaceSiteId() ?? 0);
     $primaryLanguage = $primaryLanguage ?? ($this->resolveKeywordWorkspacePrimaryLanguage() ?? '');
     $selectedLanguage = $selectedLanguage ?? ($this->keywordLanguageFilter ?? $primaryLanguage);
+    $needsLanguagePin = ($this->keywordLanguagePinned ?? false) === false
+        && method_exists($this, 'getGroupsPaginator');
     $moduleHeading = $moduleHeading ?? (method_exists($this, 'getKeywordModuleHeading')
         ? $this->getKeywordModuleHeading()
         : (string) __('seo-content-ai::filament.keyword.module_heading_fallback'));
@@ -45,6 +47,7 @@
                     selectedLanguage: @js($selectedLanguage),
                     optionCodes: @js(array_keys($languageOptions)),
                     storageKeyPrefix: 'keywordWorkspace.language.',
+                    needsLanguagePin: @js($needsLanguagePin),
                 })"
                 x-init="init()"
                 @keyword-workspace-language-site-changed.window="onSiteChanged($event.detail)"
@@ -77,6 +80,7 @@
                 selectedLanguage: String(config.selectedLanguage ?? ''),
                 optionCodes: Array.isArray(config.optionCodes) ? config.optionCodes : [],
                 storageKeyPrefix: config.storageKeyPrefix ?? 'keywordWorkspace.language.',
+                needsLanguagePin: config.needsLanguagePin === true,
                 init() {
                     this.$nextTick(() => this.applyStoredSelection());
                 },
@@ -98,6 +102,7 @@
 
                     try {
                         window.localStorage.setItem(this.storageKey(), normalized);
+                        document.cookie = `kw_lang_${this.siteId}=${encodeURIComponent(normalized)};path=/;max-age=31536000;SameSite=Lax`;
                     } catch (error) {
                         // ignore storage failures
                     }
@@ -114,14 +119,19 @@
                         return;
                     }
 
+                    const changed = candidate !== this.selectedLanguage;
+                    this.persist(candidate);
+
                     const select = this.$root.querySelector('#keyword-workspace-language-filter');
                     if (select instanceof HTMLSelectElement && select.value !== candidate) {
                         select.value = candidate;
                     }
 
-                    if (candidate !== this.selectedLanguage && this.$wire && typeof this.$wire.set === 'function') {
+                    if (changed && this.$wire && typeof this.$wire.set === 'function') {
                         this.$wire.set('keywordLanguageFilter', candidate);
                         this.selectedLanguage = candidate;
+                    } else if (this.needsLanguagePin && this.$wire && typeof this.$wire.pinKeywordWorkspaceLanguage === 'function') {
+                        this.$wire.pinKeywordWorkspaceLanguage();
                     }
                 },
                 onSiteChanged(detail) {

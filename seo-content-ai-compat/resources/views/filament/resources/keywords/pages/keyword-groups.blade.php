@@ -1,6 +1,9 @@
 @php
-    $groups = $this->getGroupsPaginator();
-    $unassignedCount = $this->getUnassignedCount();
+    $languageReady = (bool) $this->keywordLanguagePinned;
+    $groups = $languageReady
+        ? $this->getGroupsPaginator()
+        : new \Illuminate\Pagination\LengthAwarePaginator([], 0, 20);
+    $unassignedCount = $languageReady ? $this->getUnassignedCount() : 0;
     $focusGroupId = (int) ($this->focusGroupId ?? 0);
     $canMutate = $this->canMutateKeywordGroups();
     $workspaceCss = base_path('addons/seo/resources/css/keyword-workspace.css');
@@ -28,7 +31,7 @@
                     wire:click="refreshSemanticGroups"
                     wire:loading.attr="disabled"
                     wire:target="refreshSemanticGroups"
-                    @disabled($this->analysisActive)
+                    @disabled($this->analysisActive || ! $languageReady)
                 >
                     <svg wire:loading wire:target="refreshSemanticGroups" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -39,7 +42,7 @@
             @endif
         </header>
 
-        @if ($analysisPhase !== 'idle')
+        @if ($languageReady && $analysisPhase !== 'idle')
             <div
                 class="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm dark:border-gray-800 dark:bg-gray-900"
                 @if ($analysisActive) wire:poll.5s="refreshAnalysisStatus" @endif
@@ -63,7 +66,7 @@
             </div>
         @endif
 
-        @if ($canMutate)
+        @if ($languageReady && $canMutate)
             <form class="flex flex-wrap items-center gap-2" wire:submit="createGroup">
                 <input
                     type="text"
@@ -83,6 +86,7 @@
             </form>
         @endif
 
+        @if ($languageReady)
         <div class="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm dark:border-gray-800 dark:bg-gray-900">
             <span class="font-medium text-gray-950 dark:text-white">
                 {{ __('seo-content-ai::filament.keyword.keyword_group_unassigned_summary', ['count' => number_format($unassignedCount)]) }}
@@ -506,6 +510,7 @@
             <div class="pt-2">
                 {{ $groups->links() }}
             </div>
+        @endif
         @endif
     </div>
 </x-filament-panels::page>

@@ -51,6 +51,10 @@ trait HasKeywordWorkspaceNavigation
 
     public function loadKeywordWorkspaceStatistics(): void
     {
+        if ($this->keywordLanguagePinned === false && method_exists($this, 'getGroupsPaginator')) {
+            return;
+        }
+
         $this->keywordWorkspaceTabCounts = $this->getKeywordWorkspaceTabCounts();
 
         if (method_exists($this, 'loadKeywordDictionaryStats')) {

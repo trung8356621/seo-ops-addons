@@ -177,6 +177,16 @@ final class KeywordGroupAnalysisFinalizer
                 'diagnostics' => ['algorithm' => $run->algorithm],
                 'groups' => $groups,
             ], $known, $run->language);
+            if ($written['groups'] === 0 && $groups !== []) {
+                $fresh->phase = 'failed';
+                $fresh->group_count = 0;
+                $fresh->member_count = 0;
+                $fresh->last_error = 'grouped keywords already belong to another language';
+                $fresh->finalized_at = null;
+                $fresh->save();
+
+                return $this->step($fresh, false);
+            }
             $fresh->phase = 'finalized';
             $fresh->group_count = $written['groups'];
             $fresh->member_count = $written['members'];

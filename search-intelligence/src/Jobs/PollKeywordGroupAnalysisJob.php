@@ -90,7 +90,13 @@ final class PollKeywordGroupAnalysisJob implements ShouldBeUniqueUntilProcessing
 
         Cache::forget($this->transportKey());
         $this->cancelFollowUp($token);
-        $row = SeoKeywordGroupAnalysisRun::query()->where('site_id', $this->siteId)->first();
+        $query = SeoKeywordGroupAnalysisRun::query()->where('site_id', $this->siteId);
+        if ($this->language === null || $this->language === '') {
+            $query->whereNull('language');
+        } else {
+            $query->where('language', $this->language);
+        }
+        $row = $query->first();
         if ($row instanceof SeoKeywordGroupAnalysisRun && $row->phase !== 'finalized') {
             $row->phase = 'failed';
             $row->last_error = 'semantic service unreachable';
@@ -112,6 +118,6 @@ final class PollKeywordGroupAnalysisJob implements ShouldBeUniqueUntilProcessing
 
     private function transportKey(): string
     {
-        return 'keyword-group-analysis-transport:'.$this->siteId;
+        return 'keyword-group-analysis-transport:'.$this->siteId.':'.($this->language ?? '');
     }
 }

@@ -100,8 +100,10 @@ final class KeywordGroups extends Page
             return;
         }
         $this->dispatchKeywordWorkspaceLanguageContext();
-        $this->loadAnalysisStatus();
-        $this->focusGroupPageIfNeeded();
+        if ($this->keywordLanguagePinned) {
+            $this->loadAnalysisStatus();
+            $this->focusGroupPageIfNeeded();
+        }
     }
 
     public static function canAccess(array $parameters = []): bool

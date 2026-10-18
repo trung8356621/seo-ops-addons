@@ -159,4 +159,44 @@ final class KeywordGroupAnalysisUiTest extends TestCase
         self::assertSame(869, (int) SeoKeywordGroupAnalysisRun::query()->where('language', 'vi')->value('group_count'));
         self::assertSame('queued', SeoKeywordGroupAnalysisRun::query()->where('language', 'en')->value('phase'));
     }
+
+    public function test_json_encoded_queue_payload_keeps_the_language_run_active(): void
+    {
+        config(['queue.default' => 'database']);
+        if (! Schema::hasTable('jobs')) {
+            Schema::create('jobs', function ($table): void {
+                $table->id();
+                $table->string('queue');
+                $table->text('payload');
+                $table->unsignedTinyInteger('attempts');
+                $table->unsignedInteger('reserved_at')->nullable();
+                $table->unsignedInteger('available_at');
+                $table->unsignedInteger('created_at');
+            });
+        }
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => 8,
+            'run_id' => 'run-en',
+            'language' => 'en',
+            'dataset_revision' => 2,
+            'dataset_hash' => str_repeat('c', 64),
+            'fingerprint' => str_repeat('d', 64),
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'running',
+        ]);
+        $serialized = 'O:1:"X":2:{s:6:"siteId";i:8;s:8:"language";s:2:"en";}';
+        DB::table('jobs')->insert([
+            'queue' => 'seo',
+            'payload' => json_encode(['displayName' => PollKeywordGroupAnalysisJob::class, 'command' => $serialized], JSON_THROW_ON_ERROR),
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => now()->getTimestamp(),
+            'created_at' => now()->getTimestamp(),
+        ]);
+
+        $status = (new KeywordGroupAnalysisDispatcher())->status(8, 'en');
+        self::assertTrue($status['active']);
+        self::assertFalse($status['retry']);
+        self::assertFalse((new KeywordGroupAnalysisDispatcher())->status(8, 'vi')['active']);
+    }
 }

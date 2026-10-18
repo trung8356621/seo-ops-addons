@@ -148,6 +148,61 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
         self::assertNotSame((int) $vi->id, (int) SeoKeywordGroupKeyword::query()->where('keyword_id', 12)->value('group_id'));
     }
 
+    public function test_completed_run_fails_when_members_belong_to_another_language(): void
+    {
+        $migration = require dirname(__DIR__, 3).'/database/migrations/2026_10_17_180000_scope_keyword_group_analysis_runs_by_language.php';
+        $migration->up();
+
+        $hash = KeywordGroupDatasetCanonical::datasetHash((string) self::SITE, 'en', $this->items);
+        $this->frozenHash = $hash;
+        $this->remoteStatus = 'completed';
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => self::SITE,
+            'run_id' => 'legacy',
+            'language' => null,
+            'dataset_revision' => 1,
+            'dataset_hash' => 'legacy-hash',
+            'fingerprint' => 'fp-legacy',
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'finalized',
+            'group_count' => 1,
+            'member_count' => 2,
+        ]);
+        $legacy = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'Legacy',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'input_hash' => 'legacy-hash',
+            'is_locked' => false,
+        ]);
+        foreach ([1, 2] as $keywordId) {
+            SeoKeywordGroupKeyword::query()->create([
+                'site_id' => self::SITE,
+                'group_id' => $legacy->id,
+                'keyword_id' => $keywordId,
+                'source' => KeywordGroupSource::SEMANTIC,
+            ]);
+        }
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => self::SITE,
+            'run_id' => 'run-1',
+            'language' => 'en',
+            'dataset_revision' => 3,
+            'dataset_hash' => $hash,
+            'fingerprint' => 'fp-1',
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'running',
+        ]);
+
+        $step = $this->finalizer()->advance(self::SITE, 'en');
+
+        self::assertSame('failed', $step->phase);
+        self::assertSame('grouped keywords already belong to another language', $step->error);
+        self::assertSame(2, SeoKeywordGroupKeyword::query()->where('group_id', $legacy->id)->count());
+        self::assertSame('finalized', SeoKeywordGroupAnalysisRun::query()->where('run_id', 'legacy')->value('phase'));
+        self::assertSame(1, (int) SeoKeywordGroupAnalysisRun::query()->where('run_id', 'legacy')->value('group_count'));
+    }
+
     public function test_queued_and_running_do_not_write_groups(): void
     {
         $this->remoteStatus = 'queued';

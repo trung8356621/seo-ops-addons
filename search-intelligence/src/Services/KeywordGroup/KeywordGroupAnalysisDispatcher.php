@@ -147,11 +147,35 @@ final class KeywordGroupAnalysisDispatcher
         $query = DB::table('jobs')
             ->where('queue', 'seo')
             ->where('payload', 'like', '%PollKeywordGroupAnalysisJob%')
-            ->where('payload', 'like', '%siteId";i:'.$siteId.';%');
+            ->where(function (Builder $payload) use ($siteId): void {
+                foreach ($this->payloadNeedles('siteId";i:'.$siteId.';') as $needle) {
+                    $payload->orWhere('payload', 'like', '%'.$needle.'%');
+                }
+            });
         if ($language !== null) {
-            $query->where('payload', 'like', '%language";s:'.strlen($language).':"'.$language.'";%');
+            $encoded = 'language";s:'.strlen($language).':"'.$language.'";';
+            $query->where(function (Builder $payload) use ($encoded): void {
+                foreach ($this->payloadNeedles($encoded) as $needle) {
+                    $payload->orWhere('payload', 'like', '%'.$needle.'%');
+                }
+            });
         }
 
         return $query;
+    }
+
+    /**
+     * Queue payloads store PHP serialization inside JSON, so quotes are escaped.
+     *
+     * @return list<string>
+     */
+    private function payloadNeedles(string $serializedFragment): array
+    {
+        $escaped = str_replace('"', '\\"', $serializedFragment);
+        if (DB::connection()->getDriverName() === 'mysql') {
+            $escaped = str_replace('\\', '\\\\', $escaped);
+        }
+
+        return [$serializedFragment, $escaped];
     }
 }
