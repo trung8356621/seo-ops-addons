@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopic;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupAnalysisRun;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema;
 
 /**
@@ -138,11 +140,11 @@ final class KeywordGroupManualService
 
         $convertedSemantic = DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $keywordId, $targetGroupId, $languageCode, $languageVariants, $acceptLegacyNullLanguage): bool {
             $convertedSemantic = false;
-            $current = SeoKeywordGroupKeyword::query()
+            $currentQuery = SeoKeywordGroupKeyword::query()
                 ->where('site_id', $siteId)
-                ->where('keyword_id', $keywordId)
-                ->lockForUpdate()
-                ->first();
+                ->where('keyword_id', $keywordId);
+            $this->constrainMembershipLanguage($currentQuery, $languageCode, $acceptLegacyNullLanguage);
+            $current = $currentQuery->lockForUpdate()->first();
 
             $target = null;
             if ($targetGroupId !== null && $targetGroupId > 0) {
@@ -194,6 +196,7 @@ final class KeywordGroupManualService
                 'source' => KeywordGroupSource::MANUAL,
                 'similarity_score' => null,
             ];
+            $this->applyMembershipLanguage($payload, $languageCode, $acceptLegacyNullLanguage);
             $this->applyDefaultTopicCandidateFields($payload);
             SeoKeywordGroupKeyword::query()->create($payload);
             $convertedSemantic = $this->promoteToManual($target) || $convertedSemantic;
@@ -239,9 +242,13 @@ final class KeywordGroupManualService
                 throw new InvalidArgumentException('keyword_group_not_found');
             }
 
-            $alreadyAssigned = SeoKeywordGroupKeyword::query()
+            $alreadyAssignedQuery = SeoKeywordGroupKeyword::query()
                 ->where('site_id', $siteId)
-                ->whereIn('keyword_id', array_values($ids))
+                ->whereIn('keyword_id', array_values($ids));
+            if (KeywordGroupSchema::membershipLanguageReady()) {
+                $alreadyAssignedQuery->where('language', $this->languageKeyForGroup($target));
+            }
+            $alreadyAssigned = $alreadyAssignedQuery
                 ->pluck('keyword_id')
                 ->map(static fn ($id): int => (int) $id)
                 ->all();
@@ -260,6 +267,9 @@ final class KeywordGroupManualService
                     'source' => KeywordGroupSource::MANUAL,
                     'similarity_score' => null,
                 ];
+                if (KeywordGroupSchema::membershipLanguageReady()) {
+                    $payload['language'] = $this->languageKeyForGroup($target);
+                }
                 $this->applyDefaultTopicCandidateFields($payload);
                 SeoKeywordGroupKeyword::query()->create($payload);
                 $appended[] = $keywordId;
@@ -332,6 +342,54 @@ final class KeywordGroupManualService
         if (KeywordGroupSchema::topicCandidateOverrideReady()) {
             $payload['topic_candidate_override'] = null;
         }
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<SeoKeywordGroupKeyword>  $query
+     */
+    private function constrainMembershipLanguage($query, ?string $languageCode, bool $acceptLegacyNullLanguage): void
+    {
+        if (! KeywordGroupSchema::membershipLanguageReady()) {
+            return;
+        }
+        $languageCode = trim((string) $languageCode);
+        if ($languageCode === '') {
+            return;
+        }
+
+        $keys = $acceptLegacyNullLanguage
+            ? ['', KeywordGroupSchema::membershipLanguageKey($languageCode)]
+            : [KeywordGroupSchema::membershipLanguageKey($languageCode)];
+        $query->whereIn('language', array_values(array_unique($keys)));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyMembershipLanguage(array &$payload, ?string $languageCode, bool $acceptLegacyNullLanguage): void
+    {
+        if (! KeywordGroupSchema::membershipLanguageReady()) {
+            return;
+        }
+
+        $payload['language'] = $acceptLegacyNullLanguage
+            ? ''
+            : KeywordGroupSchema::membershipLanguageKey($languageCode);
+    }
+
+    private function languageKeyForGroup(SeoKeywordGroup $group): string
+    {
+        $hash = trim((string) ($group->input_hash ?? ''));
+        if ($hash === '' || ! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_group_analysis_runs')) {
+            return '';
+        }
+
+        $runLanguage = SeoKeywordGroupAnalysisRun::query()
+            ->where('site_id', (int) $group->site_id)
+            ->where('dataset_hash', $hash)
+            ->value('language');
+
+        return KeywordGroupSchema::membershipLanguageKey(is_string($runLanguage) ? $runLanguage : null);
     }
 
     private function assertReady(int $siteId): void

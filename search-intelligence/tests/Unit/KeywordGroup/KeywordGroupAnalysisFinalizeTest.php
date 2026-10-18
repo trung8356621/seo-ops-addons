@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\KeywordGroup;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordGroup\KeywordGroupSource;
@@ -14,6 +15,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupAnalysisRun;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroupKeyword;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupAnalysisException;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupManualService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupAnalysisFinalizer;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupCandidateLoader;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupDatasetCanonical;
@@ -201,6 +203,123 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
         self::assertSame(2, SeoKeywordGroupKeyword::query()->where('group_id', $legacy->id)->count());
         self::assertSame('finalized', SeoKeywordGroupAnalysisRun::query()->where('run_id', 'legacy')->value('phase'));
         self::assertSame(1, (int) SeoKeywordGroupAnalysisRun::query()->where('run_id', 'legacy')->value('group_count'));
+    }
+
+    public function test_language_scope_keeps_legacy_membership_and_is_idempotent(): void
+    {
+        $migration = require dirname(__DIR__, 3).'/database/migrations/2026_10_18_120000_scope_keyword_group_memberships_by_language.php';
+        $migration->up();
+
+        $siteId = 62;
+        $legacy = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Balo',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'representative_keyword_id' => 10,
+            'input_hash' => 'vi-hash',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $legacy->id,
+            'keyword_id' => 10,
+            'language' => '',
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $manual = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Locked',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => true,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $manual->id,
+            'keyword_id' => 11,
+            'language' => '',
+            'source' => KeywordGroupSource::MANUAL,
+        ]);
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => $siteId,
+            'run_id' => 'vi-run',
+            'language' => null,
+            'dataset_revision' => 1,
+            'dataset_hash' => 'vi-hash',
+            'fingerprint' => 'fp-vi',
+            'algorithm' => 'hybrid_semantic_lexical_v1',
+            'phase' => 'finalized',
+            'group_count' => 1,
+            'member_count' => 1,
+        ]);
+
+        $service = new KeywordGroupSemanticRefreshService(
+            new SemanticAnalyticsClient(healthReporter: null),
+            new TopicGroupingInputHasher(),
+            new KeywordGroupCandidateLoader(),
+        );
+        $response = [
+            'status' => 'completed',
+            'input_hash' => 'en-hash',
+            'diagnostics' => ['algorithm' => 'hybrid_semantic_lexical_v1'],
+            'groups' => [[
+                'group_ref' => 'en-1',
+                'representative_ref' => '10',
+                'representative_text' => 'school bag',
+                'members' => [
+                    ['ref' => '10', 'similarity_score' => 1],
+                    ['ref' => '12', 'similarity_score' => 0.9],
+                    ['ref' => '11', 'similarity_score' => 0.8],
+                ],
+            ]],
+        ];
+        $known = [10 => true, 11 => true, 12 => true];
+        $first = $service->publishAnalysisResponse($siteId, $response, $known, 'en');
+        $second = $service->publishAnalysisResponse($siteId, $response, $known, 'en');
+
+        self::assertSame(1, $first['groups']);
+        self::assertSame(2, $first['members']);
+        self::assertSame($first, $second);
+        self::assertSame('Balo', SeoKeywordGroup::query()->whereKey($legacy->id)->value('name'));
+        self::assertSame(10, (int) SeoKeywordGroup::query()->whereKey($legacy->id)->value('representative_keyword_id'));
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('group_id', $legacy->id)->where('keyword_id', 10)->count());
+        self::assertSame('', (string) SeoKeywordGroupKeyword::query()->where('group_id', $legacy->id)->value('language'));
+        self::assertSame(11, (int) SeoKeywordGroupKeyword::query()->where('group_id', $manual->id)->value('keyword_id'));
+        self::assertTrue((bool) SeoKeywordGroup::query()->whereKey($manual->id)->value('is_locked'));
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 10)->where('language', 'en')->count());
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 12)->where('language', 'en')->count());
+        self::assertSame(0, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 11)->where('language', 'en')->count());
+        self::assertSame(2, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 10)->count());
+
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $legacy->id,
+            'keyword_id' => 13,
+            'language' => '',
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        $english = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Manual EN',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => false,
+        ]);
+        app(KeywordGroupManualService::class)->assignKeyword($siteId, 13, (int) $english->id, 'en', ['en'], false);
+        self::assertSame((int) $english->id, (int) SeoKeywordGroupKeyword::query()->where('keyword_id', 13)->where('language', 'en')->value('group_id'));
+        self::assertSame((int) $legacy->id, (int) SeoKeywordGroupKeyword::query()->where('keyword_id', 13)->where('language', '')->value('group_id'));
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('keyword_id', 10)->where('language', '')->count());
+
+        try {
+            SeoKeywordGroupKeyword::query()->create([
+                'site_id' => $siteId,
+                'group_id' => $legacy->id,
+                'keyword_id' => 10,
+                'language' => '',
+                'source' => KeywordGroupSource::SEMANTIC,
+            ]);
+            self::fail('same language scope must stay unique');
+        } catch (QueryException) {
+            self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 10)->where('language', '')->count());
+        }
     }
 
     public function test_queued_and_running_do_not_write_groups(): void

@@ -370,6 +370,7 @@ final class KeywordGroupSemanticRefreshService
                 return ['groups' => 0, 'members' => 0];
             }
 
+            $membershipLanguage = $this->storedMembershipLanguage($language);
             $foreignHashes = $this->foreignDatasetHashes($siteId, $language);
             $foreignGroupIds = $foreignHashes === []
                 ? []
@@ -380,7 +381,7 @@ final class KeywordGroupSemanticRefreshService
                     ->pluck('id')
                     ->map(static fn ($id): int => (int) $id)
                     ->all();
-            if ($foreignGroupIds !== []) {
+            if ($membershipLanguage === null && $foreignGroupIds !== []) {
                 $foreignKeywordIds = SeoKeywordGroupKeyword::query()
                     ->where('site_id', $siteId)
                     ->whereIn('group_id', $foreignGroupIds)
@@ -402,6 +403,9 @@ final class KeywordGroupSemanticRefreshService
                 $memberDelete = SeoKeywordGroupKeyword::query()
                     ->where('site_id', $siteId)
                     ->whereIn('keyword_id', $chunk);
+                if ($membershipLanguage !== null) {
+                    $memberDelete->where('language', $membershipLanguage);
+                }
                 if ($protectedGroupIds !== []) {
                     $memberDelete->whereNotIn('group_id', $protectedGroupIds);
                 }
@@ -469,6 +473,9 @@ final class KeywordGroupSemanticRefreshService
                         'source' => KeywordGroupSource::SEMANTIC,
                         'similarity_score' => $member['similarity_score'],
                     ];
+                    if ($membershipLanguage !== null) {
+                        $payload['language'] = $membershipLanguage;
+                    }
                     if (\Omnichannel\Addons\SearchIntelligence\Support\KeywordGroupSchema::topicCandidateReady()) {
                         $payload['is_topic_candidate'] = true;
                     }
@@ -658,6 +665,15 @@ final class KeywordGroupSemanticRefreshService
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function storedMembershipLanguage(?string $language): ?string
+    {
+        if (! KeywordGroupSchema::membershipLanguageReady()) {
+            return null;
+        }
+
+        return KeywordGroupSchema::membershipLanguageKey($language);
     }
 
     private function normalizeLanguage(?string $language): ?string

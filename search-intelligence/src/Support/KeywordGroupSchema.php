@@ -39,4 +39,23 @@ final class KeywordGroupSchema
         return $schema->hasTable('seo_keyword_group_keywords')
             && $schema->hasColumn('seo_keyword_group_keywords', 'topic_candidate_override');
     }
+
+    public static function membershipLanguageReady(): bool
+    {
+        $schema = Schema::connection('omi_seo_ai');
+
+        return $schema->hasTable('seo_keyword_group_keywords')
+            && $schema->hasColumn('seo_keyword_group_keywords', 'language');
+    }
+
+    /**
+     * Empty string is the legacy unscoped analysis bucket.
+     * It is not an inferred keyword locale.
+     */
+    public static function membershipLanguageKey(?string $language): string
+    {
+        $language = trim((string) $language);
+
+        return $language === '' ? '' : mb_substr($language, 0, 32);
+    }
 }

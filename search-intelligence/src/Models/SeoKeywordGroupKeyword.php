@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 
 /**
- * One keyword belongs to at most one Group per site.
+ * One keyword belongs to at most one Group per site and language scope.
+ * An empty language is the legacy unscoped run, not a guessed locale.
  */
 final class SeoKeywordGroupKeyword extends Model
 {
@@ -21,6 +22,7 @@ final class SeoKeywordGroupKeyword extends Model
         'site_id',
         'group_id',
         'keyword_id',
+        'language',
         'source',
         'similarity_score',
         'is_topic_candidate',
