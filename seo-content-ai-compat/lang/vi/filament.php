@@ -894,6 +894,8 @@ return [
         'quality_tag_trailing_sequence_number' => 'Số thứ tự dư',
         'quality_tag_duplicate_variant' => 'Biến thể trùng',
         'quality_tag_duplicate_variant_help' => 'Loại keyword mang tag này khỏi bộ đếm và tập keyword Topic.',
+        'quality_tag_language_mismatch' => 'Lệch ngôn ngữ',
+        'quality_tag_language_mismatch_help' => 'Cảnh báo keyword lệch ngôn ngữ inventory. Mặc định không loại khỏi Topic; chỉ loại khi bật công tắc này.',
         'topic_compact_stats_mcp' => ':count chủ đề MCP',
         'topic_compact_stats_topics' => ':count chủ đề',
         'topic_search_placeholder' => 'Tìm chủ đề…',

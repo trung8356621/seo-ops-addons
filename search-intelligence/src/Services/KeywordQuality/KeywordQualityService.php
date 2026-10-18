@@ -8,9 +8,12 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordInventoryLanguageReader;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordLanguageMismatchDetector;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityClassifier;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualityCode;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\KeywordQualitySchema;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordQuality\PolylangSiteContentLanguageCatalog;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use RuntimeException;
 
@@ -20,6 +23,9 @@ final class KeywordQualityService
 
     public function __construct(
         private readonly KeywordQualityClassifier $classifier = new KeywordQualityClassifier,
+        private readonly KeywordLanguageMismatchDetector $languageDetector = new KeywordLanguageMismatchDetector,
+        private readonly KeywordInventoryLanguageReader $inventoryLanguages = new KeywordInventoryLanguageReader,
+        private readonly PolylangSiteContentLanguageCatalog $siteLanguages = new PolylangSiteContentLanguageCatalog,
     ) {}
 
     public function scanSite(int $siteId, bool $onlyStale = false): void
@@ -63,6 +69,7 @@ final class KeywordQualityService
         $truncatedSet = array_fill_keys($this->classifier->truncatedCopyIds($normalized), true);
         $containedSet = array_fill_keys($this->classifier->containedCopyIds($phrasesById), true);
         $ctaSet = array_fill_keys($this->transactionalDestinationIds($siteId), true);
+        $mismatchSet = $this->languageMismatchSet($siteId, $phrasesById);
         $processed = 0;
 
         try {
@@ -75,7 +82,7 @@ final class KeywordQualityService
                 $existing = $this->tagOrigins($siteId, $staleIds);
                 $suppressed = $this->suppressedCodes($siteId, $staleIds);
 
-                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $truncatedSet, $containedSet, $ctaSet, $existing, $suppressed): void {
+                DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $chunk, $staleIds, $duplicateSet, $truncatedSet, $containedSet, $ctaSet, $mismatchSet, $existing, $suppressed): void {
                     $now = now();
                     foreach ($staleIds as $keywordId) {
                         $phrase = (string) ($chunk[$keywordId] ?? '');
@@ -86,6 +93,9 @@ final class KeywordQualityService
                             isset($containedSet[$keywordId]),
                             isset($ctaSet[$keywordId]),
                         );
+                        if (isset($mismatchSet[$keywordId])) {
+                            $detected[] = KeywordQualityCode::LANGUAGE_MISMATCH;
+                        }
                         $blocked = $suppressed[$keywordId] ?? [];
                         $current = $existing[$keywordId] ?? [];
                         $manual = [];
@@ -124,6 +134,36 @@ final class KeywordQualityService
             $this->markScan($siteId, 'failed', $total, $processed, $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * @param  array<int, string>  $phrasesById
+     * @return array<int, true>
+     */
+    private function languageMismatchSet(int $siteId, array $phrasesById): array
+    {
+        $configured = $this->siteLanguages->configuredCodes($siteId);
+        if (count($configured) < 2 || $phrasesById === []) {
+            return [];
+        }
+
+        $ids = [];
+        foreach (array_keys($phrasesById) as $id) {
+            $ids[] = (int) $id;
+        }
+        $inventory = $this->inventoryLanguages->languagesFor($siteId, $ids, $configured);
+        $hits = [];
+        foreach ($phrasesById as $id => $phrase) {
+            $languages = $inventory[(int) $id] ?? [];
+            if (count($languages) !== 1) {
+                continue;
+            }
+            if ($this->languageDetector->verdict((string) $phrase, $languages[0]) === KeywordLanguageMismatchDetector::MISMATCH) {
+                $hits[(int) $id] = true;
+            }
+        }
+
+        return $hits;
     }
 
     /**

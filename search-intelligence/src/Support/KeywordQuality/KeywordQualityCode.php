@@ -20,7 +20,9 @@ final class KeywordQualityCode
 
     public const TRAILING_SEQUENCE_NUMBER = 'TRAILING_SEQUENCE_NUMBER';
 
-    public const CLASSIFIER_VERSION = 5;
+    public const LANGUAGE_MISMATCH = 'LANGUAGE_MISMATCH';
+
+    public const CLASSIFIER_VERSION = 6;
 
     /**
      * @return list<string>
@@ -35,6 +37,7 @@ final class KeywordQualityCode
             self::SENTENCE_LIKE,
             self::DUPLICATE_VARIANT,
             self::TRAILING_SEQUENCE_NUMBER,
+            self::LANGUAGE_MISMATCH,
         ];
     }
 
@@ -54,7 +57,14 @@ final class KeywordQualityCode
 
     public static function description(string $code): string
     {
-        unset($code);
+        if ($code === self::LANGUAGE_MISMATCH) {
+            $key = 'seo-content-ai::filament.keyword.quality_tag_language_mismatch_help';
+            $help = __($key);
+
+            return $help === $key
+                ? __('seo-content-ai::filament.keyword.quality_exclude_help')
+                : $help;
+        }
 
         return __('seo-content-ai::filament.keyword.quality_exclude_help');
     }

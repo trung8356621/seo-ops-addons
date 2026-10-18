@@ -894,6 +894,8 @@ return [
         'quality_tag_trailing_sequence_number' => 'Extra sequence number',
         'quality_tag_duplicate_variant' => 'Duplicate variant',
         'quality_tag_duplicate_variant_help' => 'Exclude keywords with this tag from Topic counts and candidate sets.',
+        'quality_tag_language_mismatch' => 'Language mismatch',
+        'quality_tag_language_mismatch_help' => 'Warns when a keyword conflicts with its inventory language. Topic exclusion stays off unless this switch is enabled.',
         'topic_compact_stats_mcp' => ':count MCP topics',
         'topic_compact_stats_topics' => ':count topics',
         'topic_search_placeholder' => 'Search topics…',
