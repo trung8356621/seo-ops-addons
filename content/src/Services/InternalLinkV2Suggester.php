@@ -48,8 +48,11 @@ final class InternalLinkV2Suggester
     /** Python ranker contract maximum. */
     private const RANK_LIMIT = 20;
 
-    /** Additional topic groups considered on each refill after the current scope is consumed. */
+    /** Additional topic groups considered when the current page has no valid target and anchor. */
     private const GROUP_PAGE = 3;
+
+    /** One request may examine this many matched groups. It does not scan the site inventory. */
+    private const MAX_MATCH_GROUPS = 9;
 
     /** @var array<string, int> */
     private array $timings = [];
@@ -79,10 +82,9 @@ final class InternalLinkV2Suggester
         if ($siteId <= 0) {
             return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'site_unresolved'];
         }
-        $matchLimit = $this->matchLimit($cursor);
         $this->timings = [];
         $this->suggestStartedNs = hrtime(true);
-        $built = $this->candidates($article, $siteId, $plain, $existingInternal, $cursor, $matchLimit);
+        $built = $this->candidates($article, $siteId, $plain, $existingInternal, $cursor, self::MAX_MATCH_GROUPS);
         if (($built['discovery'] ?? 'ok') === 'unavailable') {
             return [
                 'status' => 'unavailable',
@@ -92,6 +94,40 @@ final class InternalLinkV2Suggester
                 'error' => $built['error'] ?? null,
             ];
         }
+
+        $matched = (int) ($built['stages']['semantic_groups'] ?? 0);
+        $page = self::GROUP_PAGE;
+        $last = null;
+        while (true) {
+            $slice = $built;
+            $slice['rows'] = array_values(array_filter(
+                $built['rows'],
+                static fn (array $row): bool => (int) ($row['group_index'] ?? 0) < $page,
+            ));
+            $slice['stages']['semantic_groups'] = min($page, $matched);
+            $last = $this->pageResult($article, $plain, $slice, $cursor, $page);
+            if (($last['status'] ?? '') === 'unavailable' || ($last['suggestions'] ?? []) !== []) {
+                return $last;
+            }
+            if ($matched <= $page || $page >= self::MAX_MATCH_GROUPS) {
+                $last['status'] = 'empty';
+                $last['suggestions'] = [];
+                $last['reason'] = (int) ($built['stages']['topic_groups'] ?? 0) === 0 ? 'no_topic_group' : 'no_match';
+                $last['discovery'] = $this->discoveryState($cursor, $page, $matched, 0, [], false);
+
+                return $last;
+            }
+            $page += self::GROUP_PAGE;
+        }
+    }
+
+    /**
+     * @param  array{rows: list<array<string, mixed>>, stages: array<string, int>}  $built
+     * @param  array<string, mixed>  $cursor
+     * @return array{status: string, suggestions: list<array<string, mixed>>, metrics: array<string, mixed>, reason?: string|null, rejected?: list<array<string, mixed>>, discovery?: array<string, mixed>}
+     */
+    private function pageResult(SeoArticle $article, string $plain, array $built, array $cursor, int $matchLimit): array
+    {
         $guardStarted = hrtime(true);
         $filtered = $this->guard->filter('article:'.$article->id, $built['rows']);
         $this->timings['guard_ms'] = (int) round((hrtime(true) - $guardStarted) / 1_000_000);
@@ -286,7 +322,9 @@ final class InternalLinkV2Suggester
         $keywords = 0;
         $published = 0;
         $targetStarted = hrtime(true);
-        foreach ($groups as $group) {
+        $semanticCount = (int) ($stages['semantic_groups'] ?? 0);
+        foreach ($groups as $position => $group) {
+            $groupIndex = $position < $semanticCount ? (int) $position : 0;
             foreach ($group->memberships as $membership) {
                 $keyword = $membership->keyword;
                 if (! $keyword instanceof Keyword || (int) $membership->site_id !== $siteId) {
@@ -326,6 +364,7 @@ final class InternalLinkV2Suggester
                     'title' => $title,
                     'keyword_id' => (int) $keyword->id,
                     'article_id' => (int) $target->id,
+                    'group_index' => $groupIndex,
                     'same_as_source' => false,
                     'already_linked_from_source' => false,
                 ];
@@ -370,8 +409,8 @@ final class InternalLinkV2Suggester
                 $excluded[$href] = $href;
             }
         }
-        $moreGroups = $matchedGroups >= $matchLimit && $matchLimit < self::RANK_LIMIT;
-        $scopeOpen = $rankedCount >= self::RANK_LIMIT;
+        $moreGroups = false;
+        $scopeOpen = false;
 
         return [
             'match_limit' => $matchLimit,
@@ -389,25 +428,8 @@ final class InternalLinkV2Suggester
         if ((int) ($stages['topic_groups'] ?? 0) === 0) {
             return 'no_topic_group';
         }
-        $matched = (int) ($stages['semantic_groups'] ?? 0);
-        if ($matched >= $matchLimit && $matchLimit < self::RANK_LIMIT) {
-            return 'scope_unexplored';
-        }
 
-        return 'no_eligible_target';
-    }
-
-    /**
-     * @param  array<string, mixed>  $cursor
-     */
-    private function matchLimit(array $cursor): int
-    {
-        $previous = max(0, (int) ($cursor['match_limit'] ?? 0));
-        if (($cursor['scope_open'] ?? false) === true && $previous > 0) {
-            return min(self::RANK_LIMIT, $previous);
-        }
-
-        return min(self::RANK_LIMIT, max(self::GROUP_PAGE, $previous + self::GROUP_PAGE));
+        return 'no_match';
     }
 
     private function discoverGroups(SeoArticle $article, int $siteId, string $plain, int $matchLimit): array
@@ -441,7 +463,7 @@ final class InternalLinkV2Suggester
                 $refs[] = $ref;
             }
         }
-        $matched = $this->groupsByRef($siteId, $refs);
+        $matched = $this->orderedGroups($siteId, $refs);
         if ($matched->isEmpty()) {
             return [
                 'status' => 'empty',
@@ -503,6 +525,40 @@ final class InternalLinkV2Suggester
      * @param  list<string>  $refs
      * @return \Illuminate\Support\Collection<int, SeoKeywordGroup>
      */
+    private function orderedGroups(int $siteId, array $refs)
+    {
+        $matched = $this->groupsByRef($siteId, $refs);
+        if ($matched->isEmpty() || $refs === []) {
+            return $matched;
+        }
+        $byId = [];
+        $byRef = [];
+        foreach ($matched as $group) {
+            $byId[(int) $group->id] = $group;
+            $external = trim((string) ($group->semantic_group_ref ?? ''));
+            if ($external !== '') {
+                $byRef[$external][] = $group;
+            }
+        }
+        $ordered = [];
+        $seen = [];
+        foreach ($refs as $ref) {
+            $group = null;
+            if (preg_match('/^keyword-group:(\d+)$/', $ref, $match) === 1) {
+                $group = $byId[(int) $match[1]] ?? null;
+            } elseif (isset($byRef[$ref]) && $byRef[$ref] !== []) {
+                $group = array_shift($byRef[$ref]);
+            }
+            if ($group === null || isset($seen[(int) $group->id])) {
+                continue;
+            }
+            $seen[(int) $group->id] = true;
+            $ordered[] = $group;
+        }
+
+        return collect($ordered);
+    }
+
     private function groupsByRef(int $siteId, array $refs)
     {
         if ($refs === []) {

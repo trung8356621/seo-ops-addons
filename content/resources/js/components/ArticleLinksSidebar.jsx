@@ -923,7 +923,6 @@ function InternalLinksSection({
     const showGenerate = typeof onGenerateSuggestions === 'function';
     const showFindMore = suggestionsHasResults && (suggestionsCanReveal || !suggestionsExhausted);
     const feedbackPhase = String(suggestionFeedback?.phase ?? 'idle');
-    const continueScope = feedbackPhase === 'empty' && suggestionFeedback?.reason === 'scope_unexplored';
     const feedbackText = feedbackPhase === 'idle'
         ? ''
         : t(suggestionFeedbackMessageKey(suggestionFeedback), {
@@ -954,14 +953,12 @@ function InternalLinksSection({
                         className="wp-article-links-clear-excluded-btn"
                         disabled={suggestionsLoading}
                         aria-busy={suggestionsLoading ? 'true' : 'false'}
-                        onClick={() => onGenerateSuggestions(continueScope ? { continueDiscovery: true } : undefined)}
+                        onClick={() => onGenerateSuggestions()}
                     >
                         {suggestionsLoading ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RotateCcw size={13} aria-hidden />}
                         {suggestionsLoading
                             ? t('links_suggestions_loading')
-                            : continueScope
-                              ? t('links_suggestions_continue')
-                              : showFindMore
+                            : showFindMore
                               ? t('links_find_more_suggestions')
                               : t('links_generate_suggestions')}
                     </button>
@@ -1539,7 +1536,6 @@ export default function ArticleLinksSidebar({
         }
 
         const force = options.force === true || options.shiftKey === true;
-        const continueDiscovery = options.continueDiscovery === true;
         const rankedPool = countUsableSuggestions();
         if (!force && visibleInternalCountRef.current < rankedPool) {
             visibleInternalCountRef.current = nextVisibleSuggestionCount(visibleInternalCountRef.current, rankedPool);
@@ -1581,24 +1577,6 @@ export default function ArticleLinksSidebar({
 
         try {
             const content = await requestEditorDocumentHtml();
-            if (continueDiscovery) {
-                const payload = await fetchEditorLinksSuggestions(articleId, {
-                    content,
-                    mode: 'fallback',
-                    existingInternal: buildExistingInternalPayload(),
-                    discoveryCursor: discoveryCursorRef.current,
-                    signal: controller.signal,
-                });
-                if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
-                    return;
-                }
-                applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
-                const continued = publishSuggestionOutcome(payload, countUsableSuggestions());
-                if (continued.phase !== 'error') {
-                    persistSuggestionSession({ contentFingerprint: buildSuggestionsInputKey(articleId, content) });
-                }
-                return;
-            }
             const cacheKey = buildSuggestionsInputKey(articleId, content);
             contentFingerprintRef.current = cacheKey;
             const engines = suggestionEnginesRef.current;

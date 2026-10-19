@@ -80,14 +80,6 @@ export function classifyInternalLinkSuggestionResult(input = {}) {
         };
     }
 
-    if (reason === 'scope_unexplored') {
-        return {
-            phase: 'empty',
-            count: 0,
-            reason: 'scope_unexplored',
-        };
-    }
-
     return {
         phase: 'empty',
         count: 0,
@@ -129,9 +121,6 @@ export function suggestionFeedbackMessageKey(result) {
         return reason === 'semantic_unavailable'
             ? 'links_suggestions_error_semantic'
             : 'links_suggestions_error_http';
-    }
-    if (reason === 'scope_unexplored') {
-        return 'links_suggestions_scope_partial';
     }
     if (reason === 'not_insertable') {
         return 'links_suggestions_filtered';
