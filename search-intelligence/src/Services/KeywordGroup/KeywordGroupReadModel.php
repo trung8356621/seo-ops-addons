@@ -134,6 +134,20 @@ final class KeywordGroupReadModel
         return $query->exists();
     }
 
+    /**
+     * @param  Builder<SeoKeywordGroup>  $query
+     * @param  list<string>|null  $languageVariants
+     */
+    public function constrainVisibleGroups(
+        Builder $query,
+        int $siteId,
+        ?array $languageVariants,
+        ?string $languageCode,
+        bool $acceptLegacyNullLanguage,
+    ): void {
+        $this->constrainGroupsToLanguage($query, $siteId, $languageVariants, $languageCode, $acceptLegacyNullLanguage);
+    }
+
     public function groupCount(
         int $siteId,
         ?array $languageVariants = null,

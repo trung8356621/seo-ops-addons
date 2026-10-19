@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services\Semantic\TopicGroup;
 
+use App\Models\Site;
 use Omnichannel\Addons\AgentRuntime\Retrieval\TopicGroupArticleSource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ContentLanguageCodeNormalizer;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupReadModel;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordWorkspaceLanguageScope;
 use Omnichannel\Addons\Seo\Models\SeoArticleProfile;
+use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use Throwable;
 
 /**
@@ -19,17 +24,30 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
 {
     public function __construct(private readonly TopicGroupRetrievalClient $semantic) {}
 
-    public function retrieve(int $siteId, string $query, int $matchLimit = 3): array
-    {
+    public function retrieve(
+        int $siteId,
+        string $query,
+        int $matchLimit = 3,
+        ?string $language = null,
+        ?bool $acceptLegacyNullLanguage = null,
+    ): array {
         if ($siteId <= 0 || trim($query) === '') {
             return ['status' => 'empty', 'groups' => []];
         }
 
         $started = hrtime(true);
-        $groups = SeoKeywordGroup::query()
-            ->where('site_id', $siteId)
-            ->with(['memberships.keyword'])
-            ->get();
+        $groupsQuery = SeoKeywordGroup::query()->where('site_id', $siteId);
+        $scope = $this->languageScope($siteId, $language, $acceptLegacyNullLanguage);
+        if ($scope !== null) {
+            app(KeywordGroupReadModel::class)->constrainVisibleGroups(
+                $groupsQuery,
+                $siteId,
+                $scope['variants'],
+                $scope['code'],
+                $scope['legacy'],
+            );
+        }
+        $groups = $groupsQuery->with(['memberships.keyword'])->get();
         $loadMs = (int) round((hrtime(true) - $started) / 1_000_000);
         if ($groups->isEmpty()) {
             return ['status' => 'empty', 'groups' => [], 'timings' => ['load_groups_ms' => $loadMs], 'groups_loaded' => 0];
@@ -37,7 +55,7 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
 
         $normalizeStarted = hrtime(true);
         $externalCounts = [];
-        foreach ($groups as $group) {
+        foreach (SeoKeywordGroup::query()->where('site_id', $siteId)->get(['id', 'semantic_group_ref']) as $group) {
             $external = $this->ref($group);
             $externalCounts[$external] = ($externalCounts[$external] ?? 0) + 1;
         }
@@ -123,6 +141,38 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
             'groups_loaded' => $groups->count(),
             'groups_sent' => count($payloadGroups),
         ];
+    }
+
+    /**
+     * @return array{code: string, variants: list<string>, legacy: bool}|null
+     */
+    private function languageScope(int $siteId, ?string $language, ?bool $acceptLegacyNullLanguage): ?array
+    {
+        $code = ContentLanguageCodeNormalizer::normalize($language);
+        if ($code === null) {
+            return null;
+        }
+        $variants = KeywordWorkspaceLanguageScope::variantsForCode($code);
+        if ($variants === null) {
+            return null;
+        }
+
+        return [
+            'code' => $code,
+            'variants' => $variants,
+            'legacy' => $acceptLegacyNullLanguage ?? $this->primaryLanguageMatches($siteId, $code),
+        ];
+    }
+
+    private function primaryLanguageMatches(int $siteId, string $language): bool
+    {
+        $site = Site::query()->find($siteId);
+        if (! $site instanceof Site) {
+            return false;
+        }
+        $primary = app(SitePrimaryLanguageService::class)->resolvePrimaryLanguage($site);
+
+        return $primary !== null && $primary === $language;
     }
 
     private function ref(SeoKeywordGroup $group): string

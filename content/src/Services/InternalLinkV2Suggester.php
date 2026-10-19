@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordGroup;
@@ -301,6 +302,9 @@ final class InternalLinkV2Suggester
                 if (! $target instanceof SeoArticle || ! $this->isPublished($target)) {
                     continue;
                 }
+                if (! $this->sameLanguage($article, $target)) {
+                    continue;
+                }
                 $published++;
                 $url = $this->permalink($target);
                 if ($url === '' || isset($existingUrls[$url])) {
@@ -408,7 +412,12 @@ final class InternalLinkV2Suggester
 
     private function discoverGroups(SeoArticle $article, int $siteId, string $plain, int $matchLimit): array
     {
-        $retrieved = $this->topicGroups()->retrieve($siteId, mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT), $matchLimit);
+        $retrieved = $this->topicGroups()->retrieve(
+            $siteId,
+            mb_substr($plain, 0, self::SEMANTIC_TEXT_LIMIT),
+            $matchLimit,
+            ArticleLanguageCode::normalizeForStorage((string) ($article->language ?? '')),
+        );
         $status = (string) ($retrieved['status'] ?? 'empty');
         if ($status === 'unavailable') {
             return [
@@ -673,6 +682,13 @@ final class InternalLinkV2Suggester
         }
 
         return false;
+    }
+
+    private function sameLanguage(SeoArticle $source, SeoArticle $target): bool
+    {
+        $expected = ArticleLanguageCode::normalizeForStorage((string) ($source->language ?? ''));
+
+        return ArticleLanguageCode::normalize((string) ($target->language ?? '')) === $expected;
     }
 
     private function isPublished(SeoArticle $article): bool
