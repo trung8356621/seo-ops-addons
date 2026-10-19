@@ -34,6 +34,11 @@ import {
     resolveSuggestionSessionCache,
     saveInternalLinkSuggestionSession,
 } from '../utils/articleInternalLinkSuggestionSessionStorage';
+import {
+    classifyInternalLinkSuggestionResult,
+    shouldRefetchInternalSuggestions,
+    suggestionFeedbackMessageKey,
+} from '../utils/articleInternalLinkSuggestionFeedback';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
 import {
     normalizeLinksPayload,
@@ -900,6 +905,8 @@ function InternalLinksSection({
     suggestionsExhausted = false,
     suggestionsCanReveal = false,
     suggestionsError = null,
+    suggestionFeedback = null,
+    onRetrySuggestions,
     reviewLoadingKey = '',
     errorKeywordIds,
     onKeywordClick,
@@ -915,6 +922,12 @@ function InternalLinksSection({
     const showExcludedClear = excludedCount > 0;
     const showGenerate = typeof onGenerateSuggestions === 'function';
     const showFindMore = suggestionsHasResults && (suggestionsCanReveal || !suggestionsExhausted);
+    const feedbackPhase = String(suggestionFeedback?.phase ?? 'idle');
+    const feedbackText = feedbackPhase === 'idle'
+        ? ''
+        : t(suggestionFeedbackMessageKey(suggestionFeedback), {
+            count: Number(suggestionFeedback?.count ?? 0) || 0,
+        });
 
     return (
         <div className="wp-article-links-group">
@@ -939,6 +952,7 @@ function InternalLinksSection({
                         type="button"
                         className="wp-article-links-clear-excluded-btn"
                         disabled={suggestionsLoading}
+                        aria-busy={suggestionsLoading ? 'true' : 'false'}
                         onClick={onGenerateSuggestions}
                     >
                         {suggestionsLoading ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RotateCcw size={13} aria-hidden />}
@@ -950,14 +964,27 @@ function InternalLinksSection({
                     </button>
                 </div>
             ) : null}
-            {suggestionsLoading && suggestedInternal.length === 0 ? (
-                <p className="wp-article-links-empty">{t('links_suggestions_loading')}</p>
-            ) : null}
-            {!suggestionsLoading && suggestionsError ? (
-                <p className="wp-article-links-empty text-rose-600 dark:text-rose-400">{suggestionsError}</p>
-            ) : null}
-            {!suggestionsLoading && !suggestionsError && !showSuggestions && suggestionsHasResults === false && !showGenerate ? (
-                <p className="wp-article-links-empty">{t('editor_links_suggestions_empty')}</p>
+            {feedbackPhase !== 'idle' ? (
+                <p
+                    className={`wp-article-links-empty${feedbackPhase === 'error' ? ' text-rose-600 dark:text-rose-400' : ''}`}
+                    role={feedbackPhase === 'error' ? 'alert' : 'status'}
+                    data-suggestion-phase={feedbackPhase}
+                >
+                    {feedbackText || suggestionsError}
+                    {feedbackPhase === 'error' && typeof onRetrySuggestions === 'function' ? (
+                        <>
+                            {' '}
+                            <button
+                                type="button"
+                                className="wp-article-links-clear-excluded-btn"
+                                disabled={suggestionsLoading}
+                                onClick={onRetrySuggestions}
+                            >
+                                {t('links_suggestions_retry')}
+                            </button>
+                        </>
+                    ) : null}
+                </p>
             ) : null}
             {showSuggestions || showExcludedClear ? (
                 <div className="wp-article-links-suggestions-head">
@@ -1125,6 +1152,7 @@ export default function ArticleLinksSidebar({
     const [baseError, setBaseError] = useState(null);
     const [suggestionsLoading, setSuggestionsLoading] = useState(false);
     const [suggestionsError, setSuggestionsError] = useState(null);
+    const [suggestionFeedback, setSuggestionFeedback] = useState({ phase: 'idle', count: 0, reason: '' });
     const [suggestionReason, setSuggestionReason] = useState('');
     const [suggestionsEmpty, setSuggestionsEmpty] = useState(false);
     const suggestionsAbortRef = useRef(null);
@@ -1516,6 +1544,27 @@ export default function ArticleLinksSidebar({
             return;
         }
 
+        let findMore = false;
+        const publishSuggestionOutcome = (payload, visibleCount) => {
+            const outcome = classifyInternalLinkSuggestionResult({
+                status: String(payload?.suggestionStatus ?? ''),
+                reason: String(payload?.suggestionReason ?? ''),
+                returnedCount: Array.isArray(payload?.suggestedInternalLinks) ? payload.suggestedInternalLinks.length : 0,
+                visibleCount,
+            });
+            setSuggestionFeedback(outcome);
+            if (outcome.phase === 'error') {
+                setSuggestionsError(t(suggestionFeedbackMessageKey(outcome)));
+                setSuggestionsEmpty(false);
+            } else {
+                setSuggestionsError(null);
+                setSuggestionsEmpty(outcome.phase === 'empty' || outcome.phase === 'not_ready');
+                setSuggestionReason(outcome.reason);
+            }
+
+            return outcome;
+        };
+
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
@@ -1524,6 +1573,7 @@ export default function ArticleLinksSidebar({
         suggestionsInFlightRef.current = true;
         setSuggestionsLoading(true);
         setSuggestionsError(null);
+        setSuggestionFeedback({ phase: 'loading', count: 0, reason: '' });
 
         try {
             const content = await requestEditorDocumentHtml();
@@ -1539,9 +1589,9 @@ export default function ArticleLinksSidebar({
                     contentFingerprint: cacheKey,
                     suggestionEngines: engines,
                 });
-            const needInternal = resolved.internal === null;
+            const needInternal = shouldRefetchInternalSuggestions(resolved.internal, { force });
             const needExternal = resolved.external === null;
-            const findMore = !force
+            findMore = !force
                 && !needInternal
                 && !needExternal
                 && suggestionCursorRef.current.hasResults === true;
@@ -1564,10 +1614,22 @@ export default function ArticleLinksSidebar({
                 });
                 rememberCategoryGenerated({ internal: true, external: true });
                 persistSuggestionSession({ contentFingerprint: cacheKey });
+                const cachedVisible = countUsableSuggestions();
+                setSuggestionFeedback(classifyInternalLinkSuggestionResult({
+                    status: cachedVisible > 0 ? 'ok' : 'empty',
+                    reason: cachedVisible > 0 ? '' : 'no_match',
+                    returnedCount: keywordCatalogRef.current.length,
+                    visibleCount: cachedVisible,
+                }));
                 return;
             }
 
             if (findMore && suggestionCursorRef.current.phase === 'exhausted') {
+                publishSuggestionOutcome({
+                    suggestionStatus: countUsableSuggestions() > 0 ? 'ok' : 'empty',
+                    suggestionReason: countUsableSuggestions() > 0 ? '' : 'no_match',
+                    suggestedInternalLinks: keywordCatalogRef.current,
+                }, countUsableSuggestions());
                 return;
             }
 
@@ -1586,15 +1648,11 @@ export default function ArticleLinksSidebar({
                 if (controller.signal.aborted || requestSeq !== suggestionRequestSeqRef.current) {
                     return;
                 }
-                setSuggestionReason(String(payload.suggestionReason || ''));
-            applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
-            if (payload.suggestionStatus === 'unavailable') {
-                setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
-                setSuggestionsEmpty(false);
-            } else {
-                setSuggestionsError(null);
-            }
-                persistSuggestionSession({ contentFingerprint: cacheKey });
+                applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
+                const fallbackOutcome = publishSuggestionOutcome(payload, countUsableSuggestions());
+                if (fallbackOutcome.phase !== 'error') {
+                    persistSuggestionSession({ contentFingerprint: cacheKey });
+                }
                 return;
             }
 
@@ -1617,13 +1675,11 @@ export default function ArticleLinksSidebar({
                 return;
             }
             const replaceCategories = scope === 'both' ? ['internal', 'external'] : [scope];
-            setSuggestionReason(String(payload.suggestionReason || ''));
             applySuggestionPayload(payload, 'links-suggestions', { replaceCategories });
-            if (payload.suggestionStatus === 'unavailable') {
-                setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
-                setSuggestionsEmpty(false);
-            } else {
-                setSuggestionsError(null);
+            const usableCount = countUsableSuggestions();
+            const outcome = publishSuggestionOutcome(payload, usableCount);
+            if (outcome.phase === 'error') {
+                return;
             }
             if (scope === 'both') {
                 suggestionsCacheRef.current.set(memoryKey, payload);
@@ -1635,8 +1691,6 @@ export default function ArticleLinksSidebar({
                 external: scope !== 'internal' ? true : categoryGeneratedRef.current.external,
             };
             rememberCategoryGenerated(nextGenerated);
-
-            const usableCount = countUsableSuggestions();
             // Full staged pipeline already includes generic fallback when needed —
             // do NOT fire a second blue-only HTTP pass.
 
@@ -1657,7 +1711,13 @@ export default function ArticleLinksSidebar({
             if (requestSeq !== suggestionRequestSeqRef.current) {
                 return;
             }
-            setSuggestionsError(t('editor_links_suggestions_error'));
+            const httpOutcome = classifyInternalLinkSuggestionResult({
+                httpStatus: 500,
+                success: false,
+            });
+            setSuggestionFeedback(httpOutcome);
+            setSuggestionsError(t(suggestionFeedbackMessageKey(httpOutcome)));
+            setSuggestionsEmpty(false);
             if (findMore) {
                 bumpSuggestionCursor({
                     phase: suggestionCursorRef.current.hasResults ? 'source1_done' : 'idle',
@@ -2555,18 +2615,6 @@ export default function ArticleLinksSidebar({
                         <p>{baseError}</p>
                     </div>
                 ) : null}
-                {suggestionsError ? (
-                    <div className="seo-module-error p-2 text-sm text-rose-600 dark:text-rose-400">
-                        <p>{suggestionsError}</p>
-                    </div>
-                ) : null}
-                {suggestionsEmpty && !suggestionsLoading && !suggestionsError ? (
-                    <p className="wp-article-links-empty px-2">
-                        {suggestionReason === 'no_topic_group'
-                            ? t('editor_links_reason_no_topic_group')
-                            : t('editor_links_suggestions_empty')}
-                    </p>
-                ) : null}
                 {showLinksCluster ? (
                     <>
                 <LinkAssistantSection
@@ -2590,6 +2638,8 @@ export default function ArticleLinksSidebar({
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
                         suggestionTitle={t('links_semantic_v2_suggestion_title', { count: suggestedInternal.length })}
                         suggestionsError={suggestionsError}
+                        suggestionFeedback={suggestionFeedback}
+                        onRetrySuggestions={() => loadLinkSuggestions({ force: true })}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)
                         }
