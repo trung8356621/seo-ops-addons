@@ -25,14 +25,17 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
             return ['status' => 'empty', 'groups' => []];
         }
 
+        $started = hrtime(true);
         $groups = SeoKeywordGroup::query()
             ->where('site_id', $siteId)
             ->with(['memberships.keyword'])
             ->get();
+        $loadMs = (int) round((hrtime(true) - $started) / 1_000_000);
         if ($groups->isEmpty()) {
-            return ['status' => 'empty', 'groups' => []];
+            return ['status' => 'empty', 'groups' => [], 'timings' => ['load_groups_ms' => $loadMs], 'groups_loaded' => 0];
         }
 
+        $normalizeStarted = hrtime(true);
         $externalCounts = [];
         foreach ($groups as $group) {
             $external = $this->ref($group);
@@ -57,11 +60,19 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
                 'examples' => $examples,
             ];
         }
+        $normalizeMs = (int) round((hrtime(true) - $normalizeStarted) / 1_000_000);
         if ($payloadGroups === []) {
-            return ['status' => 'empty', 'groups' => []];
+            return [
+                'status' => 'empty',
+                'groups' => [],
+                'timings' => ['load_groups_ms' => $loadMs, 'normalize_refs_ms' => $normalizeMs],
+                'groups_loaded' => $groups->count(),
+                'groups_sent' => 0,
+            ];
         }
 
         try {
+            $matchStarted = hrtime(true);
             $matched = $this->semantic->match(
                 'site:'.$siteId,
                 $query,
@@ -69,11 +80,24 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
                 null,
                 max(1, min(20, $matchLimit)),
             );
+            $matchMs = (int) round((hrtime(true) - $matchStarted) / 1_000_000);
         } catch (Throwable $e) {
-            return ['status' => 'unavailable', 'groups' => [], 'error' => $e->getMessage()];
+            return [
+                'status' => 'unavailable',
+                'groups' => [],
+                'error' => $e->getMessage(),
+                'timings' => [
+                    'load_groups_ms' => $loadMs,
+                    'normalize_refs_ms' => $normalizeMs,
+                    'topic_match_ms' => (int) round((hrtime(true) - $matchStarted) / 1_000_000),
+                ],
+                'groups_loaded' => $groups->count(),
+                'groups_sent' => count($payloadGroups),
+            ];
         }
 
         $rows = [];
+        $hydrateStarted = hrtime(true);
         foreach ($matched->matches as $match) {
             $group = $byRef[$match['ref']] ?? null;
             if (! $group instanceof SeoKeywordGroup || (int) $group->site_id !== $siteId) {
@@ -87,7 +111,18 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
             ];
         }
 
-        return ['status' => 'ok', 'groups' => $rows];
+        return [
+            'status' => 'ok',
+            'groups' => $rows,
+            'timings' => [
+                'load_groups_ms' => $loadMs,
+                'normalize_refs_ms' => $normalizeMs,
+                'topic_match_ms' => $matchMs,
+                'keyword_hydrate_ms' => (int) round((hrtime(true) - $hydrateStarted) / 1_000_000),
+            ],
+            'groups_loaded' => $groups->count(),
+            'groups_sent' => count($payloadGroups),
+        ];
     }
 
     private function ref(SeoKeywordGroup $group): string

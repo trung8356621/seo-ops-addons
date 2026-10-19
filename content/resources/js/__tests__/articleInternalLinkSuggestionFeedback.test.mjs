@@ -87,3 +87,29 @@ test('a second click does not start while a search is in flight, and an empty ca
     assert.equal(shouldRefetchInternalSuggestions([{ text: 'balo' }]), false);
     assert.equal(shouldRefetchInternalSuggestions([{ text: 'balo' }], { force: true }), true);
 });
+
+test('scope_unexplored is a partial search, not a finished empty result or a semantic outage', () => {
+    const result = classifyInternalLinkSuggestionResult({
+        status: 'empty',
+        reason: 'scope_unexplored',
+        returnedCount: 0,
+        visibleCount: 0,
+    });
+
+    assert.equal(result.phase, 'empty');
+    assert.equal(result.reason, 'scope_unexplored');
+    assert.equal(suggestionFeedbackMessageKey(result), 'links_suggestions_scope_partial');
+    assert.notEqual(suggestionFeedbackMessageKey(result), 'links_suggestions_empty_result');
+});
+
+test('a semantic timeout is not reported as the service being down', () => {
+    const result = classifyInternalLinkSuggestionResult({
+        status: 'unavailable',
+        reason: 'semantic_timeout',
+        returnedCount: 0,
+        visibleCount: 0,
+    });
+
+    assert.equal(result.phase, 'error');
+    assert.equal(suggestionFeedbackMessageKey(result), 'links_suggestions_error_timeout');
+});

@@ -51,11 +51,11 @@ export function classifyInternalLinkSuggestionResult(input = {}) {
         };
     }
 
-    if (status === 'unavailable' || reason === 'semantic_unavailable') {
+    if (status === 'unavailable' || reason === 'semantic_unavailable' || reason === 'semantic_timeout') {
         return {
             phase: 'error',
             count: 0,
-            reason: 'semantic_unavailable',
+            reason: reason === 'semantic_timeout' ? 'semantic_timeout' : 'semantic_unavailable',
         };
     }
 
@@ -77,6 +77,14 @@ export function classifyInternalLinkSuggestionResult(input = {}) {
             phase: 'success',
             count: visibleCount,
             reason: '',
+        };
+    }
+
+    if (reason === 'scope_unexplored') {
+        return {
+            phase: 'empty',
+            count: 0,
+            reason: 'scope_unexplored',
         };
     }
 
@@ -114,9 +122,16 @@ export function suggestionFeedbackMessageKey(result) {
         return 'links_suggestions_not_ready_topic';
     }
     if (phase === 'error') {
+        if (reason === 'semantic_timeout') {
+            return 'links_suggestions_error_timeout';
+        }
+
         return reason === 'semantic_unavailable'
             ? 'links_suggestions_error_semantic'
             : 'links_suggestions_error_http';
+    }
+    if (reason === 'scope_unexplored') {
+        return 'links_suggestions_scope_partial';
     }
     if (reason === 'not_insertable') {
         return 'links_suggestions_filtered';

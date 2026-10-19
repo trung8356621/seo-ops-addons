@@ -50,6 +50,11 @@ final class InternalLinkV2Suggester
     /** Additional topic groups considered on each refill after the current scope is consumed. */
     private const GROUP_PAGE = 3;
 
+    /** @var array<string, int> */
+    private array $timings = [];
+
+    private int $suggestStartedNs = 0;
+
     public function __construct(
         private readonly InternalLinkV2Guard $guard = new InternalLinkV2Guard(),
         private readonly ?TopicGroupArticleRetriever $topicGroups = null,
@@ -74,17 +79,21 @@ final class InternalLinkV2Suggester
             return ['status' => 'empty', 'suggestions' => [], 'metrics' => [], 'reason' => 'site_unresolved'];
         }
         $matchLimit = $this->matchLimit($cursor);
+        $this->timings = [];
+        $this->suggestStartedNs = hrtime(true);
         $built = $this->candidates($article, $siteId, $plain, $existingInternal, $cursor, $matchLimit);
         if (($built['discovery'] ?? 'ok') === 'unavailable') {
             return [
                 'status' => 'unavailable',
                 'suggestions' => [],
-                'metrics' => ['stages' => $built['stages']],
-                'reason' => 'semantic_unavailable',
+                'metrics' => $this->metrics($built['stages']),
+                'reason' => $this->unavailableReason(isset($built['error']) ? (string) $built['error'] : null),
                 'error' => $built['error'] ?? null,
             ];
         }
+        $guardStarted = hrtime(true);
         $filtered = $this->guard->filter('article:'.$article->id, $built['rows']);
+        $this->timings['guard_ms'] = (int) round((hrtime(true) - $guardStarted) / 1_000_000);
         $stages = $built['stages'];
         $stages['guard_accepted'] = count($filtered['accepted']);
         $stages['guard_rejected'] = count($filtered['rejected']);
@@ -92,7 +101,7 @@ final class InternalLinkV2Suggester
             return [
                 'status' => 'empty',
                 'suggestions' => [],
-                'metrics' => ['stages' => $stages],
+                'metrics' => $this->metrics($stages),
                 'reason' => $this->emptyReason($stages, $matchLimit),
                 'rejected' => $filtered['rejected'],
                 'discovery' => $this->discoveryState($cursor, $matchLimit, (int) $stages['semantic_groups'], 0, [], false),
@@ -100,6 +109,7 @@ final class InternalLinkV2Suggester
         }
 
         try {
+            $rankStarted = hrtime(true);
             $response = Http::baseUrl(rtrim((string) config('semantic.url'), '/'))
                 ->acceptJson()
                 ->asJson()
@@ -123,12 +133,14 @@ final class InternalLinkV2Suggester
                         ];
                     }, $filtered['accepted']),
                 ]);
+            $this->timings['rank_ms'] = (int) round((hrtime(true) - $rankStarted) / 1_000_000);
         } catch (Throwable $e) {
+            $this->timings['rank_ms'] = (int) round((hrtime(true) - $rankStarted) / 1_000_000);
             return [
                 'status' => 'unavailable',
                 'suggestions' => [],
-                'metrics' => ['stages' => $stages],
-                'reason' => 'semantic_unavailable',
+                'metrics' => $this->metrics($stages),
+                'reason' => $this->unavailableReason($e->getMessage()),
                 'error' => $e->getMessage(),
             ];
         }
@@ -137,7 +149,7 @@ final class InternalLinkV2Suggester
             return [
                 'status' => 'unavailable',
                 'suggestions' => [],
-                'metrics' => ['stages' => $stages],
+                'metrics' => $this->metrics($stages),
                 'reason' => 'semantic_unavailable',
             ];
         }
@@ -151,6 +163,7 @@ final class InternalLinkV2Suggester
         $usedAnchors = [];
         $usedUrls = [];
         $anchorRejected = 0;
+        $anchorStarted = hrtime(true);
         foreach ((array) ($body['suggestions'] ?? []) as $ranked) {
             if (! is_array($ranked)) {
                 continue;
@@ -188,6 +201,7 @@ final class InternalLinkV2Suggester
                 'components' => $ranked['components'] ?? [],
             ];
         }
+        $this->timings['anchor_ms'] = (int) round((hrtime(true) - $anchorStarted) / 1_000_000);
         $rankedCount = count((array) ($body['suggestions'] ?? []));
         $stages['ranked'] = $rankedCount;
         $stages['anchor_rejected'] = $anchorRejected;
@@ -209,7 +223,7 @@ final class InternalLinkV2Suggester
             'suggestions' => $suggestions,
             'metrics' => array_merge(
                 is_array($body['metrics'] ?? null) ? $body['metrics'] : [],
-                ['stages' => $stages],
+                $this->metrics($stages),
             ),
             'reason' => $suggestions === [] ? 'anchor_quality' : null,
             'rejected' => array_values(array_merge(
@@ -245,6 +259,7 @@ final class InternalLinkV2Suggester
         }
 
         $discovered = $this->discoverGroups($article, $siteId, $plain, $matchLimit);
+        $this->timings = array_merge($this->timings, is_array($discovered['timings'] ?? null) ? $discovered['timings'] : []);
         $stages = [
             'topic_groups' => 0,
             'semantic_groups' => (int) ($discovered['semantic_count'] ?? 0),
@@ -252,6 +267,8 @@ final class InternalLinkV2Suggester
             'published_targets' => 0,
             'eligible_before_guard' => 0,
             'source_chars' => mb_strlen($plain),
+            'groups_loaded' => (int) ($discovered['groups_loaded'] ?? 0),
+            'groups_sent' => (int) ($discovered['groups_sent'] ?? 0),
         ];
         if ($discovered['status'] === 'unavailable') {
             return [
@@ -267,6 +284,7 @@ final class InternalLinkV2Suggester
         $seenArticles = [];
         $keywords = 0;
         $published = 0;
+        $targetStarted = hrtime(true);
         foreach ($groups as $group) {
             foreach ($group->memberships as $membership) {
                 $keyword = $membership->keyword;
@@ -309,6 +327,7 @@ final class InternalLinkV2Suggester
                 ];
             }
         }
+        $this->timings['target_lookup_ms'] = (int) round((hrtime(true) - $targetStarted) / 1_000_000);
 
         $stages['topic_groups'] = $groups->count();
         $stages['group_keywords'] = $keywords;
@@ -397,6 +416,9 @@ final class InternalLinkV2Suggester
                 'groups' => collect(),
                 'semantic_count' => 0,
                 'error' => isset($retrieved['error']) ? (string) $retrieved['error'] : null,
+                'timings' => is_array($retrieved['timings'] ?? null) ? $retrieved['timings'] : [],
+                'groups_loaded' => (int) ($retrieved['groups_loaded'] ?? 0),
+                'groups_sent' => (int) ($retrieved['groups_sent'] ?? 0),
             ];
         }
 
@@ -412,7 +434,14 @@ final class InternalLinkV2Suggester
         }
         $matched = $this->groupsByRef($siteId, $refs);
         if ($matched->isEmpty()) {
-            return ['status' => 'empty', 'groups' => collect(), 'semantic_count' => 0];
+            return [
+                'status' => 'empty',
+                'groups' => collect(),
+                'semantic_count' => 0,
+                'timings' => is_array($retrieved['timings'] ?? null) ? $retrieved['timings'] : [],
+                'groups_loaded' => (int) ($retrieved['groups_loaded'] ?? 0),
+                'groups_sent' => (int) ($retrieved['groups_sent'] ?? 0),
+            ];
         }
 
         $groups = $matched
@@ -424,7 +453,36 @@ final class InternalLinkV2Suggester
             'status' => 'ok',
             'groups' => $groups,
             'semantic_count' => $matched->count(),
+            'timings' => is_array($retrieved['timings'] ?? null) ? $retrieved['timings'] : [],
+            'groups_loaded' => (int) ($retrieved['groups_loaded'] ?? 0),
+            'groups_sent' => (int) ($retrieved['groups_sent'] ?? 0),
         ];
+    }
+
+    /**
+     * @param  array<string, int>  $stages
+     * @return array{stages: array<string, int>, timings: array<string, int>}
+     */
+    private function metrics(array $stages): array
+    {
+        if ($this->suggestStartedNs > 0) {
+            $this->timings['total_ms'] = (int) round((hrtime(true) - $this->suggestStartedNs) / 1_000_000);
+        }
+
+        return [
+            'stages' => $stages,
+            'timings' => $this->timings,
+        ];
+    }
+
+    private function unavailableReason(?string $error): string
+    {
+        $lower = strtolower((string) $error);
+        if (str_contains($lower, 'timed out') || str_contains($lower, 'curl error 28')) {
+            return 'semantic_timeout';
+        }
+
+        return 'semantic_unavailable';
     }
 
     private function topicGroups(): TopicGroupArticleRetriever
