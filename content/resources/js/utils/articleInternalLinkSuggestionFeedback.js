@@ -123,7 +123,7 @@ export function suggestionFeedbackMessageKey(result) {
             : 'links_suggestions_error_http';
     }
     if (reason === 'not_insertable') {
-        return 'links_suggestions_filtered';
+        return 'links_suggestions_empty_result';
     }
 
     return 'links_suggestions_empty_result';

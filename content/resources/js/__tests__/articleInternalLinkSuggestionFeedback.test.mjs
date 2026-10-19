@@ -103,6 +103,26 @@ test('a finished search with no suggestion is empty, not an error or a partial s
     assert.notEqual(result.phase, 'not_ready');
 });
 
+test('candidates that the editor filters out are an empty result, not an error', () => {
+    const result = classifyInternalLinkSuggestionResult({
+        httpStatus: 200,
+        success: true,
+        status: 'ok',
+        reason: 'anchor_quality',
+        returnedCount: 4,
+        visibleCount: 0,
+    });
+
+    assert.equal(result.phase, 'empty');
+    assert.equal(result.reason, 'not_insertable');
+    assert.equal(suggestionFeedbackMessageKey(result), 'links_suggestions_empty_result');
+    assert.notEqual(result.phase, 'error');
+    assert.notEqual(suggestionFeedbackMessageKey(result), 'links_suggestions_filtered');
+    assert.notEqual(suggestionFeedbackMessageKey(result), 'links_suggestions_error_http');
+    assert.notEqual(suggestionFeedbackMessageKey(result), 'links_suggestions_error_timeout');
+    assert.notEqual(suggestionFeedbackMessageKey(result), 'links_suggestions_error_semantic');
+});
+
 test('a semantic timeout is not reported as the service being down', () => {
     const result = classifyInternalLinkSuggestionResult({
         status: 'unavailable',

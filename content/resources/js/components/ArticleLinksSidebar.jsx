@@ -1553,6 +1553,16 @@ export default function ArticleLinksSidebar({
                 visibleCount,
             });
             setSuggestionFeedback(outcome);
+            if (outcome.phase === 'empty' && outcome.reason === 'not_insertable' && typeof console !== 'undefined') {
+                // eslint-disable-next-line no-console
+                console.debug('[internal-link-suggestions]', {
+                    phase: outcome.phase,
+                    filterReason: outcome.reason,
+                    suggestionReason: String(payload?.suggestionReason ?? ''),
+                    returnedCount: Array.isArray(payload?.suggestedInternalLinks) ? payload.suggestedInternalLinks.length : 0,
+                    visibleCount,
+                });
+            }
             if (outcome.phase === 'error') {
                 setSuggestionsError(t(suggestionFeedbackMessageKey(outcome)));
                 setSuggestionsEmpty(false);
