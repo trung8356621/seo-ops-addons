@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Tests\Unit\Semantic;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Client\Events\ResponseReceived;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
@@ -152,5 +154,117 @@ final class TopicGroupArticleRetrieverTest extends TestCase
         self::assertSame(9, $result['groups'][0]['keywords'][0]['article']['site_id']);
         self::assertSame(41.5, $result['groups'][0]['keywords'][0]['article']['seo_score']);
         self::assertCount(1, $result['groups']);
+    }
+
+    public function test_colliding_semantic_refs_are_sent_as_unique_keyword_group_ids(): void
+    {
+        $firstKeyword = Keyword::query()->create([
+            'phrase' => 'máy phát điện',
+            'type' => Keyword::TYPE_NORMAL,
+            'review_status' => 'active',
+        ]);
+        $secondKeyword = Keyword::query()->create([
+            'phrase' => 'máy phát điện cũ',
+            'type' => Keyword::TYPE_NORMAL,
+            'review_status' => 'active',
+        ]);
+        $first = SeoKeywordGroup::query()->create([
+            'site_id' => 6,
+            'name' => 'Legacy',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0004',
+            'is_locked' => false,
+        ]);
+        $second = SeoKeywordGroup::query()->create([
+            'site_id' => 6,
+            'name' => 'English',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0004',
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 6,
+            'group_id' => $first->id,
+            'keyword_id' => $firstKeyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => 6,
+            'group_id' => $second->id,
+            'keyword_id' => $secondKeyword->id,
+            'source' => KeywordGroupSource::SEMANTIC,
+        ]);
+
+        Http::fake([
+            'http://semantic.test/v1/topic-groups/matches' => Http::response([
+                'scope_ref' => 'site:6',
+                'matches' => [
+                    ['ref' => 'keyword-group:'.$first->id, 'score' => 0.8, 'evidence' => ['lexical_matched' => false]],
+                    ['ref' => 'keyword-group:'.$second->id, 'score' => 0.7, 'evidence' => ['lexical_matched' => false]],
+                ],
+            ]),
+        ]);
+
+        $result = (new TopicGroupArticleRetriever(new TopicGroupRetrievalClient(new SemanticAnalyticsClient())))
+            ->retrieve(6, 'máy phát điện');
+
+        $sent = Http::recorded()[0][0]->data()['groups'];
+        $refs = array_column($sent, 'ref');
+        self::assertSame([
+            'keyword-group:'.$first->id,
+            'keyword-group:'.$second->id,
+        ], $refs);
+        self::assertSame('ok', $result['status']);
+        self::assertCount(2, $result['groups']);
+    }
+
+    public function test_duplicate_refs_match_against_the_live_semantic_service(): void
+    {
+        config(['semantic.url' => 'http://127.0.0.1:8088', 'semantic.timeout' => 30]);
+        $first = SeoKeywordGroup::query()->create([
+            'site_id' => 6,
+            'name' => 'Máy phát điện',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0004',
+            'is_locked' => false,
+        ]);
+        $second = SeoKeywordGroup::query()->create([
+            'site_id' => 6,
+            'name' => 'Máy phát điện cũ',
+            'source' => KeywordGroupSource::SEMANTIC,
+            'semantic_group_ref' => 'g-0004',
+            'is_locked' => false,
+        ]);
+        foreach ([[$first, 'máy phát điện'], [$second, 'máy phát điện cũ']] as [$group, $phrase]) {
+            $keyword = Keyword::query()->create([
+                'phrase' => $phrase,
+                'type' => Keyword::TYPE_NORMAL,
+                'review_status' => 'active',
+            ]);
+            SeoKeywordGroupKeyword::query()->create([
+                'site_id' => 6,
+                'group_id' => $group->id,
+                'keyword_id' => $keyword->id,
+                'source' => KeywordGroupSource::SEMANTIC,
+            ]);
+        }
+
+        $seen = null;
+        Event::listen(ResponseReceived::class, function (ResponseReceived $event) use (&$seen): void {
+            if (str_contains($event->request->url(), '/v1/topic-groups/matches')) {
+                $seen = $event;
+            }
+        });
+
+        $result = (new TopicGroupArticleRetriever(new TopicGroupRetrievalClient(new SemanticAnalyticsClient())))
+            ->retrieve(6, 'máy phát điện công nghiệp');
+
+        self::assertInstanceOf(ResponseReceived::class, $seen);
+        $refs = array_column($seen->request->data()['groups'], 'ref');
+        self::assertCount(count(array_unique($refs)), $refs);
+        self::assertContains('keyword-group:'.$first->id, $refs);
+        self::assertContains('keyword-group:'.$second->id, $refs);
+        self::assertSame(200, $seen->response->status());
+        self::assertSame('ok', $result['status']);
     }
 }

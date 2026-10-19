@@ -33,6 +33,12 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
             return ['status' => 'empty', 'groups' => []];
         }
 
+        $externalCounts = [];
+        foreach ($groups as $group) {
+            $external = $this->ref($group);
+            $externalCounts[$external] = ($externalCounts[$external] ?? 0) + 1;
+        }
+
         $payloadGroups = [];
         $byRef = [];
         foreach ($groups as $group) {
@@ -40,7 +46,10 @@ final class TopicGroupArticleRetriever implements TopicGroupArticleSource
             if ($examples === []) {
                 continue;
             }
-            $ref = $this->ref($group);
+            $external = $this->ref($group);
+            $ref = ($externalCounts[$external] ?? 0) > 1
+                ? 'keyword-group:'.$group->id
+                : $external;
             $byRef[$ref] = $group;
             $payloadGroups[] = [
                 'ref' => $ref,
