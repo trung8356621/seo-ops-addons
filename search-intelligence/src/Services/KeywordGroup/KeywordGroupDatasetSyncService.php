@@ -123,6 +123,10 @@ final class KeywordGroupDatasetSyncService
                 $this->abort(isset($session['session_id']) ? (string) $session['session_id'] : null);
                 throw new KeywordGroupDatasetSyncException($e->getMessage(), 'contract', $e->httpStatus, $e);
             }
+            if ($e->httpStatus !== null && $e->httpStatus >= 500) {
+                $this->abort(isset($session['session_id']) ? (string) $session['session_id'] : null);
+                throw new KeywordGroupDatasetSyncException($e->getMessage(), 'server', $e->httpStatus, $e);
+            }
             $this->abort(isset($session['session_id']) ? (string) $session['session_id'] : null);
             throw new KeywordGroupDatasetSyncException($e->getMessage(), 'transport', $e->httpStatus, $e);
         } catch (SemanticHttpException $e) {

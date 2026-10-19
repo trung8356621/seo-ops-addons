@@ -1587,10 +1587,13 @@ export default function ArticleLinksSidebar({
                     return;
                 }
                 setSuggestionReason(String(payload.suggestionReason || ''));
+            applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
             if (payload.suggestionStatus === 'unavailable') {
                 setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
+                setSuggestionsEmpty(false);
+            } else {
+                setSuggestionsError(null);
             }
-            applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
                 persistSuggestionSession({ contentFingerprint: cacheKey });
                 return;
             }
@@ -1615,10 +1618,13 @@ export default function ArticleLinksSidebar({
             }
             const replaceCategories = scope === 'both' ? ['internal', 'external'] : [scope];
             setSuggestionReason(String(payload.suggestionReason || ''));
+            applySuggestionPayload(payload, 'links-suggestions', { replaceCategories });
             if (payload.suggestionStatus === 'unavailable') {
                 setSuggestionsError(t('editor_links_reason_semantic_unavailable'));
+                setSuggestionsEmpty(false);
+            } else {
+                setSuggestionsError(null);
             }
-            applySuggestionPayload(payload, 'links-suggestions', { replaceCategories });
             if (scope === 'both') {
                 suggestionsCacheRef.current.set(memoryKey, payload);
             } else {

@@ -163,6 +163,10 @@ final class AgentSemanticSiteSelectorTest extends TestCase
     {
         $source = (string) file_get_contents(dirname(__DIR__, 2).'/resources/js/widget/AgentWidget.jsx');
         self::assertStringContainsString('semantic_grouping_required', $source);
+        self::assertStringContainsString("state: result.status === 'semantic_grouping_processing' ? 'LOADING' : 'NOT_READY'", $source);
+        self::assertStringContainsString("state: 'EMPTY'", $source);
+        self::assertStringContainsString("state: 'ERROR'", $source);
+        self::assertStringContainsString("state: 'SUCCESS'", $source);
         self::assertStringContainsString("action.action === 'later'", $source);
         self::assertStringContainsString('/semantic-grouping', $source);
         self::assertStringContainsString('setWatchedSiteId(siteId)', $source);

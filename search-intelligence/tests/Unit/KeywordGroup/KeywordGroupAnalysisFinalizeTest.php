@@ -47,6 +47,8 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
 
     private bool $dropTransport = false;
 
+    private bool $datasetServerError = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -239,6 +241,19 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
             'language' => '',
             'source' => KeywordGroupSource::MANUAL,
         ]);
+        $lockedEnglish = SeoKeywordGroup::query()->create([
+            'site_id' => $siteId,
+            'name' => 'Locked EN',
+            'source' => KeywordGroupSource::MANUAL,
+            'is_locked' => true,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => $siteId,
+            'group_id' => $lockedEnglish->id,
+            'keyword_id' => 12,
+            'language' => 'en',
+            'source' => KeywordGroupSource::MANUAL,
+        ]);
         SeoKeywordGroupAnalysisRun::query()->create([
             'site_id' => $siteId,
             'run_id' => 'vi-run',
@@ -286,8 +301,9 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
         self::assertSame(11, (int) SeoKeywordGroupKeyword::query()->where('group_id', $manual->id)->value('keyword_id'));
         self::assertTrue((bool) SeoKeywordGroup::query()->whereKey($manual->id)->value('is_locked'));
         self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 10)->where('language', 'en')->count());
-        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 12)->where('language', 'en')->count());
-        self::assertSame(0, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 11)->where('language', 'en')->count());
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 11)->where('language', 'en')->count());
+        self::assertSame((int) $lockedEnglish->id, (int) SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 12)->where('language', 'en')->value('group_id'));
+        self::assertSame(1, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 11)->where('language', '')->count());
         self::assertSame(2, SeoKeywordGroupKeyword::query()->where('site_id', $siteId)->where('keyword_id', 10)->count());
 
         SeoKeywordGroupKeyword::query()->create([
@@ -495,6 +511,29 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
         $this->assertOldGroup();
     }
 
+    public function test_dataset_server_error_fails_grouping_without_marking_the_job_unreachable(): void
+    {
+        SeoKeywordGroupAnalysisRun::query()->create([
+            'site_id' => self::SITE,
+            'run_id' => '',
+            'language' => null,
+            'dataset_revision' => 0,
+            'dataset_hash' => '',
+            'fingerprint' => '',
+            'algorithm' => '',
+            'phase' => 'queued',
+        ]);
+        $this->datasetServerError = true;
+        \Illuminate\Support\Facades\Bus::fake();
+        (new PollKeywordGroupAnalysisJob(self::SITE))->handle($this->finalizer());
+
+        $row = SeoKeywordGroupAnalysisRun::query()->where('site_id', self::SITE)->first();
+        self::assertSame('failed', $row->phase);
+        self::assertStringContainsString('Semantic HTTP 500', (string) $row->last_error);
+        self::assertStringNotContainsString('unreachable', (string) $row->last_error);
+        $this->assertOldGroup();
+    }
+
     private function finalizer(): KeywordGroupAnalysisFinalizer
     {
         $builder = new class(new KeywordGroupCandidateLoader(), $this) extends KeywordGroupDatasetSnapshotBuilder
@@ -532,6 +571,22 @@ final class KeywordGroupAnalysisFinalizeTest extends TestCase
     private function bindHttp(): void
     {
         Http::fake(function (Request $request) {
+            if ($this->datasetServerError && str_contains($request->url(), '/datasets/')) {
+                if ($request->method() === 'GET') {
+                    return Http::response(['detail' => 'dataset_not_found'], 404);
+                }
+                if (str_contains($request->url(), '/commit')) {
+                    return Http::response(['detail' => 'revision is still referenced'], 500);
+                }
+                if (str_contains($request->url(), '/abort')) {
+                    return Http::response('', 204);
+                }
+                if ($request->method() === 'POST') {
+                    return Http::response(['session_id' => 'sess-server-error', 'revision' => 2], 201);
+                }
+
+                return Http::response(['batch_index' => 1], 200);
+            }
             if (str_contains($request->url(), '/datasets/')) {
                 return $this->datasetResponse($this->frozenHash ?? $this->hash());
             }

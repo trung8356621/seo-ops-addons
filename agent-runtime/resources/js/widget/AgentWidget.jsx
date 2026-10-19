@@ -1718,7 +1718,23 @@ export function AgentWidget({
                 app_key: hostContext.appKey || 'seo-ops',
             });
             const result = payload?.data || null;
-            setTestResult(result);
+            if (result?.status === 'semantic_grouping_required' || result?.status === 'semantic_grouping_processing') {
+                setTestResult({
+                    ...result,
+                    output_type: result.output_type || target.output_type,
+                    state: result.status === 'semantic_grouping_processing' ? 'LOADING' : 'NOT_READY',
+                });
+                return;
+            }
+            const media = Array.isArray(result?.media) ? result.media : [];
+            const imageSearch = (result?.output_type || target.output_type) === 'image';
+            if (result?.error) {
+                setTestResult({ ...result, output_type: result.output_type || target.output_type, state: 'ERROR' });
+            } else if (imageSearch && media.length === 0) {
+                setTestResult({ ...result, output_type: 'image', state: 'EMPTY' });
+            } else {
+                setTestResult({ ...result, state: 'SUCCESS' });
+            }
             if (result?.thread_ulid) {
                 setActiveThreads((current) => prependThread(current, {
                     ulid: result.thread_ulid,
@@ -2132,13 +2148,34 @@ export function AgentWidget({
                                     {testRunning ? <><Loader2 size={15} className="agent-spinner" /> Running…</> : 'Run'}
                                 </button>
 
+                                {testRunning ? (
+                                    <p className="agent-test-result__status" role="status">LOADING</p>
+                                ) : null}
                                 {testResult ? (
                                     <section className="agent-test-result" aria-live="polite">
-                                        <div className="agent-test-result__heading">
-                                            <MediaTypeIcon outputType={testResult.output_type} />
-                                            <strong>{testResult.target_label}</strong>
-                                            <span>{testResult.status}</span>
-                                        </div>
+                                        {testResult.state === 'NOT_READY' ? (
+                                            <p className="agent-test-result__status" role="status">{testResult.message || 'NOT_READY'}</p>
+                                        ) : null}
+                                        {testResult.state === 'EMPTY' ? (
+                                            <p className="agent-test-result__status" role="status">
+                                                {locale === 'vi'
+                                                    ? 'Không có ảnh phù hợp. Phân nhóm từ khóa đã xong nhưng lượt này không trả ảnh.'
+                                                    : 'No matching images. Keyword grouping is ready, and this run returned no image.'}
+                                            </p>
+                                        ) : null}
+                                        {testResult.state === 'ERROR' ? (
+                                            <p className="agent-test-result__error" role="alert">{testResult.error || testResult.message || 'ERROR'}</p>
+                                        ) : null}
+                                        {testResult.state === 'LOADING' ? (
+                                            <p className="agent-test-result__status" role="status">{testResult.message || 'LOADING'}</p>
+                                        ) : null}
+                                        {testResult.target_label ? (
+                                            <div className="agent-test-result__heading">
+                                                <MediaTypeIcon outputType={testResult.output_type} />
+                                                <strong>{testResult.target_label}</strong>
+                                                <span>{testResult.state || testResult.status}</span>
+                                            </div>
+                                        ) : null}
                                         {executedModelsText(testResult.models) ? (
                                             <p className="agent-test-result__models">{executedModelsText(testResult.models)}</p>
                                         ) : null}

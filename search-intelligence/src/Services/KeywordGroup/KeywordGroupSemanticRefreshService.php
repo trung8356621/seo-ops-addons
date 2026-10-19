@@ -256,6 +256,37 @@ final class KeywordGroupSemanticRefreshService
     }
 
     /**
+     * Manual and locked keywords block semantic replacement only inside the
+     * membership language being published.
+     *
+     * @return array<int, true>
+     */
+    private function protectedKeywordsForLanguage(int $siteId, string $membershipLanguage): array
+    {
+        $groupIds = SeoKeywordGroup::query()
+            ->where('site_id', $siteId)
+            ->get(['id', 'source', 'is_locked'])
+            ->filter(static fn (SeoKeywordGroup $group): bool => $group->isProtectedFromSemanticRefresh())
+            ->map(static fn (SeoKeywordGroup $group): int => (int) $group->id)
+            ->all();
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $protected = [];
+        $ids = SeoKeywordGroupKeyword::query()
+            ->where('site_id', $siteId)
+            ->whereIn('group_id', $groupIds)
+            ->where('language', $membershipLanguage)
+            ->pluck('keyword_id');
+        foreach ($ids as $keywordId) {
+            $protected[(int) $keywordId] = true;
+        }
+
+        return $protected;
+    }
+
+    /**
      * @param  array<string, mixed>  $response
      * @param  array<int, true>  $knownKeywordIds
      * @return array{
@@ -371,6 +402,9 @@ final class KeywordGroupSemanticRefreshService
             }
 
             $membershipLanguage = $this->storedMembershipLanguage($language);
+            if ($membershipLanguage !== null) {
+                $protectedKeywords = $this->protectedKeywordsForLanguage($siteId, $membershipLanguage);
+            }
             $foreignHashes = $this->foreignDatasetHashes($siteId, $language);
             $foreignGroupIds = $foreignHashes === []
                 ? []

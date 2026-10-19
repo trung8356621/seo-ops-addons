@@ -569,10 +569,13 @@ final class KeywordGroups extends Page
             'sync_driver' => __('seo-content-ai::filament.keyword.keyword_group_analysis_sync_driver'),
             default => __('seo-content-ai::filament.keyword.keyword_group_refresh_failed'),
         };
-        Notification::make()
-            ->title($title)
-            ->{$result === 'queued' ? 'success' : 'warning'}()
-            ->send();
+        $notice = Notification::make()->title($title);
+        if ($result === 'queued') {
+            $notice->info();
+        } else {
+            $notice->warning();
+        }
+        $notice->send();
     }
 
     public function refreshAnalysisStatus(): void
