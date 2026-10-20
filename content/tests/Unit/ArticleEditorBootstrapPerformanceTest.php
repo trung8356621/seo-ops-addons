@@ -31,6 +31,9 @@ final class ArticleEditorBootstrapPerformanceTest extends TestCase
         self::assertStringContainsString('getEditorCoreSettingsPayload($analysisPolicy, $externalFacts)', $body);
         self::assertSame(1, substr_count($body, '->forArticle($this->record)'));
         self::assertSame(1, substr_count($body, '->externalFacts($this->record)'));
+        self::assertStringContainsString('$analysisPolicyService = app(', $body);
+        self::assertStringContainsString('$analysisPolicyService->forArticle', $body);
+        self::assertStringContainsString('$analysisPolicyService->externalFacts', $body);
 
         foreach ([
             "'articleId'", "'mediaSnapshot'", "'analysisPolicy'", "'externalFacts'",
@@ -38,6 +41,21 @@ final class ArticleEditorBootstrapPerformanceTest extends TestCase
         ] as $needle) {
             self::assertStringContainsString($needle, $body);
         }
+    }
+
+    public function test_ai_history_pending_is_resolved_once_per_request(): void
+    {
+        $path = ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php';
+        $source = (string) file_get_contents($path);
+
+        self::assertStringContainsString('function resolveAiHistoryPendingOnce', $source);
+        self::assertStringContainsString('$this->aiHistoryPendingCache', $source);
+
+        $banner = $this->methodBody($source, 'private function refreshAiHistoryPendingBanner(): void');
+        $boot = $this->methodBody($source, 'private function resolveAiHistoryPendingBootstrap(): ?array');
+        self::assertStringContainsString('resolveAiHistoryPendingOnce()', $banner);
+        self::assertStringContainsString('resolveAiHistoryPendingOnce()', $boot);
+        self::assertStringNotContainsString('ArticleAiHistoryPendingDraftStore::class)->get', $boot);
     }
 
     public function test_media_snapshot_batches_seo_media_and_supports_soft_refresh(): void

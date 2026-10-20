@@ -1,16 +1,21 @@
-import { ARTICLE_EDITOR_DRAFT_ALERT_EVENT, ARTICLE_EDITOR_OPEN_DRAFT_CHOICE_EVENT } from '../utils/articleEditorStickyHeader';
 import { articleShortcutActionFromEvent } from '../utils/articleEditorShortcuts';
-import { assertWritableEditorSession, canMutateEditor } from '../utils/editorSessionState';
+import { canMutateEditor } from '../utils/editorSessionState';
 import { blocksFromEditorDocumentEnvelope } from '../utils/articleEditorDocument';
 import {
+    classifyBootstrapDraftRecovery,
     clearDraft,
-    draftOffersManualChoice,
     hashContent,
     loadDraft,
-    resolveLocalDraftDecision,
+    saveDraft,
     writeSyncedLocalSnapshot,
 } from '../utils/articleEditorStorage';
-import { countGluedInlineMarkBoundaries, plainTextFromHtmlLoose, repairGluedInlineMarkBoundaryWhitespaceWithReport } from '../utils/inlineWhitespaceGuard';
+import {
+    BOOTSTRAP_DIVERGENT_DRAFT_REASON,
+    BOOTSTRAP_RECOVERY_ACTION_EVENT,
+    clearDocumentConflictRecovery,
+    enterDocumentConflictBlocked,
+} from '../utils/editorDocumentConflictRecovery';
+import { plainTextFromHtmlLoose, repairGluedInlineMarkBoundaryWhitespaceWithReport } from '../utils/inlineWhitespaceGuard';
 import { enrichBlocksWithPostImages, reconcileSupplementalImagesWithBlocks } from '@media-addon/utils/articleImagesUtils.js';
 import { exportBlocksToHtml, parseHtmlToBlocks, stripLeadingH1FromHtml, createEmptyTextBlock } from '../utils/contentDocumentHelpers';
 import { filterSuggestedInternalLinks, isSpecialOrContactHref, mergeSuggestionCatalog } from '../utils/articleLinkSuggestionFilter';
@@ -18,7 +23,7 @@ import { mediaActions } from '@media-addon/editor/domains/media/state.js';
 import { seoActions, seoApi } from '@seo-addon/editor/domains/seo/state.js';
 import { isCachedSeoAnalysisValid } from '../utils/seoAnalysisReadiness';
 import { t } from '../utils/i18n';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     CONTENT_LIFECYCLE,
     getContentLifecycle,
@@ -28,7 +33,7 @@ import {
  * useArticleEditorBootstrap - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, markSeoAnalysisReady = null, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite }) {
+export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, hydrateBaselineHtmlRef = null, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, lastAutosaveHashRef = null, loadedArticleIdRef, markSeoAnalysisReady = null, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite }) {
     useEffect(() => {
         const isTypingTarget = (target) =>
             Boolean(
@@ -98,9 +103,30 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         };
     }, [undo, redo, canUndo, canRedo, requestAnalyze, sessionReadOnly]);
 
-    // Hydrate: tự chọn bản gần nhất; nếu local≠server thì hiện nút ! trên sticky header để mở modal chọn lại.
+    // Hydrate: silent A/B/C; Case D → blocking overlay (no 3-button modal).
     const [draftRestoreOffer, setDraftRestoreOffer] = useState(null);
-    const [draftChoiceModalOpen, setDraftChoiceModalOpen] = useState(false);
+    const draftRestoreOfferRef = useRef(null);
+    draftRestoreOfferRef.current = draftRestoreOffer;
+
+    const applyServerBlocksBaseline = useCallback((serverBlocks, serverBodyHash, serverContentHash) => {
+        setBlocks(serverBlocks);
+        cancelLocalDraftSave();
+        window.__seoCancelArticleDraftAutosave?.();
+        const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
+        const analysisFresh = analyzedContentHash !== ''
+            && serverBodyHash !== ''
+            && analyzedContentHash === serverBodyHash;
+        if (analysisFresh && isCachedSeoAnalysisValid(initialSeo, {
+            contentHash: serverBodyHash,
+            bodyHash: serverBodyHash,
+        })) {
+            markSeoAnalysisReady?.(true);
+            setSeoStale(false);
+        } else {
+            markSeoAnalysisReady?.(false);
+            setSeoStale(false);
+        }
+    }, [cancelLocalDraftSave, initialSeo, markSeoAnalysisReady, setBlocks, setSeoStale]);
 
     useEffect(() => {
         if (!articleId) return;
@@ -129,6 +155,11 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             }));
         }
         bootstrapBodyPlainRef.current = plainTextFromHtmlLoose(effectiveInitialHtml);
+        // Always server body — Case C restores draft into blocks but baseline stays ACK/server
+        // so TipTap remount of draft still autosaves, while A/B TipTap noise does not.
+        if (hydrateBaselineHtmlRef && typeof hydrateBaselineHtmlRef === 'object') {
+            hydrateBaselineHtmlRef.current = effectiveInitialHtml;
+        }
 
         const serverBodyHash = hashContent(effectiveInitialHtml);
         const serverContentHash = String(expectedContentHash ?? '').trim() || serverBodyHash;
@@ -152,7 +183,6 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             markSeoAnalysisReady?.(false);
             setSeoStale(false);
             setDraftRestoreOffer(null);
-            setDraftChoiceModalOpen(false);
             setActiveBlockId(null);
             setGlobalEditor(null);
             skipNextAutosave.current = true;
@@ -180,58 +210,22 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             updated_at: expectedUpdatedAt || null,
             content: effectiveInitialHtml,
             version: serverContentHash,
+            document_version: window.__SEO_EDITOR_DOCUMENT_VERSION__ ?? null,
         };
-        const decision = resolveLocalDraftDecision(draft, serverState);
-        const canManualChoose = draftOffersManualChoice(draft, serverState);
+        const decision = classifyBootstrapDraftRecovery(draft, serverState);
         const hardReadonly = Boolean(sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__);
 
         // Locked session: keep local draft, never auto-apply / clear / overwrite canonical.
         if (hardReadonly) {
-            setBlocks(serverBlocks);
-            const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
-            const analysisFresh = analyzedContentHash !== ''
-                && serverBodyHash !== ''
-                && analyzedContentHash === serverBodyHash;
-            if (analysisFresh && isCachedSeoAnalysisValid(initialSeo, {
-                contentHash: serverBodyHash,
-                bodyHash: serverBodyHash,
-            })) {
-                markSeoAnalysisReady?.(true);
-                setSeoStale(false);
-            } else {
-                markSeoAnalysisReady?.(false);
-                setSeoStale(false);
-            }
+            applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);
             setDraftRestoreOffer(null);
-            setDraftChoiceModalOpen(false);
             setActiveBlockId(null);
             setGlobalEditor(null);
             return;
         }
 
-        const draftContentRaw = String(draft?.content ?? '');
-        const draftGlue = draft ? countGluedInlineMarkBoundaries(draftContentRaw) : 0;
-        const serverGlue = countGluedInlineMarkBoundaries(effectiveInitialHtml);
-        const preferServerOverGluedDraft = Boolean(draft)
-            && decision === 'restore_local'
-            && draftGlue > serverGlue;
-        const sameRevisionContinuation = Boolean(draft)
-            && (
-                (
-                    String(draft.base_content_hash ?? '').trim() !== ''
-                    && String(draft.base_content_hash).trim() === String(serverContentHash)
-                )
-                || (
-                    String(draft.base_document_version ?? '').trim() !== ''
-                    && String(window.__SEO_EDITOR_DOCUMENT_VERSION__ ?? '') !== ''
-                    && String(draft.base_document_version) === String(window.__SEO_EDITOR_DOCUMENT_VERSION__)
-                )
-            );
-        const shouldPromptRestore = Boolean(draft)
-            && (decision === 'restore_local' || canManualChoose)
-            && !hardReadonly;
-
-        if (decision === 'restore_local' && draft && (!preferServerOverGluedDraft || sameRevisionContinuation)) {
+        if (decision === 'restore_local' && draft) {
+            const draftContentRaw = String(draft.content ?? '');
             const draftRepair = repairGluedInlineMarkBoundaryWhitespaceWithReport(draftContentRaw);
             if (draftRepair.repaired) {
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
@@ -249,185 +243,107 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             );
             setBlocks(restoredBlocks);
             setSeoStale(true);
-            window.dispatchEvent(
-                new CustomEvent('seo-article-editor-notify', {
-                    detail: {
-                        title: t('editor_draft_auto_restored_title'),
-                        body: t('editor_draft_auto_restored_body'),
-                        status: 'info',
-                    },
-                }),
-            );
-            setDraftRestoreOffer(canManualChoose ? { draft, serverBlocks } : null);
-            setDraftChoiceModalOpen(false);
+            markSeoAnalysisReady?.(false);
+            // Silent Case C — keep dirty draft until server ACK; no modal/toast.
+            setDraftRestoreOffer(null);
+        } else if (decision === 'block' && draft) {
+            // Case D — preserve snapshot, show server under blocking overlay.
+            applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);
+            setDraftRestoreOffer({ draft, serverBlocks });
+            enterDocumentConflictBlocked({
+                reason: BOOTSTRAP_DIVERGENT_DRAFT_REASON,
+                article_id: articleId,
+            });
         } else {
-            setBlocks(serverBlocks);
-            cancelLocalDraftSave();
-            window.__seoCancelArticleDraftAutosave?.();
-
-            const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
-            const analysisFresh = analyzedContentHash !== ''
-                && serverBodyHash !== ''
-                && analyzedContentHash === serverBodyHash;
-            if (analysisFresh && isCachedSeoAnalysisValid(initialSeo, {
-                contentHash: serverBodyHash,
-                bodyHash: serverBodyHash,
-            })) {
-                markSeoAnalysisReady?.(true);
-                setSeoStale(false);
-            } else {
-                markSeoAnalysisReady?.(false);
-                setSeoStale(false);
+            // Case A/B — use server, clear redundant snapshot.
+            applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);
+            clearDraft(articleId, connHash, scope);
+            writeSyncedLocalSnapshot(articleId, connHash, withDraftSite({
+                content: exportBlocksToHtml(serverBlocks),
+                base_updated_at: expectedUpdatedAt || null,
+                base_content_hash: serverContentHash,
+                version: serverContentHash,
+            }));
+            if (lastAutosaveHashRef && typeof lastAutosaveHashRef === 'object') {
+                lastAutosaveHashRef.current = serverContentHash;
             }
-
-            if (shouldPromptRestore) {
-                // Keep dirty recovery — never silently discard unsaved work on F5.
-                setDraftRestoreOffer({ draft, serverBlocks });
-                setDraftChoiceModalOpen(true);
-            } else {
-                if (!draft || draftGlue >= serverGlue) {
-                    clearDraft(articleId, connHash, scope);
-                }
-                writeSyncedLocalSnapshot(articleId, connHash, withDraftSite({
-                    content: exportBlocksToHtml(serverBlocks),
-                    base_updated_at: expectedUpdatedAt || null,
-                    base_content_hash: serverContentHash,
-                    version: serverContentHash,
-                }));
-                setDraftRestoreOffer(null);
-                setDraftChoiceModalOpen(false);
-            }
+            setDraftRestoreOffer(null);
         }
 
         setActiveBlockId(null);
         setGlobalEditor(null);
-    }, [articleId, initialHtml, initialPostImages, expectedUpdatedAt, expectedContentHash, clearTempMerge, draftScope, withDraftSite, cancelLocalDraftSave, initialSeo, sessionReadOnly, initialEditorDocument, initialEditorDocumentHash]);
-
-    // After lock → writable (retry/takeover): offer kept local draft, never auto-apply.
-    useEffect(() => {
-        if (sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__ || !articleId) {
-            return;
-        }
-        if (draftRestoreOffer) {
-            return;
-        }
-        const connHash = connectionHashRef.current;
-        const scope = draftScope();
-        const draft = loadDraft(articleId, connHash, scope);
-        if (!draft) {
-            return;
-        }
-        const serverBodyHash = hashContent(initialHtml);
-        const serverContentHash = String(expectedContentHash ?? '').trim() || serverBodyHash;
-        const serverBlocksFromJson = blocksFromEditorDocumentEnvelope(initialEditorDocument, initialHtml);
-        const serverBlocks = enrichBlocksWithPostImages(
-            serverBlocksFromJson
-                ?? parseHtmlToBlocks(stripLeadingH1FromHtml(initialHtml)),
-            postImagesRef.current,
-        );
-        const serverState = {
-            content_hash: serverBodyHash || serverContentHash,
-            expected_content_hash: serverContentHash,
-            site_id: scope.siteId,
-            updated_at: expectedUpdatedAt || null,
-            content: initialHtml,
-            version: serverContentHash,
-        };
-        if (!draftOffersManualChoice(draft, serverState)) {
-            return;
-        }
-        setDraftRestoreOffer({ draft, serverBlocks });
-        setDraftChoiceModalOpen(false);
-    }, [
-        sessionReadOnly,
-        articleId,
-        draftRestoreOffer,
-        draftScope,
-        initialHtml,
-        initialEditorDocument,
-        expectedContentHash,
-        expectedUpdatedAt,
-    ]);
-
-    useEffect(() => {
-        window.dispatchEvent(
-            new CustomEvent(ARTICLE_EDITOR_DRAFT_ALERT_EVENT, {
-                detail: {
-                    visible: Boolean(draftRestoreOffer),
-                    title: t('editor_draft_choice_button_hint'),
-                },
-            }),
-        );
-
-        return () => {
-            window.dispatchEvent(
-                new CustomEvent(ARTICLE_EDITOR_DRAFT_ALERT_EVENT, {
-                    detail: { visible: false },
-                }),
-            );
-        };
-    }, [draftRestoreOffer]);
-
-    useEffect(() => {
-        const onOpenDraftChoice = () => {
-            if (!draftRestoreOffer) {
-                return;
-            }
-            setDraftChoiceModalOpen(true);
-        };
-
-        window.addEventListener(ARTICLE_EDITOR_OPEN_DRAFT_CHOICE_EVENT, onOpenDraftChoice);
-
-        return () => {
-            window.removeEventListener(ARTICLE_EDITOR_OPEN_DRAFT_CHOICE_EVENT, onOpenDraftChoice);
-        };
-    }, [draftRestoreOffer]);
+    }, [articleId, initialHtml, initialPostImages, expectedUpdatedAt, expectedContentHash, clearTempMerge, draftScope, withDraftSite, cancelLocalDraftSave, initialSeo, sessionReadOnly, initialEditorDocument, initialEditorDocumentHash, applyServerBlocksBaseline, markSeoAnalysisReady]);
 
     const applyDraftRestore = useCallback(() => {
-        if (!draftRestoreOffer) return;
-        if (!canMutateEditor()) {
-            assertWritableEditorSession('editor_read_only');
-            return;
-        }
+        const offer = draftRestoreOfferRef.current;
+        if (!offer) return;
+        const html = String(offer.draft?.content ?? '');
         const restoredBlocks = enrichBlocksWithPostImages(
-            parseHtmlToBlocks(stripLeadingH1FromHtml(String(draftRestoreOffer.draft?.content ?? ''))),
+            parseHtmlToBlocks(stripLeadingH1FromHtml(html)),
             postImagesRef.current,
         );
         setBlocks(restoredBlocks);
-        setDraftChoiceModalOpen(false);
         setDraftRestoreOffer(null);
         setSeoStale(true);
-    }, [draftRestoreOffer]);
-
-    const discardDraftRestore = useCallback(() => {
-        clearDraft(articleId, connectionHashRef.current, draftScope());
-        if (draftRestoreOffer?.serverBlocks) {
-            setBlocks(draftRestoreOffer.serverBlocks);
-            writeSyncedLocalSnapshot(articleId, connectionHashRef.current, withDraftSite({
-                content: exportBlocksToHtml(draftRestoreOffer.serverBlocks),
-                base_updated_at: expectedUpdatedAt || null,
-                base_content_hash: String(expectedContentHash ?? '').trim(),
-                version: String(expectedContentHash ?? '').trim(),
-            }));
-        }
-        setDraftChoiceModalOpen(false);
-        setDraftRestoreOffer(null);
-    }, [articleId, draftRestoreOffer, draftScope, expectedUpdatedAt, expectedContentHash, withDraftSite]);
+        markSeoAnalysisReady?.(false);
+        // Rebase draft baseline onto current server ACK so the next reload is Case C (silent), not Case D again.
+        const serverHash = String(expectedContentHash ?? '').trim() || hashContent(String(initialHtml ?? ''));
+        saveDraft(articleId, connectionHashRef.current, withDraftSite({
+            content: html,
+            editor_document: offer.draft?.editor_document ?? null,
+            base_updated_at: expectedUpdatedAt || null,
+            base_content_hash: serverHash,
+            base_document_version: window.__SEO_EDITOR_DOCUMENT_VERSION__ || null,
+            content_hash: hashContent(html),
+            dirty_fields: ['content'],
+            synced: false,
+        }));
+        clearDocumentConflictRecovery();
+    }, [
+        articleId,
+        expectedContentHash,
+        expectedUpdatedAt,
+        initialHtml,
+        markSeoAnalysisReady,
+        setBlocks,
+        setSeoStale,
+        withDraftSite,
+    ]);
 
     const keepServerOverDraft = useCallback(() => {
+        const offer = draftRestoreOfferRef.current;
         clearDraft(articleId, connectionHashRef.current, draftScope());
-        if (draftRestoreOffer?.serverBlocks) {
-            setBlocks(draftRestoreOffer.serverBlocks);
+        if (offer?.serverBlocks) {
+            setBlocks(offer.serverBlocks);
             writeSyncedLocalSnapshot(articleId, connectionHashRef.current, withDraftSite({
-                content: exportBlocksToHtml(draftRestoreOffer.serverBlocks),
+                content: exportBlocksToHtml(offer.serverBlocks),
                 base_updated_at: expectedUpdatedAt || null,
                 base_content_hash: String(expectedContentHash ?? '').trim(),
                 version: String(expectedContentHash ?? '').trim(),
             }));
         }
-        setDraftChoiceModalOpen(false);
         setDraftRestoreOffer(null);
-    }, [articleId, draftRestoreOffer, draftScope, expectedUpdatedAt, expectedContentHash, withDraftSite]);
+        clearDocumentConflictRecovery();
+    }, [articleId, draftScope, expectedUpdatedAt, expectedContentHash, withDraftSite, setBlocks]);
+
+    useEffect(() => {
+        const onBootstrapRecoveryAction = (event) => {
+            const action = String(event?.detail?.action ?? '').trim();
+            if (action === 'restore_local') {
+                // Temporarily clear conflict flag so mutation path can apply blocks.
+                clearDocumentConflictRecovery();
+                applyDraftRestore();
+                return;
+            }
+            if (action === 'use_server') {
+                keepServerOverDraft();
+            }
+        };
+        window.addEventListener(BOOTSTRAP_RECOVERY_ACTION_EVENT, onBootstrapRecoveryAction);
+        return () => {
+            window.removeEventListener(BOOTSTRAP_RECOVERY_ACTION_EVENT, onBootstrapRecoveryAction);
+        };
+    }, [applyDraftRestore, keepServerOverDraft]);
 
     useEffect(() => {
         if (!initialSeo || hasHydratedSeoFromServerRef.current) {
@@ -493,5 +409,5 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         setImagesReloadKey((key) => key + 1);
     }, []);
 
-    return { applyDraftRestore, discardDraftRestore, draftChoiceModalOpen, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks };
+    return { applyDraftRestore, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks };
 }

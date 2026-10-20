@@ -1,6 +1,6 @@
 import { cancelPendingServerAutosave } from '../utils/articleEditorSaveQueue';
 import { getEditorConflictTokens } from '../utils/articleEditorApi';
-import { hashContent } from '../utils/articleEditorStorage';
+import { contentsMeaningfullyEqual, hashContent } from '../utils/articleEditorStorage';
 import { plainTextFromHtmlLoose } from '../utils/inlineWhitespaceGuard';
 import { useArticleEditorNetworkConnectivity } from '../hooks/useArticleEditorNetworkConnectivity';
 import { useCallback, useEffect, useRef } from 'react';
@@ -21,6 +21,11 @@ export default function useArticleEditorSessionNetwork({ articleId, getExportHtm
     saveStatusRef.current = saveStatus;
     /** Canonical body plain text from bootstrap — used to block hydrate-origin space corruption saves. */
     const bootstrapBodyPlainRef = useRef(plainTextFromHtmlLoose(initialHtml));
+    /**
+     * Server body HTML at hydrate (not TipTap export). TipTap remount may serialize
+     * differently; meaningful equality against this baseline must not count as a user edit.
+     */
+    const hydrateBaselineHtmlRef = useRef(String(initialHtml ?? ''));
     const whitespaceCorruptionLockedRef = useRef(false);
 
     const getNetworkDirtyRevisionKey = useCallback(() => {
@@ -31,7 +36,11 @@ export default function useArticleEditorSessionNetwork({ articleId, getExportHtm
         const status = saveStatusRef.current;
         const dirtyUi = status === 'pending' || status === 'saving' || status === 'blocked' || status === 'conflict' || status === 'failed';
         const dirtyFlags = serverAutosaveDirtyRef.current || serverAutosaveNeedsRetryRef.current;
-        const contentDirty = currentBodyHash !== '' && ackBodyHash !== '' && currentBodyHash !== ackBodyHash;
+        const tipTapNoiseOnly = contentsMeaningfullyEqual(html, hydrateBaselineHtmlRef.current);
+        const contentDirty = !tipTapNoiseOnly
+            && currentBodyHash !== ''
+            && ackBodyHash !== ''
+            && currentBodyHash !== ackBodyHash;
         if (!dirtyUi && !dirtyFlags && !contentDirty) {
             return null;
         }
@@ -71,5 +80,5 @@ export default function useArticleEditorSessionNetwork({ articleId, getExportHtm
         setSaveStatus((prev) => (prev === 'saved' ? 'pending' : prev));
     }, [networkUnavailable]);
 
-    return { bootstrapBodyPlainRef, lastAutosaveHashRef, markRecoveringClear, networkRecovering, networkUnavailable, networkUnavailableRef, noteLocalRevisionChanged, scheduleServerAutosaveRef, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, whitespaceCorruptionLockedRef };
+    return { bootstrapBodyPlainRef, hydrateBaselineHtmlRef, lastAutosaveHashRef, markRecoveringClear, networkRecovering, networkUnavailable, networkUnavailableRef, noteLocalRevisionChanged, scheduleServerAutosaveRef, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, whitespaceCorruptionLockedRef };
 }

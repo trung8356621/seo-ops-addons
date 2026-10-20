@@ -638,7 +638,11 @@ function parseTimestampMs(iso) {
 }
 
 /**
- * Quyết định hydrate: dùng server hay restore local — không hiện modal.
+ * Bootstrap recovery classifier (silent by default).
+ *
+ * - use_server: Case A/B — clear redundant snapshot, open editor
+ * - restore_local: Case C — safe silent apply of unsaved local edits
+ * - block: Case D — keep snapshot, blocking overlay (no 3-button modal)
  *
  * @param {ReturnType<typeof loadDraft>} draft
  * @param {{
@@ -648,10 +652,11 @@ function parseTimestampMs(iso) {
  *   updated_at?: string|null,
  *   content?: string|null,
  *   version?: string|null,
+ *   document_version?: number|string|null,
  * }} server
- * @returns {'use_server'|'restore_local'}
+ * @returns {'use_server'|'restore_local'|'block'}
  */
-export function resolveLocalDraftDecision(draft, server) {
+export function classifyBootstrapDraftRecovery(draft, server) {
     if (!draft || typeof draft !== 'object') {
         return 'use_server';
     }
@@ -661,7 +666,7 @@ export function resolveLocalDraftDecision(draft, server) {
     }
 
     const dirtyFields = Array.isArray(draft.dirty_fields) ? draft.dirty_fields : [];
-    if (dirtyFields.length === 0) {
+    if (dirtyFields.length === 0 || !dirtyFields.includes('content')) {
         return 'use_server';
     }
 
@@ -682,7 +687,7 @@ export function resolveLocalDraftDecision(draft, server) {
         || String(server?.content_hash ?? '').trim()
         || String(server?.expected_content_hash ?? '').trim();
 
-    // Hollow local draft (Phase-2 empty TipTap export) must not win over richer server body.
+    // Hollow local draft must not win over richer server body.
     const draftPlainLen = normalizeContentForHash(draftContent).length;
     const serverPlainLen = normalizeContentForHash(serverContent).length;
     if (
@@ -695,7 +700,7 @@ export function resolveLocalDraftDecision(draft, server) {
         return 'use_server';
     }
 
-    // Case 1 / E: cùng nội dung (kể cả khác whitespace/null) → server + xóa draft.
+    // Case A — recovery snapshot matches server content scope.
     if (
         contentsMeaningfullyEqual(draftContent, serverContent)
         || (draftNormHash !== '' && serverNormHash !== '' && draftNormHash === serverNormHash)
@@ -708,50 +713,62 @@ export function resolveLocalDraftDecision(draft, server) {
         return 'use_server';
     }
 
-    const serverUpdatedMs = parseTimestampMs(server?.updated_at);
-    const localSavedMs = parseTimestampMs(draft.saved_at);
     const draftBaseHash = String(draft.base_content_hash ?? '').trim();
     const serverExpectedHash = String(server?.expected_content_hash ?? server?.content_hash ?? '').trim();
-    const serverVersion = String(server?.version ?? serverExpectedHash).trim();
-    const localVersion = String(draft.version ?? draftBaseHash).trim();
+    const draftContentHash = String(draft.content_hash ?? '').trim() || hashContent(draftContent);
 
-    // Case 2: server mới hơn / bằng local (time hoặc version/baseline).
-    if (serverUpdatedMs > 0 && localSavedMs > 0 && serverUpdatedMs >= localSavedMs) {
+    // Case B — marked dirty but body still equals last ACK base (no real unsaved delta).
+    if (draftBaseHash !== '' && draftContentHash !== '' && draftContentHash === draftBaseHash) {
         return 'use_server';
     }
 
+    const draftDocVersion = String(draft.base_document_version ?? '').trim();
+    const serverDocVersion = String(server?.document_version ?? '').trim();
+
+    // Case C — server still on the same base the draft was written against.
+    if (draftBaseHash !== '' && serverExpectedHash !== '' && draftBaseHash === serverExpectedHash) {
+        return 'restore_local';
+    }
     if (
-        serverVersion !== ''
-        && localVersion !== ''
-        && serverVersion === localVersion
-        && serverUpdatedMs >= localSavedMs
+        draftDocVersion !== ''
+        && serverDocVersion !== ''
+        && draftDocVersion === serverDocVersion
     ) {
-        return 'use_server';
-    }
-
-    if (
-        serverExpectedHash !== ''
-        && draftBaseHash !== ''
-        && draftBaseHash !== serverExpectedHash
-        && serverUpdatedMs >= localSavedMs
-    ) {
-        // Server đã tiến trước baseline nháp và không cũ hơn local → giữ server.
-        return 'use_server';
-    }
-
-    // Case 3: local mới hơn và nội dung thực sự khác.
-    if (localSavedMs > serverUpdatedMs && dirtyFields.includes('content')) {
         return 'restore_local';
     }
 
-    if (dirtyFields.includes('content') && !contentsMeaningfullyEqual(draftContent, serverContent)) {
-        // Không có timestamp tin cậy nhưng còn dirty thật → ưu tiên local (crash trước save).
-        if (serverUpdatedMs === 0 || localSavedMs === 0 || localSavedMs > serverUpdatedMs) {
-            return 'restore_local';
-        }
+    // Case D — server advanced past draft base while local also diverged, or proof missing.
+    if (
+        draftBaseHash !== ''
+        && serverExpectedHash !== ''
+        && draftBaseHash !== serverExpectedHash
+    ) {
+        return 'block';
     }
 
-    return 'use_server';
+    return 'block';
+}
+
+/**
+ * Quyết định hydrate: dùng server hay restore local.
+ * Compat wrapper — bootstrap prefers classifyBootstrapDraftRecovery (includes block).
+ *
+ * @param {ReturnType<typeof loadDraft>} draft
+ * @param {{
+ *   content_hash?: string,
+ *   expected_content_hash?: string,
+ *   site_id?: number,
+ *   updated_at?: string|null,
+ *   content?: string|null,
+ *   version?: string|null,
+ *   document_version?: number|string|null,
+ * }} server
+ * @returns {'use_server'|'restore_local'}
+ */
+export function resolveLocalDraftDecision(draft, server) {
+    const decision = classifyBootstrapDraftRecovery(draft, server);
+
+    return decision === 'restore_local' ? 'restore_local' : 'use_server';
 }
 
 /**

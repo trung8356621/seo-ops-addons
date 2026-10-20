@@ -18,6 +18,7 @@ import {
     shouldClearLocalRecoveryAfterSave,
 } from '../utils/articleEditorSaveGuard';
 import {
+    contentsMeaningfullyEqual,
     hashContent,
     isDraftPersistenceEnabled,
     loadDraft,
@@ -39,7 +40,7 @@ import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
  * useArticleEditorSaveQueue - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Recovery draft is written even when the server whitespace guard blocks.
  */
-export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, blocks, blocksRef, bootstrapBodyPlainRef, connectionHashRef, documentVersion, draftSaveDelayMs, draftSaveDisabled, getExportHtml, historyStep, lastAutosaveHashRef, markRecoveringClear, networkUnavailableRef, noteLocalRevisionChanged, scheduleAutosaveRef, scheduleServerAutosaveRef, serverAutosaveDebounceMs, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, sessionReadOnly, setActiveBlockId, setBlocks, setSaveStatus, setTempMerge, whitespaceCorruptionLockedRef, withDraftSite }) {
+export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, blocks, blocksRef, bootstrapBodyPlainRef, connectionHashRef, documentVersion, draftSaveDelayMs, draftSaveDisabled, getExportHtml, historyStep, hydrateBaselineHtmlRef, lastAutosaveHashRef, markRecoveringClear, networkUnavailableRef, noteLocalRevisionChanged, scheduleAutosaveRef, scheduleServerAutosaveRef, serverAutosaveDebounceMs, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, sessionReadOnly, setActiveBlockId, setBlocks, setSaveStatus, setTempMerge, whitespaceCorruptionLockedRef, withDraftSite }) {
     const localRecoveryDelayMs = resolveLocalRecoveryDebounceMs(draftSaveDelayMs);
 
     const persistLocalRecoverySnapshot = useCallback((options = {}) => {
@@ -248,6 +249,21 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
                 markRecoveringClear();
                 return;
             }
+            // TipTap mount/remount may re-serialize HTML without a user edit.
+            // Compare against hydrate baseline (server body), not incidental export hash.
+            if (
+                !serverAutosaveNeedsRetryRef.current
+                && contentsMeaningfullyEqual(htmlAtSend, hydrateBaselineHtmlRef?.current)
+            ) {
+                serverAutosaveDirtyRef.current = false;
+                if (ackBodyHash !== '') {
+                    lastAutosaveHashRef.current = ackBodyHash;
+                } else if (currentBodyHash !== '') {
+                    lastAutosaveHashRef.current = currentBodyHash;
+                }
+                markRecoveringClear();
+                return;
+            }
 
             serverAutosaveDirtyRef.current = false;
             serverAutosaveInFlightRef.current = true;
@@ -301,6 +317,9 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
                     lastAutosaveHashRef.current = String(result.content_hash);
                 } else if (currentBodyHash) {
                     lastAutosaveHashRef.current = currentBodyHash;
+                }
+                if (hydrateBaselineHtmlRef && typeof hydrateBaselineHtmlRef === 'object') {
+                    hydrateBaselineHtmlRef.current = htmlAfterAck || htmlAtSend;
                 }
                 writeSyncedLocalSnapshot(articleId, connectionHashRef.current, withDraftSite({
                     content: htmlAfterAck || htmlAtSend,
@@ -397,7 +416,7 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
                 }
             }
         }, delayMs);
-    }, [articleId, assertWritableDocumentNotWhitespaceCorrupted, draftSaveDisabled, getExportHtml, markRecoveringClear, persistLocalRecoverySnapshot, serverAutosaveDebounceMs, sessionReadOnly, setSaveStatus, withDraftSite]);
+    }, [articleId, assertWritableDocumentNotWhitespaceCorrupted, draftSaveDisabled, getExportHtml, hydrateBaselineHtmlRef, markRecoveringClear, persistLocalRecoverySnapshot, serverAutosaveDebounceMs, sessionReadOnly, setSaveStatus, withDraftSite]);
 
     scheduleServerAutosaveRef.current = scheduleServerAutosave;
 
@@ -407,6 +426,14 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
         if (!isDraftPersistenceEnabled() || window.__SEO_EDITOR_EXITING__) return;
         if (isArticleAutosaveLocked()) return;
         const html = getExportHtml();
+        // TipTap remount noise vs server hydrate baseline — do not dirty local recovery.
+        if (
+            !serverAutosaveNeedsRetryRef.current
+            && contentsMeaningfullyEqual(html, hydrateBaselineHtmlRef?.current)
+        ) {
+            serverAutosaveDirtyRef.current = false;
+            return;
+        }
         persistLocalRecoverySnapshot({ html });
         setSaveStatus((prev) => (prev === 'blocked' || prev === 'conflict' ? prev : 'pending'));
         if (!assertWritableDocumentNotWhitespaceCorrupted(html)) {
@@ -431,6 +458,14 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
         if (!isDraftPersistenceEnabled()) {
             return;
         }
+        // Hydrate/TipTap remount: blocks change without user edit — skip dirty + PUT.
+        if (
+            !serverAutosaveNeedsRetryRef.current
+            && contentsMeaningfullyEqual(getExportHtml(), hydrateBaselineHtmlRef?.current)
+        ) {
+            serverAutosaveDirtyRef.current = false;
+            return;
+        }
         noteLocalRevisionChanged();
         if (networkUnavailableRef.current) {
             persistLocalRecoverySnapshot({ force: true });
@@ -441,7 +476,7 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
         }
         setSaveStatus((prev) => (prev === 'blocked' || prev === 'conflict' ? prev : 'pending'));
         debouncedLocalSave();
-    }, [debouncedLocalSave, noteLocalRevisionChanged, persistLocalRecoverySnapshot, sessionReadOnly, setSaveStatus]);
+    }, [debouncedLocalSave, getExportHtml, hydrateBaselineHtmlRef, noteLocalRevisionChanged, persistLocalRecoverySnapshot, sessionReadOnly, setSaveStatus]);
 
     scheduleAutosaveRef.current = scheduleAutosave;
 

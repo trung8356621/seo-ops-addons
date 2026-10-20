@@ -210,11 +210,9 @@ import { useArticleEditorNetworkConnectivity } from '../hooks/useArticleEditorNe
 import { isArticleEditorNetworkError } from '../utils/articleEditorNetwork';
 import {
     clearDraft,
-    draftOffersManualChoice,
     hashContent,
     isDraftPersistenceEnabled,
     loadDraft,
-    resolveLocalDraftDecision,
     saveDraft,
     setDraftPersistenceEnabled,
     writeSyncedLocalSnapshot,
@@ -1377,11 +1375,11 @@ export default function SeoArticleEditor({
             || Number(window.__SEO_EDITOR_SERVER_AUTOSAVE_DEBOUNCE_MS__)
             || 4000,
     );
-        const { bootstrapBodyPlainRef, lastAutosaveHashRef, markRecoveringClear, networkRecovering, networkUnavailable, networkUnavailableRef, noteLocalRevisionChanged, scheduleServerAutosaveRef, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, whitespaceCorruptionLockedRef } = useArticleEditorSessionNetwork({ articleId, getExportHtml, initialHtml, saveStatus, sessionReadOnly, setSaveStatus });
+        const { bootstrapBodyPlainRef, hydrateBaselineHtmlRef, lastAutosaveHashRef, markRecoveringClear, networkRecovering, networkUnavailable, networkUnavailableRef, noteLocalRevisionChanged, scheduleServerAutosaveRef, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, whitespaceCorruptionLockedRef } = useArticleEditorSessionNetwork({ articleId, getExportHtml, initialHtml, saveStatus, sessionReadOnly, setSaveStatus });
 
-        const { assertWritableDocumentNotWhitespaceCorrupted, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, historySteps, loadedArticleIdRef, redo, scheduleAutosave, skipNextAutosave, undo, updateBlocksWithoutHistory } = useArticleEditorSaveQueue({ articleId, blockEditorsRef, blocks, blocksRef, bootstrapBodyPlainRef, connectionHashRef, documentVersion, draftSaveDelayMs, draftSaveDisabled, getExportHtml, historyStep, lastAutosaveHashRef, markRecoveringClear, networkUnavailableRef, noteLocalRevisionChanged, scheduleAutosaveRef, scheduleServerAutosaveRef, serverAutosaveDebounceMs, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, sessionReadOnly, setActiveBlockId, setBlocks, setSaveStatus, setTempMerge, whitespaceCorruptionLockedRef, withDraftSite });
+        const { assertWritableDocumentNotWhitespaceCorrupted, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, historySteps, loadedArticleIdRef, redo, scheduleAutosave, skipNextAutosave, undo, updateBlocksWithoutHistory } = useArticleEditorSaveQueue({ articleId, blockEditorsRef, blocks, blocksRef, bootstrapBodyPlainRef, connectionHashRef, documentVersion, draftSaveDelayMs, draftSaveDisabled, getExportHtml, historyStep, hydrateBaselineHtmlRef, lastAutosaveHashRef, markRecoveringClear, networkUnavailableRef, noteLocalRevisionChanged, scheduleAutosaveRef, scheduleServerAutosaveRef, serverAutosaveDebounceMs, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, sessionReadOnly, setActiveBlockId, setBlocks, setSaveStatus, setTempMerge, whitespaceCorruptionLockedRef, withDraftSite });
 
-        const { applyDraftRestore, discardDraftRestore, draftChoiceModalOpen, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, markSeoAnalysisReady, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
+        const { reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, hydrateBaselineHtmlRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, lastAutosaveHashRef, loadedArticleIdRef, markSeoAnalysisReady, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
 
         const { retry: retryWpContentLoad } = useWpEditorContentAutoLoad({
             contentLifecycle,
@@ -2400,41 +2398,6 @@ export default function SeoArticleEditor({
                 ) : null}
             </EditorHostApiProvider>
 
-            {draftChoiceModalOpen && draftRestoreOffer ? (
-                <div className="seo-draft-restore-overlay" role="dialog" aria-modal="true">
-                    <div className="seo-draft-restore-modal">
-                        <h3 className="seo-draft-restore-modal__title">
-                            {t('editor_draft_restore_title')}
-                        </h3>
-                        <p className="seo-draft-restore-modal__body">
-                            {t('editor_draft_restore_body')}
-                        </p>
-                        <div className="seo-draft-restore-modal__actions">
-                            <button
-                                type="button"
-                                className="seo-draft-restore-modal__btn seo-draft-restore-modal__btn--primary"
-                                onClick={applyDraftRestore}
-                            >
-                                {t('editor_draft_restore_action_restore')}
-                            </button>
-                            <button
-                                type="button"
-                                className="seo-draft-restore-modal__btn"
-                                onClick={keepServerOverDraft}
-                            >
-                                {t('editor_draft_restore_action_keep_server')}
-                            </button>
-                            <button
-                                type="button"
-                                className="seo-draft-restore-modal__btn seo-draft-restore-modal__btn--danger"
-                                onClick={discardDraftRestore}
-                            >
-                                {t('editor_draft_restore_action_discard')}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
         </div>
     );
 }

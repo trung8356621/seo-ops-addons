@@ -105,6 +105,7 @@ final class ArticleEditorPhase4ClientUtilitiesTest extends TestCase
         self::assertStringContainsString('HTML canonical', $source);
         self::assertStringContainsString('export function hashContent', $source);
         self::assertStringContainsString('export function resolveLocalDraftDecision', $source);
+        self::assertStringContainsString('export function classifyBootstrapDraftRecovery', $source);
         self::assertStringContainsString('export function writeSyncedLocalSnapshot', $source);
     }
 }

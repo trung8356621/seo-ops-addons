@@ -25,9 +25,14 @@ export const DOCUMENT_CONFLICT_EVENT = 'seo-article-document-conflict-state';
 
 /** @type {string} */
 let conflictState = DOCUMENT_CONFLICT_STATE.IDLE;
+/** @type {Record<string, unknown>} */
+let blockedDetail = {};
 /** @type {Promise<{ recovered: boolean, blocked: boolean }>|null} */
 let inFlightRecovery = null;
 let silentRetryUsed = false;
+
+export const BOOTSTRAP_DIVERGENT_DRAFT_REASON = 'bootstrap_divergent_draft';
+export const BOOTSTRAP_RECOVERY_ACTION_EVENT = 'seo-article-bootstrap-recovery-action';
 
 /**
  * @returns {string}
@@ -57,14 +62,27 @@ export function isDocumentConflictBusy() {
  */
 function setConflictState(next, detail = {}) {
     conflictState = next;
+    if (next === DOCUMENT_CONFLICT_STATE.BLOCKED) {
+        blockedDetail = { ...detail };
+    } else if (next === DOCUMENT_CONFLICT_STATE.IDLE) {
+        blockedDetail = {};
+    }
     if (typeof window !== 'undefined') {
         window.__SEO_EDITOR_DOCUMENT_CONFLICT__ = next === DOCUMENT_CONFLICT_STATE.BLOCKED
             || next === DOCUMENT_CONFLICT_STATE.RECOVERING;
         window.__SEO_EDITOR_DOCUMENT_CONFLICT_STATE__ = next;
+        window.__SEO_EDITOR_DOCUMENT_CONFLICT_DETAIL__ = { ...blockedDetail };
         window.dispatchEvent(new CustomEvent(DOCUMENT_CONFLICT_EVENT, {
             detail: { state: next, ...detail },
         }));
     }
+}
+
+/**
+ * @returns {Record<string, unknown>}
+ */
+export function getDocumentConflictBlockedDetail() {
+    return { ...blockedDetail };
 }
 
 /**
@@ -361,18 +379,23 @@ export function reloadArticleAfterDocumentConflict() {
 
 export function resetDocumentConflictRecoveryForTests() {
     conflictState = DOCUMENT_CONFLICT_STATE.IDLE;
+    blockedDetail = {};
     inFlightRecovery = null;
     silentRetryUsed = false;
     if (typeof window !== 'undefined') {
         delete window.__SEO_EDITOR_DOCUMENT_CONFLICT__;
         delete window.__SEO_EDITOR_DOCUMENT_CONFLICT_STATE__;
+        delete window.__SEO_EDITOR_DOCUMENT_CONFLICT_DETAIL__;
     }
 }
 
 export default {
     DOCUMENT_CONFLICT_STATE,
     DOCUMENT_CONFLICT_EVENT,
+    BOOTSTRAP_DIVERGENT_DRAFT_REASON,
+    BOOTSTRAP_RECOVERY_ACTION_EVENT,
     getDocumentConflictState,
+    getDocumentConflictBlockedDetail,
     isDocumentConflictBlocked,
     isDocumentConflictBusy,
     extractDocumentConflictMeta,

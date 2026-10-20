@@ -94,6 +94,21 @@ final class ArticleEditorIdleNetworkAndManualSeoContractTest extends TestCase
         self::assertStringContainsString('currentBodyHash !== ackBodyHash', $network);
     }
 
+    public function test_tiptap_hydrate_remount_skips_autosave_via_baseline_equality(): void
+    {
+        $queue = $this->js('hooks/useArticleEditorSaveQueue.js');
+        $network = $this->js('hooks/useArticleEditorSessionNetwork.js');
+        $bootstrap = $this->js('hooks/useArticleEditorBootstrap.js');
+
+        self::assertStringContainsString('hydrateBaselineHtmlRef', $queue);
+        self::assertStringContainsString('contentsMeaningfullyEqual(htmlAtSend, hydrateBaselineHtmlRef', $queue);
+        self::assertStringContainsString('contentsMeaningfullyEqual(getExportHtml(), hydrateBaselineHtmlRef', $queue);
+        self::assertStringContainsString('hydrateBaselineHtmlRef', $network);
+        self::assertStringContainsString('tipTapNoiseOnly', $network);
+        self::assertStringContainsString('hydrateBaselineHtmlRef.current = effectiveInitialHtml', $bootstrap);
+        self::assertStringContainsString('lastAutosaveHashRef.current = serverContentHash', $bootstrap);
+    }
+
     public function test_editor_lease_renew_is_activity_gated_and_does_not_poll_or_call_livewire(): void
     {
         $client = $this->js('utils/editorSessionClient.js');

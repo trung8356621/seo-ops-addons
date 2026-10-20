@@ -943,9 +943,31 @@ class EditArticle extends SeoEditRecord
         $this->refreshAiHistoryPendingBanner();
     }
 
+    /** @var array<string, mixed>|null|false false = unresolved; null = no pending */
+    private array|null|false $aiHistoryPendingCache = false;
+
+    /**
+     * Same-request memo for AI History pending draft (hydrate banner + core bootstrap).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveAiHistoryPendingOnce(): ?array
+    {
+        if ($this->aiHistoryPendingCache !== false) {
+            return $this->aiHistoryPendingCache;
+        }
+
+        $pending = app(ArticleAiHistoryPendingDraftStore::class)->get($this->record);
+        $this->aiHistoryPendingCache = is_array($pending) ? $pending : null;
+
+        return $this->aiHistoryPendingCache;
+    }
+
     private function refreshAiHistoryPendingBanner(): void
     {
-        $pending = app(ArticleAiHistoryPendingDraftStore::class)->get($this->record);
+        // Force re-read after undo/apply mutations in the same Livewire request.
+        $this->aiHistoryPendingCache = false;
+        $pending = $this->resolveAiHistoryPendingOnce();
         if ($pending === null) {
             $this->aiHistoryPendingBanner = null;
 
@@ -4045,10 +4067,9 @@ class EditArticle extends SeoEditRecord
         $articleId = (int) $this->record->id;
         $this->record->loadMissing('site');
 
-        $analysisPolicy = app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorAnalysisPolicyService::class)
-            ->forArticle($this->record);
-        $externalFacts = app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorAnalysisPolicyService::class)
-            ->externalFacts($this->record);
+        $analysisPolicyService = app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorAnalysisPolicyService::class);
+        $analysisPolicy = $analysisPolicyService->forArticle($this->record);
+        $externalFacts = $analysisPolicyService->externalFacts($this->record);
         $contentLifecycle = app(ArticleEditorContentLifecycle::class)->bootstrapPayload(
             $this->record,
             $this->bootstrapEditorHtml,
@@ -4153,7 +4174,7 @@ class EditArticle extends SeoEditRecord
      */
     private function resolveAiHistoryPendingBootstrap(): ?array
     {
-        $pending = app(ArticleAiHistoryPendingDraftStore::class)->get($this->record);
+        $pending = $this->resolveAiHistoryPendingOnce();
         if ($pending === null) {
             return null;
         }

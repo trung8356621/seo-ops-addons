@@ -44,8 +44,11 @@ import { flushMediaSnapshotMutations } from './utils/articleEditorMediaSnapshot'
 import { EditorSessionClient, getOrCreateClientInstanceId } from './utils/editorSessionClient';
 import { bindEditorDocumentRevision } from './utils/editorDocumentRevision';
 import {
+    BOOTSTRAP_DIVERGENT_DRAFT_REASON,
+    BOOTSTRAP_RECOVERY_ACTION_EVENT,
     DOCUMENT_CONFLICT_EVENT,
     DOCUMENT_CONFLICT_STATE,
+    getDocumentConflictBlockedDetail,
     getDocumentConflictState,
     isDocumentConflictBlocked,
     reloadArticleAfterDocumentConflict,
@@ -695,16 +698,19 @@ function ExclusiveLockScreen({
     onRetry,
     onBack = null,
     onReload = null,
+    onRestoreLocal = null,
+    onUseServer = null,
     reasonCode = null,
     status = null,
 }) {
-    if (!lockInfo && !onRetry && !reasonCode && !onReload) {
+    if (!lockInfo && !onRetry && !reasonCode && !onReload && !onRestoreLocal && !onUseServer) {
         return null;
     }
 
     const code = String(reasonCode ?? '').trim();
     const archived = code === 'content_project_archived' || code === 'article_not_editable';
-    const conflict = status === 'conflict' || code.includes('conflict');
+    const bootstrapDivergent = code === BOOTSTRAP_DIVERGENT_DRAFT_REASON;
+    const conflict = status === 'conflict' || code.includes('conflict') || bootstrapDivergent;
     const unavailable = code === 'article_editor_session_unavailable'
         || code === 'unknown_error'
         || code === 'lost'
@@ -717,6 +723,9 @@ function ExclusiveLockScreen({
     if (archived) {
         title = t('editor_archived_title');
         body = t('editor_archived_body');
+    } else if (bootstrapDivergent) {
+        title = t('editor_conflict_title');
+        body = t('editor_bootstrap_divergent_body');
     } else if (conflict) {
         title = t('editor_conflict_title');
         body = t('editor_conflict_body');
@@ -725,10 +734,14 @@ function ExclusiveLockScreen({
         body = t('editor_session_unavailable_body');
     }
 
+    const showBootstrapActions = bootstrapDivergent
+        && typeof onRestoreLocal === 'function'
+        && typeof onUseServer === 'function';
     const showRetry = typeof onRetry === 'function' && !archived && !conflict;
-    const showReload = typeof onReload === 'function' && (unavailable || conflict);
+    const showReload = typeof onReload === 'function' && (unavailable || (conflict && !showBootstrapActions));
     const showBack = typeof onBack === 'function' && !conflict;
     const reloadLabel = conflict ? t('editor_conflict_reload') : t('editor_session_reload');
+    const hasActions = showRetry || showReload || showBack || showBootstrapActions;
 
     return (
         <div
@@ -755,8 +768,26 @@ function ExclusiveLockScreen({
                     {title}
                 </h2>
                 <p className="seo-editor-exclusive-lock-screen__body">{body}</p>
-                {(showRetry || showReload || showBack) ? (
+                {hasActions ? (
                     <div className="seo-editor-exclusive-lock-screen__actions">
+                        {showBootstrapActions ? (
+                            <>
+                                <button
+                                    type="button"
+                                    className="seo-editor-exclusive-lock-screen__btn"
+                                    onClick={onRestoreLocal}
+                                >
+                                    {t('editor_draft_restore_action_restore')}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="seo-editor-exclusive-lock-screen__btn seo-editor-exclusive-lock-screen__btn--muted"
+                                    onClick={onUseServer}
+                                >
+                                    {t('editor_draft_restore_action_keep_server')}
+                                </button>
+                            </>
+                        ) : null}
                         {showReload ? (
                             <button
                                 type="button"
@@ -812,6 +843,9 @@ function ArticleEditorWithSession(props) {
     const [documentConflictBlocked, setDocumentConflictBlocked] = React.useState(
         () => isDocumentConflictBlocked()
             || getDocumentConflictState() === DOCUMENT_CONFLICT_STATE.BLOCKED,
+    );
+    const [documentConflictReason, setDocumentConflictReason] = React.useState(
+        () => String(getDocumentConflictBlockedDetail()?.reason ?? ''),
     );
     const clientRef = React.useRef(null);
     const editorMountedRef = React.useRef(false);
@@ -1024,10 +1058,23 @@ function ArticleEditorWithSession(props) {
         reloadArticleAfterDocumentConflict();
     }, []);
 
+    const onBootstrapRestoreLocal = React.useCallback(() => {
+        window.dispatchEvent(new CustomEvent(BOOTSTRAP_RECOVERY_ACTION_EVENT, {
+            detail: { action: 'restore_local' },
+        }));
+    }, []);
+
+    const onBootstrapUseServer = React.useCallback(() => {
+        window.dispatchEvent(new CustomEvent(BOOTSTRAP_RECOVERY_ACTION_EVENT, {
+            detail: { action: 'use_server' },
+        }));
+    }, []);
+
     React.useEffect(() => {
         const onConflictState = (event) => {
             const next = String(event?.detail?.state ?? '');
             setDocumentConflictBlocked(next === DOCUMENT_CONFLICT_STATE.BLOCKED);
+            setDocumentConflictReason(String(event?.detail?.reason ?? ''));
         };
         window.addEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
         return () => window.removeEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
@@ -1126,8 +1173,22 @@ function ArticleEditorWithSession(props) {
                 >
                     <ExclusiveLockScreen
                         status="conflict"
-                        reasonCode="article_document_version_conflict"
+                        reasonCode={
+                            documentConflictReason === BOOTSTRAP_DIVERGENT_DRAFT_REASON
+                                ? BOOTSTRAP_DIVERGENT_DRAFT_REASON
+                                : 'article_document_version_conflict'
+                        }
                         onReload={onDocumentConflictReload}
+                        onRestoreLocal={
+                            documentConflictReason === BOOTSTRAP_DIVERGENT_DRAFT_REASON
+                                ? onBootstrapRestoreLocal
+                                : null
+                        }
+                        onUseServer={
+                            documentConflictReason === BOOTSTRAP_DIVERGENT_DRAFT_REASON
+                                ? onBootstrapUseServer
+                                : null
+                        }
                     />
                 </div>
             ) : null}

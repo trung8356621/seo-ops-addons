@@ -49,15 +49,19 @@ final class ArticleEditorLocalRecoveryGuardTest extends TestCase
         self::assertStringContainsString('persistLocalRecoverySnapshot', $this->methodLike($queue, 'const persistLocalRecoverySnapshot'));
     }
 
-    public function test_case_b_reload_keeps_dirty_recovery_and_offers_restore(): void
+    public function test_case_b_reload_uses_silent_bootstrap_recovery_without_modal(): void
     {
         $bootstrap = $this->js('hooks/useArticleEditorBootstrap.js');
         $storage = $this->js('utils/articleEditorStorage.js');
+        $editor = $this->js('components/SeoArticleEditor.jsx');
 
-        self::assertStringContainsString('shouldPromptRestore', $bootstrap);
-        self::assertStringContainsString('setDraftChoiceModalOpen(true)', $bootstrap);
-        self::assertStringContainsString('sameRevisionContinuation', $bootstrap);
-        self::assertStringContainsString('Keep dirty recovery', $bootstrap);
+        self::assertStringContainsString('classifyBootstrapDraftRecovery', $bootstrap);
+        self::assertStringContainsString('BOOTSTRAP_DIVERGENT_DRAFT_REASON', $bootstrap);
+        self::assertStringContainsString('enterDocumentConflictBlocked', $bootstrap);
+        self::assertStringNotContainsString('setDraftChoiceModalOpen(true)', $bootstrap);
+        self::assertStringNotContainsString('seo-draft-restore-overlay', $editor);
+        self::assertStringContainsString('export function classifyBootstrapDraftRecovery', $storage);
+        self::assertStringContainsString("return 'block'", $storage);
         self::assertStringContainsString('JSON.parse(raw)', $storage);
         self::assertStringContainsString('localStorage.removeItem(storageKey)', $storage);
     }
