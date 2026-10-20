@@ -1382,6 +1382,9 @@ export default function SeoArticleEditor({
         const { reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, hydrateBaselineHtmlRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, lastAutosaveHashRef, loadedArticleIdRef, markSeoAnalysisReady, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
 
         const { retry: retryWpContentLoad } = useWpEditorContentAutoLoad({
+            articleId,
+            siteId,
+            connectionHash: connectionHashRef.current,
             contentLifecycle,
             setContentLifecycle,
             setBlocks,

@@ -67,6 +67,7 @@ final class SeoSettingsMenu
             'keyword-sources', 'editor', 'scoring' => 'seo',
             'workflows' => 'automation',
             'import-export', 'seeding-service' => 'data',
+            'general', 'performance' => 'general',
             default => 'general',
         };
     }
@@ -82,6 +83,12 @@ final class SeoSettingsMenu
                 'label' => 'seo-content-ai::filament.settings_general.nav',
                 'icon' => 'heroicon-o-cog-6-tooth',
                 'url' => url('/admin/settings/general'),
+            ],
+            [
+                'id' => 'performance',
+                'label' => 'performance.nav',
+                'icon' => 'heroicon-o-bolt',
+                'url' => url('/admin/settings/performance'),
             ],
             [
                 'id' => 'ai-center',

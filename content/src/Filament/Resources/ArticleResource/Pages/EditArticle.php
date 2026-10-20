@@ -895,6 +895,9 @@ class EditArticle extends SeoEditRecord
 
         $this->record->refresh();
         $bodyEmpty = trim((string) ($this->record->body ?? '')) === '';
+        $persistedBody = (string) ($this->record->body ?? '');
+        $contentHash = app(\Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard::class)
+            ->contentHash($persistedBody);
 
         return [
             'success' => ! $failed,
@@ -903,6 +906,10 @@ class EditArticle extends SeoEditRecord
             'fetched' => (bool) ($resolved['fetched'] ?? false),
             'persisted' => (bool) ($resolved['persisted'] ?? false),
             'body_unchanged' => $bodyEmpty,
+            // Client must ACK after WP hydrate persist — otherwise first Save conflicts (v1 vs v2).
+            'document_version' => max(1, (int) ($this->record->document_version ?? 1)),
+            'content_hash' => $contentHash,
+            'updated_at' => $this->record->updated_at?->toIso8601String(),
         ];
     }
 
@@ -4066,7 +4073,11 @@ class EditArticle extends SeoEditRecord
                 $editorDocBoot['inline_whitespace_repaired'] = true;
             }
         }
-        $bodyHash = $conflictGuard->contentHash($this->bootstrapEditorHtml);
+        // Conflict hash MUST match articles.body / save ACK — not CTA highlight display HTML.
+        // Hashing bootstrapEditorHtml (with seo-cta-blank-placeholder spans) made F5 classify
+        // dirty TipTap drafts as Case D (document_conflict_blocked) with no real edits.
+        $canonicalBodyHtml = (string) ($this->record->body ?? '');
+        $bodyHash = $conflictGuard->contentHash($canonicalBodyHtml);
         $contentRevisionSource = $projectRunRevision."\0".$bodyHash;
         $articleId = (int) $this->record->id;
         $this->record->loadMissing('site');
@@ -4460,7 +4471,8 @@ class EditArticle extends SeoEditRecord
         $metaMap = ArticleMetaMap::for($this->record);
         $conflictGuard = app(ArticleContentConflictGuard::class);
         $projectRunRevision = (string) $metaMap->get('content_project_run', '');
-        $bodyHash = $conflictGuard->contentHash($this->bootstrapEditorHtml);
+        // Same canonical body hash as getEditorCoreBootstrap (not CTA highlight HTML).
+        $bodyHash = $conflictGuard->contentHash((string) ($this->record->body ?? ''));
         $contentRevisionSource = $projectRunRevision."\0".$bodyHash;
         $productCategoryOptions = $siteId > 0
             ? app(\Omnichannel\Addons\AiPrompt\Services\PromptLoaiSanPhamOptionsService::class)

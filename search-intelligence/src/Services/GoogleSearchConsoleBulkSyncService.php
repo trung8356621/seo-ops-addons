@@ -366,7 +366,11 @@ final class GoogleSearchConsoleBulkSyncService
     private function dispatchSiteSync(int $siteId, int $userId, bool $queueSync): array
     {
         if ($queueSync) {
-            SyncGscSiteSnapshotJob::dispatch($siteId, $userId);
+            SyncGscSiteSnapshotJob::dispatch(
+                $siteId,
+                $userId,
+                \App\Core\Performance\RequestPageVisibility::isHidden(),
+            );
 
             return [
                 'status' => 'queued',

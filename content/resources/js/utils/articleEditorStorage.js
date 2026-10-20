@@ -250,6 +250,25 @@ function sha256Hex(input) {
  * @param {string|null|undefined} html
  * @returns {string}
  */
+/**
+ * Strip editor-only CTA blank highlight spans → `[type]` (mirrors PHP stripBlankPlaceholderMarkup).
+ * Bootstrap display HTML includes these spans; TipTap drafts / articles.body do not.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
+export function stripCtaBlankPlaceholderMarkup(html) {
+    const value = String(html ?? '');
+    if (value === '' || !value.includes('seo-cta-blank-placeholder')) {
+        return value;
+    }
+
+    return value.replace(
+        /<span\s+class="seo-cta-blank-placeholder"[^>]*data-cta-type="([a-z_]+)"[^>]*>[\s\S]*?<\/span>/giu,
+        '[$1]',
+    );
+}
+
 export function normalizeContentForHash(html) {
     if (html == null) {
         return '';
@@ -261,6 +280,7 @@ export function normalizeContentForHash(html) {
     }
 
     try {
+        value = stripCtaBlankPlaceholderMarkup(value);
         value = stripEmptyParagraphsFromHtml(value);
     } catch {
         // keep trimmed value
@@ -700,7 +720,7 @@ export function classifyBootstrapDraftRecovery(draft, server) {
         return 'use_server';
     }
 
-    // Case A — recovery snapshot matches server content scope.
+    // Case A — recovery snapshot matches server content scope (CTA highlight spans ignored).
     if (
         contentsMeaningfullyEqual(draftContent, serverContent)
         || (draftNormHash !== '' && serverNormHash !== '' && draftNormHash === serverNormHash)
@@ -709,13 +729,19 @@ export function classifyBootstrapDraftRecovery(draft, server) {
             && String(server?.content_hash ?? '').trim() !== ''
             && String(draft.content_hash).trim() === String(server.content_hash).trim()
         )
+        || (
+            String(draft.content_hash ?? '').trim() !== ''
+            && String(server?.expected_content_hash ?? '').trim() !== ''
+            && String(draft.content_hash).trim() === String(server.expected_content_hash).trim()
+        )
     ) {
         return 'use_server';
     }
 
     const draftBaseHash = String(draft.base_content_hash ?? '').trim();
     const serverExpectedHash = String(server?.expected_content_hash ?? server?.content_hash ?? '').trim();
-    const draftContentHash = String(draft.content_hash ?? '').trim() || hashContent(draftContent);
+    const draftContentHash = String(draft.content_hash ?? '').trim()
+        || hashContent(stripCtaBlankPlaceholderMarkup(draftContent));
 
     // Case B — marked dirty but body still equals last ACK base (no real unsaved delta).
     if (draftBaseHash !== '' && draftContentHash !== '' && draftContentHash === draftBaseHash) {
@@ -737,7 +763,7 @@ export function classifyBootstrapDraftRecovery(draft, server) {
         return 'restore_local';
     }
 
-    // Case D — server advanced past draft base while local also diverged, or proof missing.
+    // Case D — only when we can prove server advanced past draft base AND local diverged.
     if (
         draftBaseHash !== ''
         && serverExpectedHash !== ''
@@ -746,7 +772,9 @@ export function classifyBootstrapDraftRecovery(draft, server) {
         return 'block';
     }
 
-    return 'block';
+    // Proof incomplete (missing base/server hash): never force BLOCK on clean F5.
+    // Prefer silent local restore so dirty WIP survives; synced/equal paths already returned.
+    return 'restore_local';
 }
 
 /**

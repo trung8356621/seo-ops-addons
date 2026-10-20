@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use App\Core\Performance\HeavyWorkloadMiddleware;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Omnichannel\Addons\SearchIntelligence\Enums\Topic\TopicGroupingRebuildMode;
@@ -49,6 +50,7 @@ final class RebuildTopicsFromKeywordGroupsJob implements ShouldBeUnique, ShouldQ
     public function middleware(): array
     {
         return [
+            new HeavyWorkloadMiddleware(),
             (new WithoutOverlapping('topic-from-keyword-groups:'.$this->siteId))
                 ->releaseAfter(30)
                 ->expireAfter(3600),

@@ -328,17 +328,65 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringContainsString("action: 'rebase_retry'", $recovery);
         self::assertStringContainsString("reason: 'content_identical'", $recovery);
         self::assertStringContainsString("reason: 'base_matches_server'", $recovery);
+        self::assertStringContainsString("reason: 'version_lag_no_base'", $recovery);
         self::assertStringContainsString("action: 'rebase_ack_only'", $recovery);
         self::assertStringContainsString("action: 'needs_refresh'", $recovery);
         self::assertStringContainsString("setSaveStatus?.('saving')", $recovery);
         self::assertStringContainsString('refreshServerDocumentAuthority', $recovery);
         self::assertStringContainsString('data?.actual_document_version', $recovery);
         self::assertStringContainsString('enterDocumentConflictBlocked', $recovery);
+        self::assertStringContainsString('conflictState === DOCUMENT_CONFLICT_STATE.RECOVERING', $recovery);
         $editor = $this->js('article-editor.jsx');
         self::assertStringContainsString('outcome?.recovered', $editor);
         self::assertStringContainsString('finishArticleSaveFromApi(recoveredResult', $editor);
         $client = $this->js('utils/editorSessionClient.js');
         self::assertStringContainsString('async refreshDocumentAuthority()', $client);
+    }
+
+    public function test_wp_hydrate_acks_document_version_after_persist(): void
+    {
+        $autoLoad = $this->js('hooks/useWpEditorContentAutoLoad.js');
+        self::assertStringContainsString('applyEditorDocumentAck', $autoLoad);
+        self::assertStringContainsString('document_version: payload.document_version', $autoLoad);
+        self::assertStringContainsString('content_hash: payload.content_hash', $autoLoad);
+        self::assertStringContainsString('writeSyncedLocalSnapshot', $autoLoad);
+        self::assertStringContainsString('contentsMeaningfullyEqual', $autoLoad);
+
+        $editPage = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
+        );
+        $pos = strpos($editPage, 'function loadWpEditorHtmlFromWordPress');
+        self::assertNotFalse($pos);
+        $slice = substr($editPage, $pos, 2200);
+        self::assertStringContainsString("'document_version'", $slice);
+        self::assertStringContainsString("'content_hash'", $slice);
+    }
+
+    public function test_core_bootstrap_hashes_canonical_body_not_cta_highlight_html(): void
+    {
+        $editPage = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
+        );
+        $corePos = strpos($editPage, 'function getEditorCoreBootstrap(): array');
+        self::assertNotFalse($corePos);
+        $core = substr($editPage, $corePos, 3500);
+        self::assertStringContainsString('$canonicalBodyHtml = (string) ($this->record->body ?? \'\')', $core);
+        self::assertStringContainsString('contentHash($canonicalBodyHtml)', $core);
+        self::assertStringNotContainsString('contentHash($this->bootstrapEditorHtml)', $core);
+
+        $metaPos = strpos($editPage, 'function getEditorMetaPayload(): array');
+        self::assertNotFalse($metaPos);
+        $meta = substr($editPage, $metaPos, 1800);
+        self::assertStringContainsString("contentHash((string) (\$this->record->body ?? ''))", $meta);
+
+        $storage = $this->js('utils/articleEditorStorage.js');
+        self::assertStringContainsString('stripCtaBlankPlaceholderMarkup', $storage);
+        self::assertStringContainsString('seo-cta-blank-placeholder', $storage);
+        self::assertStringContainsString("return 'restore_local'", $storage);
+
+        $bootstrap = $this->js('hooks/useArticleEditorBootstrap.js');
+        self::assertStringContainsString('[article-editor-bootstrap]', $bootstrap);
+        self::assertStringContainsString("decision === 'block'", $bootstrap);
     }
 
     public function test_heartbeat_returns_content_hash_for_authority_refresh(): void

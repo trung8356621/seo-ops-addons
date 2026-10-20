@@ -62,6 +62,9 @@ final class ArticleEditorLocalRecoveryGuardTest extends TestCase
         self::assertStringNotContainsString('seo-draft-restore-overlay', $editor);
         self::assertStringContainsString('export function classifyBootstrapDraftRecovery', $storage);
         self::assertStringContainsString("return 'block'", $storage);
+        self::assertStringContainsString('stripCtaBlankPlaceholderMarkup', $storage);
+        // Missing proof must not force BLOCK on clean F5.
+        self::assertStringContainsString('Proof incomplete', $storage);
         self::assertStringContainsString('JSON.parse(raw)', $storage);
         self::assertStringContainsString('localStorage.removeItem(storageKey)', $storage);
     }

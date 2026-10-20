@@ -215,6 +215,22 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         const decision = classifyBootstrapDraftRecovery(draft, serverState);
         const hardReadonly = Boolean(sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__);
 
+        if (typeof window !== 'undefined' && (window.__SEO_EDITOR_VERSION_DEBUG__ || window.__SEO_APP_DEBUG__ || decision === 'block')) {
+            // Compact bootstrap evidence only — never log article body.
+            // eslint-disable-next-line no-console
+            console.info('[article-editor-bootstrap]', {
+                article_id: articleId,
+                decision,
+                boot_document_version: serverState.document_version,
+                boot_content_hash: String(serverContentHash || '').slice(0, 12) || null,
+                draft_base_hash: String(draft?.base_content_hash ?? '').slice(0, 12) || null,
+                draft_content_hash: String(draft?.content_hash ?? '').slice(0, 12) || null,
+                draft_base_document_version: draft?.base_document_version ?? null,
+                draft_dirty: Array.isArray(draft?.dirty_fields) ? draft.dirty_fields : null,
+                draft_synced: draft?.synced ?? null,
+            });
+        }
+
         // Locked session: keep local draft, never auto-apply / clear / overwrite canonical.
         if (hardReadonly) {
             applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);

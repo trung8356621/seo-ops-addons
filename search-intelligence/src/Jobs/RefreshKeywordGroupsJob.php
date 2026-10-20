@@ -10,6 +10,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use App\Core\Performance\HeavyWorkloadMiddleware;
+use App\Core\Performance\OptionalBackgroundHeavy;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupRefreshOutcome;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticReadiness;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordGroup\KeywordGroupSemanticRefreshService;
@@ -19,7 +21,7 @@ use RuntimeException;
 /**
  * Group semantic refresh. Persists Groups only — never Topic apply.
  */
-final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
+final class RefreshKeywordGroupsJob implements OptionalBackgroundHeavy, ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -37,8 +39,14 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
         public readonly int $siteId,
         public readonly ?string $language = null,
         public readonly ?array $languageVariants = null,
+        public readonly bool $optionalBackground = false,
     ) {
         $this->onQueue('seo');
+    }
+
+    public function isOptionalBackgroundHeavy(): bool
+    {
+        return $this->optionalBackground;
     }
 
     public function uniqueId(): string
@@ -52,6 +60,7 @@ final class RefreshKeywordGroupsJob implements ShouldBeUnique, ShouldQueue
     public function middleware(): array
     {
         return [
+            new HeavyWorkloadMiddleware(),
             new PreventOverlappingKeywordGroupRefresh($this->siteId),
         ];
     }

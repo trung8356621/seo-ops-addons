@@ -199,7 +199,10 @@ final class KeywordGroupSemanticReadiness implements AgentSemanticSiteReadiness
         }
 
         try {
-            RefreshKeywordGroupsJob::dispatch($siteId);
+            RefreshKeywordGroupsJob::dispatch(
+                $siteId,
+                optionalBackground: \App\Core\Performance\RequestPageVisibility::isHidden(),
+            );
         } catch (Throwable $e) {
             $this->markFailed($siteId, $e->getMessage());
 

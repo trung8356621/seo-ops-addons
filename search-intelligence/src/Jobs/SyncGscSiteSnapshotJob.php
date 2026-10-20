@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Jobs;
 
+use App\Core\Performance\HeavyWorkloadMiddleware;
+use App\Core\Performance\OptionalBackgroundHeavy;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleSyncService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-final class SyncGscSiteSnapshotJob implements ShouldQueue
+final class SyncGscSiteSnapshotJob implements OptionalBackgroundHeavy, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -28,7 +30,21 @@ final class SyncGscSiteSnapshotJob implements ShouldQueue
     public function __construct(
         public int $siteId,
         public int $userId,
+        public bool $optionalBackground = false,
     ) {}
+
+    public function isOptionalBackgroundHeavy(): bool
+    {
+        return $this->optionalBackground;
+    }
+
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [new HeavyWorkloadMiddleware()];
+    }
 
     /**
      * @return array{ok: bool, message: string, query_count: int}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Jobs;
 
+use App\Core\Performance\HeavyWorkloadMiddleware;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\UrlInspection\GscUrlInspectionRunService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,6 +29,14 @@ final class ProcessGscUrlInspectionRunJob implements ShouldQueue
     public function __construct(
         public int $runId,
     ) {}
+
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [new HeavyWorkloadMiddleware()];
+    }
 
     /**
      * @return array<string, mixed>

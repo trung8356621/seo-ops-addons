@@ -15,6 +15,7 @@ use Omnichannel\Addons\WordPress\Services\ManualSyncContext;
 use Omnichannel\Addons\WordPress\Services\WpSyncLeaseHeartbeat;
 use Omnichannel\Addons\ContentProjects\Support\SeoQueueContext;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
+use App\Core\Performance\HeavyWorkloadMiddleware;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -66,6 +67,16 @@ final class ManualWordPressSyncJob implements ShouldBeUnique, ShouldQueue
     {
         // Per lease row — stale/dead worker must not block a new enqueue for same article.
         return 'manual-wp-sync:'.$this->articleId.':'.$this->syncJobId;
+    }
+
+    /**
+     * Concurrency gate only — not optional-background (user-initiated sync stays eligible).
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [new HeavyWorkloadMiddleware()];
     }
 
     public function handle(

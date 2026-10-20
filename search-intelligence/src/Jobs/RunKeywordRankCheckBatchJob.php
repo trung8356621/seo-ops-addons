@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Jobs;
 
+use App\Core\Performance\HeavyWorkloadMiddleware;
 use Omnichannel\Addons\Content\DataTransfer\SerpRankRequest;
 use Omnichannel\Addons\Content\DataTransfer\SerpRankResult;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
@@ -48,6 +49,14 @@ final class RunKeywordRankCheckBatchJob implements ShouldQueue
         public ?string $device = null,
         public ?string $trackedDomain = null,
     ) {}
+
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [new HeavyWorkloadMiddleware()];
+    }
 
     public function handle(
         SeoSerpProviderConnectionService $serpConnections,

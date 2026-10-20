@@ -57,6 +57,7 @@ final class ReclusterSiteTopicsJob implements ShouldBeUnique, ShouldQueue
     public function middleware(): array
     {
         return [
+            new \App\Core\Performance\HeavyWorkloadMiddleware(),
             (new WithoutOverlapping('topic-core-recluster:'.$this->siteId))
                 ->releaseAfter(30)
                 ->expireAfter(3600),
