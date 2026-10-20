@@ -1206,7 +1206,7 @@ export function emitProjectItemUpdated(detail = {}) {
  * @returns {Promise<{ recovered: boolean, blocked: boolean, reason?: string }>}
  */
 export async function handleArticleSaveConflict(error) {
-    window.__seoEndArticleHeavyActionClient?.();
+    // Keep heavy-action overlay until recoverable path finishes — end only on BLOCK/fail.
     resetEditArticleHeavyActionBusyOnWire();
 
     const { recoverFromDocumentVersionConflict } = await import('./editorDocumentConflictRecovery.js');
@@ -1229,7 +1229,7 @@ export async function handleArticleSaveConflict(error) {
         return String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? '');
     };
 
-    return recoverFromDocumentVersionConflict({
+    const outcome = await recoverFromDocumentVersionConflict({
         error,
         getExportHtml: () => String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? ''),
         persistLocalRecovery: () => {
@@ -1245,9 +1245,22 @@ export async function handleArticleSaveConflict(error) {
                     status,
                     label: status === 'conflict'
                         ? 'Bài viết cần đồng bộ lại'
-                        : status,
+                        : (status === 'saving' ? 'Đang lưu…' : status),
                 },
             }));
+            if (status === 'saved') {
+                window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+                    detail: { success: true },
+                }));
+            } else if (status === 'conflict') {
+                window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+                    detail: { conflict: true },
+                }));
+            } else if (status === 'failed') {
+                window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+                    detail: { failed: true },
+                }));
+            }
         },
         retrySave: async () => {
             const articleId = Number(window.__SEO_ARTICLE_ID__ ?? 0) || 0;
@@ -1265,6 +1278,12 @@ export async function handleArticleSaveConflict(error) {
             }, { priority: 'explicit' });
         },
     });
+
+    if (!outcome.recovered) {
+        window.__seoEndArticleHeavyActionClient?.();
+    }
+
+    return outcome;
 }
 
 /**

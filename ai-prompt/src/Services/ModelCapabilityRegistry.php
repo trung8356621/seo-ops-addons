@@ -22,11 +22,27 @@ use App\Models\ApiConnection;
 final class ModelCapabilityRegistry
 {
     /** @var array<string, list<string>> */
-    private array $memo = [];
+    private static array $capabilitiesMemo = [];
+
+    /** @var array<string, list<AiModelCapabilityRow>> */
+    private static array $rowsMemo = [];
+
+    /** @var array<string, list<string>|null> */
+    private static array $decisionMetaMemo = [];
 
     public function __construct(
         private readonly ImageCapabilityResolver $imageCapabilityResolver = new ImageCapabilityResolver(),
     ) {}
+
+    /**
+     * Clear request-scoped memos (tests / long-lived workers between jobs).
+     */
+    public static function flushRequestMemo(): void
+    {
+        self::$capabilitiesMemo = [];
+        self::$rowsMemo = [];
+        self::$decisionMetaMemo = [];
+    }
 
     public function supports(ApiConnection|string $connection, string $model, string $capability): bool
     {
@@ -45,8 +61,8 @@ final class ModelCapabilityRegistry
         $cacheKey = strtolower($provider).'|'
             .($connection instanceof ApiConnection ? (string) $connection->id : 'p')
             .'|'.$model;
-        if (isset($this->memo[$cacheKey])) {
-            return $this->memo[$cacheKey];
+        if (isset(self::$capabilitiesMemo[$cacheKey])) {
+            return self::$capabilitiesMemo[$cacheKey];
         }
 
         $decision = DecisionModelIdentityCatalog::capabilitiesFor($model);
@@ -54,7 +70,7 @@ final class ModelCapabilityRegistry
             $decision = $this->decisionCapabilitiesFromStoredMetadata($connection, $model);
         }
         if ($decision !== null) {
-            return $this->memo[$cacheKey] = $this->applyManualOverlay($connection, $model, $decision);
+            return self::$capabilitiesMemo[$cacheKey] = $this->applyManualOverlay($connection, $model, $decision);
         }
 
         $base = BuiltInModelCapabilityCatalog::forProviderModel($provider, $model)
@@ -64,7 +80,7 @@ final class ModelCapabilityRegistry
             ?? $this->providerTextOnlyPolicy($provider, $model)
             ?? [];
 
-        return $this->memo[$cacheKey] = $this->applyManualOverlay($connection, $model, $base);
+        return self::$capabilitiesMemo[$cacheKey] = $this->applyManualOverlay($connection, $model, $base);
     }
 
     public function isEligibleForAutomaticRouting(ApiConnection|string $connection, string $model): bool
@@ -99,19 +115,23 @@ final class ModelCapabilityRegistry
         if ((int) $connection->id <= 0) {
             return null;
         }
+        $memoKey = (string) $connection->id.'|'.$model;
+        if (array_key_exists($memoKey, self::$decisionMetaMemo)) {
+            return self::$decisionMetaMemo[$memoKey];
+        }
         $row = SeoAiModel::query()
             ->where('api_connection_id', $connection->id)
             ->where('raw_model_name', $model)
             ->first();
         if (! $row instanceof SeoAiModel) {
-            return null;
+            return self::$decisionMetaMemo[$memoKey] = null;
         }
         $caps = is_array($row->capabilities) ? $row->capabilities : [];
         if (! DecisionModelIdentityCatalog::metadataDeclaresDecision($caps)) {
-            return null;
+            return self::$decisionMetaMemo[$memoKey] = null;
         }
 
-        return array_map(
+        return self::$decisionMetaMemo[$memoKey] = array_map(
             static fn (AiModelCapability $capability): string => $capability->value,
             AiModelCapability::decision(),
         );
@@ -356,6 +376,14 @@ final class ModelCapabilityRegistry
             return [];
         }
 
+        $connectionKey = $connection instanceof ApiConnection
+            ? 'c:'.(string) $connection->id
+            : 'p:'.strtolower((string) $connection);
+        $memoKey = $source->value.'|'.$connectionKey.'|'.$model;
+        if (array_key_exists($memoKey, self::$rowsMemo)) {
+            return self::$rowsMemo[$memoKey];
+        }
+
         try {
             $query = AiModelCapabilityRow::query()->where('source', $source->value)->where('model_key', $model);
             if ($connection instanceof ApiConnection) {
@@ -374,9 +402,9 @@ final class ModelCapabilityRegistry
                 }
             }
 
-            return $query->get()->all();
+            return self::$rowsMemo[$memoKey] = $query->get()->all();
         } catch (\Throwable) {
-            return [];
+            return self::$rowsMemo[$memoKey] = [];
         }
     }
 }

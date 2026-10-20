@@ -462,6 +462,36 @@ export class EditorSessionClient {
         }
     }
 
+    /**
+     * Controlled authority refresh for conflict classification — observe only, never adopt.
+     *
+     * @returns {Promise<{ document_version: number, content_hash: string }|null>}
+     */
+    async refreshDocumentAuthority() {
+        if (this.destroyed || this.readOnly || !this.sessionId) {
+            return null;
+        }
+        try {
+            const { response, data } = await seoArticleApiFetch(
+                `/api/seo/articles/${this.articleId}/edit-lease/${this.sessionId}`,
+                { method: 'PUT', body: JSON.stringify({}) },
+            );
+            if (!response.ok) {
+                return null;
+            }
+            if (data?.document_version != null) {
+                observeServerDocumentVersion(data.document_version, { source: 'authority_refresh' });
+            }
+            this.markLeaseRenewed(data?.expires_at);
+            return {
+                document_version: Number(data?.document_version ?? 0) || 0,
+                content_hash: String(data?.content_hash ?? '').trim(),
+            };
+        } catch {
+            return null;
+        }
+    }
+
     handleLostSession(error) {
         this.cancelLeaseRenew();
         this.sessionId = null;

@@ -68,8 +68,8 @@ function setConflictState(next, detail = {}) {
         blockedDetail = {};
     }
     if (typeof window !== 'undefined') {
-        window.__SEO_EDITOR_DOCUMENT_CONFLICT__ = next === DOCUMENT_CONFLICT_STATE.BLOCKED
-            || next === DOCUMENT_CONFLICT_STATE.RECOVERING;
+        // Only BLOCKED freezes the editor. RECOVERING must stay silent/writable for retry.
+        window.__SEO_EDITOR_DOCUMENT_CONFLICT__ = next === DOCUMENT_CONFLICT_STATE.BLOCKED;
         window.__SEO_EDITOR_DOCUMENT_CONFLICT_STATE__ = next;
         window.__SEO_EDITOR_DOCUMENT_CONFLICT_DETAIL__ = { ...blockedDetail };
         window.dispatchEvent(new CustomEvent(DOCUMENT_CONFLICT_EVENT, {
@@ -143,7 +143,7 @@ export function extractDocumentConflictMeta(data) {
  *   actualVersion: number,
  *   confirmedVersion: number,
  * }} input
- * @returns {{ action: 'rebase_retry'|'block', reason: string }}
+ * @returns {{ action: 'rebase_retry'|'rebase_ack_only'|'block'|'needs_refresh', reason: string }}
  */
 export function classifyDocumentConflictRecovery(input) {
     const localHtmlHash = String(input.localHtmlHash || '').trim();
@@ -157,38 +157,52 @@ export function classifyDocumentConflictRecovery(input) {
         return { action: 'rebase_retry', reason: 'content_identical' };
     }
 
+    // Server body unchanged since our last ACK — TipTap export hash may differ from PHP
+    // body hash; version alone is stale. Safe to adopt version and retry local write.
+    if (
+        actualContentHash !== ''
+        && baseContentHash !== ''
+        && baseContentHash === actualContentHash
+    ) {
+        return { action: 'rebase_retry', reason: 'base_matches_server' };
+    }
+
     if (actualVersion < 1) {
-        return { action: 'block', reason: 'missing_server_version' };
+        return { action: 'needs_refresh', reason: 'missing_server_version' };
     }
 
     if (actualContentHash === '') {
-        // Without server body hash we cannot prove a safe rebase.
-        return { action: 'block', reason: 'missing_server_content_hash' };
+        return { action: 'needs_refresh', reason: 'missing_server_content_hash' };
     }
 
-    // No local edits vs last ACK, but server content advanced → reload (no draft loss).
+    // No local dirty vs last ACK, but server body advanced — do NOT overwrite with stale body.
+    // Adopt authoritative tokens only (save body is a noop relative to local intent).
     if (
         baseContentHash !== ''
         && localHtmlHash === baseContentHash
         && localHtmlHash !== actualContentHash
     ) {
-        return { action: 'block', reason: 'server_advanced_clean_local' };
+        return { action: 'rebase_ack_only', reason: 'server_advanced_clean_local' };
     }
 
-    // Divergent: local dirty and differs from server.
+    // Divergent: local dirty and differs from server, and base also drifted.
     if (
         localHtmlHash !== ''
         && localHtmlHash !== actualContentHash
         && (baseContentHash === '' || localHtmlHash !== baseContentHash)
     ) {
+        if (baseContentHash === '') {
+            return { action: 'needs_refresh', reason: 'missing_base_hash' };
+        }
+
         return { action: 'block', reason: 'divergent_edits' };
     }
 
     if (confirmedVersion > 0 && actualVersion <= confirmedVersion) {
-        return { action: 'block', reason: 'stale_or_equal_server_version' };
+        return { action: 'needs_refresh', reason: 'stale_or_equal_server_version' };
     }
 
-    return { action: 'block', reason: 'unclassified' };
+    return { action: 'needs_refresh', reason: 'unclassified' };
 }
 
 /**
@@ -250,6 +264,33 @@ export function clearDocumentConflictRecovery() {
 }
 
 /**
+ * One controlled refresh of server version/hash before BLOCK (lease renew / acquire article).
+ *
+ * @returns {Promise<{ actualVersion: number, actualContentHash: string }|null>}
+ */
+export async function refreshServerDocumentAuthority() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    const client = window.__seoEditorSessionClient;
+    if (!client || typeof client.refreshDocumentAuthority !== 'function') {
+        return null;
+    }
+    try {
+        const snap = await client.refreshDocumentAuthority();
+        if (!snap || typeof snap !== 'object') {
+            return null;
+        }
+        return {
+            actualVersion: Number(snap.document_version ?? snap.actualVersion ?? 0) || 0,
+            actualContentHash: String(snap.content_hash ?? snap.actualContentHash ?? '').trim(),
+        };
+    } catch {
+        return null;
+    }
+}
+
+/**
  * @param {{
  *   error: Error & { data?: Record<string, unknown>, conflict?: boolean, code?: string },
  *   getExportHtml?: () => string,
@@ -258,7 +299,7 @@ export function clearDocumentConflictRecovery() {
  *   retrySave?: () => Promise<unknown>,
  *   requestId?: string|null,
  * }} options
- * @returns {Promise<{ recovered: boolean, blocked: boolean, reason?: string }>}
+ * @returns {Promise<{ recovered: boolean, blocked: boolean, reason?: string, result?: unknown }>}
  */
 export async function recoverFromDocumentVersionConflict(options = {}) {
     if (conflictState === DOCUMENT_CONFLICT_STATE.BLOCKED) {
@@ -273,17 +314,18 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
     inFlightRecovery = (async () => {
         setConflictState(DOCUMENT_CONFLICT_STATE.RECOVERING);
         options.persistLocalRecovery?.();
-        options.setSaveStatus?.('conflict');
+        // Keep UI on "saving" — never flash conflict until BLOCK is proven.
+        options.setSaveStatus?.('saving');
 
         const data = options.error?.data && typeof options.error.data === 'object'
             ? options.error.data
             : {};
-        const meta = extractDocumentConflictMeta(data);
+        let meta = extractDocumentConflictMeta(data);
         const localHtml = typeof options.getExportHtml === 'function'
             ? String(options.getExportHtml() ?? '')
             : String(typeof window !== 'undefined' ? (window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? '') : '');
         const localHtmlHash = hashContent(localHtml);
-        const baseContentHash = String(
+        let baseContentHash = String(
             (typeof window !== 'undefined'
                 ? (window.__SEO_EDITOR_CONFLICT__?.expected_content_hash ?? '')
                 : '')
@@ -292,13 +334,15 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
         ).trim();
         const confirmedVersion = getConfirmedDocumentVersion() || 0;
 
-        const decision = classifyDocumentConflictRecovery({
+        const classify = (currentMeta, currentBase) => classifyDocumentConflictRecovery({
             localHtmlHash,
-            baseContentHash,
-            actualContentHash: meta.actualContentHash,
-            actualVersion: meta.actualVersion,
+            baseContentHash: currentBase,
+            actualContentHash: currentMeta.actualContentHash,
+            actualVersion: currentMeta.actualVersion,
             confirmedVersion,
         });
+
+        let decision = classify(meta, baseContentHash);
 
         logEditorDocumentRevision('document_conflict_classified', {
             reason: decision.reason,
@@ -310,6 +354,51 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
             request_id: options.requestId ?? null,
         });
 
+        if (decision.action === 'needs_refresh') {
+            const refreshed = await refreshServerDocumentAuthority();
+            if (refreshed && (refreshed.actualVersion > 0 || refreshed.actualContentHash !== '')) {
+                meta = {
+                    ...meta,
+                    actualVersion: refreshed.actualVersion || meta.actualVersion,
+                    actualContentHash: refreshed.actualContentHash || meta.actualContentHash,
+                };
+                if (baseContentHash === '' && refreshed.actualContentHash !== '') {
+                    // Still no local base — use refreshed hash only for identity checks below.
+                }
+                decision = classify(meta, baseContentHash);
+                logEditorDocumentRevision('document_conflict_reclassified_after_refresh', {
+                    reason: decision.reason,
+                    action: decision.action,
+                    server_revision: meta.actualVersion || null,
+                    server_hash: meta.actualContentHash.slice(0, 12) || null,
+                });
+            }
+            if (decision.action === 'needs_refresh') {
+                decision = { action: 'block', reason: decision.reason };
+            }
+        }
+
+        if (decision.action === 'rebase_ack_only') {
+            rebaseDocumentConflictTokens(meta, {
+                source: 'conflict_ack_only',
+                requestId: options.requestId ?? null,
+            });
+            clearDocumentConflictRecovery();
+            options.setSaveStatus?.('saved');
+            return {
+                recovered: true,
+                blocked: false,
+                reason: decision.reason,
+                result: {
+                    success: true,
+                    noop: true,
+                    reconciled: true,
+                    document_version: meta.actualVersion || null,
+                    content_hash: meta.actualContentHash || null,
+                },
+            };
+        }
+
         if (decision.action === 'rebase_retry') {
             rebaseDocumentConflictTokens(meta, {
                 source: 'conflict_rebase',
@@ -319,10 +408,15 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
             if (!silentRetryUsed && typeof options.retrySave === 'function') {
                 silentRetryUsed = true;
                 try {
-                    await options.retrySave();
+                    const result = await options.retrySave();
                     clearDocumentConflictRecovery();
                     options.setSaveStatus?.('saved');
-                    return { recovered: true, blocked: false, reason: decision.reason };
+                    return {
+                        recovered: true,
+                        blocked: false,
+                        reason: decision.reason,
+                        result,
+                    };
                 } catch (retryError) {
                     const retryCode = String(
                         retryError?.code
@@ -333,11 +427,62 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
                         || retryCode.includes('conflict')
                         || retryCode.includes('revision');
                     if (stillConflict) {
+                        // One more refresh+classify before BLOCK — covers delayed ACK / hydrate race.
+                        const refreshed = await refreshServerDocumentAuthority();
+                        if (refreshed?.actualContentHash) {
+                            const retryMeta = {
+                                actualVersion: refreshed.actualVersion || meta.actualVersion,
+                                actualContentHash: refreshed.actualContentHash,
+                                expectedVersion: meta.expectedVersion,
+                                expectedContentHash: meta.expectedContentHash,
+                            };
+                            const redecision = classify(retryMeta, baseContentHash);
+                            if (redecision.action === 'rebase_retry') {
+                                rebaseDocumentConflictTokens(retryMeta, {
+                                    source: 'conflict_rebase_after_retry',
+                                    requestId: options.requestId ?? null,
+                                });
+                                try {
+                                    const result = await options.retrySave();
+                                    clearDocumentConflictRecovery();
+                                    options.setSaveStatus?.('saved');
+                                    return {
+                                        recovered: true,
+                                        blocked: false,
+                                        reason: 'retry_after_refresh',
+                                        result,
+                                    };
+                                } catch {
+                                    // fall through to block
+                                }
+                            }
+                            if (redecision.action === 'rebase_ack_only') {
+                                rebaseDocumentConflictTokens(retryMeta, {
+                                    source: 'conflict_ack_only_after_retry',
+                                    requestId: options.requestId ?? null,
+                                });
+                                clearDocumentConflictRecovery();
+                                options.setSaveStatus?.('saved');
+                                return {
+                                    recovered: true,
+                                    blocked: false,
+                                    reason: 'ack_only_after_refresh',
+                                    result: {
+                                        success: true,
+                                        noop: true,
+                                        reconciled: true,
+                                        document_version: retryMeta.actualVersion || null,
+                                        content_hash: retryMeta.actualContentHash || null,
+                                    },
+                                };
+                            }
+                        }
                         options.persistLocalRecovery?.();
                         enterDocumentConflictBlocked({
                             reason: 'retry_still_conflict',
                             prior_reason: decision.reason,
                         });
+                        options.setSaveStatus?.('conflict');
                         return { recovered: false, blocked: true, reason: 'retry_still_conflict' };
                     }
                     // Non-conflict failure: leave recovering cleared, surface as normal failure.
@@ -354,6 +499,7 @@ export async function recoverFromDocumentVersionConflict(options = {}) {
 
         options.persistLocalRecovery?.();
         enterDocumentConflictBlocked({ reason: decision.reason });
+        options.setSaveStatus?.('conflict');
         return { recovered: false, blocked: true, reason: decision.reason };
     })().finally(() => {
         inFlightRecovery = null;
@@ -403,6 +549,7 @@ export default {
     rebaseDocumentConflictTokens,
     enterDocumentConflictBlocked,
     clearDocumentConflictRecovery,
+    refreshServerDocumentAuthority,
     recoverFromDocumentVersionConflict,
     reloadArticleAfterDocumentConflict,
     resetDocumentConflictRecoveryForTests,

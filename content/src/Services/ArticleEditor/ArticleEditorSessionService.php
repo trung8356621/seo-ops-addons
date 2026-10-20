@@ -119,7 +119,7 @@ final class ArticleEditorSessionService
     }
 
     /**
-     * @return array{status: string, expires_at: string|null, document_version: int}
+     * @return array{status: string, expires_at: string|null, document_version: int, content_hash: string}
      *
      * @throws ArticleEditorSessionException
      */
@@ -128,11 +128,13 @@ final class ArticleEditorSessionService
         $session = $this->requireOwnedActiveSession($article, $sessionId, $user);
         $this->touchHeartbeat($session);
         $fresh = $session->fresh() ?? $session;
+        $freshArticle = $article->fresh() ?? $article;
 
         return [
             'status' => ArticleEditorSessionStatus::Active->value,
             'expires_at' => $fresh->expires_at?->toIso8601String(),
-            'document_version' => $this->documentVersions->current($article->fresh() ?? $article),
+            'document_version' => $this->documentVersions->current($freshArticle),
+            'content_hash' => $this->conflictGuard->contentHash((string) ($freshArticle->body ?? '')),
         ];
     }
 

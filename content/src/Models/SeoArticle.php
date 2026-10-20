@@ -200,11 +200,18 @@ class SeoArticle extends Model
 
     private function articlesColumnExists(string $column): bool
     {
+        static $cache = [];
+
+        $connection = $this->getConnectionName() ?: 'omi_seo_ai';
+        $key = $connection.'|'.$column;
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+
         try {
-            return Schema::connection($this->getConnectionName() ?: 'omi_seo_ai')
-                ->hasColumn('articles', $column);
+            return $cache[$key] = Schema::connection($connection)->hasColumn('articles', $column);
         } catch (\Throwable) {
-            return false;
+            return $cache[$key] = false;
         }
     }
 

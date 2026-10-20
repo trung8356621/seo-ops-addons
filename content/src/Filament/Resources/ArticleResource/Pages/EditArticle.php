@@ -287,7 +287,8 @@ class EditArticle extends SeoEditRecord
         $globalSiteId = SeoAccessControl::globalSiteId();
 
         // Global domain = UI context only. Không 404 / không ép đổi domain khi mở record khác domain.
-        $this->record->loadMissing('site');
+        // wordpressLink: mount + schedule reconcile both read wp_post_id — eager-load once.
+        $this->record->loadMissing(['site', 'wordpressLink']);
         $this->recordDomainDiffersFromGlobal = $globalSiteId !== null
             && $articleSiteId > 0
             && $globalSiteId !== $articleSiteId;
@@ -345,7 +346,8 @@ class EditArticle extends SeoEditRecord
         }
 
         $perf->stop('edit_article_mount');
-        $this->refreshPipelineRerunStatus();
+        // Record was just refreshed by schedule reconcile — skip another SELECT.
+        $this->refreshPipelineRerunStatus(reuseLoadedRecord: true);
         $perf->logSummary('edit_article_mount', ['article_id' => (int) $this->record->getKey()]);
     }
 
@@ -912,8 +914,8 @@ class EditArticle extends SeoEditRecord
     protected function hydrateArticleState(): void
     {
         $this->restoreArticleBodyFromWordPressCacheIfMissing();
+        // reconcileForEditor() already refreshes the row — do not SELECT again here.
         app(ArticleScheduleReconcileService::class)->reconcileForEditor($this->record);
-        $this->record->refresh();
 
         $flags = app(ArticleWordPressSyncFlagService::class);
         $metaMap = ArticleMetaMap::for($this->record);
@@ -3887,14 +3889,16 @@ class EditArticle extends SeoEditRecord
         ));
     }
 
-    public function refreshPipelineRerunStatus(): void
+    public function refreshPipelineRerunStatus(bool $reuseLoadedRecord = false): void
     {
         if (! $this->record instanceof SeoArticle) {
             return;
         }
 
         $service = app(ArticlePipelineRerunService::class);
-        $article = $this->record->fresh() ?? $this->record;
+        $article = $reuseLoadedRecord
+            ? $this->record
+            : ($this->record->fresh() ?? $this->record);
         $payload = $service->statusPayload($article);
 
         // Meta queued/running còn sót từ lần trước (request đứt) → không khóa nút, đánh dấu failed.

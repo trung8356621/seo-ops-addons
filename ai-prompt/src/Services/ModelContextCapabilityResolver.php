@@ -22,9 +22,17 @@ final class ModelContextCapabilityResolver
 
     public const CONSERVATIVE_CONTEXT_WINDOW = 4096;
 
+    /** @var array<string, ModelContextCapability> */
+    private static array $resolveMemo = [];
+
     public function __construct(
         private readonly ModelCapabilityRegistry $capabilities = new ModelCapabilityRegistry(),
     ) {}
+
+    public static function flushRequestMemo(): void
+    {
+        self::$resolveMemo = [];
+    }
 
     public function resolve(RoutedAiCandidate $candidate): ModelContextCapability
     {
@@ -45,6 +53,14 @@ final class ModelContextCapabilityResolver
         ?int $seoAiModelId = null,
         array $capabilityKeys = [],
     ): ModelContextCapability {
+        $capsKey = $capabilityKeys === []
+            ? ''
+            : hash('xxh3', implode("\0", $capabilityKeys));
+        $memoKey = (int) $connection->id.'|'.$model.'|'.(int) ($seoAiModelId ?? 0).'|'.$capsKey;
+        if (isset(self::$resolveMemo[$memoKey])) {
+            return self::$resolveMemo[$memoKey];
+        }
+
         $source = 'default';
         $capabilityConfidence = ModelContextCapability::CONFIDENCE_DEFAULT;
         $context = self::CONSERVATIVE_CONTEXT_WINDOW;
@@ -112,7 +128,7 @@ final class ModelContextCapabilityResolver
         $estimatorConfidence = ModelContextCapability::CONFIDENCE_DEFAULT; // char heuristic
         [$margin, $marginReason] = $this->marginFor($capabilityConfidence, $estimatorConfidence, $context, $reasoning);
 
-        return new ModelContextCapability(
+        return self::$resolveMemo[$memoKey] = new ModelContextCapability(
             contextWindow: max(1024, $context),
             maxOutputTokens: max(256, $maxOut),
             capabilitySource: $source,

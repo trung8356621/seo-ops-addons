@@ -58,6 +58,23 @@ final class ArticleEditorBootstrapPerformanceTest extends TestCase
         self::assertStringNotContainsString('ArticleAiHistoryPendingDraftStore::class)->get', $boot);
     }
 
+    public function test_mount_avoids_triple_article_select_on_open(): void
+    {
+        $path = ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php';
+        $source = (string) file_get_contents($path);
+
+        $mount = $this->methodBody($source, 'public function mount(int|string $record): void');
+        $hydrate = $this->methodBody($source, 'protected function hydrateArticleState(): void');
+        $pipeline = $this->methodBody($source, 'public function refreshPipelineRerunStatus(bool $reuseLoadedRecord = false): void');
+
+        self::assertStringContainsString("loadMissing(['site', 'wordpressLink'])", $mount);
+        self::assertStringContainsString('refreshPipelineRerunStatus(reuseLoadedRecord: true)', $mount);
+        self::assertStringContainsString('reconcileForEditor($this->record)', $hydrate);
+        self::assertStringNotContainsString('$this->record->refresh()', $hydrate);
+        self::assertStringContainsString('$reuseLoadedRecord', $pipeline);
+        self::assertStringContainsString('? $this->record', $pipeline);
+    }
+
     public function test_media_snapshot_batches_seo_media_and_supports_soft_refresh(): void
     {
         $class = new ReflectionClass(ArticleEditorMediaSnapshotService::class);
@@ -83,6 +100,29 @@ final class ArticleEditorBootstrapPerformanceTest extends TestCase
         self::assertStringContainsString('clearRequestCache', $source);
         self::assertStringContainsString('unset(self::$requestCache[$name])', $source);
         self::assertStringContainsString('array_key_exists($name, self::$requestCache)', $source);
+    }
+
+    public function test_schema_and_ai_capability_request_memo_contracts(): void
+    {
+        $clientProvider = ProjectRoot::path().'/app/Providers/AppServiceProvider.php';
+        self::assertFileExists($clientProvider);
+        self::assertStringContainsString(
+            'RequestScopedSchemaBuilder::register()',
+            (string) file_get_contents($clientProvider),
+        );
+
+        $registry = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/Services/ModelCapabilityRegistry.php',
+        );
+        self::assertStringContainsString('private static array $capabilitiesMemo', $registry);
+        self::assertStringContainsString('private static array $rowsMemo', $registry);
+        self::assertStringContainsString('function flushRequestMemo', $registry);
+
+        $article = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Models/SeoArticle.php',
+        );
+        self::assertStringContainsString('static $cache = []', $article);
+        self::assertStringContainsString('articlesColumnExists', $article);
     }
 
     public function test_html_fallback_path_still_present_in_document_writer(): void

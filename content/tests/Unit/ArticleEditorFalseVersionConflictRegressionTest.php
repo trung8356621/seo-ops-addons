@@ -327,8 +327,25 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $recovery = $this->js('utils/editorDocumentConflictRecovery.js');
         self::assertStringContainsString("action: 'rebase_retry'", $recovery);
         self::assertStringContainsString("reason: 'content_identical'", $recovery);
+        self::assertStringContainsString("reason: 'base_matches_server'", $recovery);
+        self::assertStringContainsString("action: 'rebase_ack_only'", $recovery);
+        self::assertStringContainsString("action: 'needs_refresh'", $recovery);
+        self::assertStringContainsString("setSaveStatus?.('saving')", $recovery);
+        self::assertStringContainsString('refreshServerDocumentAuthority', $recovery);
         self::assertStringContainsString('data?.actual_document_version', $recovery);
         self::assertStringContainsString('enterDocumentConflictBlocked', $recovery);
+        $editor = $this->js('article-editor.jsx');
+        self::assertStringContainsString('outcome?.recovered', $editor);
+        self::assertStringContainsString('finishArticleSaveFromApi(recoveredResult', $editor);
+        $client = $this->js('utils/editorSessionClient.js');
+        self::assertStringContainsString('async refreshDocumentAuthority()', $client);
+    }
+
+    public function test_heartbeat_returns_content_hash_for_authority_refresh(): void
+    {
+        $heartbeat = $this->methodSource(new ReflectionMethod(ArticleEditorSessionService::class, 'heartbeat'));
+        self::assertStringContainsString('content_hash', $heartbeat);
+        self::assertStringContainsString('conflictGuard->contentHash', $heartbeat);
     }
 
     public function test_session_error_response_nests_conflict_payload(): void

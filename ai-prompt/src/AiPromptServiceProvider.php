@@ -45,7 +45,13 @@ final class AiPromptServiceProvider extends ServiceProvider
             \Omnichannel\Addons\AiPrompt\Services\PromptTestPublishService::class,
         );
         $this->app->scoped(AiModelPriorityService::class);
+        $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry::class);
+        $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\ModelContextCapabilityResolver::class);
         $this->app->scoped(AiRoutingTargetService::class);
+        $this->app->terminating(static function (): void {
+            \Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry::flushRequestMemo();
+            \Omnichannel\Addons\AiPrompt\Services\ModelContextCapabilityResolver::flushRequestMemo();
+        });
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiProviderBalanceSnapshotCache::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiRouteCapacityPolicy::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver::class);

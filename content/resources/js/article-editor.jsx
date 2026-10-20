@@ -359,7 +359,30 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
             }
         } catch (error) {
             if (error?.conflict) {
-                await handleArticleSaveConflict(error);
+                const outcome = await handleArticleSaveConflict(error);
+                if (outcome?.recovered) {
+                    const recoveredResult = outcome.result && typeof outcome.result === 'object'
+                        ? { ...outcome.result }
+                        : { success: true, reconciled: true };
+                    if (!recoveredResult.notification) {
+                        recoveredResult.notification = {
+                            title: 'Đã lưu bài viết',
+                            body: 'Đã lưu bài viết',
+                            status: 'success',
+                        };
+                    }
+                    finishArticleSaveFromApi(recoveredResult, {
+                        articleId,
+                        siteId,
+                        connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
+                        savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? editorBundle.html ?? ''),
+                        keepOverlay: false,
+                        reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange(),
+                    });
+                    window.__seoResetPublishTabPrimed?.();
+                    window.__seoEndArticleHeavyActionClient?.();
+                    return;
+                }
 
                 return;
             }
@@ -469,7 +492,28 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
                 });
             } catch (error) {
                 if (error?.conflict) {
-                    await handleArticleSaveConflict(error);
+                    const outcome = await handleArticleSaveConflict(error);
+                    if (outcome?.recovered) {
+                        const recoveredResult = outcome.result && typeof outcome.result === 'object'
+                            ? { ...outcome.result }
+                            : { success: true, reconciled: true };
+                        if (!recoveredResult.notification) {
+                            recoveredResult.notification = {
+                                title: 'Đã lưu bài viết',
+                                body: 'Đã lưu bài viết',
+                                status: 'success',
+                            };
+                        }
+                        finishArticleSaveFromApi(recoveredResult, {
+                            articleId,
+                            siteId,
+                            connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
+                            savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? apiPayload.html ?? ''),
+                            reloadAfterSuccess: shouldReloadArticleEditorAfterPostTypeChange(),
+                        });
+                        window.__seoEndArticleHeavyActionClient?.();
+                        return;
+                    }
 
                     return;
                 }
