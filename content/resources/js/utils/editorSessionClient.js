@@ -564,8 +564,10 @@ export class EditorSessionClient {
                 EDITOR_SESSION_ERROR.DOCUMENT_VERSION_CONFLICT,
                 EDITOR_SESSION_ERROR.CONTENT_HASH_CONFLICT,
             ].includes(error.code)) {
+                // Parse flat + nested conflict keys (server historically flattens context).
                 const actualVersion = Number(
                     data?.conflict?.actual_document_version
+                    ?? data?.actual_document_version
                     ?? data?.document_version
                     ?? 0,
                 );
@@ -580,35 +582,12 @@ export class EditorSessionClient {
                     last_ack_source: last.source,
                     last_ack_request_id: last.requestId,
                 });
-                // Owning session still holds the lock — sync version/hash from conflict
-                // payload when present so Fix Slug / autosave can recover without
-                // unmounting the editor into ExclusiveLockScreen.
-                if (Number.isFinite(actualVersion) && actualVersion > 0) {
-                    this.setDocumentVersion(actualVersion, { source: 'conflict_actual', requestId });
-                }
-                const actualHash = String(
-                    data?.conflict?.actual_content_hash
-                    ?? data?.content_hash
-                    ?? '',
-                ).trim();
-                if (actualHash !== '' && typeof window !== 'undefined') {
-                    const tokens = window.__SEO_EDITOR_CONFLICT__ || {};
-                    window.__SEO_EDITOR_CONFLICT__ = {
-                        ...tokens,
-                        expected_content_hash: actualHash,
-                    };
-                }
+                // Keep session owned — do NOT toast or blind-adopt version/hash here.
+                // Central recovery (editorDocumentConflictRecovery) classifies + rebases
+                // only when content identity is proven; otherwise BLOCKED overlay.
                 this.lockStatus = 'owned';
                 this.readOnly = false;
                 this.emit();
-                window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
-                    detail: {
-                        title: 'Xung đột phiên bản',
-                        body: 'Bài viết đã có phiên bản mới hơn. Bản đang sửa được giữ lại để phục hồi.',
-                        status: 'warning',
-                        reason_code: error.code,
-                    },
-                }));
             }
             return { ok: false, error, data, response };
         }

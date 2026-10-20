@@ -26,6 +26,10 @@ import {
     writeSyncedLocalSnapshot,
 } from '../utils/articleEditorStorage';
 import { isArticleAutosaveLocked } from '../utils/articleAutosaveLock';
+import {
+    isDocumentConflictBusy,
+    recoverFromDocumentVersionConflict,
+} from '../utils/editorDocumentConflictRecovery';
 import { t } from '../utils/i18n';
 import { useArticleEditorHistory } from '../hooks/useArticleEditorHistory';
 import { useCallback, useEffect, useRef } from 'react';
@@ -125,6 +129,9 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
     const scheduleServerAutosave = useCallback((options = {}) => {
         const immediate = Boolean(options?.immediate);
         if (sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__) {
+            return;
+        }
+        if (isDocumentConflictBusy()) {
             return;
         }
         if (networkUnavailableRef.current && !immediate) {
@@ -330,11 +337,48 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
                     networkUnavailableRef.current = true;
                     setSaveStatus('pending');
                 } else if (kind === SAVE_FAILURE.REVISION_CONFLICT) {
-                    setSaveStatus('conflict');
                     markRecoveringClear();
-                    window.dispatchEvent(new CustomEvent('seo-article-save-conflict', {
-                        detail: { conflict: error?.data?.conflict ?? null, message: error?.message ?? '' },
-                    }));
+                    try {
+                        const outcome = await recoverFromDocumentVersionConflict({
+                            error,
+                            getExportHtml,
+                            persistLocalRecovery: () => persistLocalRecoverySnapshot({
+                                html: getExportHtml(),
+                                force: true,
+                                autosaveError: SAVE_FAILURE.REVISION_CONFLICT,
+                            }),
+                            setSaveStatus,
+                            retrySave: async () => {
+                                const retryHtml = getExportHtml();
+                                const retryHash = hashContent(retryHtml);
+                                return saveArticleViaApiSingleFlight(articleId, async () => {
+                                    const editorDocument = buildEditorDocumentEnvelope(
+                                        blocksRef.current,
+                                        blockEditorsRef.current,
+                                    );
+                                    const payload = buildArticleEditorApiPayload({
+                                        articleId,
+                                        html: retryHtml,
+                                        editor_document: editorDocument,
+                                        expected_editor_document_hash: window.__SEO_EDITOR_DOCUMENT_HASH__ || null,
+                                        client_document_hash: retryHash,
+                                        seoAnalysis: null,
+                                    }, null);
+                                    payload.save_mode = 'autosave';
+                                    payload.client_document_hash = retryHash;
+                                    return payload;
+                                }, { priority: 'autosave' });
+                            },
+                        });
+                        if (outcome.recovered) {
+                            serverAutosaveNeedsRetryRef.current = false;
+                            serverAutosaveDirtyRef.current = false;
+                        } else if (outcome.blocked) {
+                            serverAutosaveDirtyRef.current = false;
+                        }
+                    } catch {
+                        setSaveStatus('failed');
+                    }
                 } else if (kind === SAVE_FAILURE.PROTECTED_BLOCK) {
                     setSaveStatus('blocked');
                     markRecoveringClear();
@@ -344,7 +388,11 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
                 }
             } finally {
                 serverAutosaveInFlightRef.current = false;
-                if (serverAutosaveDirtyRef.current && !networkUnavailableRef.current) {
+                if (
+                    serverAutosaveDirtyRef.current
+                    && !networkUnavailableRef.current
+                    && !isDocumentConflictBusy()
+                ) {
                     scheduleServerAutosave();
                 }
             }
@@ -374,6 +422,10 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
             return;
         }
         if (sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__) {
+            return;
+        }
+        if (isDocumentConflictBusy()) {
+            persistLocalRecoverySnapshot({ force: true });
             return;
         }
         if (!isDraftPersistenceEnabled()) {

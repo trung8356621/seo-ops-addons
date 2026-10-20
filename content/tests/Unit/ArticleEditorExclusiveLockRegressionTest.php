@@ -45,15 +45,21 @@ final class ArticleEditorExclusiveLockRegressionTest extends TestCase
         self::assertStringNotContainsString('localStorage.getItem(key)', $client);
     }
 
-    public function test_version_conflict_keeps_editor_writable_not_exclusive_screen(): void
+    public function test_version_conflict_keeps_session_owned_and_defers_to_central_recovery(): void
     {
         $client = $this->readAddon('resources/js/utils/editorSessionClient.js');
         $shell = $this->readAddon('resources/js/article-editor.jsx');
         $editor = $this->readAddon('resources/js/hooks/useArticleEditorImageSlugRename.js');
+        $recovery = $this->readAddon('resources/js/utils/editorDocumentConflictRecovery.js');
 
         self::assertStringContainsString("this.lockStatus = 'owned'", $client);
         self::assertStringContainsString('this.readOnly = false', $client);
         self::assertStringContainsString('actual_document_version', $client);
+        self::assertStringContainsString('data?.actual_document_version', $client);
+        self::assertStringNotContainsString('Xung đột phiên bản', $client);
+        self::assertStringContainsString('classifyDocumentConflictRecovery', $recovery);
+        self::assertStringContainsString('DOCUMENT_CONFLICT_STATE.BLOCKED', $recovery);
+        self::assertStringContainsString('seo-editor-document-conflict-overlay', $shell);
         self::assertStringContainsString("=== 'article_editor_locked'", $shell);
         self::assertStringContainsString('&& Boolean(sessionReadOnly)', $shell);
         self::assertStringContainsString('syncVersionAfterSlugFix', $editor);

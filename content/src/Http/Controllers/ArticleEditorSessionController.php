@@ -357,6 +357,23 @@ final class ArticleEditorSessionController extends Controller
             $payload['lock'] = $exception->context['lock'];
         }
 
+        // Nested conflict object for clients that read data.conflict.* (flat keys kept for compat).
+        if (in_array($exception->errorCode, [
+            ArticleEditorSessionErrorCode::DOCUMENT_VERSION_CONFLICT,
+            ArticleEditorSessionErrorCode::CONTENT_HASH_CONFLICT,
+        ], true)) {
+            $payload['conflict'] = [
+                'code' => $exception->errorCode,
+                'message' => $exception->getMessage(),
+                'expected_document_version' => $exception->context['expected_document_version'] ?? null,
+                'actual_document_version' => $exception->context['actual_document_version'] ?? null,
+                'expected_content_hash' => $exception->context['expected_content_hash'] ?? null,
+                'actual_content_hash' => $exception->context['actual_content_hash'] ?? null,
+                'expected_updated_at' => $exception->context['expected_updated_at'] ?? null,
+                'actual_updated_at' => $exception->context['actual_updated_at'] ?? null,
+            ];
+        }
+
         return response()->json($payload, $exception->httpStatus);
     }
 }

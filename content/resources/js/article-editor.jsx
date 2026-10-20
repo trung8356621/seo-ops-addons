@@ -43,6 +43,13 @@ import {
 import { flushMediaSnapshotMutations } from './utils/articleEditorMediaSnapshot';
 import { EditorSessionClient, getOrCreateClientInstanceId } from './utils/editorSessionClient';
 import { bindEditorDocumentRevision } from './utils/editorDocumentRevision';
+import {
+    DOCUMENT_CONFLICT_EVENT,
+    DOCUMENT_CONFLICT_STATE,
+    getDocumentConflictState,
+    isDocumentConflictBlocked,
+    reloadArticleAfterDocumentConflict,
+} from './utils/editorDocumentConflictRecovery';
 import { createArticleEditorTabChannel } from './utils/articleEditorTabChannel';
 import {
     ARTICLE_EDITOR_SESSION_STATE_EVENT,
@@ -349,7 +356,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
             }
         } catch (error) {
             if (error?.conflict) {
-                handleArticleSaveConflict(error);
+                await handleArticleSaveConflict(error);
 
                 return;
             }
@@ -459,7 +466,7 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
                 });
             } catch (error) {
                 if (error?.conflict) {
-                    handleArticleSaveConflict(error);
+                    await handleArticleSaveConflict(error);
 
                     return;
                 }
@@ -720,19 +727,33 @@ function ExclusiveLockScreen({
 
     const showRetry = typeof onRetry === 'function' && !archived && !conflict;
     const showReload = typeof onReload === 'function' && (unavailable || conflict);
-    const showBack = typeof onBack === 'function';
+    const showBack = typeof onBack === 'function' && !conflict;
+    const reloadLabel = conflict ? t('editor_conflict_reload') : t('editor_session_reload');
 
     return (
         <div
             className={`seo-editor-exclusive-lock-screen${archived ? ' is-archived' : ''}${conflict ? ' is-conflict' : ''}${unavailable ? ' is-unavailable' : ''}`}
-            role="alert"
+            role="alertdialog"
+            aria-modal={conflict ? 'true' : undefined}
             data-seo-editor-exclusive-lock="1"
             data-seo-editor-lock-banner="1"
+            data-seo-editor-document-conflict={conflict ? '1' : undefined}
             data-reason-code={code || undefined}
             data-session-status={status || undefined}
+            onKeyDown={conflict ? ((event) => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }) : undefined}
         >
             <div className="seo-editor-exclusive-lock-screen__notice">
-                <h2 className="seo-editor-exclusive-lock-screen__title">{title}</h2>
+                <h2
+                    id={conflict ? 'seo-editor-document-conflict-title' : undefined}
+                    className="seo-editor-exclusive-lock-screen__title"
+                >
+                    {title}
+                </h2>
                 <p className="seo-editor-exclusive-lock-screen__body">{body}</p>
                 {(showRetry || showReload || showBack) ? (
                     <div className="seo-editor-exclusive-lock-screen__actions">
@@ -742,7 +763,7 @@ function ExclusiveLockScreen({
                                 className="seo-editor-exclusive-lock-screen__btn"
                                 onClick={onReload}
                             >
-                                {t('editor_session_reload')}
+                                {reloadLabel}
                             </button>
                         ) : null}
                         {showRetry ? (
@@ -788,6 +809,10 @@ function ArticleEditorWithSession(props) {
     const [sessionStatus, setSessionStatus] = React.useState(EDITOR_SESSION_STATUS.ACQUIRING);
     const [sessionReasonCode, setSessionReasonCode] = React.useState(null);
     const [sameUserPeerOpen, setSameUserPeerOpen] = React.useState(false);
+    const [documentConflictBlocked, setDocumentConflictBlocked] = React.useState(
+        () => isDocumentConflictBlocked()
+            || getDocumentConflictState() === DOCUMENT_CONFLICT_STATE.BLOCKED,
+    );
     const clientRef = React.useRef(null);
     const editorMountedRef = React.useRef(false);
     const acquireGenerationRef = React.useRef(0);
@@ -995,6 +1020,19 @@ function ArticleEditorWithSession(props) {
         window.location.reload();
     }, []);
 
+    const onDocumentConflictReload = React.useCallback(() => {
+        reloadArticleAfterDocumentConflict();
+    }, []);
+
+    React.useEffect(() => {
+        const onConflictState = (event) => {
+            const next = String(event?.detail?.state ?? '');
+            setDocumentConflictBlocked(next === DOCUMENT_CONFLICT_STATE.BLOCKED);
+        };
+        window.addEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
+        return () => window.removeEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
+    }, []);
+
     if (!sessionReady) {
         return (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600 animate-pulse">
@@ -1043,10 +1081,11 @@ function ArticleEditorWithSession(props) {
 
     return (
         <div
-            className="seo-editor-session-shell"
+            className={`seo-editor-session-shell${documentConflictBlocked ? ' seo-editor-session-shell--document-conflict' : ''}`}
             data-seo-editor-session-shell="1"
             data-session-status={sessionStatus || undefined}
-            data-session-writable={sessionReadOnly ? '0' : '1'}
+            data-session-writable={sessionReadOnly || documentConflictBlocked ? '0' : '1'}
+            data-seo-editor-document-conflict={documentConflictBlocked ? '1' : undefined}
         >
             {sameUserPeerOpen ? (
                 <div className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1063,9 +1102,35 @@ function ArticleEditorWithSession(props) {
             <SeoArticleEditor
                 {...editorProps}
                 articleId={articleId}
-                sessionReadOnly={Boolean(sessionReadOnly)}
+                sessionReadOnly={Boolean(sessionReadOnly) || documentConflictBlocked}
                 documentVersion={documentVersion}
             />
+            {documentConflictBlocked ? (
+                <div
+                    className="seo-editor-document-conflict-overlay"
+                    data-seo-editor-exclusive-lock="1"
+                    data-seo-editor-document-conflict-overlay="1"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="seo-editor-document-conflict-title"
+                    onMouseDown={(event) => {
+                        // Non-dismissible: swallow backdrop interaction.
+                        event.preventDefault();
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }
+                    }}
+                >
+                    <ExclusiveLockScreen
+                        status="conflict"
+                        reasonCode="article_document_version_conflict"
+                        onReload={onDocumentConflictReload}
+                    />
+                </div>
+            ) : null}
         </div>
     );
 }

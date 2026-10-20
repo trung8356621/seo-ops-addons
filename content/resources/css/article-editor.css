@@ -12184,6 +12184,29 @@ body.article-editor-help-modal-open {
 }
 
 /* 404-style: title + blocking message only — no alert card / session meta */
+.seo-editor-session-shell {
+    position: relative;
+}
+
+.seo-editor-document-conflict-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 2rem 1rem;
+    background: rgba(248, 250, 252, 0.96);
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+}
+
+.seo-editor-document-conflict-overlay .seo-editor-exclusive-lock-screen {
+    min-height: auto;
+    width: 100%;
+}
+
 .seo-editor-exclusive-lock-screen {
     display: flex;
     align-items: center;
@@ -12191,6 +12214,10 @@ body.article-editor-help-modal-open {
     min-height: min(28rem, 60vh);
     padding: 3rem 1.25rem;
     text-align: center;
+}
+
+.seo-editor-exclusive-lock-screen.is-conflict .seo-editor-exclusive-lock-screen__title {
+    color: #b45309;
 }
 
 .seo-editor-exclusive-lock-screen__notice {

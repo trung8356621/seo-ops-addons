@@ -313,16 +313,43 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringContainsString('acknowledgeDocumentVersion(nextVersion', $faqJs);
     }
 
-    public function test_autosave_conflict_keeps_local_recovery_draft(): void
+    public function test_autosave_conflict_uses_central_recovery_and_keeps_local_draft(): void
     {
         $queue = $this->js('hooks/useArticleEditorSaveQueue.js');
         $conflictPos = strpos($queue, 'SAVE_FAILURE.REVISION_CONFLICT');
         self::assertNotFalse($conflictPos);
         self::assertStringContainsString('persistLocalRecoverySnapshot', $queue);
-        self::assertStringContainsString("setSaveStatus('conflict')", $queue);
+        self::assertStringContainsString('recoverFromDocumentVersionConflict', $queue);
+        self::assertStringContainsString('isDocumentConflictBusy', $queue);
         $api = $this->js('utils/articleEditorApi.js');
-        self::assertStringContainsString("title: 'Xung đột khi lưu'", $api);
-        self::assertStringContainsString('seo-article-save-conflict', $api);
+        self::assertStringContainsString('recoverFromDocumentVersionConflict', $api);
+        self::assertStringNotContainsString("title: 'Xung đột khi lưu'", $api);
+        $recovery = $this->js('utils/editorDocumentConflictRecovery.js');
+        self::assertStringContainsString("action: 'rebase_retry'", $recovery);
+        self::assertStringContainsString("reason: 'content_identical'", $recovery);
+        self::assertStringContainsString('data?.actual_document_version', $recovery);
+        self::assertStringContainsString('enterDocumentConflictBlocked', $recovery);
+    }
+
+    public function test_session_error_response_nests_conflict_payload(): void
+    {
+        $controller = $this->methodSource(new ReflectionMethod(
+            ArticleEditorSessionController::class,
+            'errorResponse',
+        ));
+        self::assertStringContainsString("\$payload['conflict']", $controller);
+        self::assertStringContainsString('actual_document_version', $controller);
+        self::assertStringContainsString('actual_content_hash', $controller);
+
+        $assert = $this->methodSource(new ReflectionMethod(ArticleDocumentVersionService::class, 'assertExpected'));
+        self::assertStringContainsString('actual_content_hash', $assert);
+        self::assertStringContainsString("hash('sha256'", $assert);
+    }
+
+    public function test_can_mutate_editor_respects_document_conflict_flag(): void
+    {
+        $state = $this->js('utils/editorSessionState.js');
+        self::assertStringContainsString('__SEO_EDITOR_DOCUMENT_CONFLICT__', $state);
     }
 
     public function test_session_client_save_sends_request_id_and_max_expected_version(): void

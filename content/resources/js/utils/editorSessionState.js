@@ -101,6 +101,10 @@ export function canMutateEditor() {
     if (window.__SEO_EDITOR_EXITING__) {
         return false;
     }
+    // Document version conflict recovery / BLOCKED overlay — freeze mutations.
+    if (window.__SEO_EDITOR_DOCUMENT_CONFLICT__) {
+        return false;
+    }
     if (window.__SEO_EDITOR_READ_ONLY__) {
         return false;
     }

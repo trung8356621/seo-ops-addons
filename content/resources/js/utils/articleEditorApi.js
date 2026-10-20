@@ -1199,28 +1199,72 @@ export function emitProjectItemUpdated(detail = {}) {
 }
 
 /**
- * Xử lý khi save trả 409 (conflict) — KHÔNG reload, KHÔNG clearDraft. Dispatch event để
- * UI (SeoArticleEditor) hiển thị modal/alert cho người dùng quyết định.
+ * Xử lý khi save trả 409 (version/hash conflict).
+ * Silent recoverable rebase when possible; otherwise BLOCKED overlay (no toast spam).
  *
  * @param {Error & { conflict?: boolean, data?: Record<string, unknown> }} error
+ * @returns {Promise<{ recovered: boolean, blocked: boolean, reason?: string }>}
  */
-export function handleArticleSaveConflict(error) {
+export async function handleArticleSaveConflict(error) {
     window.__seoEndArticleHeavyActionClient?.();
     resetEditArticleHeavyActionBusyOnWire();
 
-    const notification = error?.data?.notification ?? {
-        title: 'Xung đột khi lưu',
-        body: error?.message ?? 'Nội dung đã bị thay đổi ở nơi khác.',
-        status: 'warning',
-    };
-    showArticleEditorFilamentToast(notification);
+    const { recoverFromDocumentVersionConflict } = await import('./editorDocumentConflictRecovery.js');
 
-    window.dispatchEvent(
-        new CustomEvent('seo-article-save-conflict', {
-            detail: { conflict: error?.data?.conflict ?? null, message: error?.message ?? '' },
-        }),
-    );
-    window.dispatchEvent(new CustomEvent('article-editor-save-finished', { detail: { conflict: true } }));
+    const resolveLocalHtml = async () => {
+        if (typeof window.__seoCollectEditorHeavyBundle === 'function') {
+            try {
+                const bundle = await window.__seoCollectEditorHeavyBundle({
+                    renameImagesBeforeWpSync: false,
+                });
+                const html = String(bundle?.html ?? '').trim();
+                if (html !== '') {
+                    return html;
+                }
+            } catch {
+                // fall through
+            }
+        }
+
+        return String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? '');
+    };
+
+    return recoverFromDocumentVersionConflict({
+        error,
+        getExportHtml: () => String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? ''),
+        persistLocalRecovery: () => {
+            try {
+                window.__seoFlushArticleRecoveryDraft?.();
+            } catch {
+                // ignore
+            }
+        },
+        setSaveStatus: (status) => {
+            window.dispatchEvent(new CustomEvent('article-editor:save-status', {
+                detail: {
+                    status,
+                    label: status === 'conflict'
+                        ? 'Bài viết cần đồng bộ lại'
+                        : status,
+                },
+            }));
+        },
+        retrySave: async () => {
+            const articleId = Number(window.__SEO_ARTICLE_ID__ ?? 0) || 0;
+            if (articleId <= 0) {
+                throw error;
+            }
+            const { saveArticleViaApiSingleFlight } = await import('./articleEditorSaveQueue.js');
+            return saveArticleViaApiSingleFlight(articleId, async () => {
+                const html = await resolveLocalHtml();
+                return buildArticleEditorApiPayload({
+                    articleId,
+                    html,
+                    seoAnalysis: null,
+                }, null);
+            }, { priority: 'explicit' });
+        },
+    });
 }
 
 /**

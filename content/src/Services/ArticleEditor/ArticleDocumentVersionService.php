@@ -111,6 +111,10 @@ final class ArticleDocumentVersionService
         if ($expectedVersion !== $actual) {
             $articleId = (int) $article->getKey();
             $requestId = $this->resolveRequestId($context);
+            // Same algorithm as ArticleContentConflictGuard::contentHash — keep conflict
+            // payload self-contained without resolving the guard from the container.
+            $actualContentHash = hash('sha256', trim((string) ($article->body ?? '')));
+
             RuntimeLogger::warning('seo.editor.document_version_conflict', [
                 'article_id' => $articleId,
                 'base_revision' => $expectedVersion,
@@ -122,6 +126,9 @@ final class ArticleDocumentVersionService
                 'request_id' => $requestId,
                 'timestamp' => now()->toIso8601String(),
                 'last_bump' => $this->lastBump($articleId),
+                'actual_content_hash' => $actualContentHash !== ''
+                    ? substr($actualContentHash, 0, 12)
+                    : null,
             ]);
 
             throw ArticleEditorSessionException::make(
@@ -130,6 +137,7 @@ final class ArticleDocumentVersionService
                 [
                     'expected_document_version' => $expectedVersion,
                     'actual_document_version' => $actual,
+                    'actual_content_hash' => $actualContentHash !== '' ? $actualContentHash : null,
                     'editor_session_id' => $context['editor_session_id'] ?? null,
                     'operation' => $context['operation'] ?? 'assert_expected',
                     'request_id' => $requestId,
