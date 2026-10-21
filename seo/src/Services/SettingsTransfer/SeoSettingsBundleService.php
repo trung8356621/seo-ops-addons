@@ -51,6 +51,37 @@ final class SeoSettingsBundleService
         bool $includeTasks = false,
     ): array {
         $this->assertManager();
+
+        return $this->buildExport($userId, $sectionKeys, $includePrompts, $includeTemplates, $includeTasks);
+    }
+
+    /**
+     * Read-only system export for Golden comparison. Does not open the import gate.
+     *
+     * @param  list<string>  $sectionKeys
+     * @return array<string, mixed>
+     */
+    public function exportForConfigurationSync(
+        int $userId,
+        ConfigurationSyncAuthorization $authorization,
+        array $sectionKeys = [],
+    ): array {
+        $authorization->assertAuthorized();
+
+        return $this->buildExport($userId, $sectionKeys, true, true, true);
+    }
+
+    /**
+     * @param  list<string>  $sectionKeys
+     * @return array<string, mixed>
+     */
+    private function buildExport(
+        int $userId,
+        array $sectionKeys,
+        bool $includePrompts,
+        bool $includeTemplates,
+        bool $includeTasks,
+    ): array {
         $settings = [];
         $excluded = [
             'recommendations' => 'Operator best-practice docs live in Global Help topics (not stored settings).',

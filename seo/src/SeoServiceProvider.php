@@ -92,6 +92,8 @@ final class SeoServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Omnichannel\Addons\Seo\Console\RebuildSiteStatisticsCommand::class,
+                \Omnichannel\Addons\Seo\Console\CompareGoldenConfigurationCommand::class,
+                \Omnichannel\Addons\Seo\Console\SyncGoldenConfigurationCommand::class,
             ]);
         }
 
