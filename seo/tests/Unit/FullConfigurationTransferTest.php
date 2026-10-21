@@ -62,6 +62,7 @@ final class FullConfigurationTransferTest extends TestCase
                 $table->json('settings')->nullable();
                 $table->string('tools')->nullable();
                 $table->boolean('is_active')->default(true);
+                $table->boolean('is_flow_prompt')->default(false);
                 $table->string('routing_mode')->nullable();
                 $table->string('routing_profile_key')->nullable();
                 $table->unsignedBigInteger('ai_connection_id')->nullable();
@@ -80,6 +81,7 @@ final class FullConfigurationTransferTest extends TestCase
             $table->text('description')->nullable();
             $table->json('flow_data')->nullable();
             $table->boolean('is_active')->default(true);
+            $table->string('output_type')->nullable();
             $table->char('portable_uuid', 36)->nullable();
             $table->timestamps();
         });

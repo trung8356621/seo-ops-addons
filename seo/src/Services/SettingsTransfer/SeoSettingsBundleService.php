@@ -24,6 +24,7 @@ use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SystemBootstrapGate;
 use Illuminate\Support\Facades\DB;
 
 final class SeoSettingsBundleService
@@ -199,6 +200,44 @@ final class SeoSettingsBundleService
     public function apply(ConfigurationImportPlan $plan, int $userId, array $selected = [], array $promptOverrides = []): int
     {
         $this->assertManager();
+
+        return $this->applyAuthorized($plan, $userId, $selected, $promptOverrides);
+    }
+
+    /**
+     * Authorized system path for blank-client Golden bootstrap.
+     * Requires an explicit {@see SystemBootstrapAuthorization} token — does not
+     * fabricate a Manager session and does not weaken UI/API Manager checks.
+     *
+     * @param  list<string>  $selected
+     * @param  array<int, string>  $promptOverrides
+     */
+    public function applyForSystemBootstrap(
+        ConfigurationImportPlan $plan,
+        int $userId,
+        SystemBootstrapAuthorization $authorization,
+        array $selected = [],
+        array $promptOverrides = [],
+    ): int {
+        return SystemBootstrapGate::run(
+            $authorization,
+            fn (): int => $this->applyAuthorized($plan, $userId, $selected, $promptOverrides),
+        );
+    }
+
+    /**
+     * Import writers use {@see config('database.core_connection')} (prompts, tasks,
+     * wp_options, api_connections). The surrounding transaction is opened on
+     * {@see config('database.default')} via DB::transaction().
+     *
+     * Global atomic rollback holds only when those two connection names resolve
+     * to the same Laravel connection. Cross-connection rollback is NOT guaranteed.
+     *
+     * @param  list<string>  $selected
+     * @param  array<int, string>  $promptOverrides
+     */
+    private function applyAuthorized(ConfigurationImportPlan $plan, int $userId, array $selected = [], array $promptOverrides = []): int
+    {
         $changed = 0;
 
         DB::transaction(function () use ($plan, $userId, $selected, $promptOverrides, &$changed): void {

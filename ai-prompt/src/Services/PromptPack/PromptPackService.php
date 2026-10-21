@@ -15,6 +15,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\ConfigurationPackageType;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SystemBootstrapGate;
 
 final class PromptPackService
 {
@@ -115,7 +116,11 @@ final class PromptPackService
      */
     public function apply(ConfigurationImportPlan $plan, int $userId, array $overrides = []): int
     {
-        if (! SeoAccessControl::canAccessManagerFeatures() && ! SeoAccessControl::canAccessPlannerFeatures()) {
+        if (
+            ! SeoAccessControl::canAccessManagerFeatures()
+            && ! SeoAccessControl::canAccessPlannerFeatures()
+            && ! SystemBootstrapGate::isOpen()
+        ) {
             throw ConfigurationPackageException::rejected('Not authorized to import prompts.');
         }
 

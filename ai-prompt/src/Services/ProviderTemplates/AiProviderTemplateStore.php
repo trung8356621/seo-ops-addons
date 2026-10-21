@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Exceptions\AiProviderTemplateException;
 use Omnichannel\Addons\AiPrompt\Models\AiProviderTemplate;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SystemBootstrapGate;
 
 final class AiProviderTemplateStore
 {
@@ -20,7 +21,7 @@ final class AiProviderTemplateStore
 
     public function persist(int $userId, NormalizedAiProviderTemplate $template, bool $builtin = false): AiProviderTemplate
     {
-        if (! SeoAccessControl::canAccessManagerFeatures()) {
+        if (! SeoAccessControl::canAccessManagerFeatures() && ! SystemBootstrapGate::isOpen()) {
             throw AiProviderTemplateException::rejected('Not authorized to import provider templates.');
         }
 
