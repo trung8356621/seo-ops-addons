@@ -77,7 +77,7 @@ class DomainResource extends SeoPanelResource
                         'inactive' => 'Inactive',
                         'maintenance' => 'Maintenance',
                     ])
-                    ->default('active')
+                    ->default('inactive')
                     ->required()
                     ->native(false),
 

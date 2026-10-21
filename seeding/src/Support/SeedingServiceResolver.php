@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seeding\Support;
 use App\Models\Service;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 /**
  * Canonical Seeding service reader — single place for Service slug=seeding resolution.
@@ -31,10 +32,36 @@ final class SeedingServiceResolver
         $service = $this->service();
         if (! $service instanceof Service) {
             // Catalog not synced yet — allow when addon boots via register_early (local/dev).
-            return true;
+            return $this->h1AllowsSeeding(defaultWhenMissing: true);
         }
 
-        return (bool) $service->is_active;
+        if (! (bool) $service->is_active) {
+            return false;
+        }
+
+        return $this->h1AllowsSeeding(defaultWhenMissing: true);
+    }
+
+    /**
+     * When H1 enforcement/cutover is active, Seeding must not fail-open past verified license.
+     */
+    private function h1AllowsSeeding(bool $defaultWhenMissing): bool
+    {
+        if (! class_exists(\App\Services\H1\Enforcement\ServiceEntitlementGate::class)) {
+            return $defaultWhenMissing;
+        }
+
+        try {
+            /** @var \App\Services\H1\Enforcement\ServiceEntitlementGate $gate */
+            $gate = app(\App\Services\H1\Enforcement\ServiceEntitlementGate::class);
+            if (! $gate->enforcementActive()) {
+                return $defaultWhenMissing;
+            }
+
+            return $gate->allows('seeding');
+        } catch (Throwable) {
+            return $defaultWhenMissing;
+        }
     }
 
     public function resolve(): SeedingServiceConfig

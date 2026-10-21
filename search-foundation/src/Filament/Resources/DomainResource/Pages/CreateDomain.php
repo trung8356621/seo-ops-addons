@@ -47,7 +47,8 @@ class CreateDomain extends SeoCreateRecord
     {
         $data['user_id'] = auth()->id();
 
-        $data['status'] = $data['status'] ?? 'active';
+        // H1 SEO domain_quota: new Admin Sites default inactive (activation is the quota gate).
+        $data['status'] = $data['status'] ?? 'inactive';
         $data['ssl'] = array_key_exists('ssl', $data) ? (bool) $data['ssl'] : true;
 
         return $this->stripSeoMetaKeys($this->stripPromptContextFromFormData($data));
