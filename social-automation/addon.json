@@ -1,0 +1,24 @@
+{
+    "name": "Social Automation",
+    "slug": "social-automation",
+    "version": "0.1.0",
+    "description": "Independent Social Automation control plane — package registry, agents, sessions, tasks, orchestrator.",
+    "provider": "Omnichannel\\Addons\\SocialAutomation\\SocialAutomationServiceProvider",
+    "panel_provider": "Omnichannel\\Addons\\SocialAutomation\\Providers\\SocialAutomationPanelProvider",
+    "providers": [
+        "Omnichannel\\Addons\\SocialAutomation\\SocialAutomationServiceProvider"
+    ],
+    "db_connection": "omi_social_automation",
+    "register_early": true,
+    "legacy": false,
+    "provides": [
+        "social-automation.control-plane",
+        "social-automation.package-registry",
+        "social-automation.agent-registry",
+        "social-automation.session-registry",
+        "social-automation.orchestrator",
+        "social-automation.scheduler"
+    ],
+    "requires": [],
+    "optional": []
+}
