@@ -1115,12 +1115,23 @@ function ArticleEditorWithSession(props) {
     }, []);
 
     React.useEffect(() => {
+        const syncFromGlobals = () => {
+            const next = getDocumentConflictState();
+            setDocumentConflictBlocked(next === DOCUMENT_CONFLICT_STATE.BLOCKED);
+            setDocumentConflictReason(String(getDocumentConflictBlockedDetail()?.reason ?? ''));
+        };
         const onConflictState = (event) => {
             const next = String(event?.detail?.state ?? '');
             setDocumentConflictBlocked(next === DOCUMENT_CONFLICT_STATE.BLOCKED);
-            setDocumentConflictReason(String(event?.detail?.reason ?? ''));
+            setDocumentConflictReason(String(
+                event?.detail?.reason
+                ?? getDocumentConflictBlockedDetail()?.reason
+                ?? '',
+            ));
         };
         window.addEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
+        // Bootstrap Case D may fire in a child effect before this listener attaches.
+        syncFromGlobals();
         return () => window.removeEventListener(DOCUMENT_CONFLICT_EVENT, onConflictState);
     }, []);
 

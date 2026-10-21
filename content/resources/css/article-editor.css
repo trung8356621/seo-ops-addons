@@ -12108,7 +12108,9 @@ body.article-editor-help-modal-open {
 }
 
 .seo-editor-document-conflict-overlay {
-    position: absolute;
+    /* Fixed to viewport — absolute+center on a tall editor shell puts the dialog
+       thousands of px below the fold (blank translucent wash only). */
+    position: fixed;
     inset: 0;
     z-index: 80;
     display: flex;

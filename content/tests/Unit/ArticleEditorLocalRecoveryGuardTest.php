@@ -58,13 +58,29 @@ final class ArticleEditorLocalRecoveryGuardTest extends TestCase
         self::assertStringContainsString('classifyBootstrapDraftRecovery', $bootstrap);
         self::assertStringContainsString('BOOTSTRAP_DIVERGENT_DRAFT_REASON', $bootstrap);
         self::assertStringContainsString('enterDocumentConflictBlocked', $bootstrap);
+        // Case D before hardReadonly early-return (acquire must still show overlay).
+        $blockPos = strpos($bootstrap, "decision === 'block'");
+        $readonlyPos = strpos($bootstrap, 'Locked session: keep local draft');
+        self::assertNotFalse($blockPos);
+        self::assertNotFalse($readonlyPos);
+        self::assertLessThan($readonlyPos, $blockPos);
         self::assertStringNotContainsString('setDraftChoiceModalOpen(true)', $bootstrap);
         self::assertStringNotContainsString('seo-draft-restore-overlay', $editor);
         self::assertStringContainsString('export function classifyBootstrapDraftRecovery', $storage);
         self::assertStringContainsString("return 'block'", $storage);
         self::assertStringContainsString('stripCtaBlankPlaceholderMarkup', $storage);
+        self::assertStringContainsString('serverContentAlternateHashes', $storage);
         // Missing proof must not force BLOCK on clean F5.
         self::assertStringContainsString('Proof incomplete', $storage);
+        $shell = $this->js('article-editor.jsx');
+        self::assertStringContainsString('syncFromGlobals', $shell);
+        $css = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/css/article-editor.css',
+        );
+        self::assertMatchesRegularExpression(
+            '/\.seo-editor-document-conflict-overlay\s*\{[^}]*position:\s*fixed/s',
+            $css,
+        );
         self::assertStringContainsString('JSON.parse(raw)', $storage);
         self::assertStringContainsString('localStorage.removeItem(storageKey)', $storage);
     }

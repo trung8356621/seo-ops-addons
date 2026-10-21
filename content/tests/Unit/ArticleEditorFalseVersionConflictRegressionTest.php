@@ -382,11 +382,22 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $storage = $this->js('utils/articleEditorStorage.js');
         self::assertStringContainsString('stripCtaBlankPlaceholderMarkup', $storage);
         self::assertStringContainsString('seo-cta-blank-placeholder', $storage);
+        self::assertStringContainsString('serverContentAlternateHashes', $storage);
         self::assertStringContainsString("return 'restore_local'", $storage);
+        self::assertStringContainsString('!serverAlts.has(draftBaseHash)', $storage);
 
         $bootstrap = $this->js('hooks/useArticleEditorBootstrap.js');
         self::assertStringContainsString('[article-editor-bootstrap]', $bootstrap);
         self::assertStringContainsString("decision === 'block'", $bootstrap);
+        self::assertStringContainsString('stripCtaBlankPlaceholderMarkup(effectiveInitialHtml)', $bootstrap);
+
+        $css = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/css/article-editor.css',
+        );
+        self::assertMatchesRegularExpression(
+            '/\.seo-editor-document-conflict-overlay\s*\{[^}]*position:\s*fixed/s',
+            $css,
+        );
     }
 
     public function test_heartbeat_returns_content_hash_for_authority_refresh(): void

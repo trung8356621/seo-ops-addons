@@ -7,6 +7,7 @@ import {
     hashContent,
     loadDraft,
     saveDraft,
+    stripCtaBlankPlaceholderMarkup,
     writeSyncedLocalSnapshot,
 } from '../utils/articleEditorStorage';
 import {
@@ -161,7 +162,8 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             hydrateBaselineHtmlRef.current = effectiveInitialHtml;
         }
 
-        const serverBodyHash = hashContent(effectiveInitialHtml);
+        // Canonical compare hash — strip CTA highlight spans (display-only).
+        const serverBodyHash = hashContent(stripCtaBlankPlaceholderMarkup(effectiveInitialHtml));
         const serverContentHash = String(expectedContentHash ?? '').trim() || serverBodyHash;
         // Prefer HTML when server HTML was repaired — corrupted JSON must not win.
         const serverBlocksFromJson = serverHtmlRepair.repaired
@@ -204,7 +206,7 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         analyzedBlocksRef.current = null;
 
         const serverState = {
-            content_hash: serverBodyHash || serverContentHash,
+            content_hash: serverContentHash || serverBodyHash,
             expected_content_hash: serverContentHash,
             site_id: scope.siteId,
             updated_at: expectedUpdatedAt || null,
@@ -216,6 +218,8 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         const hardReadonly = Boolean(sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__);
 
         if (typeof window !== 'undefined' && (window.__SEO_EDITOR_VERSION_DEBUG__ || window.__SEO_APP_DEBUG__ || decision === 'block')) {
+            const draftBase = String(draft?.base_content_hash ?? '').trim();
+            const draftHash = String(draft?.content_hash ?? '').trim();
             // Compact bootstrap evidence only — never log article body.
             // eslint-disable-next-line no-console
             console.info('[article-editor-bootstrap]', {
@@ -223,12 +227,30 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
                 decision,
                 boot_document_version: serverState.document_version,
                 boot_content_hash: String(serverContentHash || '').slice(0, 12) || null,
-                draft_base_hash: String(draft?.base_content_hash ?? '').slice(0, 12) || null,
-                draft_content_hash: String(draft?.content_hash ?? '').slice(0, 12) || null,
+                boot_body_hash: String(serverBodyHash || '').slice(0, 12) || null,
+                draft_base_hash: draftBase.slice(0, 12) || null,
+                draft_content_hash: draftHash.slice(0, 12) || null,
                 draft_base_document_version: draft?.base_document_version ?? null,
                 draft_dirty: Array.isArray(draft?.dirty_fields) ? draft.dirty_fields : null,
                 draft_synced: draft?.synced ?? null,
+                base_eq_expected: draftBase !== '' && draftBase === serverContentHash,
+                content_eq_base: draftHash !== '' && draftBase !== '' && draftHash === draftBase,
             });
+        }
+
+        // Case D must run even while session is still read-only during acquire —
+        // otherwise loadedArticleIdRef locks out re-classify and TipTap autosave
+        // overwrites the divergent draft after the session becomes writable.
+        if (decision === 'block' && draft) {
+            applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);
+            setDraftRestoreOffer({ draft, serverBlocks });
+            enterDocumentConflictBlocked({
+                reason: BOOTSTRAP_DIVERGENT_DRAFT_REASON,
+                article_id: articleId,
+            });
+            setActiveBlockId(null);
+            setGlobalEditor(null);
+            return;
         }
 
         // Locked session: keep local draft, never auto-apply / clear / overwrite canonical.
@@ -262,14 +284,6 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             markSeoAnalysisReady?.(false);
             // Silent Case C — keep dirty draft until server ACK; no modal/toast.
             setDraftRestoreOffer(null);
-        } else if (decision === 'block' && draft) {
-            // Case D — preserve snapshot, show server under blocking overlay.
-            applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);
-            setDraftRestoreOffer({ draft, serverBlocks });
-            enterDocumentConflictBlocked({
-                reason: BOOTSTRAP_DIVERGENT_DRAFT_REASON,
-                article_id: articleId,
-            });
         } else {
             // Case A/B — use server, clear redundant snapshot.
             applyServerBlocksBaseline(serverBlocks, serverBodyHash, serverContentHash);

@@ -676,6 +676,29 @@ function parseTimestampMs(iso) {
  * }} server
  * @returns {'use_server'|'restore_local'|'block'}
  */
+/**
+ * Alternate hashes of current server HTML (raw / CTA-stripped / normalized / tokens).
+ * Legacy drafts may store pre-canonical CTA display hashes as base_content_hash.
+ *
+ * @param {string} serverContent
+ * @param {{ content_hash?: string, expected_content_hash?: string }} server
+ * @returns {Set<string>}
+ */
+export function serverContentAlternateHashes(serverContent, server = {}) {
+    const raw = String(serverContent ?? '');
+    const stripped = stripCtaBlankPlaceholderMarkup(raw);
+    const hashes = [
+        hashContent(raw),
+        hashContent(stripped),
+        hashNormalizedContent(raw),
+        hashNormalizedContent(stripped),
+        String(server?.content_hash ?? '').trim(),
+        String(server?.expected_content_hash ?? '').trim(),
+    ];
+
+    return new Set(hashes.filter((h) => h !== ''));
+}
+
 export function classifyBootstrapDraftRecovery(draft, server) {
     if (!draft || typeof draft !== 'object') {
         return 'use_server';
@@ -702,10 +725,15 @@ export function classifyBootstrapDraftRecovery(draft, server) {
     }
 
     const serverContent = server?.content != null ? String(server.content) : '';
-    const draftNormHash = String(draft.normalized_hash ?? '').trim() || hashNormalizedContent(draftContent);
+    const draftStripped = stripCtaBlankPlaceholderMarkup(draftContent);
+    const draftNormHash = hashNormalizedContent(draftContent)
+        || String(draft.normalized_hash ?? '').trim();
     const serverNormHash = hashNormalizedContent(serverContent)
         || String(server?.content_hash ?? '').trim()
         || String(server?.expected_content_hash ?? '').trim();
+    const draftCanonicalHash = hashContent(draftStripped)
+        || String(draft.content_hash ?? '').trim();
+    const serverExpectedHash = String(server?.expected_content_hash ?? server?.content_hash ?? '').trim();
 
     // Hollow local draft must not win over richer server body.
     const draftPlainLen = normalizeContentForHash(draftContent).length;
@@ -725,34 +753,43 @@ export function classifyBootstrapDraftRecovery(draft, server) {
         contentsMeaningfullyEqual(draftContent, serverContent)
         || (draftNormHash !== '' && serverNormHash !== '' && draftNormHash === serverNormHash)
         || (
+            draftCanonicalHash !== ''
+            && serverExpectedHash !== ''
+            && draftCanonicalHash === serverExpectedHash
+        )
+        || (
             String(draft.content_hash ?? '').trim() !== ''
             && String(server?.content_hash ?? '').trim() !== ''
             && String(draft.content_hash).trim() === String(server.content_hash).trim()
         )
         || (
             String(draft.content_hash ?? '').trim() !== ''
-            && String(server?.expected_content_hash ?? '').trim() !== ''
-            && String(draft.content_hash).trim() === String(server.expected_content_hash).trim()
+            && serverExpectedHash !== ''
+            && String(draft.content_hash).trim() === serverExpectedHash
         )
     ) {
         return 'use_server';
     }
 
     const draftBaseHash = String(draft.base_content_hash ?? '').trim();
-    const serverExpectedHash = String(server?.expected_content_hash ?? server?.content_hash ?? '').trim();
-    const draftContentHash = String(draft.content_hash ?? '').trim()
-        || hashContent(stripCtaBlankPlaceholderMarkup(draftContent));
+    const draftContentHash = String(draft.content_hash ?? '').trim() || draftCanonicalHash;
+    const draftContentHashes = new Set(
+        [draftContentHash, draftCanonicalHash, draftNormHash].filter((h) => h !== ''),
+    );
 
     // Case B — marked dirty but body still equals last ACK base (no real unsaved delta).
-    if (draftBaseHash !== '' && draftContentHash !== '' && draftContentHash === draftBaseHash) {
+    if (draftBaseHash !== '' && draftContentHashes.has(draftBaseHash)) {
         return 'use_server';
     }
 
     const draftDocVersion = String(draft.base_document_version ?? '').trim();
     const serverDocVersion = String(server?.document_version ?? '').trim();
+    const serverAlts = serverContentAlternateHashes(serverContent, server);
 
     // Case C — server still on the same base the draft was written against.
-    if (draftBaseHash !== '' && serverExpectedHash !== '' && draftBaseHash === serverExpectedHash) {
+    // Includes legacy bases that hash an alternate representation of the *current*
+    // server body (CTA display HTML / pre-canonical) — not proof the server advanced.
+    if (draftBaseHash !== '' && serverAlts.has(draftBaseHash)) {
         return 'restore_local';
     }
     if (
@@ -768,6 +805,7 @@ export function classifyBootstrapDraftRecovery(draft, server) {
         draftBaseHash !== ''
         && serverExpectedHash !== ''
         && draftBaseHash !== serverExpectedHash
+        && !serverAlts.has(draftBaseHash)
     ) {
         return 'block';
     }
