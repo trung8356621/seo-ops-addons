@@ -1,0 +1,25 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/agents/{agentUuid}/jobs/{jobUuid}/result",
+  "scope": "social-automation:runner:job",
+  "body": {
+    "attempt_uuid": "44444444-4444-4444-4444-444444444444",
+    "status": "failed",
+    "error_code": "widget_step_failed",
+    "error_message": "Submit button not found",
+    "result": { "step": "submit" }
+  },
+  "artifact": {
+    "kind": "screenshot",
+    "mime": "image/png",
+    "attempt_uuid": "44444444-4444-4444-4444-444444444444",
+    "outcome": "failed",
+    "metadata": {
+      "phase": "submit",
+      "step": "submit",
+      "note": "Capture at failing step"
+    },
+    "content_base64": "<png-bytes-base64>"
+  }
+}

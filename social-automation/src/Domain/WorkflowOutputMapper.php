@@ -56,11 +56,39 @@ final class WorkflowOutputMapper
     }
 
     /**
+     * Format: {widget_key}.{field} — widget_key may itself contain dots
+     * (e.g. facebook.group.post.post_url → key facebook.group.post, field post_url).
+     *
      * @param  array<string, array<string, mixed>>  $priorOutputs
      */
     private function resolvePath(array $priorOutputs, string $path): mixed
     {
-        // Format: widget_key.field
+        $path = trim($path);
+        if ($path === '' || ! str_contains($path, '.')) {
+            return null;
+        }
+
+        // Longest matching widget_key prefix wins.
+        $keys = array_keys($priorOutputs);
+        usort($keys, static fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+        foreach ($keys as $widgetKey) {
+            $prefix = $widgetKey.'.';
+            if (! str_starts_with($path, $prefix)) {
+                continue;
+            }
+            $field = substr($path, strlen($prefix));
+            if ($field === '') {
+                return null;
+            }
+            $bucket = $priorOutputs[$widgetKey] ?? null;
+            if (! is_array($bucket) || ! array_key_exists($field, $bucket)) {
+                return null;
+            }
+
+            return $bucket[$field];
+        }
+
+        // Fallback: first segment / remainder (legacy short keys).
         $parts = explode('.', $path, 2);
         if (count($parts) !== 2) {
             return null;

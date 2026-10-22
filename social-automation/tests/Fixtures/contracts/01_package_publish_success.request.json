@@ -1,0 +1,22 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/packages/publish",
+  "scope": "social-automation:package:publish",
+  "body": {
+    "package_key": "facebook.group.post",
+    "kind": "widget",
+    "name": "Facebook Group Post",
+    "version": "1.0.0",
+    "schema_version": 1,
+    "description": "Post to a Facebook group",
+    "manifest": {
+      "steps": [
+        { "action": "open_composer" },
+        { "action": "submit" }
+      ]
+    },
+    "dependencies": [],
+    "runtime_compatibility": { "runner_min": "1.0.0" }
+  }
+}

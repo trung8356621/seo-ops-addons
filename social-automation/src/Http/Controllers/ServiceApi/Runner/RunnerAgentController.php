@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\SocialAutomation\Registry\AgentRegistryService;
+use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 
 final class RunnerAgentController extends Controller
 {
@@ -21,14 +22,21 @@ final class RunnerAgentController extends Controller
     {
         $result = $this->agents->register($request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? [],
+            successStatus: 200
+        ));
     }
 
     public function heartbeat(Request $request, string $service, string $agentUuid): JsonResponse
     {
         $result = $this->agents->heartbeat($agentUuid, $request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     private function credentialId(Request $request): ?int

@@ -27,6 +27,7 @@ use Omnichannel\Addons\SocialAutomation\Enums\SessionReadyStatus;
  *     domain?: string|null,
  *     platform?: string|null,
  *     account?: array<string, mixed>|null,
+ *     account_locked?: bool,
  *     capabilities?: list<string>
  * }
  * @phpstan-type Criteria array{
@@ -76,8 +77,12 @@ final class EligibilitySelector
                 $skipReasons[] = 'agent_offline';
                 continue;
             }
-            if (($agent['availability'] ?? '') === AgentAvailability::Paused->value
-                || ($agent['availability'] ?? '') === AgentAvailability::Error->value) {
+            $availability = (string) ($agent['availability'] ?? '');
+            if (in_array($availability, [
+                AgentAvailability::Paused->value,
+                AgentAvailability::Disabled->value,
+                AgentAvailability::Error->value,
+            ], true)) {
                 $skipReasons[] = 'agent_unavailable';
                 continue;
             }
@@ -93,10 +98,21 @@ final class EligibilitySelector
                 $skipReasons[] = 'session_busy';
                 continue;
             }
+            if (! empty($session['account_locked'])) {
+                $skipReasons[] = 'account_locked';
+                continue;
+            }
+
+            $account = is_array($session['account'] ?? null) ? $session['account'] : [];
+            if (AccountIdentityKey::strongKey($account) === null) {
+                // Domain/platform alone is never enough to distribute work.
+                $skipReasons[] = 'identity_incomplete';
+                continue;
+            }
 
             $wantPlatform = strtolower(trim((string) ($criteria['platform'] ?? $criteria['domain'] ?? '')));
             if ($wantPlatform !== '') {
-                $have = strtolower(trim((string) ($session['platform'] ?? $session['domain'] ?? '')));
+                $have = strtolower(trim((string) ($session['platform'] ?? $session['domain'] ?? $account['platform'] ?? $account['domain'] ?? '')));
                 if ($have !== $wantPlatform) {
                     $skipReasons[] = 'platform_mismatch';
                     continue;
@@ -126,15 +142,22 @@ final class EligibilitySelector
 
         $unique = $this->deduplicator->uniqueByStrongIdentity($eligible);
 
-        // V1: at most one selected session per agent (one active job per machine).
-        $perAgent = [];
+        // Up to remaining agent capacity slots — not "1 browser = 1 account".
+        $slotsLeft = [];
+        foreach ($agentsById as $aid => $agent) {
+            $max = max(1, (int) ($agent['max_concurrency'] ?? 1));
+            $active = max(0, (int) ($agent['active_jobs'] ?? 0));
+            $slotsLeft[$aid] = max(0, $max - $active);
+        }
+
         $selected = [];
         foreach ($unique as $row) {
             $aid = (string) $row['agent_id'];
-            if (isset($perAgent[$aid])) {
+            if (($slotsLeft[$aid] ?? 0) < 1) {
+                $skipReasons[] = 'agent_at_capacity';
                 continue;
             }
-            $perAgent[$aid] = true;
+            $slotsLeft[$aid]--;
             $selected[] = $row;
             if (count($selected) >= $target) {
                 break;

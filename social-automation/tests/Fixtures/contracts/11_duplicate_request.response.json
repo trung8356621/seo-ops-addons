@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "idempotent": true,
+  "http_status": 200,
+  "notes": [
+    "Duplicate result with the same attempt_uuid after terminal status returns the existing job.",
+    "Duplicate package publish with identical digest returns outcome=idempotent.",
+    "Duplicate schedule trigger for the same fire window returns the existing trigger.",
+    "Duplicate artifact checksum for the same job returns idempotent=true."
+  ]
+}

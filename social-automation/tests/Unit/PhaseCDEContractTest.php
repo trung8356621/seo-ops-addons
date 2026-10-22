@@ -82,9 +82,17 @@ final class PhaseCDEContractTest extends TestCase
         }
     }
 
-    public function test_integration_dispatch_pending_migration_marker_in_admin_controller(): void
+    public function test_admin_controller_schema_gate_without_stale_migration_marker(): void
     {
         $src = (string) file_get_contents($this->root.'/src/Http/Controllers/ServiceApi/Admin/TaskAdminController.php');
-        self::assertStringContainsString('PENDING DB MIGRATION', $src);
+        self::assertStringContainsString('schema_unavailable', $src);
+        self::assertStringNotContainsString('PENDING DB MIGRATION', $src);
+    }
+
+    public function test_orchestrator_uses_deterministic_job_idempotency(): void
+    {
+        $src = (string) file_get_contents($this->root.'/src/Orchestration/JobOrchestrator.php');
+        self::assertStringContainsString('JobIdempotencyKey::forDispatch', $src);
+        self::assertStringNotContainsString('microtime(true)', $src);
     }
 }

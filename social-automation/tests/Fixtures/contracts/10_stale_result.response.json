@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "http_status": 409,
+  "errors": ["stale_attempt"],
+  "notes": [
+    "Lease expired → status unknown, fence cleared, attempt marked stale.",
+    "Old Runner result/artifact MUST be rejected.",
+    "Server does NOT auto re-dispatch social actions (may already have succeeded).",
+    "Resolution: human_required / cancel, or reclaim with a new attempt fence (Unknown → Claimed)."
+  ]
+}

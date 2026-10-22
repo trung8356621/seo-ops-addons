@@ -106,4 +106,80 @@ final class PackagePublishValidatorTest extends TestCase
         self::assertTrue($b['ok']);
         self::assertNotSame($a['data']['content_digest'], $b['data']['content_digest']);
     }
+
+    public function test_workflow_composition_accepts_sequential_widget_steps(): void
+    {
+        $digest = str_repeat('ab', 32);
+        $result = $this->validator->validate([
+            'package_key' => 'facebook.group.post_then_comment',
+            'kind' => 'workflow',
+            'name' => 'Post then comment',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'steps' => [
+                    ['widget_key' => 'facebook.group.post', 'input' => ['text' => 'hi']],
+                    ['widget_key' => 'facebook.group.comment', 'output_bindings' => ['url' => 'facebook.group.post.post_url']],
+                ],
+            ],
+            'dependencies' => [
+                ['package_key' => 'facebook.group.post', 'version' => '1.0.0', 'content_digest' => $digest],
+                ['package_key' => 'facebook.group.comment', 'version' => '1.0.0', 'content_digest' => $digest],
+            ],
+        ]);
+
+        self::assertTrue($result['ok']);
+    }
+
+    public function test_workflow_rejects_account_switch_and_missing_steps(): void
+    {
+        $badSwitch = $this->validator->validate([
+            'package_key' => 'facebook.flow',
+            'kind' => 'workflow',
+            'name' => 'Bad',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'steps' => [
+                    ['widget_key' => 'facebook.group.post', 'account_switch' => true],
+                ],
+            ],
+            'dependencies' => [
+                ['package_key' => 'facebook.group.post', 'version' => '1.0.0', 'content_digest' => str_repeat('cd', 32)],
+            ],
+        ]);
+        self::assertFalse($badSwitch['ok']);
+        self::assertTrue(
+            (bool) array_filter(
+                $badSwitch['errors'],
+                static fn (string $e): bool => str_contains($e, 'forbidden_field')
+            )
+        );
+
+        $noSteps = $this->validator->validate([
+            'package_key' => 'facebook.flow2',
+            'kind' => 'workflow',
+            'name' => 'Empty',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => ['steps' => []],
+            'dependencies' => [],
+        ]);
+        self::assertFalse($noSteps['ok']);
+        self::assertContains('workflow_steps_required', $noSteps['errors']);
+    }
+
+    public function test_invalid_dependency_shape_rejected(): void
+    {
+        $result = $this->validator->validate($this->basePayload([
+            'dependencies' => [['package_key' => 'x']],
+        ]));
+        self::assertFalse($result['ok']);
+        self::assertTrue(
+            (bool) array_filter(
+                $result['errors'],
+                static fn (string $e): bool => str_starts_with($e, 'dependency_invalid:')
+            )
+        );
+    }
 }

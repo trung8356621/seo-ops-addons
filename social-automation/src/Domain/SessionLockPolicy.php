@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SocialAutomation\Domain;
 
 /**
- * One active job per session; V1 one active job per agent.
+ * One active job per session; agent concurrency bounded by max_concurrency.
  */
 final class SessionLockPolicy
 {
@@ -32,15 +32,32 @@ final class SessionLockPolicy
     /**
      * @param  list<array{status: string}>  $agentJobs
      */
-    public function agentHasActiveJob(array $agentJobs): bool
+    public function countActiveJobs(array $agentJobs): int
     {
+        $n = 0;
         foreach ($agentJobs as $job) {
             $status = (string) ($job['status'] ?? '');
             if (in_array($status, ['reserved', 'claimed', 'running', 'unknown'], true)) {
-                return true;
+                $n++;
             }
         }
 
-        return false;
+        return $n;
+    }
+
+    /**
+     * @param  list<array{status: string}>  $agentJobs
+     */
+    public function agentHasActiveJob(array $agentJobs): bool
+    {
+        return $this->countActiveJobs($agentJobs) > 0;
+    }
+
+    /**
+     * @param  list<array{status: string}>  $agentJobs
+     */
+    public function agentHasCapacity(array $agentJobs, int $maxConcurrency): bool
+    {
+        return $this->countActiveJobs($agentJobs) < max(1, $maxConcurrency);
     }
 }

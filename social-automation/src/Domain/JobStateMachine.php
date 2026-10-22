@@ -27,9 +27,10 @@ final class JobStateMachine
                 JobStatus::Cancelled,
                 JobStatus::Unknown,
             ],
+            // Unknown = uncertain social side-effect. Reclaim with new fence, or human/cancel.
+            // Do not accept bare Completed/Failed without a valid active fence (enforced in orchestrator).
             JobStatus::Unknown => [
-                JobStatus::Completed,
-                JobStatus::Failed,
+                JobStatus::Claimed,
                 JobStatus::HumanRequired,
                 JobStatus::Cancelled,
             ],

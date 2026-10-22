@@ -9,5 +9,6 @@ enum AgentAvailability: string
     case Available = 'available';
     case Busy = 'busy';
     case Paused = 'paused';
+    case Disabled = 'disabled';
     case Error = 'error';
 }

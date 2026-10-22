@@ -46,6 +46,22 @@ final class SessionSyncService
             return ['ok' => false, 'errors' => ['sessions_required']];
         }
 
+        foreach (['cookies', 'cookie', 'password', 'passwords', 'token', 'secret'] as $forbidden) {
+            if (array_key_exists($forbidden, $payload)) {
+                return ['ok' => false, 'errors' => ['payload_forbidden_field:'.$forbidden]];
+            }
+        }
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            foreach (['cookies', 'cookie', 'password', 'profile_path', 'user_data_dir'] as $forbidden) {
+                if (array_key_exists($forbidden, $item)) {
+                    return ['ok' => false, 'errors' => ['session_forbidden_field:'.$forbidden]];
+                }
+            }
+        }
+
         try {
             $out = DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($agent, $items): array {
                 $result = [];

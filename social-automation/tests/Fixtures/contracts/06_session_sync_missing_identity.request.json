@@ -1,0 +1,32 @@
+{
+  "provisional": true,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/agents/{agentUuid}/sessions/sync",
+  "scope": "social-automation:runner:session",
+  "body": {
+    "sessions": [
+      {
+        "session_uuid": "22222222-2222-2222-2222-222222222222",
+        "platform": "facebook",
+        "domain": "facebook.com",
+        "ready_status": "ready",
+        "confirmed": true,
+        "accounts": [
+          {
+            "platform": "facebook",
+            "domain": "facebook.com",
+            "declared_email": "user@example.com",
+            "identity_source": "declared",
+            "verified": false,
+            "is_active": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_dispatch_effect": {
+    "eligible": false,
+    "skip_reason": "identity_incomplete",
+    "note": "Domain tag + declared email alone must not distribute work."
+  }
+}

@@ -16,6 +16,7 @@ use Omnichannel\Addons\SocialAutomation\Models\SaAgent;
 use Omnichannel\Addons\SocialAutomation\Models\SaArtifact;
 use Omnichannel\Addons\SocialAutomation\Models\SaJob;
 use Omnichannel\Addons\SocialAutomation\Orchestration\JobOrchestrator;
+use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationSchema;
 
 final class RunnerJobController extends Controller
@@ -29,28 +30,40 @@ final class RunnerJobController extends Controller
     {
         $result = $this->orchestrator->claim($agentUuid, $jobUuid, $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 409);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     public function acknowledge(Request $request, string $service, string $agentUuid, string $jobUuid): JsonResponse
     {
         $result = $this->orchestrator->acknowledge($agentUuid, $jobUuid, $request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 409);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     public function progress(Request $request, string $service, string $agentUuid, string $jobUuid): JsonResponse
     {
         $result = $this->orchestrator->progress($agentUuid, $jobUuid, $request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 409);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     public function result(Request $request, string $service, string $agentUuid, string $jobUuid): JsonResponse
     {
         $result = $this->orchestrator->complete($agentUuid, $jobUuid, $request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 409);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     public function uploadArtifact(Request $request, string $service, string $agentUuid, string $jobUuid): JsonResponse
@@ -74,6 +87,15 @@ final class RunnerJobController extends Controller
             return response()->json(['ok' => false, 'errors' => ['job_not_found_or_forbidden']], 404);
         }
 
+        $attemptUuid = trim((string) $request->input('attempt_uuid', ''));
+        $active = is_array($job->payload) ? ($job->payload['_fence']['attempt_uuid'] ?? null) : null;
+        if ($attemptUuid === '' || $active === null || ! hash_equals((string) $active, $attemptUuid)) {
+            return response()->json(
+                ['ok' => false, 'errors' => ['stale_attempt']],
+                SocialAutomationApiStatus::fromResult(false, ['stale_attempt'])
+            );
+        }
+
         $mime = strtolower((string) $request->input('mime', 'application/octet-stream'));
         $kind = strtolower((string) $request->input('kind', 'other'));
         $b64 = (string) $request->input('content_base64', '');
@@ -82,9 +104,40 @@ final class RunnerJobController extends Controller
             return response()->json(['ok' => false, 'errors' => ['content_invalid']], 422);
         }
         $meta = is_array($request->input('metadata')) ? $request->input('metadata') : [];
+        $meta['attempt_uuid'] = $attemptUuid;
         $check = $this->artifacts->validate($mime, strlen($binary), $meta);
         if (! ($check['ok'] ?? false)) {
             return response()->json(['ok' => false, 'errors' => $check['errors']], 422);
+        }
+
+        if ($kind === 'screenshot') {
+            $outcome = strtolower((string) ($request->input('outcome', $meta['outcome'] ?? 'success')));
+            $shot = $this->artifacts->validateScreenshotMetadata($outcome, $meta);
+            if (! ($shot['ok'] ?? false)) {
+                return response()->json(['ok' => false, 'errors' => $shot['errors']], 422);
+            }
+            if (($shot['phase'] ?? null) !== null) {
+                $meta['phase'] = $shot['phase'];
+            }
+        }
+
+        $checksum = hash('sha256', $binary);
+        $existing = SaArtifact::query()
+            ->where('job_id', $job->id)
+            ->where('checksum_sha256', $checksum)
+            ->first();
+        if ($existing instanceof SaArtifact
+            && $this->artifacts->isDuplicateChecksum($existing->checksum_sha256, $checksum)) {
+            return response()->json([
+                'ok' => true,
+                'idempotent' => true,
+                'artifact' => [
+                    'artifact_uuid' => $existing->artifact_uuid,
+                    'kind' => $existing->kind,
+                    'size_bytes' => $existing->size_bytes,
+                    'checksum_sha256' => $existing->checksum_sha256,
+                ],
+            ]);
         }
 
         $path = 'social-automation/artifacts/'.$job->job_uuid.'/'.(string) Str::uuid();
@@ -98,7 +151,7 @@ final class RunnerJobController extends Controller
             'size_bytes' => strlen($binary),
             'storage_disk' => 'local',
             'storage_path' => $path,
-            'checksum_sha256' => hash('sha256', $binary),
+            'checksum_sha256' => $checksum,
             'metadata' => $meta,
             'retain_until' => now()->addDays(30),
         ]);

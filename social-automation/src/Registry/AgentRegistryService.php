@@ -119,6 +119,32 @@ final class AgentRegistryService
     }
 
     /**
+     * Admin/ops disable (revocation of dispatch eligibility). Does not delete history.
+     *
+     * @return array{ok: bool, agent?: array<string, mixed>, errors?: list<string>}
+     */
+    public function disable(string $agentUuid, ?int $credentialId = null): array
+    {
+        if (! SocialAutomationSchema::agentsReady()) {
+            return ['ok' => false, 'errors' => ['schema_unavailable']];
+        }
+
+        $agent = SaAgent::query()->where('agent_uuid', $agentUuid)->first();
+        if (! $agent instanceof SaAgent) {
+            return ['ok' => false, 'errors' => ['agent_not_found']];
+        }
+        if ($credentialId !== null && $agent->credential_id !== null
+            && (int) $agent->credential_id !== $credentialId) {
+            return ['ok' => false, 'errors' => ['credential_mismatch']];
+        }
+
+        $agent->availability = AgentAvailability::Disabled->value;
+        $agent->save();
+
+        return ['ok' => true, 'agent' => $this->toArray($agent->fresh() ?? $agent)];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function listForUi(): array

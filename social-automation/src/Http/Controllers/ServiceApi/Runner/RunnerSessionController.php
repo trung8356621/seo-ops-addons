@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\SocialAutomation\Registry\SessionSyncService;
+use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 
 final class RunnerSessionController extends Controller
 {
@@ -21,7 +22,10 @@ final class RunnerSessionController extends Controller
     {
         $result = $this->sessions->sync($agentUuid, $request->all(), $this->credentialId($request));
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 
     private function credentialId(Request $request): ?int

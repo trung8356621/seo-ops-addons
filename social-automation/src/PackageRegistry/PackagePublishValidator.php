@@ -57,8 +57,11 @@ final class PackagePublishValidator
             $errors[] = 'manifest_too_large';
         }
 
-        // Reject obvious executable handoff fields.
-        foreach (['code', 'script', 'executable', 'eval', 'cookies', 'credentials'] as $forbidden) {
+        // Reject obvious executable handoff fields and account-switching knobs.
+        foreach ([
+            'code', 'script', 'executable', 'eval', 'cookies', 'credentials',
+            'account_switch', 'switch_account', 'change_account',
+        ] as $forbidden) {
             if (array_key_exists($forbidden, $manifest)) {
                 $errors[] = 'manifest_forbidden_field:'.$forbidden;
             }
@@ -93,6 +96,10 @@ final class PackagePublishValidator
                 $errors[] = 'dependency_invalid:'.$i;
                 continue;
             }
+            if ($depKey === $packageKey) {
+                $errors[] = 'dependency_self_reference:'.$i;
+                continue;
+            }
             $normalizedDeps[] = [
                 'package_key' => $depKey,
                 'version' => $depVersion,
@@ -100,9 +107,27 @@ final class PackagePublishValidator
             ];
         }
 
-        if ($kind === 'workflow' && $normalizedDeps === []) {
-            // Workflow may reference widgets via dependencies; warn as soft? Task says pinned deps.
-            // Allow empty for stub workflows that inline steps in manifest.
+        if ($kind === 'workflow') {
+            $stepErrors = $this->validateWorkflowComposition($manifest, $normalizedDeps);
+            foreach ($stepErrors as $err) {
+                $errors[] = $err;
+            }
+        } elseif ($kind === 'widget') {
+            // Widget composition is free-form for Admin packaging; only forbid switch knobs in steps.
+            $steps = $manifest['steps'] ?? null;
+            if (is_array($steps)) {
+                foreach ($steps as $i => $step) {
+                    if (! is_array($step)) {
+                        $errors[] = 'widget_step_invalid:'.$i;
+                        continue;
+                    }
+                    foreach (['account_switch', 'switch_account', 'change_account', 'account_id'] as $forbidden) {
+                        if (array_key_exists($forbidden, $step)) {
+                            $errors[] = 'widget_step_forbidden_field:'.$forbidden;
+                        }
+                    }
+                }
+            }
         }
 
         if ($errors !== []) {
@@ -139,5 +164,55 @@ final class PackagePublishValidator
                 'content_digest' => $computedDigest,
             ],
         ];
+    }
+
+    /**
+     * Workflow = sequential steps on one chosen account/session. Packaging of
+     * post+comment as one widget vs two widgets is Admin's choice — not hardcoded.
+     *
+     * @param  array<string, mixed>  $manifest
+     * @param  list<array{package_key: string, version: string, content_digest: string}>  $deps
+     * @return list<string>
+     */
+    private function validateWorkflowComposition(array $manifest, array $deps): array
+    {
+        $errors = [];
+        $steps = $manifest['steps'] ?? null;
+        if (! is_array($steps) || $steps === [] || ! array_is_list($steps)) {
+            $errors[] = 'workflow_steps_required';
+
+            return $errors;
+        }
+
+        foreach ($steps as $i => $step) {
+            if (! is_array($step)) {
+                $errors[] = 'workflow_step_invalid:'.$i;
+                continue;
+            }
+            foreach (['account_switch', 'switch_account', 'change_account', 'account_id'] as $forbidden) {
+                if (array_key_exists($forbidden, $step)) {
+                    $errors[] = 'workflow_step_forbidden_field:'.$forbidden;
+                }
+            }
+            $widgetKey = trim((string) ($step['widget_key'] ?? $step['package_key'] ?? ''));
+            $action = trim((string) ($step['action'] ?? ''));
+            if ($widgetKey === '' && $action === '') {
+                $errors[] = 'workflow_step_empty:'.$i;
+            }
+        }
+
+        // Prefer pinned widget deps when steps reference package_key; soft when only inline actions.
+        $refsWidgetPackages = false;
+        foreach ($steps as $step) {
+            if (is_array($step) && trim((string) ($step['widget_key'] ?? $step['package_key'] ?? '')) !== '') {
+                $refsWidgetPackages = true;
+                break;
+            }
+        }
+        if ($refsWidgetPackages && $deps === []) {
+            $errors[] = 'workflow_dependencies_required';
+        }
+
+        return $errors;
     }
 }

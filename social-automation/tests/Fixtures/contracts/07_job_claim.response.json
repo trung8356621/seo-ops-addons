@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "http_status": 200,
+  "job": {
+    "job_uuid": "33333333-3333-3333-3333-333333333333",
+    "status": "claimed",
+    "package_key": "facebook.group.post",
+    "package_version": "1.0.0",
+    "attempt_uuid": "44444444-4444-4444-4444-444444444444",
+    "lease_expires_at": "2026-10-22T12:05:00+00:00"
+  },
+  "attempt": {
+    "attempt_uuid": "44444444-4444-4444-4444-444444444444",
+    "attempt_no": 1
+  },
+  "notes": [
+    "Runner MUST echo attempt_uuid on ack/progress/result/artifact.",
+    "Repeated claim while claimed/running returns the same fence (idempotent)."
+  ]
+}

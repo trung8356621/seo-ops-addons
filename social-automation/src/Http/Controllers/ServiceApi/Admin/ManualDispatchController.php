@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Omnichannel\Addons\SocialAutomation\Models\SaTask;
 use Omnichannel\Addons\SocialAutomation\Orchestration\JobOrchestrator;
+use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationSchema;
 
 /**
@@ -36,6 +37,9 @@ final class ManualDispatchController extends Controller
         $target = $request->filled('target_count') ? (int) $request->input('target_count') : null;
         $result = $this->orchestrator->manualDispatch($task, $target);
 
-        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+        return response()->json($result, SocialAutomationApiStatus::fromResult(
+            (bool) ($result['ok'] ?? false),
+            $result['errors'] ?? []
+        ));
     }
 }

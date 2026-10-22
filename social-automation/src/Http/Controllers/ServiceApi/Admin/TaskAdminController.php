@@ -17,7 +17,7 @@ final class TaskAdminController extends Controller
     public function index(): JsonResponse
     {
         if (! SocialAutomationSchema::jobsReady()) {
-            return response()->json(['ok' => true, 'tasks' => [], 'pending' => 'PENDING DB MIGRATION']);
+            return response()->json(['ok' => true, 'tasks' => [], 'pending' => 'PENDING SCHEMA / CONNECTION']);
         }
 
         $tasks = SaTask::query()->orderByDesc('id')->limit(100)->get()->map(static fn (SaTask $t): array => [
@@ -36,7 +36,7 @@ final class TaskAdminController extends Controller
     public function store(Request $request): JsonResponse
     {
         if (! SocialAutomationSchema::jobsReady()) {
-            return response()->json(['ok' => false, 'errors' => ['schema_unavailable'], 'pending' => 'PENDING DB MIGRATION'], 503);
+            return response()->json(['ok' => false, 'errors' => ['schema_unavailable'], 'pending' => 'PENDING SCHEMA / CONNECTION'], 503);
         }
 
         $name = trim((string) $request->input('name', ''));
@@ -67,7 +67,7 @@ final class TaskAdminController extends Controller
     public function storeSchedule(Request $request): JsonResponse
     {
         if (! SocialAutomationSchema::schedulesReady()) {
-            return response()->json(['ok' => false, 'errors' => ['schema_unavailable'], 'pending' => 'PENDING DB MIGRATION'], 503);
+            return response()->json(['ok' => false, 'errors' => ['schema_unavailable'], 'pending' => 'PENDING SCHEMA / CONNECTION'], 503);
         }
 
         $task = SaTask::query()->where('task_uuid', (string) $request->input('task_uuid'))->first();

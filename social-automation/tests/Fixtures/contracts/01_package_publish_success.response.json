@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "outcome": "created",
+  "http_status": 201,
+  "errors": [],
+  "release": {
+    "package_key": "facebook.group.post",
+    "kind": "widget",
+    "name": "Facebook Group Post",
+    "version": "1.0.0",
+    "schema_version": 1,
+    "status": "published",
+    "idempotent": false,
+    "content_digest": "<sha256 of canonical payload>"
+  }
+}

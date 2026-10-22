@@ -6,10 +6,14 @@ namespace Omnichannel\Addons\SocialAutomation\Orchestration;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SocialAutomation\Domain\AccountLockPolicy;
+use Omnichannel\Addons\SocialAutomation\Domain\AttemptFencePolicy;
 use Omnichannel\Addons\SocialAutomation\Domain\EligibilitySelector;
+use Omnichannel\Addons\SocialAutomation\Domain\JobIdempotencyKey;
 use Omnichannel\Addons\SocialAutomation\Domain\JobStateMachine;
 use Omnichannel\Addons\SocialAutomation\Domain\OnlineStateCalculator;
 use Omnichannel\Addons\SocialAutomation\Domain\SessionLockPolicy;
+use Omnichannel\Addons\SocialAutomation\Enums\AgentAvailability;
 use Omnichannel\Addons\SocialAutomation\Enums\JobStatus;
 use Omnichannel\Addons\SocialAutomation\Models\SaAccount;
 use Omnichannel\Addons\SocialAutomation\Models\SaAgent;
@@ -19,6 +23,7 @@ use Omnichannel\Addons\SocialAutomation\Models\SaJobAttempt;
 use Omnichannel\Addons\SocialAutomation\Models\SaJobEvent;
 use Omnichannel\Addons\SocialAutomation\Models\SaSessionAccount;
 use Omnichannel\Addons\SocialAutomation\Models\SaTask;
+use Omnichannel\Addons\SocialAutomation\Support\JobObservability;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationSchema;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 use Throwable;
@@ -32,6 +37,9 @@ final class JobOrchestrator
         private readonly JobStateMachine $states = new JobStateMachine,
         private readonly SessionLockPolicy $locks = new SessionLockPolicy,
         private readonly OnlineStateCalculator $online = new OnlineStateCalculator,
+        private readonly AccountLockPolicy $accountLocks = new AccountLockPolicy,
+        private readonly AttemptFencePolicy $fence = new AttemptFencePolicy,
+        private readonly JobObservability $observability = new JobObservability,
     ) {}
 
     /**
@@ -44,10 +52,12 @@ final class JobOrchestrator
         }
 
         $target = $targetOverride ?? (int) $task->target_account_count;
-        $selection = $this->selectEligible($task, $target);
 
         try {
-            $jobs = DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($task, $selection): array {
+            // Eligibility + reserve under one transaction so concurrent dispatches
+            // cannot both assign the same account (account row lock inside reserve).
+            return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($task, $target): array {
+                $selection = $this->selectEligible($task, $target);
                 $created = [];
                 foreach ($selection['selected'] as $row) {
                     $job = $this->reserveJob($task, $row, null, 'manual');
@@ -56,22 +66,20 @@ final class JobOrchestrator
                     }
                 }
 
-                return $created;
+                return [
+                    'ok' => true,
+                    'result' => [
+                        'target_count' => $selection['target_count'],
+                        'dispatched_count' => count($created),
+                        'shortfall' => max(0, $selection['target_count'] - count($created)),
+                        'job_uuids' => $created,
+                        'skip_reasons' => $selection['skip_reasons'],
+                    ],
+                ];
             });
         } catch (Throwable) {
             return ['ok' => false, 'errors' => ['dispatch_failed']];
         }
-
-        return [
-            'ok' => true,
-            'result' => [
-                'target_count' => $selection['target_count'],
-                'dispatched_count' => count($jobs),
-                'shortfall' => max(0, $selection['target_count'] - count($jobs)),
-                'job_uuids' => $jobs,
-                'skip_reasons' => $selection['skip_reasons'],
-            ],
-        ];
     }
 
     /**
@@ -83,13 +91,12 @@ final class JobOrchestrator
             return ['ok' => false, 'errors' => ['schema_unavailable']];
         }
 
-        $agent = SaAgent::query()->where('agent_uuid', $agentUuid)->first();
-        if (! $agent instanceof SaAgent) {
+        $agent = $this->authorizedAgent($agentUuid, $credentialId);
+        if ($agent === null) {
             return ['ok' => false, 'errors' => ['agent_not_found']];
         }
-        if ($credentialId !== null && $agent->credential_id !== null
-            && (int) $agent->credential_id !== $credentialId) {
-            return ['ok' => false, 'errors' => ['credential_mismatch']];
+        if ((string) $agent->availability === AgentAvailability::Disabled->value) {
+            return ['ok' => false, 'errors' => ['agent_disabled']];
         }
 
         try {
@@ -103,19 +110,27 @@ final class JobOrchestrator
                 }
 
                 $from = JobStatus::from((string) $job->status);
-                if (! $this->states->canTransition($from, JobStatus::Claimed)) {
-                    // Idempotent reclaim
-                    if ($from === JobStatus::Claimed || $from === JobStatus::Running) {
-                        return ['ok' => true, 'job' => $this->jobArray($job)];
-                    }
 
+                // Idempotent: same active claim returns current fence.
+                if ($from === JobStatus::Claimed || $from === JobStatus::Running) {
+                    $active = $this->activeFence($job);
+
+                    return [
+                        'ok' => true,
+                        'job' => $this->jobArray($job),
+                        'attempt' => $active === null ? null : [
+                            'attempt_uuid' => $active,
+                            'attempt_no' => $this->fenceAttemptNo($job),
+                        ],
+                        'idempotent' => true,
+                    ];
+                }
+
+                if (! $this->states->canTransition($from, JobStatus::Claimed)) {
                     return ['ok' => false, 'errors' => ['invalid_transition']];
                 }
 
-                $this->transition($job, JobStatus::Claimed, 'claim', [
-                    'claimed_at' => now(),
-                    'lease_expires_at' => now()->addSeconds(self::DEFAULT_LEASE_SECONDS),
-                ]);
+                // Capacity was enforced at reserve time; claim only advances the existing reservation.
 
                 $attemptNo = (int) SaJobAttempt::query()->where('job_id', $job->id)->max('attempt_no') + 1;
                 $attempt = SaJobAttempt::query()->create([
@@ -125,6 +140,11 @@ final class JobOrchestrator
                     'status' => 'started',
                     'started_at' => now(),
                 ]);
+
+                $this->transition($job, JobStatus::Claimed, 'claim', [
+                    'claimed_at' => now(),
+                    'lease_expires_at' => now()->addSeconds(self::DEFAULT_LEASE_SECONDS),
+                ], releaseLock: false, fenceAttemptUuid: (string) $attempt->attempt_uuid, fenceAttemptNo: (int) $attempt->attempt_no);
 
                 return [
                     'ok' => true,
@@ -149,7 +169,7 @@ final class JobOrchestrator
         return $this->advance($agentUuid, $jobUuid, JobStatus::Running, 'ack', $payload, $credentialId, [
             'started_at' => now(),
             'lease_expires_at' => now()->addSeconds(self::DEFAULT_LEASE_SECONDS),
-        ]);
+        ], requireFence: true);
     }
 
     /**
@@ -162,28 +182,43 @@ final class JobOrchestrator
             return ['ok' => false, 'errors' => ['schema_unavailable']];
         }
 
-        $job = $this->authorizedJob($agentUuid, $jobUuid, $credentialId);
-        if ($job === null) {
-            return ['ok' => false, 'errors' => ['job_not_found_or_forbidden']];
+        try {
+            return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($agentUuid, $jobUuid, $payload, $credentialId): array {
+                $job = $this->authorizedJob($agentUuid, $jobUuid, $credentialId, forUpdate: true);
+                if ($job === null) {
+                    return ['ok' => false, 'errors' => ['job_not_found_or_forbidden']];
+                }
+
+                $fenceCheck = $this->fence->validate(
+                    isset($payload['attempt_uuid']) ? (string) $payload['attempt_uuid'] : null,
+                    $this->activeFence($job),
+                );
+                if (! ($fenceCheck['ok'] ?? false)) {
+                    return ['ok' => false, 'errors' => [$fenceCheck['error'] ?? AttemptFencePolicy::ERR_MISMATCH]];
+                }
+
+                SaJobEvent::query()->create([
+                    'job_id' => $job->id,
+                    'event_type' => 'progress',
+                    'from_status' => $job->status,
+                    'to_status' => $job->status,
+                    'payload' => $this->observability->redactArray([
+                        'message' => isset($payload['message']) ? substr((string) $payload['message'], 0, 500) : null,
+                        'percent' => $payload['percent'] ?? null,
+                        'step' => $payload['step'] ?? null,
+                        'attempt_uuid' => $payload['attempt_uuid'] ?? null,
+                    ]),
+                    'occurred_at' => now(),
+                ]);
+
+                $job->lease_expires_at = now()->addSeconds(self::DEFAULT_LEASE_SECONDS);
+                $job->save();
+
+                return ['ok' => true, 'job' => $this->jobArray($job)];
+            });
+        } catch (Throwable) {
+            return ['ok' => false, 'errors' => ['progress_failed']];
         }
-
-        SaJobEvent::query()->create([
-            'job_id' => $job->id,
-            'event_type' => 'progress',
-            'from_status' => $job->status,
-            'to_status' => $job->status,
-            'payload' => [
-                'message' => isset($payload['message']) ? substr((string) $payload['message'], 0, 500) : null,
-                'percent' => $payload['percent'] ?? null,
-                'step' => $payload['step'] ?? null,
-            ],
-            'occurred_at' => now(),
-        ]);
-
-        $job->lease_expires_at = now()->addSeconds(self::DEFAULT_LEASE_SECONDS);
-        $job->save();
-
-        return ['ok' => true, 'job' => $this->jobArray($job)];
     }
 
     /**
@@ -199,15 +234,17 @@ final class JobOrchestrator
         };
 
         return $this->advance($agentUuid, $jobUuid, $status, 'result', $payload, $credentialId, [
-            'result' => is_array($payload['result'] ?? null) ? $payload['result'] : null,
+            'result' => is_array($payload['result'] ?? null)
+                ? $this->observability->redactArray($payload['result'])
+                : null,
             'error_code' => $payload['error_code'] ?? null,
             'error_message' => isset($payload['error_message']) ? substr((string) $payload['error_message'], 0, 2000) : null,
             'finished_at' => now(),
-        ], releaseLock: true);
+        ], releaseLock: true, requireFence: true);
     }
 
     /**
-     * Lease reconciliation — never blind-retry publish side effects.
+     * Lease reconciliation — never blind-retry social side effects.
      *
      * @return array{reconciled: int}
      */
@@ -230,13 +267,37 @@ final class JobOrchestrator
             ->get();
 
         foreach ($jobs as $job) {
-            $from = JobStatus::from((string) $job->status);
-            $to = $this->states->onLeaseExpired($from);
-            if ($to === null) {
+            try {
+                DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($job, &$count): void {
+                    $locked = SaJob::query()->where('id', $job->id)->lockForUpdate()->first();
+                    if (! $locked instanceof SaJob) {
+                        return;
+                    }
+                    if ($locked->lease_expires_at === null || $locked->lease_expires_at->isFuture()) {
+                        return;
+                    }
+                    $from = JobStatus::from((string) $locked->status);
+                    $to = $this->states->onLeaseExpired($from);
+                    if ($to === null) {
+                        return;
+                    }
+
+                    $this->markActiveAttemptStale($locked);
+                    // Unknown keeps session/account lock (uncertain outcome — no auto re-dispatch).
+                    // Pending (never claimed) releases locks so another dispatch may use the account.
+                    $this->transition(
+                        $locked,
+                        $to,
+                        'lease_expired',
+                        [],
+                        releaseLock: $to !== JobStatus::Unknown,
+                        clearFence: true,
+                    );
+                    $count++;
+                });
+            } catch (Throwable) {
                 continue;
             }
-            $this->transition($job, $to, 'lease_expired', [], releaseLock: $to !== JobStatus::Unknown);
-            $count++;
         }
 
         return ['reconciled' => $count];
@@ -257,6 +318,62 @@ final class JobOrchestrator
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function jobTimeline(string $jobUuid): ?array
+    {
+        if (! SocialAutomationSchema::jobsReady()) {
+            return null;
+        }
+        $job = SaJob::query()->where('job_uuid', $jobUuid)->first();
+        if (! $job instanceof SaJob) {
+            return null;
+        }
+        $attempts = SaJobAttempt::query()->where('job_id', $job->id)->orderBy('attempt_no')->get()
+            ->map(static fn (SaJobAttempt $a): array => [
+                'attempt_uuid' => (string) $a->attempt_uuid,
+                'attempt_no' => (int) $a->attempt_no,
+                'status' => (string) $a->status,
+                'started_at' => $a->started_at?->toIso8601String(),
+                'finished_at' => $a->finished_at?->toIso8601String(),
+                'error_code' => $a->error_code,
+            ])->all();
+        $events = SaJobEvent::query()->where('job_id', $job->id)->orderBy('occurred_at')->get()
+            ->map(static fn (SaJobEvent $e): array => [
+                'event_type' => (string) $e->event_type,
+                'from_status' => $e->from_status,
+                'to_status' => $e->to_status,
+                'occurred_at' => $e->occurred_at?->toIso8601String(),
+                'payload' => is_array($e->payload) ? $e->payload : [],
+            ])->all();
+        $account = null;
+        if ($job->account_id) {
+            $acc = SaAccount::query()->find($job->account_id);
+            if ($acc instanceof SaAccount) {
+                $account = [
+                    'account_uuid' => $acc->account_uuid,
+                    'platform' => $acc->platform,
+                    'platform_account_id' => $acc->platform_account_id,
+                    'verified' => (bool) $acc->verified,
+                ];
+            }
+        }
+        $agent = null;
+        if ($job->agent_id) {
+            $ag = SaAgent::query()->find($job->agent_id);
+            if ($ag instanceof SaAgent) {
+                $agent = [
+                    'agent_uuid' => $ag->agent_uuid,
+                    'device_id' => $ag->device_id,
+                    'runtime_version' => $ag->runtime_version,
+                ];
+            }
+        }
+
+        return $this->observability->build($this->jobArray($job), $attempts, $events, $account, $agent);
+    }
+
+    /**
      * @return array{selected: list<array<string, mixed>>, target_count: int, skip_reasons: list<string>}
      */
     public function selectEligible(SaTask $task, int $target): array
@@ -273,6 +390,12 @@ final class JobOrchestrator
             ];
         })->all();
 
+        $busyAccountIds = SaJob::query()
+            ->whereIn('status', AccountLockPolicy::ACTIVE_STATUSES)
+            ->whereNotNull('account_id')
+            ->pluck('account_id')
+            ->all();
+
         $sessions = [];
         foreach (SaBrowserSession::query()->get() as $session) {
             $activeBind = SaSessionAccount::query()
@@ -280,6 +403,7 @@ final class JobOrchestrator
                 ->where('is_active', true)
                 ->first();
             $accountMeta = null;
+            $accountId = $activeBind?->account_id;
             if ($activeBind instanceof SaSessionAccount) {
                 $account = SaAccount::query()->find($activeBind->account_id);
                 if ($account instanceof SaAccount) {
@@ -301,11 +425,13 @@ final class JobOrchestrator
                 'agent_id' => $session->agent_id,
                 'ready_status' => $session->ready_status,
                 'busy' => $busy,
+                'account_locked' => $accountId !== null
+                    && $this->accountLocks->isAccountBusy($accountId, $busyAccountIds),
                 'platform' => $session->platform,
                 'domain' => $session->domain,
                 'account' => $accountMeta,
                 'capabilities' => is_array($session->capabilities) ? $session->capabilities : [],
-                'account_id' => $activeBind?->account_id,
+                'account_id' => $accountId,
             ];
         }
 
@@ -339,21 +465,61 @@ final class JobOrchestrator
             return null;
         }
 
-        $agentJobs = SaJob::query()
-            ->where('agent_id', $session->agent_id)
-            ->whereIn('status', ['reserved', 'claimed', 'running', 'unknown'])
-            ->get(['status'])->map(fn (SaJob $j): array => ['status' => $j->status])->all();
-        if ($this->locks->agentHasActiveJob($agentJobs)) {
+        $agent = SaAgent::query()->lockForUpdate()->find($session->agent_id);
+        if (! $agent instanceof SaAgent) {
+            return null;
+        }
+        if (in_array((string) $agent->availability, [
+            AgentAvailability::Disabled->value,
+            AgentAvailability::Paused->value,
+            AgentAvailability::Error->value,
+        ], true)) {
             return null;
         }
 
-        $idem = hash('sha256', implode('|', [
-            $task->task_uuid,
-            (string) ($sessionRow['session_id'] ?? ''),
-            (string) ($triggerId ?? 'manual'),
-            (string) microtime(true),
-            (string) Str::uuid(),
-        ]));
+        $agentJobs = SaJob::query()
+            ->where('agent_id', $session->agent_id)
+            ->whereIn('status', AccountLockPolicy::ACTIVE_STATUSES)
+            ->get(['status'])->map(fn (SaJob $j): array => ['status' => $j->status])->all();
+        if (! $this->locks->agentHasCapacity($agentJobs, (int) $agent->max_concurrency)) {
+            return null;
+        }
+
+        $accountId = $sessionRow['account_id'] ?? null;
+        if ($accountId === null || (int) $accountId <= 0) {
+            return null;
+        }
+
+        // Atomic account exclusivity: lock account row then re-check active jobs.
+        $account = SaAccount::query()->lockForUpdate()->find($accountId);
+        if (! $account instanceof SaAccount) {
+            return null;
+        }
+        $accountJobs = SaJob::query()
+            ->where('account_id', $accountId)
+            ->whereIn('status', AccountLockPolicy::ACTIVE_STATUSES)
+            ->lockForUpdate()
+            ->get(['id', 'status'])
+            ->map(static fn (SaJob $j): array => [
+                'job_id' => $j->id,
+                'status' => $j->status,
+                'account_id' => $accountId,
+            ])->all();
+        if (! $this->accountLocks->canAssign($accountId, $accountJobs)) {
+            return null;
+        }
+
+        $idem = JobIdempotencyKey::forDispatch(
+            (string) $task->task_uuid,
+            (string) ($sessionRow['session_id'] ?? $session->id),
+            $triggerId,
+            $accountId,
+        );
+
+        $existing = SaJob::query()->where('idempotency_key', $idem)->lockForUpdate()->first();
+        if ($existing instanceof SaJob) {
+            return $existing;
+        }
 
         $job = SaJob::query()->create([
             'job_uuid' => (string) Str::uuid(),
@@ -361,7 +527,7 @@ final class JobOrchestrator
             'schedule_trigger_id' => $triggerId,
             'agent_id' => $session->agent_id,
             'browser_session_id' => $session->id,
-            'account_id' => $sessionRow['account_id'] ?? null,
+            'account_id' => $accountId,
             'package_key' => $task->package_key,
             'package_version' => $task->package_version,
             'content_digest' => $task->content_digest,
@@ -382,12 +548,11 @@ final class JobOrchestrator
             'lock_expires_at' => now()->addSeconds(self::DEFAULT_LEASE_SECONDS),
         ])->save();
 
-        $agent = SaAgent::query()->find($session->agent_id);
-        if ($agent instanceof SaAgent) {
-            $agent->active_jobs = (int) $agent->active_jobs + 1;
-            $agent->availability = 'busy';
-            $agent->save();
+        $agent->active_jobs = (int) $agent->active_jobs + 1;
+        if ((int) $agent->active_jobs >= max(1, (int) $agent->max_concurrency)) {
+            $agent->availability = AgentAvailability::Busy->value;
         }
+        $agent->save();
 
         $this->recordEvent($job, null, JobStatus::Reserved->value, 'reserve');
 
@@ -397,7 +562,7 @@ final class JobOrchestrator
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $attrs
-     * @return array{ok: bool, job?: array<string, mixed>, errors?: list<string>}
+     * @return array{ok: bool, job?: array<string, mixed>, errors?: list<string>, idempotent?: bool}
      */
     private function advance(
         string $agentUuid,
@@ -408,22 +573,42 @@ final class JobOrchestrator
         ?int $credentialId,
         array $attrs = [],
         bool $releaseLock = false,
+        bool $requireFence = false,
     ): array {
         if (! SocialAutomationSchema::jobsReady()) {
             return ['ok' => false, 'errors' => ['schema_unavailable']];
         }
 
         try {
-            return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($agentUuid, $jobUuid, $to, $event, $credentialId, $attrs, $releaseLock): array {
+            return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use (
+                $agentUuid, $jobUuid, $to, $event, $payload, $credentialId, $attrs, $releaseLock, $requireFence
+            ): array {
                 $job = $this->authorizedJob($agentUuid, $jobUuid, $credentialId, forUpdate: true);
                 if ($job === null) {
                     return ['ok' => false, 'errors' => ['job_not_found_or_forbidden']];
                 }
+
+                $presented = isset($payload['attempt_uuid']) ? (string) $payload['attempt_uuid'] : null;
+                if ($requireFence) {
+                    if ($this->fence->isDuplicateTerminal($presented, $this->activeFence($job), (string) $job->status)) {
+                        return ['ok' => true, 'job' => $this->jobArray($job), 'idempotent' => true];
+                    }
+                    $fenceCheck = $this->fence->validate($presented, $this->activeFence($job));
+                    if (! ($fenceCheck['ok'] ?? false)) {
+                        return ['ok' => false, 'errors' => [$fenceCheck['error'] ?? AttemptFencePolicy::ERR_MISMATCH]];
+                    }
+                }
+
                 $from = JobStatus::from((string) $job->status);
                 if (! $this->states->canTransition($from, $to)) {
                     return ['ok' => false, 'errors' => ['invalid_transition']];
                 }
+
                 $this->transition($job, $to, $event, $attrs, $releaseLock);
+
+                if ($to->isTerminal() || $to === JobStatus::HumanRequired) {
+                    $this->finishActiveAttempt($job, $to, $payload);
+                }
 
                 return ['ok' => true, 'job' => $this->jobArray($job->fresh() ?? $job)];
             });
@@ -441,10 +626,19 @@ final class JobOrchestrator
         string $event,
         array $attrs = [],
         bool $releaseLock = false,
+        ?string $fenceAttemptUuid = null,
+        ?int $fenceAttemptNo = null,
+        bool $clearFence = false,
     ): void {
         $from = (string) $job->status;
         foreach ($attrs as $k => $v) {
             $job->{$k} = $v;
+        }
+        if ($fenceAttemptUuid !== null) {
+            $this->writeFence($job, $fenceAttemptUuid, $fenceAttemptNo ?? 1);
+        }
+        if ($clearFence) {
+            $this->writeFence($job, null, null);
         }
         if ($to->isTerminal() && $job->started_at && $job->finished_at) {
             $job->duration_ms = max(0, ((int) $job->finished_at->getTimestamp() - (int) $job->started_at->getTimestamp()) * 1000);
@@ -461,7 +655,7 @@ final class JobOrchestrator
     private function releaseSession(SaJob $job): void
     {
         if ($job->browser_session_id) {
-            $session = SaBrowserSession::query()->find($job->browser_session_id);
+            $session = SaBrowserSession::query()->lockForUpdate()->find($job->browser_session_id);
             if ($session instanceof SaBrowserSession && (int) $session->locked_job_id === (int) $job->id) {
                 $session->fill([
                     'locked_job_id' => null,
@@ -471,15 +665,29 @@ final class JobOrchestrator
             }
         }
         if ($job->agent_id) {
-            $agent = SaAgent::query()->find($job->agent_id);
+            $agent = SaAgent::query()->lockForUpdate()->find($job->agent_id);
             if ($agent instanceof SaAgent) {
                 $agent->active_jobs = max(0, (int) $agent->active_jobs - 1);
-                if ($agent->active_jobs === 0 && $agent->availability === 'busy') {
-                    $agent->availability = 'available';
+                if ($agent->active_jobs === 0 && $agent->availability === AgentAvailability::Busy->value) {
+                    $agent->availability = AgentAvailability::Available->value;
                 }
                 $agent->save();
             }
         }
+    }
+
+    private function authorizedAgent(string $agentUuid, ?int $credentialId): ?SaAgent
+    {
+        $agent = SaAgent::query()->where('agent_uuid', $agentUuid)->first();
+        if (! $agent instanceof SaAgent) {
+            return null;
+        }
+        if ($credentialId !== null && $agent->credential_id !== null
+            && (int) $agent->credential_id !== $credentialId) {
+            return null;
+        }
+
+        return $agent;
     }
 
     private function authorizedJob(
@@ -488,13 +696,13 @@ final class JobOrchestrator
         ?int $credentialId,
         bool $forUpdate = false,
     ): ?SaJob {
-        $agent = SaAgent::query()->where('agent_uuid', $agentUuid)->first();
-        if (! $agent instanceof SaAgent) {
+        $agent = $this->authorizedAgent($agentUuid, $credentialId);
+        if ($agent === null) {
             return null;
         }
-        if ($credentialId !== null && $agent->credential_id !== null
-            && (int) $agent->credential_id !== $credentialId) {
-            return null;
+        if ((string) $agent->availability === AgentAvailability::Disabled->value) {
+            // Disabled agents may still finish an in-flight fenced attempt (no new claim).
+            // Ownership check continues; claim() separately rejects new claims.
         }
         $q = SaJob::query()->where('job_uuid', $jobUuid)->where('agent_id', $agent->id);
         if ($forUpdate) {
@@ -517,21 +725,103 @@ final class JobOrchestrator
         ]);
     }
 
+    private function activeFence(SaJob $job): ?string
+    {
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $uuid = $payload['_fence']['attempt_uuid'] ?? null;
+
+        return is_string($uuid) && $uuid !== '' ? $uuid : null;
+    }
+
+    private function fenceAttemptNo(SaJob $job): int
+    {
+        $payload = is_array($job->payload) ? $job->payload : [];
+
+        return max(1, (int) ($payload['_fence']['attempt_no'] ?? 1));
+    }
+
+    private function writeFence(SaJob $job, ?string $attemptUuid, ?int $attemptNo): void
+    {
+        $payload = is_array($job->payload) ? $job->payload : [];
+        if ($attemptUuid === null) {
+            unset($payload['_fence']);
+        } else {
+            $payload['_fence'] = [
+                'attempt_uuid' => $attemptUuid,
+                'attempt_no' => $attemptNo ?? 1,
+            ];
+        }
+        $job->payload = $payload;
+    }
+
+    private function markActiveAttemptStale(SaJob $job): void
+    {
+        $uuid = $this->activeFence($job);
+        if ($uuid === null) {
+            return;
+        }
+        SaJobAttempt::query()
+            ->where('job_id', $job->id)
+            ->where('attempt_uuid', $uuid)
+            ->where('status', 'started')
+            ->update([
+                'status' => 'stale',
+                'finished_at' => now(),
+                'error_code' => 'lease_expired',
+            ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function finishActiveAttempt(SaJob $job, JobStatus $to, array $payload): void
+    {
+        $uuid = $this->activeFence($job);
+        if ($uuid === null) {
+            return;
+        }
+        $attempt = SaJobAttempt::query()
+            ->where('job_id', $job->id)
+            ->where('attempt_uuid', $uuid)
+            ->first();
+        if (! $attempt instanceof SaJobAttempt) {
+            return;
+        }
+        $attempt->fill([
+            'status' => $to->value,
+            'finished_at' => now(),
+            'result' => is_array($payload['result'] ?? null) ? $this->observability->redactArray($payload['result']) : null,
+            'error_code' => $payload['error_code'] ?? null,
+        ])->save();
+    }
+
     /**
      * @return array<string, mixed>
      */
     private function jobArray(SaJob $job): array
     {
+        $payload = is_array($job->payload) ? $job->payload : [];
+        $publicPayload = $payload;
+        // Expose fence attempt_uuid to the owning Runner; strip nothing else sensitive here.
         return [
             'job_uuid' => $job->job_uuid,
             'task_id' => $job->task_id,
             'status' => $job->status,
             'package_key' => $job->package_key,
             'package_version' => $job->package_version,
+            'content_digest' => $job->content_digest,
+            'account_id' => $job->account_id,
             'dispatch_source' => $job->dispatch_source,
+            'attempt_uuid' => $publicPayload['_fence']['attempt_uuid'] ?? null,
+            'reserved_at' => $job->reserved_at?->toIso8601String(),
+            'claimed_at' => $job->claimed_at?->toIso8601String(),
+            'started_at' => $job->started_at?->toIso8601String(),
+            'finished_at' => $job->finished_at?->toIso8601String(),
             'lease_expires_at' => $job->lease_expires_at?->toIso8601String(),
+            'duration_ms' => $job->duration_ms,
             'error_code' => $job->error_code,
-            'payload' => $job->payload,
+            'error_message' => $job->error_message,
+            'payload' => $this->observability->redactArray($publicPayload),
             'result' => $job->result,
         ];
     }

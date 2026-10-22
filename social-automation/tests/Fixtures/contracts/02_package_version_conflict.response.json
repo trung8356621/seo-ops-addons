@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "outcome": "conflict",
+  "http_status": 409,
+  "errors": ["version_digest_conflict"],
+  "release": null,
+  "existing_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "note": "Same package_key+version already published with a different content_digest. Releases are immutable."
+}

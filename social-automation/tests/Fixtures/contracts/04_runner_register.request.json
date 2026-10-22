@@ -1,0 +1,15 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/register",
+  "scope": "social-automation:runner:agent",
+  "auth": "Bearer <service_api_credential> — never service_key",
+  "body": {
+    "device_id": "rental-host-01",
+    "display_name": "Rack A / Slot 1",
+    "app_version": "0.9.0",
+    "runtime_version": "1.2.0",
+    "max_concurrency": 3,
+    "capabilities": ["facebook", "chromium"]
+  }
+}

@@ -83,6 +83,7 @@ final class ScheduleDispatcher
                     ]);
                 }
 
+                // Select + reserve inside this transaction (account row locks in reserveJob).
                 $selection = $this->orchestrator->selectEligible($task, $target);
                 $created = 0;
                 $trigger = SaScheduleTrigger::query()->create([
@@ -121,6 +122,12 @@ final class ScheduleDispatcher
                 return $trigger->fresh() ?? $trigger;
             });
         } catch (Throwable) {
+            // Concurrent ticks racing the unique idempotency_key — treat as idempotent win.
+            $race = SaScheduleTrigger::query()->where('idempotency_key', $idem)->first();
+            if ($race instanceof SaScheduleTrigger) {
+                return ['ok' => true, 'trigger' => $this->triggerArray($race)];
+            }
+
             return ['ok' => false, 'errors' => ['trigger_failed']];
         }
 

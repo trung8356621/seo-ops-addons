@@ -1,0 +1,44 @@
+{
+  "provisional": true,
+  "provisional_fields": ["session_uuid shape", "capabilities list", "confirmed boolean"],
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/agents/{agentUuid}/sessions/sync",
+  "scope": "social-automation:runner:session",
+  "body": {
+    "sessions": [
+      {
+        "session_uuid": "11111111-1111-1111-1111-111111111111",
+        "platform": "facebook",
+        "domain": "facebook.com",
+        "ready_status": "ready",
+        "confirmed": true,
+        "capabilities": ["facebook"],
+        "accounts": [
+          {
+            "platform": "facebook",
+            "domain": "facebook.com",
+            "platform_account_id": "100012345",
+            "identity_source": "platform_id",
+            "verified": true,
+            "label": "Page A",
+            "is_active": true
+          },
+          {
+            "platform": "facebook",
+            "domain": "facebook.com",
+            "platform_account_id": "100067890",
+            "identity_source": "platform_id",
+            "verified": true,
+            "label": "Page B",
+            "is_active": false
+          }
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "Never send cookies, passwords, or browser profile paths.",
+    "ready_status is operator readiness, not verified login by itself.",
+    "Only verified platform_account_id identities are eligible for dispatch."
+  ]
+}

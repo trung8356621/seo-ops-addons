@@ -19,6 +19,7 @@ final class PackageRegistryService
 {
     public function __construct(
         private readonly PackagePublishValidator $validator,
+        private readonly PackageDependencyValidator $dependencyValidator = new PackageDependencyValidator,
     ) {}
 
     /**
@@ -85,6 +86,14 @@ final class PackageRegistryService
                         PackagePublishResult::OUTCOME_CONFLICT,
                         errors: ['version_digest_conflict'],
                         existingDigest: (string) $existing->content_digest,
+                    );
+                }
+
+                $depCheck = $this->validatePublishedDependencies($data['dependencies']);
+                if (! ($depCheck['ok'] ?? false)) {
+                    return new PackagePublishResult(
+                        PackagePublishResult::OUTCOME_VALIDATION,
+                        errors: $depCheck['errors'] ?? ['dependencies_unresolved'],
                     );
                 }
 
@@ -210,6 +219,41 @@ final class PackageRegistryService
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * @param  list<array{package_key: string, version: string, content_digest: string}>  $dependencies
+     * @return array{ok: bool, errors: list<string>}
+     */
+    private function validatePublishedDependencies(array $dependencies): array
+    {
+        if ($dependencies === []) {
+            return ['ok' => true, 'errors' => []];
+        }
+
+        $catalog = [];
+        foreach ($dependencies as $dep) {
+            $pkg = SaPackage::query()->where('package_key', $dep['package_key'])->first();
+            if (! $pkg instanceof SaPackage) {
+                continue;
+            }
+            $release = SaPackageRelease::query()
+                ->where('package_id', $pkg->id)
+                ->where('version', $dep['version'])
+                ->where('status', 'published')
+                ->first();
+            if (! $release instanceof SaPackageRelease) {
+                continue;
+            }
+            $catalog[] = [
+                'package_key' => (string) $pkg->package_key,
+                'version' => (string) $release->version,
+                'content_digest' => (string) $release->content_digest,
+                'status' => (string) $release->status,
+            ];
+        }
+
+        return $this->dependencyValidator->validate($dependencies, $catalog);
     }
 
     /**

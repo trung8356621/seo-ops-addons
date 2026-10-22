@@ -1,0 +1,13 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/agents/{agentUuid}/heartbeat",
+  "scope": "social-automation:runner:agent",
+  "body": {
+    "availability": "available",
+    "app_version": "0.9.0",
+    "runtime_version": "1.2.0",
+    "active_jobs": 0,
+    "capabilities": ["facebook", "chromium"]
+  }
+}

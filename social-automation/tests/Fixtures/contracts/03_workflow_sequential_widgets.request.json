@@ -1,0 +1,43 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/packages/publish",
+  "scope": "social-automation:package:publish",
+  "body": {
+    "package_key": "facebook.group.post_then_comment",
+    "kind": "workflow",
+    "name": "Post then first comment",
+    "version": "1.0.0",
+    "schema_version": 1,
+    "manifest": {
+      "steps": [
+        {
+          "widget_key": "facebook.group.post",
+          "input": { "text": "hello" }
+        },
+        {
+          "widget_key": "facebook.group.comment",
+          "output_bindings": { "url": "facebook.group.post.post_url" }
+        }
+      ]
+    },
+    "dependencies": [
+      {
+        "package_key": "facebook.group.post",
+        "version": "1.0.0",
+        "content_digest": "abababababababababababababababababababababababababababababababab"
+      },
+      {
+        "package_key": "facebook.group.comment",
+        "version": "1.0.0",
+        "content_digest": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+    ],
+    "runtime_compatibility": { "runner_min": "1.0.0" }
+  },
+  "notes": [
+    "Workflow steps run sequentially on one selected account/session.",
+    "No account_switch / change_account fields are allowed.",
+    "Packaging post+comment as one widget vs two widgets is Admin choice."
+  ]
+}

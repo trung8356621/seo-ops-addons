@@ -1,0 +1,18 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/runner/agents/{agentUuid}/jobs/{jobUuid}/result",
+  "scope": "social-automation:runner:job",
+  "body": {
+    "attempt_uuid": "44444444-4444-4444-4444-444444444444",
+    "status": "completed",
+    "result": {
+      "post_url": "https://facebook.com/groups/x/posts/1"
+    }
+  },
+  "artifact_followup": {
+    "kind": "screenshot",
+    "outcome": "success",
+    "metadata": { "phase": "final" }
+  }
+}

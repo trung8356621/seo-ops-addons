@@ -60,21 +60,55 @@ final class DomainPoliciesTest extends TestCase
     public function test_eligibility_respects_offline_and_shortfall(): void
     {
         $sel = new EligibilitySelector;
+        $strong = static fn (string $id): array => [
+            'platform' => 'facebook',
+            'platform_account_id' => $id,
+            'verified' => true,
+            'identity_source' => 'platform_id',
+        ];
         $result = $sel->select(
             [
                 ['agent_id' => 1, 'online' => false, 'availability' => 'available', 'active_jobs' => 0, 'max_concurrency' => 1],
                 ['agent_id' => 2, 'online' => true, 'availability' => 'available', 'active_jobs' => 0, 'max_concurrency' => 1, 'runtime_version' => '1.2.0'],
             ],
             [
-                ['session_id' => 10, 'agent_id' => 1, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook'],
-                ['session_id' => 20, 'agent_id' => 2, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook'],
-                ['session_id' => 21, 'agent_id' => 2, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook'],
+                ['session_id' => 10, 'agent_id' => 1, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook', 'account' => $strong('a')],
+                ['session_id' => 20, 'agent_id' => 2, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook', 'account' => $strong('b')],
+                ['session_id' => 21, 'agent_id' => 2, 'ready_status' => 'ready', 'busy' => false, 'platform' => 'facebook', 'account' => $strong('c')],
             ],
             ['platform' => 'facebook', 'target_count' => 10, 'runtime_min' => '1.0.0']
         );
+        // Agent 2 max_concurrency=1 → only one of sessions 20/21; agent 1 offline.
         self::assertSame(1, $result['dispatched_count']);
         self::assertSame(9, $result['shortfall']);
         self::assertContains('agent_offline', $result['skip_reasons']);
+    }
+
+    public function test_eligibility_skips_incomplete_identity(): void
+    {
+        $sel = new EligibilitySelector;
+        $result = $sel->select(
+            [['agent_id' => 1, 'online' => true, 'availability' => 'available', 'active_jobs' => 0, 'max_concurrency' => 5]],
+            [[
+                'session_id' => 1,
+                'agent_id' => 1,
+                'ready_status' => 'ready',
+                'busy' => false,
+                'platform' => 'facebook',
+                'account' => ['platform' => 'facebook', 'declared_email' => 'a@b.com', 'verified' => false],
+            ]],
+            ['platform' => 'facebook', 'target_count' => 1]
+        );
+        self::assertSame(0, $result['dispatched_count']);
+        self::assertContains('identity_incomplete', $result['skip_reasons']);
+    }
+
+    public function test_session_lock_respects_capacity(): void
+    {
+        $p = new SessionLockPolicy;
+        self::assertTrue($p->agentHasCapacity([['status' => 'running']], 2));
+        self::assertFalse($p->agentHasCapacity([['status' => 'running'], ['status' => 'claimed']], 2));
+        self::assertSame(2, $p->countActiveJobs([['status' => 'running'], ['status' => 'unknown'], ['status' => 'completed']]));
     }
 
     public function test_job_state_machine_and_lease(): void
@@ -84,6 +118,9 @@ final class DomainPoliciesTest extends TestCase
         self::assertFalse($sm->canTransition(JobStatus::Completed, JobStatus::Running));
         self::assertSame(JobStatus::Unknown, $sm->onLeaseExpired(JobStatus::Running));
         self::assertSame(JobStatus::Pending, $sm->onLeaseExpired(JobStatus::Reserved));
+        self::assertTrue($sm->canTransition(JobStatus::Unknown, JobStatus::Claimed));
+        self::assertFalse($sm->canTransition(JobStatus::Unknown, JobStatus::Completed));
+        self::assertTrue($sm->canTransition(JobStatus::Unknown, JobStatus::HumanRequired));
     }
 
     public function test_session_lock_and_agent_active(): void
