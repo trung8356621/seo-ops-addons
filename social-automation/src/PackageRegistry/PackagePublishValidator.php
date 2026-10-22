@@ -227,32 +227,32 @@ final class PackagePublishValidator
         }
 
         $video = $manifest['video_demo'] ?? null;
-        if ($video !== null) {
-            if (! is_array($video)) {
-                $errors[] = 'script_video_demo_invalid';
-            } else {
-                $ref = trim((string) ($video['artifact_ref'] ?? $video['path'] ?? ''));
-                $sha = strtolower(trim((string) ($video['sha256'] ?? '')));
-                $mime = strtolower(trim((string) ($video['mime'] ?? 'video/webm')));
-                $testRunId = trim((string) ($video['test_run_id'] ?? ''));
-                if ($ref === '') {
-                    $errors[] = 'script_video_demo_ref_required';
-                }
-                if ($sha !== '' && ! PackageDigest::isValidHex($sha)) {
-                    $errors[] = 'script_video_demo_digest_invalid';
-                }
-                if (! in_array($mime, ['video/webm', 'video/mp4'], true)) {
-                    $errors[] = 'script_video_demo_mime_invalid';
-                }
-                if ($testRunId === '') {
-                    $errors[] = 'script_video_demo_test_run_required';
-                }
-                if (array_key_exists('audio', $video) && $video['audio'] === true) {
-                    $errors[] = 'script_video_demo_audio_forbidden';
-                }
-                if (array_key_exists('desktop_capture', $video) && $video['desktop_capture'] === true) {
-                    $errors[] = 'script_video_demo_desktop_forbidden';
-                }
+        if ($video === null) {
+            $errors[] = 'script_video_demo_required';
+        } elseif (! is_array($video)) {
+            $errors[] = 'script_video_demo_invalid';
+        } else {
+            $ref = trim((string) ($video['artifact_ref'] ?? $video['path'] ?? ''));
+            $sha = strtolower(trim((string) ($video['sha256'] ?? '')));
+            $mime = strtolower(trim((string) ($video['mime'] ?? 'video/webm')));
+            $testRunId = trim((string) ($video['test_run_id'] ?? ''));
+            if ($ref === '') {
+                $errors[] = 'script_video_demo_ref_required';
+            }
+            if ($sha !== '' && ! PackageDigest::isValidHex($sha)) {
+                $errors[] = 'script_video_demo_digest_invalid';
+            }
+            if (! in_array($mime, ['video/webm', 'video/mp4'], true)) {
+                $errors[] = 'script_video_demo_mime_invalid';
+            }
+            if ($testRunId === '') {
+                $errors[] = 'script_video_demo_test_run_required';
+            }
+            if (array_key_exists('audio', $video) && $video['audio'] === true) {
+                $errors[] = 'script_video_demo_audio_forbidden';
+            }
+            if (array_key_exists('desktop_capture', $video) && $video['desktop_capture'] === true) {
+                $errors[] = 'script_video_demo_desktop_forbidden';
             }
         }
 

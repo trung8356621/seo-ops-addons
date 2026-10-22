@@ -44,6 +44,6 @@
   "notes": [
     "Script is independent of widget/workflow kinds.",
     "Top-level manifest.script remains forbidden (executable).",
-    "Video demo is optional on draft; official release may require it later."
+    "Video demo is required for Script publish (RPA Admin + service API)."
   ]
 }

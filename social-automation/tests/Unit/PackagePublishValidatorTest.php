@@ -111,11 +111,44 @@ final class PackagePublishValidatorTest extends TestCase
                 'steps' => [
                     ['id' => 's1', 'action' => 'CLICK_TARGET'],
                 ],
+                'video_demo' => [
+                    'artifact_ref' => 'case/run/recording.webm',
+                    'mime' => 'video/webm',
+                    'sha256' => str_repeat('ab', 32),
+                    'test_run_id' => '11111111-1111-1111-1111-111111111111',
+                    'script_version' => '1.0.0',
+                    'reviewed' => true,
+                    'audio' => false,
+                    'desktop_capture' => false,
+                ],
             ],
             'dependencies' => [],
         ]);
         self::assertTrue($result['ok'], json_encode($result['errors'] ?? []));
         self::assertSame('script', $result['data']['kind']);
+    }
+
+    public function test_script_without_video_demo_rejected(): void
+    {
+        $result = $this->validator->validate([
+            'package_key' => 'facebook.group.post.script',
+            'kind' => 'script',
+            'name' => 'Post Script',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'script_id' => 'facebook.group.post',
+                'variables' => [
+                    ['key' => 'text', 'type' => 'text'],
+                ],
+                'steps' => [
+                    ['id' => 's1', 'action' => 'CLICK_TARGET'],
+                ],
+            ],
+            'dependencies' => [],
+        ]);
+        self::assertFalse($result['ok']);
+        self::assertContains('script_video_demo_required', $result['errors']);
     }
 
     public function test_digest_changes_when_manifest_changes(): void
