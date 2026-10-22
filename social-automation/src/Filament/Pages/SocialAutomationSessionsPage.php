@@ -17,7 +17,7 @@ final class SocialAutomationSessionsPage extends Page
 
     protected static ?string $slug = 'sessions';
 
-    protected static ?int $navigationSort = 40;
+    protected static ?int $navigationSort = 30;
 
     protected static string $view = 'social-automation::filament.pages.sessions';
 

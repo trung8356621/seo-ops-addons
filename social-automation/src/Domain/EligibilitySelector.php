@@ -16,6 +16,7 @@ use Omnichannel\Addons\SocialAutomation\Enums\SessionReadyStatus;
  *     availability: string,
  *     active_jobs: int,
  *     max_concurrency: int,
+ *     agent_kind?: string|null,
  *     capabilities?: list<string>,
  *     runtime_version?: string|null
  * }
@@ -42,6 +43,7 @@ final class EligibilitySelector
 {
     public function __construct(
         private readonly AccountDeduplicator $deduplicator = new AccountDeduplicator,
+        private readonly AgentKindPolicy $agentKinds = new AgentKindPolicy,
     ) {}
 
     /**
@@ -73,8 +75,13 @@ final class EligibilitySelector
                 $skipReasons[] = 'agent_missing';
                 continue;
             }
-            if (! ($agent['online'] ?? false)) {
-                $skipReasons[] = 'agent_offline';
+            $kind = $this->agentKinds->normalize(
+                isset($agent['agent_kind']) ? (string) $agent['agent_kind'] : AgentKindPolicy::KIND_RUNNER
+            );
+            if (! $this->agentKinds->countsAsOnlineForDispatch($kind, (bool) ($agent['online'] ?? false))) {
+                $skipReasons[] = $kind === AgentKindPolicy::KIND_ADMIN
+                    ? 'admin_not_runner'
+                    : 'agent_offline';
                 continue;
             }
             $availability = (string) ($agent['availability'] ?? '');

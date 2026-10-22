@@ -24,9 +24,12 @@ use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationDashboard
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationJobsPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationPackagesPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationSchedulesPage;
+use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationScriptsPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationServiceStatusPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationSessionsPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationTasksPage;
+use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationWidgetsPage;
+use Omnichannel\Addons\SocialAutomation\Filament\Pages\SocialAutomationWorkflowsPage;
 
 final class SocialAutomationPanelProvider extends PanelProvider
 {
@@ -48,13 +51,19 @@ final class SocialAutomationPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             ->pages([
                 SocialAutomationDashboardPage::class,
+                SocialAutomationScriptsPage::class,
+                SocialAutomationWidgetsPage::class,
+                SocialAutomationWorkflowsPage::class,
+                // Legacy packages route kept registered but hidden from nav.
                 SocialAutomationPackagesPage::class,
                 SocialAutomationAgentsPage::class,
+                // Accounts DB/API kept; nav hidden per navigation redesign.
                 SocialAutomationAccountsPage::class,
                 SocialAutomationSessionsPage::class,
                 SocialAutomationTasksPage::class,
                 SocialAutomationSchedulesPage::class,
                 SocialAutomationJobsPage::class,
+                // Service status uses Admin Service page — nav hidden.
                 SocialAutomationServiceStatusPage::class,
             ])
             ->middleware([

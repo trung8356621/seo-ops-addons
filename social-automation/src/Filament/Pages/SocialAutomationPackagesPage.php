@@ -18,7 +18,9 @@ final class SocialAutomationPackagesPage extends Page
 
     protected static ?string $slug = 'packages';
 
-    protected static ?int $navigationSort = 10;
+    protected static ?int $navigationSort = 99;
+
+    protected static bool $shouldRegisterNavigation = false;
 
     protected static string $view = 'social-automation::filament.pages.packages';
 

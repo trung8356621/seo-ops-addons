@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SocialAutomation\Registry;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SocialAutomation\Domain\AgentKindPolicy;
 use Omnichannel\Addons\SocialAutomation\Domain\OnlineStateCalculator;
 use Omnichannel\Addons\SocialAutomation\Enums\AgentAvailability;
 use Omnichannel\Addons\SocialAutomation\Models\SaAgent;
@@ -17,6 +18,7 @@ final class AgentRegistryService
 {
     public function __construct(
         private readonly OnlineStateCalculator $online = new OnlineStateCalculator,
+        private readonly AgentKindPolicy $agentKinds = new AgentKindPolicy,
     ) {}
 
     /**
@@ -34,8 +36,12 @@ final class AgentRegistryService
             return ['ok' => false, 'errors' => ['device_id_required']];
         }
 
+        $kind = $this->agentKinds->normalize(
+            isset($payload['agent_kind']) ? (string) $payload['agent_kind'] : AgentKindPolicy::KIND_RUNNER
+        );
+
         try {
-            $agent = DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($payload, $deviceId, $credentialId): SaAgent {
+            $agent = DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($payload, $deviceId, $credentialId, $kind): SaAgent {
                 $existing = SaAgent::query()->where('device_id', $deviceId)->first();
                 if ($existing instanceof SaAgent) {
                     if ($credentialId !== null && $existing->credential_id !== null
@@ -43,6 +49,7 @@ final class AgentRegistryService
                         throw new \RuntimeException('credential_conflict');
                     }
                     $existing->fill([
+                        'agent_kind' => $kind,
                         'display_name' => $payload['display_name'] ?? $existing->display_name,
                         'app_version' => $payload['app_version'] ?? $existing->app_version,
                         'runtime_version' => $payload['runtime_version'] ?? $existing->runtime_version,
@@ -58,6 +65,7 @@ final class AgentRegistryService
                 return SaAgent::query()->create([
                     'agent_uuid' => (string) Str::uuid(),
                     'device_id' => $deviceId,
+                    'agent_kind' => $kind,
                     'display_name' => $payload['display_name'] ?? null,
                     'app_version' => $payload['app_version'] ?? null,
                     'runtime_version' => $payload['runtime_version'] ?? null,
@@ -164,10 +172,15 @@ final class AgentRegistryService
     public function toArray(SaAgent $agent): array
     {
         $hb = $agent->last_heartbeat_at;
+        $kind = $this->agentKinds->normalize(
+            isset($agent->agent_kind) ? (string) $agent->agent_kind : AgentKindPolicy::KIND_RUNNER
+        );
+        $heartbeatOnline = $this->online->isOnline($hb);
 
         return [
             'agent_uuid' => $agent->agent_uuid,
             'device_id' => $agent->device_id,
+            'agent_kind' => $kind,
             'display_name' => $agent->display_name,
             'app_version' => $agent->app_version,
             'runtime_version' => $agent->runtime_version,
@@ -175,7 +188,10 @@ final class AgentRegistryService
             'availability' => $agent->availability,
             'max_concurrency' => (int) $agent->max_concurrency,
             'active_jobs' => (int) $agent->active_jobs,
-            'online_state' => $this->online->state($hb),
+            // Admin sessions never report as Runner online for dispatch.
+            'online_state' => $this->agentKinds->countsAsOnlineForDispatch($kind, $heartbeatOnline)
+                ? 'online'
+                : 'offline',
             'last_heartbeat_at' => $hb?->toIso8601String(),
             'last_error_code' => $agent->last_error_code,
         ];

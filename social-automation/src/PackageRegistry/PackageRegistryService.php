@@ -20,12 +20,14 @@ final class PackageRegistryService
     public function __construct(
         private readonly PackagePublishValidator $validator,
         private readonly PackageDependencyValidator $dependencyValidator = new PackageDependencyValidator,
+        private readonly ?WidgetInvalidationService $widgetInvalidation = null,
     ) {}
 
     /**
      * @param  array<string, mixed>  $input
+     * @param  array{user_id?: int|null, sync_source?: string|null}  $audit
      */
-    public function publish(array $input): PackagePublishResult
+    public function publish(array $input, array $audit = []): PackagePublishResult
     {
         $validated = $this->validator->validate($input);
         if (! ($validated['ok'] ?? false)) {
@@ -37,6 +39,8 @@ final class PackageRegistryService
 
         /** @var array<string, mixed> $data */
         $data = $validated['data'];
+        $userId = isset($audit['user_id']) ? (int) $audit['user_id'] : null;
+        $syncSource = isset($audit['sync_source']) ? trim((string) $audit['sync_source']) : null;
 
         if (! $this->tablesReady()) {
             return new PackagePublishResult(
@@ -46,13 +50,16 @@ final class PackageRegistryService
         }
 
         try {
-            return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($data): PackagePublishResult {
+            $result = DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($data, $userId, $syncSource): PackagePublishResult {
                 $package = SaPackage::query()->firstOrCreate(
                     ['package_key' => $data['package_key']],
                     [
                         'kind' => $data['kind'],
                         'name' => $data['name'],
                         'description' => $data['description'],
+                        'is_enabled' => true,
+                        'created_by_user_id' => $userId,
+                        'sync_source' => $syncSource,
                     ],
                 );
 
@@ -67,6 +74,8 @@ final class PackageRegistryService
                 $package->fill([
                     'name' => $data['name'],
                     'description' => $data['description'],
+                    'updated_by_user_id' => $userId,
+                    'sync_source' => $syncSource ?? $package->sync_source,
                 ])->save();
 
                 $existing = SaPackageRelease::query()
@@ -89,6 +98,13 @@ final class PackageRegistryService
                     );
                 }
 
+                $previous = SaPackageRelease::query()
+                    ->where('package_id', $package->id)
+                    ->where('status', 'published')
+                    ->orderByDesc('published_at')
+                    ->orderByDesc('id')
+                    ->first();
+
                 $depCheck = $this->validatePublishedDependencies($data['dependencies']);
                 if (! ($depCheck['ok'] ?? false)) {
                     return new PackagePublishResult(
@@ -97,15 +113,25 @@ final class PackageRegistryService
                     );
                 }
 
+                $executionDigest = null;
+                if ((string) $data['kind'] === 'script') {
+                    $executionDigest = ScriptExecutionDigest::fromManifest(
+                        is_array($data['manifest']) ? $data['manifest'] : []
+                    );
+                }
+
                 $release = SaPackageRelease::query()->create([
                     'package_id' => $package->id,
                     'version' => $data['version'],
                     'content_digest' => $data['content_digest'],
+                    'execution_digest' => $executionDigest,
                     'schema_version' => $data['schema_version'],
                     'runtime_compatibility' => $data['runtime_compatibility'],
                     'manifest' => $data['manifest'],
                     'status' => 'published',
                     'published_at' => now(),
+                    'created_by_user_id' => $userId,
+                    'sync_source' => $syncSource,
                 ]);
 
                 foreach ($data['dependencies'] as $dep) {
@@ -117,11 +143,43 @@ final class PackageRegistryService
                     ]);
                 }
 
-                return new PackagePublishResult(
+                $publishResult = new PackagePublishResult(
                     PackagePublishResult::OUTCOME_CREATED,
                     release: $this->releaseArray($package, $release, idempotent: false),
                 );
+
+                if ((string) $data['kind'] === 'script' && $executionDigest !== null) {
+                    $prevManifest = $previous instanceof SaPackageRelease && is_array($previous->manifest)
+                        ? $previous->manifest
+                        : [];
+                    $newManifest = is_array($data['manifest']) ? $data['manifest'] : [];
+                    $executionChanged = $previous instanceof SaPackageRelease
+                        ? ScriptExecutionDigest::executionChanged($prevManifest, $newManifest)
+                        : false;
+
+                    $invalidation = $this->widgetInvalidation ?? app(WidgetInvalidationService::class);
+                    $disabled = $invalidation->invalidateForScriptPublish(
+                        (string) $package->package_key,
+                        (string) $data['version'],
+                        (string) $data['content_digest'],
+                        $executionDigest,
+                        $previous?->version,
+                        $previous?->content_digest,
+                        $previous?->execution_digest,
+                        $executionChanged,
+                    );
+                    $releaseArr = $publishResult->release ?? [];
+                    $releaseArr['widgets_disabled'] = $disabled;
+                    $publishResult = new PackagePublishResult(
+                        PackagePublishResult::OUTCOME_CREATED,
+                        release: $releaseArr,
+                    );
+                }
+
+                return $publishResult;
             });
+
+            return $result;
         } catch (Throwable) {
             return new PackagePublishResult(
                 PackagePublishResult::OUTCOME_UNAVAILABLE,
@@ -155,11 +213,46 @@ final class PackageRegistryService
                     'kind' => $package->kind,
                     'name' => $package->name,
                     'description' => $package->description,
+                    'is_enabled' => (bool) ($package->is_enabled ?? true),
+                    'disabled_reason' => $package->disabled_reason ?? null,
                     'latest_version' => $latest?->version,
                     'latest_digest' => $latest?->content_digest,
                 ];
             })
             ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listByKind(string $kind): array
+    {
+        return array_values(array_filter(
+            $this->listPackages(),
+            static fn (array $row): bool => strtolower((string) ($row['kind'] ?? '')) === strtolower($kind)
+        ));
+    }
+
+    /**
+     * @return array{package_key: string, kind: string, is_enabled: bool, disabled_reason: string|null}|null
+     */
+    public function packageState(string $packageKey): ?array
+    {
+        if (! $this->tablesReady()) {
+            return null;
+        }
+
+        $package = SaPackage::query()->where('package_key', $packageKey)->first();
+        if (! $package instanceof SaPackage) {
+            return null;
+        }
+
+        return [
+            'package_key' => (string) $package->package_key,
+            'kind' => (string) $package->kind,
+            'is_enabled' => (bool) ($package->is_enabled ?? true),
+            'disabled_reason' => $package->disabled_reason !== null ? (string) $package->disabled_reason : null,
+        ];
     }
 
     /**

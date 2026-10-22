@@ -21,13 +21,24 @@ final class SocialAutomationApiStatus
         $code = (string) ($errors[0] ?? 'validation_failed');
 
         return match (true) {
-            in_array($code, ['unauthorized', 'unauthenticated'], true) => 401,
+            in_array($code, [
+                'unauthorized',
+                'unauthenticated',
+                'invalid_credentials',
+                'credentials_required',
+                'session_revoked',
+                'session_expired',
+            ], true) => 401,
             in_array($code, [
                 'credential_mismatch',
                 'credential_conflict',
                 'cross_agent_forbidden',
                 'forbidden',
                 'agent_disabled',
+                'role_staff_forbidden',
+                'role_forbidden',
+                'user_blocked',
+                'system_user_forbidden',
             ], true) => 403,
             str_contains($code, 'not_found') => 404,
             in_array($code, [

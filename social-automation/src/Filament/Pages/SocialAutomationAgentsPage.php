@@ -15,7 +15,7 @@ final class SocialAutomationAgentsPage extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-computer-desktop';
 
-    protected static ?string $slug = 'agents';
+    protected static ?string $slug = 'clients';
 
     protected static ?int $navigationSort = 20;
 

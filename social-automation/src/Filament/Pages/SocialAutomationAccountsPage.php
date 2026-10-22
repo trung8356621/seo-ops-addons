@@ -19,6 +19,8 @@ final class SocialAutomationAccountsPage extends Page
 
     protected static ?int $navigationSort = 30;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static string $view = 'social-automation::filament.pages.accounts';
 
     public static function getNavigationLabel(): string

@@ -21,6 +21,8 @@ final class SocialAutomationServiceStatusPage extends Page
 
     protected static ?int $navigationSort = 90;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static string $view = 'social-automation::filament.pages.service-status';
 
     /**

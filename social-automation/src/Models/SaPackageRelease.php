@@ -31,11 +31,14 @@ final class SaPackageRelease extends Model
         'package_id',
         'version',
         'content_digest',
+        'execution_digest',
         'schema_version',
         'runtime_compatibility',
         'manifest',
         'status',
         'published_at',
+        'created_by_user_id',
+        'sync_source',
     ];
 
     protected function casts(): array
@@ -45,6 +48,7 @@ final class SaPackageRelease extends Model
             'manifest' => 'array',
             'schema_version' => 'integer',
             'published_at' => 'datetime',
+            'created_by_user_id' => 'integer',
         ];
     }
 

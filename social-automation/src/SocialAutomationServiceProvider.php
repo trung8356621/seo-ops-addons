@@ -22,11 +22,19 @@ use Omnichannel\Addons\SocialAutomation\Console\SocialAutomationScheduleTickComm
 use Omnichannel\Addons\SocialAutomation\Domain\EligibilitySelector;
 use Omnichannel\Addons\SocialAutomation\Domain\JobStateMachine;
 use Omnichannel\Addons\SocialAutomation\Domain\OnlineStateCalculator;
+use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminRoleGate;
+use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminSessionService;
+use Omnichannel\Addons\SocialAutomation\Http\Controllers\RpaAdmin\RpaAdminAuthController;
+use Omnichannel\Addons\SocialAutomation\Http\Controllers\RpaAdmin\RpaAdminScriptSyncController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationBootstrapController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationHealthController;
+use Omnichannel\Addons\SocialAutomation\Http\Middleware\EnsureRpaAdminUserApi;
 use Omnichannel\Addons\SocialAutomation\Orchestration\JobOrchestrator;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackagePublishValidator;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptCatalogService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\WidgetInvalidationService;
 use Omnichannel\Addons\SocialAutomation\Registry\AgentRegistryService;
 use Omnichannel\Addons\SocialAutomation\Registry\SessionSyncService;
 use Omnichannel\Addons\SocialAutomation\Scheduling\ScheduleDispatcher;
@@ -50,7 +58,12 @@ final class SocialAutomationServiceProvider extends ServiceProvider
         $this->app->singleton(SocialAutomationDatabaseHealth::class);
         $this->app->singleton(SocialAutomationServiceHealth::class);
         $this->app->singleton(PackagePublishValidator::class);
+        $this->app->singleton(WidgetInvalidationService::class);
+        $this->app->singleton(ScriptCatalogService::class);
+        $this->app->singleton(ScriptSyncPlanner::class);
         $this->app->singleton(PackageRegistryService::class);
+        $this->app->singleton(RpaAdminRoleGate::class);
+        $this->app->singleton(RpaAdminSessionService::class);
         $this->app->singleton(OnlineStateCalculator::class);
         $this->app->singleton(EligibilitySelector::class);
         $this->app->singleton(JobStateMachine::class);
@@ -158,6 +171,29 @@ final class SocialAutomationServiceProvider extends ServiceProvider
                     ->name('social-automation.bootstrap');
                 Route::get('/health', SocialAutomationHealthController::class)
                     ->name('social-automation.health');
+            });
+
+        // RPA Admin user auth + Script sync (not Runner service_api_credentials).
+        Route::prefix('api/v1/social-automation/rpa-admin')
+            ->middleware(['throttle:60,1'])
+            ->group(function (): void {
+                Route::post('/login', [RpaAdminAuthController::class, 'login'])
+                    ->name('social-automation.rpa-admin.login');
+
+                Route::middleware([EnsureRpaAdminUserApi::class])->group(function (): void {
+                    Route::get('/session', [RpaAdminAuthController::class, 'session'])
+                        ->name('social-automation.rpa-admin.session');
+                    Route::post('/logout', [RpaAdminAuthController::class, 'logout'])
+                        ->name('social-automation.rpa-admin.logout');
+                    Route::get('/scripts', [RpaAdminScriptSyncController::class, 'catalog'])
+                        ->name('social-automation.rpa-admin.scripts.catalog');
+                    Route::post('/scripts/sync/plan', [RpaAdminScriptSyncController::class, 'plan'])
+                        ->name('social-automation.rpa-admin.scripts.sync.plan');
+                    Route::post('/scripts/publish', [RpaAdminScriptSyncController::class, 'publish'])
+                        ->name('social-automation.rpa-admin.scripts.publish');
+                    Route::post('/scripts/pull', [RpaAdminScriptSyncController::class, 'pull'])
+                        ->name('social-automation.rpa-admin.scripts.pull');
+                });
             });
     }
 

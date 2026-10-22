@@ -20,11 +20,29 @@ return [
         'intro' => 'Release Widget/Workflow bất biến do RPA Admin publish qua Service API.',
         'empty' => 'Chưa có package.',
     ],
+    'scripts' => [
+        'nav' => 'Scripts',
+        'title' => 'Scripts',
+        'intro' => 'Script Registry — release bất biến từ RPA Admin. Chỉ Script có thể sync hai chiều.',
+        'empty' => 'Chưa có Script. Đồng bộ từ RPA Admin sau khi đăng nhập.',
+    ],
+    'widgets' => [
+        'nav' => 'Widgets',
+        'title' => 'Widgets',
+        'intro' => 'Form layer trên Script. Widget bị disable khi Script thực thi thay đổi — cần review trước khi bật lại.',
+        'empty' => 'Chưa có Widget.',
+    ],
+    'workflows' => [
+        'nav' => 'Workflows',
+        'title' => 'Workflows',
+        'intro' => 'Chuỗi Widget tuần tự. Không chuyển account giữa các bước.',
+        'empty' => 'Chưa có Workflow.',
+    ],
     'agents' => [
-        'nav' => 'Agents',
-        'title' => 'Agents',
-        'intro' => 'Máy Runner. Online/offline do server tính từ heartbeat.',
-        'empty' => 'Chưa có agent. Cấp Runner credential rồi gọi register/heartbeat.',
+        'nav' => 'Clients',
+        'title' => 'Clients',
+        'intro' => 'Máy Runner (Client). Online/offline do server tính từ heartbeat. RPA Admin không tính Runner online.',
+        'empty' => 'Chưa có Client. Cấp Runner credential rồi gọi register/heartbeat.',
     ],
     'accounts' => [
         'nav' => 'Accounts',

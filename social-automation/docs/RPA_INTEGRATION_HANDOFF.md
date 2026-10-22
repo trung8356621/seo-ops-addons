@@ -1,13 +1,28 @@
 # Social Automation — RPA Admin / Runner Integration Handoff
 
-Status: **CODE COMPLETE** (Phases A–E + 7–11). Production remains locked. **E2E / FINAL INTEGRATION NOT RUN.**
+Status: **CODE COMPLETE** (Phases A–E + 7–11 + RPA Admin user auth / Script sync / Widget invalidation / nav). Production remains locked. **E2E / FINAL INTEGRATION NOT RUN.**
 
-Base path: `/api/v1/services/{service}/social-automation/...`  
+Base path (Runner + Service API packages): `/api/v1/services/{service}/social-automation/...`  
 `{service}` must resolve to public slug `social-automation`.
+
+RPA Admin **user** auth + Script sync (separate from Runner credentials):  
+`/api/v1/social-automation/rpa-admin/...` — see `rpa-social-automation-v2/docs/SEO-OPS-SCRIPT-REGISTRY.md`.
 
 ---
 
 ## 1. Authentication & scopes
+
+### RPA Admin user (admin|owner)
+
+| Rule | Detail |
+|---|---|
+| Login | `POST /api/v1/social-automation/rpa-admin/login` with SEO-OPS email/password |
+| Session | Opaque Bearer token; stored as SHA-256 hash in `sa_rpa_admin_sessions` |
+| Roles | `admin`, `owner` allowed; `staff` → `role_staff_forbidden` |
+| Identity | Server-derived `user_id` only — client `user_id` stripped |
+| Distinct | Not Runner `service_api_credentials` |
+
+### Service API (packages + Runner)
 
 | Rule | Detail |
 |---|---|

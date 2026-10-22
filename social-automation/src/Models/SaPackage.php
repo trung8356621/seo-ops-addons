@@ -26,7 +26,23 @@ final class SaPackage extends Model
         'kind',
         'name',
         'description',
+        'is_enabled',
+        'disabled_reason',
+        'disabled_meta',
+        'created_by_user_id',
+        'updated_by_user_id',
+        'sync_source',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'is_enabled' => 'boolean',
+            'disabled_meta' => 'array',
+            'created_by_user_id' => 'integer',
+            'updated_by_user_id' => 'integer',
+        ];
+    }
 
     /** @return HasMany<SaPackageRelease, $this> */
     public function releases(): HasMany

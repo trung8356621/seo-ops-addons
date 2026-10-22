@@ -20,11 +20,29 @@ return [
         'intro' => 'Immutable Widget/Workflow releases published by RPA Admin via Service API.',
         'empty' => 'No packages registered yet.',
     ],
+    'scripts' => [
+        'nav' => 'Scripts',
+        'title' => 'Scripts',
+        'intro' => 'Script Registry — immutable releases from RPA Admin. Scripts support bidirectional sync.',
+        'empty' => 'No Scripts yet. Sync from RPA Admin after login.',
+    ],
+    'widgets' => [
+        'nav' => 'Widgets',
+        'title' => 'Widgets',
+        'intro' => 'Form layer over a Script. Disabled when Script execution changes — review before re-enable.',
+        'empty' => 'No Widgets yet.',
+    ],
+    'workflows' => [
+        'nav' => 'Workflows',
+        'title' => 'Workflows',
+        'intro' => 'Sequential Widget chains. No account switching between steps.',
+        'empty' => 'No Workflows yet.',
+    ],
     'agents' => [
-        'nav' => 'Agents',
-        'title' => 'Agents',
-        'intro' => 'Runner machines. Online/offline is computed from heartbeat age on the server.',
-        'empty' => 'No agents registered. Enroll a Runner credential then call register/heartbeat.',
+        'nav' => 'Clients',
+        'title' => 'Clients',
+        'intro' => 'Runner machines (Clients). Online/offline is computed from heartbeat. RPA Admin does not count as Runner online.',
+        'empty' => 'No Clients registered. Enroll a Runner credential then call register/heartbeat.',
     ],
     'accounts' => [
         'nav' => 'Accounts',

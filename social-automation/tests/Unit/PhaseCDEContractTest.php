@@ -71,6 +71,9 @@ final class PhaseCDEContractTest extends TestCase
     {
         $src = (string) file_get_contents($this->root.'/src/Providers/SocialAutomationPanelProvider.php');
         foreach ([
+            'SocialAutomationScriptsPage',
+            'SocialAutomationWidgetsPage',
+            'SocialAutomationWorkflowsPage',
             'SocialAutomationAgentsPage',
             'SocialAutomationAccountsPage',
             'SocialAutomationSessionsPage',

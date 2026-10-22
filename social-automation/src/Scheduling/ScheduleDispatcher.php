@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SocialAutomation\Scheduling;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SocialAutomation\Domain\AgentKindPolicy;
 use Omnichannel\Addons\SocialAutomation\Domain\OnlineStateCalculator;
 use Omnichannel\Addons\SocialAutomation\Models\SaAgent;
 use Omnichannel\Addons\SocialAutomation\Models\SaSchedule;
@@ -25,6 +26,7 @@ final class ScheduleDispatcher
         private readonly JobOrchestrator $orchestrator,
         private readonly CronSkipPolicy $policy = new CronSkipPolicy,
         private readonly OnlineStateCalculator $online = new OnlineStateCalculator,
+        private readonly AgentKindPolicy $agentKinds = new AgentKindPolicy,
     ) {}
 
     /**
@@ -41,6 +43,11 @@ final class ScheduleDispatcher
             return ['ok' => false, 'errors' => ['task_not_active']];
         }
 
+        $gate = $this->orchestrator->assertTaskPackageDispatchable($task);
+        if (! ($gate['ok'] ?? false)) {
+            return ['ok' => false, 'errors' => $gate['errors'] ?? ['package_disabled']];
+        }
+
         $fireIso = $fireAt instanceof \DateTimeImmutable
             ? $fireAt->format(\DateTimeInterface::ATOM)
             : (new \DateTimeImmutable($fireAt->format('c')))->format(\DateTimeInterface::ATOM);
@@ -54,9 +61,18 @@ final class ScheduleDispatcher
             ];
         }
 
-        $agents = SaAgent::query()->get()->map(fn (SaAgent $a): array => [
-            'online' => $this->online->isOnline($a->last_heartbeat_at),
-        ])->all();
+        $agents = SaAgent::query()->get()->map(function (SaAgent $a): array {
+            $kind = $this->agentKinds->normalize(
+                isset($a->agent_kind) ? (string) $a->agent_kind : AgentKindPolicy::KIND_RUNNER
+            );
+
+            return [
+                'online' => $this->agentKinds->countsAsOnlineForDispatch(
+                    $kind,
+                    $this->online->isOnline($a->last_heartbeat_at)
+                ),
+            ];
+        })->all();
 
         $offlineGate = $this->policy->whenAllAgentsOffline($agents);
         $target = (int) ($schedule->target_account_count ?? $task->target_account_count);

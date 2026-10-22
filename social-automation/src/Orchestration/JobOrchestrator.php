@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\SocialAutomation\Orchestration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SocialAutomation\Domain\AccountLockPolicy;
+use Omnichannel\Addons\SocialAutomation\Domain\AgentKindPolicy;
 use Omnichannel\Addons\SocialAutomation\Domain\AttemptFencePolicy;
+use Omnichannel\Addons\SocialAutomation\Domain\DispatchPackageGate;
 use Omnichannel\Addons\SocialAutomation\Domain\EligibilitySelector;
 use Omnichannel\Addons\SocialAutomation\Domain\JobIdempotencyKey;
 use Omnichannel\Addons\SocialAutomation\Domain\JobStateMachine;
@@ -44,6 +46,8 @@ final class JobOrchestrator
         private readonly JobObservability $observability = new JobObservability,
         private readonly WorkflowJobComposer $workflowComposer = new WorkflowJobComposer,
         private readonly ?PackageRegistryService $packages = null,
+        private readonly DispatchPackageGate $dispatchGate = new DispatchPackageGate,
+        private readonly AgentKindPolicy $agentKinds = new AgentKindPolicy,
     ) {}
 
     /**
@@ -53,6 +57,11 @@ final class JobOrchestrator
     {
         if (! SocialAutomationSchema::jobsReady() || ! SocialAutomationSchema::agentsReady()) {
             return ['ok' => false, 'errors' => ['schema_unavailable']];
+        }
+
+        $gate = $this->assertTaskPackageDispatchable($task);
+        if (! ($gate['ok'] ?? false)) {
+            return ['ok' => false, 'errors' => $gate['errors'] ?? ['package_disabled']];
         }
 
         $target = $targetOverride ?? (int) $task->target_account_count;
@@ -383,9 +392,14 @@ final class JobOrchestrator
     public function selectEligible(SaTask $task, int $target): array
     {
         $agents = SaAgent::query()->get()->map(function (SaAgent $a): array {
+            $kind = $this->agentKinds->normalize(
+                isset($a->agent_kind) ? (string) $a->agent_kind : AgentKindPolicy::KIND_RUNNER
+            );
+
             return [
                 'agent_id' => $a->id,
                 'online' => $this->online->isOnline($a->last_heartbeat_at),
+                'agent_kind' => $kind,
                 'availability' => (string) $a->availability,
                 'active_jobs' => (int) $a->active_jobs,
                 'max_concurrency' => max(1, (int) $a->max_concurrency),
@@ -698,6 +712,48 @@ final class JobOrchestrator
                 $agent->save();
             }
         }
+    }
+
+    /**
+     * Block new dispatch when Widget/Workflow package (or nested Widget) is disabled.
+     *
+     * @return array{ok: true}|array{ok: false, errors: list<string>}
+     */
+    public function assertTaskPackageDispatchable(SaTask $task): array
+    {
+        $registry = $this->packages ?? (app()->bound(PackageRegistryService::class)
+            ? app(PackageRegistryService::class)
+            : null);
+        if ($registry === null) {
+            return ['ok' => true];
+        }
+
+        $state = $registry->packageState((string) $task->package_key);
+        if ($state === null) {
+            return ['ok' => false, 'errors' => ['package_not_found']];
+        }
+
+        $deps = [];
+        if (strtolower((string) ($state['kind'] ?? $task->package_kind ?? '')) === 'workflow') {
+            $release = $registry->findRelease((string) $task->package_key, (string) $task->package_version);
+            $manifest = is_array($release['manifest'] ?? null) ? $release['manifest'] : [];
+            $steps = is_array($manifest['steps'] ?? null) ? $manifest['steps'] : [];
+            foreach ($steps as $step) {
+                if (! is_array($step)) {
+                    continue;
+                }
+                $widgetKey = trim((string) ($step['widget_key'] ?? $step['package_key'] ?? ''));
+                if ($widgetKey === '') {
+                    continue;
+                }
+                $widgetState = $registry->packageState($widgetKey);
+                if ($widgetState !== null) {
+                    $deps[] = $widgetState;
+                }
+            }
+        }
+
+        return $this->dispatchGate->assertDispatchable($state, $deps);
     }
 
     private function authorizedAgent(string $agentUuid, ?int $credentialId): ?SaAgent
