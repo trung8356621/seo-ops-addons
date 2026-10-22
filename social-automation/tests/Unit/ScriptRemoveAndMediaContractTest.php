@@ -99,12 +99,15 @@ final class ScriptRemoveAndMediaContractTest extends TestCase
         $blade = (string) file_get_contents($this->root.'/resources/views/filament/pages/scripts.blade.php');
         self::assertStringContainsString('grid-cols-1', $blade);
         self::assertStringContainsString('md:grid-cols-2', $blade);
-        self::assertStringContainsString('xl:grid-cols-3', $blade);
+        self::assertStringContainsString('lg:grid-cols-3', $blade);
         self::assertStringContainsString('aspect-video', $blade);
         self::assertStringContainsString('openRemoveConfirm', $blade);
         self::assertStringContainsString('remove_confirm', $blade);
         self::assertStringContainsString('openVideoPlayer', $blade);
         self::assertStringNotContainsString('<table', $blade);
+        self::assertStringNotContainsString('max-w-6xl', $blade);
+        self::assertStringNotContainsString("col_source", $blade);
+        self::assertStringNotContainsString('Missing demo', $blade);
 
         $page = (string) file_get_contents($this->root.'/src/Filament/Pages/SocialAutomationScriptsPage.php');
         self::assertStringContainsString('removeScript', $page);
