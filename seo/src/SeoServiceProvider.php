@@ -99,6 +99,13 @@ final class SeoServiceProvider extends ServiceProvider
 
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'seo');
 
+        if (class_exists(\Livewire\Livewire::class)) {
+            \Livewire\Livewire::component(
+                'operational-alert-hook',
+                \Omnichannel\Addons\Seo\Livewire\OperationalAlertHook::class,
+            );
+        }
+
         if ($this->app->bound(CapabilityRegistry::class)) {
             $capabilities = $this->app->make(CapabilityRegistry::class);
             if (! $capabilities->has(\Omnichannel\Addons\SiteSync\Contracts\SiteHealthNotificationCapability::ID)) {
