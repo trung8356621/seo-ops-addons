@@ -21,6 +21,7 @@ final class PackageRegistryService
         private readonly PackagePublishValidator $validator,
         private readonly PackageDependencyValidator $dependencyValidator = new PackageDependencyValidator,
         private readonly ?WidgetInvalidationService $widgetInvalidation = null,
+        private readonly ?ScriptTombstoneService $tombstones = null,
     ) {}
 
     /**
@@ -47,6 +48,21 @@ final class PackageRegistryService
                 PackagePublishResult::OUTCOME_UNAVAILABLE,
                 errors: ['package_registry_unavailable'],
             );
+        }
+
+        if ((string) $data['kind'] === 'script') {
+            $manifest = is_array($data['manifest'] ?? null) ? $data['manifest'] : [];
+            $scriptId = trim((string) ($manifest['script_id'] ?? $data['package_key'] ?? ''));
+            $source = $syncSource !== null && $syncSource !== ''
+                ? $syncSource
+                : ScriptTombstoneService::SOURCE_RPA_ADMIN;
+            $tombstones = $this->tombstones ?? app(ScriptTombstoneService::class);
+            if ($scriptId !== '' && $tombstones->isSuppressed($scriptId, $source)) {
+                return new PackagePublishResult(
+                    PackagePublishResult::OUTCOME_REMOVED_ON_SERVER,
+                    errors: ['removed_on_server'],
+                );
+            }
         }
 
         try {

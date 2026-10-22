@@ -26,6 +26,7 @@ use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminRoleGate;
 use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminSessionService;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\RpaAdmin\RpaAdminAuthController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\RpaAdmin\RpaAdminScriptSyncController;
+use Omnichannel\Addons\SocialAutomation\Http\Controllers\ScriptReleaseMediaController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationBootstrapController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationHealthController;
 use Omnichannel\Addons\SocialAutomation\Http\Middleware\EnsureRpaAdminUserApi;
@@ -34,7 +35,10 @@ use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackagePublishValidator;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptCatalogService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptRegistryUiService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptReleaseMediaService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptRemoveService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptTombstoneService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\WidgetInvalidationService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\WidgetWorkflowComposerService;
 use Omnichannel\Addons\SocialAutomation\Registry\AgentRegistryService;
@@ -62,6 +66,9 @@ final class SocialAutomationServiceProvider extends ServiceProvider
         $this->app->singleton(PackagePublishValidator::class);
         $this->app->singleton(WidgetInvalidationService::class);
         $this->app->singleton(ScriptCatalogService::class);
+        $this->app->singleton(ScriptTombstoneService::class);
+        $this->app->singleton(ScriptReleaseMediaService::class);
+        $this->app->singleton(ScriptRemoveService::class);
         $this->app->singleton(ScriptRegistryUiService::class);
         $this->app->singleton(ScriptSyncPlanner::class);
         $this->app->singleton(WidgetWorkflowComposerService::class);
@@ -177,6 +184,14 @@ final class SocialAutomationServiceProvider extends ServiceProvider
                     ->name('social-automation.health');
             });
 
+        Route::middleware($middleware)
+            ->prefix('social-automation')
+            ->group(function (): void {
+                Route::get('/script-media/{mediaId}', [ScriptReleaseMediaController::class, 'show'])
+                    ->whereNumber('mediaId')
+                    ->name('social-automation.script-media.show');
+            });
+
         // RPA Admin user auth + Script sync (not Runner service_api_credentials).
         Route::prefix('api/v1/social-automation/rpa-admin')
             ->middleware(['throttle:60,1'])
@@ -197,6 +212,8 @@ final class SocialAutomationServiceProvider extends ServiceProvider
                         ->name('social-automation.rpa-admin.scripts.publish');
                     Route::post('/scripts/pull', [RpaAdminScriptSyncController::class, 'pull'])
                         ->name('social-automation.rpa-admin.scripts.pull');
+                    Route::post('/scripts/video-demo', [RpaAdminScriptSyncController::class, 'attachVideoDemo'])
+                        ->name('social-automation.rpa-admin.scripts.video-demo');
                 });
             });
     }

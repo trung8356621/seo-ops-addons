@@ -68,6 +68,14 @@ final class RpaAdminAuthAndSyncTest extends TestCase
         self::assertSame('same_digest', $plan['skip'][0]['reason']);
     }
 
+    public function test_removed_on_server_is_not_reimported(): void
+    {
+        $row = ['script_id' => 'gone', 'package_key' => 'gone', 'version' => '1.0.0', 'content_digest' => str_repeat('d', 64)];
+        $plan = (new ScriptSyncPlanner)->plan([$row], [], ['gone']);
+        self::assertSame([], $plan['push_to_remote']);
+        self::assertSame('removed_on_server', $plan['skip'][0]['reason']);
+    }
+
     public function test_divergent_edits_do_not_overwrite(): void
     {
         $plan = (new ScriptSyncPlanner)->plan(

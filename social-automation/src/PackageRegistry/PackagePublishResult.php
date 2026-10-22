@@ -28,6 +28,8 @@ final class PackagePublishResult
 
     public const OUTCOME_UNAVAILABLE = 'unavailable';
 
+    public const OUTCOME_REMOVED_ON_SERVER = 'removed_on_server';
+
     /**
      * @param  list<string>  $errors
      * @param  ReleaseArray|null  $release
@@ -44,7 +46,7 @@ final class PackagePublishResult
         return match ($this->outcome) {
             self::OUTCOME_CREATED => 201,
             self::OUTCOME_IDEMPOTENT => 200,
-            self::OUTCOME_CONFLICT => 409,
+            self::OUTCOME_CONFLICT, self::OUTCOME_REMOVED_ON_SERVER => 409,
             self::OUTCOME_VALIDATION => 422,
             self::OUTCOME_UNAVAILABLE => 503,
             default => 500,

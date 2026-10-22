@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SocialAutomation\PackageRegistry;
 
+use App\Models\User;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackageDependency;
@@ -16,6 +17,10 @@ use Throwable;
  */
 final class ScriptRegistryUiService
 {
+    public function __construct(
+        private readonly ?ScriptReleaseMediaService $media = null,
+    ) {}
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -25,6 +30,8 @@ final class ScriptRegistryUiService
             return [];
         }
 
+        $media = $this->media ?? app(ScriptReleaseMediaService::class);
+        $userLabels = [];
         $out = [];
         foreach (SaPackage::query()->where('kind', 'script')->orderBy('package_key')->get() as $package) {
             $latest = $this->latestRelease((int) $package->id);
@@ -32,23 +39,36 @@ final class ScriptRegistryUiService
                 continue;
             }
             $manifest = is_array($latest->manifest) ? $latest->manifest : [];
+            $updatedById = $package->updated_by_user_id ?? $latest->created_by_user_id;
+            $mediaStatus = $media->statusForRelease((int) $latest->id);
+            $widgetDeps = $this->widgetsDependingOn((string) $package->package_key);
             $out[] = [
                 'package_key' => (string) $package->package_key,
+                'script_id' => (string) ($manifest['script_id'] ?? $package->package_key),
                 'name' => (string) $package->name,
                 'version' => (string) $latest->version,
+                'release_id' => (int) $latest->id,
                 'source' => (string) ($latest->sync_source ?? $package->sync_source ?? 'unknown'),
                 'created_by_user_id' => $package->created_by_user_id,
-                'updated_by_user_id' => $package->updated_by_user_id ?? $latest->created_by_user_id,
+                'updated_by_user_id' => $updatedById,
+                'updated_by_label' => $this->userLabel($updatedById, $userLabels),
                 'content_digest' => (string) $latest->content_digest,
                 'execution_digest' => $latest->execution_digest
                     ? (string) $latest->execution_digest
                     : ScriptExecutionDigest::fromManifest($manifest),
                 'published_at' => $latest->published_at?->toIso8601String(),
                 'last_sync' => $latest->published_at?->toIso8601String(),
+                'last_sync_label' => $latest->published_at?->timezone(config('app.timezone', 'UTC'))->format('Y-m-d H:i') ?? '—',
                 'status' => (string) $latest->status,
-                'widget_dependencies' => $this->widgetsDependingOn((string) $package->package_key),
+                'widget_dependencies' => $widgetDeps,
+                'widget_dependency_count' => count($widgetDeps),
                 'assets_complete' => $this->assetsComplete(is_array($manifest['assets'] ?? null) ? $manifest['assets'] : []),
-                'has_video_demo' => is_array($manifest['video_demo'] ?? null),
+                'has_video_demo' => ($mediaStatus['has_video'] ?? false) || is_array($manifest['video_demo'] ?? null),
+                'video_demo_status' => (string) ($mediaStatus['video_demo_status'] ?? 'missing'),
+                'has_playable_video' => (bool) ($mediaStatus['has_video'] ?? false),
+                'has_thumbnail' => (bool) ($mediaStatus['has_thumbnail'] ?? false),
+                'video_media_id' => $mediaStatus['video_media_id'] ?? null,
+                'thumbnail_media_id' => $mediaStatus['thumbnail_media_id'] ?? null,
             ];
         }
 
@@ -67,15 +87,19 @@ final class ScriptRegistryUiService
         if (! $package instanceof SaPackage) {
             return null;
         }
+        $media = $this->media ?? app(ScriptReleaseMediaService::class);
+        $userLabels = [];
         $releases = SaPackageRelease::query()
             ->where('package_id', $package->id)
             ->orderByDesc('published_at')
             ->orderByDesc('id')
             ->get()
-            ->map(static function (SaPackageRelease $r): array {
+            ->map(function (SaPackageRelease $r) use ($media): array {
                 $manifest = is_array($r->manifest) ? $r->manifest : [];
+                $mediaStatus = $media->statusForRelease((int) $r->id);
 
                 return [
+                    'id' => (int) $r->id,
                     'version' => (string) $r->version,
                     'content_digest' => (string) $r->content_digest,
                     'execution_digest' => $r->execution_digest,
@@ -87,6 +111,9 @@ final class ScriptRegistryUiService
                     'steps' => $manifest['steps'] ?? [],
                     'assets' => $manifest['assets'] ?? [],
                     'video_demo' => $manifest['video_demo'] ?? null,
+                    'video_demo_status' => (string) ($mediaStatus['video_demo_status'] ?? 'missing'),
+                    'video_media_id' => $mediaStatus['video_media_id'] ?? null,
+                    'thumbnail_media_id' => $mediaStatus['thumbnail_media_id'] ?? null,
                     'runtime_requirements' => $manifest['runtime_requirements'] ?? [],
                 ];
             })
@@ -99,6 +126,7 @@ final class ScriptRegistryUiService
             'sync_source' => $package->sync_source,
             'created_by_user_id' => $package->created_by_user_id,
             'updated_by_user_id' => $package->updated_by_user_id,
+            'updated_by_label' => $this->userLabel($package->updated_by_user_id, $userLabels),
             'widget_dependencies' => $this->widgetsDependingOn((string) $package->package_key),
             'releases' => $releases,
         ];
@@ -266,6 +294,36 @@ final class ScriptRegistryUiService
         }
 
         return true;
+    }
+
+    /**
+     * @param  array<int, string>  $cache
+     */
+    private function userLabel(int|string|null $userId, array &$cache): string
+    {
+        if ($userId === null || $userId === '' || (int) $userId <= 0) {
+            return '—';
+        }
+        $id = (int) $userId;
+        if (isset($cache[$id])) {
+            return $cache[$id];
+        }
+        try {
+            $user = User::query()->find($id);
+            if ($user instanceof User) {
+                $name = trim((string) ($user->name ?? ''));
+                $email = trim((string) ($user->email ?? ''));
+                $cache[$id] = $name !== '' ? ($email !== '' ? $name.' <'.$email.'>' : $name)
+                    : ($email !== '' ? $email : '#'.$id);
+
+                return $cache[$id];
+            }
+        } catch (Throwable) {
+            // core users table may be unavailable in isolated unit contexts
+        }
+        $cache[$id] = '#'.$id;
+
+        return $cache[$id];
     }
 
     private function ready(): bool

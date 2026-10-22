@@ -23,6 +23,7 @@ final class ScriptSyncPlanner
     /**
      * @param  list<ScriptRow>  $local   RPA Admin catalog
      * @param  list<ScriptRow>  $remote  SEO-OPS Script Registry catalog
+     * @param  list<string>  $suppressedScriptIds  Active SEO-OPS tombstones (stable script_id)
      * @return array{
      *     push_to_remote: list<ScriptRow>,
      *     pull_to_local: list<ScriptRow>,
@@ -30,10 +31,17 @@ final class ScriptSyncPlanner
      *     conflicts: list<array{script_id: string, local: ScriptRow, remote: ScriptRow, reason: string}>
      * }
      */
-    public function plan(array $local, array $remote): array
+    public function plan(array $local, array $remote, array $suppressedScriptIds = []): array
     {
         $localById = $this->indexByScriptId($local);
         $remoteById = $this->indexByScriptId($remote);
+        $suppressed = [];
+        foreach ($suppressedScriptIds as $id) {
+            $id = trim((string) $id);
+            if ($id !== '') {
+                $suppressed[$id] = true;
+            }
+        }
 
         $push = [];
         $pull = [];
@@ -46,6 +54,12 @@ final class ScriptSyncPlanner
         foreach ($allIds as $scriptId) {
             $l = $localById[$scriptId] ?? null;
             $r = $remoteById[$scriptId] ?? null;
+
+            if (isset($suppressed[$scriptId])) {
+                // Removed on SEO-OPS — never auto push/pull recreate for this script_id.
+                $skip[] = ['script_id' => $scriptId, 'reason' => 'removed_on_server'];
+                continue;
+            }
 
             if ($l !== null && $r === null) {
                 $push[] = $l;

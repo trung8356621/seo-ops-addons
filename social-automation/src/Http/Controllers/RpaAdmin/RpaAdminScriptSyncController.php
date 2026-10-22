@@ -11,7 +11,9 @@ use Illuminate\Http\Request;
 use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminSessionService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptCatalogService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptReleaseMediaService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptTombstoneService;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 
 /**
@@ -23,6 +25,8 @@ final class RpaAdminScriptSyncController extends Controller
         private readonly ScriptCatalogService $catalog,
         private readonly ScriptSyncPlanner $planner,
         private readonly PackageRegistryService $registry,
+        private readonly ScriptTombstoneService $tombstones,
+        private readonly ScriptReleaseMediaService $media,
     ) {}
 
     public function catalog(): JsonResponse
@@ -57,7 +61,8 @@ final class RpaAdminScriptSyncController extends Controller
             ];
         }
 
-        $plan = $this->planner->plan($normalized, $this->catalog->listScripts());
+        $suppressed = $this->tombstones->suppressedScriptIds(ScriptTombstoneService::SOURCE_RPA_ADMIN);
+        $plan = $this->planner->plan($normalized, $this->catalog->listScripts(), $suppressed);
 
         return response()->json(['ok' => true, 'plan' => $plan]);
     }
@@ -110,5 +115,44 @@ final class RpaAdminScriptSyncController extends Controller
             'assets_complete' => $assetsComplete,
             'ready_to_execute' => $assetsComplete,
         ], SocialAutomationApiStatus::fromResult(true));
+    }
+
+    public function attachVideoDemo(Request $request): JsonResponse
+    {
+        $packageKey = trim((string) $request->input('package_key', ''));
+        $version = trim((string) $request->input('version', ''));
+        $mime = strtolower(trim((string) $request->input('mime', 'video/webm')));
+        $checksum = trim((string) $request->input('sha256', ''));
+
+        $file = $request->file('video');
+        $binary = null;
+        if ($file !== null && $file->isValid()) {
+            $binary = (string) file_get_contents($file->getRealPath());
+            if ($mime === 'video/webm' || $mime === 'video/mp4') {
+                // keep request mime
+            } elseif (is_string($file->getMimeType()) && $file->getMimeType() !== '') {
+                $mime = strtolower($file->getMimeType());
+            }
+        } else {
+            $raw = $request->input('video_base64');
+            if (is_string($raw) && $raw !== '') {
+                $decoded = base64_decode($raw, true);
+                $binary = $decoded === false ? null : $decoded;
+            }
+        }
+
+        if ($packageKey === '' || $version === '' || ! is_string($binary) || $binary === '') {
+            return response()->json(['ok' => false, 'errors' => ['video_demo_upload_required']], 422);
+        }
+
+        $result = $this->media->attachVideoDemo(
+            $packageKey,
+            $version,
+            $binary,
+            $mime !== '' ? $mime : 'video/webm',
+            $checksum !== '' ? $checksum : null,
+        );
+
+        return response()->json($result, ($result['ok'] ?? false) ? 201 : 422);
     }
 }
