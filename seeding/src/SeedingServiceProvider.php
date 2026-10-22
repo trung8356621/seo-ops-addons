@@ -146,7 +146,11 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->loadViewsFrom($root.'/resources/views', 'seeding');
         $this->loadTranslationsFrom($root.'/resources/lang', 'seeding');
 
-        app(SeedingServiceResolver::class)->ensureCatalogRow();
+        try {
+            app(SeedingServiceResolver::class)->ensureCatalogRow();
+        } catch (Throwable) {
+            // DB outage / unmigrated — catalog row will be ensured once database is available.
+        }
 
         try {
             app(SeedingDatabaseConnectionService::class)->bootstrap();
