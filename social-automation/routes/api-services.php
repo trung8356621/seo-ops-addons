@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Route;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Admin\ManualDispatchController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Admin\TaskAdminController;
+use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Admin\WidgetInputController;
+use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Admin\WorkflowComposeController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\PackageRegistryController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Runner\RunnerAgentController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\ServiceApi\Runner\RunnerJobController;
@@ -18,7 +20,7 @@ use Omnichannel\Addons\SocialAutomation\Http\Middleware\EnsureSocialAutomationSe
 | Admin scopes:
 |   social-automation:package:read|publish
 |   social-automation:admin:dispatch
-|   social-automation:admin:task
+|   social-automation:admin:task   (also widgets/workflows compose)
 |
 | Runner scopes (minted via Admin Service API Access — see RunnerEnrollmentContract):
 |   social-automation:runner:agent
@@ -59,6 +61,10 @@ Route::middleware([
         ->name('api.v1.services.social-automation.tasks.store');
     Route::post('{service}/social-automation/schedules', [TaskAdminController::class, 'storeSchedule'])
         ->name('api.v1.services.social-automation.schedules.store');
+    Route::post('{service}/social-automation/widgets/compose-input', [WidgetInputController::class, 'compose'])
+        ->name('api.v1.services.social-automation.widgets.compose-input');
+    Route::post('{service}/social-automation/workflows/compose-preview', [WorkflowComposeController::class, 'preview'])
+        ->name('api.v1.services.social-automation.workflows.compose-preview');
 });
 
 Route::middleware([

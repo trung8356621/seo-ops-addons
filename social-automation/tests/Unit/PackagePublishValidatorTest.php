@@ -95,6 +95,29 @@ final class PackagePublishValidatorTest extends TestCase
         self::assertContains('kind_invalid', $result['errors']);
     }
 
+    public function test_script_kind_accepted(): void
+    {
+        $result = $this->validator->validate([
+            'package_key' => 'facebook.group.post.script',
+            'kind' => 'script',
+            'name' => 'Post Script',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'script_id' => 'facebook.group.post',
+                'variables' => [
+                    ['key' => 'text', 'type' => 'text'],
+                ],
+                'steps' => [
+                    ['id' => 's1', 'action' => 'CLICK_TARGET'],
+                ],
+            ],
+            'dependencies' => [],
+        ]);
+        self::assertTrue($result['ok'], json_encode($result['errors'] ?? []));
+        self::assertSame('script', $result['data']['kind']);
+    }
+
     public function test_digest_changes_when_manifest_changes(): void
     {
         $a = $this->validator->validate($this->basePayload());

@@ -4,14 +4,31 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SocialAutomation\PackageRegistry;
 
+use Omnichannel\Addons\SocialAutomation\Domain\WidgetFormSchema;
+
 /**
  * Validate Admin → SEO-OPS package publish payloads (no DB).
+ *
+ * Kinds:
+ * - script  — immutable RPA Script release (variables/steps/assets/video demo)
+ * - widget  — form layer over a Script (or legacy steps-only widget)
+ * - workflow — sequential Widget composition
  */
 final class PackagePublishValidator
 {
     public const MAX_MANIFEST_BYTES = 1_048_576; // 1 MiB
 
-    public const KINDS = ['widget', 'workflow'];
+    public const KINDS = ['script', 'widget', 'workflow'];
+
+    /** @var list<string> */
+    private const FORBIDDEN_EXECUTABLE = [
+        'code', 'executable', 'eval', 'cookies', 'credentials',
+        'account_switch', 'switch_account', 'change_account',
+    ];
+
+    public function __construct(
+        private readonly WidgetFormSchema $widgetForms = new WidgetFormSchema,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $input
@@ -57,14 +74,14 @@ final class PackagePublishValidator
             $errors[] = 'manifest_too_large';
         }
 
-        // Reject obvious executable handoff fields and account-switching knobs.
-        foreach ([
-            'code', 'script', 'executable', 'eval', 'cookies', 'credentials',
-            'account_switch', 'switch_account', 'change_account',
-        ] as $forbidden) {
+        foreach (self::FORBIDDEN_EXECUTABLE as $forbidden) {
             if (array_key_exists($forbidden, $manifest)) {
                 $errors[] = 'manifest_forbidden_field:'.$forbidden;
             }
+        }
+        // Top-level "script" remains forbidden (executable handoff). Script kind uses script_id / variables / steps.
+        if (array_key_exists('script', $manifest)) {
+            $errors[] = 'manifest_forbidden_field:script';
         }
 
         $providedDigest = strtolower(trim((string) ($input['content_digest'] ?? '')));
@@ -108,25 +125,16 @@ final class PackagePublishValidator
         }
 
         if ($kind === 'workflow') {
-            $stepErrors = $this->validateWorkflowComposition($manifest, $normalizedDeps);
-            foreach ($stepErrors as $err) {
+            foreach ($this->validateWorkflowComposition($manifest, $normalizedDeps) as $err) {
                 $errors[] = $err;
             }
         } elseif ($kind === 'widget') {
-            // Widget composition is free-form for Admin packaging; only forbid switch knobs in steps.
-            $steps = $manifest['steps'] ?? null;
-            if (is_array($steps)) {
-                foreach ($steps as $i => $step) {
-                    if (! is_array($step)) {
-                        $errors[] = 'widget_step_invalid:'.$i;
-                        continue;
-                    }
-                    foreach (['account_switch', 'switch_account', 'change_account', 'account_id'] as $forbidden) {
-                        if (array_key_exists($forbidden, $step)) {
-                            $errors[] = 'widget_step_forbidden_field:'.$forbidden;
-                        }
-                    }
-                }
+            foreach ($this->validateWidgetManifest($manifest, $normalizedDeps) as $err) {
+                $errors[] = $err;
+            }
+        } elseif ($kind === 'script') {
+            foreach ($this->validateScriptManifest($manifest) as $err) {
+                $errors[] = $err;
             }
         }
 
@@ -167,9 +175,146 @@ final class PackagePublishValidator
     }
 
     /**
-     * Workflow = sequential steps on one chosen account/session. Packaging of
-     * post+comment as one widget vs two widgets is Admin's choice — not hardcoded.
-     *
+     * @param  array<string, mixed>  $manifest
+     * @return list<string>
+     */
+    private function validateScriptManifest(array $manifest): array
+    {
+        $errors = [];
+        $scriptId = trim((string) ($manifest['script_id'] ?? ''));
+        if ($scriptId === '' || mb_strlen($scriptId) > 128) {
+            $errors[] = 'script_id_required';
+        }
+
+        $variables = $manifest['variables'] ?? null;
+        if (! is_array($variables) || ! array_is_list($variables)) {
+            $errors[] = 'script_variables_required';
+        } else {
+            $keys = [];
+            foreach ($variables as $i => $variable) {
+                if (! is_array($variable)) {
+                    $errors[] = 'script_variable_invalid:'.$i;
+                    continue;
+                }
+                $key = trim((string) ($variable['key'] ?? ''));
+                $type = strtolower(trim((string) ($variable['type'] ?? '')));
+                if ($key === '' || isset($keys[$key])) {
+                    $errors[] = 'script_variable_key_invalid:'.$i;
+                    continue;
+                }
+                if (! in_array($type, ['text', 'file', 'files', 'integer', 'number'], true)) {
+                    $errors[] = 'script_variable_type_invalid:'.$i;
+                }
+                $keys[$key] = true;
+            }
+        }
+
+        $steps = $manifest['steps'] ?? null;
+        if (! is_array($steps) || ! array_is_list($steps) || $steps === []) {
+            $errors[] = 'script_steps_required';
+        } else {
+            foreach ($steps as $i => $step) {
+                if (! is_array($step)) {
+                    $errors[] = 'script_step_invalid:'.$i;
+                    continue;
+                }
+                foreach (['code', 'executable', 'eval', 'account_switch', 'switch_account', 'change_account'] as $forbidden) {
+                    if (array_key_exists($forbidden, $step)) {
+                        $errors[] = 'script_step_forbidden_field:'.$forbidden;
+                    }
+                }
+            }
+        }
+
+        $video = $manifest['video_demo'] ?? null;
+        if ($video !== null) {
+            if (! is_array($video)) {
+                $errors[] = 'script_video_demo_invalid';
+            } else {
+                $ref = trim((string) ($video['artifact_ref'] ?? $video['path'] ?? ''));
+                $sha = strtolower(trim((string) ($video['sha256'] ?? '')));
+                $mime = strtolower(trim((string) ($video['mime'] ?? 'video/webm')));
+                $testRunId = trim((string) ($video['test_run_id'] ?? ''));
+                if ($ref === '') {
+                    $errors[] = 'script_video_demo_ref_required';
+                }
+                if ($sha !== '' && ! PackageDigest::isValidHex($sha)) {
+                    $errors[] = 'script_video_demo_digest_invalid';
+                }
+                if (! in_array($mime, ['video/webm', 'video/mp4'], true)) {
+                    $errors[] = 'script_video_demo_mime_invalid';
+                }
+                if ($testRunId === '') {
+                    $errors[] = 'script_video_demo_test_run_required';
+                }
+                if (array_key_exists('audio', $video) && $video['audio'] === true) {
+                    $errors[] = 'script_video_demo_audio_forbidden';
+                }
+                if (array_key_exists('desktop_capture', $video) && $video['desktop_capture'] === true) {
+                    $errors[] = 'script_video_demo_desktop_forbidden';
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param  array<string, mixed>  $manifest
+     * @param  list<array{package_key: string, version: string, content_digest: string}>  $deps
+     * @return list<string>
+     */
+    private function validateWidgetManifest(array $manifest, array $deps): array
+    {
+        $errors = [];
+
+        $steps = $manifest['steps'] ?? null;
+        if (is_array($steps)) {
+            foreach ($steps as $i => $step) {
+                if (! is_array($step)) {
+                    $errors[] = 'widget_step_invalid:'.$i;
+                    continue;
+                }
+                foreach (['account_switch', 'switch_account', 'change_account', 'account_id'] as $forbidden) {
+                    if (array_key_exists($forbidden, $step)) {
+                        $errors[] = 'widget_step_forbidden_field:'.$forbidden;
+                    }
+                }
+            }
+        }
+
+        $parsed = $this->widgetForms->parse($manifest);
+        foreach ($parsed['errors'] as $err) {
+            $errors[] = $err;
+        }
+
+        $scriptRef = $parsed['script_ref'];
+        if (is_array($scriptRef)) {
+            $matched = false;
+            foreach ($deps as $dep) {
+                if (
+                    $dep['package_key'] === $scriptRef['package_key']
+                    && $dep['version'] === $scriptRef['version']
+                    && PackageDigest::equals($dep['content_digest'], $scriptRef['content_digest'])
+                ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if (! $matched) {
+                $errors[] = 'widget_script_dependency_required';
+            }
+        }
+
+        // New form widgets must bind a Script; legacy steps-only widgets remain valid.
+        if ($parsed['fields'] !== [] && $scriptRef === null) {
+            $errors[] = 'widget_script_ref_required';
+        }
+
+        return $errors;
+    }
+
+    /**
      * @param  array<string, mixed>  $manifest
      * @param  list<array{package_key: string, version: string, content_digest: string}>  $deps
      * @return list<string>
@@ -201,7 +346,6 @@ final class PackagePublishValidator
             }
         }
 
-        // Prefer pinned widget deps when steps reference package_key; soft when only inline actions.
         $refsWidgetPackages = false;
         foreach ($steps as $step) {
             if (is_array($step) && trim((string) ($step['widget_key'] ?? $step['package_key'] ?? '')) !== '') {

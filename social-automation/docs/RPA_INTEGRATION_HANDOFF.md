@@ -21,7 +21,7 @@ Base path: `/api/v1/services/{service}/social-automation/...`
 |---|---|
 | `social-automation:package:read` | `GET .../packages`, `GET .../packages/{packageKey}?version=` |
 | `social-automation:package:publish` | `POST .../packages/publish` |
-| `social-automation:admin:task` | `GET/POST .../tasks`, `POST .../schedules` |
+| `social-automation:admin:task` | `GET/POST .../tasks`, `POST .../schedules`, `POST .../widgets/compose-input`, `POST .../workflows/compose-preview` |
 | `social-automation:admin:dispatch` | `POST .../dispatch/manual` |
 
 ### Runner scopes
@@ -53,15 +53,22 @@ Business errors return JSON `{ "ok": false, "errors": ["code"] }` — not HTTP 5
 
 ### Rules
 
-- Kinds: `widget` \| `workflow`
+- Kinds: `script` \| `widget` \| `workflow`
+- `script` = immutable RPA Script release (variables/steps/assets/video_demo). Not task-dispatchable.
+- `widget` = form layer over a Script (`form_fields` + `script_*` pin) **or** legacy steps-only widget
+- `workflow` = sequential Widget steps, **no account switching**; may pin widget dependencies
 - Version + `content_digest` (SHA-256 of canonical JSON)
 - Same key/version/digest → `outcome=idempotent` (200)
 - Same key/version, different digest → `version_digest_conflict` (409)
-- Published releases immutable; tasks pin `package_key` + `package_version` (+ digest)
-- Workflow: sequential steps, **no account switching**; may pin widget dependencies
+- Published releases immutable; tasks pin `package_key` + `package_version` (+ digest) for **widget|workflow** only
+- Top-level `manifest.script` remains forbidden (executable). Script kind uses `script_id`.
 - Packaging (post+comment as one widget vs two) is Admin composition — server does not hardcode
 
-See fixtures: `tests/Fixtures/contracts/01_*.json` … `03_*.json`
+See fixtures: `tests/Fixtures/contracts/01_*.json` … `03_*.json`, `12_*` … `14_*`
+
+Compose (Admin task scope):
+- `POST .../widgets/compose-input` — Manual / AI Auto → validated inputs
+- `POST .../workflows/compose-preview` — Script→Widget→Workflow mapping preview
 
 ---
 
@@ -176,6 +183,9 @@ Directory: `social-automation/tests/Fixtures/contracts/`
 | 9 | `09_job_failure_screenshot.request.json` | Failure + shot |
 | 10 | `10_stale_result.response.json` | Stale fence |
 | 11 | `11_duplicate_request.response.json` | Idempotent replay |
+| 12 | `12_script_publish_success.request.json` | Script Registry release |
+| 13 | `13_widget_form_over_script.request.json` | Widget form over Script |
+| 14 | `14_script_widget_workflow_mapping.request.json` | Compose-preview mapping |
 
 Fields marked `"provisional": true` await joint confirmation with RPA Admin/Runner.
 

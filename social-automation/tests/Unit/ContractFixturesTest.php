@@ -51,6 +51,20 @@ final class ContractFixturesTest extends TestCase
         self::assertSame(409, $fx['http_status']);
     }
 
+    public function test_script_publish_fixture(): void
+    {
+        $fx = $this->load('12_script_publish_success.request.json');
+        $result = (new PackagePublishValidator)->validate($fx['body']);
+        self::assertTrue($result['ok'], json_encode($result['errors'] ?? []));
+    }
+
+    public function test_widget_form_fixture(): void
+    {
+        $fx = $this->load('13_widget_form_over_script.request.json');
+        $result = (new PackagePublishValidator)->validate($fx['body']);
+        self::assertTrue($result['ok'], json_encode($result['errors'] ?? []));
+    }
+
     public function test_workflow_multi_widget_fixture(): void
     {
         $fx = $this->load('03_workflow_sequential_widgets.request.json');

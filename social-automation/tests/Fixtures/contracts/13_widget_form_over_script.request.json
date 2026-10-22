@@ -1,0 +1,58 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/packages/publish",
+  "scope": "social-automation:package:publish",
+  "body": {
+    "package_key": "facebook.group.post",
+    "kind": "widget",
+    "name": "Facebook Group Post",
+    "version": "2.0.0",
+    "schema_version": 1,
+    "description": "End-user form over Script variables",
+    "manifest": {
+      "script_key": "facebook.group.post.script",
+      "script_version": "1.0.0",
+      "script_digest": "abababababababababababababababababababababababababababababababab",
+      "form_fields": [
+        {
+          "key": "text",
+          "label": "Nội dung bài",
+          "input_type": "textarea",
+          "required": true,
+          "default": null,
+          "validation": { "maxLength": 2000 },
+          "visibility": "exposed",
+          "help": "Nội dung đăng lên group",
+          "binding": { "variable_key": "text" },
+          "data_source": { "type": "manual" },
+          "ai_policy": "eligible"
+        },
+        {
+          "key": "group_url",
+          "label": "URL Group",
+          "input_type": "url",
+          "required": true,
+          "visibility": "exposed",
+          "help": "URL group đã xác thực — không để AI tự suy đoán",
+          "binding": { "variable_key": "group_url" },
+          "data_source": { "type": "manual" },
+          "ai_policy": "manual_only"
+        }
+      ]
+    },
+    "dependencies": [
+      {
+        "package_key": "facebook.group.post.script",
+        "version": "1.0.0",
+        "content_digest": "abababababababababababababababababababababababababababababababab"
+      }
+    ],
+    "runtime_compatibility": { "runner_min": "2.0.0" }
+  },
+  "notes": [
+    "Widget does not copy Script steps.",
+    "One Script may back many Widgets.",
+    "Legacy steps-only widgets remain valid without form_fields."
+  ]
+}

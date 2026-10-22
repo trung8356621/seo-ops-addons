@@ -13,6 +13,8 @@ use Omnichannel\Addons\SocialAutomation\Domain\JobIdempotencyKey;
 use Omnichannel\Addons\SocialAutomation\Domain\JobStateMachine;
 use Omnichannel\Addons\SocialAutomation\Domain\OnlineStateCalculator;
 use Omnichannel\Addons\SocialAutomation\Domain\SessionLockPolicy;
+use Omnichannel\Addons\SocialAutomation\Domain\WorkflowJobComposer;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
 use Omnichannel\Addons\SocialAutomation\Enums\AgentAvailability;
 use Omnichannel\Addons\SocialAutomation\Enums\JobStatus;
 use Omnichannel\Addons\SocialAutomation\Models\SaAccount;
@@ -40,6 +42,8 @@ final class JobOrchestrator
         private readonly AccountLockPolicy $accountLocks = new AccountLockPolicy,
         private readonly AttemptFencePolicy $fence = new AttemptFencePolicy,
         private readonly JobObservability $observability = new JobObservability,
+        private readonly WorkflowJobComposer $workflowComposer = new WorkflowJobComposer,
+        private readonly ?PackageRegistryService $packages = null,
     ) {}
 
     /**
@@ -521,6 +525,29 @@ final class JobOrchestrator
             return $existing;
         }
 
+        $release = null;
+        $registry = $this->packages;
+        if ($registry === null && function_exists('app')) {
+            try {
+                $registry = app(PackageRegistryService::class);
+            } catch (Throwable) {
+                $registry = null;
+            }
+        }
+        if ($registry instanceof PackageRegistryService) {
+            $release = $registry->findRelease((string) $task->package_key, (string) $task->package_version);
+        }
+
+        $composed = $this->workflowComposer->compose(
+            (string) $task->package_kind,
+            is_array($task->inputs) ? $task->inputs : [],
+            $release,
+        );
+        $payload = $composed['payload'];
+        if (! ($composed['ok'] ?? false)) {
+            $payload['composition_errors'] = $composed['errors'];
+        }
+
         $job = SaJob::query()->create([
             'job_uuid' => (string) Str::uuid(),
             'task_id' => $task->id,
@@ -533,10 +560,7 @@ final class JobOrchestrator
             'content_digest' => $task->content_digest,
             'status' => JobStatus::Reserved->value,
             'idempotency_key' => $idem,
-            'payload' => [
-                'inputs' => $task->inputs,
-                'package_kind' => $task->package_kind,
-            ],
+            'payload' => $payload,
             'reserved_at' => now(),
             'lease_expires_at' => now()->addSeconds(self::DEFAULT_LEASE_SECONDS),
             'dispatch_source' => $source,

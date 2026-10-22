@@ -1,0 +1,31 @@
+{
+  "provisional": false,
+  "method": "POST",
+  "path": "/api/v1/services/{service}/social-automation/workflows/compose-preview",
+  "scope": "social-automation:admin:task",
+  "body": {
+    "package_key": "facebook.group.post_then_comment",
+    "package_version": "1.0.0",
+    "inputs": { "campaign": "demo" },
+    "prior_outputs": {
+      "facebook.group.post": { "post_url": "https://example.com/p/1" }
+    }
+  },
+  "expected_mapping": {
+    "workflow_key": "facebook.group.post_then_comment",
+    "steps": [
+      {
+        "widget_key": "facebook.group.post",
+        "script_key": "facebook.group.post.script"
+      },
+      {
+        "widget_key": "facebook.group.comment",
+        "output_bindings": { "url": "facebook.group.post.post_url" }
+      }
+    ]
+  },
+  "notes": [
+    "SEO-OPS reuses WorkflowOutputMapper / WorkflowJobComposer.",
+    "RPA Admin React canvas is not embedded in Filament."
+  ]
+}
