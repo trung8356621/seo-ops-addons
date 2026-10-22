@@ -192,6 +192,12 @@ final class AiPromptServiceProvider extends ServiceProvider
                         if (! auth()->check()) {
                             return '';
                         }
+                        if (class_exists(\App\Core\Installation\InstallationStateManager::class)) {
+                            $installer = app(\App\Core\Installation\InstallationStateManager::class);
+                            if ($installer->isFreshUnlicensed()) {
+                                return '';
+                            }
+                        }
                         $capacity = app(\Omnichannel\Addons\AiPrompt\Services\AiCapacityStatusService::class);
                         // Same authorization as API Connections — content_manager never sees this rail.
                         if (! $capacity->viewerMayInspectCapacity()) {

@@ -61,12 +61,30 @@ final class ConfigSyncHttpTransport
             throw ConfigurationSyncException::blockedOnH1();
         }
 
-        $base = rtrim((string) config('configuration-sync.base_url', ''), '/');
+        $base = '';
+        if (class_exists(\App\Services\H1\Persistence\InstallationStateRepository::class)) {
+            try {
+                $base = app(\App\Services\H1\Persistence\InstallationStateRepository::class)->getEffectiveControlServerUrl();
+            } catch (\Throwable) {
+            }
+        }
+        if ($base === '') {
+            $base = rtrim((string) config('configuration-sync.base_url', ''), '/');
+        }
         if ($base === '') {
             throw new ConfigurationSyncException('server_unconfigured', 'OPS-SERVER configuration base URL is not configured.');
         }
+
         $requireHttps = (bool) config('configuration-sync.require_https', true);
-        if ($requireHttps && ! str_starts_with(strtolower($base), 'https://')) {
+        $isLoopback = false;
+        $host = (string) parse_url($base, PHP_URL_HOST);
+        if ($host !== '') {
+            $isLoopback = class_exists(\App\Services\H1\Endpoint\ServerEndpointValidator::class)
+                ? \App\Services\H1\Endpoint\ServerEndpointValidator::isLoopbackHost($host)
+                : in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
+        }
+
+        if ($requireHttps && ! $isLoopback && ! str_starts_with(strtolower($base), 'https://')) {
             throw new ConfigurationSyncException('insecure_transport', 'Configuration sync requires HTTPS.');
         }
 
