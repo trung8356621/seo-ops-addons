@@ -1,6 +1,6 @@
 # Social Automation — RPA Admin / Runner Integration Handoff
 
-Status: **CODE COMPLETE** (Phases A–E + 7–11 + RPA Admin user auth / Script sync / Widget invalidation / nav). Production remains locked. **E2E / FINAL INTEGRATION NOT RUN.**
+Status: **CODE COMPLETE** (Phases A–E + 7–11 + RPA Admin auth/sync + Filament Scripts/Widgets/Workflows UI). Production remains locked. **E2E / FINAL INTEGRATION / RPA Client NOT RUN.**
 
 Base path (Runner + Service API packages): `/api/v1/services/{service}/social-automation/...`  
 `{service}` must resolve to public slug `social-automation`.

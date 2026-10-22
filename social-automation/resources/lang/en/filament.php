@@ -23,19 +23,19 @@ return [
     'scripts' => [
         'nav' => 'Scripts',
         'title' => 'Scripts',
-        'intro' => 'Script Registry — immutable releases from RPA Admin. Scripts support bidirectional sync.',
+        'intro' => 'Script Registry — immutable releases. Catalog syncs bidirectionally with RPA Admin; executable editing stays in Electron.',
         'empty' => 'No Scripts yet. Sync from RPA Admin after login.',
     ],
     'widgets' => [
         'nav' => 'Widgets',
         'title' => 'Widgets',
-        'intro' => 'Form layer over a Script. Disabled when Script execution changes — review before re-enable.',
-        'empty' => 'No Widgets yet.',
+        'intro' => 'Form Builder over a pinned Script. Auto-disabled when execution digest changes (script_updated); review bindings before re-enable.',
+        'empty' => 'No Widgets yet. Publish from the form below or Service API.',
     ],
     'workflows' => [
         'nav' => 'Workflows',
         'title' => 'Workflows',
-        'intro' => 'Sequential Widget chains. No account switching between steps.',
+        'intro' => 'Sequential Widget chains with output bindings. Dispatch is blocked when a dependent Widget is disabled.',
         'empty' => 'No Workflows yet.',
     ],
     'agents' => [

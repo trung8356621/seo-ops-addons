@@ -23,19 +23,19 @@ return [
     'scripts' => [
         'nav' => 'Scripts',
         'title' => 'Scripts',
-        'intro' => 'Script Registry — release bất biến từ RPA Admin. Chỉ Script có thể sync hai chiều.',
+        'intro' => 'Script Registry — release bất biến. Catalog sync hai chiều với RPA Admin; chỉnh sửa thực thi vẫn ở Electron.',
         'empty' => 'Chưa có Script. Đồng bộ từ RPA Admin sau khi đăng nhập.',
     ],
     'widgets' => [
         'nav' => 'Widgets',
         'title' => 'Widgets',
-        'intro' => 'Form layer trên Script. Widget bị disable khi Script thực thi thay đổi — cần review trước khi bật lại.',
-        'empty' => 'Chưa có Widget.',
+        'intro' => 'Form Builder trên Script đã pin. Disable tự động khi execution digest đổi (script_updated); review bindings trước khi re-enable.',
+        'empty' => 'Chưa có Widget. Publish từ form bên dưới hoặc Service API.',
     ],
     'workflows' => [
         'nav' => 'Workflows',
         'title' => 'Workflows',
-        'intro' => 'Chuỗi Widget tuần tự. Không chuyển account giữa các bước.',
+        'intro' => 'Chuỗi Widget tuần tự + output bindings. Dispatch bị chặn nếu Widget phụ thuộc bị disable.',
         'empty' => 'Chưa có Workflow.',
     ],
     'agents' => [

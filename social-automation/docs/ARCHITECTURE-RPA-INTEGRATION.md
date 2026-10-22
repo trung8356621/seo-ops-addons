@@ -63,40 +63,43 @@ RPA Client chưa được xây dựng tại thời điểm chốt kiến trúc.
 
 ## 2. Hai luồng giao tiếp
 
-### Luồng 1: RPA Admin → SEO-OPS
+### Luồng 1: RPA Admin ↔ SEO-OPS Script Registry
 
-**Một chiều về nghiệp vụ, không thường xuyên.**
+**Catalog Script được đồng bộ hai chiều** giữa RPA Admin và SEO-OPS (push/pull/skip/conflict).
 
-RPA Admin phát hành:
+Tuy nhiên ranh giới trách nhiệm không đổi:
 
-- Script definition.
-- Script ID/version.
-- Variables và output schema.
-- Runtime requirements.
-- ROI/assets.
-- Dependencies.
-- Content digest.
-- Video demo.
+- **RPA Admin** là nơi author / test Script chính (Creator, Test Lab, video demo).
+- **SEO-OPS** quản lý Script Registry, Widget, Workflow, nội dung nghiệp vụ và điều phối Job.
+- **RPA Client** là executor (chưa triển khai trong phase hiện tại).
+- Browser Sessions của RPA Admin luôn **local** — không sync cookies/profiles/credentials lên SEO-OPS.
+- Browser Sessions của RPA Client mới sync về SEO-OPS khi Runner có sẵn.
 
-SEO-OPS trả kết quả tiếp nhận, validation hoặc version conflict.
+Đồng bộ Script:
 
-SEO-OPS không gửi lệnh điều khiển hoặc yêu cầu chỉnh sửa kịch bản ngược về RPA Admin.
+- Local có / server thiếu → push.
+- Server có / local thiếu → pull/import (phải materialize Flow/Steps/assets; thiếu ROI → incomplete).
+- Cùng digest → skip.
+- Khác digest có lineage → fast-forward phía ahead.
+- Sửa độc lập hai phía → conflict, **không** silent overwrite.
+
+SEO-OPS không gửi lệnh điều khiển browser hay yêu cầu chỉnh sửa kịch bản tự động về RPA Admin.
 
 ### Luồng 2: SEO-OPS ↔ RPA Client
 
-**Hai chiều, hoạt động thường xuyên.**
+**Hai chiều, hoạt động thường xuyên** (khi Runner sẵn sàng).
 
 Bao gồm:
 
 - Register/enrollment.
 - Heartbeat.
-- Session/account synchronization.
+- Session/account synchronization (Runner only).
 - Job claim/ack/progress.
 - Result.
 - Error.
 - Screenshot/artifacts.
 
-Đây là kết nối vận hành chính của toàn hệ thống.
+Đây là kết nối vận hành chính của toàn hệ thống khi Client đã được xây.
 
 ---
 
@@ -105,8 +108,8 @@ Bao gồm:
 1. Developer tạo Script trong RPA Admin.
 2. Kiểm thử bằng Test Lab.
 3. Quay video demo kịch bản.
-4. Phát hành Script/version/assets/video lên SEO-OPS.
-5. SEO-OPS tiếp nhận vào Script Registry.
+4. Đồng bộ Script/version/assets/video với SEO-OPS Script Registry (hai chiều; conflict cần xử lý tay).
+5. SEO-OPS lưu release bất biến trong Script Registry.
 6. Quản trị viên tạo Widget từ Variables của Script.
 7. Có thể kết hợp nhiều Widget thành Workflow.
 8. SEO-OPS chuẩn bị input bằng Manual Mode hoặc AI Auto Mode.

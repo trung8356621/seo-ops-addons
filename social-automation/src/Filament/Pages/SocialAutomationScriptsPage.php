@@ -6,13 +6,13 @@ namespace Omnichannel\Addons\SocialAutomation\Filament\Pages;
 
 use Filament\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
-use Omnichannel\Addons\SocialAutomation\Filament\Pages\Concerns\PackageKindListPage;
 use Omnichannel\Addons\SocialAutomation\Filament\Pages\Concerns\SocialAutomationPage as Access;
+use Omnichannel\Addons\SocialAutomation\Filament\Pages\Concerns\UsesScriptRegistryUi;
 
 final class SocialAutomationScriptsPage extends Page
 {
     use Access;
-    use PackageKindListPage;
+    use UsesScriptRegistryUi;
 
     protected static ?string $navigationIcon = 'heroicon-o-code-bracket';
 
@@ -20,12 +20,9 @@ final class SocialAutomationScriptsPage extends Page
 
     protected static ?int $navigationSort = 10;
 
-    protected static string $view = 'social-automation::filament.pages.kind-list';
+    protected static string $view = 'social-automation::filament.pages.scripts';
 
-    protected static function packageKind(): string
-    {
-        return 'script';
-    }
+    public ?string $selectedKey = null;
 
     public static function getNavigationLabel(): string
     {
@@ -37,13 +34,29 @@ final class SocialAutomationScriptsPage extends Page
         return __('social-automation::filament.scripts.title');
     }
 
-    public function introKey(): string
+    /** @return list<array<string, mixed>> */
+    public function scripts(): array
     {
-        return 'social-automation::filament.scripts.intro';
+        return $this->registryUi()->listScriptsForUi();
     }
 
-    public function emptyKey(): string
+    public function selectScript(string $packageKey): void
     {
-        return 'social-automation::filament.scripts.empty';
+        $this->selectedKey = $packageKey;
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selectedKey = null;
+    }
+
+    /** @return array<string, mixed>|null */
+    public function selectedDetail(): ?array
+    {
+        if ($this->selectedKey === null || $this->selectedKey === '') {
+            return null;
+        }
+
+        return $this->registryUi()->scriptDetail($this->selectedKey);
     }
 }
