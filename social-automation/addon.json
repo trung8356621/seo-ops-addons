@@ -10,6 +10,7 @@
     ],
     "db_connection": "omi_social_automation",
     "register_early": true,
+    "deployment_ready": true,
     "legacy": false,
     "provides": [
         "social-automation.control-plane",

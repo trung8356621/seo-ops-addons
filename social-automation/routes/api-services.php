@@ -26,6 +26,10 @@ use Omnichannel\Addons\SocialAutomation\Http\Middleware\EnsureSocialAutomationSe
 |   social-automation:runner:job
 */
 
+if (! class_exists(ManualDispatchController::class) || ! class_exists(EnsureSocialAutomationServiceApi::class)) {
+    return;
+}
+
 Route::middleware([
     EnsureSocialAutomationServiceApi::class,
     'service.api.scope:social-automation:package:read',
