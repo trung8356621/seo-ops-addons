@@ -19,7 +19,15 @@ return new class extends Migration
             return;
         }
 
-        if (! Schema::connection($this->connection)->hasColumn('prompts', 'hook_version')) {
+        $hasColumn = false;
+        try {
+            $cols = DB::connection($this->connection)->select("SHOW COLUMNS FROM `prompts` LIKE 'hook_version'");
+            $hasColumn = ! empty($cols);
+        } catch (\Throwable) {
+            $hasColumn = Schema::connection($this->connection)->hasColumn('prompts', 'hook_version');
+        }
+
+        if (! $hasColumn) {
             Schema::connection($this->connection)->table('prompts', function ($table): void {
                 $table->string('hook_version', 32)->nullable()->after('hook_key');
             });

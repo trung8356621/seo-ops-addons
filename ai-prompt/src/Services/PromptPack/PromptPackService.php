@@ -132,7 +132,15 @@ final class PromptPackService
             }
             $record = is_array($row['normalized'] ?? null) ? $row['normalized'] : [];
             if ($action === 'update' && isset($row['existing_id'])) {
-                $prompt = SeoPrompt::query()->withTrashed()->where('user_id', $userId)->whereKey((int) $row['existing_id'])->first();
+                $prompt = SeoPrompt::query()->withTrashed()
+                    ->where(function ($q) use ($userId) {
+                        $q->where('user_id', $userId);
+                        if ($userId > 0) {
+                            $q->orWhere('user_id', 0);
+                        }
+                    })
+                    ->whereKey((int) $row['existing_id'])
+                    ->first();
                 if ($prompt instanceof SeoPrompt) {
                     if (method_exists($prompt, 'trashed') && $prompt->trashed()) {
                         $prompt->restore();
@@ -269,11 +277,26 @@ final class PromptPackService
             $action = in_array($bulkPolicy, ['update', 'copy', 'skip'], true) ? $bulkPolicy : 'update';
             $conflict = 'portable_uuid';
         } else {
-            $byName = SeoPrompt::query()->where('user_id', $userId)->where('name', $name)->first();
+            $byName = SeoPrompt::query()
+                ->where(function ($q) use ($userId) {
+                    $q->where('user_id', $userId);
+                    if ($userId > 0) {
+                        $q->orWhere('user_id', 0);
+                    }
+                })
+                ->where('name', $name)
+                ->first();
             if ($byName instanceof SeoPrompt) {
-                $conflict = 'name';
-                $action = $bulkPolicy === 'update' ? 'copy' : (in_array($bulkPolicy, ['copy', 'skip'], true) ? $bulkPolicy : 'copy');
-                $warnings[] = 'Name conflict for "'.$name.'" (different portable id).';
+                $isSystemDefault = (bool) (($byName->settings['is_system_default'] ?? false) === true);
+                if ($bulkPolicy === 'update' && ($isSystemDefault || SystemBootstrapGate::isOpen())) {
+                    $existing = $byName;
+                    $action = 'update';
+                    $conflict = null;
+                } else {
+                    $conflict = 'name';
+                    $action = $bulkPolicy === 'update' ? 'copy' : (in_array($bulkPolicy, ['copy', 'skip'], true) ? $bulkPolicy : 'copy');
+                    $warnings[] = 'Name conflict for "'.$name.'" (different portable id).';
+                }
             }
         }
 
@@ -332,7 +355,12 @@ final class PromptPackService
 
     private function findByUuid(int $userId, string $uuid): ?SeoPrompt
     {
-        $query = SeoPrompt::query()->withTrashed()->where('user_id', $userId);
+        $query = SeoPrompt::query()->withTrashed()->where(function ($q) use ($userId) {
+            $q->where('user_id', $userId);
+            if ($userId > 0) {
+                $q->orWhere('user_id', 0);
+            }
+        });
         try {
             $byColumn = (clone $query)->where('portable_uuid', $uuid)->first();
             if ($byColumn instanceof SeoPrompt) {

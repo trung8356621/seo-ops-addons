@@ -353,7 +353,7 @@ final class AiCenterSettingsSection implements PortableSettingsSection
             $connection->user_id = $userId;
             $connection->provider = $provider;
             $connection->name = $name;
-            $connection->api_key = null;
+            $connection->api_key = '';
             $connection->status = 'inactive';
             $connection->is_global = $isGlobal;
             $connection->metadata = $meta !== [] ? $meta : null;
