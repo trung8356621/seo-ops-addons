@@ -106,7 +106,7 @@ final class PackagePublishValidatorTest extends TestCase
             'manifest' => [
                 'script_id' => 'facebook.group.post',
                 'variables' => [
-                    ['key' => 'text', 'type' => 'text'],
+                    ['id' => 'v-text', 'key' => 'text', 'type' => 'text'],
                 ],
                 'steps' => [
                     ['id' => 's1', 'action' => 'CLICK_TARGET'],
@@ -139,7 +139,7 @@ final class PackagePublishValidatorTest extends TestCase
             'manifest' => [
                 'script_id' => 'facebook.group.post',
                 'variables' => [
-                    ['key' => 'text', 'type' => 'text'],
+                    ['id' => 'v-text', 'key' => 'text', 'type' => 'text'],
                 ],
                 'steps' => [
                     ['id' => 's1', 'action' => 'CLICK_TARGET'],
@@ -149,6 +149,183 @@ final class PackagePublishValidatorTest extends TestCase
         ]);
         self::assertFalse($result['ok']);
         self::assertContains('script_video_demo_required', $result['errors']);
+    }
+
+    public function test_script_preserves_rpa_execution_fields_opaque(): void
+    {
+        $ocr = [
+            'confirmed' => true,
+            'language' => 'vie+eng',
+            'kind' => 'line',
+            'text' => '@ Bạn viết gì đi...',
+            'confidence' => 88,
+            'bbox' => ['x' => 16, 'y' => 13, 'width' => 168, 'height' => 41],
+        ];
+        $contentId = '4a33024b-f24c-4b98-a1fc-7ea8c7001089';
+        $manifest = [
+            'script_id' => 'fixture-facebook-draft',
+            'variables' => [
+                ['id' => $contentId, 'key' => 'content', 'type' => 'text'],
+            ],
+            'outputs' => [['key' => 'status', 'type' => 'text']],
+            'steps' => [
+                [
+                    'id' => 'step-click',
+                    'version' => 2,
+                    'name' => 'CLICK_TARGET',
+                    'action' => 'CLICK_TARGET',
+                    'method' => 'auto',
+                    'threshold' => 0.96,
+                    'timeoutMs' => 3000,
+                    'target' => [
+                        'asset' => 'ee23380e-02b5-4c60-abfb-dd8b3ce16756.png',
+                        'roi' => ['x' => 166, 'y' => 313, 'width' => 684, 'height' => 131],
+                        'matchTo' => 'top',
+                        'environment' => ['width' => 1024, 'height' => 560, 'zoom' => 1],
+                        'ocr' => $ocr,
+                    ],
+                ],
+                [
+                    'id' => 'step-type',
+                    'version' => 1,
+                    'action' => 'CLICK_AND_TYPE',
+                    'variableId' => $contentId,
+                    'variable_key' => 'content',
+                    'inputMethod' => 'keyboard',
+                    'method' => 'auto',
+                    'threshold' => 0.96,
+                    'timeoutMs' => 3000,
+                    'target' => [
+                        'asset' => 'ee23380e-02b5-4c60-abfb-dd8b3ce16756.png',
+                        'roi' => ['x' => 263, 'y' => 242, 'width' => 484, 'height' => 137],
+                        'matchTo' => 'none',
+                        'ocr' => [
+                            'confirmed' => true,
+                            'language' => 'vie+eng',
+                            'kind' => 'line',
+                            'text' => 'Bạn viết gì đi...',
+                            'confidence' => 95,
+                            'bbox' => ['x' => 10, 'y' => 21, 'width' => 150, 'height' => 24],
+                        ],
+                    ],
+                ],
+            ],
+            'runtime_requirements' => ['runner_min' => '2.0.0'],
+            'assets' => [
+                [
+                    'path' => 'ee23380e-02b5-4c60-abfb-dd8b3ce16756.png',
+                    'sha256' => str_repeat('ab', 32),
+                    'kind' => 'roi',
+                ],
+            ],
+            'default_pattern' => ['values' => [$contentId => 'Alo có ai không']],
+            'zoom' => 1,
+            'groups' => [
+                [
+                    'id' => 'g1',
+                    'name' => 'tag',
+                    'slug' => 'tag',
+                    'collapsed' => false,
+                    'stepIds' => ['step-type'],
+                ],
+            ],
+            'video_demo' => [
+                'artifact_ref' => 'case/run/recording.webm',
+                'mime' => 'video/webm',
+                'sha256' => str_repeat('cd', 32),
+                'test_run_id' => '11111111-1111-1111-1111-111111111111',
+                'script_version' => '1.0.0',
+                'reviewed' => true,
+                'audio' => false,
+                'desktop_capture' => false,
+            ],
+        ];
+        $result = $this->validator->validate([
+            'package_key' => 'fixture.facebook.draft',
+            'kind' => 'script',
+            'name' => 'Fixture Facebook draft',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => $manifest,
+            'dependencies' => [],
+            'runtime_compatibility' => ['runner_min' => '2.0.0'],
+        ]);
+        self::assertTrue($result['ok'], json_encode($result['errors'] ?? []));
+        // Opaque store — no whitelist strip of RPA execution fields.
+        self::assertSame($manifest, $result['data']['manifest']);
+        self::assertSame($contentId, $result['data']['manifest']['variables'][0]['id']);
+        self::assertSame($ocr, $result['data']['manifest']['steps'][0]['target']['ocr']);
+        self::assertSame($contentId, $result['data']['manifest']['steps'][1]['variableId']);
+        self::assertSame(
+            ['values' => [$contentId => 'Alo có ai không']],
+            $result['data']['manifest']['default_pattern']
+        );
+    }
+
+    public function test_script_rejects_missing_variable_id_and_match_to_without_ocr(): void
+    {
+        $missingId = $this->validator->validate([
+            'package_key' => 'legacy.no.id',
+            'kind' => 'script',
+            'name' => 'Legacy',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'script_id' => 'legacy',
+                'variables' => [['key' => 'text', 'type' => 'text']],
+                'steps' => [['id' => 's1', 'action' => 'SLEEP']],
+                'video_demo' => [
+                    'artifact_ref' => 'case/run/recording.webm',
+                    'mime' => 'video/webm',
+                    'test_run_id' => '11111111-1111-1111-1111-111111111111',
+                    'reviewed' => true,
+                    'audio' => false,
+                    'desktop_capture' => false,
+                ],
+            ],
+            'dependencies' => [],
+        ]);
+        self::assertFalse($missingId['ok']);
+        self::assertTrue(
+            (bool) array_filter(
+                $missingId['errors'],
+                static fn (string $e): bool => str_starts_with($e, 'script_variable_id_invalid:')
+            )
+        );
+
+        $matchTo = $this->validator->validate([
+            'package_key' => 'bad.matchto',
+            'kind' => 'script',
+            'name' => 'Bad',
+            'version' => '1.0.0',
+            'schema_version' => 1,
+            'manifest' => [
+                'script_id' => 'bad',
+                'variables' => [],
+                'steps' => [
+                    [
+                        'id' => 'c1',
+                        'action' => 'CLICK_TARGET',
+                        'target' => [
+                            'asset' => 'a.png',
+                            'roi' => ['x' => 0, 'y' => 0, 'width' => 10, 'height' => 10],
+                            'matchTo' => 'top',
+                        ],
+                    ],
+                ],
+                'video_demo' => [
+                    'artifact_ref' => 'case/run/recording.webm',
+                    'mime' => 'video/webm',
+                    'test_run_id' => '11111111-1111-1111-1111-111111111111',
+                    'reviewed' => true,
+                    'audio' => false,
+                    'desktop_capture' => false,
+                ],
+            ],
+            'dependencies' => [],
+        ]);
+        self::assertFalse($matchTo['ok']);
+        self::assertContains('script_step_match_to_requires_ocr:0', $matchTo['errors']);
     }
 
     public function test_digest_changes_when_manifest_changes(): void

@@ -22,6 +22,10 @@ final class ScriptExecutionDigest
             'steps' => $manifest['steps'] ?? [],
             'runtime_requirements' => $manifest['runtime_requirements'] ?? [],
             'assets' => $manifest['assets'] ?? [],
+            // Execution bindings — must invalidate Widgets when Default Pattern / layout changes.
+            'default_pattern' => $manifest['default_pattern'] ?? null,
+            'zoom' => $manifest['zoom'] ?? null,
+            'groups' => $manifest['groups'] ?? null,
         ];
 
         return PackageDigest::sha256OfCanonicalJson($payload);

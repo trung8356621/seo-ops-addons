@@ -13,19 +13,30 @@
     "manifest": {
       "script_id": "facebook.group.post",
       "variables": [
-        { "key": "text", "type": "text", "description": "Post body" },
-        { "key": "group_url", "type": "text", "description": "Target group URL" }
+        { "id": "v-text", "key": "text", "type": "text", "description": "Post body" },
+        { "id": "v-group", "key": "group_url", "type": "text", "description": "Target group URL" }
       ],
       "outputs": [
         { "key": "post_url", "type": "text" }
       ],
       "steps": [
         { "id": "s1", "version": 1, "action": "CLICK_TARGET", "name": "Open composer" },
-        { "id": "s2", "version": 1, "action": "CLICK_AND_TYPE", "name": "Type text", "variable_key": "text" }
+        {
+          "id": "s2",
+          "version": 1,
+          "action": "CLICK_AND_TYPE",
+          "name": "Type text",
+          "variable_key": "text",
+          "variableId": "v-text"
+        }
       ],
       "runtime_requirements": { "runner_min": "2.0.0" },
       "assets": [
-        { "path": "assets/roi-1.png", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "kind": "roi" }
+        {
+          "path": "assets/roi-1.png",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "roi"
+        }
       ],
       "video_demo": {
         "artifact_ref": "evidence/case/run/recording.webm",
@@ -44,6 +55,7 @@
   "notes": [
     "Script is independent of widget/workflow kinds.",
     "Top-level manifest.script remains forbidden (executable).",
-    "Video demo is required for Script publish (RPA Admin + service API)."
+    "Video demo is required for Script publish (RPA Admin + service API).",
+    "variables[].id and steps[].variableId are required for RPA Default Pattern identity."
   ]
 }

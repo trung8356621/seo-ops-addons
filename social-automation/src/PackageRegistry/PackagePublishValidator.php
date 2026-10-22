@@ -191,11 +191,19 @@ final class PackagePublishValidator
             $errors[] = 'script_variables_required';
         } else {
             $keys = [];
+            $ids = [];
             foreach ($variables as $i => $variable) {
                 if (! is_array($variable)) {
                     $errors[] = 'script_variable_invalid:'.$i;
                     continue;
                 }
+                // Stable Creator Variable id — required so Default Pattern / Step bindings survive sync.
+                $id = trim((string) ($variable['id'] ?? ''));
+                if ($id === '' || isset($ids[$id])) {
+                    $errors[] = 'script_variable_id_invalid:'.$i;
+                    continue;
+                }
+                $ids[$id] = true;
                 $key = trim((string) ($variable['key'] ?? ''));
                 $type = strtolower(trim((string) ($variable['type'] ?? '')));
                 if ($key === '' || isset($keys[$key])) {
@@ -223,8 +231,16 @@ final class PackagePublishValidator
                         $errors[] = 'script_step_forbidden_field:'.$forbidden;
                     }
                 }
+                // Never coerce Match To — reject incomplete OCR packages instead of stripping.
+                $target = $step['target'] ?? null;
+                if (is_array($target) && $this->matchToRequiresMissingOcr($target)) {
+                    $errors[] = 'script_step_match_to_requires_ocr:'.$i;
+                }
             }
         }
+
+        // Opaque pass-through fields (default_pattern / zoom / groups / OCR) must remain on
+        // the stored manifest — validator must not whitelist-strip them.
 
         $video = $manifest['video_demo'] ?? null;
         if ($video === null) {
@@ -257,6 +273,23 @@ final class PackagePublishValidator
         }
 
         return $errors;
+    }
+
+    /**
+     * @param  array<string, mixed>  $target
+     */
+    private function matchToRequiresMissingOcr(array $target): bool
+    {
+        $matchTo = $target['matchTo'] ?? null;
+        if (! in_array($matchTo, ['top', 'middle', 'bottom'], true)) {
+            return false;
+        }
+        $ocr = $target['ocr'] ?? null;
+        if (! is_array($ocr)) {
+            return true;
+        }
+
+        return ($ocr['confirmed'] ?? null) !== true;
     }
 
     /**
