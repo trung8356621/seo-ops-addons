@@ -139,6 +139,7 @@ final class ConfigurationSyncStateStore
     {
         return [
             'bootstrap' => null,
+            'package' => null,
             'pending' => null,
             'last_ack' => null,
             'last_compare' => null,

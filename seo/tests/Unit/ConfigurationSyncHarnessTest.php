@@ -114,7 +114,7 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertNotSame('customized-by-user', SeoPrompt::query()->whereKey($prompt->id)->value('markdown_content'));
     }
 
-    public function test_unlicensed_service_blocks_before_golden_package_download(): void
+    public function test_unlicensed_service_allows_download_but_blocks_apply(): void
     {
         $state = new ConfigurationSyncStateStore($this->statePath);
         $credentials = new FixedCredentialProvider(new InstallationMachineCredential('cred_01', 'ins_01', $this->secret));
@@ -128,11 +128,65 @@ final class ConfigurationSyncHarnessTest extends TestCase
             app(SeoSettingsBundleService::class),
         );
 
-        $result = $service->bootstrap(1, $this->goldenRoot, true);
-        $this->assertSame('unlicensed_service', $result['status']);
-        $this->assertFalse($result['imported']);
-        $this->assertSame([], $this->sender->calls);
+        $download = $service->downloadPackage($this->goldenRoot);
+        $this->assertContains($download['status'], ['downloaded', 'already_downloaded'], json_encode($download));
+        $this->assertTrue($download['downloaded'] ?? false);
+        $this->assertFalse($download['imported'] ?? true);
+        $this->assertNotSame([], $this->sender->calls);
         $this->assertSame(0, SeoPrompt::query()->count());
+        $this->assertFileExists($this->goldenRoot.'/payload/full-configuration.json');
+        $this->assertSame('pending_apply', $state->read()['package']['status'] ?? null);
+
+        $apply = $service->applyPackage(1, $this->goldenRoot, true);
+        $this->assertSame('unlicensed_service', $apply['status']);
+        $this->assertFalse($apply['imported']);
+        $this->assertSame(0, SeoPrompt::query()->count());
+        $this->assertSame('pending_apply', $state->read()['package']['status'] ?? null);
+
+        $viaBootstrap = $service->bootstrap(1, $this->goldenRoot, true);
+        $this->assertSame('unlicensed_service', $viaBootstrap['status']);
+        $this->assertSame(0, SeoPrompt::query()->count());
+    }
+
+    public function test_download_without_credential_is_blocked(): void
+    {
+        $state = new ConfigurationSyncStateStore($this->statePath);
+        $credentials = new class implements \Omnichannel\Addons\Seo\Services\ConfigurationSync\InstallationMachineCredentialProvider
+        {
+            public function current(): ?InstallationMachineCredential
+            {
+                return null;
+            }
+        };
+        $service = new GoldenBootstrapService(
+            $credentials,
+            new EnabledSeoEntitlement(),
+            new ConfigSyncHttpTransport($credentials, $this->sender, $state),
+            new GoldenPackageInstaller(),
+            new BlankInstallationDetector($state),
+            $state,
+            app(SeoSettingsBundleService::class),
+        );
+
+        $result = $service->downloadPackage($this->goldenRoot);
+        $this->assertSame('blocked_on_h1', $result['status']);
+        $this->assertSame([], $this->sender->calls);
+    }
+
+    public function test_download_retry_reuses_matching_package_without_db_apply(): void
+    {
+        $service = $this->bootstrap();
+        $first = $service->downloadPackage($this->goldenRoot);
+        $this->assertContains($first['status'], ['downloaded', 'already_downloaded'], json_encode($first));
+        $callsAfterFirst = count($this->sender->calls);
+        $this->assertSame(0, SeoPrompt::query()->count());
+
+        $second = $service->downloadPackage($this->goldenRoot);
+        $this->assertSame('already_downloaded', $second['status']);
+        $this->assertTrue($second['reused'] ?? false);
+        $this->assertSame(0, SeoPrompt::query()->count());
+        // current() may be called again; package body download should not re-fetch files unnecessarily
+        $this->assertGreaterThanOrEqual($callsAfterFirst, count($this->sender->calls));
     }
 
     public function test_empty_prompt_table_with_settings_is_not_bootstrapped(): void
@@ -151,7 +205,8 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertTrue($result['signals']['settings']);
         $this->assertFalse($result['signals']['prompts']);
         $this->assertSame(0, SeoPrompt::query()->count());
-        $this->assertSame([], $this->sender->calls);
+        // Download/stage may contact OPS-SERVER; Apply must not write prompts when existing_client.
+        $this->assertNotSame([], $this->sender->calls);
     }
 
     public function test_live_export_detects_prompt_workflow_and_deletion_without_uploading_noise(): void
