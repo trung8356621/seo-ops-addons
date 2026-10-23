@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Services\PromptPack\PromptPackService;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Services\SettingsTransfer\ConfigurationSyncAuthorization;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\GoldenPackage\GoldenPackagePath;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\SeoSettingsBundleService;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\SystemBootstrapAuthorization;
@@ -27,6 +28,7 @@ final class GoldenBootstrapService
         private readonly BlankInstallationDetector $blank,
         private readonly ConfigurationSyncStateStore $state,
         private readonly SeoSettingsBundleService $bundles,
+        private readonly ?LiveConfigurationComparer $comparer = null,
     ) {}
 
     /**
@@ -221,18 +223,22 @@ final class GoldenBootstrapService
             'workflows' => SeoTask::query()->where('user_id', $userId)->count(),
             'bindings' => count(app(SeoCreateArticleSettingsService::class)->getPromptHookBindings()),
         ];
-        $inventoryOk = $overwriteExisting
-            ? ($actual['prompts'] >= $expected['prompts']
-                && $actual['workflows'] >= $expected['workflows']
-                && $actual['bindings'] >= $expected['bindings'])
-            : ($actual === $expected);
-        if (! $inventoryOk) {
+        $live = $this->bundles->exportForConfigurationSync(
+            $userId,
+            ConfigurationSyncAuthorization::forReadExport(),
+        );
+        $verification = ($this->comparer ?? app(LiveConfigurationComparer::class))->compare($payload, $live);
+        if (($verification['outcome'] ?? null) !== 'in_sync') {
             $state = $this->state->read();
             $package = is_array($state['package'] ?? null) ? $state['package'] : [];
             $state['bootstrap'] = [
                 'status' => 'validation_failed',
                 'expected' => $expected,
                 'actual' => $actual,
+                'verification' => [
+                    'outcome' => $verification['outcome'] ?? 'comparison_unresolved',
+                    'reason' => $verification['reason'] ?? 'unknown',
+                ],
                 'package_version' => $packageMeta['package_version'] ?? null,
             ];
             // Keep staged package; do not mark applied.
@@ -248,6 +254,7 @@ final class GoldenBootstrapService
                 'imported' => true,
                 'expected' => $expected,
                 'actual' => $actual,
+                'verification' => $verification,
                 'package_retained' => true,
             ];
         }

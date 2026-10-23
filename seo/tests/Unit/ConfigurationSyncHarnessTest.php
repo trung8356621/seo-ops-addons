@@ -114,15 +114,54 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertNotSame('customized-by-user', SeoPrompt::query()->whereKey($prompt->id)->value('markdown_content'));
     }
 
+    public function test_apply_is_not_marked_applied_when_a_package_setting_is_ignored(): void
+    {
+        $bundle = $this->bundleFromGolden();
+        $payload = json_decode($bundle['files']['payload/full-configuration.json'], true, 512, JSON_THROW_ON_ERROR);
+        $payload['settings']['regression_probe'] = ['must_be_imported' => true];
+        $payloadRaw = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $bundle['files']['payload/full-configuration.json'] = $payloadRaw;
+        $bundle['checksums']['payload/full-configuration.json'] = hash('sha256', $payloadRaw);
+        $bundle['files']['metadata/checksums.json'] = json_encode(
+            $bundle['checksums'],
+            JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
+        );
+        $bundle['canonical_hash'] = (new ConfigurationCanonicalizer)->fingerprint($payload);
+
+        $this->sender = new RecordingSender(function (string $method, string $url, array $headers) use ($bundle): ConfigHttpResult {
+            if (str_ends_with($url, '/config/package')) {
+                return $this->signed(200, $bundle, $headers);
+            }
+
+            return $this->signed(200, [
+                'protocol' => ConfigProtocol::ID,
+                'status' => 'published',
+                'service' => 'seo',
+                'package' => [
+                    'package_id' => $bundle['package_id'],
+                    'package_version' => $bundle['package_version'],
+                    'canonical_hash' => $bundle['canonical_hash'],
+                    'compatibility' => $bundle['compatibility'],
+                ],
+            ], $headers);
+        });
+
+        $result = $this->bootstrap()->bootstrap(1, $this->goldenRoot);
+
+        $this->assertSame('validation_failed', $result['status']);
+        $this->assertSame('customized', $result['verification']['outcome'] ?? null);
+        $this->assertSame('pending_apply', (new ConfigurationSyncStateStore($this->statePath))->read()['package']['status'] ?? null);
+    }
+
     public function test_unlicensed_service_allows_download_but_blocks_apply(): void
     {
         $state = new ConfigurationSyncStateStore($this->statePath);
         $credentials = new FixedCredentialProvider(new InstallationMachineCredential('cred_01', 'ins_01', $this->secret));
         $service = new GoldenBootstrapService(
             $credentials,
-            new DisabledSeoEntitlement(),
+            new DisabledSeoEntitlement,
             new ConfigSyncHttpTransport($credentials, $this->sender, $state),
-            new GoldenPackageInstaller(),
+            new GoldenPackageInstaller,
             new BlankInstallationDetector($state),
             $state,
             app(SeoSettingsBundleService::class),
@@ -160,9 +199,9 @@ final class ConfigurationSyncHarnessTest extends TestCase
         };
         $service = new GoldenBootstrapService(
             $credentials,
-            new EnabledSeoEntitlement(),
+            new EnabledSeoEntitlement,
             new ConfigSyncHttpTransport($credentials, $this->sender, $state),
-            new GoldenPackageInstaller(),
+            new GoldenPackageInstaller,
             new BlankInstallationDetector($state),
             $state,
             app(SeoSettingsBundleService::class),
@@ -300,7 +339,7 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertSame($decoded['idempotency_key'], json_decode($uploadCalls[1]['body'], true, 512, JSON_THROW_ON_ERROR)['idempotency_key']);
         $this->assertSame('duplicate', $second['ack']['status']);
         $this->assertSame('modified', $decoded['diff']['prompts'][0]['change_type']);
-        (new OutboundConfigurationGuard())->assertUploadable($this->guardShape($decoded));
+        (new OutboundConfigurationGuard)->assertUploadable($this->guardShape($decoded));
     }
 
     public function test_server_offline_does_not_run_from_the_settings_exporter(): void
@@ -319,9 +358,9 @@ final class ConfigurationSyncHarnessTest extends TestCase
 
         return new GoldenBootstrapService(
             $credentials,
-            new EnabledSeoEntitlement(),
+            new EnabledSeoEntitlement,
             new ConfigSyncHttpTransport($credentials, $this->sender, $state),
-            new GoldenPackageInstaller(),
+            new GoldenPackageInstaller,
             new BlankInstallationDetector($state),
             $state,
             app(SeoSettingsBundleService::class),
@@ -336,8 +375,8 @@ final class ConfigurationSyncHarnessTest extends TestCase
         return new ConfigurationSyncCoordinator(
             $credentials,
             new ConfigSyncHttpTransport($credentials, $this->sender, $state),
-            new LiveConfigurationComparer(),
-            new OutboundConfigurationGuard(),
+            new LiveConfigurationComparer,
+            new OutboundConfigurationGuard,
             $state,
             app(SeoSettingsBundleService::class),
         );
@@ -437,7 +476,7 @@ final class ConfigurationSyncHarnessTest extends TestCase
             'package_version' => $manifest['package_version'],
             'configuration_schema_version' => $manifest['configuration_schema_version'],
             'service' => 'seo',
-            'canonical_hash' => (new ConfigurationCanonicalizer())->fingerprint($payload),
+            'canonical_hash' => (new ConfigurationCanonicalizer)->fingerprint($payload),
             'entrypoint' => 'payload/full-configuration.json',
             'compatibility' => $manifest['compatibility'],
             'manifest' => $manifest,
