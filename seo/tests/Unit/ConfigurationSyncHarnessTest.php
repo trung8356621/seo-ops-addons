@@ -114,6 +114,27 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertNotSame('customized-by-user', SeoPrompt::query()->whereKey($prompt->id)->value('markdown_content'));
     }
 
+    public function test_unlicensed_service_blocks_before_golden_package_download(): void
+    {
+        $state = new ConfigurationSyncStateStore($this->statePath);
+        $credentials = new FixedCredentialProvider(new InstallationMachineCredential('cred_01', 'ins_01', $this->secret));
+        $service = new GoldenBootstrapService(
+            $credentials,
+            new DisabledSeoEntitlement(),
+            new ConfigSyncHttpTransport($credentials, $this->sender, $state),
+            new GoldenPackageInstaller(),
+            new BlankInstallationDetector($state),
+            $state,
+            app(SeoSettingsBundleService::class),
+        );
+
+        $result = $service->bootstrap(1, $this->goldenRoot, true);
+        $this->assertSame('unlicensed_service', $result['status']);
+        $this->assertFalse($result['imported']);
+        $this->assertSame([], $this->sender->calls);
+        $this->assertSame(0, SeoPrompt::query()->count());
+    }
+
     public function test_empty_prompt_table_with_settings_is_not_bootstrapped(): void
     {
         DB::table('wp_options')->insert([
@@ -528,5 +549,13 @@ final class EnabledSeoEntitlement implements SeoEntitlementProbe
     public function seoServiceEnabled(): bool
     {
         return true;
+    }
+}
+
+final class DisabledSeoEntitlement implements SeoEntitlementProbe
+{
+    public function seoServiceEnabled(): bool
+    {
+        return false;
     }
 }
