@@ -13,7 +13,7 @@ use Omnichannel\Addons\Seo\Services\SettingsTransfer\SeoSettingsBundleService;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\SystemBootstrapAuthorization;
 
 /**
- * Blank-client Golden import. Refuses any installation that already has configuration.
+ * Golden import for blank clients, or explicit overwrite of Golden-scoped configuration.
  */
 final class GoldenBootstrapService
 {
@@ -30,7 +30,7 @@ final class GoldenBootstrapService
     /**
      * @return array<string, mixed>
      */
-    public function bootstrap(int $userId, ?string $targetRoot = null): array
+    public function bootstrap(int $userId, ?string $targetRoot = null, bool $overwriteExisting = false): array
     {
         $credential = $this->credentials->current();
         if ($credential === null) {
@@ -41,7 +41,7 @@ final class GoldenBootstrapService
         }
 
         $assessment = $this->blank->assess($userId);
-        if ($assessment['blank'] !== true) {
+        if ($assessment['blank'] !== true && ! $overwriteExisting) {
             return [
                 'status' => 'existing_client',
                 'imported' => false,
@@ -112,7 +112,13 @@ final class GoldenBootstrapService
             'workflows' => SeoTask::query()->where('user_id', $userId)->count(),
             'bindings' => count(app(SeoCreateArticleSettingsService::class)->getPromptHookBindings()),
         ];
-        if ($actual !== $expected) {
+        // Blank bootstrap requires exact inventory. Overwrite may leave extra user rows outside Golden scope.
+        $inventoryOk = $overwriteExisting
+            ? ($actual['prompts'] >= $expected['prompts']
+                && $actual['workflows'] >= $expected['workflows']
+                && $actual['bindings'] >= $expected['bindings'])
+            : ($actual === $expected);
+        if (! $inventoryOk) {
             $this->state->write(array_merge($this->state->read(), [
                 'bootstrap' => [
                     'status' => 'validation_failed',

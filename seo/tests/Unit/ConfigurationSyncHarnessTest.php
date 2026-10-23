@@ -91,6 +91,29 @@ final class ConfigurationSyncHarnessTest extends TestCase
         $this->assertSame($promptsAfterFirst, SeoPrompt::query()->count());
     }
 
+    public function test_overwrite_existing_reapplies_golden_without_duplicating_inventory(): void
+    {
+        $first = $this->bootstrap()->bootstrap(1, $this->goldenRoot);
+        $this->assertSame('bootstrapped', $first['status'], json_encode($first));
+        $promptCount = SeoPrompt::query()->count();
+        $taskCount = SeoTask::query()->count();
+
+        $prompt = SeoPrompt::query()->first();
+        $this->assertNotNull($prompt);
+        $prompt->markdown_content = 'customized-by-user';
+        $prompt->save();
+
+        $refused = $this->bootstrap()->bootstrap(1, $this->goldenRoot, false);
+        $this->assertSame('existing_client', $refused['status']);
+        $this->assertSame('customized-by-user', SeoPrompt::query()->whereKey($prompt->id)->value('markdown_content'));
+
+        $overwritten = $this->bootstrap()->bootstrap(1, $this->goldenRoot, true);
+        $this->assertSame('bootstrapped', $overwritten['status'], json_encode($overwritten));
+        $this->assertSame($promptCount, SeoPrompt::query()->count());
+        $this->assertSame($taskCount, SeoTask::query()->count());
+        $this->assertNotSame('customized-by-user', SeoPrompt::query()->whereKey($prompt->id)->value('markdown_content'));
+    }
+
     public function test_empty_prompt_table_with_settings_is_not_bootstrapped(): void
     {
         DB::table('wp_options')->insert([

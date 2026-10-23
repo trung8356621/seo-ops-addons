@@ -32,6 +32,7 @@ final class AiPromptServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->registerPromptHookRuntimeBindings();
         $this->app->bind(WordPressSiteProfileSource::class, WordPressSiteProfileReader::class);
         $this->app->bind(DomainPromptContextFieldPatcher::class, SiteDomainPromptContextService::class);
         $this->app->bind(WordPressFieldSyncAccessChecker::class, WordPressFieldSyncAccessGate::class);
@@ -94,6 +95,25 @@ final class AiPromptServiceProvider extends ServiceProvider
         );
         $this->registerSystemPorts();
         $this->registerLegacyAliases();
+    }
+
+    /**
+     * Prompt Hook runtime must resolve without the DB-gated seo-content-ai compat provider.
+     * Fresh installs leave services.is_active=false; ai-prompt still registers early via addon.json.
+     */
+    private function registerPromptHookRuntimeBindings(): void
+    {
+        $this->app->singleton(
+            \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader::class,
+            static function (): \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader {
+                return new \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader(
+                    \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader::defaultV01Directory(),
+                    \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader::defaultPhase1Directory(),
+                );
+            },
+        );
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog::class);
     }
 
     private function registerLegacyAliases(): void
