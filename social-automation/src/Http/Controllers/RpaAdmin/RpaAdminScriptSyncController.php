@@ -14,6 +14,12 @@ use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptCatalogService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptReleaseMediaService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptTombstoneService;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\RpaAdminBackupService;
+use Omnichannel\Addons\SocialAutomation\Models\SaRpaExecutionReport;
+use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
+use Omnichannel\Addons\SocialAutomation\Models\SaPackageRelease;
+use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseAsset;
+use Illuminate\Support\Facades\Storage;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 
 /**
@@ -27,7 +33,78 @@ final class RpaAdminScriptSyncController extends Controller
         private readonly PackageRegistryService $registry,
         private readonly ScriptTombstoneService $tombstones,
         private readonly ScriptReleaseMediaService $media,
+        private readonly RpaAdminBackupService $backups,
     ) {}
+
+    public function backup(Request $request): JsonResponse
+    {
+        $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
+        $binary = base64_decode((string)$request->input('archive_base64', ''), true);
+        if (!$user instanceof User || $binary === false) return response()->json(['ok' => false, 'errors' => ['backup_invalid']], 422);
+        $result = $this->backups->put((int)$user->id, trim((string)$request->input('installation_id', '')),
+            (int)$request->input('draft_revision', 0), $binary, strtolower((string)$request->input('sha256', '')),
+            is_array($request->input('summary')) ? $request->input('summary') : []);
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    public function backupInfo(Request $request): JsonResponse
+    {
+        $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
+        $info = $user instanceof User ? $this->backups->info((int)$user->id, trim((string)$request->query('installation_id', ''))) : null;
+        return response()->json(['ok' => true, 'backup' => $info]);
+    }
+
+    public function backupDownload(Request $request): JsonResponse
+    {
+        $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
+        $found = $user instanceof User ? $this->backups->download((int)$user->id, trim((string)$request->input('installation_id', ''))) : null;
+        if ($found === null) return response()->json(['ok' => false, 'errors' => ['backup_unavailable_or_corrupt']], 404);
+        return response()->json(['ok' => true, 'archive_base64' => base64_encode($found['bytes']), 'sha256' => $found['checksum_sha256'], 'backup' => $found['info']]);
+    }
+
+    public function reports(Request $request): JsonResponse
+    {
+        $after = max(0, (int)$request->query('after_id', 0));
+        $rows = SaRpaExecutionReport::query()->where('id', '>', $after)->orderBy('id')->limit(500)->get()->map(fn ($r) => [
+            'id' => (int)$r->id, 'installation_id' => $r->installation_id, 'script_id' => $r->script_id,
+            'script_version' => $r->script_version, 'step_id' => $r->step_id, 'step_version' => $r->step_version,
+            'run_id' => $r->run_id, 'timestamp' => $r->occurred_at?->toIso8601String(), 'status' => $r->status,
+            'error_category' => $r->error_category,
+        ])->all();
+        return response()->json(['ok' => true, 'reports' => $rows, 'next_after_id' => $rows === [] ? $after : $rows[array_key_last($rows)]['id']]);
+    }
+
+    public function storeReport(Request $request): JsonResponse
+    {
+        foreach (['installation_id', 'script_id', 'script_version', 'run_id', 'timestamp', 'status'] as $field) {
+            if (trim((string)$request->input($field, '')) === '') return response()->json(['ok' => false, 'errors' => ['report_'.$field.'_required']], 422);
+        }
+        $row = SaRpaExecutionReport::query()->firstOrCreate([
+            'installation_id' => (string)$request->input('installation_id'), 'run_id' => (string)$request->input('run_id'),
+            'step_id' => $request->input('step_id'), 'step_version' => $request->input('step_version'),
+        ], [
+            'script_id' => (string)$request->input('script_id'), 'script_version' => (string)$request->input('script_version'),
+            'occurred_at' => (string)$request->input('timestamp'), 'status' => (string)$request->input('status'),
+            'error_category' => $request->input('error_category'), 'details' => is_array($request->input('details')) ? $request->input('details') : null,
+        ]);
+        return response()->json(['ok' => true, 'id' => (int)$row->id], $row->wasRecentlyCreated ? 201 : 200);
+    }
+
+    public function attachAsset(Request $request): JsonResponse
+    {
+        $package = SaPackage::query()->where('package_key', (string)$request->input('package_key'))->where('kind', 'script')->first();
+        $release = $package instanceof SaPackage ? SaPackageRelease::query()->where('package_id', $package->id)->where('version', (string)$request->input('version'))->first() : null;
+        $assetPath = trim((string)$request->input('asset_path', '')); $sha = strtolower((string)$request->input('sha256', ''));
+        $bytes = base64_decode((string)$request->input('asset_base64', ''), true);
+        if (!$release instanceof SaPackageRelease || $assetPath === '' || str_contains($assetPath, '..') || $bytes === false || !hash_equals($sha, hash('sha256', $bytes)))
+            return response()->json(['ok' => false, 'errors' => ['script_asset_invalid']], 422);
+        $expected = collect(is_array($release->manifest['assets'] ?? null) ? $release->manifest['assets'] : [])->first(fn ($a) => is_array($a) && ($a['path'] ?? null) === $assetPath && ($a['sha256'] ?? null) === $sha);
+        if (!$expected) return response()->json(['ok' => false, 'errors' => ['script_asset_not_declared']], 422);
+        $storagePath = sprintf('social-automation/script-assets/%d/%s', $release->id, $sha); Storage::disk('local')->put($storagePath, $bytes);
+        SaScriptReleaseAsset::query()->updateOrCreate(['release_id' => $release->id, 'asset_path' => $assetPath], [
+            'checksum_sha256' => $sha, 'mime' => (string)$request->input('mime', 'application/octet-stream'), 'storage_path' => $storagePath, 'size_bytes' => strlen($bytes)]);
+        return response()->json(['ok' => true, 'sha256' => $sha]);
+    }
 
     public function catalog(): JsonResponse
     {

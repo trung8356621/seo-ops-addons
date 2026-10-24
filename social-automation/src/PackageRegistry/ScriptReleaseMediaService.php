@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackageRelease;
 use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseMedia;
+use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseAsset;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 use Throwable;
 
@@ -130,9 +131,16 @@ final class ScriptReleaseMediaService
             );
         }
 
+        $declaredAssets = is_array($release->manifest['assets'] ?? null) ? $release->manifest['assets'] : [];
+        $uploadedAssets = SaScriptReleaseAsset::query()->where('release_id', $release->id)->get()->keyBy('asset_path');
+        $assetsReady = collect($declaredAssets)->every(fn ($asset) => is_array($asset) && isset($uploadedAssets[(string)($asset['path'] ?? '')])
+            && hash_equals((string)($asset['sha256'] ?? ''), (string)$uploadedAssets[(string)$asset['path']]->checksum_sha256));
+        $ready = $thumbnail instanceof SaScriptReleaseMedia && $assetsReady;
+        if ($ready) $release->fill(['status' => 'published', 'published_at' => now()])->save();
+
         return [
-            'ok' => true,
-            'errors' => [],
+            'ok' => $ready,
+            'errors' => $ready ? [] : [$assetsReady ? 'script_video_demo_thumbnail_unavailable' : 'script_assets_incomplete'],
             'video' => $this->mediaArray($video),
             'thumbnail' => $thumbnail instanceof SaScriptReleaseMedia
                 ? $this->mediaArray($thumbnail)

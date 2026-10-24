@@ -214,6 +214,12 @@ final class SocialAutomationServiceProvider extends ServiceProvider
                         ->name('social-automation.rpa-admin.scripts.pull');
                     Route::post('/scripts/video-demo', [RpaAdminScriptSyncController::class, 'attachVideoDemo'])
                         ->name('social-automation.rpa-admin.scripts.video-demo');
+                    Route::post('/scripts/asset', [RpaAdminScriptSyncController::class, 'attachAsset']);
+                    Route::post('/backup', [RpaAdminScriptSyncController::class, 'backup']);
+                    Route::get('/backup', [RpaAdminScriptSyncController::class, 'backupInfo']);
+                    Route::post('/backup/download', [RpaAdminScriptSyncController::class, 'backupDownload']);
+                    Route::get('/execution-reports', [RpaAdminScriptSyncController::class, 'reports']);
+                    Route::post('/execution-reports', [RpaAdminScriptSyncController::class, 'storeReport']);
                 });
             });
     }

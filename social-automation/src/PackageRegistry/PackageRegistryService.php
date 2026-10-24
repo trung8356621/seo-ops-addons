@@ -136,6 +136,7 @@ final class PackageRegistryService
                     );
                 }
 
+                $isScript = (string) $data['kind'] === 'script';
                 $release = SaPackageRelease::query()->create([
                     'package_id' => $package->id,
                     'version' => $data['version'],
@@ -144,8 +145,8 @@ final class PackageRegistryService
                     'schema_version' => $data['schema_version'],
                     'runtime_compatibility' => $data['runtime_compatibility'],
                     'manifest' => $data['manifest'],
-                    'status' => 'published',
-                    'published_at' => now(),
+                    'status' => $isScript ? 'pending_media' : 'published',
+                    'published_at' => $isScript ? null : now(),
                     'created_by_user_id' => $userId,
                     'sync_source' => $syncSource,
                 ]);
