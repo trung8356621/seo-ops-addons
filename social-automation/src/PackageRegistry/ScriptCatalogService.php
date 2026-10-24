@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackageRelease;
 use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseMedia;
+use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseAsset;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 use Throwable;
 
@@ -49,6 +50,12 @@ final class ScriptCatalogService
             $manifest = is_array($latest->manifest) ? $latest->manifest : [];
             $assets = is_array($manifest['assets'] ?? null) ? $manifest['assets'] : [];
             $assetsComplete = $this->assetsComplete($assets);
+            $assetTableReady = Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_script_release_assets');
+            if ($assetsComplete && $assetTableReady) {
+                $uploaded = SaScriptReleaseAsset::query()->where('release_id', $latest->id)->get()->keyBy('asset_path');
+                $assetsComplete = collect($assets)->every(fn ($asset) => is_array($asset) && isset($uploaded[(string)($asset['path'] ?? '')])
+                    && hash_equals((string)($asset['sha256'] ?? ''), (string)$uploaded[(string)$asset['path']]->checksum_sha256));
+            } elseif ($assets !== []) $assetsComplete = false;
             $lineage = is_array($manifest['lineage'] ?? null)
                 ? array_values(array_filter(array_map('strval', $manifest['lineage'])))
                 : [];

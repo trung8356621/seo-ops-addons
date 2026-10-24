@@ -149,4 +149,14 @@ final class ScriptRemoveAndMediaContractTest extends TestCase
         self::assertStringContainsString('has_dependencies', $policy);
         self::assertStringContainsString('referenced_by_job_history', $policy);
     }
+
+    public function test_script_release_waits_for_all_media_acknowledgements(): void
+    {
+        $publish = (string) file_get_contents($this->root.'/src/PackageRegistry/PackageRegistryService.php');
+        $media = (string) file_get_contents($this->root.'/src/PackageRegistry/ScriptReleaseMediaService.php');
+        self::assertStringContainsString("'pending_media'", $publish);
+        self::assertStringContainsString("'status' => 'published'", $media);
+        self::assertStringContainsString('script_assets_incomplete', $media);
+        self::assertStringContainsString('SaScriptReleaseAsset', $media);
+    }
 }

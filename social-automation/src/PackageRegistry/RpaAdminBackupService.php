@@ -11,6 +11,7 @@ use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 
 final class RpaAdminBackupService
 {
+    public static function acceptsRevision(?int $current, int $incoming): bool { return $incoming > ($current ?? 0); }
     /** @param array<string,mixed> $summary @return array<string,mixed> */
     public function put(int $userId, string $installationId, int $revision, string $archive, string $sha256, array $summary): array
     {
@@ -19,7 +20,7 @@ final class RpaAdminBackupService
         }
         return DB::connection(SocialAutomationServiceConfig::CONNECTION)->transaction(function () use ($userId, $installationId, $revision, $archive, $sha256, $summary): array {
             $current = SaRpaAdminBackup::query()->where('user_id', $userId)->where('installation_id', $installationId)->lockForUpdate()->first();
-            if ($current instanceof SaRpaAdminBackup && (int)$current->draft_revision >= $revision) {
+            if (!self::acceptsRevision($current instanceof SaRpaAdminBackup ? (int)$current->draft_revision : null, $revision)) {
                 return ['ok' => true, 'stale' => true, 'draft_revision' => (int)$current->draft_revision];
             }
             $path = sprintf('social-automation/admin-backups/%d/%s/%d-%s.zip', $userId, hash('sha256', $installationId), $revision, substr($sha256, 0, 12));

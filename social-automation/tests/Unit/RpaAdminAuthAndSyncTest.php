@@ -14,6 +14,7 @@ use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptExecutionDigest;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\WidgetInvalidationPolicy;
 use PHPUnit\Framework\TestCase;
+use Omnichannel\Addons\SocialAutomation\PackageRegistry\RpaAdminBackupService;
 
 /**
  * Contract/unit coverage for RPA Admin auth roles, Script sync, Widget invalidation.
@@ -21,6 +22,13 @@ use PHPUnit\Framework\TestCase;
  */
 final class RpaAdminAuthAndSyncTest extends TestCase
 {
+    public function test_backup_revision_rejects_older_and_equal_requests(): void
+    {
+        self::assertTrue(RpaAdminBackupService::acceptsRevision(null, 1));
+        self::assertTrue(RpaAdminBackupService::acceptsRevision(1, 2));
+        self::assertFalse(RpaAdminBackupService::acceptsRevision(2, 2));
+        self::assertFalse(RpaAdminBackupService::acceptsRevision(3, 2));
+    }
     public function test_admin_and_owner_allowed_staff_rejected(): void
     {
         $gate = new RpaAdminRoleGate;
