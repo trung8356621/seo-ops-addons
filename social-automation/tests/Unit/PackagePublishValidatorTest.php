@@ -10,6 +10,18 @@ use PHPUnit\Framework\TestCase;
 
 final class PackagePublishValidatorTest extends TestCase
 {
+    public function test_script_accepts_admin_owned_integer_release_version(): void
+    {
+        $input = $this->basePayload([
+            'package_key' => 'integer.version.script', 'kind' => 'script', 'name' => 'Integer Script', 'version' => '1',
+            'manifest' => ['script_id' => 'integer-version', 'variables' => [],
+                'steps' => [['id' => 's1', 'action' => 'CLICK_TARGET']],
+                'video_demo' => ['artifact_ref' => 'demo.webm', 'test_run_id' => 'run-1', 'reviewed' => true,
+                    'audio' => false, 'desktop_capture' => false]],
+        ]);
+
+        self::assertTrue((new PackagePublishValidator)->validate($input)['ok']);
+    }
     private PackagePublishValidator $validator;
 
     protected function setUp(): void

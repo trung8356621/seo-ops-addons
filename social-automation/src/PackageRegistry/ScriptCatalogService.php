@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SocialAutomation\PackageRegistry;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackageRelease;
+use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseMedia;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 use Throwable;
 
@@ -51,6 +52,12 @@ final class ScriptCatalogService
             $lineage = is_array($manifest['lineage'] ?? null)
                 ? array_values(array_filter(array_map('strval', $manifest['lineage'])))
                 : [];
+            $mediaKinds = Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_script_release_media')
+                ? SaScriptReleaseMedia::query()->where('release_id', $latest->id)
+                    ->where('status', SaScriptReleaseMedia::STATUS_READY)->pluck('kind')->all()
+                : [];
+            $demoReady = in_array(SaScriptReleaseMedia::KIND_VIDEO_DEMO, $mediaKinds, true)
+                && in_array(SaScriptReleaseMedia::KIND_THUMBNAIL, $mediaKinds, true);
 
             $out[] = [
                 'script_id' => (string) ($manifest['script_id'] ?? $package->package_key),
@@ -64,6 +71,7 @@ final class ScriptCatalogService
                 'name' => (string) $package->name,
                 'lineage' => $lineage,
                 'incomplete' => ! $assetsComplete,
+                'demo_status' => $demoReady ? 'ready' : 'missing',
             ];
         }
 
