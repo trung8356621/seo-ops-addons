@@ -13,5 +13,4 @@
 @endif
 
 {{-- Floating Chat/Agent launcher retired from normal/global pages.
-     Support Ticket entry is global header (support-ticket-header).
      /seo/{hash}/chat may still mount its own launcher for Agent|Group mode switch. --}}

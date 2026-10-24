@@ -29,7 +29,6 @@
     // Agent Workspace runtime is isolated — no live deep-link.
     $agentUrl = null;
     $groupUrl = $modeUrl('group');
-    $ticketUrl = $modeUrl('ticket');
     $missingSite = 'Vui lòng chọn website trong SEO panel.';
     $agentModeUnavailable = 'Agent Workspace đã tách khỏi runtime (reference-only).';
 @endphp
@@ -42,7 +41,6 @@
         menuOpen: false,
         agentUrl: @js($agentUrl),
         groupUrl: @js($groupUrl),
-        ticketUrl: @js($ticketUrl),
         missingSite: @js($missingSite),
         agentModeUnavailable: @js($agentModeUnavailable),
         toggle() { this.menuOpen = ! this.menuOpen; },
@@ -75,9 +73,6 @@
         </button>
         <button type="button" role="menuitem" class="seo-chat-mode-launcher__item {{ $activeTab === 'group' ? 'is-active' : '' }}" x-on:click="go(groupUrl)">
             {{ __('seo-content-ai::filament.chat_workspace.tab_group') }}
-        </button>
-        <button type="button" role="menuitem" class="seo-chat-mode-launcher__item {{ $activeTab === 'ticket' ? 'is-active' : '' }}" x-on:click="go(ticketUrl)">
-            {{ __('seo-content-ai::filament.chat_workspace.tab_ticket') }}
         </button>
     </div>
 

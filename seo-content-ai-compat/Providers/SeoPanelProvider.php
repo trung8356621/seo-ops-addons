@@ -31,7 +31,6 @@ use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelLogoutController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelRedirectController;
 use Omnichannel\Addons\Seo\Http\Middleware\ResolveSeoMainServiceContext;
 use Omnichannel\Addons\Media\Http\Controllers\SeoWatermarkController;
-use App\Http\Controllers\SupportTicketController;
 use Omnichannel\Addons\Seo\Http\Controllers\TeamMessageController;
 use Omnichannel\Addons\Media\Http\Controllers\WorkspaceMediaPickerController;
 use Omnichannel\Addons\Seo\Http\Middleware\CheckMainRole;
@@ -619,16 +618,6 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.team-messages.config');
                 Route::post('/messages', [TeamMessageController::class, 'store'])
                     ->name('seo.team-messages.store');
-            });
-
-        // Compatibility shim — canonical path is /api/support-tickets (client core).
-        Route::middleware($seoTeamApiMiddleware)
-            ->prefix('api/seo/support-tickets')
-            ->group(function (): void {
-                Route::get('/', [SupportTicketController::class, 'index'])
-                    ->name('seo.support-tickets.index');
-                Route::post('/', [SupportTicketController::class, 'store'])
-                    ->name('seo.support-tickets.store');
             });
 
         // Floating Global AI Chat retired. Canonical communication UI: /seo/{hash}/chat.

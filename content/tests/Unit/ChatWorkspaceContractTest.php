@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
-use Omnichannel\Addons\Content\Filament\Pages\ChatWorkspacePage;
 use App\Addons\SeoContentAi\Providers\SeoPanelProvider;
+use Omnichannel\Addons\Content\Filament\Pages\ChatWorkspacePage;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
 use Tests\Support\ProjectRoot;
 
 /**
- * Contract: Chat Workspace Group/Ticket; Agent tab isolated (reference-only).
+ * Contract: Chat Workspace Group Chat; Agent tab isolated (reference-only).
+ * Legacy local Support Ticket UI/routes are removed (OPS-SERVER future).
  */
 final class ChatWorkspaceContractTest extends TestCase
 {
@@ -30,10 +31,9 @@ final class ChatWorkspaceContractTest extends TestCase
         $source = (string) file_get_contents($viewPath);
         self::assertStringContainsString('chat-mode-launcher', $source);
         self::assertStringContainsString("\$tab === 'agent'", $source);
-        self::assertStringContainsString("\$tab === 'group'", $source);
         self::assertStringContainsString('seo-group-chat-root', $source);
-        self::assertStringContainsString('seo-ticket-panel-root', $source);
-        self::assertStringContainsString("route('support-tickets.store')", $source);
+        self::assertStringNotContainsString('seo-ticket-panel-root', $source);
+        self::assertStringNotContainsString('support-tickets', $source);
         self::assertStringNotContainsString("tabUrl('agent')", $source);
         self::assertStringNotContainsString('seo-chat-workspace__nav', $source);
         self::assertStringNotContainsString('telegram', strtolower($source));
@@ -48,7 +48,7 @@ final class ChatWorkspaceContractTest extends TestCase
         self::assertStringContainsString('seo-global-chat__launcher', $source);
         self::assertStringContainsString('ChatWorkspacePage::getUrl', $source);
         self::assertStringContainsString("\$modeUrl('group')", $source);
-        self::assertStringContainsString("\$modeUrl('ticket')", $source);
+        self::assertStringNotContainsString("\$modeUrl('ticket')", $source);
         self::assertStringContainsString('openAgentMode', $source);
         self::assertStringNotContainsString('AgentWorkspacePage', $source);
         self::assertStringNotContainsString('AgentWorkspaceDeepLink', $source);
@@ -73,9 +73,8 @@ final class ChatWorkspaceContractTest extends TestCase
         self::assertStringNotContainsString("view('seo-content-ai::components.global-ai-chat')", $source);
         self::assertStringNotContainsString("view('seo-content-ai::filament.hooks.support-ticket-header')", $source);
         self::assertStringContainsString("view('seo-content-ai::components.chat-unread-badge')", $source);
-        self::assertStringContainsString('api/seo/support-tickets', $source);
-        self::assertStringContainsString('App\\Http\\Controllers\\SupportTicketController', $source);
-        self::assertStringNotContainsString('seo.support-tickets.retry', $source);
+        self::assertStringNotContainsString('api/seo/support-tickets', $source);
+        self::assertStringNotContainsString('SupportTicketController', $source);
     }
 
     public function test_outside_chat_does_not_mount_floating_launcher(): void
@@ -112,27 +111,12 @@ final class ChatWorkspaceContractTest extends TestCase
         self::assertStringContainsString('seo-chat-img-placeholder', $source);
     }
 
-    public function test_ticket_panel_supports_attach_and_paste_without_remote_retry(): void
+    public function test_legacy_local_support_ticket_assets_are_removed(): void
     {
-        $path = ProjectRoot::addonsPath().'/content/resources/js/chat/ticketPanel.js';
-        self::assertFileExists($path);
-        $source = (string) file_get_contents($path);
-        self::assertStringContainsString('files[]', $source);
-        self::assertStringContainsString('paste', $source);
-        self::assertStringContainsString('FormData', $source);
-        self::assertStringContainsString('Đã gửi ticket thành công.', $source);
-        self::assertStringNotContainsString('data-retry', $source);
-        self::assertStringNotContainsString('retryUrlTemplate', $source);
-    }
-
-    public function test_seo_support_ticket_controller_is_compat_alias_only(): void
-    {
-        $source = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/seo/src/Http/Controllers/SupportTicketController.php',
-        );
-        self::assertStringContainsString('App\\Http\\Controllers\\SupportTicketController', $source);
-        self::assertStringContainsString('@deprecated', $source);
-        self::assertStringNotContainsString('TeamChatAttachmentService', $source);
-        self::assertStringNotContainsString('SupportTicketDeliveryService', $source);
+        self::assertFileDoesNotExist(ProjectRoot::addonsPath().'/content/resources/js/chat/ticketPanel.js');
+        self::assertFileDoesNotExist(ProjectRoot::addonsPath().'/seo/src/Http/Controllers/SupportTicketController.php');
+        self::assertFileDoesNotExist(ProjectRoot::addonsPath().'/seo/src/Services/SupportTicketDeliveryService.php');
+        self::assertFileDoesNotExist(ProjectRoot::path().'/app/Http/Controllers/SupportTicketController.php');
+        self::assertFileDoesNotExist(ProjectRoot::path().'/app/Models/SupportTicket.php');
     }
 }
