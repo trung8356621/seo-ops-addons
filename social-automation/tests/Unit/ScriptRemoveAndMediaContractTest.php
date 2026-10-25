@@ -144,6 +144,11 @@ final class ScriptRemoveAndMediaContractTest extends TestCase
         self::assertStringContainsString('tombstones->record', $src);
         self::assertStringContainsString('collectDependencies', $src);
         self::assertStringContainsString('collectHistoryRefs', $src);
+        self::assertStringContainsString('missing_tables', $src);
+        self::assertStringContainsString('Log::error', $src);
+
+        $page = (string) file_get_contents($this->root.'/src/Filament/Pages/SocialAutomationScriptsPage.php');
+        self::assertStringContainsString('remove_unavailable', $page);
 
         $policy = (string) file_get_contents($this->root.'/src/PackageRegistry/ScriptRemovePolicy.php');
         self::assertStringContainsString('has_dependencies', $policy);

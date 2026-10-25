@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SocialAutomation\PackageRegistry;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SocialAutomation\Models\SaJob;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
@@ -44,8 +45,21 @@ final class ScriptRemoveService
         if ($packageKey === '') {
             return ['ok' => false, 'outcome' => 'validation_failed', 'errors' => ['package_key_required']];
         }
-        if (! $this->ready()) {
-            return ['ok' => false, 'outcome' => 'unavailable', 'errors' => ['package_registry_unavailable']];
+        $readiness = $this->readiness();
+        if (! $readiness['ok']) {
+            Log::error('Social Automation package registry is unavailable for Script removal.', [
+                'connection' => SocialAutomationServiceConfig::CONNECTION,
+                'database' => config('database.connections.'.SocialAutomationServiceConfig::CONNECTION.'.database'),
+                'missing_tables' => $readiness['missing_tables'],
+                'exception' => $readiness['exception'],
+            ]);
+
+            return [
+                'ok' => false,
+                'outcome' => 'unavailable',
+                'errors' => ['package_registry_unavailable'],
+                'missing_tables' => $readiness['missing_tables'],
+            ];
         }
 
         $package = SaPackage::query()->where('package_key', $packageKey)->where('kind', 'script')->first();
@@ -118,7 +132,13 @@ final class ScriptRemoveService
                     $userId,
                 );
             });
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            Log::error('Social Automation Script removal failed.', [
+                'connection' => SocialAutomationServiceConfig::CONNECTION,
+                'package_key' => $packageKey,
+                'exception' => $e->getMessage(),
+            ]);
+
             return ['ok' => false, 'outcome' => 'unavailable', 'errors' => ['script_remove_failed'], 'package_key' => $packageKey];
         }
 
@@ -222,13 +242,23 @@ final class ScriptRemoveService
         return $refs;
     }
 
-    private function ready(): bool
+    /**
+     * @return array{ok: bool, missing_tables: list<string>, exception: null|string}
+     */
+    private function readiness(): array
     {
+        $required = ['sa_packages', 'sa_package_releases', 'sa_package_dependencies', 'sa_script_tombstones'];
+
         try {
-            return Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_packages')
-                && Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_script_tombstones');
-        } catch (Throwable) {
-            return false;
+            $schema = Schema::connection(SocialAutomationServiceConfig::CONNECTION);
+            $missing = array_values(array_filter(
+                $required,
+                static fn (string $table): bool => ! $schema->hasTable($table),
+            ));
+
+            return ['ok' => $missing === [], 'missing_tables' => $missing, 'exception' => null];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'missing_tables' => $required, 'exception' => $e->getMessage()];
         }
     }
 }

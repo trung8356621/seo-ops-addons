@@ -32,6 +32,7 @@ return [
         'remove_confirm' => 'Remove Script khỏi SEO-OPS? Script gốc trong RPA Admin vẫn được giữ. Script đã gỡ sẽ không tự xuất hiện lại ở lần đồng bộ tiếp theo.',
         'remove_success' => 'Script removed from SEO-OPS.',
         'remove_blocked' => 'Cannot remove Script — dependencies remain.',
+        'remove_unavailable' => 'Cannot remove Script — Package Registry service is unavailable.',
         'col_status' => 'Sync status',
         'col_source' => 'Source',
         'col_updated_by' => 'Updated by',

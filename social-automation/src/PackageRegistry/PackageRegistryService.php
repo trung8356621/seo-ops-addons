@@ -20,6 +20,7 @@ final class PackageRegistryService
     public function __construct(
         private readonly PackagePublishValidator $validator,
         private readonly PackageDependencyValidator $dependencyValidator = new PackageDependencyValidator,
+        private readonly ScriptReleaseVersionPolicy $scriptVersionPolicy = new ScriptReleaseVersionPolicy,
         private readonly ?WidgetInvalidationService $widgetInvalidation = null,
         private readonly ?ScriptTombstoneService $tombstones = null,
     ) {}
@@ -121,18 +122,42 @@ final class PackageRegistryService
                     ->orderByDesc('id')
                     ->first();
 
+                $executionDigest = null;
+                if ((string) $data['kind'] === 'script') {
+                    $executionDigest = ScriptExecutionDigest::fromManifest(
+                        is_array($data['manifest']) ? $data['manifest'] : []
+                    );
+                    $versionErrors = $this->scriptVersionPolicy->validateNext(
+                        $previous instanceof SaPackageRelease ? (string) $previous->version : null,
+                        (string) $data['version'],
+                    );
+                    if ($versionErrors !== []) {
+                        return new PackagePublishResult(
+                            PackagePublishResult::OUTCOME_CONFLICT,
+                            errors: $versionErrors,
+                        );
+                    }
+                    $changeErrors = $this->scriptVersionPolicy->validateCanonicalChange(
+                        $previous instanceof SaPackageRelease
+                            ? ((string) ($previous->execution_digest ?: ScriptExecutionDigest::fromManifest(
+                                is_array($previous->manifest) ? $previous->manifest : []
+                            )))
+                            : null,
+                        $executionDigest,
+                    );
+                    if ($changeErrors !== []) {
+                        return new PackagePublishResult(
+                            PackagePublishResult::OUTCOME_CONFLICT,
+                            errors: $changeErrors,
+                        );
+                    }
+                }
+
                 $depCheck = $this->validatePublishedDependencies($data['dependencies']);
                 if (! ($depCheck['ok'] ?? false)) {
                     return new PackagePublishResult(
                         PackagePublishResult::OUTCOME_VALIDATION,
                         errors: $depCheck['errors'] ?? ['dependencies_unresolved'],
-                    );
-                }
-
-                $executionDigest = null;
-                if ((string) $data['kind'] === 'script') {
-                    $executionDigest = ScriptExecutionDigest::fromManifest(
-                        is_array($data['manifest']) ? $data['manifest'] : []
                     );
                 }
 

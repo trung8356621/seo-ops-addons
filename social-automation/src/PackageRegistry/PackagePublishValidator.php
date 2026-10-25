@@ -54,8 +54,11 @@ final class PackagePublishValidator
         }
 
         $version = trim((string) ($input['version'] ?? ''));
-        $integerScriptVersion = $kind === 'script' && preg_match('/^[1-9][0-9]*$/', $version) === 1;
-        if ($version === '' || (! $integerScriptVersion && ! preg_match('/^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$/', $version))) {
+        $scriptVersion = $kind === 'script'
+            && preg_match('/^(?:[1-9][0-9]*|[1-9][0-9]*\.0\.0)$/', $version) === 1;
+        if ($version === '' || ($kind === 'script'
+            ? ! $scriptVersion
+            : ! preg_match('/^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$/', $version))) {
             $errors[] = 'version_invalid';
         }
 

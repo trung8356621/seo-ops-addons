@@ -107,9 +107,12 @@ final class SocialAutomationScriptsPage extends Page
             $body = $depLines !== []
                 ? implode("\n", $depLines)
                 : implode(', ', $result['errors'] ?? ['blocked']);
+            $title = ($result['outcome'] ?? null) === 'blocked'
+                ? __('social-automation::filament.scripts.remove_blocked')
+                : __('social-automation::filament.scripts.remove_unavailable');
 
             Notification::make()
-                ->title(__('social-automation::filament.scripts.remove_blocked'))
+                ->title($title)
                 ->body($body)
                 ->danger()
                 ->send();
