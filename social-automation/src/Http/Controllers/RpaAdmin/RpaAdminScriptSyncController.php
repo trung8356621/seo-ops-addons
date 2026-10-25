@@ -231,12 +231,27 @@ final class RpaAdminScriptSyncController extends Controller
             return response()->json(['ok' => false, 'errors' => ['video_demo_upload_required']], 422);
         }
 
+        $thumbFile = $request->file('thumbnail');
+        $thumbBinary = null;
+        $thumbSha = trim((string) $request->input('thumbnail_sha256', ''));
+        if ($thumbFile !== null && $thumbFile->isValid()) {
+            $thumbBinary = (string) file_get_contents($thumbFile->getRealPath());
+        } else {
+            $thumbRaw = $request->input('thumbnail_base64');
+            if (is_string($thumbRaw) && $thumbRaw !== '') {
+                $decoded = base64_decode($thumbRaw, true);
+                $thumbBinary = $decoded === false ? null : $decoded;
+            }
+        }
+
         $result = $this->media->attachVideoDemo(
             $packageKey,
             $version,
             $binary,
             $mime !== '' ? $mime : 'video/webm',
             $checksum !== '' ? $checksum : null,
+            $thumbBinary,
+            $thumbSha !== '' ? $thumbSha : null,
         );
 
         return response()->json($result, ($result['ok'] ?? false) ? 201 : 422);

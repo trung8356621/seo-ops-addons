@@ -37,6 +37,8 @@ final class ScriptReleaseMediaService
         string $binary,
         string $mime = 'video/webm',
         ?string $checksumSha256 = null,
+        ?string $thumbnailBinary = null,
+        ?string $thumbnailSha256 = null,
     ): array {
         if (! $this->ready()) {
             return ['ok' => false, 'errors' => ['media_schema_unavailable']];
@@ -109,6 +111,25 @@ final class ScriptReleaseMediaService
                     'status' => SaScriptReleaseMedia::STATUS_READY,
                     'metadata' => [
                         'seek_seconds' => $extract['seek_seconds'] ?? null,
+                        'source' => 'last_frame',
+                    ],
+                ],
+            );
+        } elseif (is_string($thumbnailBinary) && $thumbnailBinary !== '') {
+            Storage::disk('local')->put($thumbRelative, $thumbnailBinary);
+            $thumbSha = $thumbnailSha256 !== null && $thumbnailSha256 !== ''
+                ? strtolower($thumbnailSha256)
+                : hash('sha256', $thumbnailBinary);
+            $thumbnail = SaScriptReleaseMedia::query()->updateOrCreate(
+                ['release_id' => $release->id, 'kind' => SaScriptReleaseMedia::KIND_THUMBNAIL],
+                [
+                    'storage_disk' => 'local',
+                    'storage_path' => $thumbRelative,
+                    'mime' => 'image/jpeg',
+                    'size_bytes' => strlen($thumbnailBinary),
+                    'checksum_sha256' => $thumbSha,
+                    'status' => SaScriptReleaseMedia::STATUS_READY,
+                    'metadata' => [
                         'source' => 'last_frame',
                     ],
                 ],

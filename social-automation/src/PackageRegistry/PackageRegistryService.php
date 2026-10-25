@@ -59,10 +59,21 @@ final class PackageRegistryService
                 : ScriptTombstoneService::SOURCE_RPA_ADMIN;
             $tombstones = $this->tombstones ?? app(ScriptTombstoneService::class);
             if ($scriptId !== '' && $tombstones->isSuppressed($scriptId, $source)) {
-                return new PackagePublishResult(
-                    PackagePublishResult::OUTCOME_REMOVED_ON_SERVER,
-                    errors: ['removed_on_server'],
-                );
+                $tombstoneRow = \Omnichannel\Addons\SocialAutomation\Models\SaScriptTombstone::query()
+                    ->where('script_id', $scriptId)
+                    ->where('source', $source)
+                    ->whereNull('restored_at')
+                    ->first();
+                if ($tombstoneRow instanceof \Omnichannel\Addons\SocialAutomation\Models\SaScriptTombstone
+                    && $tombstoneRow->content_digest !== null
+                    && ! PackageDigest::equals((string) $tombstoneRow->content_digest, (string) ($data['content_digest'] ?? ''))) {
+                    $tombstones->restore($scriptId, $source);
+                } else {
+                    return new PackagePublishResult(
+                        PackagePublishResult::OUTCOME_REMOVED_ON_SERVER,
+                        errors: ['removed_on_server'],
+                    );
+                }
             }
         }
 
