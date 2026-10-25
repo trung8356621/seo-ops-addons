@@ -14,6 +14,9 @@ use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptExecutionDigest;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptSyncPlanner;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\WidgetInvalidationPolicy;
 use PHPUnit\Framework\TestCase;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Request;
+use Omnichannel\Addons\SocialAutomation\Http\Middleware\RenderRpaAdminRateLimitJson;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\RpaAdminBackupService;
 
 /**
@@ -247,10 +250,30 @@ final class RpaAdminAuthAndSyncTest extends TestCase
         self::assertStringContainsString('social-automation/rpa-admin', $provider);
         self::assertStringContainsString("post('/login'", $provider);
         self::assertStringContainsString('EnsureRpaAdminUserApi', $provider);
+        self::assertStringContainsString('RenderRpaAdminRateLimitJson', $provider);
         self::assertStringContainsString('scripts/sync/plan', $provider);
         $routes = (string) file_get_contents(dirname(__DIR__, 2).'/routes/api-services.php');
         self::assertStringContainsString('runner:job', $routes);
         self::assertStringNotContainsString('rpa-admin/login', $routes);
+    }
+
+    public function test_rpa_admin_rate_limit_is_rendered_as_json_without_removing_throttle(): void
+    {
+        $response = (new RenderRpaAdminRateLimitJson)->handle(
+            Request::create('/api/v1/social-automation/rpa-admin/backup', 'GET'),
+            static function (): never {
+                throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => '30']);
+            },
+        );
+
+        self::assertSame(429, $response->getStatusCode());
+        self::assertSame('application/json', $response->headers->get('content-type'));
+        self::assertSame('30', $response->headers->get('retry-after'));
+        self::assertSame([
+            'error' => 'rate_limited',
+            'message' => 'Too many requests',
+            'retry_after' => 30,
+        ], json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR));
     }
 
     public function test_rpa_admin_backup_and_report_endpoints_guard_missing_schema(): void

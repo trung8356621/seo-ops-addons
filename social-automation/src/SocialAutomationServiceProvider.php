@@ -30,6 +30,7 @@ use Omnichannel\Addons\SocialAutomation\Http\Controllers\ScriptReleaseMediaContr
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationBootstrapController;
 use Omnichannel\Addons\SocialAutomation\Http\Controllers\SocialAutomationHealthController;
 use Omnichannel\Addons\SocialAutomation\Http\Middleware\EnsureRpaAdminUserApi;
+use Omnichannel\Addons\SocialAutomation\Http\Middleware\RenderRpaAdminRateLimitJson;
 use Omnichannel\Addons\SocialAutomation\Orchestration\JobOrchestrator;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackagePublishValidator;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
@@ -210,7 +211,7 @@ final class SocialAutomationServiceProvider extends ServiceProvider
 
         // RPA Admin user auth + Script sync (not Runner service_api_credentials).
         Route::prefix('api/v1/social-automation/rpa-admin')
-            ->middleware(['throttle:60,1'])
+            ->middleware([RenderRpaAdminRateLimitJson::class, 'throttle:60,1'])
             ->group(function (): void {
                 Route::post('/login', [RpaAdminAuthController::class, 'login'])
                     ->name('social-automation.rpa-admin.login');
