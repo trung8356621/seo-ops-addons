@@ -7,3 +7,6 @@ composer.lock
 node_modules/
 _task8_*
 .tmp_*
+/social-automation
+social-automation/
+
