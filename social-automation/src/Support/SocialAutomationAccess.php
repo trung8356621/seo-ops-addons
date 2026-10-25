@@ -6,16 +6,16 @@ namespace Omnichannel\Addons\SocialAutomation\Support;
 
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminRoleGate;
 
 /**
  * Global Social Automation access — Service activation only (website-agnostic).
  */
 final class SocialAutomationAccess
 {
-    public const ROLE_MANAGER = 'social-automation.manager';
-
     public function __construct(
         private readonly SocialAutomationServiceResolver $service,
+        private readonly RpaAdminRoleGate $roles,
     ) {}
 
     public function canAccess(?User $user = null): bool
@@ -25,7 +25,7 @@ final class SocialAutomationAccess
             return false;
         }
 
-        if ((string) ($user->status ?? '') === User::STATUS_BLOCK) {
+        if (! $this->roles->allows($user)) {
             return false;
         }
 

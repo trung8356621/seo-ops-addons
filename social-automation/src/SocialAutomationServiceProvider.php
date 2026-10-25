@@ -84,7 +84,11 @@ final class SocialAutomationServiceProvider extends ServiceProvider
         $this->app->singleton(ScheduleDispatcher::class);
         $this->app->singleton(DashboardMetrics::class);
 
-        $this->registerCapabilities();
+        try {
+            $this->registerCapabilities();
+        } catch (Throwable) {
+            // Capability registration failure must stay isolated to this addon.
+        }
     }
 
     public function boot(): void
@@ -93,7 +97,11 @@ final class SocialAutomationServiceProvider extends ServiceProvider
         $this->loadViewsFrom($root.'/resources/views', 'social-automation');
         $this->loadTranslationsFrom($root.'/resources/lang', 'social-automation');
 
-        app(SocialAutomationServiceResolver::class)->ensureCatalogRow();
+        try {
+            app(SocialAutomationServiceResolver::class)->ensureCatalogRow();
+        } catch (Throwable) {
+            // Keep other addons bootable; the Social Automation health UI reports the failure.
+        }
 
         try {
             app(SocialAutomationDatabaseConnectionService::class)->bootstrap();
@@ -105,7 +113,11 @@ final class SocialAutomationServiceProvider extends ServiceProvider
             $this->commands([SocialAutomationScheduleTickCommand::class]);
         }
 
-        $this->registerWorkspaceDestination();
+        try {
+            $this->registerWorkspaceDestination();
+        } catch (Throwable) {
+            // Workspace registration is optional and must not break unrelated panels.
+        }
         $this->registerRoutes();
         $this->registerSeoPanelTopLevelNav();
     }
@@ -148,7 +160,11 @@ final class SocialAutomationServiceProvider extends ServiceProvider
                 return;
             }
 
-            if (! app(SocialAutomationAccess::class)->canAccess()) {
+            try {
+                if (! app(SocialAutomationAccess::class)->canAccess()) {
+                    return;
+                }
+            } catch (Throwable) {
                 return;
             }
 

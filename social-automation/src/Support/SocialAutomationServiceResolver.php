@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SocialAutomation\Support;
 
 use App\Models\Service;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 
 /**
  * Canonical Social Automation service reader — slug=social-automation.
@@ -41,26 +40,7 @@ final class SocialAutomationServiceResolver
             return false;
         }
 
-        return $this->h1Allows(defaultWhenMissing: true);
-    }
-
-    private function h1Allows(bool $defaultWhenMissing): bool
-    {
-        if (! class_exists(\App\Services\H1\Enforcement\ServiceEntitlementGate::class)) {
-            return $defaultWhenMissing;
-        }
-
-        try {
-            /** @var \App\Services\H1\Enforcement\ServiceEntitlementGate $gate */
-            $gate = app(\App\Services\H1\Enforcement\ServiceEntitlementGate::class);
-            if (! $gate->enforcementActive()) {
-                return $defaultWhenMissing;
-            }
-
-            return $gate->allows(self::SLUG);
-        } catch (Throwable) {
-            return $defaultWhenMissing;
-        }
+        return true;
     }
 
     public function resolve(): SocialAutomationServiceConfig

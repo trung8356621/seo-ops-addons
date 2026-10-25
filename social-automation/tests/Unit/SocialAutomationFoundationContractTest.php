@@ -62,7 +62,7 @@ final class SocialAutomationFoundationContractTest extends TestCase
         self::assertStringContainsString("'is_active' => false", $source);
         self::assertStringContainsString('return false;', $source);
         self::assertStringNotContainsString("'is_active' => true", $source);
-        self::assertStringContainsString("allows(self::SLUG)", $source);
+        self::assertStringNotContainsString('ServiceEntitlementGate', $source);
     }
 
     public function test_access_gate_has_no_site_id_dependency(): void
@@ -72,6 +72,15 @@ final class SocialAutomationFoundationContractTest extends TestCase
         self::assertStringNotContainsString('site_id', $source);
         self::assertStringNotContainsString('SiteAccess', $source);
         self::assertStringContainsString('isActive()', $source);
+        self::assertStringContainsString('RpaAdminRoleGate', $source);
+    }
+
+    public function test_provider_contains_addon_boot_failures(): void
+    {
+        $source = (string) file_get_contents($this->root.'/src/SocialAutomationServiceProvider.php');
+
+        self::assertStringContainsString('ensureCatalogRow();', $source);
+        self::assertGreaterThanOrEqual(3, substr_count($source, 'catch (Throwable)'));
     }
 
     public function test_provider_registers_session_auth_api_not_service_key(): void
