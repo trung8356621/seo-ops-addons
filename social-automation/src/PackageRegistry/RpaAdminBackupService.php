@@ -6,15 +6,18 @@ namespace Omnichannel\Addons\SocialAutomation\PackageRegistry;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SocialAutomation\Models\SaRpaAdminBackup;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 
 final class RpaAdminBackupService
 {
+    public function available(): bool { return Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_rpa_admin_backups'); }
     public static function acceptsRevision(?int $current, int $incoming): bool { return $incoming > ($current ?? 0); }
     /** @param array<string,mixed> $summary @return array<string,mixed> */
     public function put(int $userId, string $installationId, int $revision, string $archive, string $sha256, array $summary): array
     {
+        if (!$this->available()) return ['ok' => false, 'errors' => ['backup_schema_unavailable']];
         if ($installationId === '' || $revision < 1 || $archive === '' || !PackageDigest::isValidHex($sha256) || !hash_equals($sha256, hash('sha256', $archive))) {
             return ['ok' => false, 'errors' => ['backup_invalid']];
         }
@@ -38,6 +41,7 @@ final class RpaAdminBackupService
     /** @return array<string,mixed>|null */
     public function info(int $userId, string $installationId): ?array
     {
+        if (!$this->available()) return null;
         $query = SaRpaAdminBackup::query()->where('user_id', $userId);
         $row = $installationId !== '' ? $query->where('installation_id', $installationId)->first() : $query->orderByDesc('backed_up_at')->first();
         if (!$row instanceof SaRpaAdminBackup) return null;
@@ -49,6 +53,7 @@ final class RpaAdminBackupService
     /** @return array{bytes:string,checksum_sha256:string,info:array<string,mixed>}|null */
     public function download(int $userId, string $installationId): ?array
     {
+        if (!$this->available()) return null;
         $query = SaRpaAdminBackup::query()->where('user_id', $userId);
         $row = $installationId !== '' ? $query->where('installation_id', $installationId)->first() : $query->orderByDesc('backed_up_at')->first();
         if (!$row instanceof SaRpaAdminBackup || !Storage::disk($row->storage_disk)->exists($row->storage_path)) return null;

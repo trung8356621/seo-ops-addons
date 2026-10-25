@@ -253,6 +253,16 @@ final class RpaAdminAuthAndSyncTest extends TestCase
         self::assertStringNotContainsString('rpa-admin/login', $routes);
     }
 
+    public function test_rpa_admin_backup_and_report_endpoints_guard_missing_schema(): void
+    {
+        $controller = (string) file_get_contents(dirname(__DIR__, 2).'/src/Http/Controllers/RpaAdmin/RpaAdminScriptSyncController.php');
+        $service = (string) file_get_contents(dirname(__DIR__, 2).'/src/PackageRegistry/RpaAdminBackupService.php');
+
+        self::assertStringContainsString('backup_schema_unavailable', $controller);
+        self::assertStringContainsString('execution_report_schema_unavailable', $controller);
+        self::assertStringContainsString("hasTable('sa_rpa_admin_backups')", $service);
+    }
+
     private function user(string $role): User
     {
         $user = new User;

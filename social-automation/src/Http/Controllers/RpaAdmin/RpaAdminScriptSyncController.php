@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Omnichannel\Addons\SocialAutomation\Auth\RpaAdminSessionService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\PackageRegistryService;
 use Omnichannel\Addons\SocialAutomation\PackageRegistry\ScriptCatalogService;
@@ -19,7 +21,7 @@ use Omnichannel\Addons\SocialAutomation\Models\SaRpaExecutionReport;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackage;
 use Omnichannel\Addons\SocialAutomation\Models\SaPackageRelease;
 use Omnichannel\Addons\SocialAutomation\Models\SaScriptReleaseAsset;
-use Illuminate\Support\Facades\Storage;
+use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationServiceConfig;
 use Omnichannel\Addons\SocialAutomation\Support\SocialAutomationApiStatus;
 
 /**
@@ -38,6 +40,7 @@ final class RpaAdminScriptSyncController extends Controller
 
     public function backup(Request $request): JsonResponse
     {
+        if (!$this->backups->available()) return response()->json(['ok' => false, 'errors' => ['backup_schema_unavailable']], 503);
         $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
         $binary = base64_decode((string)$request->input('archive_base64', ''), true);
         if (!$user instanceof User || $binary === false) return response()->json(['ok' => false, 'errors' => ['backup_invalid']], 422);
@@ -49,6 +52,7 @@ final class RpaAdminScriptSyncController extends Controller
 
     public function backupInfo(Request $request): JsonResponse
     {
+        if (!$this->backups->available()) return response()->json(['ok' => false, 'errors' => ['backup_schema_unavailable']], 503);
         $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
         $info = $user instanceof User ? $this->backups->info((int)$user->id, trim((string)$request->query('installation_id', ''))) : null;
         return response()->json(['ok' => true, 'backup' => $info]);
@@ -56,6 +60,7 @@ final class RpaAdminScriptSyncController extends Controller
 
     public function backupDownload(Request $request): JsonResponse
     {
+        if (!$this->backups->available()) return response()->json(['ok' => false, 'errors' => ['backup_schema_unavailable']], 503);
         $user = $request->attributes->get(RpaAdminSessionService::REQUEST_USER_KEY);
         $found = $user instanceof User ? $this->backups->download((int)$user->id, trim((string)$request->input('installation_id', ''))) : null;
         if ($found === null) return response()->json(['ok' => false, 'errors' => ['backup_unavailable_or_corrupt']], 404);
@@ -64,6 +69,8 @@ final class RpaAdminScriptSyncController extends Controller
 
     public function reports(Request $request): JsonResponse
     {
+        if (!Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_rpa_execution_reports'))
+            return response()->json(['ok' => false, 'errors' => ['execution_report_schema_unavailable']], 503);
         $after = max(0, (int)$request->query('after_id', 0));
         $rows = SaRpaExecutionReport::query()->where('id', '>', $after)->orderBy('id')->limit(500)->get()->map(fn ($r) => [
             'id' => (int)$r->id, 'installation_id' => $r->installation_id, 'script_id' => $r->script_id,
@@ -76,6 +83,8 @@ final class RpaAdminScriptSyncController extends Controller
 
     public function storeReport(Request $request): JsonResponse
     {
+        if (!Schema::connection(SocialAutomationServiceConfig::CONNECTION)->hasTable('sa_rpa_execution_reports'))
+            return response()->json(['ok' => false, 'errors' => ['execution_report_schema_unavailable']], 503);
         foreach (['installation_id', 'script_id', 'script_version', 'run_id', 'timestamp', 'status'] as $field) {
             if (trim((string)$request->input($field, '')) === '') return response()->json(['ok' => false, 'errors' => ['report_'.$field.'_required']], 422);
         }
