@@ -377,12 +377,19 @@ final class TaskWorkflowTestRunner
                     $contentFailed = true;
                 }
             } catch (\Throwable $exception) {
+                $roleValue = $this->nodeExecutionRoleValue($node);
+                $hookFromNode = trim((string) ($node['data']['hook_key'] ?? ''));
+                if ($hookFromNode === '' && $this->isContentRoleNode($node)) {
+                    $hookFromNode = ArticleWritingExecutionService::HOOK_KEY;
+                }
                 $steps[] = [
                     'node_id' => $nodeId,
                     'type' => (string) ($node['type'] ?? ''),
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'failed',
                     'message' => $exception->getMessage(),
+                    'execution_role' => $roleValue,
+                    'hook_key' => $hookFromNode !== '' ? $hookFromNode : null,
                 ];
                 $statusByNodeId[$nodeId] = 'failed';
                 if ($this->isOutlineRoleNode($node)) {

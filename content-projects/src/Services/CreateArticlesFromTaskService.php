@@ -613,6 +613,28 @@ class CreateArticlesFromTaskService
         $mergedSteps = array_merge($phase1Steps, $writingSteps);
 
         if (! $this->writingPhaseExecuted($writing, $writingSteps)) {
+            // Writing was dispatched; if it reported a concrete failure without step evidence,
+            // surface that error — do not mask as "not executed".
+            $writingMessage = trim((string) ($writing['message'] ?? ''));
+            $writingFailed = ! (bool) ($writing['success'] ?? false);
+            if ($writingFailed && $writingMessage !== '') {
+                return [
+                    'success' => false,
+                    'article_id' => (int) ($writing['article_id'] ?? $fresh->id),
+                    'steps' => $mergedSteps,
+                    'message' => $writingMessage,
+                    'error_code' => $writing['error_code'] ?? 'full_rerun_writing_failed',
+                    'persist_status' => $writing['persist_status'] ?? null,
+                    'failed_step' => $writing['failed_step'] ?? [
+                        'title' => 'Writing',
+                        'prompt_name' => '',
+                        'message' => $writingMessage,
+                        'hook_key' => ArticleWritingExecutionService::HOOK_KEY,
+                    ],
+                    'outline_checkpoint_hash' => $artifactHash,
+                ];
+            }
+
             return [
                 'success' => false,
                 'article_id' => (int) ($writing['article_id'] ?? $fresh->id),
@@ -626,6 +648,7 @@ class CreateArticlesFromTaskService
                     'message' => 'article.content.generate was not executed after Outline checkpoint.',
                     'hook_key' => ArticleWritingExecutionService::HOOK_KEY,
                 ],
+                'outline_checkpoint_hash' => $artifactHash,
             ];
         }
 
@@ -757,6 +780,12 @@ class CreateArticlesFromTaskService
                 continue;
             }
 
+            // Phase-2 stamp: any terminal Writing-phase step means Content was invoked
+            // (covers failed steps that omit hook_key/execution_role, e.g. runner catch).
+            if (($step['full_rerun_phase'] ?? '') === 'writing') {
+                return true;
+            }
+
             $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
             if ($hook === ArticleWritingExecutionService::HOOK_KEY) {
                 return true;
@@ -772,17 +801,12 @@ class CreateArticlesFromTaskService
             }
 
             $resultId = (int) ($step['result_id'] ?? 0);
+            $promptResultId = (int) ($step['prompt_result_id'] ?? 0);
             $promptResultIds = is_array($step['prompt_result_ids'] ?? null)
                 ? $step['prompt_result_ids']
                 : [];
-            if ($resultId > 0 || $promptResultIds !== []) {
-                // History/result evidence only counts when this step looks like Writing.
-                if ($hook === ArticleWritingExecutionService::HOOK_KEY
-                    || $role === WorkflowExecutionRole::ArticleContentGenerate
-                    || ($step['artifact_type'] ?? '') === 'article_content'
-                ) {
-                    return true;
-                }
+            if ($resultId > 0 || $promptResultId > 0 || $promptResultIds !== []) {
+                return true;
             }
         }
 
@@ -792,8 +816,13 @@ class CreateArticlesFromTaskService
         if ((int) ($writingResult['prompt_result_id'] ?? 0) > 0) {
             return true;
         }
+        if (strtolower(trim((string) ($writingResult['hook_key'] ?? ''))) === ArticleWritingExecutionService::HOOK_KEY
+            && in_array((string) ($writingResult['persist_status'] ?? ''), ['applied', 'failed', 'ignored_stale'], true)
+        ) {
+            return true;
+        }
 
-        // persist_status alone (including failed / ignored_stale) is insufficient.
+        // persist_status alone without hook/result/step evidence is insufficient.
         return false;
     }
 
@@ -990,7 +1019,7 @@ class CreateArticlesFromTaskService
                 promptOwnerId: $contentNodeId,
                 workflowTask: $task,
                 contentNodeId: $contentNodeId,
-                taskContext: $context,
+                taskContext: $context->withVariables($variables),
                 expectedUpdatedAt: $context->article?->updated_at?->toIso8601String(),
                 baseVariables: $variables,
             ),
@@ -1011,6 +1040,8 @@ class CreateArticlesFromTaskService
                 'failed_step' => $failure['failed_step'],
                 'steps' => $steps,
                 'persist_status' => $result->persistStatus,
+                'hook_key' => $payload['hook_key'] ?? ArticleWritingExecutionService::HOOK_KEY,
+                'prompt_result_id' => isset($payload['prompt_result_id']) ? (int) $payload['prompt_result_id'] : null,
             ];
         }
 
@@ -1021,6 +1052,7 @@ class CreateArticlesFromTaskService
                 'steps' => $steps,
                 'message' => $result->message,
                 'persist_status' => $result->persistStatus,
+                'hook_key' => $payload['hook_key'] ?? ArticleWritingExecutionService::HOOK_KEY,
             ];
         }
 

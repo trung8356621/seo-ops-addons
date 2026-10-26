@@ -309,4 +309,271 @@ final class FullRerunTwoPhaseBehavioralTest extends TestCase
         self::assertSame(1, $phase1SaveSkips, 'Phase1 Save body executed = 0');
         self::assertSame(1, $phase2ContentCompletes, 'Phase2 Content = 1');
     }
+
+    public function test_writing_failure_preserves_root_error_and_outline_checkpoint(): void
+    {
+        $writingCalls = 0;
+        $persistCalls = 0;
+        $rootError = 'Provider timeout after content invoke';
+
+        $article = new SeoArticle;
+        $article->forceFill([
+            'id' => 8554,
+            'site_id' => 7,
+            'title' => 'Fail writing article',
+            'body' => '<p>old</p>',
+        ]);
+        $article->syncOriginal();
+
+        $task = $this->publishTaskFixture();
+        $roleResolver = $this->roleResolverMock();
+        $outlinePersist = $this->createMock(ArticleOutlineResolver::class);
+        $outlinePersist->expects(self::once())
+            ->method('persist')
+            ->willReturnCallback(function () use (&$persistCalls): array {
+                $persistCalls++;
+
+                return ['ok' => true, 'message' => 'ok'];
+            });
+        $outlinePersist->method('resolveMarkdown')->willReturn(self::OUTLINE_ARTIFACT);
+
+        $articleWriting = $this->createMock(ArticleWritingExecutionService::class);
+        $articleWriting->expects(self::once())
+            ->method('execute')
+            ->willReturnCallback(function () use (&$writingCalls, $article, $rootError): ArticleWritingExecutionResult {
+                $writingCalls++;
+
+                return new ArticleWritingExecutionResult(
+                    success: false,
+                    message: $rootError,
+                    sourceType: ArticleWritingSourceType::Outline,
+                    promptOwnerType: ArticleWritingPromptOwnerType::WorkflowNode,
+                    hookKey: ArticleWritingExecutionService::HOOK_KEY,
+                    articleId: (int) $article->id,
+                    persistStatus: ArticleWritingExecutionResult::PERSIST_FAILED,
+                    steps: [
+                        [
+                            'node_id' => 'content_b',
+                            'status' => 'failed',
+                            // Missing hook_key — historically masked as "not executed".
+                            'message' => $rootError,
+                        ],
+                    ],
+                );
+            });
+
+        $service = $this->makeTwoPhaseService(
+            $roleResolver,
+            $outlinePersist,
+            $articleWriting,
+            $task,
+        );
+
+        $result = $service->runOutlineThenArticleForContext(
+            new TaskTestContext(
+                article: $article,
+                isNewArticle: false,
+                matchedBy: null,
+                variables: ['focus_keyword' => 'balo', 'post_title' => 'Balo fail'],
+                summary: 'writing failure behavioral',
+                siteId: 7,
+                projectTaskType: SeoProjectTask::TYPE_REWRITE,
+            ),
+            7,
+        );
+
+        self::assertFalse((bool) ($result['success'] ?? true));
+        self::assertSame(1, $writingCalls);
+        self::assertSame(1, $persistCalls);
+        self::assertSame($rootError, $result['message'] ?? null);
+        self::assertNotSame(
+            'FULL RERUN: Outline checkpoint saved but Writing was not executed.',
+            $result['message'] ?? null,
+        );
+        self::assertSame(
+            hash('sha256', trim(self::OUTLINE_ARTIFACT)),
+            $result['outline_checkpoint_hash'] ?? null,
+        );
+        self::assertNotSame('full_rerun_writing_not_executed', $result['error_code'] ?? null);
+    }
+
+    public function test_empty_writing_steps_with_failure_message_is_not_fake_success(): void
+    {
+        $article = new SeoArticle;
+        $article->forceFill(['id' => 8555, 'site_id' => 7, 'title' => 'Empty steps', 'body' => '']);
+        $article->syncOriginal();
+
+        $task = $this->publishTaskFixture();
+        $outlinePersist = $this->createMock(ArticleOutlineResolver::class);
+        $outlinePersist->method('persist')->willReturn(['ok' => true, 'message' => 'ok']);
+        $outlinePersist->method('resolveMarkdown')->willReturn(self::OUTLINE_ARTIFACT);
+
+        $articleWriting = $this->createMock(ArticleWritingExecutionService::class);
+        $articleWriting->expects(self::once())
+            ->method('execute')
+            ->willReturn(new ArticleWritingExecutionResult(
+                success: false,
+                message: 'Thiếu TaskTestContext cho content node.',
+                sourceType: ArticleWritingSourceType::Outline,
+                promptOwnerType: ArticleWritingPromptOwnerType::WorkflowNode,
+                hookKey: ArticleWritingExecutionService::HOOK_KEY,
+                articleId: 8555,
+                persistStatus: ArticleWritingExecutionResult::PERSIST_FAILED,
+                steps: [],
+            ));
+
+        $service = $this->makeTwoPhaseService(
+            $this->roleResolverMock(),
+            $outlinePersist,
+            $articleWriting,
+            $task,
+        );
+
+        $result = $service->runOutlineThenArticleForContext(
+            new TaskTestContext(
+                article: $article,
+                isNewArticle: false,
+                matchedBy: null,
+                variables: ['focus_keyword' => 'x', 'post_title' => 'Y'],
+                summary: 'empty writing steps',
+                siteId: 7,
+                projectTaskType: SeoProjectTask::TYPE_REWRITE,
+            ),
+            7,
+        );
+
+        self::assertFalse((bool) ($result['success'] ?? true));
+        self::assertSame('Thiếu TaskTestContext cho content node.', $result['message'] ?? null);
+        self::assertSame(
+            hash('sha256', trim(self::OUTLINE_ARTIFACT)),
+            $result['outline_checkpoint_hash'] ?? null,
+        );
+    }
+
+    private function publishTaskFixture(): SeoTask
+    {
+        $task = new SeoTask;
+        $task->forceFill([
+            'id' => 1,
+            'is_active' => true,
+            'name' => 'Publish',
+            'flow_data' => [
+                'nodes' => [
+                    [
+                        'id' => 'outline_a',
+                        'type' => 'prompt',
+                        'data' => ['execution_role' => WorkflowExecutionRole::ArticleOutlineGenerate->value],
+                    ],
+                    [
+                        'id' => 'content_b',
+                        'type' => 'prompt',
+                        'data' => ['execution_role' => WorkflowExecutionRole::ArticleContentGenerate->value],
+                    ],
+                ],
+                'edges' => [
+                    ['sourceNode' => 'outline_a', 'targetNode' => 'vocab_save'],
+                    ['sourceNode' => 'orphan_x', 'targetNode' => 'content_b'],
+                ],
+            ],
+        ]);
+
+        return $task;
+    }
+
+    private function roleResolverMock(): WorkflowExecutionRoleResolver
+    {
+        $roleResolver = $this->createMock(WorkflowExecutionRoleResolver::class);
+        $roleResolver->method('requireNodeId')->willReturnCallback(
+            static function (SeoTask $t, WorkflowExecutionRole $role): string {
+                return match ($role) {
+                    WorkflowExecutionRole::ArticleOutlineGenerate => 'outline_a',
+                    WorkflowExecutionRole::ArticleContentGenerate => 'content_b',
+                    default => 'unknown',
+                };
+            },
+        );
+        $roleResolver->method('findNode')->willReturn([
+            'node_id' => 'content_b',
+            'prompt_id' => 5,
+        ]);
+
+        return $roleResolver;
+    }
+
+    private function makeTwoPhaseService(
+        WorkflowExecutionRoleResolver $roleResolver,
+        ArticleOutlineResolver $outlinePersist,
+        ArticleWritingExecutionService $articleWriting,
+        SeoTask $task,
+    ): CreateArticlesFromTaskService {
+        $outlineResolver = $this->createMock(ArticleGenerationInputResolver::class);
+        $outlineResolver->method('isValidArtifact')->willReturnCallback(
+            static fn (string $raw): bool => strlen(trim($raw)) > 20,
+        );
+        $outlineResolver->method('tryResolveFromRawArtifact')->willReturn(null);
+
+        $snapshotBuilder = (new ReflectionClass(WorkflowExecutionSnapshotBuilder::class))
+            ->newInstanceWithoutConstructor();
+        $snapRole = (new ReflectionClass(WorkflowExecutionSnapshotBuilder::class))->getProperty('roleResolver');
+        $snapRole->setAccessible(true);
+        $snapRole->setValue($snapshotBuilder, $roleResolver);
+
+        return new class (
+            $roleResolver,
+            $outlinePersist,
+            $articleWriting,
+            $outlineResolver,
+            $snapshotBuilder,
+            $task,
+        ) extends CreateArticlesFromTaskService {
+            public function __construct(
+                WorkflowExecutionRoleResolver $roleResolver,
+                ArticleOutlineResolver $articleOutlinePersist,
+                ArticleWritingExecutionService $articleWriting,
+                ArticleGenerationInputResolver $outlineResolver,
+                WorkflowExecutionSnapshotBuilder $workflowSnapshotBuilder,
+                private readonly SeoTask $forcedTask,
+            ) {
+                $ref = new ReflectionClass(CreateArticlesFromTaskService::class);
+                foreach ([
+                    'roleResolver' => $roleResolver,
+                    'articleOutlinePersist' => $articleOutlinePersist,
+                    'articleWriting' => $articleWriting,
+                    'outlineResolver' => $outlineResolver,
+                    'workflowSnapshotBuilder' => $workflowSnapshotBuilder,
+                ] as $prop => $value) {
+                    $p = $ref->getProperty($prop);
+                    $p->setAccessible(true);
+                    $p->setValue($this, $value);
+                }
+            }
+
+            protected function resolvePublishWorkflowTask(): SeoTask
+            {
+                return $this->forcedTask;
+            }
+
+            protected function assertSiteAccessible(int $siteId): void {}
+
+            protected function runPhase1OutlineVocabularySteps(
+                SeoTask $task,
+                TaskTestContext $context,
+                string $outlineNodeId,
+            ): array {
+                return [
+                    [
+                        'node_id' => 'outline_a',
+                        'type' => 'prompt',
+                        'title' => 'Outline',
+                        'status' => 'completed',
+                        'hook_key' => 'article.outline.structure.generate',
+                        'execution_role' => WorkflowExecutionRole::ArticleOutlineGenerate->value,
+                        'outline_markdown' => FullRerunTwoPhaseBehavioralTest::OUTLINE_ARTIFACT,
+                        'vocabulary_markdown' => '',
+                        'artifact_type' => 'article_outline',
+                    ],
+                ];
+            }
+        };
+    }
 }

@@ -113,6 +113,36 @@ final class FullRerunTwoPhaseOrchestrationContractTest extends TestCase
         self::assertTrue($method->invoke($service, [], [
             ['status' => 'completed', 'execution_role' => 'article.content.generate'],
         ]));
+        // Stamped writing-phase terminal step without hook_key still counts (runner catch path).
+        self::assertTrue($method->invoke($service, ['success' => false], [
+            [
+                'status' => 'failed',
+                'full_rerun_phase' => 'writing',
+                'message' => 'Array to string conversion',
+            ],
+        ]));
+        // Singular prompt_result_id is execution evidence.
+        self::assertTrue($method->invoke($service, [], [
+            ['status' => 'completed', 'prompt_result_id' => 501],
+        ]));
+        // Top-level hook_key + persist_status from Writing payload.
+        self::assertTrue($method->invoke($service, [
+            'hook_key' => ArticleWritingExecutionService::HOOK_KEY,
+            'persist_status' => 'failed',
+        ], []));
+    }
+
+    public function test_writing_failure_without_evidence_preserves_original_message_contract(): void
+    {
+        $src = $this->source();
+        $methodPos = strpos($src, 'public function runOutlineThenArticleForContext');
+        $end = strpos($src, 'private function finalizeWorkflowGraphRun', (int) $methodPos);
+        $chunk = substr($src, (int) $methodPos, (int) $end - (int) $methodPos);
+
+        self::assertStringContainsString("\$writingFailed && \$writingMessage !== ''", $chunk);
+        self::assertStringContainsString("'error_code' => \$writing['error_code'] ?? 'full_rerun_writing_failed'", $chunk);
+        self::assertStringContainsString('full_rerun_writing_not_executed', $chunk);
+        self::assertStringContainsString('outline_checkpoint_hash', $chunk);
     }
 
     public function test_extract_canonical_outline_prefers_outline_markdown(): void

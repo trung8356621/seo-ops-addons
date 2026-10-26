@@ -9,7 +9,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 final class TaskTestContext
 {
     /**
-     * @param  array<string, string>  $variables
+     * @param  array<string, mixed>  $variables  Prompt scalars + structured side-channels (e.g. workflow_execution_snapshot)
      */
     public function __construct(
         public readonly ?SeoArticle $article,
@@ -154,7 +154,7 @@ final class TaskTestContext
         $variables = is_array($data['variables'] ?? null) ? $data['variables'] : [];
         $normalizedVariables = [];
         foreach ($variables as $key => $value) {
-            $normalizedVariables[(string) $key] = is_string($value) ? $value : (string) $value;
+            $normalizedVariables[(string) $key] = self::normalizeVariableValue($value);
         }
 
         return new self(
@@ -169,5 +169,26 @@ final class TaskTestContext
             rewriteMode: is_string($data['rewrite_mode'] ?? null) ? $data['rewrite_mode'] : null,
             rewriteNotes: is_string($data['rewrite_notes'] ?? null) ? $data['rewrite_notes'] : null,
         );
+    }
+
+    /**
+     * Keep structured side-channels intact; coerce only true scalars to string.
+     * Never cast arrays/objects (avoids "Array to string conversion" / "Array").
+     */
+    private static function normalizeVariableValue(mixed $value): mixed
+    {
+        if (is_array($value) || is_string($value)) {
+            return $value;
+        }
+
+        if ($value === null) {
+            return '';
+        }
+
+        if (is_bool($value) || is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        return $value;
     }
 }

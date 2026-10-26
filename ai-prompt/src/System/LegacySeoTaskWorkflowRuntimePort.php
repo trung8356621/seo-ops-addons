@@ -175,15 +175,13 @@ final class LegacySeoTaskWorkflowRuntimePort implements WorkflowRuntimePort
             ? $request->context['task_test_context']
             : [];
         if ($contextPayload === [] && $request->input !== []) {
+            // Preserve structured input (arrays); TaskTestContext::fromArray normalizes scalars only.
             $contextPayload = [
                 'article_id' => null,
                 'is_new_article' => true,
                 'matched_by' => 'system_workflow',
                 'summary' => 'System Workflow disposable/raw input',
-                'variables' => array_map(
-                    static fn (mixed $v): string => is_string($v) ? $v : (string) $v,
-                    $request->input,
-                ),
+                'variables' => $request->input,
             ];
         }
         if ($contextPayload === []) {
