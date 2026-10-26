@@ -58,6 +58,9 @@ final class ContentProjectActionCodes
 
     public const PROJECT_RESTORED = 'project.restored';
 
+    /** Reassign execution writer (seo_projects.user_id) without lifecycle reset. */
+    public const PROJECT_WRITER_CHANGED = 'project.writer_changed';
+
     public const PREVIEW_READY = 'preview.ready';
 
     public const IDEMPOTENT_REPLAY = 'idempotent.replay';

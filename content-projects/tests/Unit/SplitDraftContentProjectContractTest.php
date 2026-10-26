@@ -201,6 +201,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('draft_split_all', $draftPlanner);
         self::assertStringContainsString('draft_split_eligible', $draftPlanner);
         self::assertStringContainsString('draft_split_writers_heading', $draftPlanner);
+        self::assertStringContainsString('draft_split_total_remaining', $draftPlanner);
+        self::assertStringContainsString('data-split-total-remaining', $draftPlanner);
+        self::assertStringContainsString('totalRemaining()', $draftPlanner);
         self::assertStringContainsString('draft_split_existing', $draftPlanner);
         self::assertStringContainsString('draft_split_new', $draftPlanner);
         self::assertStringContainsString('draft_split_result', $draftPlanner);

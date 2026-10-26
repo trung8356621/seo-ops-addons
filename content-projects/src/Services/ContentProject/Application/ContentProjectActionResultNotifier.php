@@ -85,6 +85,10 @@ final class ContentProjectActionResultNotifier
             return (string) __('seo-content-ai::filament.projects.writer_system_user_rejected_title');
         }
 
+        if ($result->code === ContentProjectActionCodes::PROJECT_WRITER_CHANGED) {
+            return (string) __('seo-content-ai::filament.projects.change_writer_completed');
+        }
+
         return $result->code;
     }
 
@@ -95,6 +99,11 @@ final class ContentProjectActionResultNotifier
         }
         if ($result->code === ContentProjectActionCodes::SYSTEM_USER_REJECTED) {
             return (string) __('seo-content-ai::filament.projects.writer_system_user_rejected');
+        }
+        if ($result->code === ContentProjectActionCodes::PROJECT_WRITER_CHANGED) {
+            return (string) __('seo-content-ai::filament.projects.change_writer_completed_body', [
+                'name' => (string) ($result->metadata['project_name'] ?? ''),
+            ]);
         }
 
         $message = $result->message;

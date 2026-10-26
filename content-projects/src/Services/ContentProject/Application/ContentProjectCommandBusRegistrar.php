@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AutoScheduleProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\BlockProjectItemGenerationCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ChangeContentProjectWriterCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CancelProjectItemPublishingCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\DebugOverrideProjectItemLifecycleCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ReconcilePublishingQueueRemoteTasksCommand;
@@ -58,6 +59,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ArchiveProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AutoScheduleProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\BlockProjectItemGenerationHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ChangeContentProjectWriterHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\CancelProjectItemPublishingHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ReconcilePublishingQueueRemoteTasksHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\CreateContentProjectHandler;
@@ -154,6 +156,7 @@ final class ContentProjectCommandBusRegistrar
             ArchiveContentProjectCommand::class => ArchiveContentProjectHandler::class,
             ArchiveProjectItemsCommand::class => ArchiveProjectItemsHandler::class,
             RestoreContentProjectCommand::class => RestoreContentProjectHandler::class,
+            ChangeContentProjectWriterCommand::class => ChangeContentProjectWriterHandler::class,
 
             // SERP Intelligence — additive.
             \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Commands\CreateSerpQueriesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Application\Handlers\CreateSerpQueriesHandler::class,

@@ -520,9 +520,40 @@
                                 </label>
                             </fieldset>
 
-                            <fieldset class="cp-draft-split-pane space-y-2" data-split-pane="writers">
-                                <legend class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                    {{ __('seo-content-ai::filament.projects.draft_split_writers_heading', ['month' => $splitStartMonthLabel]) }}
+                            {{-- Alpine on fieldset so heading totalRemaining can react to include/exclude; wire:ignore + wire:key keep scroll-safe remount. --}}
+                            <fieldset
+                                class="cp-draft-split-pane space-y-2"
+                                data-split-pane="writers"
+                                wire:ignore
+                                wire:key="cp-split-writers-{{ $this->draftSplitTargetMonth }}-{{ $this->draftSplitMode }}-{{ (int) $this->draftSplitQuantity }}"
+                                x-data="cpDraftSplitWriters(@js([
+                                    'writers' => $splitUi['writers'] ?? [],
+                                    'includedIds' => array_values(array_map('intval', $this->draftSplitIncludedUserIds ?? [])),
+                                    'labels' => [
+                                        'existing' => (string) __('seo-content-ai::filament.projects.draft_split_existing'),
+                                        'capacity' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_label'),
+                                        'remaining' => (string) __('seo-content-ai::filament.projects.draft_split_remaining'),
+                                        'totalRemaining' => (string) __('seo-content-ai::filament.projects.draft_split_total_remaining'),
+                                        'new' => (string) __('seo-content-ai::filament.projects.draft_split_new'),
+                                        'projects' => (string) __('seo-content-ai::filament.projects.draft_split_projects_hint'),
+                                        'result' => (string) __('seo-content-ai::filament.projects.draft_split_result_capacity'),
+                                        'capacityZero' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_zero'),
+                                        'capacityFull' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_exhausted'),
+                                        'exclude' => (string) __('seo-content-ai::filament.projects.draft_split_exclude'),
+                                        'addBack' => (string) __('seo-content-ai::filament.projects.draft_split_add_back'),
+                                        'excludedHeading' => (string) __('seo-content-ai::filament.projects.draft_split_excluded_heading'),
+                                        'noStaff' => (string) __('seo-content-ai::filament.projects.draft_split_no_staff'),
+                                        'noWriters' => (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
+                                    ],
+                                ]))"
+                            >
+                                <legend class="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    <span>{{ __('seo-content-ai::filament.projects.draft_split_writers_heading', ['month' => $splitStartMonthLabel]) }}</span>
+                                    <span
+                                        class="text-xs font-normal text-gray-500 dark:text-gray-400"
+                                        data-split-total-remaining="1"
+                                        x-text="fmt(labels.totalRemaining, totalRemaining())"
+                                    ></span>
                                 </legend>
 
                                 <div
@@ -538,33 +569,11 @@
                                     <span class="sr-only">{{ __('seo-content-ai::filament.projects.draft_split_preview_loading') }}</span>
                                 </div>
 
-                                {{-- Alpine local include/exclude — no Livewire remorph on X / Thêm lại (scroll-safe). --}}
                                 <div
                                     wire:loading.remove
                                     wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth"
-                                    wire:ignore
-                                    wire:key="cp-split-writers-{{ $this->draftSplitTargetMonth }}-{{ $this->draftSplitMode }}-{{ (int) $this->draftSplitQuantity }}"
                                     class="cp-draft-split-writers min-h-[12rem]"
                                     data-split-writers="1"
-                                    x-data="cpDraftSplitWriters(@js([
-                                        'writers' => $splitUi['writers'] ?? [],
-                                        'includedIds' => array_values(array_map('intval', $this->draftSplitIncludedUserIds ?? [])),
-                                        'labels' => [
-                                            'existing' => (string) __('seo-content-ai::filament.projects.draft_split_existing'),
-                                            'capacity' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_label'),
-                                            'remaining' => (string) __('seo-content-ai::filament.projects.draft_split_remaining'),
-                                            'new' => (string) __('seo-content-ai::filament.projects.draft_split_new'),
-                                            'projects' => (string) __('seo-content-ai::filament.projects.draft_split_projects_hint'),
-                                            'result' => (string) __('seo-content-ai::filament.projects.draft_split_result_capacity'),
-                                            'capacityZero' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_zero'),
-                                            'capacityFull' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_exhausted'),
-                                            'exclude' => (string) __('seo-content-ai::filament.projects.draft_split_exclude'),
-                                            'addBack' => (string) __('seo-content-ai::filament.projects.draft_split_add_back'),
-                                            'excludedHeading' => (string) __('seo-content-ai::filament.projects.draft_split_excluded_heading'),
-                                            'noStaff' => (string) __('seo-content-ai::filament.projects.draft_split_no_staff'),
-                                            'noWriters' => (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
-                                        ],
-                                    ]))"
                                 >
                                     <template x-for="writer in includedWriters()" :key="'in-' + writer.id">
                                         <div
@@ -843,6 +852,12 @@
                     const set = new Set(this.includedIds);
 
                     return this.writers.filter((w) => ! set.has(w.id));
+                },
+                totalRemaining() {
+                    return this.includedWriters().reduce(
+                        (sum, w) => sum + Math.max(0, Number(w.remaining || 0)),
+                        0,
+                    );
                 },
                 fmt(template, count) {
                     return String(template || ':count').replace(':count', String(count));

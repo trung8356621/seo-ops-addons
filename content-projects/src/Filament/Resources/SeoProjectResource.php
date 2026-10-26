@@ -19,7 +19,9 @@ use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
 use Omnichannel\Addons\Content\Services\ArticleCompletedArchiveQueryService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ChangeContentProjectWriterCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateProjectItemsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ChangeContentProjectWriterService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
@@ -1037,6 +1039,98 @@ class SeoProjectResource extends SeoPanelResource
                         ->icon('heroicon-o-queue-list')
                         ->color('gray')
                         ->url(fn (SeoProject $record): string => static::getProjectWorkspaceUrl($record)),
+                    Tables\Actions\Action::make('change_writer')
+                        ->label(__('seo-content-ai::filament.projects.change_writer'))
+                        ->icon('heroicon-o-user-plus')
+                        ->color('gray')
+                        ->visible(fn (SeoProject $record): bool => SeoAccessControl::canMutateContentProjects()
+                            && ! $record->isProjectArchived()
+                            && ! $record->isArchive()
+                            && ! $record->isDraftPlanning())
+                        ->disabled(function (SeoProject $record): bool {
+                            $gate = app(ChangeContentProjectWriterService::class)->changeWriterGate($record);
+
+                            return ! $gate['can_change'];
+                        })
+                        ->tooltip(function (SeoProject $record): ?string {
+                            $gate = app(ChangeContentProjectWriterService::class)->changeWriterGate($record);
+
+                            return $gate['can_change'] ? null : (string) ($gate['blocked_reason'] ?? '');
+                        })
+                        ->modalHeading(fn (SeoProject $record): string => __('seo-content-ai::filament.projects.change_writer_heading', [
+                            'name' => (string) $record->name,
+                        ]))
+                        ->modalDescription(fn (SeoProject $record): string => __('seo-content-ai::filament.projects.change_writer_confirm', [
+                            'name' => (string) $record->name,
+                            'writer' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::displayLabel($record),
+                        ]))
+                        ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.change_writer_submit'))
+                        ->form(function (SeoProject $record): array {
+                            $currentWriterId = (int) ($record->user_id ?? 0);
+                            $options = static::userSelectOptions();
+                            if ($currentWriterId > 0) {
+                                unset($options[$currentWriterId]);
+                            }
+
+                            return [
+                                Forms\Components\Placeholder::make('current_writer')
+                                    ->label(__('seo-content-ai::filament.projects.change_writer_current'))
+                                    ->content(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::displayLabel($record)),
+                                Forms\Components\Select::make('new_writer_id')
+                                    ->label(__('seo-content-ai::filament.projects.change_writer_new'))
+                                    ->options($options)
+                                    ->searchable()
+                                    ->preload()
+                                    ->native(false)
+                                    ->required()
+                                    ->rule('not_in:'.$currentWriterId),
+                            ];
+                        })
+                        ->action(function (SeoProject $record, array $data): void {
+                            try {
+                                abort_unless(SeoAccessControl::canMutateContentProjects(), 403);
+                                $siteId = (int) ($record->site_id ?? 0);
+                                if ($siteId > 0) {
+                                    abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+                                }
+
+                                $result = app(ContentProjectCommandBus::class)->dispatch(
+                                    new ChangeContentProjectWriterCommand(
+                                        (int) $record->getKey(),
+                                        (int) ($data['new_writer_id'] ?? 0),
+                                    ),
+                                    ActorContext::user(
+                                        auth()->id() !== null ? (int) auth()->id() : null,
+                                        $siteId > 0 ? $siteId : null,
+                                    ),
+                                );
+
+                                if ($result->success) {
+                                    Notification::make()
+                                        ->title(__('seo-content-ai::filament.projects.change_writer_completed'))
+                                        ->body(__('seo-content-ai::filament.projects.change_writer_completed_body', [
+                                            'name' => (string) $record->name,
+                                        ]))
+                                        ->success()
+                                        ->send();
+
+                                    return;
+                                }
+
+                                app(ContentProjectActionResultNotifier::class)->send($result, allowSuccessToast: true);
+                            } catch (\Throwable $exception) {
+                                RuntimeLogger::report($exception, [
+                                    'endpoint' => 'content_project.change_writer',
+                                    'project_id' => (int) $record->getKey(),
+                                ]);
+
+                                Notification::make()
+                                    ->title(__('seo-content-ai::filament.projects.change_writer_failed'))
+                                    ->body($exception->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
                     Tables\Actions\Action::make('archive_project')
                         ->label(__('seo-content-ai::filament.projects.archive_project'))
                         ->icon('heroicon-o-archive-box')
