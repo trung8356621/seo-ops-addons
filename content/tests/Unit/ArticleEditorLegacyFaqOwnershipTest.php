@@ -4,28 +4,73 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
-use Tests\TestCase;
+use PHPUnit\Framework\TestCase;
+use Tests\Support\ProjectRoot;
 
 final class ArticleEditorLegacyFaqOwnershipTest extends TestCase
 {
     public function test_article_editor_save_does_not_call_php_faq_body_extraction(): void
     {
-        $persist = file_get_contents(__DIR__.'/../../src/Services/ArticleEditorPersistService.php');
-        $page = file_get_contents(__DIR__.'/../../src/Filament/Resources/ArticleResource/Pages/EditArticle.php');
+        $persist = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Services/ArticleEditorPersistService.php',
+        );
+        $page = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
+        );
 
-        $this->assertStringNotContainsString('extractFromBodyWhenMissing', (string) $persist);
-        $this->assertStringNotContainsString('extractFromBodyWhenMissing', (string) $page);
+        $this->assertStringNotContainsString('extractFromBodyWhenMissing', $persist);
+        $this->assertStringNotContainsString('extractFromBodyWhenMissing', $page);
     }
 
     public function test_browser_legacy_faq_flow_is_bounded_and_shared(): void
     {
-        $utility = file_get_contents(__DIR__.'/../../resources/js/utils/legacyFaqDetection.js');
-        $editor = file_get_contents(__DIR__.'/../../resources/js/components/SeoArticleEditor.jsx');
+        $utility = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/legacyFaqDetection.js',
+        );
+        $transfer = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/legacyFaqTransfer.js',
+        );
+        $editor = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
+        );
+        $bridge = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorExternalEventsBridge.js',
+        );
 
-        $this->assertStringContainsString('.slice(-3)', (string) $utility);
-        $this->assertStringContainsString('detectFaqPairsFromSection', (string) $utility);
-        $this->assertStringContainsString("extractLegacyFaqSection(section, 'manual')", (string) $editor);
-        $this->assertStringContainsString("extractLegacyFaqSection(candidate, 'auto')", (string) $editor);
-        $this->assertStringContainsString('restoreLegacyFaqSection', (string) $editor);
+        $this->assertStringContainsString('.slice(-3)', $utility);
+        $this->assertStringContainsString('detectFaqPairsFromSection', $utility);
+        $this->assertStringContainsString("extractLegacyFaqSection(section, 'manual')", $editor);
+        $this->assertStringContainsString("extractLegacyFaqSection(candidate, 'auto')", $editor);
+        $this->assertStringContainsString('restoreLegacyFaqSection', $editor);
+        $this->assertStringContainsString('commitLegacyFaqAndReview', $editor);
+        $this->assertStringContainsString('commitLegacyFaqToCanonical', $editor);
+        $this->assertStringContainsString('skipNextAutosave.current = true', $editor);
+        $this->assertStringContainsString('revealFaqEditorAfterTransfer', $editor);
+        $this->assertStringContainsString('replaceFaqSnapshot', $transfer);
+        $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $transfer);
+        $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $bridge);
+        $this->assertStringContainsString('resolvePendingFaqsForContentSave', $bridge);
+    }
+
+    public function test_legacy_faq_transfer_selftest_covers_behavior_cases(): void
+    {
+        $selftest = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/tests/Unit/legacyFaqTransfer.selftest.mjs',
+        );
+
+        $this->assertStringContainsString('detect 6 Q/A', $selftest);
+        $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $selftest);
+        $this->assertStringContainsString('resolvePendingFaqsForContentSave', $selftest);
+        $this->assertStringContainsString('Restore-before-commit', $selftest);
+        $this->assertStringContainsString('article without FAQ unaffected', $selftest);
+    }
+
+    public function test_legacy_faq_transfer_selftest_passes(): void
+    {
+        $script = ProjectRoot::addonsPath().'/content/tests/Unit/legacyFaqTransfer.selftest.mjs';
+        $cmd = 'node '.escapeshellarg($script);
+        exec($cmd, $output, $exitCode);
+        $this->assertSame(0, $exitCode, implode("\n", $output));
+        $this->assertStringContainsString('legacyFaqTransfer.selftest: ok', implode("\n", $output));
     }
 }

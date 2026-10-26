@@ -13,6 +13,7 @@ import { mediaActions } from '@media-addon/editor/domains/media/state.js';
 import { renderImageFigure, withDefaultImageInsertAlign } from '@media-addon/utils/blockImageUtils.js';
 import { resolveFullWordPressImageUrl } from '@wordpress-addon/utils/wordpressImageUrl.js';
 import { saveDraft } from '../utils/articleEditorStorage';
+import { resolvePendingFaqsForContentSave, shouldIgnoreEmptyFaqEditorSync } from '../utils/legacyFaqTransfer';
 import { t } from '../utils/i18n';
 import { useEffect } from 'react';
 
@@ -158,6 +159,11 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             // First empty emission while still unhydrated must not wipe bootstrap faqCount
             // (would flip SEO FAQ schema PASS → missing when Edit FAQ mounts).
             if (rows.length === 0 && faqsCanonicalKnownRef && faqsCanonicalKnownRef.current !== true) {
+                return;
+            }
+
+            // Pending legacy extraction: empty lazy FAQ panel must not erase detected Q/A.
+            if (shouldIgnoreEmptyFaqEditorSync({ rows, articleId })) {
                 return;
             }
 
@@ -868,11 +874,13 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
 
             const faqRows = resolveArticleFaqsSnapshot();
             const faqCollectorOpen = typeof window.__seoCollectArticleFaqs === 'function';
+            const pendingFaqs = resolvePendingFaqsForContentSave(articleId);
             // Phase 2: đừng nhét faqs:[] khi module FAQ chưa hydrate — sync sẽ wipe DB/WP.
+            // Pending legacy extraction must travel with [omi_faq] if a save still fires.
             const faqsForBundle =
                 faqCollectorOpen || (Array.isArray(faqRows) && faqRows.length > 0)
                     ? faqRows
-                    : null;
+                    : (Array.isArray(pendingFaqs) && pendingFaqs.length > 0 ? pendingFaqs : null);
 
             const exportHtml = getExportHtml();
             window.__seoFlushArticleRecoveryDraft?.();

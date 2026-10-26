@@ -284,6 +284,13 @@ import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2,
 import { extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
+    clearLegacyFaqPending,
+    commitLegacyFaqToCanonical,
+    revealFaqEditorAfterTransfer,
+    resolvePendingFaqsForContentSave,
+    setLegacyFaqPending,
+} from '../utils/legacyFaqTransfer';
+import {
     getSelectionHtmlFromEditor,
     getSelectionTextFromEditor,
 } from '../utils/editorSelectionUtils';
@@ -535,7 +542,7 @@ export default function SeoArticleEditor({
                     : null;
                 const faqs = typeof window.__seoCollectArticleFaqs === 'function'
                     ? window.__seoCollectArticleFaqs()
-                    : null;
+                    : resolvePendingFaqsForContentSave(articleId);
 
                 return {
                     html,
@@ -1436,22 +1443,26 @@ export default function SeoArticleEditor({
             const nextBlocks = originalBlocks.filter((block) => !selectedIds.has(block.id));
             nextBlocks.splice(Math.max(0, firstIndex), 0, createFaqShortcodeBlock());
             legacyFaqRestoreRef.current = { sectionId: section.id, blocks: originalBlocks, faqs: originalFaqs };
+            // Pending only — do not treat as canonical until "Kiểm tra FAQ" commits snapshot.
+            setLegacyFaqPending({ articleId, faqs, sectionId: section.id });
             panelFaqsRef.current = faqs;
             faqsCanonicalKnownRef.current = true;
             setPanelFaqs(faqs);
             setFaqCount(faqs.length);
+            // Avoid autosaving [omi_faq] before Q/A are on the snapshot API.
+            skipNextAutosave.current = true;
             setBlocks(nextBlocks);
             setLegacyFaqNotice({ heading: section.title, questionCount: faqs.length, answerCount: faqs.length, source });
             markSeoStale();
-            scheduleAutosave();
             window.setTimeout(() => runLocalSeoAnalysis(), 0);
             return true;
-        }, [blockById, faqCount, markSeoStale, runLocalSeoAnalysis, scheduleAutosave, setBlocks]);
+        }, [articleId, blockById, faqCount, markSeoStale, runLocalSeoAnalysis, setBlocks, skipNextAutosave]);
 
         const restoreLegacyFaqSection = useCallback(() => {
             const snapshot = legacyFaqRestoreRef.current;
             if (!snapshot) return;
             ignoredLegacyFaqSectionsRef.current.add(snapshot.sectionId);
+            clearLegacyFaqPending();
             panelFaqsRef.current = snapshot.faqs;
             setPanelFaqs(snapshot.faqs);
             setFaqCount(snapshot.faqs.length);
@@ -1462,6 +1473,75 @@ export default function SeoArticleEditor({
             scheduleAutosave();
             window.setTimeout(() => runLocalSeoAnalysis(), 0);
         }, [markSeoStale, runLocalSeoAnalysis, scheduleAutosave, setBlocks]);
+
+        const commitLegacyFaqAndReview = useCallback(async () => {
+            if (!legacyFaqRestoreRef.current && !legacyFaqNotice) {
+                openFaqModule({ source: 'legacy-faq-detection' });
+                void revealFaqEditorAfterTransfer({ expectedCount: Number(faqCount) || 0 });
+                return;
+            }
+            const pendingFaqs = Array.isArray(panelFaqsRef.current) ? panelFaqsRef.current : [];
+            if (pendingFaqs.length === 0) {
+                window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: 'FAQ',
+                        body: 'Không có FAQ đã nhận diện để chuyển.',
+                        status: 'warning',
+                    },
+                }));
+                return;
+            }
+
+            try {
+                const committed = await commitLegacyFaqToCanonical(articleId, pendingFaqs);
+                const items = Array.isArray(committed.items) ? committed.items : pendingFaqs;
+                // Keep pending flag until editor paints — blocks empty lazy hydrate wipe.
+                setLegacyFaqPending({ articleId, faqs: items, sectionId: legacyFaqRestoreRef.current?.sectionId });
+                panelFaqsRef.current = items;
+                faqsCanonicalKnownRef.current = true;
+                setPanelFaqs(items);
+                setFaqCount(items.length);
+                scheduleAutosave();
+                openFaqModule({ source: 'legacy-faq-detection' });
+                const painted = await revealFaqEditorAfterTransfer({ expectedCount: items.length });
+                if (!painted.ready || painted.rowCount < items.length) {
+                    window.dispatchEvent(new CustomEvent('article-faqs-extracted', {
+                        detail: {
+                            faqs: items,
+                            source: 'legacy-faq-commit',
+                        },
+                    }));
+                    await revealFaqEditorAfterTransfer({ expectedCount: items.length, maxFrames: 45 });
+                }
+                // Canonical accepted — hide restore so it cannot undo committed FAQ.
+                clearLegacyFaqPending();
+                legacyFaqRestoreRef.current = null;
+                setLegacyFaqNotice(null);
+                window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: 'FAQ',
+                        body: `Đã chuyển ${items.length} FAQ vào FAQ Editor.`,
+                        status: 'success',
+                    },
+                }));
+            } catch (error) {
+                window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: 'FAQ',
+                        body: String(error?.code || error?.message || 'Không chuyển được FAQ. Nội dung gốc vẫn giữ — thử lại hoặc Trả lại nội dung.'),
+                        status: 'danger',
+                    },
+                }));
+            }
+        }, [
+            articleId,
+            faqCount,
+            legacyFaqNotice,
+            openFaqModule,
+            scheduleAutosave,
+            setFaqCount,
+            setPanelFaqs,
+        ]);
 
         useEffect(() => {
             if (legacyFaqAutoAttemptedRef.current || contentLoading || blocks.length === 0 || faqCount > 0) return;
@@ -1935,7 +2015,7 @@ export default function SeoArticleEditor({
                                     <div className="text-xs">Heading: {legacyFaqNotice.heading}</div>
                                     <div className="text-xs">Phát hiện: {legacyFaqNotice.questionCount} câu hỏi · {legacyFaqNotice.answerCount} câu trả lời</div>
                                     <div className="mt-2 flex gap-2">
-                                        <button type="button" className="rounded border border-emerald-400 px-2 py-1 text-xs" onClick={() => openFaqModule({ source: 'legacy-faq-detection' })}>Kiểm tra FAQ</button>
+                                        <button type="button" className="rounded border border-emerald-400 px-2 py-1 text-xs" onClick={() => { void commitLegacyFaqAndReview(); }}>Kiểm tra FAQ</button>
                                         <button type="button" className="rounded border border-slate-400 px-2 py-1 text-xs" onClick={restoreLegacyFaqSection}>Trả lại nội dung</button>
                                     </div>
                                 </div>
