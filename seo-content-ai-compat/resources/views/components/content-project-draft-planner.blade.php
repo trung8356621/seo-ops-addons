@@ -418,16 +418,21 @@
 
                     <div class="cp-ops-dialog__scroll">
                         <div class="mb-4">
+                            @php
+                                $splitTargetMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+                                    filled($this->draftSplitTargetMonth ?? null) ? (string) $this->draftSplitTargetMonth : null,
+                                );
+                                $splitTargetMonthLabel = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::display($splitTargetMonth);
+                            @endphp
                             <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200" for="draft-split-target-month">
                                 {{ __('seo-content-ai::filament.projects.draft_split_target_month') }}
                             </label>
                             <div
                                 class="cp-month-picker"
                                 data-split-field="target_month"
-                                wire:ignore.self
-                                x-data="cpMonthPicker()"
-                                x-modelable="selected"
-                                @entangle('draftSplitTargetMonth').live
+                                data-split-target-month="{{ $splitTargetMonth }}"
+                                wire:key="cp-month-picker-{{ $splitTargetMonth }}"
+                                x-data="Object.assign(cpMonthPicker(), { selected: @entangle('draftSplitTargetMonth').live })"
                                 @keydown.escape.window="open = false"
                             >
                                 <button
@@ -438,7 +443,7 @@
                                     :aria-expanded="open ? 'true' : 'false'"
                                     aria-haspopup="dialog"
                                 >
-                                    <span class="cp-month-picker__value" x-text="displayLabel()"></span>
+                                    <span class="cp-month-picker__value" x-text="displayLabel()">{{ $splitTargetMonthLabel }}</span>
                                     <svg class="cp-month-picker__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                         <path fill-rule="evenodd" d="M6 2a1 1 0 0 0-1 1v1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1V3a1 1 0 1 0-2 0v1H7V3a1 1 0 0 0-1-1Zm-2 6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z" clip-rule="evenodd" />
                                     </svg>
@@ -738,9 +743,16 @@
 @once
     <script>
         window.cpMonthPicker = window.cpMonthPicker || function () {
+            const yyyyMm = (value) => {
+                const match = String(value || '').match(/^(\d{4})-(\d{2})$/);
+
+                return match ? `${match[1]}-${match[2]}` : '';
+            };
+
             return {
                 open: false,
                 year: new Date().getFullYear(),
+                // Overwritten by Object.assign with Livewire entangle selected.
                 selected: '',
                 init() {
                     this.syncYearFromSelected();
@@ -751,12 +763,13 @@
                     this.year = match ? Number(match[1]) : new Date().getFullYear();
                 },
                 displayLabel() {
-                    const match = String(this.selected || '').match(/^(\d{4})-(\d{2})$/);
-                    if (! match) {
+                    const value = yyyyMm(this.selected);
+                    if (! value) {
                         return '';
                     }
+                    const [year, month] = value.split('-');
 
-                    return `${match[2]}/${match[1]}`;
+                    return `${month}/${year}`;
                 },
                 prevYear() {
                     this.year -= 1;
@@ -772,7 +785,7 @@
                 isSelected(monthNum) {
                     const mm = String(monthNum).padStart(2, '0');
 
-                    return this.selected === `${this.year}-${mm}`;
+                    return yyyyMm(this.selected) === `${this.year}-${mm}`;
                 },
             };
         };

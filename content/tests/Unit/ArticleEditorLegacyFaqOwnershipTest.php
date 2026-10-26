@@ -44,9 +44,17 @@ final class ArticleEditorLegacyFaqOwnershipTest extends TestCase
         $this->assertStringContainsString('restoreLegacyFaqSection', $editor);
         $this->assertStringContainsString('commitLegacyFaqAndReview', $editor);
         $this->assertStringContainsString('commitLegacyFaqToCanonical', $editor);
+        $this->assertStringContainsString('resolveFaqsForLegacyCommit', $editor);
+        $this->assertStringContainsString('extractedFaqs', $editor);
+        $this->assertStringContainsString('beginLegacyFaqCommit', $editor);
+        $this->assertStringContainsString('seedFaqEditorWhenReady', $editor);
+        $this->assertStringContainsString('revealFaqShortcodeAfterTransfer', $editor);
+        $this->assertStringContainsString('legacyFaqTransferring', $editor);
+        $this->assertStringContainsString('Đang chuyển FAQ...', $editor);
         $this->assertStringContainsString('skipNextAutosave.current = true', $editor);
-        $this->assertStringContainsString('revealFaqEditorAfterTransfer', $editor);
         $this->assertStringContainsString('replaceFaqSnapshot', $transfer);
+        $this->assertStringContainsString('resolveFaqsForLegacyCommit', $transfer);
+        $this->assertStringContainsString('seo-faq-shortcode-block', $transfer);
         $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $transfer);
         $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $bridge);
         $this->assertStringContainsString('resolvePendingFaqsForContentSave', $bridge);
@@ -58,11 +66,11 @@ final class ArticleEditorLegacyFaqOwnershipTest extends TestCase
             ProjectRoot::addonsPath().'/content/tests/Unit/legacyFaqTransfer.selftest.mjs',
         );
 
+        $this->assertStringContainsString('pending store owns transfer', $selftest);
         $this->assertStringContainsString('detect 6 Q/A', $selftest);
-        $this->assertStringContainsString('shouldIgnoreEmptyFaqEditorSync', $selftest);
-        $this->assertStringContainsString('resolvePendingFaqsForContentSave', $selftest);
-        $this->assertStringContainsString('Restore-before-commit', $selftest);
-        $this->assertStringContainsString('article without FAQ unaffected', $selftest);
+        $this->assertStringContainsString('second click blocked', $selftest);
+        $this->assertStringContainsString('legacy_faq_import_failed', $selftest);
+        $this->assertStringContainsString('resolveFaqsForLegacyCommit', $selftest);
     }
 
     public function test_legacy_faq_transfer_selftest_passes(): void

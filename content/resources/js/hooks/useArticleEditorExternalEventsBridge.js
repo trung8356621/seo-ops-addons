@@ -134,15 +134,19 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
 
         const syncPanelFaqs = (event) => {
             const fromExtract = event.detail?.faqs;
-            if (Array.isArray(fromExtract)) {
-                if (faqsCanonicalKnownRef) {
-                    faqsCanonicalKnownRef.current = true;
-                }
-                panelFaqsRef.current = fromExtract;
-                setPanelFaqs(fromExtract);
-                setFaqCount(fromExtract.length);
-                markSeoStale();
+            if (!Array.isArray(fromExtract)) {
+                return;
             }
+            if (shouldIgnoreEmptyFaqEditorSync({ rows: fromExtract, articleId })) {
+                return;
+            }
+            if (faqsCanonicalKnownRef) {
+                faqsCanonicalKnownRef.current = true;
+            }
+            panelFaqsRef.current = fromExtract;
+            setPanelFaqs(fromExtract);
+            setFaqCount(fromExtract.length);
+            markSeoStale();
         };
 
         const syncPanelFaqsFromFaqEditor = (event) => {

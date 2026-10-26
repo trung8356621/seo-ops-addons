@@ -280,14 +280,19 @@ import {
     stripEditorTransientMarkup,
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
-import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus } from 'lucide-react';
+import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus, Loader2 } from 'lucide-react';
 import { extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import { detectFaqPairsFromSection, findLegacyFaqSection, sectionHtml } from '../utils/legacyFaqDetection';
 import {
+    beginLegacyFaqCommit,
     clearLegacyFaqPending,
     commitLegacyFaqToCanonical,
-    revealFaqEditorAfterTransfer,
+    endLegacyFaqCommit,
+    legacyFaqTransferDiag,
+    resolveFaqsForLegacyCommit,
     resolvePendingFaqsForContentSave,
+    revealFaqShortcodeAfterTransfer,
+    seedFaqEditorWhenReady,
     setLegacyFaqPending,
 } from '../utils/legacyFaqTransfer';
 import {
@@ -943,6 +948,7 @@ export default function SeoArticleEditor({
 
     const [copiedSectionId, setCopiedSectionId] = useState(null);
     const [legacyFaqNotice, setLegacyFaqNotice] = useState(null);
+    const [legacyFaqTransferring, setLegacyFaqTransferring] = useState(false);
     const legacyFaqRestoreRef = useRef(null);
     const ignoredLegacyFaqSectionsRef = useRef(new Set());
     const legacyFaqAutoAttemptedRef = useRef(false);
@@ -1442,7 +1448,12 @@ export default function SeoArticleEditor({
             const firstIndex = originalBlocks.findIndex((block) => selectedIds.has(block.id));
             const nextBlocks = originalBlocks.filter((block) => !selectedIds.has(block.id));
             nextBlocks.splice(Math.max(0, firstIndex), 0, createFaqShortcodeBlock());
-            legacyFaqRestoreRef.current = { sectionId: section.id, blocks: originalBlocks, faqs: originalFaqs };
+            legacyFaqRestoreRef.current = {
+                sectionId: section.id,
+                blocks: originalBlocks,
+                faqs: originalFaqs,
+                extractedFaqs: faqs,
+            };
             // Pending only — do not treat as canonical until "Kiểm tra FAQ" commits snapshot.
             setLegacyFaqPending({ articleId, faqs, sectionId: section.id });
             panelFaqsRef.current = faqs;
@@ -1475,67 +1486,115 @@ export default function SeoArticleEditor({
         }, [markSeoStale, runLocalSeoAnalysis, scheduleAutosave, setBlocks]);
 
         const commitLegacyFaqAndReview = useCallback(async () => {
-            if (!legacyFaqRestoreRef.current && !legacyFaqNotice) {
-                openFaqModule({ source: 'legacy-faq-detection' });
-                void revealFaqEditorAfterTransfer({ expectedCount: Number(faqCount) || 0 });
-                return;
-            }
-            const pendingFaqs = Array.isArray(panelFaqsRef.current) ? panelFaqsRef.current : [];
-            if (pendingFaqs.length === 0) {
+            legacyFaqTransferDiag('click', {
+                articleId: Number(articleId) || 0,
+                hasNotice: Boolean(legacyFaqNotice),
+                hasRestore: Boolean(legacyFaqRestoreRef.current),
+                panelCount: Array.isArray(panelFaqsRef.current) ? panelFaqsRef.current.length : -1,
+            });
+
+            if (!beginLegacyFaqCommit()) {
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         title: 'FAQ',
-                        body: 'Không có FAQ đã nhận diện để chuyển.',
+                        body: 'Đang chuyển FAQ — vui lòng đợi.',
                         status: 'warning',
                     },
                 }));
                 return;
             }
 
+            setLegacyFaqTransferring(true);
             try {
-                const committed = await commitLegacyFaqToCanonical(articleId, pendingFaqs);
-                const items = Array.isArray(committed.items) ? committed.items : pendingFaqs;
-                // Keep pending flag until editor paints — blocks empty lazy hydrate wipe.
-                setLegacyFaqPending({ articleId, faqs: items, sectionId: legacyFaqRestoreRef.current?.sectionId });
+                if (!legacyFaqRestoreRef.current && !legacyFaqNotice) {
+                    legacyFaqTransferDiag('click.open_only');
+                    openFaqModule({ source: 'legacy-faq-detection' });
+                    void revealFaqShortcodeAfterTransfer();
+                    return;
+                }
+
+                const resolved = resolveFaqsForLegacyCommit({
+                    articleId,
+                    panelFaqs: panelFaqsRef.current,
+                    restoreExtractedFaqs: legacyFaqRestoreRef.current?.extractedFaqs,
+                });
+                legacyFaqTransferDiag('click.resolved', {
+                    source: resolved.source,
+                    count: resolved.faqs.length,
+                });
+
+                if (resolved.faqs.length === 0) {
+                    window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
+                        detail: {
+                            title: 'FAQ',
+                            body: 'Không có FAQ đã nhận diện để chuyển. Dùng Trả lại nội dung rồi nhận diện lại.',
+                            status: 'danger',
+                        },
+                    }));
+                    return;
+                }
+
+                // Re-assert pending from durable source before API (panel ref may be []).
+                setLegacyFaqPending({
+                    articleId,
+                    faqs: resolved.faqs,
+                    sectionId: legacyFaqRestoreRef.current?.sectionId ?? null,
+                });
+
+                const committed = await commitLegacyFaqToCanonical(articleId, resolved.faqs);
+                const items = Array.isArray(committed.items) ? committed.items : resolved.faqs;
+                setLegacyFaqPending({
+                    articleId,
+                    faqs: items,
+                    sectionId: legacyFaqRestoreRef.current?.sectionId ?? null,
+                });
                 panelFaqsRef.current = items;
                 faqsCanonicalKnownRef.current = true;
                 setPanelFaqs(items);
                 setFaqCount(items.length);
                 scheduleAutosave();
+                legacyFaqTransferDiag('click.open_panel', { count: items.length });
                 openFaqModule({ source: 'legacy-faq-detection' });
-                const painted = await revealFaqEditorAfterTransfer({ expectedCount: items.length });
-                if (!painted.ready || painted.rowCount < items.length) {
-                    window.dispatchEvent(new CustomEvent('article-faqs-extracted', {
-                        detail: {
-                            faqs: items,
-                            source: 'legacy-faq-commit',
-                        },
-                    }));
-                    await revealFaqEditorAfterTransfer({ expectedCount: items.length, maxFrames: 45 });
-                }
-                // Canonical accepted — hide restore so it cannot undo committed FAQ.
+                // Seed without scrolling — then scroll once to shortcode so lazy FAQ mount cannot steal scroll.
+                await seedFaqEditorWhenReady(items, { expectedCount: items.length });
+                await revealFaqShortcodeAfterTransfer();
                 clearLegacyFaqPending();
                 legacyFaqRestoreRef.current = null;
                 setLegacyFaqNotice(null);
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         title: 'FAQ',
-                        body: `Đã chuyển ${items.length} FAQ vào FAQ Editor.`,
+                        body: committed.reusedExisting
+                            ? `FAQ Editor đã có ${items.length} FAQ (không ghi đè).`
+                            : `Đã chuyển ${items.length} FAQ vào FAQ Editor.`,
                         status: 'success',
                     },
                 }));
+                legacyFaqTransferDiag('click.done', {
+                    count: items.length,
+                    reusedExisting: Boolean(committed.reusedExisting),
+                });
             } catch (error) {
+                legacyFaqTransferDiag('click.failed', {
+                    code: String(error?.code || ''),
+                    message: String(error?.message || ''),
+                });
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         title: 'FAQ',
-                        body: String(error?.code || error?.message || 'Không chuyển được FAQ. Nội dung gốc vẫn giữ — thử lại hoặc Trả lại nội dung.'),
+                        body: String(
+                            error?.code || error?.message
+                            || 'Không chuyển được FAQ. Nội dung gốc vẫn giữ — thử lại hoặc Trả lại nội dung.',
+                        ),
                         status: 'danger',
                     },
                 }));
+            } finally {
+                endLegacyFaqCommit();
+                setLegacyFaqTransferring(false);
             }
         }, [
             articleId,
-            faqCount,
             legacyFaqNotice,
             openFaqModule,
             scheduleAutosave,
@@ -2015,8 +2074,30 @@ export default function SeoArticleEditor({
                                     <div className="text-xs">Heading: {legacyFaqNotice.heading}</div>
                                     <div className="text-xs">Phát hiện: {legacyFaqNotice.questionCount} câu hỏi · {legacyFaqNotice.answerCount} câu trả lời</div>
                                     <div className="mt-2 flex gap-2">
-                                        <button type="button" className="rounded border border-emerald-400 px-2 py-1 text-xs" onClick={() => { void commitLegacyFaqAndReview(); }}>Kiểm tra FAQ</button>
-                                        <button type="button" className="rounded border border-slate-400 px-2 py-1 text-xs" onClick={restoreLegacyFaqSection}>Trả lại nội dung</button>
+                                        <button
+                                            type="button"
+                                            className="inline-flex items-center gap-1.5 rounded border border-emerald-400 px-2 py-1 text-xs disabled:cursor-wait disabled:opacity-70"
+                                            disabled={legacyFaqTransferring}
+                                            aria-busy={legacyFaqTransferring}
+                                            onClick={() => { void commitLegacyFaqAndReview(); }}
+                                        >
+                                            {legacyFaqTransferring ? (
+                                                <>
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                                                    Đang chuyển FAQ...
+                                                </>
+                                            ) : (
+                                                'Kiểm tra FAQ'
+                                            )}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="rounded border border-slate-400 px-2 py-1 text-xs disabled:opacity-50"
+                                            disabled={legacyFaqTransferring}
+                                            onClick={restoreLegacyFaqSection}
+                                        >
+                                            Trả lại nội dung
+                                        </button>
                                     </div>
                                 </div>
                             ) : null}

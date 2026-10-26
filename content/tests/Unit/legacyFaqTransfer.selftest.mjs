@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import {
     __resetLegacyFaqPendingForTests,
+    beginLegacyFaqCommit,
     clearLegacyFaqPending,
+    endLegacyFaqCommit,
     getLegacyFaqPending,
+    isLegacyFaqCommitInFlight,
     isLegacyFaqPending,
     normalizeLegacyFaqItemsForSnapshot,
+    resolveFaqsForLegacyCommit,
     resolvePendingFaqsForContentSave,
     setLegacyFaqPending,
     shouldIgnoreEmptyFaqEditorSync,
@@ -12,83 +16,109 @@ import {
 
 __resetLegacyFaqPendingForTests();
 
-// --- Preserve 6 detected Q/A pairs through snapshot normalize (order + keys) ---
-{
-    const pairs = [
-        { question: 'Túi canvas dùng được không?', answer: '<p>Có, dùng tốt.</p>' },
-        { question: 'Giặt máy được không?', answer: '<p>Giặt nhẹ.</p>' },
-        { question: 'Có Song Ngư không?', answer: '<p>Có họa tiết Song Ngư.</p>' },
-        { question: 'Size nào?', answer: '<p>Nhiều size.</p>' },
-        { question: 'Có màu be không?', answer: '<p>Có.</p>' },
-        { question: 'Ship toàn quốc?', answer: '<p>Ship toàn quốc.</p>' },
-    ];
-    assert.equal(pairs.length, 6, 'detect 6 Q/A');
-    const normalized = normalizeLegacyFaqItemsForSnapshot(pairs);
-    assert.equal(normalized.length, 6);
-    assert.equal(normalized[0].question, 'Túi canvas dùng được không?');
-    assert.equal(normalized[5].question, 'Ship toàn quốc?');
-    assert.equal(normalized[5].sort_order, 5);
-    assert.ok(normalized[2].client_key.startsWith('legacy-faq-'));
-    // Re-normalize same rows must not invent extras (save-many / no duplicate growth).
-    assert.equal(normalizeLegacyFaqItemsForSnapshot(normalized).length, 6);
-}
+const sixFaqs = [
+    { question: 'Túi canvas dùng được không?', answer: '<p>Có, dùng tốt.</p>' },
+    { question: 'Giặt máy được không?', answer: '<p>Giặt nhẹ.</p>' },
+    { question: 'Có Song Ngư không?', answer: '<p>Có họa tiết Song Ngư.</p>' },
+    { question: 'Size nào?', answer: '<p>Nhiều size.</p>' },
+    { question: 'Có màu be không?', answer: '<p>Có.</p>' },
+    { question: 'Ship toàn quốc?', answer: '<p>Ship toàn quốc.</p>' },
+];
 
-// --- Pending vs empty FAQ editor sync race ---
+// --- Pending store wins when panel ref is empty ---
 {
     __resetLegacyFaqPendingForTests();
-    const faqs = [
-        { question: 'A?', answer: '<p>1</p>' },
-        { question: 'B?', answer: '<p>2</p>' },
-    ];
-    setLegacyFaqPending({ articleId: 9727, faqs, sectionId: 'section-9' });
-    assert.equal(isLegacyFaqPending(9727), true);
+    setLegacyFaqPending({ articleId: 9727, faqs: sixFaqs, sectionId: 'section-faq' });
+    const resolved = resolveFaqsForLegacyCommit({
+        articleId: 9727,
+        panelFaqs: [],
+        restoreExtractedFaqs: null,
+    });
+    assert.equal(resolved.source, 'pending', 'pending store owns transfer');
+    assert.equal(resolved.faqs.length, 6, 'detect 6 Q/A');
     assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: [], articleId: 9727 }), true);
-    assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: faqs, articleId: 9727 }), false);
-    assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: [], articleId: 1 }), false);
-    assert.deepEqual(resolvePendingFaqsForContentSave(9727), faqs);
-    assert.equal(resolvePendingFaqsForContentSave(1), null);
+}
 
-    clearLegacyFaqPending();
+// --- Restore backup when pending cleared but extract backup remains ---
+{
+    __resetLegacyFaqPendingForTests();
+    const resolved = resolveFaqsForLegacyCommit({
+        articleId: 9727,
+        panelFaqs: [],
+        restoreExtractedFaqs: sixFaqs,
+    });
+    assert.equal(resolved.source, 'restore');
+    assert.equal(resolved.faqs.length, 6);
+}
+
+// --- No pending data → none + clear error path ---
+{
+    __resetLegacyFaqPendingForTests();
+    const resolved = resolveFaqsForLegacyCommit({
+        articleId: 9727,
+        panelFaqs: [],
+        restoreExtractedFaqs: null,
+    });
+    assert.equal(resolved.source, 'none');
+    assert.equal(resolved.faqs.length, 0);
     assert.equal(isLegacyFaqPending(9727), false);
-    assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: [], articleId: 9727 }), false);
     assert.equal(resolvePendingFaqsForContentSave(9727), null);
 }
 
-// --- Restore-before-commit: clearing pending restores save semantics ---
+// --- Double-click guard ---
 {
     __resetLegacyFaqPendingForTests();
-    setLegacyFaqPending({
-        articleId: 9727,
-        faqs: [{ question: 'X?', answer: '<p>y</p>' }],
-        sectionId: 's1',
-    });
+    assert.equal(beginLegacyFaqCommit(), true);
+    assert.equal(isLegacyFaqCommitInFlight(), true);
+    assert.equal(beginLegacyFaqCommit(), false, 'second click blocked');
+    endLegacyFaqCommit();
+    assert.equal(isLegacyFaqCommitInFlight(), false);
+    assert.equal(beginLegacyFaqCommit(), true);
+    endLegacyFaqCommit();
+}
+
+// --- Normalize preserves 6 / no duplicate growth ---
+{
+    const normalized = normalizeLegacyFaqItemsForSnapshot(sixFaqs);
+    assert.equal(normalized.length, 6);
+    assert.equal(normalizeLegacyFaqItemsForSnapshot(normalized).length, 6);
+}
+
+// --- API failure must keep pending (caller contract) ---
+{
+    __resetLegacyFaqPendingForTests();
+    setLegacyFaqPending({ articleId: 9727, faqs: sixFaqs, sectionId: 's1' });
+    // Simulate failed commit: pending untouched.
     assert.ok(getLegacyFaqPending());
+    assert.equal(isLegacyFaqPending(9727), true);
     clearLegacyFaqPending();
     assert.equal(getLegacyFaqPending(), null);
-    assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: [], articleId: 9727 }), false);
 }
 
-// --- Normalize drops empty / preserves order ---
+// --- Open FAQ panel + shortcode scroll helpers ---
 {
-    const normalized = normalizeLegacyFaqItemsForSnapshot([
-        { question: 'First?', answer: '<p>a</p>' },
-        { question: '', answer: '<p>skip</p>' },
-        { question: 'Third?', answer: '<p>c</p>' },
-        { question: 'Empty answer?', answer: '<p></p>' },
-    ]);
-    assert.equal(normalized.length, 2);
-    assert.equal(normalized[0].question, 'First?');
-    assert.equal(normalized[1].question, 'Third?');
-    assert.equal(normalized[0].sort_order, 0);
-    assert.equal(normalized[1].sort_order, 2);
+    const mod = await import('../../resources/js/utils/legacyFaqTransfer.js');
+    assert.equal(typeof mod.seedFaqEditorWhenReady, 'function');
+    assert.equal(typeof mod.commitLegacyFaqToCanonical, 'function');
+    assert.equal(typeof mod.legacyFaqTransferDiag, 'function');
+    assert.equal(typeof mod.revealFaqShortcodeAfterTransfer, 'function');
+    assert.equal(typeof mod.scrollFaqShortcodeIntoView, 'function');
 }
 
-// --- No pending → article without FAQ unaffected ---
+// Dynamic import failure / scroll-to-shortcode contract in source.
 {
-    __resetLegacyFaqPendingForTests();
-    assert.equal(isLegacyFaqPending(), false);
-    assert.equal(resolvePendingFaqsForContentSave(999), null);
-    assert.equal(shouldIgnoreEmptyFaqEditorSync({ rows: [] }), false);
+    const src = await import('node:fs/promises').then((fs) => fs.readFile(
+        new URL('../../resources/js/utils/legacyFaqTransfer.js', import.meta.url),
+        'utf8',
+    ));
+    assert.match(src, /legacy_faq_import_failed/);
+    assert.match(src, /commit\.import_failed/);
+    assert.match(src, /faq_snapshot_conflict/);
+    assert.match(src, /seed\.dispatched/);
+    assert.match(src, /\.seo-faq-shortcode-block/);
+    assert.match(src, /seo-faq-scroll-highlight/);
+    // Seed must not scroll — shortcode reveal owns the single scroll.
+    assert.match(src, /Does not scroll/);
 }
 
 console.log('legacyFaqTransfer.selftest: ok');

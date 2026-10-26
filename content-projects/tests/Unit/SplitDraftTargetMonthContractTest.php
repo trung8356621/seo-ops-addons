@@ -66,6 +66,34 @@ final class SplitDraftTargetMonthContractTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_month_picker_binds_entangle_inside_x_data_with_ssr_fallback(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-15 12:00:00'));
+
+        self::assertSame('10/2026', ContentProjectMonthContext::display(ContentProjectMonthContext::current()));
+
+        $blade = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
+
+        // Entangle must be a property inside x-data (project pattern) — not bare + x-modelable.
+        self::assertStringContainsString(
+            "Object.assign(cpMonthPicker(), { selected: @entangle('draftSplitTargetMonth').live })",
+            $blade,
+        );
+        self::assertStringNotContainsString('x-modelable="selected"', $blade);
+        self::assertStringNotContainsString('wire:ignore.self', $blade);
+
+        // SSR fallback label so input is never blank before Alpine hydrates.
+        self::assertStringContainsString('ContentProjectMonthContext::display($splitTargetMonth)', $blade);
+        self::assertStringContainsString('data-split-target-month="{{ $splitTargetMonth }}"', $blade);
+        self::assertStringContainsString('x-text="displayLabel()">{{ $splitTargetMonthLabel }}</span>', $blade);
+
+        // Re-open remounts picker with Livewire month (modal is @if gated + wire:key).
+        self::assertStringContainsString('wire:key="cp-month-picker-{{ $splitTargetMonth }}"', $blade);
+        self::assertStringContainsString('@if ($this->draftSplitModalOpen ?? false)', $blade);
+
+        Carbon::setTestNow();
+    }
+
     public function test_selected_month_reaches_command_handler_and_service(): void
     {
         $cmd = new SplitDraftContentProjectCommand(
