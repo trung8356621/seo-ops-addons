@@ -126,39 +126,40 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         ]));
     }
 
-    public function test_active_month_url_and_split_ssot(): void
+    public function test_active_month_removed_from_planner_list_and_global_bar(): void
     {
         $page = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
         );
-        self::assertStringContainsString("Url(as: 'month'", $page);
-        self::assertStringContainsString('activeMonth', $page);
-        self::assertStringContainsString("params['month']", $page);
+        self::assertStringNotContainsString("Url(as: 'month'", $page);
+        self::assertStringNotContainsString("params['month']", $page);
+        self::assertStringNotContainsString("'planning_month' => \$this->resolvePlannerActiveMonth()", $page);
         self::assertStringContainsString('resolvePlannerActiveMonth', $page);
+        self::assertStringContainsString('ContentProjectMonthContext::current()', $page);
 
         $trait = (string) file_get_contents(
             (string) (new ReflectionClass(InteractsWithDraftSplit::class))->getFileName(),
         );
         self::assertStringContainsString('resolveDraftSplitActiveMonth', $trait);
-        self::assertStringNotContainsString(
+        self::assertStringContainsString(
             '$this->draftSplitTargetMonth = ContentProjectMonthContext::current();',
             $trait,
         );
-        self::assertStringContainsString('resolveDraftSplitActiveMonth()', $trait);
+        self::assertStringNotContainsString('property_exists($this, \'activeMonth\')', $trait);
 
         $bar = (string) file_get_contents(
             (string) (new ReflectionClass(\Omnichannel\Addons\Seo\Livewire\GlobalSeoBar::class))->getFileName(),
         );
-        self::assertStringContainsString('plannerActiveMonth', $bar);
-        self::assertStringContainsString('seo-planner-month-changed', $bar);
+        self::assertStringNotContainsString('plannerActiveMonth', $bar);
+        self::assertStringNotContainsString('seo-planner-month-changed', $bar);
         self::assertStringContainsString('showPlannerActiveMonth', $bar);
 
         $barView = dirname((string) (new ReflectionClass(\Omnichannel\Addons\Seo\Livewire\GlobalSeoBar::class))->getFileName(), 3)
             .'/resources/views/livewire/global-seo-bar.blade.php';
         self::assertFileExists($barView);
         $barBlade = (string) file_get_contents($barView);
-        self::assertStringContainsString('plannerActiveMonth', $barBlade);
-        self::assertStringContainsString('data-planner-active-month', $barBlade);
+        self::assertStringNotContainsString('plannerActiveMonth', $barBlade);
+        self::assertStringNotContainsString('data-planner-active-month', $barBlade);
     }
 
     public function test_site_planning_matrix_is_distribution_count(): void

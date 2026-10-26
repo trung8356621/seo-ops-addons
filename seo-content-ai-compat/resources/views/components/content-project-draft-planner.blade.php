@@ -421,17 +421,55 @@
                             <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200" for="draft-split-target-month">
                                 {{ __('seo-content-ai::filament.projects.draft_split_target_month') }}
                             </label>
-                            <x-select
-                                id="draft-split-target-month"
-                                wire:model.live="draftSplitTargetMonth"
-                                size="inline"
-                                class="min-w-[10rem] text-sm"
+                            <div
+                                class="cp-month-picker"
                                 data-split-field="target_month"
+                                wire:ignore.self
+                                x-data="cpMonthPicker()"
+                                x-modelable="selected"
+                                @entangle('draftSplitTargetMonth').live
+                                @keydown.escape.window="open = false"
                             >
-                                @foreach ($this->getDraftSplitTargetMonthOptions() as $option)
-                                    <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
-                                @endforeach
-                            </x-select>
+                                <button
+                                    type="button"
+                                    id="draft-split-target-month"
+                                    class="cp-month-picker__trigger"
+                                    @click="open = !open"
+                                    :aria-expanded="open ? 'true' : 'false'"
+                                    aria-haspopup="dialog"
+                                >
+                                    <span class="cp-month-picker__value" x-text="displayLabel()"></span>
+                                    <svg class="cp-month-picker__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M6 2a1 1 0 0 0-1 1v1H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1V3a1 1 0 1 0-2 0v1H7V3a1 1 0 0 0-1-1Zm-2 6a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8Z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div
+                                    x-show="open"
+                                    x-cloak
+                                    x-transition.opacity.duration.120ms
+                                    class="cp-month-picker__popover"
+                                    role="dialog"
+                                    aria-label="{{ __('seo-content-ai::filament.projects.draft_split_target_month') }}"
+                                    @click.outside="open = false"
+                                >
+                                    <div class="cp-month-picker__year-nav">
+                                        <button type="button" class="cp-month-picker__year-btn" @click="prevYear()" aria-label="Previous year">‹</button>
+                                        <span class="cp-month-picker__year" x-text="year"></span>
+                                        <button type="button" class="cp-month-picker__year-btn" @click="nextYear()" aria-label="Next year">›</button>
+                                    </div>
+                                    <div class="cp-month-picker__grid">
+                                        <template x-for="m in 12" :key="m">
+                                            <button
+                                                type="button"
+                                                class="cp-month-picker__month"
+                                                :class="{ 'is-selected': isSelected(m) }"
+                                                @click="pick(m)"
+                                                x-text="String(m).padStart(2, '0')"
+                                            ></button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="cp-draft-split-layout">
@@ -699,6 +737,46 @@
 
 @once
     <script>
+        window.cpMonthPicker = window.cpMonthPicker || function () {
+            return {
+                open: false,
+                year: new Date().getFullYear(),
+                selected: '',
+                init() {
+                    this.syncYearFromSelected();
+                    this.$watch('selected', () => this.syncYearFromSelected());
+                },
+                syncYearFromSelected() {
+                    const match = String(this.selected || '').match(/^(\d{4})-(\d{2})$/);
+                    this.year = match ? Number(match[1]) : new Date().getFullYear();
+                },
+                displayLabel() {
+                    const match = String(this.selected || '').match(/^(\d{4})-(\d{2})$/);
+                    if (! match) {
+                        return '';
+                    }
+
+                    return `${match[2]}/${match[1]}`;
+                },
+                prevYear() {
+                    this.year -= 1;
+                },
+                nextYear() {
+                    this.year += 1;
+                },
+                pick(monthNum) {
+                    const mm = String(monthNum).padStart(2, '0');
+                    this.selected = `${this.year}-${mm}`;
+                    this.open = false;
+                },
+                isSelected(monthNum) {
+                    const mm = String(monthNum).padStart(2, '0');
+
+                    return this.selected === `${this.year}-${mm}`;
+                },
+            };
+        };
+
         window.cpDraftSplitWriters = window.cpDraftSplitWriters || function (boot) {
             const cfg = boot && typeof boot === 'object' ? boot : {};
             const writers = (Array.isArray(cfg.writers) ? cfg.writers : []).map((row) => {

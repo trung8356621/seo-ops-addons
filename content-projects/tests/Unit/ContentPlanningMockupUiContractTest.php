@@ -151,21 +151,18 @@ final class ContentPlanningMockupUiContractTest extends TestCase
         self::assertStringContainsString('mapWriterCapacityMessage', $trait);
     }
 
-    public function test_active_month_chip_and_hint_in_global_bar(): void
+    public function test_global_bar_no_longer_shows_planner_month_chip(): void
     {
         $bar = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo/resources/views/livewire/global-seo-bar.blade.php',
         );
-        $en = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php');
-        $vi = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/vi/filament.php');
+        $planner = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
 
-        self::assertStringContainsString('cp-planner-month-chip', $bar);
-        self::assertStringContainsString('data-planner-active-month="1"', $bar);
-        self::assertStringContainsString('planner_active_month_hint', $bar);
-        self::assertStringContainsString("'planner_active_month' => 'Active month'", $en);
-        self::assertStringContainsString("'planner_active_month' => 'Tháng active'", $vi);
-        self::assertStringContainsString("'planner_active_month_hint'", $en);
-        self::assertStringContainsString("'planner_active_month_hint'", $vi);
+        self::assertStringNotContainsString('cp-planner-month-chip', $bar);
+        self::assertStringNotContainsString('data-planner-active-month', $bar);
+        self::assertStringNotContainsString('planner_active_month_hint', $bar);
+        self::assertStringContainsString('cpMonthPicker', $planner);
+        self::assertStringContainsString('draft_split_target_month', $planner);
     }
 
     public function test_idea_create_action_disables_while_loading(): void

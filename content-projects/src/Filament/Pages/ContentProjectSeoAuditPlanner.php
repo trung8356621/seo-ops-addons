@@ -81,13 +81,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     #[Url(as: 'draft_domain', except: 'all')]
     public string $draftDomainFilter = 'all';
 
-    /**
-     * Planner active month (YYYY-MM). Query SSOT: ?month=2026-10
-     * Anchors Site Planning highlight, Draft month filter, attribution stamp, and Draft split.
-     */
-    #[Url(as: 'month', except: null)]
-    public ?string $activeMonth = null;
-
     public ?SeoProject $project = null;
 
     /** @var list<int> */
@@ -124,9 +117,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
         $this->draftDomainFilter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
-        $this->activeMonth = ContentProjectMonthContext::normalize(
-            ContentProjectMonthContext::parseOrNull($this->activeMonth) ?? request()->query('month'),
-        );
 
         $this->migrateLegacyPlannerSiteQuery();
         $this->ensureConcreteGlobalWorkingSite();
@@ -401,11 +391,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\DraftItemDomainRepairService::class)
             ->repairProject($this->project, persist: true);
 
+        // Draft list is month-independent — Target month lives only in Publish modal.
         return app(ContentProjectDraftPlanningItemsReadModel::class)->forProject($this->project, [
             'review' => $this->draftReviewFilter,
             'type' => $this->draftTypeFilter,
             'domain' => $this->draftDomainFilter,
-            'planning_month' => $this->resolvePlannerActiveMonth(),
         ]);
     }
 
@@ -887,32 +877,13 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             ->cellDetail($siteId, $planningMonth);
     }
 
+    /**
+     * Site Planning matrix anchor + attribution stamp for newly created ideas.
+     * Not a draft-list filter and not synced from URL ?month=.
+     */
     public function resolvePlannerActiveMonth(): string
     {
-        return ContentProjectMonthContext::normalize($this->activeMonth);
-    }
-
-    public function updatedActiveMonth(mixed $value): void
-    {
-        $this->activeMonth = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
-        $this->draftSplitTargetMonth = $this->activeMonth;
-        $this->selectedTaskIds = [];
-    }
-
-    /**
-     * @return list<array{value: string, label: string}>
-     */
-    public function getActiveMonthOptions(): array
-    {
-        return ContentProjectMonthContext::selectOptions();
-    }
-
-    #[On('seo-planner-month-changed')]
-    public function onPlannerMonthChangedFromGlobalBar(mixed $month = null): void
-    {
-        $this->activeMonth = ContentProjectMonthContext::normalize(is_string($month) ? $month : null);
-        $this->draftSplitTargetMonth = $this->activeMonth;
-        $this->selectedTaskIds = [];
+        return ContentProjectMonthContext::current();
     }
 
     private function applyPlanningKeyword(SeoProjectTask $task, string $keyword): void
@@ -1119,8 +1090,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         if ($draftDomain !== 'all') {
             $params['draft_domain'] = $draftDomain;
         }
-
-        $params['month'] = $this->resolvePlannerActiveMonth();
 
         $domain = trim((string) request()->query('domain', ''));
         if ($domain !== '') {

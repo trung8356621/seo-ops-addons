@@ -13,7 +13,8 @@ use ReflectionMethod;
 use ReflectionProperty;
 
 /**
- * Active month chip must survive Livewire /livewire/update — not re-resolved from POST route.
+ * Planner page flag (concrete Working Site) must survive Livewire /livewire/update.
+ * Month chip UI was removed — Target month lives only in Publish modal.
  */
 final class GlobalSeoBarPlannerActiveMonthVisibilityTest extends TestCase
 {
@@ -29,9 +30,12 @@ final class GlobalSeoBarPlannerActiveMonthVisibilityTest extends TestCase
         self::assertStringContainsString('$this->showPlannerActiveMonth = SeoAccessControl::isProjectPlannerSeoAuditPage()', $mount);
 
         self::assertStringContainsString("'showPlannerActiveMonth' => \$this->showPlannerActiveMonth", $render);
+        self::assertStringNotContainsString('plannerMonthOptions', $render);
         self::assertStringNotContainsString('SeoPanelRoutes::isProjectPlannerSeoAudit()', $render);
         self::assertStringNotContainsString('isProjectPlannerSeoAuditPage()', $render);
         self::assertStringNotContainsString('request()->headers->get(\'referer\'', $render);
+        self::assertStringNotContainsString('plannerActiveMonth', $src);
+        self::assertStringNotContainsString('seo-planner-month-changed', $src);
     }
 
     public function test_domain_update_uses_stable_planner_flag_not_livewire_route(): void
@@ -52,16 +56,16 @@ final class GlobalSeoBarPlannerActiveMonthVisibilityTest extends TestCase
         self::assertTrue(method_exists(SeoPanelRoutes::class, 'isProjectPlannerSeoAuditPath'));
     }
 
-    public function test_blade_gates_on_show_planner_active_month_variable(): void
+    public function test_blade_no_longer_renders_planner_month_chip(): void
     {
         $blade = (string) file_get_contents(
             dirname((string) (new ReflectionClass(GlobalSeoBar::class))->getFileName(), 3)
             .'/resources/views/livewire/global-seo-bar.blade.php',
         );
 
-        self::assertStringContainsString('@if ($showPlannerActiveMonth ?? false)', $blade);
-        self::assertStringContainsString('wire:model.live="plannerActiveMonth"', $blade);
-        self::assertStringContainsString('data-planner-active-month="1"', $blade);
+        self::assertStringNotContainsString('wire:model.live="plannerActiveMonth"', $blade);
+        self::assertStringNotContainsString('data-planner-active-month', $blade);
+        self::assertStringNotContainsString('planner_active_month', $blade);
     }
 
     private function methodSource(string $class, string $method): string

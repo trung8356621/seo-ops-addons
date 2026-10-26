@@ -831,6 +831,122 @@
         .cp-ops-dialog--sm { max-width: 28rem; }
         .cp-ops-dialog--split { max-width: 52rem; } /* ~832px two-pane */
         .cp-ops-dialog--clone { max-width: 32rem; }
+        .cp-month-picker {
+            position: relative;
+            display: inline-block;
+            min-width: 10rem;
+            max-width: 14rem;
+        }
+        .cp-month-picker__trigger {
+            display: inline-flex;
+            width: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid rgb(209 213 219);
+            background: #fff;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            color: rgb(17 24 39);
+            cursor: pointer;
+        }
+        .dark .cp-month-picker__trigger {
+            border-color: rgb(75 85 99);
+            background: rgb(31 41 55);
+            color: rgb(243 244 246);
+        }
+        .cp-month-picker__trigger:focus-visible {
+            outline: 2px solid rgb(59 130 246);
+            outline-offset: 1px;
+        }
+        .cp-month-picker__value {
+            font-variant-numeric: tabular-nums;
+        }
+        .cp-month-picker__icon {
+            width: 1rem;
+            height: 1rem;
+            flex-shrink: 0;
+            color: rgb(107 114 128);
+        }
+        .cp-month-picker__popover {
+            position: absolute;
+            z-index: 30;
+            top: calc(100% + 0.35rem);
+            left: 0;
+            width: 14rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgb(229 231 235);
+            background: #fff;
+            padding: 0.75rem;
+            box-shadow: 0 10px 25px rgb(0 0 0 / 0.12);
+        }
+        .dark .cp-month-picker__popover {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39);
+        }
+        .cp-month-picker__year-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .cp-month-picker__year {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: rgb(17 24 39);
+            font-variant-numeric: tabular-nums;
+        }
+        .dark .cp-month-picker__year { color: rgb(243 244 246); }
+        .cp-month-picker__year-btn {
+            display: inline-flex;
+            width: 1.75rem;
+            height: 1.75rem;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.375rem;
+            border: 1px solid transparent;
+            color: rgb(75 85 99);
+            font-size: 1.125rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .cp-month-picker__year-btn:hover {
+            background: rgb(243 244 246);
+        }
+        .dark .cp-month-picker__year-btn { color: rgb(209 213 219); }
+        .dark .cp-month-picker__year-btn:hover { background: rgb(31 41 55); }
+        .cp-month-picker__grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.375rem;
+        }
+        .cp-month-picker__month {
+            border-radius: 0.375rem;
+            border: 1px solid transparent;
+            padding: 0.5rem 0.25rem;
+            font-size: 0.8125rem;
+            font-variant-numeric: tabular-nums;
+            color: rgb(55 65 81);
+            cursor: pointer;
+            background: transparent;
+        }
+        .dark .cp-month-picker__month { color: rgb(209 213 219); }
+        .cp-month-picker__month:hover {
+            background: rgb(243 244 246);
+        }
+        .dark .cp-month-picker__month:hover { background: rgb(31 41 55); }
+        .cp-month-picker__month.is-selected {
+            background: rgb(37 99 235);
+            color: #fff;
+            font-weight: 600;
+        }
+        .dark .cp-month-picker__month.is-selected {
+            background: rgb(59 130 246);
+            color: #fff;
+        }
         .cp-draft-split-layout {
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

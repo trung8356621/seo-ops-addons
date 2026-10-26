@@ -51,7 +51,7 @@ trait InteractsWithDraftSplit
     {
         $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
         $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
-        $this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = [];
         $this->draftSplitModalOpen = false;
         $this->draftSplitError = null;
@@ -65,10 +65,11 @@ trait InteractsWithDraftSplit
         }
 
         $splitter = app(SplitDraftContentProjectService::class);
+        // Reviewed pool is month-independent — Target month only drives capacity/schedule.
         $reviewed = $splitter->currentReviewedDraftItemCount(
             $project,
             $this->resolvePublishDraftSiteScope(),
-            $this->resolveDraftSplitActiveMonth(),
+            null,
         );
         if ($reviewed <= 0) {
             Notification::make()
@@ -88,26 +89,19 @@ trait InteractsWithDraftSplit
         // Quantity = reviewed pool size (user may lower). MAX_EXECUTION_PROJECT_ITEMS is
         // packing per project (overflow -2/-3), NOT the Publish batch ceiling.
         $this->draftSplitQuantity = max(1, $reviewed);
-        // Modal mirrors planner activeMonth SSOT — do not reset to wall-clock current.
-        $this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();
+        // Modal-local default: wall-clock current month (not page URL / global filter).
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
         $this->draftSplitError = null;
         $this->draftSplitModalOpen = true;
     }
 
     /**
-     * Prefer route-local activeMonth when available (SEO Audit Planner).
+     * Default Target month for the Publish modal (always current calendar month).
+     * Not tied to page URL or draft-list filters.
      */
     protected function resolveDraftSplitActiveMonth(): string
     {
-        if (method_exists($this, 'resolvePlannerActiveMonth')) {
-            return ContentProjectMonthContext::normalize($this->resolvePlannerActiveMonth());
-        }
-
-        if (property_exists($this, 'activeMonth') && is_string($this->activeMonth) && $this->activeMonth !== '') {
-            return ContentProjectMonthContext::normalize($this->activeMonth);
-        }
-
         return ContentProjectMonthContext::current();
     }
 
@@ -167,13 +161,10 @@ trait InteractsWithDraftSplit
 
     public function updatedDraftSplitTargetMonth(mixed $value): void
     {
+        // Modal-local only — must not touch draft list filters or page URL month.
         $this->draftSplitTargetMonth = ContentProjectMonthContext::normalize(
             is_string($value) ? $value : null,
         );
-        // Keep single SSOT with planner activeMonth when present.
-        if (property_exists($this, 'activeMonth')) {
-            $this->activeMonth = $this->draftSplitTargetMonth;
-        }
     }
 
     /**
@@ -442,7 +433,7 @@ trait InteractsWithDraftSplit
         $reviewed = $splitter->currentReviewedDraftItemCount(
             $project,
             $siteScope,
-            $this->resolveDraftSplitActiveMonth(),
+            null,
         );
         // Domain-scoped Publish reports the eligible (reviewed) pool, not whole Shared Draft.
         $total = $siteScope !== null
@@ -682,7 +673,7 @@ trait InteractsWithDraftSplit
         $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount(
             $project,
             $this->resolvePublishDraftSiteScope(),
-            $this->resolveDraftSplitActiveMonth(),
+            null,
         );
         if ($reviewed < 1) {
             $this->draftSplitQuantity = 1;
@@ -730,7 +721,7 @@ trait InteractsWithDraftSplit
             ->orderedReviewedDraftTaskIds(
                 $project,
                 $this->resolvePublishDraftSiteScope(),
-                $this->resolveDraftSplitActiveMonth(),
+                null,
             );
 
         $selected = $this->normalizeSelectedIds($this->selectedTaskIds ?? []);

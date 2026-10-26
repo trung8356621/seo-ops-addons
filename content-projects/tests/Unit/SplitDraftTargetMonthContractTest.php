@@ -19,7 +19,7 @@ use Tests\Support\LegacyAddonPath;
  */
 final class SplitDraftTargetMonthContractTest extends TestCase
 {
-    public function test_modal_defaults_target_month_to_active_month_ssot(): void
+    public function test_modal_defaults_target_month_to_current_month(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
 
@@ -31,14 +31,19 @@ final class SplitDraftTargetMonthContractTest extends TestCase
 
         self::assertStringContainsString('public string $draftSplitTargetMonth', $trait);
         self::assertStringContainsString('resolveDraftSplitActiveMonth', $trait);
-        self::assertStringContainsString(
-            '$this->draftSplitTargetMonth = $this->resolveDraftSplitActiveMonth();',
+        self::assertGreaterThanOrEqual(
+            2,
+            substr_count($trait, '$this->draftSplitTargetMonth = ContentProjectMonthContext::current();'),
+            'mount + openDraftSplitModal must default Target month to wall-clock current()',
+        );
+        self::assertStringNotContainsString(
+            'property_exists($this, \'activeMonth\')',
             $trait,
         );
-        self::assertSame(
-            0,
-            substr_count($trait, '$this->draftSplitTargetMonth = ContentProjectMonthContext::current();'),
-            'must not reset modal month to wall-clock current()',
+        self::assertStringNotContainsString(
+            '$this->resolveDraftSplitActiveMonth(),',
+            $trait,
+            'reviewed eligibility must not filter by Target month',
         );
 
         Carbon::setTestNow();
@@ -48,18 +53,15 @@ final class SplitDraftTargetMonthContractTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
 
-        $options = ContentProjectMonthContext::selectOptions(12, 6);
-        $values = array_column($options, 'value');
-
-        self::assertContains('2026-07', $values);
-        self::assertContains('2026-08', $values);
-        self::assertContains('2026-09', $values);
         self::assertSame('07/2026', ContentProjectMonthContext::display('2026-07'));
+        self::assertSame('2027-01', ContentProjectMonthContext::shift('2026-12', 1));
 
         $blade = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
         self::assertStringContainsString('data-split-field="target_month"', $blade);
-        self::assertStringContainsString('wire:model.live="draftSplitTargetMonth"', $blade);
-        self::assertStringContainsString('getDraftSplitTargetMonthOptions', $blade);
+        self::assertStringContainsString("entangle('draftSplitTargetMonth').live", $blade);
+        self::assertStringContainsString('cpMonthPicker', $blade);
+        self::assertStringContainsString('cp-month-picker__grid', $blade);
+        self::assertStringNotContainsString('getDraftSplitTargetMonthOptions', $blade);
 
         Carbon::setTestNow();
     }

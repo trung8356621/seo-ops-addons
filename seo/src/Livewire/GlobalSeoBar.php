@@ -26,11 +26,9 @@ class GlobalSeoBar extends Component
 
     public string $simulatedRole = '';
 
-    /** Planner-only active month (YYYY-MM), synced via Livewire event + URL on ContentProjectSeoAuditPlanner. */
-    public string $plannerActiveMonth = '';
-
     /**
      * Stable Project Planner page flag — set once on initial full-page mount.
+     * Forces concrete Working Site (no All Domains). Not a month-filter UI flag.
      * Must NOT re-resolve from current request route: Livewire POSTs hit /livewire/update.
      */
     public bool $showPlannerActiveMonth = false;
@@ -55,14 +53,6 @@ class GlobalSeoBar extends Component
             $this->applyContext($this->resolvePreferredKeywordIntelligenceContext($resolver));
         } else {
             $this->applyContext($resolver->current());
-        }
-
-        if ($this->showPlannerActiveMonth) {
-            $this->plannerActiveMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
-                \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::parseOrNull(
-                    request()->query('month'),
-                ),
-            );
         }
 
         $actualRole = SeoAccessControl::actualRole();
@@ -179,19 +169,7 @@ class GlobalSeoBar extends Component
                 && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'showPlannerActiveMonth' => $this->showPlannerActiveMonth,
-            'plannerMonthOptions' => $this->showPlannerActiveMonth
-                ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::selectOptions()
-                : [],
         ]);
-    }
-
-    public function updatedPlannerActiveMonth(mixed $value): void
-    {
-        $month = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
-            is_string($value) ? $value : null,
-        );
-        $this->plannerActiveMonth = $month;
-        $this->dispatch('seo-planner-month-changed', month: $month);
     }
 
     private function applyContext(DomainContext $context): void
