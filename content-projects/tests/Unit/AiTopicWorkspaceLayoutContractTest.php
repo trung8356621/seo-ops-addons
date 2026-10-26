@@ -93,7 +93,9 @@ final class AiTopicWorkspaceLayoutContractTest extends TestCase
         self::assertStringContainsString('$selectedMap', $notes);
         self::assertStringContainsString('$visibleRows', $notes);
         self::assertStringContainsString('x-show="!isSelected(', $notes);
-        self::assertStringContainsString('toggleAuditNoteCluster', $notes);
+        self::assertStringContainsString('selectCluster(', $notes);
+        self::assertStringContainsString('@click.prevent="selectCluster(', $notes);
+        self::assertStringNotContainsString('wire:click.prevent="toggleAuditNoteCluster', $notes);
         self::assertStringContainsString('removeTopic(item.cluster_ref)', $notes);
     }
 
@@ -117,10 +119,14 @@ final class AiTopicWorkspaceLayoutContractTest extends TestCase
 
         self::assertStringContainsString('seoOps:content-planner:audit-notes:v2:site:', $notes);
         self::assertStringContainsString('loadFromStorage', $notes);
-        self::assertStringContainsString('applyAuditNoteItems', $notes);
+        self::assertStringContainsString('selectCluster(snapshot)', $notes);
         self::assertStringContainsString('duplicateDna', $notes);
         self::assertStringContainsString('removeDnaSlot', $notes);
         self::assertStringContainsString('addDna', $notes);
+        // Ordinary selection UX must stay client-local (Generate still sends Alpine snapshot).
+        self::assertStringNotContainsString('$wire.applyAuditNoteItems', $notes);
+        self::assertStringNotContainsString('$wire.removeAuditNoteItem', $notes);
+        self::assertStringContainsString('preferLocal must NOT drop', $notes);
     }
 
     public function test_batching_contract_still_hides_quantity_input(): void

@@ -292,7 +292,13 @@
                                 $share = (float) ($row['mcp_share'] ?? 0);
                                 $dnaCount = (int) ($row['dna_count'] ?? 0);
                                 $articles = (int) ($row['article_count'] ?? 0);
-                                $toggleTarget = "toggleAuditNoteCluster('".addslashes($ref)."')";
+                                $clusterSnapshot = [
+                                    'source_type' => 'cluster',
+                                    'cluster_ref' => $ref,
+                                    'cluster_name_snapshot' => (string) ($row['cluster_name'] ?? $ref),
+                                    'mcp_share_snapshot' => $share,
+                                    'cluster_dna' => is_array($row['cluster_dna'] ?? null) ? $row['cluster_dna'] : [],
+                                ];
                             @endphp
                             <li
                                 class="cp-audit-notes__row"
@@ -302,9 +308,7 @@
                                 <label class="cp-audit-notes__check">
                                     <input
                                         type="checkbox"
-                                        wire:click.prevent="toggleAuditNoteCluster('{{ addslashes($ref) }}')"
-                                        wire:loading.attr="disabled"
-                                        wire:target="{{ $toggleTarget }}"
+                                        @click.prevent="selectCluster(@js($clusterSnapshot))"
                                         @disabled(! $canWrite || $ref === '')
                                     >
                                     <span class="cp-audit-notes__row-body">
@@ -328,13 +332,6 @@
                                         </span>
                                     </span>
                                 </label>
-                                <div
-                                    class="cp-audit-notes__row-loading"
-                                    wire:loading.flex
-                                    wire:target="{{ $toggleTarget }}"
-                                >
-                                    <svg class="h-3.5 w-3.5 animate-spin text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                                </div>
                             </li>
                         @empty
                             <li class="cp-audit-notes__empty">
@@ -829,6 +826,7 @@
                 revision: 0,
                 hydratedSites: {},
                 saveTimer: null,
+                _removedRefs: {},
 
                 bump() { this.revision++; },
                 storageKey(siteId) { return STORAGE_PREFIX + String(siteId || 0); },
@@ -1067,9 +1065,15 @@
                         if (!item || !item.cluster_ref) return;
                         serverRefs.add(item.cluster_ref);
                         if (!nextTopics[item.cluster_ref]) {
+                            // Prefer-local: do not re-add topics the user already removed client-side
+                            // unless this is a full storage/replace hydrate (preferLocal=false).
+                            if (preferLocal && this._removedRefs && this._removedRefs[item.cluster_ref]) {
+                                return;
+                            }
                             nextTopics[item.cluster_ref] = item;
                             if (!nextDrafts[item.cluster_ref]) nextDrafts[item.cluster_ref] = { phrase: '' };
                         } else if (preferLocal) {
+                            // Keep local DNA / targets; only refresh display metadata from server.
                             nextTopics[item.cluster_ref] = {
                                 ...nextTopics[item.cluster_ref],
                                 cluster_name_snapshot: item.cluster_name_snapshot,
@@ -1081,11 +1085,10 @@
                             nextTopics[item.cluster_ref] = item;
                         }
                     });
+                    // Only full replace (localStorage hydrate) may prune missing refs.
+                    // preferLocal must NOT drop client-selected clusters when Livewire morph
+                    // re-emits a stale server snapshot.
                     if (!preferLocal) {
-                        Object.keys(nextTopics).forEach((ref) => {
-                            if (!serverRefs.has(ref)) { delete nextTopics[ref]; delete nextDrafts[ref]; }
-                        });
-                    } else if (list.length > 0 && serverRefs.size > 0) {
                         Object.keys(nextTopics).forEach((ref) => {
                             if (!serverRefs.has(ref)) { delete nextTopics[ref]; delete nextDrafts[ref]; }
                         });
@@ -1093,6 +1096,41 @@
                     this.topics = nextTopics;
                     this.drafts = nextDrafts;
                     this.rebalanceAutoTargets();
+                },
+                selectCluster(snapshot) {
+                    const raw = snapshot && typeof snapshot === 'object' ? snapshot : {};
+                    const ref = String(raw.cluster_ref || '').trim();
+                    if (!ref || this.topics[ref]) return false;
+                    if (this._removedRefs) delete this._removedRefs[ref];
+                    const dnaSource = Array.isArray(raw.cluster_dna)
+                        ? raw.cluster_dna
+                        : (Array.isArray(raw.dna) ? raw.dna : []);
+                    // One phrase → one slot; ignore weight as slot count (matches AuditNoteDnaNormalizer).
+                    const dna = dnaSource.map((row) => {
+                        if (typeof row === 'string') {
+                            return { phrase: row, slots: 1, source: 'cluster', placement: DEFAULT_PLACEMENT };
+                        }
+                        return {
+                            phrase: row?.phrase || row?.value || '',
+                            slots: 1,
+                            source: 'cluster',
+                            placement: normalizePlacement(row?.placement),
+                        };
+                    });
+                    const item = this.normalizeItem({
+                        source_type: 'cluster',
+                        cluster_ref: ref,
+                        cluster_name_snapshot: raw.cluster_name_snapshot || raw.cluster_name || ref,
+                        mcp_share_snapshot: raw.mcp_share_snapshot ?? raw.mcp_share ?? 0,
+                        target_dna_count: this.defaultTarget,
+                        target_mode: 'auto',
+                        dna,
+                    });
+                    if (!item) return false;
+                    this.topics = { ...this.topics, [ref]: item };
+                    this.drafts = { ...this.drafts, [ref]: { phrase: '' } };
+                    this.rebalanceAutoTargets();
+                    return true;
                 },
                 setTargetDnaCount(ref, value) {
                     if (!this.topics[ref]) return;
@@ -1174,11 +1212,15 @@
                     const drafts = { ...this.drafts };
                     delete next[ref];
                     delete drafts[ref];
+                    if (!this._removedRefs) this._removedRefs = {};
+                    this._removedRefs[ref] = true;
                     this.topics = next;
                     this.drafts = drafts;
                     this.rebalanceAutoTargets();
                 },
                 clearAllTopicsLocal() {
+                    if (!this._removedRefs) this._removedRefs = {};
+                    Object.keys(this.topics).forEach((ref) => { this._removedRefs[ref] = true; });
                     this.topics = {};
                     this.drafts = {};
                     this.allocationWarning = '';
@@ -1238,9 +1280,13 @@
                 },
                 switchSite(siteId) {
                     const next = Number(siteId) || 0;
-                    if (this.siteId > 0 && this.siteId !== next) this.persistNow();
+                    const changed = this.siteId !== next;
+                    if (this.siteId > 0 && changed) this.persistNow();
+                    if (changed) this._removedRefs = {};
                     this.siteId = next;
-                    if (this.hydratedSites[next]) {
+                    // Same-site remount: keep in-memory client selections.
+                    // Cross-site: always reload that site's localStorage (never reuse prior site topics).
+                    if (!changed && this.hydratedSites[next]) {
                         this.rebalanceAutoTargets();
                         return this.snapshot();
                     }
@@ -1336,10 +1382,9 @@
                     this.store.maxDna = Number(maxDna) || 50;
                     this.store.maxTarget = Number(maxTarget) || 100;
                     this.manualSeedTarget = String(this.store.defaultTarget);
-                    const restored = this.store.switchSite(this.siteId);
-                    if (restored.length > 0 && this.$wire && typeof this.$wire.applyAuditNoteItems === 'function') {
-                        this.$wire.applyAuditNoteItems(restored);
-                    }
+                    // Client store + localStorage are SoT for selection UX.
+                    // Do not round-trip applyAuditNoteItems on hydrate (avoids Livewire morph wipe).
+                    this.store.switchSite(this.siteId);
                     const serverList = Array.isArray(serverItems) ? serverItems : [];
                     if (serverList.length > 0) this.store.mergeServerSelected(serverList, { preferLocal: true });
                     else this.store.rebalanceAutoTargets();
@@ -1365,6 +1410,7 @@
                 },
                 visualDnaRows(item) { return this.store.visualDnaRows(item); },
                 mergeServerSelected(items) { this.store.mergeServerSelected(items, { preferLocal: true }); },
+                selectCluster(snapshot) { return this.store.selectCluster(snapshot); },
                 setTargetDnaCount(ref, value) { this.store.setTargetDnaCount(ref, value); },
                 resetTargetAuto(ref) { this.store.resetTargetAuto(ref); },
                 openManualSeed() {
@@ -1379,9 +1425,6 @@
                     this.manualSeedText = '';
                     this.manualSeedTarget = String(this.store.defaultTarget);
                     this.manualOpen = false;
-                    if (this.$wire && typeof this.$wire.applyAuditNoteItems === 'function') {
-                        this.$wire.applyAuditNoteItems(this.store.snapshot());
-                    }
                     this.$nextTick(() => {
                         const el = this.$root.querySelector('[data-cluster-ref="' + CSS.escape(ref) + '"] .cp-audit-notes__dna-input');
                         el?.focus();
@@ -1400,7 +1443,6 @@
                 removeDnaSlot(ref, phrase) { this.store.removeDnaSlot(ref, phrase); },
                 removeTopic(ref) {
                     this.store.removeTopicLocal(ref);
-                    if (this.$wire && typeof this.$wire.removeAuditNoteItem === 'function') this.$wire.removeAuditNoteItem(ref);
                 },
                 clearAllSelected() {
                     const confirmMsg = @js(__('seo-content-ai::filament.projects.audit_notes_clear_all_confirm'));
@@ -1408,9 +1450,6 @@
                         return;
                     }
                     this.store.clearAllTopicsLocal();
-                    if (this.$wire && typeof this.$wire.applyAuditNoteItems === 'function') {
-                        this.$wire.applyAuditNoteItems([]);
-                    }
                 },
                 snapshot() { return this.store.snapshot(); },
             }));

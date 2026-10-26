@@ -491,6 +491,47 @@ final class ContentPlanningIntelligenceService
     }
 
     /**
+     * Published article titles for coverage evidence (site-scoped).
+     * Soft-deleted articles are excluded by SeoArticle SoftDeletes.
+     * Not filtered by Post/Product content type yet.
+     *
+     * @return list<array{title: string, coverage: string}>
+     */
+    private function existingPublishedTitles(int $siteId): array
+    {
+        if ($siteId <= 0) {
+            return [];
+        }
+
+        try {
+            $titles = SeoArticle::query()
+                ->where('site_id', $siteId)
+                ->whereHas('wordpressLink', static function ($q): void {
+                    $q->where('observed_post_status', 'publish');
+                })
+                ->orderByDesc('id')
+                ->limit(ContentPlanningIntelligenceCaps::EXISTING_TOPICS)
+                ->pluck('title');
+        } catch (Throwable) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($titles as $title) {
+            $trimmed = trim((string) $title);
+            if ($trimmed === '') {
+                continue;
+            }
+            $out[] = [
+                'title' => $trimmed,
+                'coverage' => 'covered',
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * @return list<array{label: string, keyword_count: int, article_count: int, coverage: string}>
      */
     private function clusterSummaries(int $siteId): array

@@ -54,7 +54,8 @@ final class AuditNoteClusterSuggestionQuery
      *     article_count: int,
      *     has_focus_article: bool,
      *     planned_history_count: int,
-     *     already_planned: bool
+     *     already_planned: bool,
+     *     cluster_dna: list<array{phrase: string, weight: int}>
      *   }>
      * }
      */
@@ -71,7 +72,7 @@ final class AuditNoteClusterSuggestionQuery
         $filter = trim((string) ($filters['filter'] ?? 'all'));
         $page = max(1, (int) ($filters['page'] ?? 1));
 
-        $items = $this->buildSuggestionItems($siteId);
+        [$items, $dnaByRef] = $this->buildSuggestionItemsWithDnaIndex($siteId);
         $items = $this->applyFilter($items, $filter);
         $items = $this->applySearch($siteId, $items, $search);
 
@@ -92,6 +93,7 @@ final class AuditNoteClusterSuggestionQuery
 
         $total = count($items);
         $slice = array_slice($items, ($page - 1) * $perPage, $perPage);
+        $slice = $this->attachPageClusterDna(array_values($slice), $dnaByRef);
         $paginator = new Paginator($slice, $total, $perPage, $page, [
             'path' => '/',
             'pageName' => 'auditNotesPage',
@@ -100,7 +102,7 @@ final class AuditNoteClusterSuggestionQuery
         return [
             'total' => $total,
             'paginator' => $paginator,
-            'rows' => array_values($slice),
+            'rows' => $slice,
         ];
     }
 
@@ -203,16 +205,65 @@ final class AuditNoteClusterSuggestionQuery
      */
     private function buildSuggestionItems(int $siteId): array
     {
-        // List rows do not need DNA payloads; dna_count comes from landscape metrics.
-        $landscape = $this->landscape->forSite($siteId, false);
+        [$items] = $this->buildSuggestionItemsWithDnaIndex($siteId);
+
+        return $items;
+    }
+
+    /**
+     * One Keyword Landscape load (with DNA). Rows stay DNA-free until page attach
+     * so Livewire payload only carries DNA for the current page.
+     *
+     * @return array{
+     *   0: list<array{
+     *     topic_id: int,
+     *     cluster_ref: string,
+     *     cluster_name: string,
+     *     mcp_share: float,
+     *     dna_count: int,
+     *     article_count: int,
+     *     has_focus_article: bool,
+     *     planned_history_count: int,
+     *     already_planned: bool
+     *   }>,
+     *   1: array<string, list<array{phrase: string, weight: int}>>
+     * }
+     */
+    private function buildSuggestionItemsWithDnaIndex(int $siteId): array
+    {
+        $landscape = $this->landscape->forSite($siteId, true);
         $plannedByRef = $this->topicHistory->plannedCountsByTopicRef($siteId);
         $out = [];
+        $dnaByRef = [];
 
         foreach ($landscape->topics as $topic) {
-            $out[] = $this->mapTopicToSuggestion($topic, $plannedByRef, false);
+            $row = $this->mapTopicToSuggestion($topic, $plannedByRef, false);
+            $ref = (string) ($row['cluster_ref'] ?? '');
+            if ($ref !== '') {
+                $dnaByRef[$ref] = array_slice($topic->dna, 0, self::DNA_LIMIT);
+            }
+            $out[] = $row;
         }
 
-        return $out;
+        return [$out, $dnaByRef];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, list<array{phrase: string, weight: int}>>  $dnaByRef
+     * @return list<array<string, mixed>>
+     */
+    private function attachPageClusterDna(array $rows, array $dnaByRef): array
+    {
+        foreach ($rows as &$row) {
+            $ref = (string) ($row['cluster_ref'] ?? '');
+            $row['cluster_dna'] = ($ref !== '' && isset($dnaByRef[$ref]))
+                ? $dnaByRef[$ref]
+                : [];
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**

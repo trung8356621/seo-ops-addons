@@ -62,11 +62,14 @@ final class AuditNoteManualDnaUxContractTest extends TestCase
         self::assertStringContainsString('resetTargetAuto(', $blade);
         self::assertStringContainsString('rebalanceAutoTargets', $blade);
         self::assertStringContainsString('target_mode', $blade);
+        self::assertStringContainsString('selectCluster(', $blade);
+        self::assertStringContainsString('cluster_dna', $blade);
         self::assertStringNotContainsString('audit_notes_mode_auto', $blade);
         self::assertStringNotContainsString("item.dna_mode === 'auto'", $blade);
         self::assertStringNotContainsString('$wire.addAuditNoteDna', $blade);
         self::assertStringNotContainsString('wire:click="addAuditNoteDna', $blade);
         self::assertStringNotContainsString('wire:click="removeAuditNoteDna', $blade);
+        self::assertStringNotContainsString('wire:click.prevent="toggleAuditNoteCluster', $blade);
         self::assertStringNotContainsString('wire:model="auditNoteDnaPhrase"', $blade);
         self::assertStringNotContainsString('wire:model="auditNoteDnaWeight"', $blade);
         self::assertStringNotContainsString('wire:model.live="auditNoteDnaPhrase"', $blade);

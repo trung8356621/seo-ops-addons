@@ -68,6 +68,8 @@ final class AuditNoteTopicCoreReconnectIntegrationTest extends TestCase
         self::assertSame(TopicPlanningRef::encode((int) $auto->id), $byId[(int) $auto->id]['cluster_ref']);
         self::assertSame(TopicPlanningRef::encode((int) $manual->id), $byId[(int) $manual->id]['cluster_ref']);
         self::assertSame('Audit Manual Topic '.$this->seq, $byId[(int) $manual->id]['cluster_name']);
+        self::assertArrayHasKey('cluster_dna', $byId[(int) $auto->id]);
+        self::assertIsArray($byId[(int) $auto->id]['cluster_dna']);
     }
 
     public function test_search_by_name_and_dna_returns_parent_topic(): void
