@@ -67,18 +67,32 @@
         @endif
 
         @if ($languageReady)
-            <form
-                class="flex flex-wrap items-center gap-2"
-                x-data
-                @submit.prevent="$wire.applyGroupSearch(($el.querySelector('input[type=search]')?.value || '').trim())"
-            >
-                <input
-                    type="search"
-                    wire:model.live.debounce.300ms="newGroupName"
-                    class="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-                    placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_name') }}"
-                    @keydown.enter.prevent="$wire.applyGroupSearch(($event.target.value || '').trim())"
-                />
+            <div class="flex flex-wrap items-center gap-2">
+                <form
+                    class="relative w-full max-w-sm"
+                    x-data
+                    @submit.prevent="$wire.applyGroupSearch(($el.querySelector('input')?.value || '').trim())"
+                >
+                    <input
+                        type="text"
+                        wire:model.live.debounce.300ms="newGroupName"
+                        class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-9 text-sm dark:border-gray-700 dark:bg-gray-900"
+                        placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_name') }}"
+                        @keydown.enter.prevent="$wire.applyGroupSearch(($event.target.value || '').trim())"
+                        autocomplete="off"
+                    />
+                    <svg
+                        wire:loading
+                        wire:target="applyGroupSearch, newGroupName"
+                        class="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary-600"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        aria-hidden="true"
+                    >
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                </form>
                 @if ($canMutate)
                     <button
                         type="button"
@@ -91,7 +105,7 @@
                         <span wire:loading wire:target="createGroup">…</span>
                     </button>
                 @endif
-            </form>
+            </div>
             @php $groupSearchQuery = trim((string) $this->newGroupName); @endphp
             @if ($groupSearchQuery !== '')
                 <p class="text-sm text-gray-600 dark:text-gray-300" wire:key="group-search-status-{{ md5($groupSearchQuery) }}-{{ $groups->total() }}">

@@ -49,6 +49,7 @@ final class KeywordGroups extends Page
     #[Url(as: 'group')]
     public ?int $focusGroupId = null;
 
+    /** Shared input: Enter searches by Group name; button creates with this value. */
     public string $newGroupName = '';
 
     /** @var array<int, list<array{keyword_id: int, phrase: string, is_topic_candidate?: bool}>> */
@@ -124,6 +125,7 @@ final class KeywordGroups extends Page
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->focusGroupId = null;
+        $this->newGroupName = '';
         $this->semanticSuggestions = [];
         $this->resetMemberState();
         $this->resetPage();
@@ -133,8 +135,10 @@ final class KeywordGroups extends Page
 
     public function onKeywordWorkspaceLanguageFilterChanged(): void
     {
+        $this->newGroupName = '';
         $this->semanticSuggestions = [];
         $this->resetMemberState();
+        $this->resetPage();
         $this->loadAnalysisStatus();
     }
 
@@ -146,7 +150,7 @@ final class KeywordGroups extends Page
     }
 
     /**
-     * Enter in the filter field: search only — never create.
+     * Enter on the shared name field: search Group name only — never create.
      * Accepts the raw input value so Enter works before live.debounce flushes.
      */
     public function applyGroupSearch(?string $value = null): void

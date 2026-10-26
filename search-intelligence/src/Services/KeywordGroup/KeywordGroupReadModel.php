@@ -549,7 +549,7 @@ final class KeywordGroupReadModel
     }
 
     /**
-     * Filter groups by name or member keyword phrase (substring, case-insensitive).
+     * Filter groups by Group name only (SQL LIKE). Not member keywords / topics.
      *
      * @param  Builder<SeoKeywordGroup>  $query
      */
@@ -561,15 +561,7 @@ final class KeywordGroupReadModel
         }
 
         $like = '%'.addcslashes(mb_strtolower($needle, 'UTF-8'), '%_\\').'%';
-        $query->where(function (Builder $scope) use ($siteId, $like): void {
-            $scope->whereRaw('LOWER(name) LIKE ?', [$like])
-                ->orWhereHas('memberships', function (Builder $memberships) use ($siteId, $like): void {
-                    $memberships->where('seo_keyword_group_keywords.site_id', $siteId)
-                        ->whereHas('keyword', static function (Builder $keywords) use ($like): void {
-                            $keywords->whereRaw('LOWER(phrase) LIKE ?', [$like]);
-                        });
-                });
-        });
+        $query->whereRaw('LOWER(name) LIKE ?', [$like]);
     }
 
     /**

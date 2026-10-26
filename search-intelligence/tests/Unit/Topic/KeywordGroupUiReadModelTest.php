@@ -90,25 +90,6 @@ final class KeywordGroupUiReadModelTest extends TestCase
         self::assertSame(1, $reader->groupCount(self::SITE, ['vi']));
         self::assertSame(0, $reader->groupCount(self::SITE, ['en']));
 
-        $byName = $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'balo');
-        self::assertCount(1, $byName->items());
-        self::assertSame((int) $group->id, (int) $byName->items()[0]['id']);
-        self::assertSame([], $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'không khớp')->items());
-
-        // Search must change the visible page set (not only fire a Livewire noop).
-        $other = SeoKeywordGroup::query()->create([
-            'site_id' => self::SITE,
-            'name' => 'túi xách da',
-            'source' => KeywordGroupSource::MANUAL,
-            'representative_keyword_id' => null,
-            'is_locked' => false,
-        ]);
-        $unfilteredFirst = (int) ($reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true)->items()[0]['id'] ?? 0);
-        $filteredFirst = (int) ($byName->items()[0]['id'] ?? 0);
-        self::assertNotSame((int) $other->id, $filteredFirst);
-        self::assertContains($unfilteredFirst, [(int) $group->id, (int) $other->id]);
-        self::assertSame((int) $group->id, $filteredFirst);
-
         app(KeywordGroupManualService::class)->assignKeyword(self::SITE, $unassignedVi, (int) $group->id);
         self::assertSame(1, $reader->unassignedCount(self::SITE, ['vi']));
         self::assertSame([], $reader->searchUnassigned(self::SITE, 'cặp', ['vi']));
@@ -328,9 +309,57 @@ final class KeywordGroupUiReadModelTest extends TestCase
         });
         $schema->create('seo_topics', function (Blueprint $table): void {
             $table->id();
-            $table->unsignedBigInteger('site_id');
+            $table->unsignedBigInteger('site_id')->index();
+            $table->unsignedBigInteger('keyword_group_id')->nullable()->index();
             $table->string('name');
+            $table->string('source')->nullable();
+            $table->string('status')->nullable();
+            $table->boolean('is_locked')->default(false);
             $table->timestamps();
         });
+    }
+
+    public function test_group_search_matches_group_name_only(): void
+    {
+        $viArticle = $this->createArticle(self::SITE, 'vi', 'VI');
+        $kwHit = $this->createInventoryKeyword('cụm từ thành viên may balo', $viArticle);
+        $kwOther = $this->createInventoryKeyword('túi da', $viArticle);
+
+        $byName = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'May balo xưởng',
+            'source' => KeywordGroupSource::MANUAL,
+            'representative_keyword_id' => $kwOther,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $byName->id,
+            'keyword_id' => $kwOther,
+            'source' => KeywordGroupSource::MANUAL,
+        ]);
+
+        $memberOnly = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'Nhóm khác',
+            'source' => KeywordGroupSource::MANUAL,
+            'representative_keyword_id' => $kwHit,
+            'is_locked' => false,
+        ]);
+        SeoKeywordGroupKeyword::query()->create([
+            'site_id' => self::SITE,
+            'group_id' => $memberOnly->id,
+            'keyword_id' => $kwHit,
+            'source' => KeywordGroupSource::MANUAL,
+        ]);
+
+        $reader = app(KeywordGroupReadModel::class);
+        $hits = $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'may balo');
+        $ids = array_map(static fn (array $row): int => (int) $row['id'], $hits->items());
+
+        self::assertSame([(int) $byName->id], $ids);
+        self::assertNotContains((int) $memberOnly->id, $ids);
+        self::assertCount(1, $hits->items());
+        self::assertSame([], $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'không tồn tại xyz')->items());
     }
 }

@@ -717,11 +717,19 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('if (this.saving)', $blade);
         self::assertStringContainsString('wire:target="createGroup"', $blade);
         self::assertStringContainsString('wire:click="createGroup"', $blade);
+        self::assertStringContainsString('wire:model.live.debounce.300ms="newGroupName"', $blade);
         self::assertStringContainsString('@keydown.enter.prevent="$wire.applyGroupSearch(($event.target.value || \'\').trim())"', $blade);
         self::assertStringContainsString('@submit.prevent="$wire.applyGroupSearch', $blade);
+        self::assertStringContainsString('wire:target="applyGroupSearch, newGroupName"', $blade);
         self::assertStringContainsString('keyword_group_search_matches', $blade);
-        self::assertStringContainsString('keyword_group_search_applied', (string) file_get_contents(
+        self::assertStringNotContainsString('wire:model.live.debounce.300ms="searchTerm"', $blade);
+        self::assertStringNotContainsString('keyword_group_matched_topic', $blade);
+        $pageSource = (string) file_get_contents(
             dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php'
+        );
+        self::assertStringNotContainsString('public string $searchTerm', $pageSource);
+        self::assertStringContainsString('LOWER(name) LIKE', (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Services/KeywordGroup/KeywordGroupReadModel.php'
         ));
         self::assertStringContainsString('@keydown.enter.prevent="search()"', $blade);
         self::assertStringNotContainsString('wire:submit="createGroup"', $blade);
