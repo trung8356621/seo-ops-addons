@@ -708,7 +708,7 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('wire:target="recheckGroup({{ $groupId }})"', $blade);
         self::assertStringContainsString('data-group-recheck="{{ $groupId }}"', $blade);
         self::assertStringContainsString('data-group-delete="{{ $groupId }}"', $blade);
-        self::assertStringContainsString('wire:key="keyword-group-card-{{ $groupId }}"', $blade);
+        self::assertStringContainsString('wire:key="keyword-group-card-{{ $groupId }}-{{ $this->keywordLanguageFilter }}"', $blade);
         self::assertStringContainsString('wire:key="keyword-group-member-{{ $groupId }}-{{ $memberKey }}"', $blade);
         self::assertStringContainsString('keyword-group-action--recheck', $blade);
         self::assertStringContainsString('keyword-group-action--lock', $blade);
@@ -716,6 +716,15 @@ final class KeywordGroupRenameAndTopicCandidateTest extends TestCase
         self::assertStringContainsString('confirmDelete', $blade);
         self::assertStringContainsString('if (this.saving)', $blade);
         self::assertStringContainsString('wire:target="createGroup"', $blade);
+        self::assertStringContainsString('wire:click="createGroup"', $blade);
+        self::assertStringContainsString('@keydown.enter.prevent="$wire.applyGroupSearch(($event.target.value || \'\').trim())"', $blade);
+        self::assertStringContainsString('@submit.prevent="$wire.applyGroupSearch', $blade);
+        self::assertStringContainsString('keyword_group_search_matches', $blade);
+        self::assertStringContainsString('keyword_group_search_applied', (string) file_get_contents(
+            dirname(__DIR__, 3).'/src/Filament/Resources/KeywordResource/Pages/KeywordGroups.php'
+        ));
+        self::assertStringContainsString('@keydown.enter.prevent="search()"', $blade);
+        self::assertStringNotContainsString('wire:submit="createGroup"', $blade);
         self::assertStringNotContainsString("\$wire.renameGroup({{ \$groupId }}, name)", $blade);
         self::assertStringNotContainsString('<x-select', $blade);
         self::assertStringNotContainsString('keyword_group_move', $blade);

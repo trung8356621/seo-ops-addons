@@ -114,13 +114,14 @@ final class ContentProjectExecutionPackingContractTest extends TestCase
         self::assertStringContainsString('dry-run', $cmd);
     }
 
-    public function test_ui_redirect_and_domain_neutral_list(): void
+    public function test_ui_stays_on_planner_after_split_and_list_is_domain_neutral(): void
     {
         $trait = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Concerns/InteractsWithDraftSplit.php',
         );
-        self::assertStringContainsString('draft_split_view_month_projects', $trait);
-        self::assertStringContainsString('redirect($listUrl', $trait);
+        self::assertStringContainsString("js('window.location.reload()')", $trait);
+        self::assertStringNotContainsString('redirect($listUrl', $trait);
+        self::assertStringNotContainsString("getUrl('index'", $trait);
         self::assertStringNotContainsString("getUrl('view', ['record' => \$executionId])", $trait);
 
         $list = (string) file_get_contents(

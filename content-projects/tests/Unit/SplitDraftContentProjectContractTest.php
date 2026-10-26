@@ -233,6 +233,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('x-modelable="selected"', $draftPlanner);
         self::assertStringNotContainsString('getDraftSplitTargetMonthOptions', $draftPlanner);
         self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
+        self::assertStringContainsString('cp-draft-split-submit', $draftPlanner);
+        self::assertStringContainsString('data-split-submit="1"', $draftPlanner);
+        self::assertStringContainsString('draft_split_creating', $draftPlanner);
+        self::assertStringContainsString('wire:click="confirmDraftSplit"', $draftPlanner);
+        self::assertStringContainsString('heroicon-m-folder-plus', $draftPlanner);
         self::assertStringContainsString('@click.stop', $draftPlanner);
         self::assertStringContainsString('data-split-panel="1"', $draftPlanner);
         self::assertStringNotContainsString('wire:click.stop', $draftPlanner);

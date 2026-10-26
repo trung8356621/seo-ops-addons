@@ -43,6 +43,7 @@ final class KeywordGroupReadModel
         ?array $languageVariants = null,
         ?string $languageCode = null,
         bool $acceptLegacyNullLanguage = false,
+        string $search = '',
     ): LengthAwarePaginator {
         $perPage = max(1, min(50, $perPage));
         $page = max(1, $page);
@@ -54,6 +55,7 @@ final class KeywordGroupReadModel
         // Stable identity order — mutable Group name must not reshuffle cards.
         $groupQuery = SeoKeywordGroup::query()->where('site_id', $siteId);
         $this->constrainGroupsToLanguage($groupQuery, $siteId, $languageVariants, $languageCode, $acceptLegacyNullLanguage);
+        $this->constrainGroupsToSearch($groupQuery, $siteId, $search);
         $groupQuery->withCount([
             'memberships as memberships_count' => function ($query) use ($siteId, $languageVariants): void {
                 $query->where('seo_keyword_group_keywords.site_id', $siteId);
@@ -544,6 +546,30 @@ final class KeywordGroupReadModel
         }
 
         return array_values($tokens);
+    }
+
+    /**
+     * Filter groups by name or member keyword phrase (substring, case-insensitive).
+     *
+     * @param  Builder<SeoKeywordGroup>  $query
+     */
+    private function constrainGroupsToSearch(Builder $query, int $siteId, string $search): void
+    {
+        $needle = trim($search);
+        if ($needle === '') {
+            return;
+        }
+
+        $like = '%'.addcslashes(mb_strtolower($needle, 'UTF-8'), '%_\\').'%';
+        $query->where(function (Builder $scope) use ($siteId, $like): void {
+            $scope->whereRaw('LOWER(name) LIKE ?', [$like])
+                ->orWhereHas('memberships', function (Builder $memberships) use ($siteId, $like): void {
+                    $memberships->where('seo_keyword_group_keywords.site_id', $siteId)
+                        ->whereHas('keyword', static function (Builder $keywords) use ($like): void {
+                            $keywords->whereRaw('LOWER(phrase) LIKE ?', [$like]);
+                        });
+                });
+        });
     }
 
     /**

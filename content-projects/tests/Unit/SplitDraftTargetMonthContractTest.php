@@ -159,6 +159,39 @@ final class SplitDraftTargetMonthContractTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_split_does_not_filter_reviewed_eligibility_by_target_month(): void
+    {
+        $service = (string) file_get_contents(
+            (string) (new ReflectionClass(SplitDraftContentProjectService::class))->getFileName(),
+        );
+
+        // Regression: split() previously passed $month->format('Y-m') into resolveItems,
+        // so Target month 08 hid Reviewed items whose planning_month was 10.
+        self::assertStringNotContainsString(
+            "resolveItems(\n                \$lockedDraft,\n                \$selectionMode,\n                \$quantity,\n                \$itemIds,\n                \$month->format('Y-m'),",
+            $service,
+        );
+        self::assertMatchesRegularExpression(
+            '/resolveItems\(\s*\$lockedDraft,\s*\$selectionMode,\s*\$quantity,\s*\$itemIds,\s*null,\s*\)/s',
+            $service,
+        );
+
+        // preview() already resolved without a planning-month filter.
+        self::assertStringContainsString(
+            '$resolved = $this->resolveItems($draft, $selectionMode, $quantity, $itemIds);',
+            $service,
+        );
+
+        $trait = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Concerns/InteractsWithDraftSplit.php',
+        );
+        self::assertStringNotContainsString(
+            '$this->resolveDraftSplitActiveMonth(),',
+            $trait,
+        );
+        self::assertStringContainsString('targetMonth: $targetMonth', $trait);
+    }
+
     public function test_draft_items_remain_monthless_no_planned_month(): void
     {
         $paths = [
@@ -186,5 +219,23 @@ final class SplitDraftTargetMonthContractTest extends TestCase
 
         self::assertStringContainsString("'draft_split_target_month'", $en);
         self::assertStringContainsString("'draft_split_target_month'", $vi);
+        self::assertStringContainsString("'draft_split_creating' => 'Creating...'", $en);
+        self::assertStringContainsString("'draft_split_creating' => 'Đang tạo...'", $vi);
+    }
+
+    public function test_success_reloads_planner_instead_of_redirecting_to_list(): void
+    {
+        $trait = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Concerns/InteractsWithDraftSplit.php',
+        );
+        $styles = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
+        $blade = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
+
+        self::assertStringContainsString("js('window.location.reload()')", $trait);
+        self::assertStringNotContainsString('redirect($listUrl', $trait);
+        self::assertStringContainsString('cp-draft-split-submit', $styles);
+        self::assertStringContainsString('#16a34a', $styles);
+        self::assertStringContainsString('draft_split_creating', $blade);
+        self::assertStringContainsString('wire:loading.class="is-loading"', $blade);
     }
 }

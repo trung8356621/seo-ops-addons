@@ -138,6 +138,46 @@ final class KeywordGroups extends Page
         $this->loadAnalysisStatus();
     }
 
+    public function updatedNewGroupName(): void
+    {
+        $this->focusGroupId = null;
+        $this->resetMemberState();
+        $this->resetPage();
+    }
+
+    /**
+     * Enter in the filter field: search only — never create.
+     * Accepts the raw input value so Enter works before live.debounce flushes.
+     */
+    public function applyGroupSearch(?string $value = null): void
+    {
+        if ($value !== null) {
+            $this->newGroupName = trim($value);
+        } else {
+            $this->newGroupName = trim($this->newGroupName);
+        }
+        $this->focusGroupId = null;
+        $this->resetMemberState();
+        $this->resetPage();
+
+        $query = $this->newGroupName;
+        if ($query === '') {
+            return;
+        }
+
+        $total = $this->getGroupsPaginator()->total();
+        Notification::make()
+            ->title($total > 0
+                ? __('seo-content-ai::filament.keyword.keyword_group_search_applied', [
+                    'count' => number_format($total),
+                ])
+                : __('seo-content-ai::filament.keyword.keyword_group_search_matches_empty', [
+                    'query' => $query,
+                ]))
+            ->{$total > 0 ? 'success' : 'warning'}()
+            ->send();
+    }
+
     public function canMutateKeywordGroups(): bool
     {
         $siteId = $this->resolveKeywordWorkspaceSiteId();
@@ -173,6 +213,7 @@ final class KeywordGroups extends Page
             $variants,
             $code,
             $legacy,
+            trim($this->newGroupName),
         )->withPath(KeywordResource::getUrl('groups'))
             ->appends(array_filter([
                 'group' => $this->focusGroupId > 0 ? $this->focusGroupId : null,

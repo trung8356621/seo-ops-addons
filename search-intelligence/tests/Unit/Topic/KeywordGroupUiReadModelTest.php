@@ -90,6 +90,25 @@ final class KeywordGroupUiReadModelTest extends TestCase
         self::assertSame(1, $reader->groupCount(self::SITE, ['vi']));
         self::assertSame(0, $reader->groupCount(self::SITE, ['en']));
 
+        $byName = $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'balo');
+        self::assertCount(1, $byName->items());
+        self::assertSame((int) $group->id, (int) $byName->items()[0]['id']);
+        self::assertSame([], $reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true, 'không khớp')->items());
+
+        // Search must change the visible page set (not only fire a Livewire noop).
+        $other = SeoKeywordGroup::query()->create([
+            'site_id' => self::SITE,
+            'name' => 'túi xách da',
+            'source' => KeywordGroupSource::MANUAL,
+            'representative_keyword_id' => null,
+            'is_locked' => false,
+        ]);
+        $unfilteredFirst = (int) ($reader->paginateGroups(self::SITE, 1, 20, ['vi'], 'vi', true)->items()[0]['id'] ?? 0);
+        $filteredFirst = (int) ($byName->items()[0]['id'] ?? 0);
+        self::assertNotSame((int) $other->id, $filteredFirst);
+        self::assertContains($unfilteredFirst, [(int) $group->id, (int) $other->id]);
+        self::assertSame((int) $group->id, $filteredFirst);
+
         app(KeywordGroupManualService::class)->assignKeyword(self::SITE, $unassignedVi, (int) $group->id);
         self::assertSame(1, $reader->unassignedCount(self::SITE, ['vi']));
         self::assertSame([], $reader->searchUnassigned(self::SITE, 'cặp', ['vi']));

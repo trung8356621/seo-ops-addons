@@ -1267,6 +1267,102 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    /**
+     * Reviewed Draft items keep their planning_month; Target month only stamps execution.
+     * Reproduces production: 36 Reviewed @ planning 10/2026, Publish Target 08/2026.
+     */
+    public function test_target_month_differs_from_planning_month_still_moves_reviewed(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-15 12:00:00'));
+        $this->bindWriterMonthlyCapacity(50);
+
+        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $this->fail('planning_month column missing');
+        }
+
+        $draft = $this->createDraft(93811, 94811);
+        $siteA = 94811;
+        $siteB = 94812;
+        for ($i = 0; $i < 20; $i++) {
+            $id = $this->createTask($draft, 'oct-a-'.$i, reviewed: true, planningMonth: '2026-10');
+            SeoProjectTask::query()->whereKey($id)->update(['site_id' => $siteA]);
+        }
+        for ($i = 0; $i < 16; $i++) {
+            $id = $this->createTask($draft, 'oct-b-'.$i, reviewed: true, planningMonth: '2026-10');
+            SeoProjectTask::query()->whereKey($id)->update(['site_id' => $siteB]);
+        }
+        // Pending must stay in Draft.
+        $pendingId = $this->createTask($draft, 'oct-pending', reviewed: false, planningMonth: '2026-10');
+
+        $splitter = app(SplitDraftContentProjectService::class);
+        self::assertSame(36, $splitter->currentReviewedDraftItemCount($draft));
+        self::assertSame(
+            0,
+            $splitter->currentReviewedDraftItemCount($draft, null, '2026-08'),
+            'sanity: old planning-month filter would hide Oct Reviewed when Target=Aug',
+        );
+
+        $preview = $splitter->preview(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            [88811, 88812],
+            '2026-08',
+        );
+        self::assertSame(36, (int) ($preview['requested_items'] ?? 0));
+        self::assertSame(36, (int) ($preview['moved_count'] ?? 0));
+
+        $result = $splitter->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88811, 88812],
+            '2026-08',
+        );
+
+        self::assertSame(36, (int) $result['moved_count']);
+        self::assertSame('2026-08-01', $result['month']);
+        self::assertSame('2026-08', $result['redirect_month'] ?? null);
+        self::assertNotEmpty($result['execution_project_ids'] ?? []);
+
+        foreach ($result['execution_project_ids'] as $execId) {
+            $execution = SeoProject::query()->find((int) $execId);
+            self::assertInstanceOf(SeoProject::class, $execution);
+            self::assertSame('2026-08-01', Carbon::parse((string) $execution->month)->format('Y-m-d'));
+        }
+
+        self::assertSame(
+            SeoProjectTask::STATUS_PENDING,
+            SeoProjectTask::query()->whereKey($pendingId)->value('status'),
+        );
+        self::assertSame(
+            (int) $draft->getKey(),
+            (int) SeoProjectTask::query()->whereKey($pendingId)->value('project_id'),
+        );
+        self::assertSame(0, $splitter->currentReviewedDraftItemCount($draft->fresh() ?? $draft));
+
+        // Idempotent-ish: second split finds nothing reviewed left.
+        try {
+            $splitter->split(
+                $draft->fresh() ?? $draft,
+                SplitDraftContentProjectCommand::MODE_ALL,
+                null,
+                [],
+                null,
+                [88811],
+                '2026-08',
+            );
+            self::fail('Expected empty reviewed pool on second split');
+        } catch (InvalidArgumentException $e) {
+            self::assertStringContainsString('No reviewed Draft items to move.', $e->getMessage());
+        }
+
+        Carbon::setTestNow();
+    }
+
     public function test_archived_execution_counts_toward_selected_month_capacity(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));

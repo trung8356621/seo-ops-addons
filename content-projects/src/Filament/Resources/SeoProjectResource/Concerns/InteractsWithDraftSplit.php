@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns;
 
-use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -16,7 +15,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapac
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Carbon\Carbon;
-use Filament\Notifications\Actions\Action as NotificationAction;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Str;
 
@@ -310,19 +308,13 @@ trait InteractsWithDraftSplit
         $this->draftSplitModalOpen = false;
         $this->draftSplitError = null;
         $this->draftSplitIncludedUserIds = [];
+        $this->selectedTaskIds = [];
 
         $moved = (int) ($result->metadata['moved_count'] ?? $result->metadata['assigned_items'] ?? 0);
         $createdCount = (int) ($result->metadata['created_count'] ?? count($result->metadata['created_projects'] ?? []));
         $reusedCount = (int) ($result->metadata['reused_count'] ?? count($result->metadata['reused_projects'] ?? []));
         $projectCount = (int) ($result->metadata['project_count'] ?? ($createdCount + $reusedCount));
         $unallocated = (int) ($result->metadata['unallocated_count'] ?? 0);
-        $redirectMonth = (string) ($result->metadata['redirect_month']
-            ?? $result->metadata['month']
-            ?? $targetMonth);
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $redirectMonth) === 1) {
-            $redirectMonth = substr($redirectMonth, 0, 7);
-        }
-        $redirectMonth = ContentProjectMonthContext::normalize($redirectMonth);
 
         $body = $unallocated > 0
             ? __('seo-content-ai::filament.projects.draft_split_partial_capacity_body', [
@@ -336,44 +328,15 @@ trait InteractsWithDraftSplit
                 'reused' => $reusedCount,
             ]);
 
-        $listUrl = null;
-        try {
-            $listUrl = SeoProjectResource::getUrl('index', [
-                'month' => $redirectMonth,
-                'tableFilters' => [
-                    'month' => [
-                        'month' => $redirectMonth.'-01',
-                    ],
-                ],
-            ]);
-        } catch (\Throwable) {
-            $listUrl = null;
-        }
-
-        $notification = Notification::make()
+        Notification::make()
             ->title(__('seo-content-ai::filament.projects.draft_split_success_title'))
             ->body($body)
-            ->success();
+            ->success()
+            ->send();
 
-        if (is_string($listUrl) && $listUrl !== '') {
-            $notification->actions([
-                NotificationAction::make('view_month')
-                    ->label(__('seo-content-ai::filament.projects.draft_split_view_month_projects'))
-                    ->url($listUrl),
-            ]);
-        }
-
-        $notification->send();
-
-        if (is_string($listUrl) && $listUrl !== '') {
-            $this->redirect($listUrl, navigate: false);
-
-            return;
-        }
-
-        $this->selectedTaskIds = [];
-        $this->project = $project->fresh() ?? $project;
-        $this->resetPage();
+        // Stay on Project Planner — full reload refreshes Draft/Reviewed/capacity.
+        // Do not redirect to Content Projects list.
+        $this->js('window.location.reload()');
     }
 
     /**

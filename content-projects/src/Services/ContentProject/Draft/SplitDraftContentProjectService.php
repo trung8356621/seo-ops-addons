@@ -119,12 +119,14 @@ final class SplitDraftContentProjectService
                 throw new RuntimeException('Draft project disappeared or is no longer Draft.');
             }
 
+            // Target month drives capacity + execution project month only —
+            // never filter reviewed Draft eligibility by planning_month.
             $resolved = $this->resolveItems(
                 $lockedDraft,
                 $selectionMode,
                 $quantity,
                 $itemIds,
-                $month->format('Y-m'),
+                null,
             );
             $taskIds = $resolved['task_ids'];
             if ($taskIds === []) {
@@ -406,6 +408,8 @@ final class SplitDraftContentProjectService
      * Stable First N order among REVIEWED draft items only.
      *
      * @param  list<int>  $itemIds
+     * @param  string|null  $planningMonth  Deprecated for Publish: always null.
+     *                                      Target/execution month must NOT be passed here.
      * @return array{mode: string, task_ids: list<int>}
      */
     public function resolveItems(
@@ -416,6 +420,7 @@ final class SplitDraftContentProjectService
         ?string $planningMonth = null,
     ): array {
         $mode = strtolower(trim($selectionMode));
+        // Publish eligibility is month-independent; $planningMonth kept for rare legacy callers only.
         $available = $this->orderedReviewedDraftTaskIds($draft, null, $planningMonth);
         $availableCount = count($available);
 

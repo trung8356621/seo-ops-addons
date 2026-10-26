@@ -66,24 +66,47 @@
             </div>
         @endif
 
-        @if ($languageReady && $canMutate)
-            <form class="flex flex-wrap items-center gap-2" wire:submit="createGroup">
+        @if ($languageReady)
+            <form
+                class="flex flex-wrap items-center gap-2"
+                x-data
+                @submit.prevent="$wire.applyGroupSearch(($el.querySelector('input[type=search]')?.value || '').trim())"
+            >
                 <input
-                    type="text"
-                    wire:model="newGroupName"
+                    type="search"
+                    wire:model.live.debounce.300ms="newGroupName"
                     class="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
                     placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_name') }}"
+                    @keydown.enter.prevent="$wire.applyGroupSearch(($event.target.value || '').trim())"
                 />
-                <button
-                    type="submit"
-                    class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-gray-700"
-                    wire:loading.attr="disabled"
-                    wire:target="createGroup"
-                >
-                    <span wire:loading.remove wire:target="createGroup">{{ __('seo-content-ai::filament.keyword.keyword_group_create') }}</span>
-                    <span wire:loading wire:target="createGroup">…</span>
-                </button>
+                @if ($canMutate)
+                    <button
+                        type="button"
+                        class="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-gray-700"
+                        wire:click="createGroup"
+                        wire:loading.attr="disabled"
+                        wire:target="createGroup"
+                    >
+                        <span wire:loading.remove wire:target="createGroup">{{ __('seo-content-ai::filament.keyword.keyword_group_create') }}</span>
+                        <span wire:loading wire:target="createGroup">…</span>
+                    </button>
+                @endif
             </form>
+            @php $groupSearchQuery = trim((string) $this->newGroupName); @endphp
+            @if ($groupSearchQuery !== '')
+                <p class="text-sm text-gray-600 dark:text-gray-300" wire:key="group-search-status-{{ md5($groupSearchQuery) }}-{{ $groups->total() }}">
+                    @if ($groups->total() > 0)
+                        {{ __('seo-content-ai::filament.keyword.keyword_group_search_matches', [
+                            'count' => number_format($groups->total()),
+                            'query' => $groupSearchQuery,
+                        ]) }}
+                    @else
+                        {{ __('seo-content-ai::filament.keyword.keyword_group_search_matches_empty', [
+                            'query' => $groupSearchQuery,
+                        ]) }}
+                    @endif
+                </p>
+            @endif
         @endif
 
         @if ($languageReady)
@@ -93,7 +116,7 @@
             </span>
         </div>
 
-        <div wire:loading.class="opacity-60 pointer-events-none" wire:target="keywordLanguageFilter">
+        <div wire:loading.class="opacity-60 pointer-events-none" wire:target="keywordLanguageFilter, applyGroupSearch, newGroupName">
         @forelse ($groups as $group)
             @php
                 $groupId = (int) $group['id'];
@@ -358,6 +381,7 @@
                                 x-model="q"
                                 @input.debounce.300ms="search()"
                                 @focus="if ((q || '').trim() !== '') search()"
+                                @keydown.enter.prevent="search()"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
                                 placeholder="{{ __('seo-content-ai::filament.keyword.keyword_group_search_unassigned') }}"
                                 wire:loading.attr="disabled"
@@ -502,7 +526,15 @@
                 </div>
             </article>
         @empty
-            <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.keyword.keyword_group_empty') }}</p>
+            <p class="text-sm text-gray-500">
+                @if (trim((string) $this->newGroupName) !== '')
+                    {{ __('seo-content-ai::filament.keyword.keyword_group_search_matches_empty', [
+                        'query' => trim((string) $this->newGroupName),
+                    ]) }}
+                @else
+                    {{ __('seo-content-ai::filament.keyword.keyword_group_empty') }}
+                @endif
+            </p>
         @endforelse
         </div>
 

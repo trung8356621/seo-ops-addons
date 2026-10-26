@@ -1068,6 +1068,28 @@
             border-top-color: rgb(31 41 55);
             background: rgb(17 24 39 / 0.6);
         }
+        /* Publish modal primary — solid green (teleport escapes .cp-plan CSS vars). */
+        .cp-ops-dialog__footer .cp-draft-split-submit.fi-btn {
+            background-color: #16a34a !important;
+            color: #fff !important;
+            border-color: transparent !important;
+            font-weight: 600;
+            padding-inline: 1rem;
+            min-height: 2.25rem;
+        }
+        .cp-ops-dialog__footer .cp-draft-split-submit.fi-btn:hover:not(:disabled) {
+            background-color: #15803d !important;
+        }
+        .cp-ops-dialog__footer .cp-draft-split-submit.fi-btn:disabled,
+        .cp-ops-dialog__footer .cp-draft-split-submit.fi-btn.is-loading {
+            opacity: 0.7;
+            pointer-events: none;
+            cursor: wait;
+        }
+        .dark .cp-ops-dialog__footer .cp-draft-split-submit.fi-btn {
+            background-color: #16a34a !important;
+            color: #fff !important;
+        }
         .cp-ops-dialog__scroll {
             min-height: 0;
             flex: 1 1 auto;

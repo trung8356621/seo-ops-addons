@@ -715,21 +715,36 @@
                     </div>
 
                     <div class="cp-ops-dialog__footer flex items-center justify-end gap-2">
-                        <button type="button" class="fi-btn fi-btn-color-gray fi-size-sm" wire:click="closeDraftSplitModal" data-split-cancel="1">
+                        <button
+                            type="button"
+                            class="fi-btn fi-btn-color-gray fi-size-sm"
+                            wire:click="closeDraftSplitModal"
+                            wire:loading.attr="disabled"
+                            wire:target="confirmDraftSplit"
+                            data-split-cancel="1"
+                        >
                             {{ __('seo-content-ai::filament.projects.planner_close') }}
                         </button>
                         <button
                             type="button"
-                            class="fi-btn fi-btn-color-primary fi-size-sm"
+                            class="fi-btn fi-size-sm cp-draft-split-submit inline-flex items-center justify-center gap-1.5"
                             wire:click="confirmDraftSplit"
                             wire:loading.attr="disabled"
+                            wire:loading.class="is-loading"
                             wire:target="confirmDraftSplit"
                             data-split-submit="1"
                             @disabled(! $splitCanCreate)
                         >
-                            <span wire:loading.remove wire:target="confirmDraftSplit">{{ __('seo-content-ai::filament.projects.draft_split_create') }}</span>
-                            <span wire:loading wire:target="confirmDraftSplit" class="inline-flex items-center gap-1">
-                                <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                            <span wire:loading.remove wire:target="confirmDraftSplit" class="inline-flex items-center gap-1.5">
+                                <x-filament::icon icon="heroicon-m-folder-plus" class="h-4 w-4" />
+                                {{ __('seo-content-ai::filament.projects.draft_split_create') }}
+                            </span>
+                            <span wire:loading wire:target="confirmDraftSplit" class="inline-flex items-center gap-1.5">
+                                <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                {{ __('seo-content-ai::filament.projects.draft_split_creating') }}
                             </span>
                         </button>
                     </div>
