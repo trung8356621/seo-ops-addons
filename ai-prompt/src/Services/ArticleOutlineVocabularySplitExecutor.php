@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -99,6 +100,15 @@ final class ArticleOutlineVocabularySplitExecutor
         array $contextExtras,
     ): array {
         unset($fallbackPrompt);
+
+        // Free/sectioned writing has one cross-post-type article budget. Existing
+        // outlines are never rewritten; this only guides newly generated outlines.
+        $shape = ArticleGenerationShape::tryFromMixed($variables['generation_shape'] ?? null);
+        if ($shape?->isSectioned() ?? false) {
+            $variables['article_length'] = (string) WritingMultiplePassStepPlanner::ARTICLE_TARGET_WORDS;
+            $variables['target_article_length'] = (string) WritingMultiplePassStepPlanner::ARTICLE_TARGET_WORDS;
+            $variables['resolved_article_length'] = (string) WritingMultiplePassStepPlanner::ARTICLE_TARGET_WORDS;
+        }
 
         $outlinePrompt = $this->resolveOutlinePrompt($nodeData);
         if ($outlinePrompt === null) {

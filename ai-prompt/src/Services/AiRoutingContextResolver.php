@@ -24,7 +24,7 @@ final class AiRoutingContextResolver
      * Mapping:
      * - freeOnly flag OR AiCostPolicy::FreeOnly → FREE_ONLY (excludes paid)
      * - explicit preferred model (required) → EXPLICIT_MODEL
-     * - BestQuality / quality → PAID_PREFERRED (budget label only; no reorder)
+     * - explicit article normal/paid mode or BestQuality / quality → PAID_PREFERRED
      * - FastEconomy / default → FREE_FIRST_WITH_PAID_FALLBACK (legacy name = default budgets)
      *
      * Economy/default must NOT silently become FREE_ONLY.
@@ -49,7 +49,14 @@ final class AiRoutingContextResolver
         // Preferred (non-required): preferred model is only prepended by applyItemRoutingPreferences.
 
         $generationMode = strtolower(trim((string) ($context->itemGenerationMode ?? '')));
-        if (in_array($generationMode, ['best_quality', 'quality', 'paid_preferred'], true)) {
+        if (in_array($generationMode, [
+            'normal',
+            'paid',
+            'paid_only',
+            'best_quality',
+            'quality',
+            'paid_preferred',
+        ], true)) {
             return AiExecutionRoutingMode::PaidPreferred;
         }
 
@@ -63,7 +70,7 @@ final class AiRoutingContextResolver
      */
     public function enrich(AiRoutingContext $context, ?int $maxAiAttempts = null, ?int $maxFreeAttempts = null): AiRoutingContext
     {
-        $policyResolution = (new EffectiveAiRoutingPolicyResolver())->resolve(
+        $policyResolution = (new EffectiveAiRoutingPolicyResolver)->resolve(
             prompt: null,
             hookKey: $context->hookKey ?? $context->canonicalPromptKey,
             explicit: $context->routingPolicy ?? $context->routingPolicyRequested,
@@ -83,7 +90,7 @@ final class AiRoutingContextResolver
         ]);
 
         if ($context->executionTransport()->isInteractive()) {
-            $interactiveBudget = (new InteractiveAiAttemptBudget())->resolve($effectivePolicy);
+            $interactiveBudget = (new InteractiveAiAttemptBudget)->resolve($effectivePolicy);
             $maxAiAttempts = min(
                 $maxAiAttempts ?? $interactiveBudget['max_ai_attempts'],
                 $interactiveBudget['max_ai_attempts'],

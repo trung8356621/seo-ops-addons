@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
-use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
-use Omnichannel\Addons\AiPrompt\Exceptions\AiRouteCapabilitySkipException;
-use Omnichannel\Addons\AiPrompt\Exceptions\PromptBudgetException;
-use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
-use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
+use App\Models\ApiConnection;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRouteCapabilitySkipException;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptBudgetException;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Extension\Resolvers\AiProviderResolver;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
@@ -19,6 +20,8 @@ use Omnichannel\Addons\AiPrompt\PromptBudget\HtmlSafeRewriteSplitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\KeywordDiscoveryBudgetStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\LongFormArticleSplitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\PromptChunkLedger;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeBreadcrumbBag;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard;
@@ -27,28 +30,24 @@ use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeRunState;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionValidator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeTrackedProviderCall;
-use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
-use Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution;
-use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
-use Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
-use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
-use Omnichannel\Addons\Media\Services\MediaGenerationService;
-use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Omnichannel\Addons\Content\Services\GeneratedContentQualityValidator;
 use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
-use App\Models\ApiConnection;
+use Omnichannel\Addons\Media\Services\MediaGenerationService;
+use Omnichannel\Addons\Media\Support\ImageToolType;
 use RuntimeException;
 
 class PromptRunnerService
@@ -76,7 +75,7 @@ class PromptRunnerService
 
         return function_exists('app') && app()->bound(PromptBudgetPreflightService::class)
             ? app(PromptBudgetPreflightService::class)
-            : new PromptBudgetPreflightService();
+            : new PromptBudgetPreflightService;
     }
 
     private function articleExecutionPlanner(): ArticleGenerationExecutionPlanner
@@ -1342,7 +1341,7 @@ class PromptRunnerService
     {
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
-        $strategy = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
+        $strategy = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver)
             ->resolve($variables);
         if ($strategy->isSectioned()) {
             throw new PromptRunException(
@@ -1754,7 +1753,7 @@ class PromptRunnerService
             'section_id' => $unit->sectionId,
         ]);
 
-        (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($sectionPrompt, [
+        (new SectionedFreePromptIsolationGuard)->assertSectionPromptIsIsolated($sectionPrompt, [
             'section_id' => $unit->sectionId,
             'run_id' => trim((string) ($variables['_execution_run_id'] ?? $variables['run_id'] ?? '')),
         ]);
@@ -1770,7 +1769,7 @@ class PromptRunnerService
             $callOptions,
         );
 
-        (new SectionedFreeSectionValidator())->assertAcceptable($output, $unit);
+        (new SectionedFreeSectionValidator)->assertAcceptable($output, $unit);
 
         return [$output, is_array($usage) ? $usage : []];
     }
@@ -1847,7 +1846,7 @@ class PromptRunnerService
             $runId = uniqid('sf_', true);
         }
 
-        $breadcrumbs = new SectionedFreeBreadcrumbBag();
+        $breadcrumbs = new SectionedFreeBreadcrumbBag;
         $breadcrumbs->push('strategy_resolved', ['value' => ArticleGenerationStrategy::Sectioned->value]);
         $breadcrumbs->push('generation_shape', ['value' => ArticleGenerationShape::Sectioned->value]);
         $breadcrumbs->push('branch_entered', ['class' => self::class.'::executeSectionedFreeGeneration']);
@@ -1958,7 +1957,7 @@ class PromptRunnerService
             ];
         };
 
-        $generator = new SectionedFreeArticleGenerator();
+        $generator = new SectionedFreeArticleGenerator;
         $result = $generator->run(
             $articleContext,
             $sectionExecutor,
@@ -2414,11 +2413,15 @@ PROMPT;
         // legacyConnection remains last-resort only when resolveAll has no targets.
         $preferredModelId = (int) ($variables['_item_model_override_id'] ?? 0);
         $modelMode = strtolower(trim((string) ($variables['_item_model_override_mode'] ?? '')));
-        $generationMode = trim((string) ($variables['_item_generation_mode'] ?? ''));
+        $generationMode = trim((string) (
+            $variables['_item_generation_mode']
+            ?? $variables['ai_generation_mode']
+            ?? ''
+        ));
 
         $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
 
-        $effectivePolicy = (new EffectiveAiCostPolicyResolver())->resolve(
+        $effectivePolicy = (new EffectiveAiCostPolicyResolver)->resolve(
             contextPolicy: AiCostPolicyScope::current(),
             explicitFreeOnlyFlag: false,
             hookKey: $hookKey !== '' ? $hookKey : null,

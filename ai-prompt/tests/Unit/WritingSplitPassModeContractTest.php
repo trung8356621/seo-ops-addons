@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeAssembleArticle;
-use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreePlan;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeRunState;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner;
@@ -72,34 +71,26 @@ MD;
 
     public function test_planner_reads_structured_rows_not_parse_nodes(): void
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize(self::SAMPLE_OUTLINE);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize(self::SAMPLE_OUTLINE);
         self::assertNotEmpty($rows);
         self::assertSame(OutlineStructuredRowsNormalizer::KIND_INTRO, $rows[0]['kind']);
 
-        $plan = (new WritingMultiplePassStepPlanner())->planFromRows($rows);
+        $plan = (new WritingMultiplePassStepPlanner)->planFromRows($rows);
         $roles = array_map(static fn (SectionedFreeSectionUnit $u): string => $u->role, $plan->units);
 
-        self::assertContains(SectionedFreeSectionUnit::ROLE_INTRO, $roles);
         self::assertContains(SectionedFreeSectionUnit::ROLE_FAQ, $roles);
-        self::assertContains(SectionedFreeSectionUnit::ROLE_CONCLUSION, $roles);
         self::assertSame(1, count(array_filter($roles, static fn (string $r): bool => $r === SectionedFreeSectionUnit::ROLE_FAQ)));
-        self::assertSame(1, count(array_filter($roles, static fn (string $r): bool => $r === SectionedFreeSectionUnit::ROLE_CONCLUSION)));
-
-        $h3Labels = [];
-        foreach ($plan->units as $unit) {
-            if ($unit->role === SectionedFreeSectionUnit::ROLE_BODY) {
-                $h3Labels[] = $unit->label;
-            }
-        }
-        self::assertContains('Tăng hiệu suất', $h3Labels);
-        self::assertContains('Giảm chi phí', $h3Labels);
+        $scope = implode("\n", array_map(static fn (SectionedFreeSectionUnit $u): string => $u->scopeMarkdown(), $plan->units));
+        self::assertStringContainsString('Tăng hiệu suất', $scope);
+        self::assertStringContainsString('Giảm chi phí', $scope);
+        self::assertSame(2000, array_sum(array_map(static fn (SectionedFreeSectionUnit $u): int => $u->preferredTargetWords, array_filter($plan->units, static fn (SectionedFreeSectionUnit $u): bool => $u->role !== SectionedFreeSectionUnit::ROLE_FAQ))));
         self::assertSame('structured_outline_rows', $plan->meta['source'] ?? null);
     }
 
     public function test_conclusion_and_faq_not_duplicated_as_bare_h2(): void
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize(self::SAMPLE_OUTLINE);
-        $plan = (new WritingMultiplePassStepPlanner())->planFromRows($rows);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize(self::SAMPLE_OUTLINE);
+        $plan = (new WritingMultiplePassStepPlanner)->planFromRows($rows);
 
         $conclusionCount = 0;
         $faqCount = 0;
@@ -116,17 +107,17 @@ MD;
                 self::assertStringNotContainsStringIgnoringCase('câu hỏi', $unit->label);
             }
         }
-        self::assertSame(1, $conclusionCount);
+        self::assertLessThanOrEqual(1, $conclusionCount);
         self::assertSame(1, $faqCount);
     }
 
     public function test_compiled_h3_prompt_contains_scope_and_slice_only(): void
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize(self::SAMPLE_OUTLINE);
-        $plan = (new WritingMultiplePassStepPlanner())->planFromRows($rows);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize(self::SAMPLE_OUTLINE);
+        $plan = (new WritingMultiplePassStepPlanner)->planFromRows($rows);
         $h3 = null;
         foreach ($plan->units as $unit) {
-            if ($unit->label === 'Tăng hiệu suất') {
+            if (str_contains($unit->scopeMarkdown(), 'Tăng hiệu suất')) {
                 $h3 = $unit;
                 break;
             }
@@ -146,7 +137,7 @@ MD;
         self::assertStringContainsString('WRITING SCOPE: SECTION', $compiled);
         self::assertStringContainsString('Không tạo lại SEO title', $compiled);
         self::assertStringContainsString('Tăng hiệu suất', $compiled);
-        self::assertStringNotContainsString('Giảm chi phí', $compiled);
+        self::assertStringContainsString('Giảm chi phí', $compiled);
         self::assertStringNotContainsString('Câu hỏi thường gặp', $compiled);
         self::assertStringNotContainsString('Kết luận', $compiled);
         self::assertStringNotContainsString('previous section output', mb_strtolower($compiled));
@@ -154,19 +145,26 @@ MD;
 
     public function test_generator_retry_failed_middle_step_reuses_completed(): void
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize(self::SAMPLE_OUTLINE);
-        $plan = (new WritingMultiplePassStepPlanner())->planFromRows($rows);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize(self::SAMPLE_OUTLINE);
+        $plan = (new WritingMultiplePassStepPlanner)->planFromRows($rows);
         self::assertGreaterThanOrEqual(3, count($plan->units));
 
-        $longBody = str_repeat('section body word ', 130);
+        $longBody = str_repeat('section body word ', 250);
         $wordCount = str_word_count(trim(preg_replace('/\s+/u', ' ', $longBody) ?? ''));
-        $state = new SectionedFreeRunState();
+        $state = new SectionedFreeRunState;
         $state->setRun('test_run');
         foreach ($plan->units as $unit) {
             $state->planSection($unit);
         }
         $first = $plan->units[0];
-        $second = $plan->units[1];
+        $second = null;
+        foreach (array_slice($plan->units, 1) as $candidate) {
+            if ($candidate->role !== SectionedFreeSectionUnit::ROLE_FAQ) {
+                $second = $candidate;
+                break;
+            }
+        }
+        self::assertInstanceOf(SectionedFreeSectionUnit::class, $second);
         $state->markCompleted($first->sectionId, $longBody, $wordCount);
         $state->markFailed($second->sectionId, 'provider error');
 
@@ -189,9 +187,13 @@ MD;
         $executor = function (SectionedFreeSectionUnit $unit, string $prompt) use (&$executed, $longBody): array {
             $executed[] = $unit->sectionId;
             self::assertStringContainsString('WRITING SCOPE: SECTION', $prompt);
+            $output = $longBody;
+            if ($unit->managedRowMarkers() !== []) {
+                $output = implode("\n".$longBody."\n", array_keys($unit->managedRowMarkers()))."\n".$longBody;
+            }
 
             return [
-                'output' => $longBody,
+                'output' => $output,
                 'model' => 'deepseek/deepseek-chat',
                 'provider' => 'openrouter',
                 'connection_id' => 1,
@@ -201,7 +203,7 @@ MD;
         };
 
         $executed = [];
-        $generator = new SectionedFreeArticleGenerator();
+        $generator = new SectionedFreeArticleGenerator;
 
         // Retry only the failed middle step — earlier completed stays; remaining incomplete not run yet.
         try {
@@ -248,7 +250,7 @@ MD;
             emitParentHeading: false,
         );
 
-        $assembled = (new SectionedFreeAssembleArticle())->assemble([
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([
             [
                 'section_id' => 'h3_01',
                 'section_order' => 0,
@@ -297,7 +299,7 @@ MD;
 
     public function test_rows_normalizer_captures_notes_and_parent(): void
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize(self::SAMPLE_OUTLINE);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize(self::SAMPLE_OUTLINE);
         $byTitle = [];
         foreach ($rows as $row) {
             $byTitle[$row['title']] = $row;

@@ -146,7 +146,9 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 requirePreferredModel: strtolower(trim((string) ($mergedVars['_item_model_override_mode'] ?? ''))) === 'required',
                 itemGenerationMode: isset($mergedVars['_item_generation_mode'])
                     ? (string) $mergedVars['_item_generation_mode']
-                    : null,
+                    : (isset($mergedVars['ai_generation_mode'])
+                        ? (string) $mergedVars['ai_generation_mode']
+                        : null),
                 hookKey: $effectiveHookKey,
                 // Shape ≠ FreeOnly: do not force freeOnly from sectioned branch.
                 // Effective FreeOnly is carried by costPolicy (generation mode / task policy).

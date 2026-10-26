@@ -18,7 +18,7 @@ use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 final class SectionedFreeAssembleArticle
 {
     public function __construct(
-        private readonly SectionedFreeChildOutputNormalizer $childNormalizer = new SectionedFreeChildOutputNormalizer(),
+        private readonly SectionedFreeChildOutputNormalizer $childNormalizer = new SectionedFreeChildOutputNormalizer,
     ) {}
 
     /**
@@ -144,6 +144,11 @@ final class SectionedFreeAssembleArticle
         string $childOutput,
         ?string $previousParentH2,
     ): array {
+        $normalized = $this->childNormalizer->stripArticleMetadataWrappers(trim($childOutput));
+        if ($this->containsAllManagedMarkers($unit, $normalized)) {
+            return $this->renderManagedRows($unit, $normalized, $previousParentH2);
+        }
+
         $headingLines = [];
         $openParentH2 = $previousParentH2;
         $plannedLeadings = [];
@@ -176,7 +181,6 @@ final class SectionedFreeAssembleArticle
             $plannedLeadings[] = ['level' => $level, 'title' => $title];
         }
 
-        $normalized = $this->childNormalizer->stripArticleMetadataWrappers(trim($childOutput));
         $body = $this->stripLeadingPlannedHeadings($normalized, $plannedLeadings);
         // Continuation chunks: also strip accidental duplicate open parent H2 at lead.
         if ($parentH2 !== '' && $unit->emitParentHeading === false) {
@@ -190,6 +194,72 @@ final class SectionedFreeAssembleArticle
 
         return [
             'markdown' => trim(implode("\n\n", $chunks)),
+            'open_parent_h2' => $openParentH2,
+        ];
+    }
+
+    private function containsAllManagedMarkers(SectionedFreeSectionUnit $unit, string $output): bool
+    {
+        $markers = array_keys($unit->managedRowMarkers());
+        if ($markers === []) {
+            return false;
+        }
+        foreach ($markers as $marker) {
+            if (substr_count($output, $marker) !== 1) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array{markdown: string, open_parent_h2: ?string} */
+    private function renderManagedRows(
+        SectionedFreeSectionUnit $unit,
+        string $output,
+        ?string $previousParentH2,
+    ): array {
+        $nodes = [];
+        foreach ($unit->outlineNodes as $node) {
+            $rowId = trim((string) ($node['row_id'] ?? ''));
+            if ($rowId !== '') {
+                $nodes[] = ['marker' => $unit->rowMarker($rowId), 'node' => $node];
+            }
+        }
+
+        $parts = [];
+        $openParentH2 = $previousParentH2;
+        foreach ($nodes as $index => $entry) {
+            $marker = $entry['marker'];
+            $start = mb_strpos($output, $marker);
+            if ($start === false) {
+                continue;
+            }
+            $contentStart = $start + mb_strlen($marker);
+            $nextMarker = $nodes[$index + 1]['marker'] ?? null;
+            $end = $nextMarker !== null ? mb_strpos($output, $nextMarker, $contentStart) : false;
+            $length = $end === false ? null : $end - $contentStart;
+            $content = trim(mb_substr($output, $contentStart, $length));
+            $node = $entry['node'];
+            $title = trim((string) ($node['heading'] ?? ''));
+            $level = max(1, min(4, (int) ($node['level'] ?? 2)));
+            $emit = (bool) ($node['emit_heading'] ?? true);
+
+            if ($emit && $title !== '') {
+                $heading = str_repeat('#', $level).' '.$title;
+                $content = $this->stripLeadingPlannedHeadings($content, [['level' => $level, 'title' => $title]]);
+                $parts[] = $heading;
+                if ($level === 2) {
+                    $openParentH2 = $title;
+                }
+            }
+            if ($content !== '') {
+                $parts[] = $content;
+            }
+        }
+
+        return [
+            'markdown' => trim(implode("\n\n", $parts)),
             'open_parent_h2' => $openParentH2,
         ];
     }

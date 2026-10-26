@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
+use Carbon\Carbon;
 use Omnichannel\Addons\ContentProjects\Jobs\RunContentProjectArticleJob;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -31,6 +32,23 @@ use Tests\Support\ResolvesMovedAddonPaths;
 final class ContentProjectRunLifecycleContractTest extends TestCase
 {
     use ResolvesMovedAddonPaths;
+
+    public function test_worker_lease_age_increases_for_a_past_heartbeat(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-26T09:30:00+00:00'));
+
+        try {
+            $reflection = new ReflectionClass(ContentProjectRunEngine::class);
+            $engine = $reflection->newInstanceWithoutConstructor();
+            $method = $reflection->getMethod('ageSeconds');
+            $method->setAccessible(true);
+
+            self::assertSame(1591, $method->invoke($engine, '2026-10-26T09:03:29+00:00'));
+            self::assertSame(0, $method->invoke($engine, '2026-10-26T09:31:00+00:00'));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
 
     public function test_case1_normal_failure_continues_dispatch_contract(): void
     {

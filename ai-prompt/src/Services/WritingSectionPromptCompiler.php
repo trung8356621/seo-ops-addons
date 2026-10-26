@@ -66,6 +66,7 @@ TXT;
             $assemblerOwnsStructuralHeadings,
             $canonicalTitle !== '' ? $canonicalTitle : null,
         );
+        $markerInstructions = $this->managedMarkerInstructions($unit);
 
         // Allow compilePrompt while parent run is sectioned.
         $vars['generation_shape'] = ArticleGenerationStrategy::SinglePass->value;
@@ -113,9 +114,16 @@ TXT;
             }
         }
 
-        $compiled = $this->promptRunner->compilePrompt($prompt, $this->stringifyVars($vars));
+        $compiled = $this->stripWholeArticleAllocationBlocks(
+            $this->promptRunner->compilePrompt($prompt, $this->stringifyVars($vars)),
+        );
+        if ($markerInstructions !== '') {
+            // The shared Writing prompt may render input/outline aliases more than once.
+            // Append this contract after compilation so each technical marker occurs once.
+            $compiled = trim($compiled)."\n\n".$markerInstructions."\n";
+        }
 
-        return $this->stripWholeArticleAllocationBlocks($compiled);
+        return $compiled;
     }
 
     /**
@@ -217,6 +225,27 @@ TXT;
         };
     }
 
+    private function managedMarkerInstructions(SectionedFreeSectionUnit $unit): string
+    {
+        $markers = $unit->managedRowMarkers();
+        if ($markers === []) {
+            return '';
+        }
+
+        $lines = [
+            '=== OUTLINE ROW CONTENT MARKERS ===',
+            'Output every marker below exactly once, in this order.',
+            'Write the content for that outline row immediately after its marker.',
+            'Do not group markers together. Do not output H2/H3 headings; the assembler inserts them.',
+        ];
+        foreach ($markers as $marker => $meta) {
+            $lines[] = $marker.' '.($meta['heading'] !== '' ? $meta['heading'] : '(no heading)');
+        }
+        $lines[] = '=== END OUTLINE ROW CONTENT MARKERS ===';
+
+        return implode("\n", $lines);
+    }
+
     /**
      * @param  array<string, mixed>  $vars
      * @return array<string, string>
@@ -233,10 +262,12 @@ TXT;
             }
             if ($value === null) {
                 $out[$key] = '';
+
                 continue;
             }
             if (is_bool($value)) {
                 $out[$key] = $value ? '1' : '0';
+
                 continue;
             }
             $out[$key] = (string) $value;

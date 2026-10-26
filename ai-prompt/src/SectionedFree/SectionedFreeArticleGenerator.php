@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\AiPrompt\SectionedFree;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
-use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 
@@ -19,12 +18,12 @@ use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 final class SectionedFreeArticleGenerator
 {
     public function __construct(
-        private readonly SectionedFreePrepareSections $prepare = new SectionedFreePrepareSections(),
-        private readonly SectionedFreeSectionPromptBuilder $promptBuilder = new SectionedFreeSectionPromptBuilder(),
-        private readonly SectionedFreeSectionValidator $validator = new SectionedFreeSectionValidator(),
-        private readonly SectionedFreeAssembleArticle $assembler = new SectionedFreeAssembleArticle(),
-        private readonly SectionedFreeKeywordSuggester $keywordSuggester = new SectionedFreeKeywordSuggester(),
-        private readonly SectionedFreeArtifactSplitter $artifactSplitter = new SectionedFreeArtifactSplitter(),
+        private readonly SectionedFreePrepareSections $prepare = new SectionedFreePrepareSections,
+        private readonly SectionedFreeSectionPromptBuilder $promptBuilder = new SectionedFreeSectionPromptBuilder,
+        private readonly SectionedFreeSectionValidator $validator = new SectionedFreeSectionValidator,
+        private readonly SectionedFreeAssembleArticle $assembler = new SectionedFreeAssembleArticle,
+        private readonly SectionedFreeKeywordSuggester $keywordSuggester = new SectionedFreeKeywordSuggester,
+        private readonly SectionedFreeArtifactSplitter $artifactSplitter = new SectionedFreeArtifactSplitter,
     ) {}
 
     /**
@@ -70,14 +69,16 @@ final class SectionedFreeArticleGenerator
             ? $explicitVocabulary
             : $parts['vocabulary_raw'];
 
-        $articleTargetWords = $this->resolveArticleTargetWords($articleContext);
         $writingSplit = (bool) ($articleContext['writing_split_enabled'] ?? false)
             || (($articleContext['pass_mode'] ?? '') === 'multiple_pass');
+        $articleTargetWords = $writingSplit
+            ? \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner::ARTICLE_TARGET_WORDS
+            : $this->resolveArticleTargetWords($articleContext);
 
         if ($writingSplit && ($articleContext['writing_multiple_pass_plan'] ?? null) instanceof SectionedFreePlan) {
             $plan = $articleContext['writing_multiple_pass_plan'];
         } elseif ($writingSplit && is_array($articleContext['structured_outline_rows'] ?? null)) {
-            $plan = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner())
+            $plan = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner)
                 ->planFromRows($articleContext['structured_outline_rows']);
         } else {
             $plan = $this->prepare->preparePlan($outline, $articleTargetWords);
@@ -103,8 +104,12 @@ final class SectionedFreeArticleGenerator
         }
 
         $articleMap = $this->promptBuilder->buildArticleMap($units);
-        $state = $priorState ?? new SectionedFreeRunState();
+        $state = $priorState ?? new SectionedFreeRunState;
         $state->setRun($runId ?? uniqid('sf_', true));
+        $state->retainPlannedSections(array_map(
+            static fn (SectionedFreeSectionUnit $unit): string => $unit->sectionId,
+            $units,
+        ));
 
         $rerunId = $rerunSectionId !== null ? trim($rerunSectionId) : '';
         if ($rerunId !== '') {
@@ -133,6 +138,7 @@ final class SectionedFreeArticleGenerator
                 $previousSummary = $this->shortSummary(
                     (string) ($state->toArray()['sections'][$unit->sectionId]['output'] ?? ''),
                 );
+
                 continue;
             }
 
@@ -158,6 +164,7 @@ final class SectionedFreeArticleGenerator
                     'parent_h2' => $unit->parentH2,
                 ]);
                 $previousSummary = '[omi_faq]';
+
                 continue;
             }
 
@@ -196,10 +203,10 @@ final class SectionedFreeArticleGenerator
                 );
             }
             if ($writingSplit) {
-                (new \Omnichannel\Addons\AiPrompt\Support\WritingMultiplePassPromptIsolationGuard())
+                (new \Omnichannel\Addons\AiPrompt\Support\WritingMultiplePassPromptIsolationGuard)
                     ->assertCompiledSectionPrompt($prompt, $unit, $outline);
             } else {
-                (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($prompt, [
+                (new SectionedFreePromptIsolationGuard)->assertSectionPromptIsIsolated($prompt, [
                     'section_id' => $unit->sectionId,
                     'run_id' => (string) ($state->toArray()['run_id'] ?? ''),
                 ]);
@@ -233,7 +240,7 @@ final class SectionedFreeArticleGenerator
                     'first_attempt_success' => $attemptCount === 1 && $fallbackCount === 0,
                     'prompt_character_count' => $promptCharCounts[$unit->sectionId],
                     'target_words' => $unit->preferredTargetWords,
-                    'minimum_words' => SectionedFreeSectionValidator::INCOMPLETE_WORD_THRESHOLD,
+                    'minimum_words' => $this->validator->minimumWordsFor($unit),
                     'emit_parent_heading' => $unit->emitParentHeading,
                     'parent_h2' => $unit->parentH2,
                 ]);

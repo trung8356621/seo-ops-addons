@@ -2799,7 +2799,7 @@ final class ContentProjectRunEngine
         }
 
         try {
-            return max(0, (int) now()->diffInSeconds(Carbon::parse($iso)));
+            return max(0, (int) Carbon::parse($iso)->diffInSeconds(now(), false));
         } catch (\Throwable) {
             return null;
         }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use App\Models\ApiConnection;
+use Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
@@ -12,7 +14,6 @@ use Omnichannel\Addons\AiPrompt\Services\AiRoutingContextResolver;
 use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
 use Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver;
 use Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver;
-use Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
@@ -21,7 +22,6 @@ use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\PromptTaskFreeOnlyPolicy;
 use Omnichannel\Addons\ContentProjects\Support\ContentProjectRunSettings;
 use Omnichannel\Addons\Seo\Livewire\GlobalSeoBar;
-use App\Models\ApiConnection;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ProjectRoot;
@@ -31,15 +31,15 @@ use Tests\Support\ProjectRoot;
  */
 final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
 {
-    public function test_a_normal_free_first_split_paid_still_eligible(): void
+    public function test_a_unstamped_default_keeps_economy_free_first_behavior(): void
     {
         $free = $this->candidate('nemotron-free', true, 1);
         $paid = $this->candidate('deepseek-chat', false, 2);
         $ctx = new AiRoutingContext(userId: 1, costPolicy: AiCostPolicy::Default);
-        $mode = (new AiRoutingContextResolver())->resolveMode($ctx);
+        $mode = (new AiRoutingContextResolver)->resolveMode($ctx);
         self::assertSame(AiExecutionRoutingMode::FreeFirstWithPaidFallback, $mode);
 
-        [$plan] = (new AiCandidatePlanner())->plan(
+        [$plan] = (new AiCandidatePlanner)->plan(
             'text.longform',
             $ctx,
             [$free, $paid],
@@ -66,6 +66,25 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         self::assertFalse($snap->freeOnlyPolicy);
     }
 
+    public function test_a2_explicit_normal_mode_routes_paid_only_and_single_pass(): void
+    {
+        $ctx = new AiRoutingContext(
+            userId: 1,
+            costPolicy: AiCostPolicy::Default,
+            itemGenerationMode: 'normal',
+        );
+
+        self::assertSame(
+            AiExecutionRoutingMode::PaidPreferred,
+            (new AiRoutingContextResolver)->resolveMode($ctx),
+        );
+
+        $paid = $this->candidate('claude-sonnet', false, 1);
+        [, $snap] = $this->planShape($paid, $ctx);
+        self::assertSame(ArticleGenerationShape::SinglePass, $snap->generationShape);
+        self::assertFalse($snap->freeOnlyPolicy);
+    }
+
     public function test_b_normal_paid_first_single(): void
     {
         $paid = $this->candidate('claude-sonnet', false, 1);
@@ -80,9 +99,9 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         $paid = $this->candidate('deepseek-chat', false, 1);
         $free = $this->candidate('nemotron-free', true, 2);
         $ctx = new AiRoutingContext(userId: 1, costPolicy: AiCostPolicy::FreeOnly);
-        $enriched = (new AiRoutingContextResolver())->enrich($ctx);
+        $enriched = (new AiRoutingContextResolver)->enrich($ctx);
 
-        [$plan, $survivors] = (new AiCandidatePlanner())->plan(
+        [$plan, $survivors] = (new AiCandidatePlanner)->plan(
             'text.longform',
             $enriched,
             [$paid, $free],
@@ -110,11 +129,11 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
     public function test_d_free_only_no_usable_free_is_routing_failure_zero_paid_attempts(): void
     {
         $paid = $this->candidate('claude-sonnet', false, 1);
-        $ctx = (new AiRoutingContextResolver())->enrich(
+        $ctx = (new AiRoutingContextResolver)->enrich(
             new AiRoutingContext(userId: 1, costPolicy: AiCostPolicy::FreeOnly),
         );
 
-        [$plan, $survivors] = (new AiCandidatePlanner())->plan(
+        [$plan, $survivors] = (new AiCandidatePlanner)->plan(
             'text.longform',
             $ctx,
             [$paid],
@@ -132,11 +151,11 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
     {
         $paid = $this->candidate('deepseek-chat', false, 1);
         $free = $this->candidate('nemotron-free', true, 2);
-        $ctx = (new AiRoutingContextResolver())->enrich(
+        $ctx = (new AiRoutingContextResolver)->enrich(
             new AiRoutingContext(userId: 1, costPolicy: AiCostPolicy::FreeOnly),
         );
 
-        [$plan] = (new AiCandidatePlanner())->plan(
+        [$plan] = (new AiCandidatePlanner)->plan(
             'text.longform',
             $ctx,
             [$paid, $free],
@@ -187,7 +206,7 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         $again = ArticleGenerationModePreference::stampIntoVariables($variables, 9);
         self::assertSame(AiCostPolicy::FreeOnly->value, $again[AiCostPolicy::SETTING_KEY]);
 
-        $effectiveDuringRun = (new EffectiveAiCostPolicyResolver())->resolve(
+        $effectiveDuringRun = (new EffectiveAiCostPolicyResolver)->resolve(
             contextPolicy: AiCostPolicy::Default, // UI flipped to NORMAL
             variables: $again,
         );
@@ -198,7 +217,7 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
     {
         self::assertTrue(PromptTaskFreeOnlyPolicy::requires('article.comment.generate'));
 
-        $effective = (new EffectiveAiCostPolicyResolver())->resolve(
+        $effective = (new EffectiveAiCostPolicyResolver)->resolve(
             contextPolicy: AiCostPolicy::Default,
             hookKey: 'article.comment.generate',
             variables: [AiCostPolicy::SETTING_KEY => AiCostPolicy::Default->value],
@@ -215,6 +234,11 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         self::assertStringNotContainsString('connectionFreeOnlyPolicy', $planner);
         self::assertStringNotContainsString('$connection->paid_locked', $planner);
         self::assertStringContainsString('EffectiveAiCostPolicyResolver', $planner);
+
+        $hookExecutor = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php',
+        );
+        self::assertStringContainsString("\$mergedVars['ai_generation_mode']", $hookExecutor);
 
         $form = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/src/Support/ApiConnectionFormSchema.php',
@@ -275,7 +299,7 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         $ran = false;
         AiCostPolicyScope::run(AiCostPolicy::FreeOnly, function () use (&$ran): void {
             $ran = true;
-            $effective = (new EffectiveAiCostPolicyResolver())->resolve(
+            $effective = (new EffectiveAiCostPolicyResolver)->resolve(
                 contextPolicy: AiCostPolicyScope::current(),
             );
             self::assertTrue($effective->isFreeOnly());

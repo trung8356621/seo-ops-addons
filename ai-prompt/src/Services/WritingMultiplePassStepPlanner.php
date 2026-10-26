@@ -8,402 +8,221 @@ use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreePlan;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer;
 
-/**
- * MULTIPLE_PASS step plan from persisted structured Outline rows.
- * Special kinds (intro/faq/conclusion) BEFORE generic H2/H3 rules — no duplicates.
- * No word-budget expansion. No markdown re-parse.
- */
+/** Build compact, contiguous writing units for the Free writing path. */
 final class WritingMultiplePassStepPlanner
 {
-    /**
-     * @param  list<array{
-     *   id?: string,
-     *   order?: int,
-     *   level?: int,
-     *   title?: string,
-     *   note?: string,
-     *   parent_id?: ?string,
-     *   kind?: string
-     * }>  $rows
-     */
+    public const ARTICLE_TARGET_WORDS = 2000;
+
+    private const DESIRED_MAX_AI_UNITS = 6;
+
+    /** @param list<array<string, mixed>> $rows */
     public function planFromRows(array $rows): SectionedFreePlan
     {
         if ($rows === []) {
-            $unit = new SectionedFreeSectionUnit(
-                sectionId: 'section_01',
-                order: 0,
-                label: 'Body',
-                role: SectionedFreeSectionUnit::ROLE_BODY,
-                outlineNodes: [[
-                    'kind' => 'body',
-                    'heading' => 'Body',
-                    'level' => 2,
-                    'body' => '',
-                    'emit_heading' => true,
-                    'parent_h2' => null,
-                ]],
-                requiredPoints: [],
-                targetMinWords: 180,
-                targetMaxWords: 400,
-                preferredTargetWords: 300,
-            );
+            $unit = $this->makeUnit([['id' => 'body', 'kind' => 'body', 'title' => 'Body', 'level' => 2]], 0, 2000);
 
-            return new SectionedFreePlan(
-                units: [$unit],
-                meta: [
-                    'article_target_words' => 0,
-                    'planned_unit_count' => 1,
-                    'minimum_units_by_budget' => 1,
-                    'source' => 'structured_outline_rows',
-                    'insufficient_outline_material' => true,
-                    'reason' => 'empty_structured_rows',
-                ],
-            );
+            return new SectionedFreePlan([$unit], $this->meta(1, true, 'empty_structured_rows'));
         }
 
-        /** @var array<string, array<string, mixed>> $byId */
-        $byId = [];
+        $segments = [[]];
+        $faqGroups = [];
         foreach ($rows as $row) {
-            $id = trim((string) ($row['id'] ?? ''));
-            if ($id === '') {
+            if ((string) ($row['kind'] ?? '') === OutlineStructuredRowsNormalizer::KIND_FAQ) {
+                $faqGroups[] = ['after_segment' => count($segments) - 1, 'rows' => [$row]];
+                $segments[] = [];
+            } else {
+                $segments[array_key_last($segments)][] = $row;
+            }
+        }
+
+        $writingCount = array_sum(array_map('count', $segments));
+        $desired = min(self::DESIRED_MAX_AI_UNITS, max(1, (int) ceil($writingCount / 4.0)));
+        $nonEmptySegments = count(array_filter($segments));
+        $remainingDesired = max($desired, $nonEmptySegments);
+        $remainingRows = $writingCount;
+        $groupsBySegment = [];
+        $groups = [];
+        foreach ($segments as $segmentIndex => $segment) {
+            if ($segment === []) {
+                $groupsBySegment[$segmentIndex] = [];
+
                 continue;
             }
-            $byId[$id] = $row;
+            $futureNonEmpty = count(array_filter(array_slice($segments, $segmentIndex + 1)));
+            $maxForCurrent = max(1, $remainingDesired - $futureNonEmpty);
+            $segmentDesired = min(count($segment), $maxForCurrent, max(1, (int) round($remainingDesired * count($segment) / max(1, $remainingRows))));
+            $groupsBySegment[$segmentIndex] = $this->groupContiguousRows($segment, $segmentDesired);
+            array_push($groups, ...$groupsBySegment[$segmentIndex]);
+            $remainingDesired -= count($groupsBySegment[$segmentIndex]);
+            $remainingRows -= count($segment);
         }
-
-        $claimed = [];
+        $budgets = $this->allocateWords(array_map(fn (array $group): int => $this->groupWeight($group), $groups));
         $units = [];
-        $order = 0;
-
-        // 1) intro — every intro kind, once each
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
+        $budgetIndex = 0;
+        foreach ($segments as $segmentIndex => $_segment) {
+            foreach ($groupsBySegment[$segmentIndex] as $group) {
+                $units[] = $this->makeUnit($group, count($units), $budgets[$budgetIndex++]);
             }
-            if ((string) ($row['kind'] ?? '') !== OutlineStructuredRowsNormalizer::KIND_INTRO) {
-                continue;
-            }
-            $claimed[$id] = true;
-            $units[] = $this->unitFromRows(
-                sectionId: 'intro_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                order: $order++,
-                label: 'Introduction',
-                role: SectionedFreeSectionUnit::ROLE_INTRO,
-                stepRows: [$row],
-                parentH2: null,
-                emitParentHeading: false,
-            );
-        }
-
-        // 2) faq — group all FAQ rows into one step
-        $faqRows = [];
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
-            }
-            if ((string) ($row['kind'] ?? '') !== OutlineStructuredRowsNormalizer::KIND_FAQ) {
-                continue;
-            }
-            $claimed[$id] = true;
-            $faqRows[] = $row;
-            // Claim FAQ children if any
-            foreach ($rows as $child) {
-                $childId = (string) ($child['id'] ?? '');
-                if ($childId === '' || isset($claimed[$childId])) {
-                    continue;
-                }
-                if ((string) ($child['parent_id'] ?? '') === $id) {
-                    $claimed[$childId] = true;
-                    $faqRows[] = $child;
+            foreach ($faqGroups as $faqGroup) {
+                if ($faqGroup['after_segment'] === $segmentIndex) {
+                    $units[] = $this->makeFaqUnit($faqGroup['rows'], count($units));
                 }
             }
         }
-        if ($faqRows !== []) {
-            $units[] = $this->unitFromRows(
-                sectionId: 'faq_01',
-                order: $order++,
-                label: 'FAQ',
-                role: SectionedFreeSectionUnit::ROLE_FAQ,
-                stepRows: $faqRows,
-                parentH2: null,
-                emitParentHeading: true,
-            );
-        }
 
-        // 3) conclusion — once
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
-            }
-            if ((string) ($row['kind'] ?? '') !== OutlineStructuredRowsNormalizer::KIND_CONCLUSION) {
-                continue;
-            }
-            $claimed[$id] = true;
-            $childRows = [$row];
-            foreach ($rows as $child) {
-                $childId = (string) ($child['id'] ?? '');
-                if ($childId === '' || isset($claimed[$childId])) {
-                    continue;
-                }
-                if ((string) ($child['parent_id'] ?? '') === $id) {
-                    $claimed[$childId] = true;
-                    $childRows[] = $child;
-                }
-            }
-            $units[] = $this->unitFromRows(
-                sectionId: 'conclusion_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                order: $order++,
-                label: 'Conclusion',
-                role: SectionedFreeSectionUnit::ROLE_CONCLUSION,
-                stepRows: $childRows,
-                parentH2: null,
-                emitParentHeading: true,
-            );
-        }
-
-        // 4) remaining normal H2/H3 — H2 with H3s → one step per H3; bare H2 → one step
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
-            }
-
-            $kind = (string) ($row['kind'] ?? '');
-            $level = (int) ($row['level'] ?? 0);
-            $isH2 = $kind === OutlineStructuredRowsNormalizer::KIND_H2 || $level === 2;
-
-            if (! $isH2) {
-                continue;
-            }
-
-            $children = [];
-            foreach ($rows as $child) {
-                $childId = (string) ($child['id'] ?? '');
-                if ($childId === '' || isset($claimed[$childId])) {
-                    continue;
-                }
-                if ((string) ($child['parent_id'] ?? '') !== $id) {
-                    continue;
-                }
-                $childKind = (string) ($child['kind'] ?? '');
-                if (in_array($childKind, [
-                    OutlineStructuredRowsNormalizer::KIND_FAQ,
-                    OutlineStructuredRowsNormalizer::KIND_CONCLUSION,
-                    OutlineStructuredRowsNormalizer::KIND_INTRO,
-                ], true)) {
-                    continue;
-                }
-                $children[] = $child;
-            }
-
-            $claimed[$id] = true;
-
-            if ($children !== []) {
-                foreach ($children as $child) {
-                    $childId = (string) ($child['id'] ?? '');
-                    if ($childId !== '') {
-                        $claimed[$childId] = true;
-                    }
-                    $units[] = $this->unitFromRows(
-                        sectionId: 'h3_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                        order: $order++,
-                        label: trim((string) ($child['title'] ?? 'H3')) ?: 'H3',
-                        role: SectionedFreeSectionUnit::ROLE_BODY,
-                        stepRows: [
-                            [
-                                'kind' => 'h2_context',
-                                'title' => (string) ($row['title'] ?? ''),
-                                'note' => (string) ($row['note'] ?? ''),
-                                'level' => 2,
-                                'emit_heading' => false,
-                            ],
-                            $child,
-                        ],
-                        parentH2: trim((string) ($row['title'] ?? '')) ?: null,
-                        emitParentHeading: true,
-                    );
-                }
-                continue;
-            }
-
-            $units[] = $this->unitFromRows(
-                sectionId: 'h2_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                order: $order++,
-                label: trim((string) ($row['title'] ?? 'H2')) ?: 'H2',
-                role: SectionedFreeSectionUnit::ROLE_BODY,
-                stepRows: [$row],
-                parentH2: null,
-                emitParentHeading: true,
-            );
-        }
-
-        // Orphan H3s (no parent H2 remaining)
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
-            }
-            $kind = (string) ($row['kind'] ?? '');
-            $level = (int) ($row['level'] ?? 0);
-            if ($kind !== OutlineStructuredRowsNormalizer::KIND_H3 && $level < 3) {
-                continue;
-            }
-            $claimed[$id] = true;
-            $parentTitle = null;
-            $parentNote = '';
-            $parentId = trim((string) ($row['parent_id'] ?? ''));
-            $stepRows = [];
-            if ($parentId !== '' && isset($byId[$parentId])) {
-                $parentTitle = trim((string) ($byId[$parentId]['title'] ?? ''));
-                $parentNote = trim((string) ($byId[$parentId]['note'] ?? ''));
-                $stepRows[] = [
-                    'kind' => 'h2_context',
-                    'title' => $parentTitle,
-                    'note' => $parentNote,
-                    'level' => 2,
-                    'emit_heading' => false,
-                ];
-            }
-            $stepRows[] = $row;
-            $units[] = $this->unitFromRows(
-                sectionId: 'h3_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                order: $order++,
-                label: trim((string) ($row['title'] ?? 'H3')) ?: 'H3',
-                role: SectionedFreeSectionUnit::ROLE_BODY,
-                stepRows: $stepRows,
-                parentH2: $parentTitle,
-                emitParentHeading: $parentTitle !== null && $parentTitle !== '',
-            );
-        }
-
-        // Leftover other kinds
-        foreach ($rows as $row) {
-            $id = (string) ($row['id'] ?? '');
-            if ($id === '' || isset($claimed[$id])) {
-                continue;
-            }
-            $claimed[$id] = true;
-            $units[] = $this->unitFromRows(
-                sectionId: 'other_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT),
-                order: $order++,
-                label: trim((string) ($row['title'] ?? 'Section')) ?: 'Section',
-                role: SectionedFreeSectionUnit::ROLE_BODY,
-                stepRows: [$row],
-                parentH2: null,
-                emitParentHeading: true,
-            );
-        }
-
-        // Stable order: intro first, then body by original row order, faq, conclusion last
-        usort($units, static function (SectionedFreeSectionUnit $a, SectionedFreeSectionUnit $b): int {
-            $rank = static function (SectionedFreeSectionUnit $u): int {
-                return match ($u->role) {
-                    SectionedFreeSectionUnit::ROLE_INTRO => 0,
-                    SectionedFreeSectionUnit::ROLE_BODY => 1,
-                    SectionedFreeSectionUnit::ROLE_FAQ => 2,
-                    SectionedFreeSectionUnit::ROLE_CONCLUSION => 3,
-                    default => 4,
-                };
-            };
-            $ra = $rank($a);
-            $rb = $rank($b);
-            if ($ra !== $rb) {
-                return $ra <=> $rb;
-            }
-
-            return $a->order <=> $b->order;
-        });
-
-        // Re-number order after sort
-        $renumbered = [];
-        foreach (array_values($units) as $i => $unit) {
-            $renumbered[] = new SectionedFreeSectionUnit(
-                sectionId: $unit->sectionId,
-                order: $i,
-                label: $unit->label,
-                role: $unit->role,
-                outlineNodes: $unit->outlineNodes,
-                requiredPoints: $unit->requiredPoints,
-                targetMinWords: $unit->targetMinWords,
-                targetMaxWords: $unit->targetMaxWords,
-                preferredTargetWords: $unit->preferredTargetWords,
-                parentH2: $unit->parentH2,
-                emitParentHeading: $unit->emitParentHeading,
-                includedH3s: $unit->includedH3s,
-            );
-        }
-
-        return new SectionedFreePlan(
-            units: $renumbered,
-            meta: [
-                'article_target_words' => 0,
-                'planned_unit_count' => count($renumbered),
-                'minimum_units_by_budget' => 1,
-                'source' => 'structured_outline_rows',
-                'insufficient_outline_material' => false,
-                'reason' => null,
-            ],
-        );
+        return new SectionedFreePlan($units, $this->meta(count($units), false, null) + [
+            'ai_unit_count' => count($groups),
+            'desired_ai_unit_count' => $desired,
+            'word_budget_min' => 1800,
+            'word_budget_max' => 2200,
+        ]);
     }
 
-    /**
-     * @param  list<array<string, mixed>>  $stepRows
-     */
-    private function unitFromRows(
-        string $sectionId,
-        int $order,
-        string $label,
-        string $role,
-        array $stepRows,
-        ?string $parentH2,
-        bool $emitParentHeading,
-    ): SectionedFreeSectionUnit {
-        $nodes = [];
-        $includedH3s = [];
-        $required = [];
+    /** @param list<array<string, mixed>> $rows @return list<list<array<string, mixed>>> */
+    private function groupContiguousRows(array $rows, int $desired): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+        $remainingWeight = $this->groupWeight($rows);
+        $groupsRemaining = min($desired, count($rows));
+        $groups = [];
+        $current = [];
+        $currentWeight = 0;
+        foreach ($rows as $index => $row) {
+            $weight = $this->rowWeight($row);
+            $target = max(1, (int) ceil($remainingWeight / $groupsRemaining));
+            $rowsLeft = count($rows) - $index;
+            $mustClose = $groupsRemaining > 1 && $rowsLeft === $groupsRemaining;
+            $semanticBoundary = $this->isH2($row) && $current !== [];
+            // Prefer H2 boundaries. Split inside one unusually dense H2 only when
+            // it is materially larger than the remaining per-unit budget.
+            $wouldOverflow = $current !== [] && $currentWeight + $weight > (int) round($target * 1.80);
+            if ($groupsRemaining > 1 && ($mustClose || ($semanticBoundary && $currentWeight >= $target * 0.65) || $wouldOverflow)) {
+                $groups[] = $current;
+                $remainingWeight -= $currentWeight;
+                $groupsRemaining--;
+                $current = [];
+                $currentWeight = 0;
+            }
+            $current[] = $row;
+            $currentWeight += $weight;
+        }
+        if ($current !== []) {
+            $groups[] = $current;
+        }
 
-        foreach ($stepRows as $row) {
+        return $groups;
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function groupWeight(array $rows): int
+    {
+        return max(1, array_sum(array_map(fn (array $row): int => $this->rowWeight($row), $rows)));
+    }
+
+    /** @param array<string, mixed> $row */
+    private function rowWeight(array $row): int
+    {
+        $kind = (string) ($row['kind'] ?? '');
+        $noteWords = str_word_count(strip_tags((string) ($row['note'] ?? '')));
+
+        return match ($kind) {
+            OutlineStructuredRowsNormalizer::KIND_INTRO => 70 + min(40, $noteWords),
+            OutlineStructuredRowsNormalizer::KIND_CONCLUSION => 45 + min(30, $noteWords),
+            OutlineStructuredRowsNormalizer::KIND_H3 => 100 + min(50, $noteWords),
+            default => 70 + min(50, $noteWords),
+        };
+    }
+
+    /** @param list<int> $weights @return list<int> */
+    private function allocateWords(array $weights): array
+    {
+        $sum = max(1, array_sum($weights));
+        $floor = 80;
+        $remaining = max(0, self::ARTICLE_TARGET_WORDS - ($floor * count($weights)));
+        $allocated = [];
+        $used = 0;
+        foreach ($weights as $index => $weight) {
+            $words = $index === array_key_last($weights)
+                ? self::ARTICLE_TARGET_WORDS - $used
+                : $floor + (int) round($remaining * $weight / $sum);
+            $allocated[] = $words;
+            $used += $words;
+        }
+
+        return $allocated;
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function makeUnit(array $rows, int $order, int $preferred): SectionedFreeSectionUnit
+    {
+        $nodes = $required = $h3s = $rowIds = $roles = [];
+        foreach ($rows as $row) {
             $title = trim((string) ($row['title'] ?? $row['heading'] ?? ''));
             $note = trim((string) ($row['note'] ?? $row['body'] ?? ''));
-            $level = (int) ($row['level'] ?? 2);
             $kind = (string) ($row['kind'] ?? 'body');
-            $emitHeading = array_key_exists('emit_heading', $row)
-                ? (bool) $row['emit_heading']
-                : ($kind !== 'h2_context');
-
+            $level = max(0, (int) ($row['level'] ?? 2));
+            $id = trim((string) ($row['id'] ?? ''));
+            if ($id !== '') {
+                $rowIds[] = $id;
+            }
+            $roles[] = $kind;
             if ($level >= 3 && $title !== '') {
-                $includedH3s[] = $title;
+                $h3s[] = $title;
             }
             if ($note !== '') {
                 $required[] = $note;
             }
-
             $nodes[] = [
-                'kind' => $kind,
-                'heading' => $title !== '' ? $title : $label,
-                'level' => max(0, $level),
-                'body' => $note,
-                'emit_heading' => $emitHeading,
-                'parent_h2' => $parentH2,
+                'kind' => $kind, 'heading' => $title !== '' ? $title : 'Section', 'level' => $level,
+                'body' => $note, 'emit_heading' => $kind !== OutlineStructuredRowsNormalizer::KIND_INTRO,
+                'parent_h2' => null, 'row_id' => $id,
             ];
         }
+        $uniqueRoles = array_unique($roles);
+        $onlyIntro = count($uniqueRoles) === 1 && reset($uniqueRoles) === OutlineStructuredRowsNormalizer::KIND_INTRO;
+        $onlyConclusion = count($uniqueRoles) === 1 && reset($uniqueRoles) === OutlineStructuredRowsNormalizer::KIND_CONCLUSION;
+        $role = $onlyIntro ? SectionedFreeSectionUnit::ROLE_INTRO
+            : ($onlyConclusion ? SectionedFreeSectionUnit::ROLE_CONCLUSION : SectionedFreeSectionUnit::ROLE_BODY);
+        $label = trim((string) ($rows[0]['title'] ?? 'Writing group '.($order + 1))) ?: 'Writing group '.($order + 1);
+        $identity = $rowIds !== [] ? implode('|', $rowIds) : 'group-'.$order;
 
         return new SectionedFreeSectionUnit(
-            sectionId: $sectionId,
-            order: $order,
-            label: $label,
-            role: $role,
-            outlineNodes: $nodes,
-            requiredPoints: $required,
-            targetMinWords: 180,
-            targetMaxWords: 400,
-            preferredTargetWords: 300,
-            parentH2: $parentH2,
-            emitParentHeading: $emitParentHeading,
-            includedH3s: $includedH3s,
+            sectionId: 'group_'.substr(hash('sha256', $identity), 0, 12), order: $order, label: $label, role: $role,
+            outlineNodes: $nodes, requiredPoints: $required,
+            targetMinWords: max(50, (int) floor($preferred * 0.90)),
+            targetMaxWords: max(100, (int) ceil($preferred * 1.10)), preferredTargetWords: $preferred,
+            includedH3s: $h3s, sourceRowIds: $rowIds,
         );
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function makeFaqUnit(array $rows, int $order): SectionedFreeSectionUnit
+    {
+        $base = $this->makeUnit($rows, $order, 80);
+
+        return new SectionedFreeSectionUnit(
+            sectionId: 'faq_'.substr(hash('sha256', implode('|', $base->sourceRowIds)), 0, 12),
+            order: $order, label: $base->label, role: SectionedFreeSectionUnit::ROLE_FAQ,
+            outlineNodes: $base->outlineNodes, requiredPoints: $base->requiredPoints,
+            targetMinWords: 0, targetMaxWords: 0, preferredTargetWords: 0,
+            includedH3s: $base->includedH3s, sourceRowIds: $base->sourceRowIds,
+        );
+    }
+
+    /** @param array<string, mixed> $row */
+    private function isH2(array $row): bool
+    {
+        return (string) ($row['kind'] ?? '') === OutlineStructuredRowsNormalizer::KIND_H2
+            || (int) ($row['level'] ?? 0) === 2;
+    }
+
+    /** @return array<string, mixed> */
+    private function meta(int $count, bool $insufficient, ?string $reason): array
+    {
+        return ['article_target_words' => self::ARTICLE_TARGET_WORDS, 'planned_unit_count' => $count,
+            'minimum_units_by_budget' => 1, 'source' => 'structured_outline_rows',
+            'insufficient_outline_material' => $insufficient, 'reason' => $reason];
     }
 }

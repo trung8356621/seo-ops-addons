@@ -41,7 +41,7 @@ SEO title: Title bị lặp từ section child.
 Body paragraph about canvas bags and logo print quality.
 MD;
 
-        $assembled = (new SectionedFreeAssembleArticle())->assemble([
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([
             [
                 'section_id' => 'h3_01',
                 'section_order' => 0,
@@ -59,7 +59,7 @@ MD;
 
     public function test_normalizer_counts_metadata_occurrences(): void
     {
-        $n = new SectionedFreeChildOutputNormalizer();
+        $n = new SectionedFreeChildOutputNormalizer;
         $text = "Meta description: one\n\nBody\n\nMeta description: two\nSEO title: t\n";
         $counts = $n->countMetadataOccurrences($text);
         self::assertSame(2, $counts['meta_description']);
@@ -87,7 +87,7 @@ SEO title: Strip me title.
 Paragraph after.
 MD;
 
-        $service = new ArticleMarkdownToHtmlService(new SimpleMarkdownHtmlConverter());
+        $service = new ArticleMarkdownToHtmlService(new SimpleMarkdownHtmlConverter);
         $prepared = $service->prepareImport($md);
         self::assertStringNotContainsString('Meta description:', $prepared['markdown']);
         self::assertSame('Strip me title.', $prepared['seo_title'] ?? null);
@@ -102,7 +102,7 @@ MD;
 
     public function test_featured_snippet_downgrade_is_fs_only_path(): void
     {
-        $converter = new SimpleMarkdownHtmlConverter();
+        $converter = new SimpleMarkdownHtmlConverter;
         $articleHtml = $converter->toHtml("## Keep Heading\n\nBody.");
         self::assertStringContainsString('<h2>Keep Heading</h2>', $articleHtml);
 
@@ -113,7 +113,7 @@ MD;
 
     public function test_multiple_pass_faq_unit_skips_ai_and_emits_placeholder(): void
     {
-        $rows = (new \Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer())->normalize(<<<'MD'
+        $rows = (new \Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer)->normalize(<<<'MD'
 [MỞ BÀI]
 Intro notes
 
@@ -127,7 +127,7 @@ notes
 ## Kết luận
 Done
 MD);
-        $plan = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner())->planFromRows($rows);
+        $plan = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner)->planFromRows($rows);
         $faqIds = [];
         foreach ($plan->units as $u) {
             if ($u->role === SectionedFreeSectionUnit::ROLE_FAQ) {
@@ -137,8 +137,7 @@ MD);
         self::assertNotEmpty($faqIds);
 
         $called = [];
-        $body = str_repeat('word ', 130);
-        $result = (new \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator())->run(
+        $result = (new \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator)->run(
             [
                 'outline' => 'x',
                 'writing_split_enabled' => true,
@@ -154,11 +153,15 @@ MD);
                     );
                 },
             ],
-            function (SectionedFreeSectionUnit $unit, string $prompt) use (&$called, $body): array {
+            function (SectionedFreeSectionUnit $unit, string $prompt) use (&$called): array {
                 $called[] = $unit->sectionId;
+                $body = str_repeat('word ', $unit->preferredTargetWords);
+                $output = $unit->managedRowMarkers() === []
+                    ? $body
+                    : implode("\n".$body."\n", array_keys($unit->managedRowMarkers()))."\n".$body;
 
                 return [
-                    'output' => $body,
+                    'output' => $output,
                     'model' => 'm',
                     'provider' => 'p',
                     'connection_id' => 1,

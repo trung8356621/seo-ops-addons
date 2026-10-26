@@ -1252,7 +1252,11 @@ final class ContentProjectItemOperationsReadModel
             ->orderByDesc('id')
             ->get([
                 'id', 'task_id', 'run_id', 'status', 'action', 'attempt', 'message',
-                'error_message', 'started_at', 'finished_at', 'output_snapshot',
+                'error_message', 'started_at', 'finished_at',
+                'output_snapshot->warning_code as snapshot_warning_code',
+                'output_snapshot->warning_message as snapshot_warning_message',
+                'output_snapshot->actual_words as snapshot_actual_words',
+                'output_snapshot->target_words as snapshot_target_words',
             ]);
 
         $runIds = [];
@@ -1287,8 +1291,7 @@ final class ContentProjectItemOperationsReadModel
             if (in_array(strtolower($status), ['success', 'completed', 'skipped', 'manual'], true)) {
                 $errorMessage = null;
             }
-            $snapshot = is_array($item->output_snapshot) ? $item->output_snapshot : [];
-            $warningCode = trim((string) ($snapshot['warning_code'] ?? ''));
+            $warningCode = trim((string) ($item->snapshot_warning_code ?? ''));
             $rows[] = [
                 'id' => (int) $item->id,
                 'task_id' => $tid,
@@ -1304,9 +1307,15 @@ final class ContentProjectItemOperationsReadModel
                 'finished_at_iso' => $item->finished_at?->toIso8601String(),
                 'lazy_bulk' => (bool) ($lazyBulkByRunId[$runId] ?? false),
                 'warning_code' => $warningCode !== '' ? $warningCode : null,
-                'warning_message' => isset($snapshot['warning_message']) ? (string) $snapshot['warning_message'] : null,
-                'actual_words' => isset($snapshot['actual_words']) ? (int) $snapshot['actual_words'] : null,
-                'target_words' => isset($snapshot['target_words']) ? (int) $snapshot['target_words'] : null,
+                'warning_message' => $item->snapshot_warning_message !== null
+                    ? (string) $item->snapshot_warning_message
+                    : null,
+                'actual_words' => $item->snapshot_actual_words !== null
+                    ? (int) $item->snapshot_actual_words
+                    : null,
+                'target_words' => $item->snapshot_target_words !== null
+                    ? (int) $item->snapshot_target_words
+                    : null,
             ];
         }
 

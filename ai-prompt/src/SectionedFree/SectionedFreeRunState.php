@@ -76,10 +76,25 @@ final class SectionedFreeRunState
         $this->state['run_id'] = $runId;
     }
 
+    /** @param list<string> $sectionIds */
+    public function retainPlannedSections(array $sectionIds): void
+    {
+        $allowed = array_fill_keys($sectionIds, true);
+        $this->state['sections'] = array_filter(
+            $this->state['sections'],
+            static fn (string $sectionId): bool => isset($allowed[$sectionId]),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
     public function planSection(SectionedFreeSectionUnit $unit): void
     {
         $existing = $this->state['sections'][$unit->sectionId] ?? null;
-        if (is_array($existing) && ($existing['status'] ?? '') === self::STATUS_COMPLETED) {
+        if (
+            is_array($existing)
+            && ($existing['status'] ?? '') === self::STATUS_COMPLETED
+            && hash_equals((string) ($existing['input_hash'] ?? ''), $unit->inputHash())
+        ) {
             // Keep successful output; refresh metadata that does not wipe output.
             $this->state['sections'][$unit->sectionId] = array_merge($existing, [
                 'section_order' => $unit->order,
@@ -87,6 +102,7 @@ final class SectionedFreeRunState
                 'role' => $unit->role,
                 'input_hash' => $unit->inputHash(),
                 'requested_scope' => $unit->scopeMarkdown(),
+                'source_row_ids' => $unit->sourceRowIds,
             ]);
 
             return;
@@ -108,6 +124,7 @@ final class SectionedFreeRunState
             'fallback_count' => 0,
             'input_hash' => $unit->inputHash(),
             'requested_scope' => $unit->scopeMarkdown(),
+            'source_row_ids' => $unit->sourceRowIds,
             'error' => null,
             'updated_at' => gmdate('c'),
         ];

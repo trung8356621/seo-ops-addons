@@ -26,6 +26,7 @@ Intro only.
 
 ## Heading A
 Point A1
+Additional Heading A detail that deliberately makes the foreign outline slice substantially longer for leak detection.
 
 ### Heading A.1
 Detail A1
@@ -61,7 +62,7 @@ MD;
         self::assertStringContainsString('Heading B', $slice);
         self::assertStringContainsString('Heading B.1', $slice);
         self::assertStringNotContainsString('Heading A', $slice);
-        self::assertStringNotContainsString('Heading C', $slice);
+        self::assertStringContainsString('Heading C', $slice);
     }
 
     public function test_b_no_full_outline_leak_in_compiled_section_b(): void
@@ -76,10 +77,10 @@ MD;
         self::assertStringContainsString('Heading B', $compiled);
         self::assertStringContainsString('Heading B.1', $compiled);
         self::assertStringNotContainsString('## Heading A', $compiled);
-        self::assertStringNotContainsString('## Heading C', $compiled);
+        self::assertStringContainsString('## Heading C', $compiled);
         self::assertStringNotContainsString('DYNAMIC WORD ALLOCATION', $compiled);
 
-        (new WritingMultiplePassPromptIsolationGuard())
+        (new WritingMultiplePassPromptIsolationGuard)
             ->assertCompiledSectionPrompt($compiled, $unitB, self::FULL_OUTLINE);
     }
 
@@ -191,10 +192,10 @@ MD;
         self::assertNotNull($unitB);
 
         $scoped = WritingSectionScopeInstructions::wrapSlice($unitB->scopeMarkdown(), 'h3', true);
-        $contaminated = $scoped."\n\n## Heading A\nPoint A1\n\n## Heading C\nPoint C1\n";
+        $contaminated = $scoped."\n\n## Heading A\nPoint A1\n";
 
         try {
-            (new WritingMultiplePassPromptIsolationGuard())
+            (new WritingMultiplePassPromptIsolationGuard)
                 ->assertCompiledSectionPrompt($contaminated, $unitB, self::FULL_OUTLINE);
             self::fail('Expected WRITING_SPLIT_FULL_OUTLINE_LEAK');
         } catch (PromptRunException $e) {
@@ -323,6 +324,24 @@ TXT;
         self::assertNotSame('2000', $capturedVars['article_length'] ?? '2000');
     }
 
+    public function test_grouped_compile_requires_stable_row_markers_in_outline_order(): void
+    {
+        $plan = $this->plan(self::FULL_OUTLINE);
+        $grouped = $this->unitByParent($plan->units, 'Heading B');
+        self::assertNotNull($grouped);
+        $compiled = $this->compileWithFakeRunner($grouped, self::FULL_OUTLINE, self::VOCABULARY);
+
+        $offset = -1;
+        foreach (array_keys($grouped->managedRowMarkers()) as $marker) {
+            $next = strpos($compiled, $marker);
+            self::assertNotFalse($next);
+            self::assertGreaterThan($offset, $next);
+            self::assertSame(1, substr_count($compiled, $marker));
+            $offset = $next;
+        }
+        self::assertStringContainsString('Write the content for that outline row immediately after its marker.', $compiled);
+    }
+
     /**
      * @param  list<SectionedFreeSectionUnit>  $units
      */
@@ -341,9 +360,9 @@ TXT;
 
     private function plan(string $outline): \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreePlan
     {
-        $rows = (new OutlineStructuredRowsNormalizer())->normalize($outline);
+        $rows = (new OutlineStructuredRowsNormalizer)->normalize($outline);
 
-        return (new WritingMultiplePassStepPlanner())->planFromRows($rows);
+        return (new WritingMultiplePassStepPlanner)->planFromRows($rows);
     }
 
     private function fakePrompt(): SeoPrompt
@@ -363,7 +382,7 @@ TXT;
     ): string {
         $runner = $this->createMock(PromptRunnerService::class);
         $runner->method('compilePrompt')->willReturnCallback(
-            function (SeoPrompt $prompt, array $vars) use ($unit): string {
+            function (SeoPrompt $prompt, array $vars): string {
                 // Simulate shared Writing SeoPrompt: role heading + whole-article block + input.
                 $body = "## Bối cảnh\n"
                     ."## ROLE & GOAL\nWrite article\n"

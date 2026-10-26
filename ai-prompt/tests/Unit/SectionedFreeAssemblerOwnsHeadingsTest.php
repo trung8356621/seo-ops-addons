@@ -12,6 +12,42 @@ use PHPUnit\Framework\TestCase;
 
 final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
 {
+    public function test_grouped_unit_interleaves_five_h3_headings_with_their_row_content(): void
+    {
+        $nodes = [[
+            'kind' => 'h2', 'heading' => 'Parent', 'level' => 2, 'body' => '',
+            'emit_heading' => true, 'parent_h2' => null, 'row_id' => 'h2',
+        ]];
+        foreach (range(1, 5) as $index) {
+            $nodes[] = [
+                'kind' => 'h3', 'heading' => 'Child '.$index, 'level' => 3, 'body' => '',
+                'emit_heading' => true, 'parent_h2' => 'Parent', 'row_id' => 'h3-'.$index,
+            ];
+        }
+        $unit = new SectionedFreeSectionUnit(
+            'group', 0, 'Parent', SectionedFreeSectionUnit::ROLE_BODY, $nodes, [],
+            200, 400, 300, sourceRowIds: ['h2', 'h3-1', 'h3-2', 'h3-3', 'h3-4', 'h3-5'],
+        );
+        $output = "<!-- omi-outline-row:h2 -->\nParent overview";
+        foreach (range(1, 5) as $index) {
+            $output .= "\n\n<!-- omi-outline-row:h3-{$index} -->\n### Child {$index}\nContent {$index}";
+        }
+
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([[
+            'section_id' => 'group', 'section_order' => 0, 'status' => 'completed', 'output' => $output,
+        ]], [$unit]);
+
+        self::assertSame(1, preg_match_all('/^## Parent$/mu', $assembled));
+        foreach (range(1, 5) as $index) {
+            self::assertSame(1, preg_match_all('/^### Child '.$index.'$/mu', $assembled));
+            self::assertMatchesRegularExpression(
+                '/^### Child '.$index.'\R+Content '.$index.'/mu',
+                $assembled,
+            );
+        }
+        self::assertStringNotContainsString('omi-outline-row', $assembled);
+    }
+
     public function test_assembler_adds_planned_h2_when_ai_omits_heading(): void
     {
         $unit = new SectionedFreeSectionUnit(
@@ -35,7 +71,7 @@ final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
             emitParentHeading: true,
         );
 
-        $assembled = (new SectionedFreeAssembleArticle())->assemble([
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([
             [
                 'section_id' => 'h2_01',
                 'section_order' => 0,
@@ -86,7 +122,7 @@ final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
             );
         }
 
-        $assembled = (new SectionedFreeAssembleArticle())->assemble([
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([
             ['section_id' => 'h3_01', 'section_order' => 0, 'status' => 'completed', 'output' => 'content A'],
             ['section_id' => 'h3_02', 'section_order' => 1, 'status' => 'completed', 'output' => 'content B'],
             ['section_id' => 'h3_03', 'section_order' => 2, 'status' => 'completed', 'output' => 'content C'],
@@ -123,7 +159,7 @@ final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
             emitParentHeading: true,
         );
 
-        $assembled = (new SectionedFreeAssembleArticle())->assemble([
+        $assembled = (new SectionedFreeAssembleArticle)->assemble([
             [
                 'section_id' => 'h3_01',
                 'section_order' => 0,
@@ -145,14 +181,14 @@ final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
 
         $this->expectException(PromptRunException::class);
         $this->expectExceptionMessage('SECTIONED_FREE_SECTION_FAILED');
-        (new SectionedFreeAssembleArticle())->assemble([
+        (new SectionedFreeAssembleArticle)->assemble([
             ['section_id' => 's1', 'section_order' => 0, 'status' => 'completed', 'output' => 'only one'],
         ], $units);
     }
 
     public function test_structure_mismatch_when_heading_missing_from_assembled(): void
     {
-        $assembler = new SectionedFreeAssembleArticle();
+        $assembler = new SectionedFreeAssembleArticle;
         $units = [
             new SectionedFreeSectionUnit(
                 sectionId: 'h2_01',
@@ -242,7 +278,7 @@ final class SectionedFreeAssemblerOwnsHeadingsTest extends TestCase
         ];
 
         self::assertCount(11, $units);
-        $assembled = (new SectionedFreeAssembleArticle())->assemble($sections, $units);
+        $assembled = (new SectionedFreeAssembleArticle)->assemble($sections, $units);
 
         self::assertSame(2, preg_match_all('/^##\s+Group (One|Two)\s*$/mu', $assembled));
         self::assertSame(8, preg_match_all('/^###\s+[A-H]\s*$/mu', $assembled));

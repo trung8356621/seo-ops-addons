@@ -24,10 +24,12 @@ final class SectionedFreeSectionUnit
      *   level: int,
      *   body: string,
      *   emit_heading?: bool,
-     *   parent_h2?: ?string
+     *   parent_h2?: ?string,
+     *   row_id?: string
      * }>  $outlineNodes
      * @param  list<string>  $requiredPoints
      * @param  list<string>  $includedH3s
+     * @param  list<string>  $sourceRowIds
      */
     public function __construct(
         public readonly string $sectionId,
@@ -42,6 +44,7 @@ final class SectionedFreeSectionUnit
         public readonly ?string $parentH2 = null,
         public readonly bool $emitParentHeading = true,
         public readonly array $includedH3s = [],
+        public readonly array $sourceRowIds = [],
     ) {}
 
     /**
@@ -62,6 +65,7 @@ final class SectionedFreeSectionUnit
             'parent_h2' => $this->parentH2,
             'emit_parent_heading' => $this->emitParentHeading,
             'included_h3s' => $this->includedH3s,
+            'source_row_ids' => $this->sourceRowIds,
         ];
     }
 
@@ -81,6 +85,7 @@ final class SectionedFreeSectionUnit
                 if ($body !== '') {
                     $parts[] = $body;
                 }
+
                 continue;
             }
 
@@ -96,6 +101,34 @@ final class SectionedFreeSectionUnit
 
     public function inputHash(): string
     {
-        return hash('sha256', $this->sectionId.'|'.$this->scopeMarkdown());
+        return hash('sha256', (string) json_encode([
+            'row_ids' => $this->sourceRowIds,
+            'scope' => $this->scopeMarkdown(),
+            'preferred_words' => $this->preferredTargetWords,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /** @return array<string, array{heading: string, level: int, emit_heading: bool}> */
+    public function managedRowMarkers(): array
+    {
+        $markers = [];
+        foreach ($this->outlineNodes as $node) {
+            $rowId = trim((string) ($node['row_id'] ?? ''));
+            if ($rowId === '') {
+                continue;
+            }
+            $markers[$this->rowMarker($rowId)] = [
+                'heading' => trim((string) ($node['heading'] ?? '')),
+                'level' => max(1, min(4, (int) ($node['level'] ?? 2))),
+                'emit_heading' => (bool) ($node['emit_heading'] ?? true),
+            ];
+        }
+
+        return $markers;
+    }
+
+    public function rowMarker(string $rowId): string
+    {
+        return '<!-- omi-outline-row:'.trim($rowId).' -->';
     }
 }

@@ -78,6 +78,8 @@ final class SectionedFreeSectionValidator
             );
         }
 
+        $this->assertManagedRowCoverage($trimmed, $unit);
+
         $words = $this->countWords($trimmed);
         if (
             $unit->role === SectionedFreeSectionUnit::ROLE_FAQ
@@ -86,10 +88,11 @@ final class SectionedFreeSectionValidator
             return max(1, $words);
         }
 
-        if ($words < self::INCOMPLETE_WORD_THRESHOLD) {
+        $minimum = $this->minimumWordsFor($unit);
+        if ($words < $minimum) {
             throw new PromptRunException(
                 'Sectioned free section below minimum word threshold ('
-                .$words.' < '.self::INCOMPLETE_WORD_THRESHOLD.').',
+                .$words.' < '.$minimum.').',
                 0,
                 null,
                 [
@@ -104,5 +107,53 @@ final class SectionedFreeSectionValidator
         }
 
         return $words;
+    }
+
+    public function minimumWordsFor(SectionedFreeSectionUnit $unit): int
+    {
+        if ($unit->role === SectionedFreeSectionUnit::ROLE_FAQ) {
+            return 0;
+        }
+        // Non-grouped sectioned strategies keep their established validator.
+        if ($unit->sourceRowIds === []) {
+            return self::INCOMPLETE_WORD_THRESHOLD;
+        }
+        $ratio = $unit->role === SectionedFreeSectionUnit::ROLE_CONCLUSION ? 0.55 : 0.70;
+
+        return max(35, (int) floor($unit->targetMinWords * $ratio));
+    }
+
+    private function assertManagedRowCoverage(string $output, SectionedFreeSectionUnit $unit): void
+    {
+        $markers = array_keys($unit->managedRowMarkers());
+        if ($markers === [] || $unit->role === SectionedFreeSectionUnit::ROLE_FAQ) {
+            return;
+        }
+        $missing = [];
+        $cursor = 0;
+        foreach ($markers as $marker) {
+            $position = mb_strpos($output, $marker, $cursor);
+            if ($position === false || substr_count($output, $marker) !== 1) {
+                $missing[] = $marker;
+
+                continue;
+            }
+            $cursor = $position + mb_strlen($marker);
+        }
+        if ($missing !== []) {
+            throw new PromptRunException(
+                'Sectioned free grouped output is missing or duplicating outline row markers.',
+                0,
+                null,
+                [
+                    'classification' => AiFailureClass::OutputQuality->value,
+                    'retryable' => true,
+                    'section_id' => $unit->sectionId,
+                    'failure_code' => 'SECTION_OUTLINE_ROW_COVERAGE',
+                    'missing_markers' => $missing,
+                    'user_message' => 'Section output did not preserve every required outline row.',
+                ],
+            );
+        }
     }
 }
