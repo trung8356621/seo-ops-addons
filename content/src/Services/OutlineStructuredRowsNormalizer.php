@@ -57,6 +57,12 @@ final class OutlineStructuredRowsNormalizer
                 return;
             }
             $current['note'] = trim((string) $current['note']);
+            // Drop phantom empty rows that have neither title nor note
+            if ($current['title'] === '' && $current['note'] === '') {
+                $current = null;
+
+                return;
+            }
             $rows[] = $current;
             $current = null;
         };
@@ -72,6 +78,10 @@ final class OutlineStructuredRowsNormalizer
             }
 
             if ($this->isIntroMarker($trimmed)) {
+                // If current row is already an intro row without content, don't split it into a second row
+                if ($current !== null && $current['kind'] === self::KIND_INTRO && trim((string) $current['note']) === '') {
+                    continue;
+                }
                 $flush();
                 $order++;
                 $id = 'row_'.$order;
@@ -141,6 +151,12 @@ final class OutlineStructuredRowsNormalizer
 
         $flush();
 
+        $idx = 1;
+        foreach ($rows as &$r) {
+            $r['order'] = $idx++;
+        }
+        unset($r);
+
         return $rows;
     }
 
@@ -149,9 +165,19 @@ final class OutlineStructuredRowsNormalizer
         $normalized = mb_strtoupper(trim($line));
         $marker = mb_strtoupper(self::INTRO_MARKER);
 
-        return $normalized === $marker
-            || str_contains($normalized, 'MỞ BÀI')
-            || str_contains($normalized, 'MO BAI');
+        if ($normalized === $marker || $normalized === '[MO BAI — KHONG HEADING]') {
+            return true;
+        }
+
+        if (preg_match('/^\[\s*(?:MỞ\s*BÀI|MO\s*BAI|INTRO(?:DUCTION)?)\b[^\]]*\]$/u', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(?:#+\s*)?(?:MỞ\s*BÀI|MO\s*BAI|INTRO(?:DUCTION)?)\s*(?:—|-|:|\(|$)/u', $normalized) === 1) {
+            return true;
+        }
+
+        return false;
     }
 
     private function classifyKind(string $title, int $level): string
