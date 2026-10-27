@@ -1652,7 +1652,7 @@ class PromptRunnerService
 
         try {
             [$output, $usage, $rawModel] = $this->executeSectionedFreeGeneration(
-                $prompt->aiConnection ?? throw new PromptRunException('NO_AI_CONNECTION'),
+                $prompt->aiConnection,
                 $prompt,
                 $variables,
                 true,
@@ -1781,7 +1781,7 @@ class PromptRunnerService
      * @return array{0: string, 1: array<string, mixed>|null, 2: string}
      */
     private function executeSectionedFreeGeneration(
-        ApiConnection $connection,
+        ?ApiConnection $connection,
         SeoPrompt $prompt,
         array $variables,
         bool $isTaskMode,
@@ -2411,13 +2411,33 @@ PROMPT;
         // Modern hooks: AI Center model order is SSOT. Prompt-level
         // routing_family_key / usage_mode must not filter or reorder candidates.
         // legacyConnection remains last-resort only when resolveAll has no targets.
+        $explicitConnectionId = (int) ($variables['_explicit_connection_id'] ?? $variables['explicit_connection_id'] ?? 0);
+        if ($explicitConnectionId <= 0 && $prompt->routing_mode === 'override' && (int) $prompt->ai_connection_id > 0) {
+            $explicitConnectionId = (int) $prompt->ai_connection_id;
+        }
+
+        if ($explicitConnectionId > 0) {
+            $explicitConn = ApiConnection::query()->find($explicitConnectionId);
+            if (! $explicitConn instanceof ApiConnection || (string) $explicitConn->status !== 'active') {
+                throw new PromptRunException("NO_AI_CONNECTION: Explicit connection [{$explicitConnectionId}] not found or inactive.");
+            }
+            $connection = $explicitConn;
+        }
+
         $preferredModelId = (int) ($variables['_item_model_override_id'] ?? 0);
         $modelMode = strtolower(trim((string) ($variables['_item_model_override_mode'] ?? '')));
-        $generationMode = trim((string) (
-            $variables['_item_generation_mode']
-            ?? $variables['ai_generation_mode']
-            ?? ''
-        ));
+        $generationMode = trim((string) ($variables['_item_generation_mode'] ?? ''));
+        if ($generationMode === ''
+            && (int) ($variables['project_task_id'] ?? $variables['_seo_project_task_id'] ?? 0) > 0
+        ) {
+            $aiGenMode = strtolower(trim((string) ($variables['ai_generation_mode'] ?? '')));
+            $aiCostPolicy = strtolower(trim((string) ($variables['ai_cost_policy'] ?? '')));
+            if (in_array($aiGenMode, ['normal', 'paid', 'paid_preferred'], true)
+                || ($aiCostPolicy !== '' && $aiCostPolicy !== 'free_only')
+            ) {
+                $generationMode = 'paid_preferred';
+            }
+        }
 
         $hookKey = trim((string) ($variables['_hook_key'] ?? $prompt->hook_key ?? ''));
 
@@ -2435,7 +2455,7 @@ PROMPT;
                 connection: $connection,
             ),
             legacyConnection: $connection,
-            allowLegacyFallback: true,
+            allowLegacyFallback: $explicitConnectionId <= 0,
             usageModeOverride: null,
             allowedFamilyKeys: null,
             costPolicy: $effectivePolicy,
@@ -2468,6 +2488,7 @@ PROMPT;
             retryAttempt: isset($variables['_retry_attempt']) && is_numeric($variables['_retry_attempt'])
                 ? (int) $variables['_retry_attempt']
                 : (isset($variables['attempt']) && is_numeric($variables['attempt']) ? (int) $variables['attempt'] : null),
+            explicitConnectionId: $explicitConnectionId > 0 ? $explicitConnectionId : null,
         );
     }
 

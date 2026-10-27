@@ -206,7 +206,7 @@ final class AiRoutingTargetService
             $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
             $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
 
-            return (new LogicalModelRouteOrder())->apply($canonical);
+            return (new LogicalModelRouteOrder())->apply($this->applyExplicitConnectionFilter($canonical, $context));
         }
 
         if ($isFreeOnly) {
@@ -214,14 +214,14 @@ final class AiRoutingTargetService
             $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($free);
             $expanded = $this->expandFreePool($userId, $profile, $free, AiModelArea::FreeModels);
 
-            return (new LogicalModelRouteOrder())->apply($expanded);
+            return (new LogicalModelRouteOrder())->apply($this->applyExplicitConnectionFilter($expanded, $context));
         }
 
         if ($isPaidPreferred) {
             $paid = $this->paidAreaCandidates($userId, $profile, $context);
             $this->lastEligibilityDiagnostics['candidates_after_paid_only'] = count($paid);
 
-            return (new LogicalModelRouteOrder())->apply($paid);
+            return (new LogicalModelRouteOrder())->apply($this->applyExplicitConnectionFilter($paid, $context));
         }
 
         // Default / economy: expose Free Models (manual order) as primary stream so FREE-FIRST
@@ -250,7 +250,23 @@ final class AiRoutingTargetService
         $this->lastEligibilityDiagnostics['free_models_count'] = count($expandedFree);
         $this->lastEligibilityDiagnostics['paid_area_count'] = count($paid);
 
-        return (new LogicalModelRouteOrder())->apply($merged);
+        return (new LogicalModelRouteOrder())->apply($this->applyExplicitConnectionFilter($merged, $context));
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @return list<RoutedAiCandidate>
+     */
+    private function applyExplicitConnectionFilter(array $candidates, AiRoutingContext $context): array
+    {
+        if ($context->explicitConnectionId === null || $context->explicitConnectionId <= 0) {
+            return $candidates;
+        }
+
+        return array_values(array_filter(
+            $candidates,
+            static fn (RoutedAiCandidate $c): bool => (int) ($c->connection->id ?? 0) === (int) $context->explicitConnectionId,
+        ));
     }
 
     /**
@@ -408,7 +424,17 @@ final class AiRoutingTargetService
         $area = AiModelArea::fromProfile($profile);
         $out = $this->liveCompatibleCandidatesFromArea($userId, $profile, $area);
         $out = (new AiProductionRouteEligibility())->filter($out, $profile, $context);
-        $out = array_values(array_filter($out, static fn (RoutedAiCandidate $c): bool => ! $c->isFree));
+        $paidLock = app(ConnectionPaidLockService::class);
+        $out = array_values(array_filter($out, static function (RoutedAiCandidate $c) use ($paidLock): bool {
+            if ($c->isFree) {
+                return false;
+            }
+            if ($c->connection instanceof ApiConnection && $paidLock->isPaidLocked($c->connection)) {
+                return false;
+            }
+
+            return true;
+        }));
         $this->lastEligibilityDiagnostics['paid_area_before_filter'] = count($out);
 
         return $out;

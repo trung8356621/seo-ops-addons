@@ -50,6 +50,7 @@ final class AiRoutingContext
         public readonly ?AiRoutingPolicy $routingPolicyRequested = null,
         public readonly ?AiRoutingPolicy $routingPolicyEffective = null,
         public readonly ?AiExecutionTransport $executionTransport = null,
+        public readonly ?int $explicitConnectionId = null,
     ) {}
 
     public function costPolicy(): AiCostPolicy
@@ -111,6 +112,7 @@ final class AiRoutingContext
             routingPolicyRequested: array_key_exists('routingPolicyRequested', $overrides) ? $overrides['routingPolicyRequested'] : $this->routingPolicyRequested,
             routingPolicyEffective: array_key_exists('routingPolicyEffective', $overrides) ? $overrides['routingPolicyEffective'] : $this->routingPolicyEffective,
             executionTransport: array_key_exists('executionTransport', $overrides) ? $overrides['executionTransport'] : $this->executionTransport,
+            explicitConnectionId: array_key_exists('explicitConnectionId', $overrides) ? $overrides['explicitConnectionId'] : $this->explicitConnectionId,
         );
     }
 

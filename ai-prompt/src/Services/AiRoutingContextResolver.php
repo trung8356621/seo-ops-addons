@@ -24,7 +24,7 @@ final class AiRoutingContextResolver
      * Mapping:
      * - freeOnly flag OR AiCostPolicy::FreeOnly → FREE_ONLY (excludes paid)
      * - explicit preferred model (required) → EXPLICIT_MODEL
-     * - explicit article normal/paid mode or BestQuality / quality → PAID_PREFERRED
+     * - BestQuality / quality → PAID_PREFERRED
      * - FastEconomy / default → FREE_FIRST_WITH_PAID_FALLBACK (legacy name = default budgets)
      *
      * Economy/default must NOT silently become FREE_ONLY.
@@ -49,14 +49,7 @@ final class AiRoutingContextResolver
         // Preferred (non-required): preferred model is only prepended by applyItemRoutingPreferences.
 
         $generationMode = strtolower(trim((string) ($context->itemGenerationMode ?? '')));
-        if (in_array($generationMode, [
-            'normal',
-            'paid',
-            'paid_only',
-            'best_quality',
-            'quality',
-            'paid_preferred',
-        ], true)) {
+        if (in_array($generationMode, ['best_quality', 'quality', 'paid_preferred'], true)) {
             return AiExecutionRoutingMode::PaidPreferred;
         }
 

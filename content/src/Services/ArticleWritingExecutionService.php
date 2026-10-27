@@ -4,33 +4,33 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
-use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
-use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
-use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
-use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
-use Omnichannel\Addons\AiPrompt\Models\SeoTask;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
-use Omnichannel\Addons\Content\Services\ArticleWriting\BriefArticleWritingSourceProvider;
-use Omnichannel\Addons\Content\Services\ArticleWriting\ExistingArticleWritingSourceProvider;
-use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSourceProvider;
-use Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort;
-use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
-use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
-use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
-use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
-use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
-use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
-use Omnichannel\Addons\Content\Support\ArticleWritingInput;
-use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
-use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
-use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
-use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use App\System\Workflow\Contracts\SystemWorkflowClient;
 use App\System\Workflow\Dto\WorkflowExecutionMode;
 use App\System\Workflow\Dto\WorkflowRunRequest;
 use App\System\Workflow\Dto\WorkflowRunResult;
+use Omnichannel\Addons\AiPrompt\Contracts\ArticleBodyPublishPort;
+use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
+use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
+use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
+use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
+use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
+use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleWriting\BriefArticleWritingSourceProvider;
+use Omnichannel\Addons\Content\Services\ArticleWriting\ExistingArticleWritingSourceProvider;
+use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSourceProvider;
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
+use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
+use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
+use Omnichannel\Addons\Content\Support\ArticleWritingInput;
+use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
+use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
+use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
+use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 
 /**
  * Entry duy nhất cho article.content.generate (outline / existing_article / brief).
@@ -532,6 +532,8 @@ class ArticleWritingExecutionService
             ];
             foreach ([
                 '_item_generation_mode',
+                '_seo_project_task_id',
+                'project_task_id',
                 'ai_cost_policy',
                 'ai_generation_mode',
                 'language',

@@ -69,6 +69,29 @@ final class PromptHookRuntimeEngine
             $variables['article_id'] = $articleId;
         }
 
+        foreach ([
+            'project_task_id',
+            '_seo_project_task_id',
+            'project_item_id',
+            'project_id',
+            'content_project_id',
+            'run_id',
+            'project_run_id',
+            'run_item_id',
+            'node_id',
+            'stage',
+            'attempt',
+            'ai_generation_mode',
+            'ai_cost_policy',
+            '_item_generation_mode',
+            'explicit_connection_id',
+            '_explicit_connection_id',
+        ] as $contextKey) {
+            if (isset($validated['context'][$contextKey]) && ! isset($variables[$contextKey])) {
+                $variables[$contextKey] = $validated['context'][$contextKey];
+            }
+        }
+
         $metadata = [
             'prompt_id' => isset($validated['context']['prompt_id'])
                 ? (int) $validated['context']['prompt_id']

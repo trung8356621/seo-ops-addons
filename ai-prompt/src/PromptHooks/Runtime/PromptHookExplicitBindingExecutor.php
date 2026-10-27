@@ -146,9 +146,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 requirePreferredModel: strtolower(trim((string) ($mergedVars['_item_model_override_mode'] ?? ''))) === 'required',
                 itemGenerationMode: isset($mergedVars['_item_generation_mode'])
                     ? (string) $mergedVars['_item_generation_mode']
-                    : (isset($mergedVars['ai_generation_mode'])
-                        ? (string) $mergedVars['ai_generation_mode']
-                        : null),
+                    : ($this->isContentProjectPaidMode($mergedVars) ? 'paid_preferred' : null),
                 hookKey: $effectiveHookKey,
                 // Shape ≠ FreeOnly: do not force freeOnly from sectioned branch.
                 // Effective FreeOnly is carried by costPolicy (generation mode / task policy).
@@ -257,9 +255,11 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $context['generation_strategy'] = $strategy->value;
             $context['resolved_generation_strategy'] = $strategy->value;
         }
-        foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'project_item_id', 'task_id', 'project_id', 'content_project_id', 'outline_subtask', 'node_id', 'stage'] as $key) {
+        foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'project_item_id', 'task_id', 'project_id', 'content_project_id', 'outline_subtask', 'node_id', 'stage', '_seo_project_task_id', 'ai_generation_mode', 'ai_cost_policy', '_item_generation_mode', 'explicit_connection_id', '_explicit_connection_id'] as $key) {
             if (array_key_exists($key, $contextExtras) && $contextExtras[$key] !== null) {
                 $context[$key] = $contextExtras[$key];
+            } elseif (array_key_exists($key, $variables) && $variables[$key] !== null) {
+                $context[$key] = $variables[$key];
             }
         }
         // Persistence SSOT uses project_item_id; CP runtime often only has project_task_id.
@@ -421,6 +421,24 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         );
 
         return $payload;
+    }
+
+    /** @param array<string, mixed> $variables */
+    private function isContentProjectPaidMode(array $variables): bool
+    {
+        $hasTask = (int) ($variables['project_task_id'] ?? $variables['_seo_project_task_id'] ?? 0) > 0;
+        if (! $hasTask) {
+            return false;
+        }
+
+        $mode = strtolower(trim((string) ($variables['ai_generation_mode'] ?? $variables['_item_generation_mode'] ?? '')));
+        if (in_array($mode, ['normal', 'paid', 'paid_preferred', 'best_quality', 'quality'], true)) {
+            return true;
+        }
+
+        $costPolicy = strtolower(trim((string) ($variables['ai_cost_policy'] ?? '')));
+
+        return in_array($costPolicy, ['default', 'normal', 'paid', 'paid_preferred'], true) && $costPolicy !== 'free_only';
     }
 
     /**

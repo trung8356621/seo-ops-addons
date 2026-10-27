@@ -22,6 +22,9 @@ final class ProjectTaskOriginVariables
         }
 
         $variables[self::KEY] = (string) $projectTaskId;
+        if (! isset($variables['project_task_id']) || (int) $variables['project_task_id'] <= 0) {
+            $variables['project_task_id'] = (string) $projectTaskId;
+        }
 
         return $variables;
     }
@@ -31,7 +34,7 @@ final class ProjectTaskOriginVariables
      */
     public static function read(array $variables): ?int
     {
-        $raw = $variables[self::KEY] ?? null;
+        $raw = $variables[self::KEY] ?? $variables['project_task_id'] ?? null;
         if (! is_string($raw) && ! is_numeric($raw)) {
             return null;
         }

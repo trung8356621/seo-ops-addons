@@ -313,6 +313,7 @@ final class ViewSeoProject extends Page
         return [
             'generate_post_images' => $this->generatePostImages,
             \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY => $policy->value,
+            'ai_generation_mode' => $this->articleGenerationMode,
         ];
     }
 

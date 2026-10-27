@@ -794,14 +794,22 @@ final class SeoProjectWorkflowRunService
             ]);
 
             // Stamp run/attempt into workflow variables BEFORE AI so PromptResults link into this run.
+            $costPolicy = (string) ($runSettings[\Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY] ?? 'default');
+            $aiGenMode = (string) ($runSettings['ai_generation_mode'] ?? ($costPolicy === 'free_only' ? 'free_only' : 'normal'));
+            $itemGenMode = (string) ($task->generation_mode_override ?? ($costPolicy === 'free_only' ? 'free_only' : 'paid_preferred'));
+
             $context = $context->withVariables(array_merge($context->variables, [
                 'run_id' => (string) (int) $run->id,
                 'project_run_id' => (string) (int) $run->id,
                 'run_item_id' => (string) (int) $runItem->id,
                 'project_task_id' => (string) (int) $task->id,
+                '_seo_project_task_id' => (string) (int) $task->id,
                 'task_id' => (string) (int) $task->id,
                 'attempt' => (string) (int) ($runItem->attempt ?? 1),
                 'project_id' => (string) (int) ($task->project_id ?? $run->project_id ?? 0),
+                'ai_cost_policy' => $costPolicy,
+                'ai_generation_mode' => $aiGenMode,
+                '_item_generation_mode' => $itemGenMode,
             ]));
             $context = $this->bindPartialSplitResumeState($context, $runSettings, $fromStep);
             if ((int) ($task->article_id ?? 0) > 0) {

@@ -167,7 +167,10 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             }
         }
 
-        if ($context->allowLegacyFallback && $context->legacyConnection instanceof ApiConnection) {
+        if ($context->allowLegacyFallback
+            && $context->legacyConnection instanceof ApiConnection
+            && ($context->explicitConnectionId === null || (int) $context->legacyConnection->id === (int) $context->explicitConnectionId)
+        ) {
             $legacy = $this->legacyCompatibleCandidate($parsed, $context->legacyConnection);
             if ($legacy !== null) {
                 return $this->applyItemRoutingPreferences([$legacy], $context);

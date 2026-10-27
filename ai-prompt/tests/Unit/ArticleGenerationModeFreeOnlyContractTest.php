@@ -66,12 +66,22 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         self::assertFalse($snap->freeOnlyPolicy);
     }
 
-    public function test_a2_explicit_normal_mode_routes_paid_only_and_single_pass(): void
+    public function test_a2_global_normal_keeps_default_semantics_but_content_project_paid_token_routes_paid(): void
     {
-        $ctx = new AiRoutingContext(
+        $global = new AiRoutingContext(
             userId: 1,
             costPolicy: AiCostPolicy::Default,
             itemGenerationMode: 'normal',
+        );
+        self::assertSame(
+            AiExecutionRoutingMode::FreeFirstWithPaidFallback,
+            (new AiRoutingContextResolver)->resolveMode($global),
+        );
+
+        $ctx = new AiRoutingContext(
+            userId: 1,
+            costPolicy: AiCostPolicy::Default,
+            itemGenerationMode: 'paid_preferred',
         );
 
         self::assertSame(
@@ -83,6 +93,39 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         [, $snap] = $this->planShape($paid, $ctx);
         self::assertSame(ArticleGenerationShape::SinglePass, $snap->generationShape);
         self::assertFalse($snap->freeOnlyPolicy);
+    }
+
+    public function test_a3_content_project_paid_mode_excludes_free_and_missing_paid_does_not_fallback(): void
+    {
+        $paid = $this->candidate('claude-sonnet', false, 1);
+        $ctx = (new AiRoutingContextResolver)->enrich(new AiRoutingContext(
+            userId: 1,
+            costPolicy: AiCostPolicy::Default,
+            itemGenerationMode: 'paid_preferred',
+        ));
+
+        [$plan, $survivors] = (new AiCandidatePlanner)->plan(
+            'text.longform',
+            $ctx,
+            [$paid],
+            8,
+            8,
+            static fn (): ?string => null,
+        );
+
+        self::assertSame(AiExecutionRoutingMode::PaidPreferred, $plan->mode);
+        self::assertCount(1, $survivors);
+        self::assertFalse($survivors[0]->isFree);
+
+        [, $missingPaidSurvivors] = (new AiCandidatePlanner)->plan(
+            'text.longform',
+            $ctx,
+            [],
+            8,
+            8,
+            static fn (): ?string => null,
+        );
+        self::assertSame([], $missingPaidSurvivors);
     }
 
     public function test_b_normal_paid_first_single(): void
@@ -238,7 +281,15 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         $hookExecutor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php',
         );
-        self::assertStringContainsString("\$mergedVars['ai_generation_mode']", $hookExecutor);
+        self::assertStringContainsString('isContentProjectPaidMode', $hookExecutor);
+        self::assertStringContainsString("\$variables['project_task_id']", $hookExecutor);
+        self::assertStringContainsString("\$variables['_seo_project_task_id']", $hookExecutor);
+
+        $writing = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php',
+        );
+        self::assertStringContainsString("'project_task_id'", $writing);
+        self::assertStringContainsString("'_seo_project_task_id'", $writing);
 
         $form = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/src/Support/ApiConnectionFormSchema.php',
