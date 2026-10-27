@@ -111,6 +111,10 @@ final class SectionedFreeSectionUnit
     /** @return array<string, array{heading: string, level: int, emit_heading: bool}> */
     public function managedRowMarkers(): array
     {
+        if (count($this->outlineNodes) <= 1 || $this->role === self::ROLE_FAQ || $this->role === self::ROLE_CONCLUSION) {
+            return [];
+        }
+
         $markers = [];
         foreach ($this->outlineNodes as $node) {
             $rowId = trim((string) ($node['row_id'] ?? ''));
